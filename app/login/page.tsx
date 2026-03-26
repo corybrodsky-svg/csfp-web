@@ -225,7 +225,7 @@ export default function LoginPage() {
       <div style={cardStyle}>
         <h1 style={titleStyle}>CFSP Login</h1>
         <p style={subtitleStyle}>
-          Conflict-Free SP scheduling and event management.
+          Conflict-Free SP scheduling and event management. BUILD TEST 1203.
         </p>
 
         <form onSubmit={handleLogin}>
