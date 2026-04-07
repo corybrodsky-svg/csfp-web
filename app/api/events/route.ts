@@ -20,6 +20,29 @@ function getErrorMessage(error: unknown) {
   return "Unknown Supabase error";
 }
 
+export async function GET() {
+  try {
+    const { data, error } = await supabaseServer
+      .from("events")
+      .select("id,name,status,date_text,sp_needed,visibility,location,notes,created_at")
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      return NextResponse.json(
+        { error: error.message || "Could not load events from Supabase." },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({ events: data || [] });
+  } catch (error) {
+    return NextResponse.json(
+      { error: `Supabase request failed: ${getErrorMessage(error)}` },
+      { status: 500 }
+    );
+  }
+}
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
