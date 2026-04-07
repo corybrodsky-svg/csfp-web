@@ -225,6 +225,12 @@ function getEmail(sp: SPRow) {
   return asText(sp.working_email) || asText(sp.email);
 }
 
+function getEmailSource(sp: SPRow) {
+  if (asText(sp.working_email)) return "sps.working_email";
+  if (asText(sp.email)) return "sps.email";
+  return "";
+}
+
 function sortSPs(a: SPRow, b: SPRow) {
   return getFullName(a).localeCompare(getFullName(b));
 }
@@ -261,6 +267,14 @@ function fromDatetimeLocalValue(value: string) {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return null;
   return parsed.toISOString();
+}
+
+function buildMailtoHref(args: { bcc: string[]; subject: string; body: string }) {
+  const params = new URLSearchParams();
+  if (args.bcc.length) params.set("bcc", args.bcc.join(","));
+  params.set("subject", args.subject);
+  params.set("body", args.body);
+  return `mailto:?${params.toString()}`;
 }
 
 async function fetchCommandCenterData(eventId: string): Promise<CommandCenterData> {
@@ -330,6 +344,7 @@ export default function EventDetailPage() {
   const [sps, setSps] = useState<SPRow[]>([]);
   const [assignments, setAssignments] = useState<AssignmentRow[]>([]);
   const [selectedSpId, setSelectedSpId] = useState("");
+  const [showEmailDraft, setShowEmailDraft] = useState(false);
   const [loading, setLoading] = useState(Boolean(id));
   const [saving, setSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
@@ -359,6 +374,52 @@ export default function EventDetailPage() {
   const coveragePercent =
     needed > 0 ? Math.min(100, Math.round((confirmedCount / needed) * 100)) : 0;
   const isCovered = needed > 0 && shortage === 0;
+  const assignedEmailSources = useMemo(() => {
+    return assignments
+      .map((assignment) => {
+        const sp = assignment.sp_id ? spsById.get(assignment.sp_id) : undefined;
+        if (!sp) return null;
+
+        const email = getEmail(sp);
+        if (!email) return null;
+
+        return {
+          assignmentId: assignment.id,
+          spName: getFullName(sp),
+          email,
+          source: getEmailSource(sp),
+        };
+      })
+      .filter((item): item is NonNullable<typeof item> => Boolean(item));
+  }, [assignments, spsById]);
+
+  const bccEmails = useMemo(
+    () => Array.from(new Set(assignedEmailSources.map((item) => item.email))),
+    [assignedEmailSources]
+  );
+
+  const emailSubject = `SP Assignment: ${event?.name || "CFSP Event"}`;
+  const emailBody = [
+    "Hello,",
+    "",
+    `You are receiving this because you are assigned as an SP for ${event?.name || "this CFSP event"}.`,
+    "",
+    `Event: ${event?.name || "TBD"}`,
+    `Date(s): ${event?.date_text || "TBD"}`,
+    `Location: ${event?.location || "TBD"}`,
+    "",
+    "Reporting instructions: Please arrive at the assigned reporting location 15 minutes before the event start time. Additional case-specific instructions will be shared by the simulation operations team.",
+    "",
+    "Please reply to confirm your assignment and availability for this event.",
+    "",
+    "Thank you,",
+    "CFSP Simulation Operations",
+  ].join("\n");
+  const mailtoHref = buildMailtoHref({
+    bcc: bccEmails,
+    subject: emailSubject,
+    body: emailBody,
+  });
 
   async function refreshData() {
     if (!id) return;
@@ -704,6 +765,82 @@ export default function EventDetailPage() {
             Add Assignment
           </button>
         </div>
+      </div>
+
+      <div style={cardStyle}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            gap: "12px",
+            flexWrap: "wrap",
+            alignItems: "center",
+          }}
+        >
+          <div>
+            <h2 style={{ margin: 0, color: "#173b6c" }}>SP Email</h2>
+            <p style={{ margin: "6px 0 0", color: "#64748b", fontWeight: 700 }}>
+              Email addresses are sourced from assigned `event_sps.sp_id` rows matched to `sps.working_email` first, then `sps.email`.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setShowEmailDraft((current) => !current)}
+            style={buttonStyle}
+          >
+            Generate SP Email
+          </button>
+        </div>
+
+        {showEmailDraft ? (
+          <div style={{ marginTop: "16px", display: "grid", gap: "14px" }}>
+            <div style={statCard}>
+              <div style={statLabel}>BCC Recipients</div>
+              <div style={{ marginTop: "8px", color: "#173b6c", lineHeight: 1.7 }}>
+                {bccEmails.length ? bccEmails.join(", ") : "No assigned SP emails found."}
+              </div>
+            </div>
+
+            <div style={statCard}>
+              <div style={statLabel}>Email Source Detail</div>
+              <div style={{ marginTop: "8px", color: "#173b6c", lineHeight: 1.7 }}>
+                {assignedEmailSources.length ? (
+                  assignedEmailSources.map((item) => (
+                    <div key={item.assignmentId}>
+                      <strong>{item.spName}:</strong> {item.email} from {item.source}
+                    </div>
+                  ))
+                ) : (
+                  "No assigned SPs have an email in sps.working_email or sps.email."
+                )}
+              </div>
+            </div>
+
+            <label style={{ display: "grid", gap: "6px" }}>
+              <span style={statLabel}>Subject</span>
+              <input readOnly value={emailSubject} style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }} />
+            </label>
+
+            <label style={{ display: "grid", gap: "6px" }}>
+              <span style={statLabel}>Copyable Email Body</span>
+              <textarea readOnly value={emailBody} style={{ ...textareaStyle, minHeight: "220px" }} />
+            </label>
+
+            <div>
+              <a
+                href={mailtoHref}
+                style={{
+                  ...buttonStyle,
+                  display: "inline-flex",
+                  textDecoration: "none",
+                }}
+              >
+                Open Mailto Draft
+              </a>
+            </div>
+          </div>
+        ) : null}
       </div>
 
       <div style={cardStyle}>
