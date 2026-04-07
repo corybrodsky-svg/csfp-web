@@ -38,6 +38,14 @@ type SPRow = {
   working_email: string | null;
   email: string | null;
   phone: string | null;
+  portrayal_age: string | null;
+  race: string | null;
+  sex: string | null;
+  telehealth: string | null;
+  pt_preferred: string | null;
+  other_roles: string | null;
+  speaks_spanish: string | boolean | null;
+  notes: string | null;
   status: string | null;
 };
 
@@ -266,6 +274,40 @@ function sortSPs(a: SPRow, b: SPRow) {
   return getFullName(a).localeCompare(getFullName(b));
 }
 
+function getCandidateSearchText(sp: SPRow) {
+  return [
+    getFullName(sp),
+    getEmail(sp),
+    sp.phone,
+    sp.notes,
+    sp.telehealth,
+    sp.pt_preferred,
+    sp.other_roles,
+  ]
+    .map(asText)
+    .join(" ")
+    .toLowerCase();
+}
+
+function isActiveSp(sp: SPRow) {
+  const status = asText(sp.status).toLowerCase();
+  return !status || status === "active";
+}
+
+function speaksSpanish(sp: SPRow) {
+  const value = sp.speaks_spanish;
+  return value === true || ["yes", "true", "y"].includes(asText(value).toLowerCase());
+}
+
+function hasTelehealth(sp: SPRow) {
+  return Boolean(asText(sp.telehealth));
+}
+
+function hasPtPreferred(sp: SPRow) {
+  const value = asText(sp.pt_preferred).toLowerCase();
+  return Boolean(value) && !["no", "n", "false"].includes(value);
+}
+
 function getAssignmentStatus(assignment: AssignmentRow): AssignmentStatus {
   const rawStatus = asText(assignment.status) as AssignmentStatus;
   if (assignmentStatuses.includes(rawStatus)) return rawStatus;
@@ -423,7 +465,7 @@ async function fetchCommandCenterData(eventId: string): Promise<CommandCenterDat
 
   const { data: sps, error: spError } = await supabase
     .from("sps")
-    .select("id,first_name,last_name,full_name,working_email,email,phone,status")
+    .select("id,first_name,last_name,full_name,working_email,email,phone,portrayal_age,race,sex,telehealth,pt_preferred,other_roles,speaks_spanish,notes,status")
     .returns<SPRow[]>();
 
   if (spError) {
@@ -500,6 +542,11 @@ export default function EventDetailPage() {
   const [assignments, setAssignments] = useState<AssignmentRow[]>([]);
   const [availabilityRows, setAvailabilityRows] = useState<AvailabilityRow[]>([]);
   const [selectedSpId, setSelectedSpId] = useState("");
+  const [candidateQuery, setCandidateQuery] = useState("");
+  const [activeOnly, setActiveOnly] = useState(false);
+  const [spanishOnly, setSpanishOnly] = useState(false);
+  const [telehealthOnly, setTelehealthOnly] = useState(false);
+  const [ptPreferredOnly, setPtPreferredOnly] = useState(false);
   const [showEmailDraft, setShowEmailDraft] = useState(false);
   const [loading, setLoading] = useState(Boolean(id));
   const [saving, setSaving] = useState(false);
@@ -518,9 +565,32 @@ export default function EventDetailPage() {
     [assignments]
   );
 
+  const assignmentsBySpId = useMemo(() => {
+    const next = new Map<string, AssignmentRow>();
+    assignments.forEach((assignment) => {
+      const spId = asText(assignment.sp_id);
+      if (spId) next.set(spId, assignment);
+    });
+    return next;
+  }, [assignments]);
+
+  const filteredCandidateSps = useMemo(
+    () =>
+      sps.filter((sp) => {
+        const query = candidateQuery.trim().toLowerCase();
+        if (query && !getCandidateSearchText(sp).includes(query)) return false;
+        if (activeOnly && !isActiveSp(sp)) return false;
+        if (spanishOnly && !speaksSpanish(sp)) return false;
+        if (telehealthOnly && !hasTelehealth(sp)) return false;
+        if (ptPreferredOnly && !hasPtPreferred(sp)) return false;
+        return true;
+      }),
+    [activeOnly, candidateQuery, ptPreferredOnly, spanishOnly, sps, telehealthOnly]
+  );
+
   const availableSps = useMemo(
-    () => sps.filter((sp) => !assignedSpIds.has(String(sp.id))),
-    [assignedSpIds, sps]
+    () => filteredCandidateSps.filter((sp) => !assignedSpIds.has(String(sp.id))),
+    [assignedSpIds, filteredCandidateSps]
   );
 
   const availabilityBySpId = useMemo(() => {
@@ -654,15 +724,15 @@ export default function EventDetailPage() {
     };
   }, [id]);
 
-  async function handleAddAssignment() {
-    if (!id || !selectedSpId) return;
+  async function handleAddAssignment(spId = selectedSpId) {
+    if (!id || !spId) return;
 
     setSaving(true);
     setErrorMessage("");
 
     const { error } = await supabase.from("event_sps").insert({
       event_id: id,
-      sp_id: selectedSpId,
+      sp_id: spId,
       status: "invited",
       confirmed: false,
     });
@@ -969,7 +1039,7 @@ export default function EventDetailPage() {
       <div style={cardStyle}>
         <h2 style={{ marginTop: 0, color: "#173b6c" }}>Assign SP</h2>
         <p style={{ marginTop: 0, color: "#64748b", fontWeight: 700 }}>
-          Choose an available SP, add them as unconfirmed, then confirm once they accept.
+          Search, filter, and add SPs as invited while coverage stays visible.
         </p>
 
         <div
@@ -978,57 +1048,150 @@ export default function EventDetailPage() {
             borderRadius: "18px",
             padding: "16px",
             background: "#f8fbff",
-            display: "flex",
-            gap: "12px",
-            flexWrap: "wrap",
-            alignItems: "center",
+            display: "grid",
+            gap: "14px",
           }}
         >
-          <select
-            value={selectedSpId}
-            onChange={(e) => setSelectedSpId(e.target.value)}
-            style={selectStyle}
-            disabled={saving || availableSps.length === 0}
-          >
-            <option value="">
-              {availableSps.length === 0 ? "No unassigned SPs available" : "Select an SP"}
-            </option>
-            {availableSps.map((sp) => (
-              <option key={sp.id} value={sp.id}>
-                {getFullName(sp)}
-                {getEmail(sp) ? ` — ${getEmail(sp)}` : ""}
-              </option>
-            ))}
-          </select>
+          <div style={{ ...statCard, background: "#ffffff" }}>
+            <div style={statLabel}>Live Coverage</div>
+            <div style={{ marginTop: "6px", color: "#173b6c", fontWeight: 900 }}>
+              {confirmedCount} confirmed / {needed} needed · {shortage} short
+            </div>
+          </div>
 
-          <button
-            type="button"
-            onClick={handleAddAssignment}
-            disabled={saving || !selectedSpId}
-            style={{ ...buttonStyle, opacity: saving || !selectedSpId ? 0.65 : 1 }}
-          >
-            Add Assignment
-          </button>
+          <input
+            value={candidateQuery}
+            onChange={(event) => setCandidateQuery(event.target.value)}
+            placeholder="Search by name, email, phone, notes, roles, or preferences..."
+            style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+          />
+
+          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+            {[
+              { label: "Active only", active: activeOnly, setActive: setActiveOnly },
+              { label: "Spanish-speaking", active: spanishOnly, setActive: setSpanishOnly },
+              { label: "Telehealth", active: telehealthOnly, setActive: setTelehealthOnly },
+              { label: "PT preferred", active: ptPreferredOnly, setActive: setPtPreferredOnly },
+            ].map((filter) => (
+              <button
+                key={filter.label}
+                type="button"
+                onClick={() => filter.setActive((current) => !current)}
+                style={{
+                  ...buttonStyle,
+                  background: filter.active ? "#173b6c" : "#ffffff",
+                  color: filter.active ? "#ffffff" : "#173b6c",
+                  padding: "8px 12px",
+                }}
+              >
+                {filter.label}
+              </button>
+            ))}
+          </div>
+
+          <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
+            <select
+              value={selectedSpId}
+              onChange={(e) => setSelectedSpId(e.target.value)}
+              style={selectStyle}
+              disabled={saving || availableSps.length === 0}
+            >
+              <option value="">
+                {availableSps.length === 0 ? "No matching unassigned SPs" : "Quick select an SP"}
+              </option>
+              {availableSps.map((sp) => (
+                <option key={sp.id} value={sp.id}>
+                  {getFullName(sp)}
+                  {getEmail(sp) ? ` — ${getEmail(sp)}` : ""}
+                </option>
+              ))}
+            </select>
+
+            <button
+              type="button"
+              onClick={() => void handleAddAssignment()}
+              disabled={saving || !selectedSpId}
+              style={{ ...buttonStyle, opacity: saving || !selectedSpId ? 0.65 : 1 }}
+            >
+              Add Selected SP
+            </button>
+          </div>
         </div>
 
         <div style={{ marginTop: "16px" }}>
-          <div style={statLabel}>Candidate Availability Summary</div>
+          <div style={statLabel}>
+            Candidate Picker · {availableSps.length} addable / {filteredCandidateSps.length} shown
+          </div>
           <div style={{ display: "grid", gap: "10px", marginTop: "10px" }}>
-            {availableSps.length === 0 ? (
+            {filteredCandidateSps.length === 0 ? (
               <div style={{ ...statCard, color: "#64748b", fontWeight: 700 }}>
-                No unassigned SPs available for matching.
+                No SPs match the current search and filters.
               </div>
             ) : (
-              availableSps.slice(0, 6).map((sp) => {
+              filteredCandidateSps.slice(0, 12).map((sp) => {
                 const rows = availabilityBySpId.get(sp.id) || [];
+                const assignment = assignmentsBySpId.get(sp.id);
+                const assignmentStatus = assignment ? getAssignmentStatus(assignment) : null;
+                const demographics = [sp.portrayal_age, sp.race, sp.sex]
+                  .map(asText)
+                  .filter(Boolean)
+                  .join(" / ");
+                const roleDetails = [sp.telehealth, sp.pt_preferred, sp.other_roles]
+                  .map(asText)
+                  .filter(Boolean)
+                  .join(" / ");
 
                 return (
-                  <div key={sp.id} style={statCard}>
-                    <div style={{ color: "#173b6c", fontWeight: 900 }}>
-                      {getFullName(sp)}
+                  <div key={sp.id} style={{ ...statCard, background: "#ffffff" }}>
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        gap: "12px",
+                        flexWrap: "wrap",
+                        alignItems: "flex-start",
+                      }}
+                    >
+                      <div>
+                        <div style={{ color: "#173b6c", fontWeight: 900, fontSize: "18px" }}>
+                          {getFullName(sp)}
+                        </div>
+                        <div style={{ marginTop: "6px", color: "#334155", lineHeight: 1.6 }}>
+                          <div><strong>Email:</strong> {getEmail(sp) || "—"}</div>
+                          <div><strong>Phone:</strong> {sp.phone || "—"}</div>
+                          <div><strong>Portrayal / race / sex:</strong> {demographics || "—"}</div>
+                          <div><strong>Roles / preferences:</strong> {roleDetails || "—"}</div>
+                        </div>
+                      </div>
+
+                      <div style={{ display: "grid", gap: "8px", justifyItems: "end" }}>
+                        {assignmentStatus ? (
+                          <span
+                            style={{
+                              ...assignmentStatusStyles[assignmentStatus],
+                              borderRadius: "999px",
+                              padding: "7px 11px",
+                              fontSize: "12px",
+                              fontWeight: 900,
+                            }}
+                          >
+                            Already {assignmentStatusLabels[assignmentStatus]}
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => void handleAddAssignment(sp.id)}
+                            disabled={saving}
+                            style={{ ...buttonStyle, opacity: saving ? 0.65 : 1 }}
+                          >
+                            Add SP
+                          </button>
+                        )}
+                      </div>
                     </div>
-                    <div style={{ marginTop: "6px", color: "#64748b", whiteSpace: "pre-wrap" }}>
-                      {formatAvailabilityRows(rows)}
+
+                    <div style={{ marginTop: "10px", color: "#64748b", whiteSpace: "pre-wrap" }}>
+                      <strong>Availability:</strong> {formatAvailabilityRows(rows)}
                     </div>
                   </div>
                 );

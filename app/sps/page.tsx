@@ -168,8 +168,9 @@ async function fetchSPs() {
     throw new Error(await parseApiError(response));
   }
 
-  const body = await response.json();
-  return Array.isArray(body?.sps) ? (body.sps as SPRow[]) : [];
+  const data = await response.json();
+  console.log("/api/sps response", data);
+  return Array.isArray(data?.sps) ? (data.sps as SPRow[]) : [];
 }
 
 export default function SPPage() {
