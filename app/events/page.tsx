@@ -19,8 +19,17 @@ type EventAssignmentRow = {
   id: string;
   event_id: string | null;
   sp_id: string | null;
+  status: AssignmentStatus | null;
   confirmed: boolean | null;
 };
+
+type AssignmentStatus =
+  | "invited"
+  | "contacted"
+  | "confirmed"
+  | "declined"
+  | "backup"
+  | "no_show";
 
 type EventAssignmentCounts = {
   total: number;
@@ -91,6 +100,15 @@ const shortagePill = (isCovered: boolean): React.CSSProperties => ({
   border: isCovered ? "1px solid #bbf7d0" : "1px solid #fed7aa",
 });
 
+const assignmentStatuses: AssignmentStatus[] = [
+  "invited",
+  "contacted",
+  "confirmed",
+  "declined",
+  "backup",
+  "no_show",
+];
+
 function parseEventDateValue(event: EventRow): number {
   const candidates = [event.date_text, event.created_at].filter(Boolean) as string[];
 
@@ -130,7 +148,9 @@ function countAssignmentsForEvent(
   assignments: EventAssignmentRow[]
 ): EventAssignmentCounts {
   const matching = assignments.filter((assignment) => assignment.event_id === event.id);
-  const confirmed = matching.filter((assignment) => assignment.confirmed === true).length;
+  const confirmed = matching.filter(
+    (assignment) => getAssignmentStatus(assignment) === "confirmed"
+  ).length;
   const needed = Number(event.sp_needed || 0);
 
   return {
@@ -138,6 +158,12 @@ function countAssignmentsForEvent(
     confirmed,
     shortage: Math.max(needed - confirmed, 0),
   };
+}
+
+function getAssignmentStatus(assignment: EventAssignmentRow): AssignmentStatus {
+  const rawStatus = String(assignment.status || "").trim() as AssignmentStatus;
+  if (assignmentStatuses.includes(rawStatus)) return rawStatus;
+  return assignment.confirmed === true ? "confirmed" : "invited";
 }
 
 function sortEventsByDateThenName(a: EventRow, b: EventRow) {
@@ -163,8 +189,8 @@ async function fetchEventsPageData() {
   }
 
   const { data: assignmentRows, error: assignmentError } = await supabase
-    .from("event_assignments")
-    .select("id,event_id,sp_id,confirmed")
+    .from("event_sps")
+    .select("id,event_id,sp_id,status,confirmed")
     .returns<EventAssignmentRow[]>();
 
   if (assignmentError) {
@@ -212,7 +238,7 @@ export default function EventsPage() {
       .on("postgres_changes", { event: "*", schema: "public", table: "events" }, refresh)
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "event_assignments" },
+        { event: "*", schema: "public", table: "event_sps" },
         refresh
       )
       .subscribe();

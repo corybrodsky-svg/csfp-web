@@ -34,10 +34,23 @@ type AssignmentRow = {
   id: string;
   event_id: string | null;
   sp_id: string | null;
+  status: AssignmentStatus | null;
   confirmed: boolean | null;
   notes: string | null;
+  last_contacted_at: string | null;
+  contact_method: ContactMethod | null;
   created_at: string | null;
 };
+
+type AssignmentStatus =
+  | "invited"
+  | "contacted"
+  | "confirmed"
+  | "declined"
+  | "backup"
+  | "no_show";
+
+type ContactMethod = "call" | "text" | "email";
 
 type CommandCenterData = {
   event: EventDetailRow | null;
@@ -92,13 +105,6 @@ const buttonStyle: React.CSSProperties = {
   padding: "10px 14px",
 };
 
-const secondaryButtonStyle: React.CSSProperties = {
-  ...buttonStyle,
-  background: "#ffffff",
-  color: "#173b6c",
-  border: "1px solid #cfd8e3",
-};
-
 const dangerButtonStyle: React.CSSProperties = {
   ...buttonStyle,
   background: "#fff5f5",
@@ -131,6 +137,77 @@ const detailGridStyle: React.CSSProperties = {
   marginTop: "16px",
 };
 
+const assignmentStatuses: AssignmentStatus[] = [
+  "invited",
+  "contacted",
+  "confirmed",
+  "declined",
+  "backup",
+  "no_show",
+];
+
+const contactMethods: ContactMethod[] = ["call", "text", "email"];
+
+const assignmentStatusLabels: Record<AssignmentStatus, string> = {
+  invited: "Invited",
+  contacted: "Contacted",
+  confirmed: "Confirmed",
+  declined: "Declined",
+  backup: "Backup",
+  no_show: "No-show",
+};
+
+const assignmentStatusStyles: Record<AssignmentStatus, React.CSSProperties> = {
+  invited: {
+    background: "#eff6ff",
+    color: "#1d4ed8",
+    border: "1px solid #bfdbfe",
+  },
+  contacted: {
+    background: "#f5f3ff",
+    color: "#6d28d9",
+    border: "1px solid #ddd6fe",
+  },
+  confirmed: {
+    background: "#dcfce7",
+    color: "#166534",
+    border: "1px solid #86efac",
+  },
+  declined: {
+    background: "#fee2e2",
+    color: "#991b1b",
+    border: "1px solid #fecaca",
+  },
+  backup: {
+    background: "#fef9c3",
+    color: "#854d0e",
+    border: "1px solid #fde68a",
+  },
+  no_show: {
+    background: "#f1f5f9",
+    color: "#475569",
+    border: "1px solid #cbd5e1",
+  },
+};
+
+const inputStyle: React.CSSProperties = {
+  border: "1px solid #cbd5e1",
+  borderRadius: "12px",
+  padding: "10px 12px",
+  color: "#173b6c",
+  fontWeight: 700,
+};
+
+const textareaStyle: React.CSSProperties = {
+  ...inputStyle,
+  width: "100%",
+  minHeight: "84px",
+  resize: "vertical",
+  boxSizing: "border-box",
+  fontWeight: 600,
+  lineHeight: 1.5,
+};
+
 function asText(value: unknown) {
   if (value === null || value === undefined) return "";
   return String(value).trim();
@@ -150,6 +227,40 @@ function getEmail(sp: SPRow) {
 
 function sortSPs(a: SPRow, b: SPRow) {
   return getFullName(a).localeCompare(getFullName(b));
+}
+
+function getAssignmentStatus(assignment: AssignmentRow): AssignmentStatus {
+  const rawStatus = asText(assignment.status) as AssignmentStatus;
+  if (assignmentStatuses.includes(rawStatus)) return rawStatus;
+  return assignment.confirmed === true ? "confirmed" : "invited";
+}
+
+function getContactMethod(assignment: AssignmentRow) {
+  const rawMethod = asText(assignment.contact_method) as ContactMethod;
+  return contactMethods.includes(rawMethod) ? rawMethod : "";
+}
+
+function formatTimestamp(value?: string | null) {
+  if (!value) return "Not contacted yet";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "Not contacted yet";
+  return parsed.toLocaleString();
+}
+
+function toDatetimeLocalValue(value?: string | null) {
+  if (!value) return "";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return new Date(parsed.getTime() - parsed.getTimezoneOffset() * 60000)
+    .toISOString()
+    .slice(0, 16);
+}
+
+function fromDatetimeLocalValue(value: string) {
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString();
 }
 
 async function fetchCommandCenterData(eventId: string): Promise<CommandCenterData> {
@@ -183,8 +294,8 @@ async function fetchCommandCenterData(eventId: string): Promise<CommandCenterDat
   }
 
   const { data: assignments, error: assignmentError } = await supabase
-    .from("event_assignments")
-    .select("id,event_id,sp_id,confirmed,notes,created_at")
+    .from("event_sps")
+    .select("id,event_id,sp_id,status,confirmed,notes,last_contacted_at,contact_method,created_at")
     .eq("event_id", eventId)
     .returns<AssignmentRow[]>();
 
@@ -240,7 +351,7 @@ export default function EventDetailPage() {
   );
 
   const confirmedCount = assignments.filter(
-    (assignment) => assignment.confirmed === true
+    (assignment) => getAssignmentStatus(assignment) === "confirmed"
   ).length;
   const unconfirmedCount = Math.max(assignments.length - confirmedCount, 0);
   const needed = Number(event?.sp_needed || 0);
@@ -289,7 +400,7 @@ export default function EventDetailPage() {
       .on("postgres_changes", { event: "*", schema: "public", table: "sps" }, refresh)
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "event_assignments" },
+        { event: "*", schema: "public", table: "event_sps" },
         refresh
       )
       .subscribe();
@@ -307,9 +418,10 @@ export default function EventDetailPage() {
     setSaving(true);
     setErrorMessage("");
 
-    const { error } = await supabase.from("event_assignments").insert({
+    const { error } = await supabase.from("event_sps").insert({
       event_id: id,
       sp_id: selectedSpId,
+      status: "invited",
       confirmed: false,
     });
 
@@ -323,17 +435,36 @@ export default function EventDetailPage() {
     setSaving(false);
   }
 
-  async function handleConfirmChange(assignment: AssignmentRow, confirmed: boolean) {
+  async function handleStatusChange(assignment: AssignmentRow, status: AssignmentStatus) {
     setSaving(true);
     setErrorMessage("");
 
     const { error } = await supabase
-      .from("event_assignments")
-      .update({ confirmed })
+      .from("event_sps")
+      .update({ status, confirmed: status === "confirmed" })
       .eq("id", assignment.id);
 
     if (error) {
       setErrorMessage(error.message || "Could not update assignment.");
+      setSaving(false);
+      return;
+    }
+
+    await refreshData();
+    setSaving(false);
+  }
+
+  async function handleAssignmentDetailsChange(
+    assignment: AssignmentRow,
+    updates: Partial<Pick<AssignmentRow, "notes" | "last_contacted_at" | "contact_method">>
+  ) {
+    setSaving(true);
+    setErrorMessage("");
+
+    const { error } = await supabase.from("event_sps").update(updates).eq("id", assignment.id);
+
+    if (error) {
+      setErrorMessage(error.message || "Could not update assignment details.");
       setSaving(false);
       return;
     }
@@ -347,7 +478,7 @@ export default function EventDetailPage() {
     setErrorMessage("");
 
     const { error } = await supabase
-      .from("event_assignments")
+      .from("event_sps")
       .delete()
       .eq("id", assignment.id);
 
@@ -599,17 +730,20 @@ export default function EventDetailPage() {
           <div style={{ display: "grid", gap: "12px", marginTop: "14px" }}>
             {assignments.map((assignment) => {
               const sp = assignment.sp_id ? spsById.get(assignment.sp_id) : undefined;
-              const confirmed = assignment.confirmed === true;
+              const status = getAssignmentStatus(assignment);
+              const confirmed = status === "confirmed";
               const email = sp ? getEmail(sp) : "";
+              const statusStyle = assignmentStatusStyles[status];
+              const contactMethod = getContactMethod(assignment);
 
               return (
                 <div
                   key={assignment.id}
                   style={{
-                    border: confirmed ? "1px solid #bbf7d0" : "1px solid #fed7aa",
+                    border: statusStyle.border,
                     borderRadius: "18px",
                     padding: "16px",
-                    background: confirmed ? "#ecfdf3" : "#fff7ed",
+                    background: confirmed ? "#ecfdf3" : "#ffffff",
                   }}
                 >
                   <div
@@ -631,32 +765,46 @@ export default function EventDetailPage() {
                       <div style={{ marginTop: 6, color: "#334155", lineHeight: 1.6 }}>
                         <strong>Phone:</strong> {sp?.phone || "—"}
                       </div>
+                      <div style={{ marginTop: 6, color: "#334155", lineHeight: 1.6 }}>
+                        <strong>Last contact:</strong> {formatTimestamp(assignment.last_contacted_at)}
+                      </div>
                       <div
                         style={{
                           display: "inline-flex",
                           marginTop: 10,
                           borderRadius: "999px",
                           padding: "7px 11px",
-                          background: confirmed ? "#dcfce7" : "#ffedd5",
-                          color: confirmed ? "#166534" : "#9a3412",
-                          border: confirmed ? "1px solid #86efac" : "1px solid #fdba74",
+                          background: statusStyle.background,
+                          color: statusStyle.color,
+                          border: statusStyle.border,
                           fontWeight: 900,
                           fontSize: "13px",
                         }}
                       >
-                        {confirmed ? "Confirmed" : "Needs confirmation"}
+                        {assignmentStatusLabels[status]}
                       </div>
                     </div>
 
-                    <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-                      <button
-                        type="button"
-                        onClick={() => handleConfirmChange(assignment, !confirmed)}
+                    <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                      <select
+                        value={status}
+                        onChange={(e) =>
+                          handleStatusChange(assignment, e.target.value as AssignmentStatus)
+                        }
                         disabled={saving}
-                        style={secondaryButtonStyle}
+                        style={{
+                          ...selectStyle,
+                          width: "190px",
+                          maxWidth: "190px",
+                          background: "#ffffff",
+                        }}
                       >
-                        {confirmed ? "Unconfirm" : "Confirm"}
-                      </button>
+                        {assignmentStatuses.map((option) => (
+                          <option key={option} value={option}>
+                            {assignmentStatusLabels[option]}
+                          </option>
+                        ))}
+                      </select>
 
                       <button
                         type="button"
@@ -668,6 +816,62 @@ export default function EventDetailPage() {
                       </button>
                     </div>
                   </div>
+
+                  <div style={{ ...detailGridStyle, marginTop: "16px" }}>
+                    <label style={{ display: "grid", gap: "6px" }}>
+                      <span style={statLabel}>Contact Method</span>
+                      <select
+                        value={contactMethod}
+                        onChange={(e) =>
+                          handleAssignmentDetailsChange(assignment, {
+                            contact_method: e.target.value
+                              ? (e.target.value as ContactMethod)
+                              : null,
+                          })
+                        }
+                        disabled={saving}
+                        style={{ ...selectStyle, maxWidth: "100%", width: "100%", background: "#ffffff" }}
+                      >
+                        <option value="">Not set</option>
+                        {contactMethods.map((method) => (
+                          <option key={method} value={method}>
+                            {method}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <label style={{ display: "grid", gap: "6px" }}>
+                      <span style={statLabel}>Last Contacted</span>
+                      <input
+                        type="datetime-local"
+                        defaultValue={toDatetimeLocalValue(assignment.last_contacted_at)}
+                        onBlur={(e) =>
+                          handleAssignmentDetailsChange(assignment, {
+                            last_contacted_at: fromDatetimeLocalValue(e.target.value),
+                          })
+                        }
+                        disabled={saving}
+                        style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                      />
+                    </label>
+                  </div>
+
+                  <label style={{ display: "grid", gap: "6px", marginTop: "16px" }}>
+                    <span style={statLabel}>Assignment Notes</span>
+                    <textarea
+                      key={`${assignment.id}-${assignment.notes || ""}`}
+                      defaultValue={assignment.notes || ""}
+                      onBlur={(e) =>
+                        handleAssignmentDetailsChange(assignment, {
+                          notes: e.target.value.trim() || null,
+                        })
+                      }
+                      placeholder="Add contact notes, constraints, follow-up details..."
+                      disabled={saving}
+                      style={textareaStyle}
+                    />
+                  </label>
                 </div>
               );
             })}
