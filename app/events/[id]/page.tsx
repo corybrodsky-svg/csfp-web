@@ -116,6 +116,21 @@ const selectStyle: React.CSSProperties = {
   fontWeight: 700,
 };
 
+const coverageHeroStyle: React.CSSProperties = {
+  border: "1px solid #bfdbfe",
+  borderRadius: "22px",
+  padding: "18px",
+  background: "linear-gradient(135deg, #eff6ff, #f8fbff)",
+  marginTop: "18px",
+};
+
+const detailGridStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+  gap: "12px",
+  marginTop: "16px",
+};
+
 function asText(value: unknown) {
   if (value === null || value === undefined) return "";
   return String(value).trim();
@@ -227,8 +242,12 @@ export default function EventDetailPage() {
   const confirmedCount = assignments.filter(
     (assignment) => assignment.confirmed === true
   ).length;
+  const unconfirmedCount = Math.max(assignments.length - confirmedCount, 0);
   const needed = Number(event?.sp_needed || 0);
   const shortage = Math.max(needed - confirmedCount, 0);
+  const coveragePercent =
+    needed > 0 ? Math.min(100, Math.round((confirmedCount / needed) * 100)) : 0;
+  const isCovered = needed > 0 && shortage === 0;
 
   async function refreshData() {
     if (!id) return;
@@ -409,15 +428,52 @@ export default function EventDetailPage() {
           {event.status || "No status"}
         </div>
 
+        <div style={coverageHeroStyle}>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              gap: "16px",
+              flexWrap: "wrap",
+              alignItems: "center",
+            }}
+          >
+            <div>
+              <div style={statLabel}>Coverage</div>
+              <div style={{ fontSize: "42px", fontWeight: 900, color: "#173b6c", lineHeight: 1 }}>
+                {confirmedCount}/{needed || 0}
+              </div>
+              <div style={{ marginTop: "8px", color: "#64748b", fontWeight: 800 }}>
+                {needed > 0
+                  ? `${coveragePercent}% confirmed coverage`
+                  : "No SP target set"}
+              </div>
+            </div>
+
+            <div
+              style={{
+                borderRadius: "999px",
+                padding: "12px 16px",
+                background: isCovered ? "#ecfdf3" : "#fff7ed",
+                border: isCovered ? "1px solid #bbf7d0" : "1px solid #fed7aa",
+                color: isCovered ? "#166534" : "#9a3412",
+                fontWeight: 900,
+              }}
+            >
+              {isCovered ? "Covered" : `${shortage} SP short`}
+            </div>
+          </div>
+        </div>
+
         <div style={statGrid}>
           <div style={statCard}>
-            <div style={statLabel}>Date</div>
-            <div style={statValue}>{event.date_text || "—"}</div>
+            <div style={statLabel}>Confirmed</div>
+            <div style={statValue}>{confirmedCount}</div>
           </div>
 
           <div style={statCard}>
-            <div style={statLabel}>Location</div>
-            <div style={statValue}>{event.location || "—"}</div>
+            <div style={statLabel}>Unconfirmed</div>
+            <div style={statValue}>{unconfirmedCount}</div>
           </div>
 
           <div style={statCard}>
@@ -430,27 +486,67 @@ export default function EventDetailPage() {
             <div style={statValue}>{shortage}</div>
           </div>
         </div>
+      </div>
 
-        <div style={{ marginTop: 14, color: "#173b6c", lineHeight: 1.8 }}>
-          <div>
-            <strong>Confirmed:</strong> {confirmedCount}
+      <div style={cardStyle}>
+        <h2 style={{ marginTop: 0, color: "#173b6c" }}>Event Details</h2>
+
+        <div style={detailGridStyle}>
+          <div style={statCard}>
+            <div style={statLabel}>Date</div>
+            <div style={statValue}>{event.date_text || "—"}</div>
           </div>
-          <div>
-            <strong>Total assigned:</strong> {assignments.length}
+
+          <div style={statCard}>
+            <div style={statLabel}>Location</div>
+            <div style={statValue}>{event.location || "—"}</div>
           </div>
-          <div>
-            <strong>Visibility:</strong> {event.visibility || "—"}
+
+          <div style={statCard}>
+            <div style={statLabel}>Status</div>
+            <div style={statValue}>{event.status || "—"}</div>
           </div>
-          <div>
-            <strong>Notes:</strong> {event.notes || "—"}
+
+          <div style={statCard}>
+            <div style={statLabel}>Visibility</div>
+            <div style={statValue}>{event.visibility || "—"}</div>
           </div>
+        </div>
+
+        <div
+          style={{
+            marginTop: "16px",
+            border: "1px solid #dbe4ee",
+            borderRadius: "18px",
+            padding: "16px",
+            background: "#f8fbff",
+            color: "#173b6c",
+            lineHeight: 1.7,
+          }}
+        >
+          <div style={statLabel}>Notes</div>
+          <div style={{ marginTop: "6px", whiteSpace: "pre-wrap" }}>{event.notes || "—"}</div>
         </div>
       </div>
 
       <div style={cardStyle}>
         <h2 style={{ marginTop: 0, color: "#173b6c" }}>Assign SP</h2>
+        <p style={{ marginTop: 0, color: "#64748b", fontWeight: 700 }}>
+          Choose an available SP, add them as unconfirmed, then confirm once they accept.
+        </p>
 
-        <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
+        <div
+          style={{
+            border: "1px solid #dbe4ee",
+            borderRadius: "18px",
+            padding: "16px",
+            background: "#f8fbff",
+            display: "flex",
+            gap: "12px",
+            flexWrap: "wrap",
+            alignItems: "center",
+          }}
+        >
           <select
             value={selectedSpId}
             onChange={(e) => setSelectedSpId(e.target.value)}
@@ -480,24 +576,40 @@ export default function EventDetailPage() {
       </div>
 
       <div style={cardStyle}>
-        <h2 style={{ marginTop: 0, color: "#173b6c" }}>Saved Assignments</h2>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            gap: "12px",
+            flexWrap: "wrap",
+            alignItems: "center",
+          }}
+        >
+          <h2 style={{ margin: 0, color: "#173b6c" }}>Assigned SPs</h2>
+          <div style={{ color: "#64748b", fontWeight: 800 }}>
+            {confirmedCount} confirmed · {unconfirmedCount} unconfirmed
+          </div>
+        </div>
 
         {assignments.length === 0 ? (
-          <p style={{ color: "#64748b", marginBottom: 0 }}>No SPs assigned yet.</p>
+          <p style={{ color: "#64748b", marginBottom: 0, marginTop: "14px" }}>
+            No SPs assigned yet.
+          </p>
         ) : (
-          <div style={{ display: "grid", gap: "12px" }}>
+          <div style={{ display: "grid", gap: "12px", marginTop: "14px" }}>
             {assignments.map((assignment) => {
               const sp = assignment.sp_id ? spsById.get(assignment.sp_id) : undefined;
               const confirmed = assignment.confirmed === true;
+              const email = sp ? getEmail(sp) : "";
 
               return (
                 <div
                   key={assignment.id}
                   style={{
-                    border: "1px solid #dbe4ee",
+                    border: confirmed ? "1px solid #bbf7d0" : "1px solid #fed7aa",
                     borderRadius: "18px",
                     padding: "16px",
-                    background: confirmed ? "#ecfdf3" : "#f8fbff",
+                    background: confirmed ? "#ecfdf3" : "#fff7ed",
                   }}
                 >
                   <div
@@ -514,10 +626,25 @@ export default function EventDetailPage() {
                         {sp ? getFullName(sp) : "Unknown SP"}
                       </h3>
                       <div style={{ marginTop: 6, color: "#64748b", fontWeight: 700 }}>
-                        {sp ? getEmail(sp) || "No email" : assignment.sp_id || "No SP id"}
+                        {email || assignment.sp_id || "No SP id"}
                       </div>
-                      <div style={{ marginTop: 6, color: "#173b6c", fontWeight: 800 }}>
-                        {confirmed ? "Confirmed" : "Unconfirmed"}
+                      <div style={{ marginTop: 6, color: "#334155", lineHeight: 1.6 }}>
+                        <strong>Phone:</strong> {sp?.phone || "—"}
+                      </div>
+                      <div
+                        style={{
+                          display: "inline-flex",
+                          marginTop: 10,
+                          borderRadius: "999px",
+                          padding: "7px 11px",
+                          background: confirmed ? "#dcfce7" : "#ffedd5",
+                          color: confirmed ? "#166534" : "#9a3412",
+                          border: confirmed ? "1px solid #86efac" : "1px solid #fdba74",
+                          fontWeight: 900,
+                          fontSize: "13px",
+                        }}
+                      >
+                        {confirmed ? "Confirmed" : "Needs confirmation"}
                       </div>
                     </div>
 
