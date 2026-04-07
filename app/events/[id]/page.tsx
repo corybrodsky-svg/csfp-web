@@ -19,6 +19,17 @@ type EventDetailRow = {
   created_at: string | null;
 };
 
+type EventSessionRow = {
+  id: string;
+  event_id: string | null;
+  session_date: string | null;
+  start_time: string | null;
+  end_time: string | null;
+  location: string | null;
+  room: string | null;
+  created_at: string | null;
+};
+
 type SPRow = {
   id: string;
   first_name: string | null;
@@ -42,6 +53,22 @@ type AssignmentRow = {
   created_at: string | null;
 };
 
+type AvailabilityRow = {
+  id?: string | number | null;
+  sp_id?: string | number | null;
+  date?: string | null;
+  availability_date?: string | null;
+  start_date?: string | null;
+  start_time?: string | null;
+  end_time?: string | null;
+  status?: string | null;
+  availability_status?: string | null;
+  available?: boolean | null;
+  notes?: string | null;
+  created_at?: string | null;
+  [key: string]: unknown;
+};
+
 type AssignmentStatus =
   | "invited"
   | "contacted"
@@ -54,9 +81,13 @@ type ContactMethod = "call" | "text" | "email";
 
 type CommandCenterData = {
   event: EventDetailRow | null;
+  sessions: EventSessionRow[];
   sps: SPRow[];
   assignments: AssignmentRow[];
+  availabilityRows: AvailabilityRow[];
   errorMessage: string;
+  sessionErrorMessage: string;
+  availabilityErrorMessage: string;
 };
 
 const cardStyle: React.CSSProperties = {
@@ -246,11 +277,96 @@ function getContactMethod(assignment: AssignmentRow) {
   return contactMethods.includes(rawMethod) ? rawMethod : "";
 }
 
+function getAvailabilitySpId(row: AvailabilityRow) {
+  return asText(row.sp_id);
+}
+
+function getAvailabilityDate(row: AvailabilityRow) {
+  return (
+    asText(row.availability_date) ||
+    asText(row.date) ||
+    asText(row.start_date) ||
+    "Date TBD"
+  );
+}
+
+function getAvailabilityStatus(row: AvailabilityRow) {
+  if (typeof row.available === "boolean") {
+    return row.available ? "Available" : "Unavailable";
+  }
+
+  return (
+    asText(row.availability_status) ||
+    asText(row.status) ||
+    "Availability noted"
+  );
+}
+
+function getAvailabilityTime(row: AvailabilityRow) {
+  const start = asText(row.start_time);
+  const end = asText(row.end_time);
+  if (start && end) return `${start}-${end}`;
+  return start || end || "";
+}
+
+function getAvailabilityForSp(spId: string, availabilityRows: AvailabilityRow[]) {
+  return availabilityRows
+    .filter((row) => getAvailabilitySpId(row) === spId)
+    .sort((a, b) => getAvailabilityDate(a).localeCompare(getAvailabilityDate(b)));
+}
+
+function formatAvailabilityRows(rows: AvailabilityRow[]) {
+  if (!rows.length) return "No availability rows found.";
+
+  return rows
+    .slice(0, 3)
+    .map((row) => {
+      const time = getAvailabilityTime(row);
+      const notes = asText(row.notes);
+      return [
+        getAvailabilityDate(row),
+        getAvailabilityStatus(row),
+        time,
+        notes,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+    })
+    .join("\n");
+}
+
 function formatTimestamp(value?: string | null) {
   if (!value) return "Not contacted yet";
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return "Not contacted yet";
   return parsed.toLocaleString();
+}
+
+function formatSessionDate(value?: string | null) {
+  if (!value) return "Date TBD";
+  const parsed = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleDateString();
+}
+
+function formatSessionTime(session: EventSessionRow) {
+  if (session.start_time && session.end_time) {
+    return `${session.start_time}-${session.end_time}`;
+  }
+
+  return session.start_time || session.end_time || "Time TBD";
+}
+
+function formatSessionLocation(session: EventSessionRow, eventLocation?: string | null) {
+  return session.room || session.location || eventLocation || "Location TBD";
+}
+
+function formatSessionLabel(session: EventSessionRow, eventLocation?: string | null) {
+  return [
+    formatSessionDate(session.session_date),
+    formatSessionTime(session),
+    formatSessionLocation(session, eventLocation),
+  ].join(" · ");
 }
 
 function toDatetimeLocalValue(value?: string | null) {
@@ -287,11 +403,23 @@ async function fetchCommandCenterData(eventId: string): Promise<CommandCenterDat
   if (eventError) {
     return {
       event: null,
+      sessions: [],
       sps: [],
       assignments: [],
+      availabilityRows: [],
       errorMessage: eventError.message || "Could not load event from Supabase.",
+      sessionErrorMessage: "",
+      availabilityErrorMessage: "",
     };
   }
+
+  const { data: sessions, error: sessionError } = await supabase
+    .from("event_sessions")
+    .select("id,event_id,session_date,start_time,end_time,location,room,created_at")
+    .eq("event_id", eventId)
+    .order("session_date", { ascending: true })
+    .order("start_time", { ascending: true })
+    .returns<EventSessionRow[]>();
 
   const { data: sps, error: spError } = await supabase
     .from("sps")
@@ -301,9 +429,15 @@ async function fetchCommandCenterData(eventId: string): Promise<CommandCenterDat
   if (spError) {
     return {
       event,
+      sessions: sessions || [],
       sps: [],
       assignments: [],
+      availabilityRows: [],
       errorMessage: spError.message || "Could not load SPs from Supabase.",
+      sessionErrorMessage: sessionError
+        ? sessionError.message || "Could not load event sessions from Supabase."
+        : "",
+      availabilityErrorMessage: "",
     };
   }
 
@@ -316,17 +450,37 @@ async function fetchCommandCenterData(eventId: string): Promise<CommandCenterDat
   if (assignmentError) {
     return {
       event,
+      sessions: sessions || [],
       sps: [...(sps || [])].sort(sortSPs),
       assignments: [],
+      availabilityRows: [],
       errorMessage: assignmentError.message || "Could not load assignments from Supabase.",
+      sessionErrorMessage: sessionError
+        ? sessionError.message || "Could not load event sessions from Supabase."
+        : "",
+      availabilityErrorMessage: "",
     };
   }
 
+  const { data: availabilityRows, error: availabilityError } = await supabase
+    .from("sp_availability")
+    .select("*")
+    .limit(1000)
+    .returns<AvailabilityRow[]>();
+
   return {
     event,
+    sessions: sessions || [],
     sps: [...(sps || [])].sort(sortSPs),
     assignments: assignments || [],
+    availabilityRows: availabilityRows || [],
     errorMessage: "",
+    sessionErrorMessage: sessionError
+      ? sessionError.message || "Could not load event sessions from Supabase."
+      : "",
+    availabilityErrorMessage: availabilityError
+      ? availabilityError.message || "Could not load SP availability from Supabase."
+      : "",
   };
 }
 
@@ -341,13 +495,17 @@ export default function EventDetailPage() {
   const id = getRouteId(params);
 
   const [event, setEvent] = useState<EventDetailRow | null>(null);
+  const [sessions, setSessions] = useState<EventSessionRow[]>([]);
   const [sps, setSps] = useState<SPRow[]>([]);
   const [assignments, setAssignments] = useState<AssignmentRow[]>([]);
+  const [availabilityRows, setAvailabilityRows] = useState<AvailabilityRow[]>([]);
   const [selectedSpId, setSelectedSpId] = useState("");
   const [showEmailDraft, setShowEmailDraft] = useState(false);
   const [loading, setLoading] = useState(Boolean(id));
   const [saving, setSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const [sessionErrorMessage, setSessionErrorMessage] = useState("");
+  const [availabilityErrorMessage, setAvailabilityErrorMessage] = useState("");
 
   const spsById = useMemo(() => {
     const next = new Map<string, SPRow>();
@@ -365,6 +523,16 @@ export default function EventDetailPage() {
     [assignedSpIds, sps]
   );
 
+  const availabilityBySpId = useMemo(() => {
+    const next = new Map<string, AvailabilityRow[]>();
+
+    sps.forEach((sp) => {
+      next.set(sp.id, getAvailabilityForSp(sp.id, availabilityRows));
+    });
+
+    return next;
+  }, [availabilityRows, sps]);
+
   const confirmedCount = assignments.filter(
     (assignment) => getAssignmentStatus(assignment) === "confirmed"
   ).length;
@@ -374,6 +542,10 @@ export default function EventDetailPage() {
   const coveragePercent =
     needed > 0 ? Math.min(100, Math.round((confirmedCount / needed) * 100)) : 0;
   const isCovered = needed > 0 && shortage === 0;
+  const structuredDateLabel = sessions.length
+    ? sessions.map((session) => formatSessionLabel(session, event?.location)).join("; ")
+    : "";
+  const eventDateLabel = structuredDateLabel || event?.date_text || "TBD";
   const assignedEmailSources = useMemo(() => {
     return assignments
       .map((assignment) => {
@@ -405,7 +577,7 @@ export default function EventDetailPage() {
     `You are receiving this because you are assigned as an SP for ${event?.name || "this CFSP event"}.`,
     "",
     `Event: ${event?.name || "TBD"}`,
-    `Date(s): ${event?.date_text || "TBD"}`,
+    `Date(s): ${eventDateLabel}`,
     `Location: ${event?.location || "TBD"}`,
     "",
     "Reporting instructions: Please arrive at the assigned reporting location 15 minutes before the event start time. Additional case-specific instructions will be shared by the simulation operations team.",
@@ -426,9 +598,13 @@ export default function EventDetailPage() {
 
     const result = await fetchCommandCenterData(id);
     setEvent(result.event);
+    setSessions(result.sessions);
     setSps(result.sps);
     setAssignments(result.assignments);
+    setAvailabilityRows(result.availabilityRows);
     setErrorMessage(result.errorMessage);
+    setSessionErrorMessage(result.sessionErrorMessage);
+    setAvailabilityErrorMessage(result.availabilityErrorMessage);
     setSelectedSpId("");
   }
 
@@ -444,9 +620,13 @@ export default function EventDetailPage() {
         if (cancelled) return;
 
         setEvent(result.event);
+        setSessions(result.sessions);
         setSps(result.sps);
         setAssignments(result.assignments);
+        setAvailabilityRows(result.availabilityRows);
         setErrorMessage(result.errorMessage);
+        setSessionErrorMessage(result.sessionErrorMessage);
+        setAvailabilityErrorMessage(result.availabilityErrorMessage);
         setLoading(false);
       });
     };
@@ -458,6 +638,7 @@ export default function EventDetailPage() {
     const channel = supabase
       .channel(`event-command-center-${id}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "events" }, refresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "event_sessions" }, refresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "sps" }, refresh)
       .on(
         "postgres_changes",
@@ -607,6 +788,34 @@ export default function EventDetailPage() {
         </div>
       ) : null}
 
+      {sessionErrorMessage ? (
+        <div
+          style={{
+            ...cardStyle,
+            borderColor: "#fed7aa",
+            background: "#fff7ed",
+            color: "#9a3412",
+            fontWeight: 700,
+          }}
+        >
+          Session warning: {sessionErrorMessage}. Falling back to event date text.
+        </div>
+      ) : null}
+
+      {availabilityErrorMessage ? (
+        <div
+          style={{
+            ...cardStyle,
+            borderColor: "#fed7aa",
+            background: "#fff7ed",
+            color: "#9a3412",
+            fontWeight: 700,
+          }}
+        >
+          Availability warning: {availabilityErrorMessage}
+        </div>
+      ) : null}
+
       <div style={cardStyle}>
         <Link href="/events" style={{ color: "#1d4ed8", fontWeight: 800, textDecoration: "none" }}>
           Back to Events
@@ -686,7 +895,7 @@ export default function EventDetailPage() {
         <div style={detailGridStyle}>
           <div style={statCard}>
             <div style={statLabel}>Date</div>
-            <div style={statValue}>{event.date_text || "—"}</div>
+            <div style={statValue}>{eventDateLabel}</div>
           </div>
 
           <div style={statCard}>
@@ -703,6 +912,42 @@ export default function EventDetailPage() {
             <div style={statLabel}>Visibility</div>
             <div style={statValue}>{event.visibility || "—"}</div>
           </div>
+        </div>
+
+        <div
+          style={{
+            marginTop: "16px",
+            border: "1px solid #dbe4ee",
+            borderRadius: "18px",
+            padding: "16px",
+            background: "#f8fbff",
+          }}
+        >
+          <div style={statLabel}>Event Sessions</div>
+          {sessions.length ? (
+            <div style={{ display: "grid", gap: "10px", marginTop: "10px" }}>
+              {sessions.map((session) => (
+                <div key={session.id} style={{ ...statCard, background: "#ffffff" }}>
+                  <div style={{ color: "#173b6c", fontWeight: 900 }}>
+                    {formatSessionDate(session.session_date)}
+                  </div>
+                  <div style={{ marginTop: "6px", color: "#334155", lineHeight: 1.7 }}>
+                    <div>
+                      <strong>Time:</strong> {formatSessionTime(session)}
+                    </div>
+                    <div>
+                      <strong>Location/Room:</strong>{" "}
+                      {formatSessionLocation(session, event.location)}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={{ marginTop: "8px", color: "#64748b", fontWeight: 700 }}>
+              No structured sessions yet. Fallback date text: {event.date_text || "—"}
+            </div>
+          )}
         </div>
 
         <div
@@ -764,6 +1009,32 @@ export default function EventDetailPage() {
           >
             Add Assignment
           </button>
+        </div>
+
+        <div style={{ marginTop: "16px" }}>
+          <div style={statLabel}>Candidate Availability Summary</div>
+          <div style={{ display: "grid", gap: "10px", marginTop: "10px" }}>
+            {availableSps.length === 0 ? (
+              <div style={{ ...statCard, color: "#64748b", fontWeight: 700 }}>
+                No unassigned SPs available for matching.
+              </div>
+            ) : (
+              availableSps.slice(0, 6).map((sp) => {
+                const rows = availabilityBySpId.get(sp.id) || [];
+
+                return (
+                  <div key={sp.id} style={statCard}>
+                    <div style={{ color: "#173b6c", fontWeight: 900 }}>
+                      {getFullName(sp)}
+                    </div>
+                    <div style={{ marginTop: "6px", color: "#64748b", whiteSpace: "pre-wrap" }}>
+                      {formatAvailabilityRows(rows)}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
         </div>
       </div>
 
@@ -872,6 +1143,9 @@ export default function EventDetailPage() {
               const email = sp ? getEmail(sp) : "";
               const statusStyle = assignmentStatusStyles[status];
               const contactMethod = getContactMethod(assignment);
+              const availabilityForSp = assignment.sp_id
+                ? availabilityBySpId.get(assignment.sp_id) || []
+                : [];
 
               return (
                 <div
@@ -904,6 +1178,12 @@ export default function EventDetailPage() {
                       </div>
                       <div style={{ marginTop: 6, color: "#334155", lineHeight: 1.6 }}>
                         <strong>Last contact:</strong> {formatTimestamp(assignment.last_contacted_at)}
+                      </div>
+                      <div style={{ marginTop: 6, color: "#334155", lineHeight: 1.6 }}>
+                        <strong>Availability:</strong>
+                        <span style={{ display: "block", whiteSpace: "pre-wrap" }}>
+                          {formatAvailabilityRows(availabilityForSp)}
+                        </span>
                       </div>
                       <div
                         style={{
