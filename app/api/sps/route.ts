@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { supabase } from "../../lib/supabaseClient";
+import { supabaseServer } from "../../lib/supabaseServerClient";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +14,7 @@ function getErrorMessage(error: unknown) {
 
 export async function GET() {
   try {
-    const { data, error } = await supabase
+    const { data, error } = await supabaseServer
       .from("sps")
       .select(spSelectColumns);
 
@@ -37,7 +37,7 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const payload = await request.json();
-    const { data, error } = await supabase
+    const { data, error } = await supabaseServer
       .from("sps")
       .insert(payload)
       .select(spSelectColumns)
