@@ -3,14 +3,29 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import SiteShell from "../components/SiteShell";
-import * as planningData from "../lib/planningData";
-import {
-  EventAssignment,
-  ImportedEvent,
-  buildImportedEvents,
-  loadAssignments,
-  slugify,
-} from "../lib/cfspData";
+import { supabase } from "../lib/supabaseClient";
+
+type EventRow = {
+  id: string;
+  name: string | null;
+  status: string | null;
+  date_text: string | null;
+  location: string | null;
+  sp_needed: number | null;
+  created_at: string | null;
+};
+
+type EventAssignmentRow = {
+  id: string;
+  event_id: string | null;
+  confirmed: boolean | null;
+};
+
+type EventAssignmentCounts = {
+  total: number;
+  confirmed: number;
+  shortage: number;
+};
 
 const cardStyle: React.CSSProperties = {
   background: "#ffffff",
@@ -75,61 +90,33 @@ const shortagePill = (isCovered: boolean): React.CSSProperties => ({
   border: isCovered ? "1px solid #bbf7d0" : "1px solid #fed7aa",
 });
 
-function getEventMatch(event: ImportedEvent, assignment: EventAssignment) {
-  const eventIdKey = slugify(event.id);
-  const eventNameKey = slugify(event.name);
-
-  return (
-    slugify(assignment.eventId) === eventIdKey ||
-    slugify(assignment.eventName) === eventNameKey
-  );
-}
-
-function countAssignmentsForEvent(
-  event: ImportedEvent,
-  assignments: EventAssignment[]
-) {
-  const matching = assignments.filter((a) => getEventMatch(event, a));
-
-  const confirmed = matching.filter((a) => a.confirmed).length;
-  const total = matching.length;
-  const needed = Number(event.spNeeded || 0);
-  const shortage = Math.max(needed - confirmed, 0);
-
-  return {
-    total,
-    confirmed,
-    shortage,
-  };
-}
-
-function parseEventDateValue(event: ImportedEvent): number {
-  const candidates = [
-    event.dateText,
-    (event as any).date,
-    (event as any).firstDate,
-    (event as any).startDate,
-  ].filter(Boolean) as string[];
+function parseEventDateValue(event: EventRow): number {
+  const candidates = [event.date_text, event.created_at].filter(Boolean) as string[];
 
   for (const candidate of candidates) {
     const parsed = Date.parse(candidate);
     if (!Number.isNaN(parsed)) return parsed;
 
-    const match = candidate.match(/\b(\d{1,2})\/(\d{1,2})\/(\d{2,4})\b/);
-    if (match) {
-      const [, mm, dd, yyyy] = match;
-      const fullYear = yyyy.length === 2 ? `20${yyyy}` : yyyy;
+    const slashDate = candidate.match(/\b(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/);
+    if (slashDate) {
+      const [, month, day, year] = slashDate;
+      const fullYear = year
+        ? year.length === 2
+          ? `20${year}`
+          : year
+        : String(new Date().getFullYear());
+
       const retry = Date.parse(
-        `${fullYear}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`
+        `${fullYear}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`
       );
       if (!Number.isNaN(retry)) return retry;
     }
 
-    const monthNameMatch = candidate.match(
-      /\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+\d{4}\b/i
+    const monthNameDate = candidate.match(
+      /\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},?\s+\d{4}\b/i
     );
-    if (monthNameMatch) {
-      const retry = Date.parse(monthNameMatch[0]);
+    if (monthNameDate) {
+      const retry = Date.parse(monthNameDate[0]);
       if (!Number.isNaN(retry)) return retry;
     }
   }
@@ -137,40 +124,100 @@ function parseEventDateValue(event: ImportedEvent): number {
   return Number.MAX_SAFE_INTEGER;
 }
 
+function countAssignmentsForEvent(
+  event: EventRow,
+  assignments: EventAssignmentRow[]
+): EventAssignmentCounts {
+  const matching = assignments.filter((assignment) => assignment.event_id === event.id);
+  const confirmed = matching.filter((assignment) => assignment.confirmed === true).length;
+  const needed = Number(event.sp_needed || 0);
+
+  return {
+    total: matching.length,
+    confirmed,
+    shortage: Math.max(needed - confirmed, 0),
+  };
+}
+
+function sortEventsByDateThenName(a: EventRow, b: EventRow) {
+  const aDate = parseEventDateValue(a);
+  const bDate = parseEventDateValue(b);
+
+  if (aDate !== bDate) return aDate - bDate;
+  return (a.name || "").localeCompare(b.name || "");
+}
+
+async function fetchEventsPageData() {
+  const { data: eventRows, error: eventError } = await supabase
+    .from("events")
+    .select("id,name,status,date_text,location,sp_needed,created_at")
+    .returns<EventRow[]>();
+
+  if (eventError) {
+    return {
+      events: [],
+      assignments: [],
+      errorMessage: eventError.message || "Could not load events from Supabase.",
+    };
+  }
+
+  const { data: assignmentRows, error: assignmentError } = await supabase
+    .from("event_assignments")
+    .select("id,event_id,confirmed")
+    .returns<EventAssignmentRow[]>();
+
+  if (assignmentError) {
+    return {
+      events: [...(eventRows || [])].sort(sortEventsByDateThenName),
+      assignments: [],
+      errorMessage:
+        assignmentError.message || "Could not load event assignments from Supabase.",
+    };
+  }
+
+  return {
+    events: [...(eventRows || [])].sort(sortEventsByDateThenName),
+    assignments: assignmentRows || [],
+    errorMessage: "",
+  };
+}
+
 export default function EventsPage() {
-  const events = useMemo(() => {
-    const imported = buildImportedEvents(planningData);
-
-    return [...imported].sort((a, b) => {
-      const aDate = parseEventDateValue(a);
-      const bDate = parseEventDateValue(b);
-
-      if (aDate !== bDate) return aDate - bDate;
-
-      return a.name.localeCompare(b.name);
-    });
-  }, []);
-
-  const [assignments, setAssignments] = useState<EventAssignment[]>([]);
+  const [events, setEvents] = useState<EventRow[]>([]);
+  const [assignments, setAssignments] = useState<EventAssignmentRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState("");
 
   useEffect(() => {
-    const refresh = () => {
-      setAssignments(loadAssignments());
-    };
+    let cancelled = false;
 
-    refresh();
+    void fetchEventsPageData().then((result) => {
+      if (cancelled) return;
 
-    const onFocus = () => refresh();
-    window.addEventListener("focus", onFocus);
+      setEvents(result.events);
+      setAssignments(result.assignments);
+      setErrorMessage(result.errorMessage);
+      setLoading(false);
+    });
 
     return () => {
-      window.removeEventListener("focus", onFocus);
+      cancelled = true;
     };
   }, []);
 
-  const totalNeeded = events.reduce((sum, event) => sum + Number(event.spNeeded || 0), 0);
+  const eventCounts = useMemo(() => {
+    const next = new Map<string, EventAssignmentCounts>();
+
+    events.forEach((event) => {
+      next.set(event.id, countAssignmentsForEvent(event, assignments));
+    });
+
+    return next;
+  }, [assignments, events]);
+
+  const totalNeeded = events.reduce((sum, event) => sum + Number(event.sp_needed || 0), 0);
   const totalConfirmed = events.reduce(
-    (sum, event) => sum + countAssignmentsForEvent(event, assignments).confirmed,
+    (sum, event) => sum + (eventCounts.get(event.id)?.confirmed || 0),
     0
   );
   const totalShortage = Math.max(totalNeeded - totalConfirmed, 0);
@@ -178,8 +225,22 @@ export default function EventsPage() {
   return (
     <SiteShell
       title="Events"
-      subtitle="Real event list with saved SP assignment coverage, shortage tracking, and clean earliest-date sorting."
+      subtitle="Supabase event list with live SP assignment coverage and earliest-date sorting."
     >
+      {errorMessage ? (
+        <div
+          style={{
+            ...cardStyle,
+            borderColor: "#fecaca",
+            background: "#fff5f5",
+            color: "#991b1b",
+            fontWeight: 700,
+          }}
+        >
+          Supabase error: {errorMessage}
+        </div>
+      ) : null}
+
       <div style={cardStyle}>
         <div
           style={{
@@ -210,92 +271,96 @@ export default function EventsPage() {
         </div>
       </div>
 
-      {events.map((event) => {
-        const counts = countAssignmentsForEvent(event, assignments);
-        const needed = Number(event.spNeeded || 0);
-        const isCovered = counts.shortage === 0 && needed > 0;
-        const coverageText =
-          needed > 0
-            ? `${counts.confirmed} confirmed / ${needed} needed`
-            : `${counts.confirmed} confirmed`;
+      {loading ? (
+        <div style={cardStyle}>Loading events from Supabase...</div>
+      ) : events.length === 0 ? (
+        <div style={cardStyle}>No events found in Supabase.</div>
+      ) : (
+        events.map((event) => {
+          const counts = eventCounts.get(event.id) || {
+            total: 0,
+            confirmed: 0,
+            shortage: Number(event.sp_needed || 0),
+          };
+          const needed = Number(event.sp_needed || 0);
+          const isCovered = counts.shortage === 0 && needed > 0;
+          const coverageText =
+            needed > 0
+              ? `${counts.confirmed} confirmed / ${needed} needed`
+              : `${counts.confirmed} confirmed`;
 
-        return (
-          <div key={event.id} style={cardStyle}>
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                gap: 16,
-                flexWrap: "wrap",
-                alignItems: "flex-start",
-              }}
-            >
-              <div style={{ flex: "1 1 560px", minWidth: 280 }}>
-                <h2 style={{ margin: 0, fontSize: "34px", color: "#173b6c", lineHeight: 1.15 }}>
-                  {event.name}
-                </h2>
+          return (
+            <div key={event.id} style={cardStyle}>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  gap: 16,
+                  flexWrap: "wrap",
+                  alignItems: "flex-start",
+                }}
+              >
+                <div style={{ flex: "1 1 560px", minWidth: 280 }}>
+                  <h2 style={{ margin: 0, fontSize: "34px", color: "#173b6c", lineHeight: 1.15 }}>
+                    {event.name || "Untitled Event"}
+                  </h2>
 
-                <div style={{ marginTop: 8, color: "#64748b", fontWeight: 700 }}>
-                  {event.status || "No status"}
+                  <div style={{ marginTop: 8, color: "#64748b", fontWeight: 700 }}>
+                    {event.status || "No status"}
+                  </div>
+
+                  <div style={{ marginTop: 12 }}>
+                    <span style={shortagePill(isCovered)}>
+                      {needed > 0
+                        ? counts.shortage === 0
+                          ? "Covered"
+                          : `${counts.shortage} short`
+                        : "No SP target set"}
+                    </span>
+                  </div>
                 </div>
 
-                <div style={{ marginTop: 12 }}>
-                  <span style={shortagePill(isCovered)}>
-                    {needed > 0
-                      ? counts.shortage === 0
-                        ? "Covered"
-                        : `${counts.shortage} short`
-                      : "No SP target set"}
-                  </span>
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  <Link href={`/events/${event.id}`} style={buttonStyle}>
+                    Open Event
+                  </Link>
                 </div>
               </div>
 
-              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                <Link href={`/events/${event.id}`} style={buttonStyle}>
-                  Open Event
-                </Link>
+              <div style={statGrid}>
+                <div style={statCard}>
+                  <div style={statLabel}>Date</div>
+                  <div style={statValue}>{event.date_text || "—"}</div>
+                </div>
+
+                <div style={statCard}>
+                  <div style={statLabel}>Location</div>
+                  <div style={statValue}>{event.location || "—"}</div>
+                </div>
+
+                <div style={statCard}>
+                  <div style={statLabel}>SPs Needed</div>
+                  <div style={statValue}>{needed}</div>
+                </div>
+
+                <div style={statCard}>
+                  <div style={statLabel}>SP Coverage</div>
+                  <div style={statValue}>{coverageText}</div>
+                </div>
+              </div>
+
+              <div style={{ marginTop: 14, color: "#173b6c", lineHeight: 1.8 }}>
+                <div>
+                  <strong>Status:</strong> {event.status || "—"}
+                </div>
+                <div>
+                  <strong>Total Saved Assignments:</strong> {counts.total}
+                </div>
               </div>
             </div>
-
-            <div style={statGrid}>
-              <div style={statCard}>
-                <div style={statLabel}>Dates</div>
-                <div style={statValue}>{event.dateText || "—"}</div>
-              </div>
-
-              <div style={statCard}>
-                <div style={statLabel}>Sessions</div>
-                <div style={statValue}>{event.sessionCount ?? 0}</div>
-              </div>
-
-              <div style={statCard}>
-                <div style={statLabel}>Rooms</div>
-                <div style={statValue}>{event.roomCount ?? 0}</div>
-              </div>
-
-              <div style={statCard}>
-                <div style={statLabel}>SP Coverage</div>
-                <div style={statValue}>{coverageText}</div>
-              </div>
-            </div>
-
-            <div style={{ marginTop: 14, color: "#173b6c", lineHeight: 1.8 }}>
-              <div>
-                <strong>Assigned Sim Ops:</strong> {event.simOp || "—"}
-              </div>
-              <div>
-                <strong>Lead(s):</strong> {event.faculty || "—"}
-              </div>
-              <div>
-                <strong>Rooms:</strong> {event.roomsLabel || "—"}
-              </div>
-              <div>
-                <strong>Total Saved Assignments:</strong> {counts.total}
-              </div>
-            </div>
-          </div>
-        );
-      })}
+          );
+        })
+      )}
     </SiteShell>
   );
 }
