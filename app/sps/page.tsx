@@ -6,7 +6,7 @@ import SiteShell from "../components/SiteShell";
 import { supabase } from "../lib/supabaseClient";
 
 type SPRow = {
-  id?: string | number | null;
+  id: string;
   first_name?: string | null;
   last_name?: string | null;
   full_name?: string | null;
@@ -107,6 +107,9 @@ const buttonStyle: CSSProperties = {
   padding: "11px 16px",
 };
 
+const spSelectColumns =
+  "id,first_name,last_name,full_name,working_email,email,phone,secondary_phone,portrayal_age,race,sex,status,do_not_hire_for,telehealth,pt_preferred,other_roles,birth_year,secondary_email,speaks_spanish,notes,created_at";
+
 function asText(value: unknown) {
   if (value === null || value === undefined) return "";
   return String(value).trim();
@@ -162,7 +165,10 @@ export default function SPPage() {
   const [form, setForm] = useState<NewSPForm>(emptyForm);
 
   async function loadSPs() {
-    const { data, error } = await supabase.from("sps").select("*").returns<SPRow[]>();
+    const { data, error } = await supabase
+      .from("sps")
+      .select(spSelectColumns)
+      .returns<SPRow[]>();
 
     if (error) {
       setErrorMessage(error.message || "Could not load SPs from Supabase.");
@@ -181,7 +187,7 @@ export default function SPPage() {
 
     void supabase
       .from("sps")
-      .select("*")
+      .select(spSelectColumns)
       .returns<SPRow[]>()
       .then(({ data, error }) => {
         if (cancelled) return;

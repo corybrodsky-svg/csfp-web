@@ -18,6 +18,7 @@ type EventRow = {
 type EventAssignmentRow = {
   id: string;
   event_id: string | null;
+  sp_id: string | null;
   confirmed: boolean | null;
 };
 
@@ -163,7 +164,7 @@ async function fetchEventsPageData() {
 
   const { data: assignmentRows, error: assignmentError } = await supabase
     .from("event_assignments")
-    .select("id,event_id,confirmed")
+    .select("id,event_id,sp_id,confirmed")
     .returns<EventAssignmentRow[]>();
 
   if (assignmentError) {
@@ -191,17 +192,35 @@ export default function EventsPage() {
   useEffect(() => {
     let cancelled = false;
 
-    void fetchEventsPageData().then((result) => {
-      if (cancelled) return;
+    const refresh = () => {
+      void fetchEventsPageData().then((result) => {
+        if (cancelled) return;
 
-      setEvents(result.events);
-      setAssignments(result.assignments);
-      setErrorMessage(result.errorMessage);
-      setLoading(false);
-    });
+        setEvents(result.events);
+        setAssignments(result.assignments);
+        setErrorMessage(result.errorMessage);
+        setLoading(false);
+      });
+    };
+
+    refresh();
+
+    window.addEventListener("focus", refresh);
+
+    const channel = supabase
+      .channel("events-page-sync")
+      .on("postgres_changes", { event: "*", schema: "public", table: "events" }, refresh)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "event_assignments" },
+        refresh
+      )
+      .subscribe();
 
     return () => {
       cancelled = true;
+      window.removeEventListener("focus", refresh);
+      supabase.removeChannel(channel);
     };
   }, []);
 

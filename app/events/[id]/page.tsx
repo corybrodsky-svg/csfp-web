@@ -248,18 +248,37 @@ export default function EventDetailPage() {
       return;
     }
 
-    void fetchCommandCenterData(id).then((result) => {
-      if (cancelled) return;
+    const refresh = () => {
+      void fetchCommandCenterData(id).then((result) => {
+        if (cancelled) return;
 
-      setEvent(result.event);
-      setSps(result.sps);
-      setAssignments(result.assignments);
-      setErrorMessage(result.errorMessage);
-      setLoading(false);
-    });
+        setEvent(result.event);
+        setSps(result.sps);
+        setAssignments(result.assignments);
+        setErrorMessage(result.errorMessage);
+        setLoading(false);
+      });
+    };
+
+    refresh();
+
+    window.addEventListener("focus", refresh);
+
+    const channel = supabase
+      .channel(`event-command-center-${id}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "events" }, refresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "sps" }, refresh)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "event_assignments" },
+        refresh
+      )
+      .subscribe();
 
     return () => {
       cancelled = true;
+      window.removeEventListener("focus", refresh);
+      supabase.removeChannel(channel);
     };
   }, [id]);
 
