@@ -3,7 +3,6 @@
 import type { CSSProperties, FormEvent } from "react";
 import { useEffect, useMemo, useState } from "react";
 import SiteShell from "../components/SiteShell";
-import { supabase } from "../lib/supabaseClient";
 
 type SPRow = {
   id: string;
@@ -107,9 +106,6 @@ const buttonStyle: CSSProperties = {
   padding: "11px 16px",
 };
 
-const spSelectColumns =
-  "id,first_name,last_name,full_name,working_email,email,phone,secondary_phone,portrayal_age,race,sex,status,do_not_hire_for,telehealth,pt_preferred,other_roles,birth_year,secondary_email,speaks_spanish,notes,created_at";
-
 function asText(value: unknown) {
   if (value === null || value === undefined) return "";
   return String(value).trim();
@@ -156,6 +152,26 @@ function toNullable(value: string) {
   return trimmed || null;
 }
 
+async function parseApiError(response: Response) {
+  try {
+    const body = await response.json();
+    return asText(body?.error) || `${response.status} ${response.statusText}`;
+  } catch {
+    return `${response.status} ${response.statusText}`;
+  }
+}
+
+async function fetchSPs() {
+  const response = await fetch("/api/sps", { cache: "no-store" });
+
+  if (!response.ok) {
+    throw new Error(await parseApiError(response));
+  }
+
+  const body = await response.json();
+  return Array.isArray(body?.sps) ? (body.sps as SPRow[]) : [];
+}
+
 export default function SPPage() {
   const [sps, setSps] = useState<SPRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -165,42 +181,34 @@ export default function SPPage() {
   const [form, setForm] = useState<NewSPForm>(emptyForm);
 
   async function loadSPs() {
-    const { data, error } = await supabase
-      .from("sps")
-      .select(spSelectColumns)
-      .returns<SPRow[]>();
-
-    if (error) {
-      setErrorMessage(error.message || "Could not load SPs from Supabase.");
+    try {
+      const data = await fetchSPs();
+      setSps(data.sort(sortSPs));
+      setErrorMessage("");
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Could not load SPs from Supabase.");
       setSps([]);
+    } finally {
       setLoading(false);
-      return;
     }
-
-    setSps([...(data || [])].sort(sortSPs));
-    setErrorMessage("");
-    setLoading(false);
   }
 
   useEffect(() => {
     let cancelled = false;
 
-    void supabase
-      .from("sps")
-      .select(spSelectColumns)
-      .returns<SPRow[]>()
-      .then(({ data, error }) => {
+    void fetchSPs()
+      .then((data) => {
         if (cancelled) return;
-
-        if (error) {
-          setErrorMessage(error.message || "Could not load SPs from Supabase.");
-          setSps([]);
-          setLoading(false);
-          return;
-        }
-
-        setSps([...(data || [])].sort(sortSPs));
+        setSps(data.sort(sortSPs));
         setErrorMessage("");
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setErrorMessage(error instanceof Error ? error.message : "Could not load SPs from Supabase.");
+        setSps([]);
+      })
+      .finally(() => {
+        if (cancelled) return;
         setLoading(false);
       });
 
@@ -255,10 +263,20 @@ export default function SPPage() {
       notes: toNullable(form.notes),
     };
 
-    const { error } = await supabase.from("sps").insert(payload);
+    try {
+      const response = await fetch("/api/sps", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
 
-    if (error) {
-      setErrorMessage(error.message || "Could not create SP in Supabase.");
+      if (!response.ok) {
+        setErrorMessage(await parseApiError(response));
+        setSaving(false);
+        return;
+      }
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Could not create SP in Supabase.");
       setSaving(false);
       return;
     }
