@@ -12,7 +12,6 @@ type EventDetailRow = {
   status: string | null;
   date_text: string | null;
   sp_needed: number | null;
-  sp_assigned: number | null;
   visibility: string | null;
   location: string | null;
   notes: string | null;
@@ -86,6 +85,12 @@ type AssignmentStatus =
   | "no_show";
 
 type ContactMethod = "call" | "text" | "email";
+
+type AvailabilityMatchStatus =
+  | "available"
+  | "partial"
+  | "none"
+  | "unknown";
 
 type CommandCenterData = {
   event: EventDetailRow | null;
@@ -229,6 +234,36 @@ const assignmentStatusStyles: Record<AssignmentStatus, React.CSSProperties> = {
   },
 };
 
+const availabilityMatchLabels: Record<AvailabilityMatchStatus, string> = {
+  available: "Available for this event",
+  partial: "Partial availability",
+  none: "No matching availability",
+  unknown: "Unknown",
+};
+
+const availabilityMatchStyles: Record<AvailabilityMatchStatus, React.CSSProperties> = {
+  available: {
+    background: "#dcfce7",
+    color: "#166534",
+    border: "1px solid #86efac",
+  },
+  partial: {
+    background: "#fef9c3",
+    color: "#854d0e",
+    border: "1px solid #fde68a",
+  },
+  none: {
+    background: "#fee2e2",
+    color: "#991b1b",
+    border: "1px solid #fecaca",
+  },
+  unknown: {
+    background: "#f1f5f9",
+    color: "#475569",
+    border: "1px solid #cbd5e1",
+  },
+};
+
 const inputStyle: React.CSSProperties = {
   border: "1px solid #cbd5e1",
   borderRadius: "12px",
@@ -332,6 +367,17 @@ function getAvailabilityDate(row: AvailabilityRow) {
   );
 }
 
+function normalizeDateValue(value?: string | null) {
+  const raw = asText(value);
+  if (!raw || raw === "Date TBD") return "";
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return parsed.toISOString().slice(0, 10);
+}
+
 function getAvailabilityStatus(row: AvailabilityRow) {
   if (typeof row.available === "boolean") {
     return row.available ? "Available" : "Unavailable";
@@ -342,6 +388,16 @@ function getAvailabilityStatus(row: AvailabilityRow) {
     asText(row.status) ||
     "Availability noted"
   );
+}
+
+function isAvailabilityRowAvailable(row: AvailabilityRow) {
+  if (typeof row.available === "boolean") return row.available;
+
+  const status = asText(row.availability_status || row.status).toLowerCase();
+  if (!status) return false;
+  if (["available", "yes", "true", "open"].includes(status)) return true;
+  if (status.includes("available") && !status.includes("unavailable")) return true;
+  return false;
 }
 
 function getAvailabilityTime(row: AvailabilityRow) {
@@ -375,6 +431,32 @@ function formatAvailabilityRows(rows: AvailabilityRow[]) {
         .join(" · ");
     })
     .join("\n");
+}
+
+function getAvailabilityMatch(
+  eventDates: string[],
+  rows: AvailabilityRow[]
+): AvailabilityMatchStatus {
+  if (!eventDates.length || !rows.length) return "unknown";
+
+  const availableDates = new Set(
+    rows
+      .filter(isAvailabilityRowAvailable)
+      .map((row) => normalizeDateValue(getAvailabilityDate(row)))
+      .filter(Boolean)
+  );
+
+  const matchedCount = eventDates.filter((date) => availableDates.has(date)).length;
+  if (matchedCount === eventDates.length) return "available";
+  if (matchedCount > 0) return "partial";
+  return "none";
+}
+
+function getAvailabilityMatchRank(status: AvailabilityMatchStatus) {
+  if (status === "available") return 0;
+  if (status === "partial") return 1;
+  if (status === "unknown") return 2;
+  return 3;
 }
 
 function formatTimestamp(value?: string | null) {
@@ -438,7 +520,7 @@ function buildMailtoHref(args: { bcc: string[]; subject: string; body: string })
 async function fetchCommandCenterData(eventId: string): Promise<CommandCenterData> {
   const { data: event, error: eventError } = await supabase
     .from("events")
-    .select("id,name,status,date_text,sp_needed,sp_assigned,visibility,location,notes,created_at")
+    .select("id,name,status,date_text,sp_needed,visibility,location,notes,created_at")
     .eq("id", eventId)
     .maybeSingle<EventDetailRow>();
 
@@ -547,6 +629,7 @@ export default function EventDetailPage() {
   const [spanishOnly, setSpanishOnly] = useState(false);
   const [telehealthOnly, setTelehealthOnly] = useState(false);
   const [ptPreferredOnly, setPtPreferredOnly] = useState(false);
+  const [availableForEventOnly, setAvailableForEventOnly] = useState(false);
   const [showEmailDraft, setShowEmailDraft] = useState(false);
   const [loading, setLoading] = useState(Boolean(id));
   const [saving, setSaving] = useState(false);
@@ -574,25 +657,6 @@ export default function EventDetailPage() {
     return next;
   }, [assignments]);
 
-  const filteredCandidateSps = useMemo(
-    () =>
-      sps.filter((sp) => {
-        const query = candidateQuery.trim().toLowerCase();
-        if (query && !getCandidateSearchText(sp).includes(query)) return false;
-        if (activeOnly && !isActiveSp(sp)) return false;
-        if (spanishOnly && !speaksSpanish(sp)) return false;
-        if (telehealthOnly && !hasTelehealth(sp)) return false;
-        if (ptPreferredOnly && !hasPtPreferred(sp)) return false;
-        return true;
-      }),
-    [activeOnly, candidateQuery, ptPreferredOnly, spanishOnly, sps, telehealthOnly]
-  );
-
-  const availableSps = useMemo(
-    () => filteredCandidateSps.filter((sp) => !assignedSpIds.has(String(sp.id))),
-    [assignedSpIds, filteredCandidateSps]
-  );
-
   const availabilityBySpId = useMemo(() => {
     const next = new Map<string, AvailabilityRow[]>();
 
@@ -602,6 +666,66 @@ export default function EventDetailPage() {
 
     return next;
   }, [availabilityRows, sps]);
+
+  const eventSessionDates = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          sessions
+            .map((session) => normalizeDateValue(session.session_date))
+            .filter(Boolean)
+        )
+      ),
+    [sessions]
+  );
+
+  const availabilityMatchBySpId = useMemo(() => {
+    const next = new Map<string, AvailabilityMatchStatus>();
+
+    sps.forEach((sp) => {
+      next.set(sp.id, getAvailabilityMatch(eventSessionDates, availabilityBySpId.get(sp.id) || []));
+    });
+
+    return next;
+  }, [availabilityBySpId, eventSessionDates, sps]);
+
+  const filteredCandidateSps = useMemo(
+    () =>
+      sps
+        .filter((sp) => {
+          const query = candidateQuery.trim().toLowerCase();
+          const availabilityMatch = availabilityMatchBySpId.get(sp.id) || "unknown";
+          if (query && !getCandidateSearchText(sp).includes(query)) return false;
+          if (activeOnly && !isActiveSp(sp)) return false;
+          if (spanishOnly && !speaksSpanish(sp)) return false;
+          if (telehealthOnly && !hasTelehealth(sp)) return false;
+          if (ptPreferredOnly && !hasPtPreferred(sp)) return false;
+          if (availableForEventOnly && availabilityMatch !== "available") return false;
+          return true;
+        })
+        .sort((a, b) => {
+          const aMatch = availabilityMatchBySpId.get(a.id) || "unknown";
+          const bMatch = availabilityMatchBySpId.get(b.id) || "unknown";
+          const rankDiff = getAvailabilityMatchRank(aMatch) - getAvailabilityMatchRank(bMatch);
+          if (rankDiff !== 0) return rankDiff;
+          return sortSPs(a, b);
+        }),
+    [
+      activeOnly,
+      availabilityMatchBySpId,
+      availableForEventOnly,
+      candidateQuery,
+      ptPreferredOnly,
+      spanishOnly,
+      sps,
+      telehealthOnly,
+    ]
+  );
+
+  const availableSps = useMemo(
+    () => filteredCandidateSps.filter((sp) => !assignedSpIds.has(String(sp.id))),
+    [assignedSpIds, filteredCandidateSps]
+  );
 
   const confirmedCount = assignments.filter(
     (assignment) => getAssignmentStatus(assignment) === "confirmed"
@@ -1072,6 +1196,7 @@ export default function EventDetailPage() {
               { label: "Spanish-speaking", active: spanishOnly, setActive: setSpanishOnly },
               { label: "Telehealth", active: telehealthOnly, setActive: setTelehealthOnly },
               { label: "PT preferred", active: ptPreferredOnly, setActive: setPtPreferredOnly },
+              { label: "Available for event", active: availableForEventOnly, setActive: setAvailableForEventOnly },
             ].map((filter) => (
               <button
                 key={filter.label}
@@ -1130,6 +1255,7 @@ export default function EventDetailPage() {
             ) : (
               filteredCandidateSps.slice(0, 12).map((sp) => {
                 const rows = availabilityBySpId.get(sp.id) || [];
+                const availabilityMatch = availabilityMatchBySpId.get(sp.id) || "unknown";
                 const assignment = assignmentsBySpId.get(sp.id);
                 const assignmentStatus = assignment ? getAssignmentStatus(assignment) : null;
                 const demographics = [sp.portrayal_age, sp.race, sp.sex]
@@ -1165,6 +1291,18 @@ export default function EventDetailPage() {
                       </div>
 
                       <div style={{ display: "grid", gap: "8px", justifyItems: "end" }}>
+                        <span
+                          style={{
+                            ...availabilityMatchStyles[availabilityMatch],
+                            borderRadius: "999px",
+                            padding: "7px 11px",
+                            fontSize: "12px",
+                            fontWeight: 900,
+                          }}
+                        >
+                          {availabilityMatchLabels[availabilityMatch]}
+                        </span>
+
                         {assignmentStatus ? (
                           <span
                             style={{
@@ -1191,7 +1329,7 @@ export default function EventDetailPage() {
                     </div>
 
                     <div style={{ marginTop: "10px", color: "#64748b", whiteSpace: "pre-wrap" }}>
-                      <strong>Availability:</strong> {formatAvailabilityRows(rows)}
+                      <strong>Availability rows:</strong> {formatAvailabilityRows(rows)}
                     </div>
                   </div>
                 );

@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { supabase } from "../../lib/supabaseClient";
 
 const STATUSES = ["Needs SPs", "Scheduled", "In Progress", "Complete"];
 const VISIBILITIES = ["team", "personal"];
@@ -19,18 +18,19 @@ export default function NewEventPage() {
 
   const [saving, setSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const [successMessage, setSuccessMessage] = useState("");
 
   const [name, setName] = useState("");
   const [status, setStatus] = useState("Needs SPs");
   const [dateText, setDateText] = useState("");
   const [spNeeded, setSpNeeded] = useState("0");
-  const [spAssigned, setSpAssigned] = useState("0");
   const [visibility, setVisibility] = useState("team");
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
     setErrorMessage("");
+    setSuccessMessage("");
 
     const trimmedName = name.trim();
 
@@ -40,39 +40,39 @@ export default function NewEventPage() {
       return;
     }
 
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
-
-    if (userError || !user) {
-      setErrorMessage("You must be logged in to create an event.");
-      setSaving(false);
-      router.push("/login?role=administrator");
-      return;
-    }
-
     const payload = {
       name: trimmedName,
       status,
       date_text: dateText.trim(),
       sp_needed: parseNumber(spNeeded),
-      sp_assigned: parseNumber(spAssigned),
       visibility,
-      owner_id: user.id,
-      assigned_operator_id: user.id,
     };
 
-    const { error } = await supabase.from("events").insert([payload]);
+    let response: Response;
 
-    if (error) {
-      setErrorMessage(error.message || "Could not create event.");
+    try {
+      response = await fetch("/api/events", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Could not reach event creation API.");
       setSaving(false);
       return;
     }
 
-    router.push("/events");
+    if (!response.ok) {
+      const body = await response.json().catch(() => null);
+      setErrorMessage(body?.error || `Could not create event (${response.status}).`);
+      setSaving(false);
+      return;
+    }
+
+    setSuccessMessage("Event created successfully. Redirecting to Events...");
+    setSaving(false);
     router.refresh();
+    window.setTimeout(() => router.push("/events"), 600);
   }
 
   return (
@@ -127,6 +127,22 @@ export default function NewEventPage() {
             }}
           >
             {errorMessage}
+          </div>
+        ) : null}
+
+        {successMessage ? (
+          <div
+            style={{
+              marginBottom: "16px",
+              padding: "12px",
+              border: "1px solid #bbf7d0",
+              background: "#f0fdf4",
+              color: "#166534",
+              borderRadius: "10px",
+              fontWeight: 700,
+            }}
+          >
+            {successMessage}
           </div>
         ) : null}
 
@@ -206,26 +222,6 @@ export default function NewEventPage() {
               min="0"
               value={spNeeded}
               onChange={(e) => setSpNeeded(e.target.value)}
-              style={{
-                width: "100%",
-                padding: "10px",
-                border: "1px solid #cbd5e1",
-                borderRadius: "8px",
-                boxSizing: "border-box",
-              }}
-            />
-          </div>
-
-          <div>
-            <label htmlFor="spAssigned" style={{ display: "block", fontWeight: 700, marginBottom: "6px" }}>
-              SP Assigned
-            </label>
-            <input
-              id="spAssigned"
-              type="number"
-              min="0"
-              value={spAssigned}
-              onChange={(e) => setSpAssigned(e.target.value)}
               style={{
                 width: "100%",
                 padding: "10px",
