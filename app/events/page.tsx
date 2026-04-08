@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import SiteShell from "../components/SiteShell";
+import { formatHumanDate, getDateSortValue, getImportedYearHint } from "../lib/eventDateUtils";
 
 type EventRow = {
   id: string;
@@ -12,6 +13,9 @@ type EventRow = {
   location: string | null;
   sp_needed: number | null;
   created_at: string | null;
+  notes: string | null;
+  earliest_session_date: string | null;
+  assigned_sp_names: string[] | null;
   total_assignments: number | null;
   confirmed_assignments: number | null;
   shortage: number | null;
@@ -81,37 +85,8 @@ const shortagePill = (isCovered: boolean): React.CSSProperties => ({
 });
 
 function parseEventDateValue(event: EventRow): number {
-  const candidates = [event.date_text, event.created_at].filter(Boolean) as string[];
-
-  for (const candidate of candidates) {
-    const parsed = Date.parse(candidate);
-    if (!Number.isNaN(parsed)) return parsed;
-
-    const slashDate = candidate.match(/\b(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/);
-    if (slashDate) {
-      const [, month, day, year] = slashDate;
-      const fullYear = year
-        ? year.length === 2
-          ? `20${year}`
-          : year
-        : String(new Date().getFullYear());
-
-      const retry = Date.parse(
-        `${fullYear}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`
-      );
-      if (!Number.isNaN(retry)) return retry;
-    }
-
-    const monthNameDate = candidate.match(
-      /\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},?\s+\d{4}\b/i
-    );
-    if (monthNameDate) {
-      const retry = Date.parse(monthNameDate[0]);
-      if (!Number.isNaN(retry)) return retry;
-    }
-  }
-
-  return Number.MAX_SAFE_INTEGER;
+  const fallbackYear = getImportedYearHint(event.notes);
+  return getDateSortValue(event.earliest_session_date || event.date_text || event.created_at, fallbackYear);
 }
 
 function sortEventsByDateThenName(a: EventRow, b: EventRow) {
@@ -256,6 +231,10 @@ export default function EventsPage() {
             needed > 0
               ? `${confirmedAssignments} confirmed / ${needed} needed`
               : `${confirmedAssignments} confirmed`;
+          const assignedPreview = (event.assigned_sp_names || []).filter(Boolean);
+          const displayDate = event.earliest_session_date
+            ? formatHumanDate(event.earliest_session_date, getImportedYearHint(event.notes))
+            : formatHumanDate(event.date_text, getImportedYearHint(event.notes));
 
           return (
             <div key={event.id} style={cardStyle}>
@@ -298,7 +277,7 @@ export default function EventsPage() {
               <div style={statGrid}>
                 <div style={statCard}>
                   <div style={statLabel}>Date</div>
-                  <div style={statValue}>{event.date_text || "—"}</div>
+                  <div style={statValue}>{displayDate || "—"}</div>
                 </div>
 
                 <div style={statCard}>
@@ -323,6 +302,31 @@ export default function EventsPage() {
                 </div>
                 <div>
                   <strong>Total Saved Assignments:</strong> {totalAssignments}
+                </div>
+                <div style={{ marginTop: 8 }}>
+                  <strong>Assigned SPs:</strong>
+                  {assignedPreview.length ? (
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+                      {assignedPreview.map((name) => (
+                        <span
+                          key={`${event.id}-${name}`}
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            borderRadius: "999px",
+                            padding: "6px 10px",
+                            background: "#f8fbff",
+                            border: "1px solid #dbe4ee",
+                            fontWeight: 800,
+                          }}
+                        >
+                          {name}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    " None yet"
+                  )}
                 </div>
               </div>
             </div>

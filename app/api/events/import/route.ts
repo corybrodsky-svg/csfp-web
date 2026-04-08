@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import * as XLSX from "xlsx";
 import { supabaseServer } from "../../../lib/supabaseServerClient";
+import { asText, formatUsDate, normalizeLooseDateToIso } from "../../../lib/eventDateUtils";
 
 export const dynamic = "force-dynamic";
 
@@ -27,11 +28,6 @@ type ImportCandidate = {
   notes: string | null;
 };
 
-function asText(value: unknown) {
-  if (value === null || value === undefined) return "";
-  return String(value).trim();
-}
-
 function normalize(value: unknown) {
   return asText(value).toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
@@ -55,14 +51,16 @@ function excelSerialToIsoDate(value: number) {
   return `${parsed.y}-${String(parsed.m).padStart(2, "0")}-${String(parsed.d).padStart(2, "0")}`;
 }
 
-function toIsoDate(year: number, month: number, day: number) {
-  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
-  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+function normalizeDateTextForKey(value: string | null) {
+  return formatUsDate(value) || "";
 }
 
 function parseDateCell(value: unknown, fallbackYear: number) {
   if (value instanceof Date && !Number.isNaN(value.getTime())) {
-    return value.toISOString().slice(0, 10);
+    return normalizeLooseDateToIso(
+      `${value.getFullYear()}-${value.getMonth() + 1}-${value.getDate()}`,
+      fallbackYear
+    );
   }
 
   if (typeof value === "number") return excelSerialToIsoDate(value);
@@ -73,19 +71,16 @@ function parseDateCell(value: unknown, fallbackYear: number) {
   const lower = raw.toLowerCase();
   if (lower.includes("week") || lower.includes("vacation") || lower.includes("break")) return null;
 
-  const slashMatch = raw.match(/\b(\d{1,2})[/-](\d{1,2})(?:[/-](\d{2,4}))?\b/);
+  const slashMatch = raw.match(/\b(\d{1,2})[/-](\d{1,2})(?:[/-](\d{1,4}))?\b/);
   if (slashMatch) {
     const yearText = slashMatch[3];
-    const year = yearText
-      ? Number(yearText.length === 2 ? `20${yearText}` : yearText)
-      : fallbackYear;
-    return toIsoDate(year, Number(slashMatch[1]), Number(slashMatch[2]));
+    return normalizeLooseDateToIso(
+      `${slashMatch[1]}/${slashMatch[2]}/${yearText || fallbackYear}`,
+      fallbackYear
+    );
   }
 
-  const parsed = Date.parse(raw);
-  if (!Number.isNaN(parsed)) return new Date(parsed).toISOString().slice(0, 10);
-
-  return null;
+  return normalizeLooseDateToIso(raw, fallbackYear);
 }
 
 function parseTimeValue(value: string) {
@@ -213,7 +208,7 @@ function parseSheet(sheetName: string, rows: GridRow[]) {
 
     const { startTime, endTime } = parseTimeRange(getCell(row, header.columns.sessionTime));
     const location = asText(getCell(row, header.columns.rooms)) || null;
-    const dateText = currentDate || null;
+    const dateText = formatUsDate(currentDate);
 
     candidates.push({
       sheetName,
@@ -237,7 +232,7 @@ function parseSheet(sheetName: string, rows: GridRow[]) {
 }
 
 function importKey(name: string, dateText: string | null) {
-  return `${normalizeKey(name)}|${dateText || ""}`;
+  return `${normalizeKey(name)}|${normalizeDateTextForKey(dateText)}`;
 }
 
 export async function POST(request: Request) {

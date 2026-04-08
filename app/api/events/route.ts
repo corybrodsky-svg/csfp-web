@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseServer } from "../../lib/supabaseServerClient";
+import { getDateSortValue, getImportedYearHint, normalizeLooseDateToIso } from "../../lib/eventDateUtils";
 
 export const dynamic = "force-dynamic";
 
@@ -50,18 +51,75 @@ export async function GET() {
       );
     }
 
+    const { data: sessions, error: sessionError } = await supabaseServer
+      .from("event_sessions")
+      .select("event_id,session_date")
+      .order("session_date", { ascending: true });
+
+    if (sessionError) {
+      return NextResponse.json(
+        { error: sessionError.message || "Could not load event sessions from Supabase." },
+        { status: 500 }
+      );
+    }
+
+    const assignedSpIds = Array.from(
+      new Set((assignments || []).map((assignment) => asText(assignment.sp_id)).filter(Boolean))
+    );
+    const { data: sps, error: spsError } = assignedSpIds.length
+      ? await supabaseServer
+          .from("sps")
+          .select("id,first_name,last_name,full_name")
+          .in("id", assignedSpIds)
+      : { data: [], error: null };
+
+    if (spsError) {
+      return NextResponse.json(
+        { error: spsError.message || "Could not load assigned SP names from Supabase." },
+        { status: 500 }
+      );
+    }
+
     const assignmentRows = assignments || [];
+    const sessionRows = sessions || [];
+    const spNameById = new Map(
+      (sps || []).map((sp) => {
+        const fullName =
+          asText(sp.full_name) ||
+          [asText(sp.first_name), asText(sp.last_name)].filter(Boolean).join(" ") ||
+          "Unnamed SP";
+        return [sp.id, fullName];
+      })
+    );
     const eventsWithCoverage = (data || []).map((event) => {
       const eventAssignments = assignmentRows.filter((assignment) => assignment.event_id === event.id);
       const confirmedAssignments = eventAssignments.filter(isConfirmedAssignment).length;
       const needed = parseNumber(event.sp_needed);
+      const eventSessions = sessionRows.filter((session) => session.event_id === event.id);
+      const fallbackYear = getImportedYearHint(event.notes);
+      const earliestSessionDate =
+        eventSessions
+          .map((session) => normalizeLooseDateToIso(session.session_date, fallbackYear))
+          .filter(Boolean)
+          .sort()[0] || null;
+      const assignedNames = eventAssignments
+        .map((assignment) => spNameById.get(asText(assignment.sp_id)) || "")
+        .filter(Boolean)
+        .slice(0, 3);
 
       return {
         ...event,
+        earliest_session_date: earliestSessionDate,
+        assigned_sp_names: assignedNames,
         total_assignments: eventAssignments.length,
         confirmed_assignments: confirmedAssignments,
         shortage: Math.max(needed - confirmedAssignments, 0),
       };
+    }).sort((a, b) => {
+      const aDate = getDateSortValue(a.earliest_session_date || a.date_text, getImportedYearHint(a.notes));
+      const bDate = getDateSortValue(b.earliest_session_date || b.date_text, getImportedYearHint(b.notes));
+      if (aDate !== bDate) return aDate - bDate;
+      return asText(a.name).localeCompare(asText(b.name));
     });
 
     return NextResponse.json({ events: eventsWithCoverage, assignments: assignmentRows });

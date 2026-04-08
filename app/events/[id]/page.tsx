@@ -4,6 +4,11 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import SiteShell from "../../components/SiteShell";
+import {
+  formatHumanDate,
+  getImportedYearHint,
+  normalizeLooseDateToIso,
+} from "../../lib/eventDateUtils";
 
 type EventDetailRow = {
   id: string;
@@ -415,15 +420,8 @@ function getAvailabilityDate(row: AvailabilityRow) {
   );
 }
 
-function normalizeDateValue(value?: string | null) {
-  const raw = asText(value);
-  if (!raw || raw === "Date TBD") return "";
-
-  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
-
-  const parsed = new Date(raw);
-  if (Number.isNaN(parsed.getTime())) return "";
-  return parsed.toISOString().slice(0, 10);
+function normalizeDateValue(value?: string | null, fallbackYear?: number | null) {
+  return normalizeLooseDateToIso(value, fallbackYear) || "";
 }
 
 function getAvailabilityStatus(row: AvailabilityRow) {
@@ -506,8 +504,12 @@ function parseTimeToMinutes(value?: string | null) {
   return hours * 60 + minutes;
 }
 
-function sessionMatchesAvailability(session: EventSessionRow, row: AvailabilityRow) {
-  const sessionDate = normalizeDateValue(session.session_date);
+function sessionMatchesAvailability(
+  session: EventSessionRow,
+  row: AvailabilityRow,
+  fallbackYear?: number | null
+) {
+  const sessionDate = normalizeDateValue(session.session_date, fallbackYear);
   const availabilityDate = normalizeDateValue(getAvailabilityDate(row));
   if (!sessionDate || !availabilityDate || sessionDate !== availabilityDate) return false;
 
@@ -530,7 +532,8 @@ function sessionMatchesAvailability(session: EventSessionRow, row: AvailabilityR
 
 function getAvailabilityMatchDetails(
   eventSessions: EventSessionRow[],
-  rows: AvailabilityRow[]
+  rows: AvailabilityRow[],
+  fallbackYear?: number | null
 ): AvailabilityMatchDetails {
   if (!eventSessions.length || !rows.length) {
     return {
@@ -546,7 +549,7 @@ function getAvailabilityMatchDetails(
   let sawUnavailableConflict = false;
 
   eventSessions.forEach((session) => {
-    const relevantRows = rows.filter((row) => sessionMatchesAvailability(session, row));
+    const relevantRows = rows.filter((row) => sessionMatchesAvailability(session, row, fallbackYear));
     if (!relevantRows.length) return;
 
     sawRelevantAvailability = true;
@@ -608,15 +611,8 @@ function formatTimestamp(value?: string | null) {
   return parsed.toLocaleString();
 }
 
-function formatSessionDate(value?: string | null) {
-  if (!value) return "Date TBD";
-  const parsed = new Date(`${value}T00:00:00`);
-  if (Number.isNaN(parsed.getTime())) return value;
-  return parsed.toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
+function formatSessionDate(value?: string | null, fallbackYear?: number | null) {
+  return formatHumanDate(value, fallbackYear);
 }
 
 function formatDisplayTime(value?: string | null) {
@@ -628,6 +624,10 @@ function formatDisplayTime(value?: string | null) {
   const normalizedHours = hours % 12 || 12;
   const suffix = hours >= 12 ? "PM" : "AM";
   return `${normalizedHours}:${String(mins).padStart(2, "0")} ${suffix}`;
+}
+
+function formatEventDateText(value?: string | null, fallbackYear?: number | null) {
+  return formatHumanDate(value, fallbackYear);
 }
 
 function formatSessionTime(session: EventSessionRow) {
@@ -642,9 +642,13 @@ function formatSessionLocation(session: EventSessionRow, eventLocation?: string 
   return session.room || session.location || eventLocation || "Location TBD";
 }
 
-function formatSessionLabel(session: EventSessionRow, eventLocation?: string | null) {
+function formatSessionLabel(
+  session: EventSessionRow,
+  eventLocation?: string | null,
+  fallbackYear?: number | null
+) {
   return [
-    formatSessionDate(session.session_date),
+    formatSessionDate(session.session_date, fallbackYear),
     formatSessionTime(session),
     formatSessionLocation(session, eventLocation),
   ].join(" · ");
@@ -760,6 +764,10 @@ export default function EventDetailPage() {
   const [showEmailDraft, setShowEmailDraft] = useState(false);
   const [loading, setLoading] = useState(Boolean(id));
   const [saving, setSaving] = useState(false);
+  const [assigningSpId, setAssigningSpId] = useState("");
+  const [assignmentSuccessMessage, setAssignmentSuccessMessage] = useState("");
+  const [pollEmailMessage, setPollEmailMessage] = useState("");
+  const [sendingPollAssignmentId, setSendingPollAssignmentId] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [eventSaveMessage, setEventSaveMessage] = useState("");
   const [eventSaveError, setEventSaveError] = useState("");
@@ -813,13 +821,17 @@ export default function EventDetailPage() {
 
   const availabilityMatchBySpId = useMemo(() => {
     const next = new Map<string, AvailabilityMatchDetails>();
+    const fallbackYear = getImportedYearHint(event?.notes);
 
     sps.forEach((sp) => {
-      next.set(sp.id, getAvailabilityMatchDetails(sessions, availabilityBySpId.get(sp.id) || []));
+      next.set(
+        sp.id,
+        getAvailabilityMatchDetails(sessions, availabilityBySpId.get(sp.id) || [], fallbackYear)
+      );
     });
 
     return next;
-  }, [availabilityBySpId, sessions, sps]);
+  }, [availabilityBySpId, event?.notes, sessions, sps]);
 
   const filteredCandidateSps = useMemo(
     () =>
@@ -879,28 +891,56 @@ export default function EventDetailPage() {
   const unconfirmedCount = Math.max(assignments.length - confirmedCount, 0);
   const needed = Number(event?.sp_needed || 0);
   const shortage = Math.max(needed - confirmedCount, 0);
+  const coverageStatus =
+    needed <= 0
+      ? {
+          message: "No SP target set",
+          background: "#f8fafc",
+          border: "1px solid #cbd5e1",
+          color: "#475569",
+        }
+      : shortage === 0
+        ? {
+            message: "Coverage complete",
+            background: "#ecfdf3",
+            border: "1px solid #86efac",
+            color: "#166534",
+          }
+        : {
+            message: `${shortage} SP${shortage === 1 ? "" : "s"} still needed`,
+            background: shortage <= 2 ? "#fff7ed" : "#fff5f5",
+            border: shortage <= 2 ? "1px solid #fed7aa" : "1px solid #fecaca",
+            color: shortage <= 2 ? "#9a3412" : "#991b1b",
+          };
   const coveragePercent =
     needed > 0 ? Math.min(100, Math.round((confirmedCount / needed) * 100)) : 0;
   const isCovered = needed > 0 && shortage === 0;
+  const importedYearHint = getImportedYearHint(event?.notes);
   const structuredDateLabel = sessions.length
-    ? sessions.map((session) => formatSessionLabel(session, event?.location)).join("; ")
+    ? sessions
+        .map((session) => formatSessionLabel(session, event?.location, importedYearHint))
+        .join("; ")
     : "";
-  const eventDateLabel = structuredDateLabel || event?.date_text || "TBD";
+  const eventDateLabel = structuredDateLabel || formatEventDateText(event?.date_text, importedYearHint);
   const uniqueSessionDates = useMemo(
     () =>
       Array.from(
-        new Set(sessions.map((session) => formatSessionDate(session.session_date)).filter(Boolean))
+        new Set(
+          sessions
+            .map((session) => formatSessionDate(session.session_date, importedYearHint))
+            .filter(Boolean)
+        )
       ),
-    [sessions]
+    [importedYearHint, sessions]
   );
   const sessionSummaryLabel = useMemo(() => {
-    if (!sessions.length) return event?.date_text || "Date TBD";
-    if (sessions.length === 1) return formatSessionDate(sessions[0]?.session_date);
+    if (!sessions.length) return formatEventDateText(event?.date_text, importedYearHint);
+    if (sessions.length === 1) return formatSessionDate(sessions[0]?.session_date, importedYearHint);
     if (uniqueSessionDates.length === 1) {
       return `${sessions.length} sessions on ${uniqueSessionDates[0]}`;
     }
     return `${sessions.length} sessions across ${uniqueSessionDates.join(", ")}`;
-  }, [event?.date_text, sessions, uniqueSessionDates]);
+  }, [event?.date_text, importedYearHint, sessions, uniqueSessionDates]);
   const summaryTimeLabel = useMemo(() => {
     if (!sessions.length) return "Time TBD";
     if (sessions.length === 1) return formatSessionTime(sessions[0]);
@@ -933,6 +973,18 @@ export default function EventDetailPage() {
   const bccEmails = useMemo(
     () => Array.from(new Set(assignedEmailSources.map((item) => item.email))),
     [assignedEmailSources]
+  );
+  const assignedSummaryItems = useMemo(
+    () =>
+      sortedAssignments.slice(0, 6).map((assignment) => {
+        const sp = assignment.sp_id ? spsById.get(assignment.sp_id) : undefined;
+        return {
+          id: assignment.id,
+          name: sp ? getFullName(sp) : "Unknown SP",
+          status: getAssignmentStatus(assignment),
+        };
+      }),
+    [sortedAssignments, spsById]
   );
 
   const emailSubject = `SP Assignment: ${event?.name || "CFSP Event"}`;
@@ -1090,6 +1142,9 @@ export default function EventDetailPage() {
     if (!id || !spId) return;
 
     setSaving(true);
+    setAssigningSpId(spId);
+    setAssignmentSuccessMessage("");
+    setPollEmailMessage("");
     setErrorMessage("");
     setEventSaveMessage("");
     setEventSaveError("");
@@ -1100,16 +1155,25 @@ export default function EventDetailPage() {
       });
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Could not save assignment.");
+      setAssigningSpId("");
       setSaving(false);
       return;
     }
 
     await refreshData();
+    setAssignmentSuccessMessage("SP assigned");
+    window.setTimeout(() => {
+      setAssignmentSuccessMessage("");
+    }, 2000);
+    setAssigningSpId("");
     setSaving(false);
   }
 
   async function handleStatusChange(assignment: AssignmentRow, status: AssignmentStatus) {
     setSaving(true);
+    setAssigningSpId("");
+    setAssignmentSuccessMessage("");
+    setPollEmailMessage("");
     setErrorMessage("");
     setEventSaveMessage("");
     setEventSaveError("");
@@ -1134,6 +1198,9 @@ export default function EventDetailPage() {
     updates: Partial<Pick<AssignmentRow, "notes" | "last_contacted_at" | "contact_method">>
   ) {
     setSaving(true);
+    setAssigningSpId("");
+    setAssignmentSuccessMessage("");
+    setPollEmailMessage("");
     setErrorMessage("");
     setEventSaveMessage("");
     setEventSaveError("");
@@ -1155,6 +1222,9 @@ export default function EventDetailPage() {
 
   async function handleRemoveAssignment(assignment: AssignmentRow) {
     setSaving(true);
+    setAssigningSpId("");
+    setAssignmentSuccessMessage("");
+    setPollEmailMessage("");
     setErrorMessage("");
     setEventSaveMessage("");
     setEventSaveError("");
@@ -1171,6 +1241,33 @@ export default function EventDetailPage() {
 
     await refreshData();
     setSaving(false);
+  }
+
+  async function handleSendPollEmail(assignment: AssignmentRow) {
+    if (!id) return;
+
+    setSendingPollAssignmentId(assignment.id);
+    setPollEmailMessage("");
+    setErrorMessage("");
+
+    try {
+      const response = await fetch(`/api/events/${encodeURIComponent(id)}/poll-email`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ assignment_id: assignment.id }),
+      });
+
+      if (!response.ok) {
+        throw new Error(await parseApiError(response));
+      }
+
+      const body = await response.json().catch(() => null);
+      setPollEmailMessage(body?.message || "Poll email sent.");
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Could not send poll email.");
+    } finally {
+      setSendingPollAssignmentId("");
+    }
   }
 
   if (loading) {
@@ -1255,9 +1352,34 @@ export default function EventDetailPage() {
         </div>
       ) : null}
 
+      {pollEmailMessage ? (
+        <div
+          style={{
+            ...cardStyle,
+            borderColor: "#86efac",
+            background: "#ecfdf3",
+            color: "#166534",
+            fontWeight: 700,
+          }}
+        >
+          {pollEmailMessage}
+        </div>
+      ) : null}
+
       <div style={cardStyle}>
-        <Link href="/events" style={{ color: "#1d4ed8", fontWeight: 800, textDecoration: "none" }}>
-          Back to Events
+        <Link
+          href="/events"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "8px",
+            color: "#1d4ed8",
+            fontWeight: 900,
+            textDecoration: "none",
+          }}
+        >
+          <span aria-hidden="true">←</span>
+          <span>Back to Events</span>
         </Link>
 
         <div
@@ -1372,7 +1494,7 @@ export default function EventDetailPage() {
                 {sessions.map((session) => (
                   <div key={session.id} style={{ ...statCard, background: "#ffffff" }}>
                     <div style={{ color: "#173b6c", fontWeight: 900 }}>
-                      {formatSessionDate(session.session_date)}
+                      {formatSessionDate(session.session_date, importedYearHint)}
                     </div>
                     <div style={{ marginTop: "6px", color: "#334155", lineHeight: 1.7 }}>
                       <div>
@@ -1426,6 +1548,22 @@ export default function EventDetailPage() {
           </div>
         </div>
 
+        <div
+          style={{
+            marginTop: "14px",
+            borderRadius: "18px",
+            padding: "14px 16px",
+            background: coverageStatus.background,
+            border: coverageStatus.border,
+            color: coverageStatus.color,
+          }}
+        >
+          <div style={statLabel}>Coverage Status</div>
+          <div style={{ marginTop: "6px", fontSize: "20px", fontWeight: 900 }}>
+            {coverageStatus.message}
+          </div>
+        </div>
+
         <div style={statGrid}>
           <div style={statCard}>
             <div style={statLabel}>Confirmed</div>
@@ -1446,6 +1584,56 @@ export default function EventDetailPage() {
             <div style={statLabel}>Shortage</div>
             <div style={statValue}>{shortage}</div>
           </div>
+        </div>
+
+        <div
+          style={{
+            marginTop: "16px",
+            border: "1px solid #bfdbfe",
+            borderRadius: "18px",
+            padding: "16px",
+            background: "linear-gradient(135deg, #eff6ff, #f8fbff)",
+          }}
+        >
+          <div style={{ ...statLabel, color: "#173b6c" }}>Assigned SP Summary</div>
+          {assignedSummaryItems.length ? (
+            <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "10px" }}>
+              {assignedSummaryItems.map((item) => (
+                <div
+                  key={item.id}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "8px",
+                    padding: "10px 14px",
+                    borderRadius: "16px",
+                    background: "#ffffff",
+                    border: assignmentStatusStyles[item.status].border,
+                    color: "#173b6c",
+                    fontWeight: 800,
+                    boxShadow: "0 6px 16px rgba(15, 23, 42, 0.05)",
+                  }}
+                >
+                  <span style={{ fontWeight: 900 }}>{item.name}</span>
+                  <span
+                    style={{
+                      ...assignmentStatusStyles[item.status],
+                      borderRadius: "999px",
+                      padding: "4px 8px",
+                      fontSize: "11px",
+                      fontWeight: 900,
+                    }}
+                  >
+                    {assignmentStatusLabels[item.status]}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={{ marginTop: "8px", color: "#64748b", fontWeight: 700 }}>
+              No SPs assigned yet.
+            </div>
+          )}
         </div>
       </div>
 
@@ -1536,7 +1724,7 @@ export default function EventDetailPage() {
               {sessions.map((session) => (
                 <div key={session.id} style={{ ...statCard, background: "#ffffff" }}>
                   <div style={{ color: "#173b6c", fontWeight: 900 }}>
-                    {formatSessionDate(session.session_date)}
+                    {formatSessionDate(session.session_date, importedYearHint)}
                   </div>
                   <div style={{ marginTop: "6px", color: "#334155", lineHeight: 1.7 }}>
                     <div>
@@ -1552,7 +1740,7 @@ export default function EventDetailPage() {
             </div>
           ) : (
             <div style={{ marginTop: "8px", color: "#64748b", fontWeight: 700 }}>
-              No structured sessions yet. Fallback date text: {event.date_text || "—"}
+              No structured sessions yet. Fallback date text: {formatEventDateText(event.date_text, importedYearHint)}
             </div>
           )}
         </div>
@@ -1800,6 +1988,25 @@ export default function EventDetailPage() {
                       >
                         Remove Assignment
                       </button>
+
+                      {status === "invited" ? (
+                        <button
+                          type="button"
+                          onClick={() => void handleSendPollEmail(assignment)}
+                          disabled={Boolean(sendingPollAssignmentId)}
+                          style={{
+                            ...buttonStyle,
+                            background: "#ffffff",
+                            color: "#173b6c",
+                            border: "1px solid #bfdbfe",
+                            opacity: sendingPollAssignmentId ? 0.65 : 1,
+                          }}
+                        >
+                          {sendingPollAssignmentId === assignment.id
+                            ? "Sending Poll..."
+                            : "Send Poll Email"}
+                        </button>
+                      ) : null}
                     </div>
                   </div>
 
@@ -1888,6 +2095,36 @@ export default function EventDetailPage() {
             </div>
           </div>
 
+          {assignmentSuccessMessage ? (
+            <div
+              style={{
+                borderRadius: "18px",
+                padding: "14px 16px",
+                background: "#ecfdf3",
+                border: "1px solid #86efac",
+                color: "#166534",
+                fontWeight: 900,
+              }}
+            >
+              {assignmentSuccessMessage}
+            </div>
+          ) : null}
+
+          <div
+            style={{
+              borderRadius: "18px",
+              padding: "14px 16px",
+              background: coverageStatus.background,
+              border: coverageStatus.border,
+              color: coverageStatus.color,
+            }}
+          >
+            <div style={statLabel}>Coverage Status</div>
+            <div style={{ marginTop: "6px", fontSize: "20px", fontWeight: 900 }}>
+              {coverageStatus.message}
+            </div>
+          </div>
+
           <div style={{ ...statCard, background: "#ffffff" }}>
             <div style={statLabel}>Recommended SPs</div>
             <div style={{ marginTop: "6px", color: "#64748b", fontWeight: 700 }}>
@@ -1955,7 +2192,7 @@ export default function EventDetailPage() {
                         disabled={saving}
                         style={{ ...buttonStyle, opacity: saving ? 0.65 : 1 }}
                       >
-                        Assign
+                        {assigningSpId === sp.id ? "Assigning..." : "Assign"}
                       </button>
                     </div>
                   );
@@ -2019,7 +2256,7 @@ export default function EventDetailPage() {
               disabled={saving || !selectedSpId}
               style={{ ...buttonStyle, opacity: saving || !selectedSpId ? 0.65 : 1 }}
             >
-              Add Selected SP
+              {assigningSpId && assigningSpId === selectedSpId ? "Assigning..." : "Add Selected SP"}
             </button>
           </div>
         </div>
@@ -2111,17 +2348,21 @@ export default function EventDetailPage() {
                         </span>
 
                         {assignmentStatus ? (
-                          <span
+                          <button
+                            type="button"
+                            disabled
                             style={{
                               ...assignmentStatusStyles[assignmentStatus],
                               borderRadius: "999px",
                               padding: "7px 11px",
                               fontSize: "12px",
                               fontWeight: 900,
+                              cursor: "not-allowed",
+                              opacity: 0.85,
                             }}
                           >
-                            Already {assignmentStatusLabels[assignmentStatus]}
-                          </span>
+                            Already assigned
+                          </button>
                         ) : (
                           <button
                             type="button"
@@ -2129,7 +2370,7 @@ export default function EventDetailPage() {
                             disabled={saving}
                             style={{ ...buttonStyle, opacity: saving ? 0.65 : 1 }}
                           >
-                            Add SP
+                            {assigningSpId === sp.id ? "Assigning..." : "Assign"}
                           </button>
                         )}
                       </div>
