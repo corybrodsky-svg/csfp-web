@@ -7,16 +7,6 @@ export const dynamic = "force-dynamic";
 
 type GridRow = unknown[];
 
-type ColumnMap = {
-  sessionName: number;
-  leadTeam: number;
-  rooms: number;
-  sessionTime: number;
-  eventType: number;
-  studentCount: number;
-  faculty: number;
-};
-
 type ImportCandidate = {
   name: string;
   dateText: string;
@@ -113,6 +103,17 @@ function parseDateCell(value: unknown) {
     );
   }
 
+  const shortWeekdayMatch = raw.match(
+    /\b(mon|tue|tues|wed|thu|thur|thurs|fri|sat|sun)\b[^\d]*(\d{1,2})[/-](\d{1,2})(?:[/-](\d{2,4}))?/i
+  );
+  if (shortWeekdayMatch) {
+    return normalizeSheetDate(
+      Number(shortWeekdayMatch[2]),
+      Number(shortWeekdayMatch[3]),
+      shortWeekdayMatch[4]
+    );
+  }
+
   const exactDateMatch = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);
   if (exactDateMatch) {
     return normalizeSheetDate(
@@ -120,6 +121,49 @@ function parseDateCell(value: unknown) {
       Number(exactDateMatch[2]),
       exactDateMatch[3]
     );
+  }
+
+  const monthNameMatch = raw.match(
+    /\b(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)\b[\s,.-]+(\d{1,2})(?:\D+(\d{2,4}))?/i
+  );
+  if (monthNameMatch) {
+    const monthLookup: Record<string, number> = {
+      jan: 1,
+      january: 1,
+      feb: 2,
+      february: 2,
+      mar: 3,
+      march: 3,
+      apr: 4,
+      april: 4,
+      may: 5,
+      jun: 6,
+      june: 6,
+      jul: 7,
+      july: 7,
+      aug: 8,
+      august: 8,
+      sep: 9,
+      sept: 9,
+      september: 9,
+      oct: 10,
+      october: 10,
+      nov: 11,
+      november: 11,
+      dec: 12,
+      december: 12,
+    };
+
+    return normalizeSheetDate(
+      monthLookup[monthNameMatch[1].toLowerCase()],
+      Number(monthNameMatch[2]),
+      monthNameMatch[3]
+    );
+  }
+
+  const monthDayMatch = raw.match(/^(\d{1,2})\/(\d{1,2})$/);
+  if (monthDayMatch) {
+    return normalizeSheetDate(Number(monthDayMatch[1]), Number(monthDayMatch[2]));
   }
 
   return null;
@@ -203,19 +247,25 @@ function isIgnoredName(name: string) {
 }
 
 function isWeekHeaderRow(rowText: string) {
-  return /\bweek\b/i.test(rowText);
+  return /^week\s/i.test(rowText);
 }
 
-function detectDayRowDate(row: GridRow, columns: ColumnMap) {
-  const sessionName = asText(getCell(row, columns.sessionName));
-  if (sessionName) return null;
+function detectDayRowDate(row: GridRow) {
+  const firstCell = asText(row[0]);
+  if (!firstCell) return null;
+  if (isWeekHeaderRow(firstCell)) return null;
 
-  for (const cell of row) {
-    const iso = parseDateCell(cell);
-    if (iso) return iso;
+  const match = firstCell.match(
+    /^(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\s+(\d{1,2}\/\d{1,2}\/\d{2})(?:\b.*)?$/i
+  );
+  if (!match) return null;
+
+  const datePortion = match[2];
+  const iso = parseDateCell(datePortion);
+  if (iso) {
+    console.log(`[events/import] detected date row -> ${iso} from "${firstCell}"`);
   }
-
-  return null;
+  return iso;
 }
 
 function buildNotes(args: {
@@ -261,14 +311,16 @@ function parseSheet(rows: GridRow[]): ParseResult {
 
     if (!rowText) {
       skippedBlank += 1;
+      console.log("[events/import] skipping blank row");
       continue;
     }
 
     if (isWeekHeaderRow(rowText)) {
+      console.log(`[events/import] skipping week header row -> ${rowText}`);
       continue;
     }
 
-    const dayDate = detectDayRowDate(row, header.columns);
+    const dayDate = detectDayRowDate(row);
     if (dayDate) {
       currentDate = dayDate;
       continue;
@@ -281,11 +333,13 @@ function parseSheet(rows: GridRow[]): ParseResult {
 
     if (isIgnoredName(name)) {
       skippedIgnored += 1;
+      console.log(`[events/import] skipping ignored row -> ${name}`);
       continue;
     }
 
     if (!currentDate) {
       skippedNoDate += 1;
+      console.log(`[events/import] skipping no-date row -> ${name}`);
       continue;
     }
 
