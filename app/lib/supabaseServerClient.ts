@@ -1,7 +1,8 @@
 import { createClient } from "@supabase/supabase-js";
 
-const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseKey =
+export const supabaseUrl =
+  process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+export const supabaseKey =
   process.env.SUPABASE_ANON_KEY ||
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
   process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
@@ -14,9 +15,16 @@ if (!supabaseKey) {
   throw new Error("Missing Supabase server key");
 }
 
-export const supabaseServer = createClient(supabaseUrl, supabaseKey, {
-  auth: {
-    persistSession: false,
-    autoRefreshToken: false,
-  },
-});
+export function createSupabaseServerClient() {
+  const resolvedUrl = supabaseUrl!;
+  const resolvedKey = supabaseKey!;
+
+  return createClient(resolvedUrl, resolvedKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  });
+}
+
+export const supabaseServer = createSupabaseServerClient();
