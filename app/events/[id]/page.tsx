@@ -102,6 +102,15 @@ type CommandCenterData = {
   availabilityErrorMessage: string;
 };
 
+type EventEditorState = {
+  name: string;
+  status: string;
+  visibility: string;
+  location: string;
+  notes: string;
+  sp_needed: string;
+};
+
 const cardStyle: React.CSSProperties = {
   background: "#ffffff",
   border: "1px solid #dbe4ee",
@@ -580,6 +589,14 @@ export default function EventDetailPage() {
   const id = getRouteId(params);
 
   const [event, setEvent] = useState<EventDetailRow | null>(null);
+  const [eventEditor, setEventEditor] = useState<EventEditorState>({
+    name: "",
+    status: "",
+    visibility: "",
+    location: "",
+    notes: "",
+    sp_needed: "",
+  });
   const [sessions, setSessions] = useState<EventSessionRow[]>([]);
   const [sps, setSps] = useState<SPRow[]>([]);
   const [assignments, setAssignments] = useState<AssignmentRow[]>([]);
@@ -595,6 +612,8 @@ export default function EventDetailPage() {
   const [loading, setLoading] = useState(Boolean(id));
   const [saving, setSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const [eventSaveMessage, setEventSaveMessage] = useState("");
+  const [eventSaveError, setEventSaveError] = useState("");
   const [sessionErrorMessage, setSessionErrorMessage] = useState("");
   const [availabilityErrorMessage, setAvailabilityErrorMessage] = useState("");
 
@@ -753,6 +772,17 @@ export default function EventDetailPage() {
 
     const result = await fetchCommandCenterData(id);
     setEvent(result.event);
+    setEventEditor({
+      name: result.event?.name || "",
+      status: result.event?.status || "",
+      visibility: result.event?.visibility || "",
+      location: result.event?.location || "",
+      notes: result.event?.notes || "",
+      sp_needed:
+        result.event?.sp_needed === null || result.event?.sp_needed === undefined
+          ? ""
+          : String(result.event.sp_needed),
+    });
     setSessions(result.sessions);
     setSps(result.sps);
     setAssignments(result.assignments);
@@ -775,6 +805,52 @@ export default function EventDetailPage() {
     }
   }
 
+  async function saveEventDetails() {
+    if (!id) return;
+
+    const nextSpNeeded = Number(eventEditor.sp_needed);
+    const spNeeded =
+      eventEditor.sp_needed.trim() === "" || Number.isNaN(nextSpNeeded)
+        ? 0
+        : Math.max(0, Math.round(nextSpNeeded));
+
+    setSaving(true);
+    setEventSaveMessage("");
+    setEventSaveError("");
+
+    try {
+      const response = await fetch(`/api/events/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          event_updates: {
+            name: eventEditor.name,
+            status: eventEditor.status,
+            visibility: eventEditor.visibility,
+            location: eventEditor.location,
+            notes: eventEditor.notes,
+            sp_needed: spNeeded,
+          },
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(await parseApiError(response));
+      }
+
+      setEventSaveMessage("Event details saved.");
+      await refreshData();
+    } catch (error) {
+      setEventSaveError(
+        error instanceof Error ? error.message : "Could not save event details."
+      );
+      setSaving(false);
+      return;
+    }
+
+    setSaving(false);
+  }
+
   useEffect(() => {
     let cancelled = false;
 
@@ -787,6 +863,17 @@ export default function EventDetailPage() {
         if (cancelled) return;
 
         setEvent(result.event);
+        setEventEditor({
+          name: result.event?.name || "",
+          status: result.event?.status || "",
+          visibility: result.event?.visibility || "",
+          location: result.event?.location || "",
+          notes: result.event?.notes || "",
+          sp_needed:
+            result.event?.sp_needed === null || result.event?.sp_needed === undefined
+              ? ""
+              : String(result.event.sp_needed),
+        });
         setSessions(result.sessions);
         setSps(result.sps);
         setAssignments(result.assignments);
@@ -813,6 +900,8 @@ export default function EventDetailPage() {
 
     setSaving(true);
     setErrorMessage("");
+    setEventSaveMessage("");
+    setEventSaveError("");
 
     try {
       await saveAssignmentRequest("POST", {
@@ -831,6 +920,8 @@ export default function EventDetailPage() {
   async function handleStatusChange(assignment: AssignmentRow, status: AssignmentStatus) {
     setSaving(true);
     setErrorMessage("");
+    setEventSaveMessage("");
+    setEventSaveError("");
 
     try {
       await saveAssignmentRequest("PATCH", {
@@ -853,6 +944,8 @@ export default function EventDetailPage() {
   ) {
     setSaving(true);
     setErrorMessage("");
+    setEventSaveMessage("");
+    setEventSaveError("");
 
     try {
       await saveAssignmentRequest("PATCH", {
@@ -872,6 +965,8 @@ export default function EventDetailPage() {
   async function handleRemoveAssignment(assignment: AssignmentRow) {
     setSaving(true);
     setErrorMessage("");
+    setEventSaveMessage("");
+    setEventSaveError("");
 
     try {
       await saveAssignmentRequest("DELETE", {
@@ -974,13 +1069,66 @@ export default function EventDetailPage() {
           Back to Events
         </Link>
 
-        <h1 style={{ margin: "18px 0 6px", fontSize: "38px", color: "#173b6c" }}>
-          {event.name || "Untitled Event"}
-        </h1>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            gap: "16px",
+            flexWrap: "wrap",
+            alignItems: "flex-start",
+            marginTop: "18px",
+          }}
+        >
+          <div>
+            <h1 style={{ margin: "0 0 6px", fontSize: "38px", color: "#173b6c" }}>
+              {event.name || "Untitled Event"}
+            </h1>
+            <div style={{ color: "#64748b", fontWeight: 800 }}>
+              {event.status || "No status"}
+            </div>
+          </div>
 
-        <div style={{ color: "#64748b", fontWeight: 800 }}>
-          {event.status || "No status"}
+          <button
+            type="button"
+            onClick={() => void saveEventDetails()}
+            disabled={saving}
+            style={{ ...buttonStyle, opacity: saving ? 0.65 : 1 }}
+          >
+            Save Event Details
+          </button>
         </div>
+
+        {eventSaveMessage ? (
+          <div
+            style={{
+              marginTop: "14px",
+              borderRadius: "16px",
+              border: "1px solid #bbf7d0",
+              background: "#ecfdf3",
+              color: "#166534",
+              padding: "12px 14px",
+              fontWeight: 800,
+            }}
+          >
+            {eventSaveMessage}
+          </div>
+        ) : null}
+
+        {eventSaveError ? (
+          <div
+            style={{
+              marginTop: "14px",
+              borderRadius: "16px",
+              border: "1px solid #fecaca",
+              background: "#fff5f5",
+              color: "#991b1b",
+              padding: "12px 14px",
+              fontWeight: 800,
+            }}
+          >
+            {eventSaveError}
+          </div>
+        ) : null}
 
         <div style={coverageHeroStyle}>
           <div
@@ -1046,25 +1194,72 @@ export default function EventDetailPage() {
         <h2 style={{ marginTop: 0, color: "#173b6c" }}>Event Details</h2>
 
         <div style={detailGridStyle}>
+          <label style={{ display: "grid", gap: "6px" }}>
+            <span style={statLabel}>Name</span>
+            <input
+              value={eventEditor.name}
+              onChange={(event) =>
+                setEventEditor((current) => ({ ...current, name: event.target.value }))
+              }
+              disabled={saving}
+              style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+            />
+          </label>
+
+          <label style={{ display: "grid", gap: "6px" }}>
+            <span style={statLabel}>Status</span>
+            <input
+              value={eventEditor.status}
+              onChange={(event) =>
+                setEventEditor((current) => ({ ...current, status: event.target.value }))
+              }
+              disabled={saving}
+              style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+            />
+          </label>
+
+          <label style={{ display: "grid", gap: "6px" }}>
+            <span style={statLabel}>Visibility</span>
+            <input
+              value={eventEditor.visibility}
+              onChange={(event) =>
+                setEventEditor((current) => ({ ...current, visibility: event.target.value }))
+              }
+              disabled={saving}
+              style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+            />
+          </label>
+
+          <label style={{ display: "grid", gap: "6px" }}>
+            <span style={statLabel}>SPs Needed</span>
+            <input
+              type="number"
+              min={0}
+              value={eventEditor.sp_needed}
+              onChange={(event) =>
+                setEventEditor((current) => ({ ...current, sp_needed: event.target.value }))
+              }
+              disabled={saving}
+              style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+            />
+          </label>
+
           <div style={statCard}>
             <div style={statLabel}>Date</div>
             <div style={statValue}>{eventDateLabel}</div>
           </div>
 
-          <div style={statCard}>
-            <div style={statLabel}>Location</div>
-            <div style={statValue}>{event.location || "—"}</div>
-          </div>
-
-          <div style={statCard}>
-            <div style={statLabel}>Status</div>
-            <div style={statValue}>{event.status || "—"}</div>
-          </div>
-
-          <div style={statCard}>
-            <div style={statLabel}>Visibility</div>
-            <div style={statValue}>{event.visibility || "—"}</div>
-          </div>
+          <label style={{ display: "grid", gap: "6px" }}>
+            <span style={statLabel}>Location</span>
+            <input
+              value={eventEditor.location}
+              onChange={(event) =>
+                setEventEditor((current) => ({ ...current, location: event.target.value }))
+              }
+              disabled={saving}
+              style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+            />
+          </label>
         </div>
 
         <div
@@ -1115,7 +1310,15 @@ export default function EventDetailPage() {
           }}
         >
           <div style={statLabel}>Notes</div>
-          <div style={{ marginTop: "6px", whiteSpace: "pre-wrap" }}>{event.notes || "—"}</div>
+          <textarea
+            value={eventEditor.notes}
+            onChange={(event) =>
+              setEventEditor((current) => ({ ...current, notes: event.target.value }))
+            }
+            disabled={saving}
+            placeholder="Add operational notes, setup details, reporting instructions..."
+            style={{ ...textareaStyle, marginTop: "8px" }}
+          />
         </div>
       </div>
 

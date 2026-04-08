@@ -34,6 +34,26 @@ function getSafeAssignmentUpdates(rawUpdates: unknown) {
   return Object.keys(updates).length ? updates : null;
 }
 
+function getSafeEventUpdates(rawUpdates: unknown) {
+  if (!rawUpdates || typeof rawUpdates !== "object") return null;
+
+  const source = rawUpdates as Record<string, unknown>;
+  const updates: Record<string, string | number | null> = {};
+
+  if (typeof source.name === "string") updates.name = source.name.trim() || null;
+  if (typeof source.status === "string") updates.status = source.status.trim() || null;
+  if (typeof source.visibility === "string") updates.visibility = source.visibility.trim() || null;
+  if (typeof source.location === "string") updates.location = source.location.trim() || null;
+  if (typeof source.notes === "string" || source.notes === null) {
+    updates.notes = typeof source.notes === "string" ? source.notes.trim() || null : null;
+  }
+  if (typeof source.sp_needed === "number" && Number.isFinite(source.sp_needed)) {
+    updates.sp_needed = Math.max(0, Math.round(source.sp_needed));
+  }
+
+  return Object.keys(updates).length ? updates : null;
+}
+
 export async function GET(
   _request: Request,
   context: { params: Promise<{ id?: string | string[] }> }
@@ -177,8 +197,25 @@ export async function PATCH(
     const params = await context.params;
     const eventId = getRouteId(params);
     const body = await request.json();
+    const eventUpdates = getSafeEventUpdates(body?.event_updates);
     const assignmentId = typeof body?.assignment_id === "string" ? body.assignment_id : "";
     const updates = getSafeAssignmentUpdates(body?.updates);
+
+    if (eventId && eventUpdates) {
+      const { error } = await supabaseServer
+        .from("events")
+        .update(eventUpdates)
+        .eq("id", eventId);
+
+      if (error) {
+        return NextResponse.json(
+          { error: error.message || "Could not update event details." },
+          { status: 500 }
+        );
+      }
+
+      return NextResponse.json({ ok: true });
+    }
 
     if (!eventId || !assignmentId || !updates) {
       return NextResponse.json(
