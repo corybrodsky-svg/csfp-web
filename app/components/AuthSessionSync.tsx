@@ -1,15 +1,23 @@
 "use client";
 
 import { useEffect } from "react";
-import { supabase } from "../lib/supabaseClient";
+import {
+  getSupabaseBrowserClientError,
+  requireSupabaseBrowserClient,
+} from "../lib/supabaseClient";
 import { clearServerSession, syncSessionWithServer } from "../lib/clientAuth";
 
 export default function AuthSessionSync() {
   useEffect(() => {
+    if (getSupabaseBrowserClientError()) {
+      return;
+    }
+
     let cancelled = false;
+    const browserClient = requireSupabaseBrowserClient();
 
     async function syncCurrentSession() {
-      const { data } = await supabase.auth.getSession();
+      const { data } = await browserClient.auth.getSession();
       if (cancelled) return;
 
       if (data.session) {
@@ -23,7 +31,7 @@ export default function AuthSessionSync() {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = browserClient.auth.onAuthStateChange((_event, session) => {
       if (session) {
         void syncSessionWithServer(session).catch(() => undefined);
       } else {

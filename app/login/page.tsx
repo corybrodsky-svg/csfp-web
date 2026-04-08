@@ -3,37 +3,120 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { supabase } from "../lib/supabaseClient";
+import {
+  checkSupabaseBrowserConnectivity,
+  getSupabaseBrowserClientError,
+  requireSupabaseBrowserClient,
+} from "../lib/supabaseClient";
 import { syncSessionWithServer } from "../lib/clientAuth";
 
-const cardStyle: React.CSSProperties = {
-  maxWidth: "440px",
-  margin: "64px auto",
-  border: "1px solid #d8e0ee",
-  borderRadius: "18px",
-  padding: "24px",
-  background: "#ffffff",
-  boxShadow: "0 8px 24px rgba(15, 23, 42, 0.06)",
+const pageStyle: React.CSSProperties = {
+  minHeight: "100vh",
+  background:
+    "linear-gradient(180deg, #eef4fb 0%, #f6f9fd 42%, #f4f7fb 100%)",
+  padding: "32px 20px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
   fontFamily: "Arial, Helvetica, sans-serif",
+};
+
+const cardStyle: React.CSSProperties = {
+  width: "100%",
+  maxWidth: "500px",
+  border: "1px solid #d7e3f0",
+  borderRadius: "24px",
+  padding: "32px",
+  background: "#ffffff",
+  boxShadow: "0 20px 44px rgba(15, 23, 42, 0.10)",
+};
+
+const eyebrowStyle: React.CSSProperties = {
+  margin: 0,
+  fontSize: "12px",
+  fontWeight: 800,
+  letterSpacing: "0.08em",
+  textTransform: "uppercase",
+  color: "#3b82f6",
+};
+
+const titleStyle: React.CSSProperties = {
+  margin: "10px 0 0",
+  color: "#173b6c",
+  fontSize: "36px",
+  lineHeight: 1.1,
+};
+
+const subtitleStyle: React.CSSProperties = {
+  margin: "12px 0 0",
+  color: "#5b6b7f",
+  fontSize: "16px",
+  lineHeight: 1.6,
+};
+
+const noticeStyle: React.CSSProperties = {
+  marginTop: "22px",
+  padding: "14px 16px",
+  borderRadius: "14px",
+  border: "1px solid #cfe0fb",
+  background: "#f8fbff",
+};
+
+const inputGroupStyle: React.CSSProperties = {
+  display: "grid",
+  gap: "8px",
+};
+
+const labelStyle: React.CSSProperties = {
+  fontWeight: 800,
+  color: "#173b6c",
+  fontSize: "14px",
 };
 
 const inputStyle: React.CSSProperties = {
   width: "100%",
-  padding: "10px 12px",
-  border: "1px solid #cbd5e1",
-  borderRadius: "10px",
+  padding: "13px 14px",
+  border: "1px solid #c9d5e4",
+  borderRadius: "12px",
   boxSizing: "border-box",
+  fontSize: "15px",
+  background: "#ffffff",
 };
 
-const buttonStyle: React.CSSProperties = {
+const primaryButtonStyle: React.CSSProperties = {
   border: "1px solid #173b6c",
-  borderRadius: "12px",
+  borderRadius: "14px",
   background: "#173b6c",
   color: "#ffffff",
   cursor: "pointer",
   fontWeight: 800,
-  padding: "11px 16px",
+  padding: "13px 18px",
   width: "100%",
+  fontSize: "15px",
+};
+
+const secondaryButtonStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  width: "100%",
+  border: "1px solid #c8d6e7",
+  borderRadius: "14px",
+  background: "#ffffff",
+  color: "#173b6c",
+  textDecoration: "none",
+  fontWeight: 800,
+  padding: "13px 18px",
+  fontSize: "15px",
+  boxSizing: "border-box",
+};
+
+const helperTextStyle: React.CSSProperties = {
+  marginTop: "18px",
+  color: "#64748b",
+  fontSize: "13px",
+  lineHeight: 1.6,
+  textAlign: "center",
 };
 
 function formatAuthError(message?: string | null) {
@@ -54,6 +137,19 @@ function formatAuthError(message?: string | null) {
   return text;
 }
 
+function formatBrowserAuthError(error: unknown) {
+  if (!(error instanceof Error)) {
+    return "Could not complete browser authentication.";
+  }
+
+  const text = error.message.trim();
+  if (text === "Failed to fetch") {
+    return "Browser could not contact Supabase.";
+  }
+
+  return text || "Could not complete browser authentication.";
+}
+
 export default function LoginPage() {
   const router = useRouter();
   const [nextPath] = useState(() => {
@@ -66,11 +162,25 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [saving, setSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const [connectivityMessage, setConnectivityMessage] = useState(
+    () => getSupabaseBrowserClientError()
+  );
 
   useEffect(() => {
     let cancelled = false;
+    if (getSupabaseBrowserClientError()) {
+      return () => {
+        cancelled = true;
+      };
+    }
 
-    void supabase.auth.getSession().then(async ({ data }) => {
+    void checkSupabaseBrowserConnectivity().then((result) => {
+      if (cancelled || result.ok) return;
+      setConnectivityMessage(result.message);
+    });
+
+    const browserClient = requireSupabaseBrowserClient();
+    void browserClient.auth.getSession().then(async ({ data }) => {
       if (cancelled || !data.session) return;
 
       try {
@@ -95,10 +205,22 @@ export default function LoginPage() {
     setSaving(true);
     setErrorMessage("");
 
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email: email.trim(),
-      password,
-    });
+    let data;
+    let error;
+
+    try {
+      const browserClient = requireSupabaseBrowserClient();
+      const result = await browserClient.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
+      data = result.data;
+      error = result.error;
+    } catch (authError) {
+      setErrorMessage(formatBrowserAuthError(authError));
+      setSaving(false);
+      return;
+    }
 
     if (error || !data.session) {
       setErrorMessage(formatAuthError(error?.message));
@@ -110,7 +232,9 @@ export default function LoginPage() {
       await syncSessionWithServer(data.session);
       router.replace(nextPath);
     } catch (syncError) {
-      setErrorMessage(syncError instanceof Error ? syncError.message : "Could not persist login session.");
+      setErrorMessage(
+        syncError instanceof Error ? syncError.message : "Could not persist login session."
+      );
       setSaving(false);
       return;
     }
@@ -119,49 +243,63 @@ export default function LoginPage() {
   }
 
   return (
-    <main style={{ minHeight: "100vh", background: "#f4f7fb", padding: "24px" }}>
+    <main style={pageStyle}>
       <form onSubmit={handleSubmit} style={cardStyle}>
-        <h1 style={{ marginTop: 0, color: "#173b6c", fontSize: "34px" }}>CFSP Login</h1>
-        <p style={{ color: "#64748b", lineHeight: 1.6 }}>
-          Sign in with your Supabase account to access CFSP operations.
+        <p style={eyebrowStyle}>CFSP Operations</p>
+        <h1 style={titleStyle}>Sign In</h1>
+        <p style={subtitleStyle}>
+          Access the scheduling and simulation operations workspace with your existing account.
         </p>
-        <p
-          style={{
-            marginTop: "10px",
-            padding: "10px 12px",
-            borderRadius: "10px",
-            background: "#f8fbff",
-            color: "#475569",
-            lineHeight: 1.6,
-          }}
-        >
-          This login only works for existing Supabase Auth users.
-          {" "}
-          <Link href="/signup" style={{ color: "#1d4ed8", fontWeight: 700 }}>
-            Create a test account
+
+        <div style={noticeStyle}>
+          <div style={{ color: "#173b6c", fontWeight: 800, marginBottom: "10px" }}>
+            New here?
+          </div>
+          <div style={{ color: "#5b6b7f", lineHeight: 1.6, marginBottom: "14px" }}>
+            If you do not already have an account, create one first and then return here to sign in.
+          </div>
+          <Link href="/signup" style={secondaryButtonStyle}>
+            Create Account
           </Link>
-          {" "}
-          if you do not have one yet.
-        </p>
+        </div>
 
         {errorMessage ? (
           <div
             style={{
-              marginBottom: "16px",
-              padding: "12px",
+              marginTop: "18px",
+              padding: "13px 14px",
               border: "1px solid #fecaca",
               background: "#fff5f5",
               color: "#991b1b",
-              borderRadius: "10px",
+              borderRadius: "12px",
+              lineHeight: 1.6,
+              fontWeight: 700,
             }}
           >
             {errorMessage}
           </div>
         ) : null}
 
-        <div style={{ display: "grid", gap: "14px" }}>
-          <label style={{ display: "grid", gap: "6px" }}>
-            <span style={{ fontWeight: 700, color: "#173b6c" }}>Email</span>
+        {!errorMessage && connectivityMessage ? (
+          <div
+            style={{
+              marginTop: "18px",
+              padding: "13px 14px",
+              border: "1px solid #fed7aa",
+              background: "#fff7ed",
+              color: "#9a3412",
+              borderRadius: "12px",
+              lineHeight: 1.6,
+              fontWeight: 700,
+            }}
+          >
+            {connectivityMessage}
+          </div>
+        ) : null}
+
+        <div style={{ display: "grid", gap: "16px", marginTop: "22px" }}>
+          <label style={inputGroupStyle}>
+            <span style={labelStyle}>Email</span>
             <input
               type="email"
               value={email}
@@ -172,8 +310,8 @@ export default function LoginPage() {
             />
           </label>
 
-          <label style={{ display: "grid", gap: "6px" }}>
-            <span style={{ fontWeight: 700, color: "#173b6c" }}>Password</span>
+          <label style={inputGroupStyle}>
+            <span style={labelStyle}>Password</span>
             <input
               type="password"
               value={password}
@@ -184,10 +322,18 @@ export default function LoginPage() {
             />
           </label>
 
-          <button type="submit" disabled={saving} style={{ ...buttonStyle, opacity: saving ? 0.7 : 1 }}>
+          <button
+            type="submit"
+            disabled={saving}
+            style={{ ...primaryButtonStyle, opacity: saving ? 0.7 : 1 }}
+          >
             {saving ? "Signing In..." : "Sign In"}
           </button>
         </div>
+
+        <p style={helperTextStyle}>
+          Use your confirmed Supabase Auth account. If sign-in fails, the exact auth message will appear above.
+        </p>
       </form>
     </main>
   );

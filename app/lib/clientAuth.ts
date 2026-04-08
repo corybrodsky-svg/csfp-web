@@ -1,7 +1,7 @@
 "use client";
 
 import type { Session } from "@supabase/supabase-js";
-import { supabase } from "./supabaseClient";
+import { getSupabaseBrowserClientError, requireSupabaseBrowserClient } from "./supabaseClient";
 
 async function parseApiError(response: Response) {
   try {
@@ -46,6 +46,9 @@ export async function clearServerSession() {
 }
 
 export async function signOutUser() {
-  await supabase.auth.signOut();
+  if (!getSupabaseBrowserClientError()) {
+    const browserClient = requireSupabaseBrowserClient();
+    await browserClient.auth.signOut();
+  }
   await clearServerSession();
 }
