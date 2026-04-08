@@ -20,6 +20,11 @@ function getErrorMessage(error: unknown) {
   return "Unknown Supabase error";
 }
 
+function isConfirmedAssignment(assignment: { status: string | null; confirmed: boolean | null }) {
+  const status = asText(assignment.status).toLowerCase();
+  return status === "confirmed" || (!status && assignment.confirmed === true);
+}
+
 export async function GET() {
   try {
     const { data, error } = await supabaseServer
@@ -34,7 +39,32 @@ export async function GET() {
       );
     }
 
-    return NextResponse.json({ events: data || [] });
+    const { data: assignments, error: assignmentError } = await supabaseServer
+      .from("event_sps")
+      .select("id,event_id,sp_id,status,confirmed");
+
+    if (assignmentError) {
+      return NextResponse.json(
+        { error: assignmentError.message || "Could not load event assignments from Supabase." },
+        { status: 500 }
+      );
+    }
+
+    const assignmentRows = assignments || [];
+    const eventsWithCoverage = (data || []).map((event) => {
+      const eventAssignments = assignmentRows.filter((assignment) => assignment.event_id === event.id);
+      const confirmedAssignments = eventAssignments.filter(isConfirmedAssignment).length;
+      const needed = parseNumber(event.sp_needed);
+
+      return {
+        ...event,
+        total_assignments: eventAssignments.length,
+        confirmed_assignments: confirmedAssignments,
+        shortage: Math.max(needed - confirmedAssignments, 0),
+      };
+    });
+
+    return NextResponse.json({ events: eventsWithCoverage, assignments: assignmentRows });
   } catch (error) {
     return NextResponse.json(
       { error: `Supabase request failed: ${getErrorMessage(error)}` },

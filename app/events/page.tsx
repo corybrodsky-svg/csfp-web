@@ -1,9 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import SiteShell from "../components/SiteShell";
-import { supabase } from "../lib/supabaseClient";
 
 type EventRow = {
   id: string;
@@ -13,28 +12,9 @@ type EventRow = {
   location: string | null;
   sp_needed: number | null;
   created_at: string | null;
-};
-
-type EventAssignmentRow = {
-  id: string;
-  event_id: string | null;
-  sp_id: string | null;
-  status: AssignmentStatus | null;
-  confirmed: boolean | null;
-};
-
-type AssignmentStatus =
-  | "invited"
-  | "contacted"
-  | "confirmed"
-  | "declined"
-  | "backup"
-  | "no_show";
-
-type EventAssignmentCounts = {
-  total: number;
-  confirmed: number;
-  shortage: number;
+  total_assignments: number | null;
+  confirmed_assignments: number | null;
+  shortage: number | null;
 };
 
 const cardStyle: React.CSSProperties = {
@@ -100,15 +80,6 @@ const shortagePill = (isCovered: boolean): React.CSSProperties => ({
   border: isCovered ? "1px solid #bbf7d0" : "1px solid #fed7aa",
 });
 
-const assignmentStatuses: AssignmentStatus[] = [
-  "invited",
-  "contacted",
-  "confirmed",
-  "declined",
-  "backup",
-  "no_show",
-];
-
 function parseEventDateValue(event: EventRow): number {
   const candidates = [event.date_text, event.created_at].filter(Boolean) as string[];
 
@@ -143,29 +114,6 @@ function parseEventDateValue(event: EventRow): number {
   return Number.MAX_SAFE_INTEGER;
 }
 
-function countAssignmentsForEvent(
-  event: EventRow,
-  assignments: EventAssignmentRow[]
-): EventAssignmentCounts {
-  const matching = assignments.filter((assignment) => assignment.event_id === event.id);
-  const confirmed = matching.filter(
-    (assignment) => getAssignmentStatus(assignment) === "confirmed"
-  ).length;
-  const needed = Number(event.sp_needed || 0);
-
-  return {
-    total: matching.length,
-    confirmed,
-    shortage: Math.max(needed - confirmed, 0),
-  };
-}
-
-function getAssignmentStatus(assignment: EventAssignmentRow): AssignmentStatus {
-  const rawStatus = String(assignment.status || "").trim() as AssignmentStatus;
-  if (assignmentStatuses.includes(rawStatus)) return rawStatus;
-  return assignment.confirmed === true ? "confirmed" : "invited";
-}
-
 function sortEventsByDateThenName(a: EventRow, b: EventRow) {
   const aDate = parseEventDateValue(a);
   const bDate = parseEventDateValue(b);
@@ -174,44 +122,43 @@ function sortEventsByDateThenName(a: EventRow, b: EventRow) {
   return (a.name || "").localeCompare(b.name || "");
 }
 
-async function fetchEventsPageData() {
-  const { data: eventRows, error: eventError } = await supabase
-    .from("events")
-    .select("id,name,status,date_text,location,sp_needed,created_at")
-    .returns<EventRow[]>();
-
-  if (eventError) {
-    return {
-      events: [],
-      assignments: [],
-      errorMessage: eventError.message || "Could not load events from Supabase.",
-    };
+async function parseApiError(response: Response) {
+  try {
+    const body = await response.json();
+    return String(body?.error || `${response.status} ${response.statusText}`);
+  } catch {
+    return `${response.status} ${response.statusText}`;
   }
+}
 
-  const { data: assignmentRows, error: assignmentError } = await supabase
-    .from("event_sps")
-    .select("id,event_id,sp_id,status,confirmed")
-    .returns<EventAssignmentRow[]>();
+async function fetchEventsPageData() {
+  try {
+    const response = await fetch("/api/events", { cache: "no-store" });
 
-  if (assignmentError) {
+    if (!response.ok) {
+      return {
+        events: [],
+        errorMessage: await parseApiError(response),
+      };
+    }
+
+    const body = await response.json();
+    const eventRows = Array.isArray(body?.events) ? (body.events as EventRow[]) : [];
+
     return {
       events: [...(eventRows || [])].sort(sortEventsByDateThenName),
-      assignments: [],
-      errorMessage:
-        assignmentError.message || "Could not load event assignments from Supabase.",
+      errorMessage: "",
+    };
+  } catch (error) {
+    return {
+      events: [],
+      errorMessage: error instanceof Error ? error.message : "Could not load events.",
     };
   }
-
-  return {
-    events: [...(eventRows || [])].sort(sortEventsByDateThenName),
-    assignments: assignmentRows || [],
-    errorMessage: "",
-  };
 }
 
 export default function EventsPage() {
   const [events, setEvents] = useState<EventRow[]>([]);
-  const [assignments, setAssignments] = useState<EventAssignmentRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
 
@@ -223,7 +170,6 @@ export default function EventsPage() {
         if (cancelled) return;
 
         setEvents(result.events);
-        setAssignments(result.assignments);
         setErrorMessage(result.errorMessage);
         setLoading(false);
       });
@@ -233,36 +179,15 @@ export default function EventsPage() {
 
     window.addEventListener("focus", refresh);
 
-    const channel = supabase
-      .channel("events-page-sync")
-      .on("postgres_changes", { event: "*", schema: "public", table: "events" }, refresh)
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "event_sps" },
-        refresh
-      )
-      .subscribe();
-
     return () => {
       cancelled = true;
       window.removeEventListener("focus", refresh);
-      supabase.removeChannel(channel);
     };
   }, []);
 
-  const eventCounts = useMemo(() => {
-    const next = new Map<string, EventAssignmentCounts>();
-
-    events.forEach((event) => {
-      next.set(event.id, countAssignmentsForEvent(event, assignments));
-    });
-
-    return next;
-  }, [assignments, events]);
-
   const totalNeeded = events.reduce((sum, event) => sum + Number(event.sp_needed || 0), 0);
   const totalConfirmed = events.reduce(
-    (sum, event) => sum + (eventCounts.get(event.id)?.confirmed || 0),
+    (sum, event) => sum + Number(event.confirmed_assignments || 0),
     0
   );
   const totalShortage = Math.max(totalNeeded - totalConfirmed, 0);
@@ -282,7 +207,7 @@ export default function EventsPage() {
             fontWeight: 700,
           }}
         >
-          Supabase error: {errorMessage}
+          Events error: {errorMessage}
         </div>
       ) : null}
 
@@ -322,17 +247,15 @@ export default function EventsPage() {
         <div style={cardStyle}>No events found in Supabase.</div>
       ) : (
         events.map((event) => {
-          const counts = eventCounts.get(event.id) || {
-            total: 0,
-            confirmed: 0,
-            shortage: Number(event.sp_needed || 0),
-          };
           const needed = Number(event.sp_needed || 0);
-          const isCovered = counts.shortage === 0 && needed > 0;
+          const totalAssignments = Number(event.total_assignments || 0);
+          const confirmedAssignments = Number(event.confirmed_assignments || 0);
+          const shortage = Number(event.shortage || 0);
+          const isCovered = shortage === 0 && needed > 0;
           const coverageText =
             needed > 0
-              ? `${counts.confirmed} confirmed / ${needed} needed`
-              : `${counts.confirmed} confirmed`;
+              ? `${confirmedAssignments} confirmed / ${needed} needed`
+              : `${confirmedAssignments} confirmed`;
 
           return (
             <div key={event.id} style={cardStyle}>
@@ -357,9 +280,9 @@ export default function EventsPage() {
                   <div style={{ marginTop: 12 }}>
                     <span style={shortagePill(isCovered)}>
                       {needed > 0
-                        ? counts.shortage === 0
+                        ? shortage === 0
                           ? "Covered"
-                          : `${counts.shortage} short`
+                          : `${shortage} short`
                         : "No SP target set"}
                     </span>
                   </div>
@@ -399,7 +322,7 @@ export default function EventsPage() {
                   <strong>Status:</strong> {event.status || "—"}
                 </div>
                 <div>
-                  <strong>Total Saved Assignments:</strong> {counts.total}
+                  <strong>Total Saved Assignments:</strong> {totalAssignments}
                 </div>
               </div>
             </div>
