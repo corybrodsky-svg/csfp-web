@@ -25,22 +25,22 @@ const cardStyle: React.CSSProperties = {
   background: "#ffffff",
   border: "1px solid #dbe4ee",
   borderRadius: "24px",
-  padding: "22px",
+  padding: "18px",
   boxShadow: "0 10px 26px rgba(15, 23, 42, 0.06)",
-  marginBottom: "18px",
+  marginBottom: "14px",
 };
 
 const statGrid: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
-  gap: "14px",
-  marginTop: "14px",
+  gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+  gap: "10px",
+  marginTop: "12px",
 };
 
 const statCard: React.CSSProperties = {
   border: "1px solid #dbe4ee",
-  borderRadius: "18px",
-  padding: "14px",
+  borderRadius: "16px",
+  padding: "12px",
   background: "#f8fbff",
 };
 
@@ -248,21 +248,34 @@ export default function EventsPage() {
                 }}
               >
                 <div style={{ flex: "1 1 560px", minWidth: 280 }}>
-                  <h2 style={{ margin: 0, fontSize: "34px", color: "#173b6c", lineHeight: 1.15 }}>
+                  <h2 style={{ margin: 0, fontSize: "28px", color: "#173b6c", lineHeight: 1.15 }}>
                     {event.name || "Untitled Event"}
                   </h2>
 
-                  <div style={{ marginTop: 8, color: "#64748b", fontWeight: 700 }}>
-                    {event.status || "No status"}
-                  </div>
-
-                  <div style={{ marginTop: 12 }}>
-                    <span style={shortagePill(isCovered)}>
+                  <div
+                    style={{
+                      marginTop: 8,
+                      display: "flex",
+                      gap: 8,
+                      flexWrap: "wrap",
+                      alignItems: "center",
+                    }}
+                  >
+                    <span style={{ color: "#64748b", fontWeight: 700 }}>
+                      {event.status || "No status"}
+                    </span>
+                    <span
+                      style={{
+                        ...shortagePill(isCovered),
+                        padding: "6px 10px",
+                        fontSize: "12px",
+                      }}
+                    >
                       {needed > 0
                         ? shortage === 0
-                          ? "Covered"
-                          : `${shortage} short`
-                        : "No SP target set"}
+                          ? "Coverage complete"
+                          : `${shortage} still needed`
+                        : "No SP target"}
                     </span>
                   </div>
                 </div>
@@ -292,40 +305,42 @@ export default function EventsPage() {
 
                 <div style={statCard}>
                   <div style={statLabel}>SP Coverage</div>
-                  <div style={statValue}>{coverageText}</div>
+                  <div
+                    style={{
+                      ...statValue,
+                      color: isCovered ? "#166534" : shortage > 0 ? "#9a3412" : "#173b6c",
+                    }}
+                  >
+                    {coverageText}
+                  </div>
                 </div>
               </div>
 
-              <div style={{ marginTop: 14, color: "#173b6c", lineHeight: 1.8 }}>
-                <div>
-                  <strong>Status:</strong> {event.status || "—"}
+              <div style={{ marginTop: 12, color: "#173b6c", lineHeight: 1.7 }}>
+                <div style={{ color: "#64748b", fontWeight: 700 }}>
+                  {totalAssignments} total assignment{totalAssignments === 1 ? "" : "s"}
                 </div>
-                <div>
-                  <strong>Total Saved Assignments:</strong> {totalAssignments}
-                </div>
-                <div style={{ marginTop: 8 }}>
-                  <strong>Assigned SPs:</strong>
+                <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
                   {assignedPreview.length ? (
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
-                      {assignedPreview.map((name) => (
-                        <span
-                          key={`${event.id}-${name}`}
-                          style={{
-                            display: "inline-flex",
-                            alignItems: "center",
-                            borderRadius: "999px",
-                            padding: "6px 10px",
-                            background: "#f8fbff",
-                            border: "1px solid #dbe4ee",
-                            fontWeight: 800,
-                          }}
-                        >
-                          {name}
-                        </span>
-                      ))}
-                    </div>
+                    assignedPreview.map((name) => (
+                      <span
+                        key={`${event.id}-${name}`}
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          borderRadius: "999px",
+                          padding: "6px 10px",
+                          background: "#f8fbff",
+                          border: "1px solid #dbe4ee",
+                          fontWeight: 800,
+                          fontSize: "13px",
+                        }}
+                      >
+                        {name}
+                      </span>
+                    ))
                   ) : (
-                    " None yet"
+                    <span style={{ color: "#64748b", fontWeight: 700 }}>No assigned SPs yet</span>
                   )}
                 </div>
               </div>

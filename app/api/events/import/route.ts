@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import * as XLSX from "xlsx";
 import { supabaseServer } from "../../../lib/supabaseServerClient";
-import { asText, formatUsDate, normalizeLooseDateToIso } from "../../../lib/eventDateUtils";
+import { asText, formatUsDate } from "../../../lib/eventDateUtils";
 
 export const dynamic = "force-dynamic";
 
@@ -18,15 +18,33 @@ type ColumnMap = {
 };
 
 type ImportCandidate = {
-  sheetName: string;
   name: string;
-  dateText: string | null;
-  sessionDate: string | null;
+  dateText: string;
+  sessionDate: string;
   startTime: string | null;
   endTime: string | null;
   location: string | null;
   notes: string | null;
 };
+
+type ParseResult = {
+  totalRowsParsed: number;
+  eventRowsSeen: number;
+  candidates: ImportCandidate[];
+  skippedNoDate: number;
+  skippedIgnored: number;
+  skippedBlank: number;
+};
+
+const TARGET_SHEET_NAME = "Spring 2026";
+const IGNORED_TERMS = [
+  "vacation",
+  "spring break",
+  "winter break",
+  "holiday",
+  "no class",
+  "no classes",
+];
 
 function normalize(value: unknown) {
   return asText(value).toLowerCase().replace(/[^a-z0-9]+/g, "");
@@ -36,51 +54,75 @@ function normalizeKey(value: unknown) {
   return asText(value).toLowerCase().replace(/\s+/g, " ");
 }
 
-function parseSheetYear(sheetName: string) {
-  const match = sheetName.match(/\b(20\d{2})\b/);
-  return match ? Number(match[1]) : new Date().getFullYear();
-}
-
-function isSeasonalSheet(sheetName: string) {
-  return /\b(spring|summer|fall|winter)\b/i.test(sheetName) && /\b20\d{2}\b/.test(sheetName);
-}
-
-function excelSerialToIsoDate(value: number) {
-  const parsed = XLSX.SSF.parse_date_code(value);
-  if (!parsed) return null;
-  return `${parsed.y}-${String(parsed.m).padStart(2, "0")}-${String(parsed.d).padStart(2, "0")}`;
-}
-
 function normalizeDateTextForKey(value: string | null) {
   return formatUsDate(value) || "";
 }
 
-function parseDateCell(value: unknown, fallbackYear: number) {
-  if (value instanceof Date && !Number.isNaN(value.getTime())) {
-    return normalizeLooseDateToIso(
-      `${value.getFullYear()}-${value.getMonth() + 1}-${value.getDate()}`,
-      fallbackYear
-    );
+function excelSerialToIsoDate(value: number) {
+  const parsed = XLSX.SSF.parse_date_code(value);
+  if (!parsed || parsed.y !== 2026) return null;
+  return `${parsed.y}-${String(parsed.m).padStart(2, "0")}-${String(parsed.d).padStart(2, "0")}`;
+}
+
+function normalizeSheetDate(month: number, day: number, yearText?: string) {
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+
+  let year = 2026;
+  if (yearText) {
+    if (yearText.length === 2) {
+      year = 2000 + Number(yearText);
+    } else if (yearText.length === 4) {
+      year = Number(yearText);
+    } else {
+      return null;
+    }
   }
 
-  if (typeof value === "number") return excelSerialToIsoDate(value);
+  if (year !== 2026) return null;
+
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function parseDateCell(value: unknown) {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    if (value.getFullYear() !== 2026) return null;
+    return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(
+      value.getDate()
+    ).padStart(2, "0")}`;
+  }
+
+  if (typeof value === "number") {
+    return excelSerialToIsoDate(value);
+  }
 
   const raw = asText(value);
   if (!raw) return null;
 
   const lower = raw.toLowerCase();
-  if (lower.includes("week") || lower.includes("vacation") || lower.includes("break")) return null;
+  if (lower.includes("week")) return null;
+  if (IGNORED_TERMS.some((term) => lower.includes(term))) return null;
 
-  const slashMatch = raw.match(/\b(\d{1,2})[/-](\d{1,2})(?:[/-](\d{1,4}))?\b/);
-  if (slashMatch) {
-    const yearText = slashMatch[3];
-    return normalizeLooseDateToIso(
-      `${slashMatch[1]}/${slashMatch[2]}/${yearText || fallbackYear}`,
-      fallbackYear
+  const weekdayMatch = raw.match(
+    /\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b[^\d]*(\d{1,2})[/-](\d{1,2})(?:[/-](\d{2,4}))?/i
+  );
+  if (weekdayMatch) {
+    return normalizeSheetDate(
+      Number(weekdayMatch[2]),
+      Number(weekdayMatch[3]),
+      weekdayMatch[4]
     );
   }
 
-  return normalizeLooseDateToIso(raw, fallbackYear);
+  const exactDateMatch = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);
+  if (exactDateMatch) {
+    return normalizeSheetDate(
+      Number(exactDateMatch[1]),
+      Number(exactDateMatch[2]),
+      exactDateMatch[3]
+    );
+  }
+
+  return null;
 }
 
 function parseTimeValue(value: string) {
@@ -157,27 +199,33 @@ function getCell(row: GridRow, index: number) {
 function isIgnoredName(name: string) {
   const lower = name.toLowerCase();
   if (!lower) return true;
-  return ["vacation", "spring break", "winter break", "holiday", "no class", "no classes"].some((term) =>
-    lower.includes(term)
-  );
+  return IGNORED_TERMS.some((term) => lower.includes(term));
 }
 
-function getDateFromRow(row: GridRow, year: number, columns: ColumnMap) {
-  return row
-    .filter((_, index) => index !== columns.sessionTime)
-    .map((cell) => parseDateCell(cell, year))
-    .find(Boolean) || null;
+function isWeekHeaderRow(rowText: string) {
+  return /\bweek\b/i.test(rowText);
+}
+
+function detectDayRowDate(row: GridRow, columns: ColumnMap) {
+  const sessionName = asText(getCell(row, columns.sessionName));
+  if (sessionName) return null;
+
+  for (const cell of row) {
+    const iso = parseDateCell(cell);
+    if (iso) return iso;
+  }
+
+  return null;
 }
 
 function buildNotes(args: {
-  sheetName: string;
   leadTeam: string;
   eventType: string;
   studentCount: string;
   faculty: string;
 }) {
   return [
-    `Imported from ${args.sheetName}`,
+    `Imported from ${TARGET_SHEET_NAME}`,
     args.leadTeam ? `Event Lead/Team: ${args.leadTeam}` : "",
     args.eventType ? `Summative or Formative: ${args.eventType}` : "",
     args.studentCount ? `Number of students: ${args.studentCount}` : "",
@@ -187,39 +235,71 @@ function buildNotes(args: {
     .join("\n");
 }
 
-function parseSheet(sheetName: string, rows: GridRow[]) {
+function parseSheet(rows: GridRow[]): ParseResult {
   const header = findHeader(rows);
-  if (!header) return [];
+  if (!header) {
+    return {
+      totalRowsParsed: rows.length,
+      eventRowsSeen: 0,
+      candidates: [],
+      skippedNoDate: 0,
+      skippedIgnored: 0,
+      skippedBlank: 0,
+    };
+  }
 
-  const year = parseSheetYear(sheetName);
   const candidates: ImportCandidate[] = [];
   let currentDate: string | null = null;
+  let skippedBlank = 0;
+  let skippedIgnored = 0;
+  let skippedNoDate = 0;
+  let eventRowsSeen = 0;
 
   for (let rowIndex = header.headerIndex + 1; rowIndex < rows.length; rowIndex += 1) {
     const row = rows[rowIndex] || [];
-    const rowText = row.map(asText).filter(Boolean).join(" ");
-    if (!rowText) continue;
+    const rowText = row.map(asText).filter(Boolean).join(" ").trim();
 
-    const dateFromRow = getDateFromRow(row, year, header.columns);
-    if (dateFromRow) currentDate = dateFromRow;
+    if (!rowText) {
+      skippedBlank += 1;
+      continue;
+    }
+
+    if (isWeekHeaderRow(rowText)) {
+      continue;
+    }
+
+    const dayDate = detectDayRowDate(row, header.columns);
+    if (dayDate) {
+      currentDate = dayDate;
+      continue;
+    }
 
     const name = asText(getCell(row, header.columns.sessionName));
-    if (!name || isIgnoredName(name)) continue;
+    if (!name) continue;
+
+    eventRowsSeen += 1;
+
+    if (isIgnoredName(name)) {
+      skippedIgnored += 1;
+      continue;
+    }
+
+    if (!currentDate) {
+      skippedNoDate += 1;
+      continue;
+    }
 
     const { startTime, endTime } = parseTimeRange(getCell(row, header.columns.sessionTime));
     const location = asText(getCell(row, header.columns.rooms)) || null;
-    const dateText = formatUsDate(currentDate);
 
     candidates.push({
-      sheetName,
       name,
-      dateText,
+      dateText: formatUsDate(currentDate) || currentDate,
       sessionDate: currentDate,
       startTime,
       endTime,
       location,
       notes: buildNotes({
-        sheetName,
         leadTeam: asText(getCell(row, header.columns.leadTeam)),
         eventType: asText(getCell(row, header.columns.eventType)),
         studentCount: asText(getCell(row, header.columns.studentCount)),
@@ -228,7 +308,14 @@ function parseSheet(sheetName: string, rows: GridRow[]) {
     });
   }
 
-  return candidates;
+  return {
+    totalRowsParsed: rows.length,
+    eventRowsSeen,
+    candidates,
+    skippedNoDate,
+    skippedIgnored,
+    skippedBlank,
+  };
 }
 
 function importKey(name: string, dateText: string | null) {
@@ -246,20 +333,21 @@ export async function POST(request: Request) {
 
     const buffer = Buffer.from(await file.arrayBuffer());
     const workbook = XLSX.read(buffer, { type: "buffer", cellDates: true });
-    const sheetNames = workbook.SheetNames.filter(isSeasonalSheet);
+    const targetSheet = workbook.Sheets[TARGET_SHEET_NAME];
 
-    if (!sheetNames.length) {
+    if (!targetSheet) {
       return NextResponse.json(
-        { error: "No seasonal sheets found. Expected names like Spring 2026." },
+        { error: `${TARGET_SHEET_NAME} sheet not found` },
         { status: 400 }
       );
     }
 
-    const candidates = sheetNames.flatMap((sheetName) => {
-      const sheet = workbook.Sheets[sheetName];
-      const rows = XLSX.utils.sheet_to_json<GridRow>(sheet, { header: 1, blankrows: false, raw: true });
-      return parseSheet(sheetName, rows);
+    const rows = XLSX.utils.sheet_to_json<GridRow>(targetSheet, {
+      header: 1,
+      blankrows: false,
+      raw: true,
     });
+    const parsed = parseSheet(rows);
 
     const { data: existingEvents, error: existingError } = await supabaseServer
       .from("events")
@@ -275,12 +363,12 @@ export async function POST(request: Request) {
 
     let createdEvents = 0;
     let createdSessions = 0;
-    let skippedDuplicates = 0;
+    let duplicateSkips = 0;
 
-    for (const candidate of candidates) {
+    for (const candidate of parsed.candidates) {
       const key = importKey(candidate.name, candidate.dateText);
       if (existingKeys.has(key)) {
-        skippedDuplicates += 1;
+        duplicateSkips += 1;
         continue;
       }
 
@@ -302,34 +390,35 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: eventError.message }, { status: 500 });
       }
 
+      const { error: sessionError } = await supabaseServer.from("event_sessions").insert({
+        event_id: event.id,
+        session_date: candidate.sessionDate,
+        start_time: candidate.startTime,
+        end_time: candidate.endTime,
+        location: candidate.location,
+        room: candidate.location,
+      });
+
+      if (sessionError) {
+        return NextResponse.json({ error: sessionError.message }, { status: 500 });
+      }
+
       existingKeys.add(key);
       createdEvents += 1;
-
-      if (event?.id && candidate.sessionDate) {
-        const { error: sessionError } = await supabaseServer.from("event_sessions").insert({
-          event_id: event.id,
-          session_date: candidate.sessionDate,
-          start_time: candidate.startTime,
-          end_time: candidate.endTime,
-          location: candidate.location,
-          room: candidate.location,
-        });
-
-        if (sessionError) {
-          return NextResponse.json({ error: sessionError.message }, { status: 500 });
-        }
-
-        createdSessions += 1;
-      }
+      createdSessions += 1;
     }
 
     return NextResponse.json({
       imported: {
-        sheets: sheetNames,
-        parsed_rows: candidates.length,
-        created_events: createdEvents,
-        created_sessions: createdSessions,
-        skipped_duplicates: skippedDuplicates,
+        sheet: TARGET_SHEET_NAME,
+        total_rows_parsed: parsed.totalRowsParsed,
+        event_rows_seen: parsed.eventRowsSeen,
+        events_created: createdEvents,
+        rows_skipped_no_date: parsed.skippedNoDate,
+        duplicates_skipped: duplicateSkips,
+        rows_skipped_ignored: parsed.skippedIgnored,
+        rows_skipped_blank: parsed.skippedBlank,
+        sessions_created: createdSessions,
       },
     });
   } catch (error) {

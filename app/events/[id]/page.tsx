@@ -242,9 +242,9 @@ const assignmentStatusLabels: Record<AssignmentStatus, string> = {
 
 const assignmentStatusStyles: Record<AssignmentStatus, React.CSSProperties> = {
   invited: {
-    background: "#f1f5f9",
-    color: "#475569",
-    border: "1px solid #cbd5e1",
+    background: "#dbeafe",
+    color: "#1d4ed8",
+    border: "1px solid #93c5fd",
   },
   contacted: {
     background: "#fef9c3",
@@ -768,6 +768,7 @@ export default function EventDetailPage() {
   const [assignmentSuccessMessage, setAssignmentSuccessMessage] = useState("");
   const [pollEmailMessage, setPollEmailMessage] = useState("");
   const [sendingPollAssignmentId, setSendingPollAssignmentId] = useState("");
+  const [sentPollAssignmentIds, setSentPollAssignmentIds] = useState<string[]>([]);
   const [errorMessage, setErrorMessage] = useState("");
   const [eventSaveMessage, setEventSaveMessage] = useState("");
   const [eventSaveError, setEventSaveError] = useState("");
@@ -976,7 +977,7 @@ export default function EventDetailPage() {
   );
   const assignedSummaryItems = useMemo(
     () =>
-      sortedAssignments.slice(0, 6).map((assignment) => {
+      sortedAssignments.slice(0, 8).map((assignment) => {
         const sp = assignment.sp_id ? spsById.get(assignment.sp_id) : undefined;
         return {
           id: assignment.id,
@@ -1045,6 +1046,34 @@ export default function EventDetailPage() {
 
     if (!response.ok) {
       throw new Error(await parseApiError(response));
+    }
+  }
+
+  async function assignMultipleSpIds(spIds: string[], successLabel: string) {
+    if (!id || spIds.length === 0) return;
+
+    setSaving(true);
+    setAssigningSpId("");
+    setAssignmentSuccessMessage("");
+    setPollEmailMessage("");
+    setErrorMessage("");
+    setEventSaveMessage("");
+    setEventSaveError("");
+
+    try {
+      for (const spId of spIds) {
+        await saveAssignmentRequest("POST", { sp_id: spId });
+      }
+
+      await refreshData();
+      setAssignmentSuccessMessage(successLabel);
+      window.setTimeout(() => {
+        setAssignmentSuccessMessage("");
+      }, 2200);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Could not save assignment.");
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -1263,11 +1292,38 @@ export default function EventDetailPage() {
 
       const body = await response.json().catch(() => null);
       setPollEmailMessage(body?.message || "Poll email sent.");
+      setSentPollAssignmentIds((current) =>
+        current.includes(assignment.id) ? current : [...current, assignment.id]
+      );
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Could not send poll email.");
     } finally {
       setSendingPollAssignmentId("");
     }
+  }
+
+  async function handleFillRemainingSpots() {
+    const eligibleIds = availableSps
+      .filter((sp) => {
+        const status = availabilityMatchBySpId.get(sp.id)?.status || "unknown";
+        return status === "available" || status === "partial";
+      })
+      .slice(0, Math.max(shortage, 0))
+      .map((sp) => sp.id);
+
+    await assignMultipleSpIds(
+      eligibleIds,
+      `Added ${eligibleIds.length} SP${eligibleIds.length === 1 ? "" : "s"}.`
+    );
+  }
+
+  async function handleAddTopMatches() {
+    const topIds = recommendedSps.slice(0, 3).map((sp) => sp.id);
+
+    await assignMultipleSpIds(
+      topIds,
+      `Added ${topIds.length} top match${topIds.length === 1 ? "" : "es"}.`
+    );
   }
 
   if (loading) {
@@ -1445,6 +1501,92 @@ export default function EventDetailPage() {
 
         <div
           style={{
+            marginTop: "16px",
+            border: "1px solid #bfdbfe",
+            borderRadius: "22px",
+            padding: "18px",
+            background: "linear-gradient(135deg, #eff6ff, #f8fbff)",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              gap: "12px",
+              flexWrap: "wrap",
+              alignItems: "center",
+            }}
+          >
+            <div>
+              <div style={{ ...statLabel, color: "#173b6c" }}>Assigned SPs Right Now</div>
+              <div style={{ marginTop: "6px", color: "#173b6c", fontSize: "22px", fontWeight: 900 }}>
+                {assignments.length} assigned
+              </div>
+            </div>
+            <div style={{ color: "#64748b", fontWeight: 800 }}>
+              {confirmedCount} confirmed · {unconfirmedCount} not yet confirmed
+            </div>
+          </div>
+
+          {assignedSummaryItems.length ? (
+            <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", marginTop: "14px" }}>
+              {assignedSummaryItems.map((item) => (
+                <div
+                  key={item.id}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "10px",
+                    padding: "12px 16px",
+                    borderRadius: "18px",
+                    background: "#ffffff",
+                    border: assignmentStatusStyles[item.status].border,
+                    color: "#173b6c",
+                    fontWeight: 900,
+                    boxShadow: "0 8px 20px rgba(15, 23, 42, 0.05)",
+                  }}
+                >
+                  <span style={{ fontSize: "15px" }}>{item.name}</span>
+                  <span
+                    style={{
+                      ...assignmentStatusStyles[item.status],
+                      borderRadius: "999px",
+                      padding: "6px 10px",
+                      fontSize: "12px",
+                      fontWeight: 900,
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {assignmentStatusLabels[item.status]}
+                  </span>
+                </div>
+              ))}
+              {sortedAssignments.length > assignedSummaryItems.length ? (
+                <div
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    padding: "12px 16px",
+                    borderRadius: "18px",
+                    background: "#ffffff",
+                    border: "1px solid #dbe4ee",
+                    color: "#64748b",
+                    fontWeight: 800,
+                  }}
+                >
+                  +{sortedAssignments.length - assignedSummaryItems.length} more
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <div style={{ marginTop: "10px", color: "#64748b", fontWeight: 700 }}>
+              No SPs assigned yet.
+            </div>
+          )}
+        </div>
+
+        <div
+          style={{
             marginTop: "18px",
             border: "1px solid #dbe4ee",
             borderRadius: "22px",
@@ -1586,55 +1728,6 @@ export default function EventDetailPage() {
           </div>
         </div>
 
-        <div
-          style={{
-            marginTop: "16px",
-            border: "1px solid #bfdbfe",
-            borderRadius: "18px",
-            padding: "16px",
-            background: "linear-gradient(135deg, #eff6ff, #f8fbff)",
-          }}
-        >
-          <div style={{ ...statLabel, color: "#173b6c" }}>Assigned SP Summary</div>
-          {assignedSummaryItems.length ? (
-            <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "10px" }}>
-              {assignedSummaryItems.map((item) => (
-                <div
-                  key={item.id}
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: "8px",
-                    padding: "10px 14px",
-                    borderRadius: "16px",
-                    background: "#ffffff",
-                    border: assignmentStatusStyles[item.status].border,
-                    color: "#173b6c",
-                    fontWeight: 800,
-                    boxShadow: "0 6px 16px rgba(15, 23, 42, 0.05)",
-                  }}
-                >
-                  <span style={{ fontWeight: 900 }}>{item.name}</span>
-                  <span
-                    style={{
-                      ...assignmentStatusStyles[item.status],
-                      borderRadius: "999px",
-                      padding: "4px 8px",
-                      fontSize: "11px",
-                      fontWeight: 900,
-                    }}
-                  >
-                    {assignmentStatusLabels[item.status]}
-                  </span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div style={{ marginTop: "8px", color: "#64748b", fontWeight: 700 }}>
-              No SPs assigned yet.
-            </div>
-          )}
-        </div>
       </div>
 
       <div style={cardStyle}>
@@ -1990,22 +2083,42 @@ export default function EventDetailPage() {
                       </button>
 
                       {status === "invited" ? (
-                        <button
-                          type="button"
-                          onClick={() => void handleSendPollEmail(assignment)}
-                          disabled={Boolean(sendingPollAssignmentId)}
-                          style={{
-                            ...buttonStyle,
-                            background: "#ffffff",
-                            color: "#173b6c",
-                            border: "1px solid #bfdbfe",
-                            opacity: sendingPollAssignmentId ? 0.65 : 1,
-                          }}
-                        >
-                          {sendingPollAssignmentId === assignment.id
-                            ? "Sending Poll..."
-                            : "Send Poll Email"}
-                        </button>
+                        <div style={{ display: "grid", gap: "8px" }}>
+                          {sentPollAssignmentIds.includes(assignment.id) ? (
+                            <div
+                              style={{
+                                borderRadius: "999px",
+                                padding: "7px 10px",
+                                background: "#ecfdf3",
+                                border: "1px solid #86efac",
+                                color: "#166534",
+                                fontSize: "12px",
+                                fontWeight: 900,
+                                textAlign: "center",
+                              }}
+                            >
+                              Sent
+                            </div>
+                          ) : null}
+                          <button
+                            type="button"
+                            onClick={() => void handleSendPollEmail(assignment)}
+                            disabled={Boolean(sendingPollAssignmentId)}
+                            style={{
+                              ...buttonStyle,
+                              background: "#ffffff",
+                              color: "#173b6c",
+                              border: "1px solid #bfdbfe",
+                              opacity: sendingPollAssignmentId ? 0.65 : 1,
+                            }}
+                          >
+                            {sendingPollAssignmentId === assignment.id
+                              ? "Sending Poll..."
+                              : sentPollAssignmentIds.includes(assignment.id)
+                                ? "Resend Poll Email"
+                                : "Send Poll Email"}
+                          </button>
+                        </div>
                       ) : null}
                     </div>
                   </div>
@@ -2127,8 +2240,50 @@ export default function EventDetailPage() {
 
           <div style={{ ...statCard, background: "#ffffff" }}>
             <div style={statLabel}>Recommended SPs</div>
-            <div style={{ marginTop: "6px", color: "#64748b", fontWeight: 700 }}>
-              Top matches based on availability for this event
+            <div
+              style={{
+                marginTop: "6px",
+                display: "flex",
+                justifyContent: "space-between",
+                gap: "12px",
+                flexWrap: "wrap",
+                alignItems: "center",
+              }}
+            >
+              <div style={{ color: "#64748b", fontWeight: 700 }}>
+                Top matches based on availability for this event
+              </div>
+              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                <button
+                  type="button"
+                  onClick={() => void handleFillRemainingSpots()}
+                  disabled={
+                    saving ||
+                    shortage <= 0 ||
+                    availableSps.filter((sp) => {
+                      const status = availabilityMatchBySpId.get(sp.id)?.status || "unknown";
+                      return status === "available" || status === "partial";
+                    }).length === 0
+                  }
+                  style={{ ...buttonStyle, opacity: saving || shortage <= 0 ? 0.65 : 1 }}
+                >
+                  Fill Remaining Spots
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleAddTopMatches()}
+                  disabled={saving || recommendedSps.length === 0}
+                  style={{
+                    ...buttonStyle,
+                    background: "#ffffff",
+                    color: "#173b6c",
+                    border: "1px solid #cbd5e1",
+                    opacity: saving || recommendedSps.length === 0 ? 0.65 : 1,
+                  }}
+                >
+                  Add Top 3 Matches
+                </button>
+              </div>
             </div>
 
             {recommendedSps.length === 0 ? (
