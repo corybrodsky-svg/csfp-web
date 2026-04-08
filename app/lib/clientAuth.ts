@@ -13,17 +13,29 @@ async function parseApiError(response: Response) {
 }
 
 export async function syncSessionWithServer(session: Session) {
-  const response = await fetch("/api/auth/session", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      access_token: session.access_token,
-      refresh_token: session.refresh_token,
-    }),
-  });
+  try {
+    const response = await fetch("/api/auth/session", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        access_token: session.access_token,
+        refresh_token: session.refresh_token,
+      }),
+    });
 
-  if (!response.ok) {
-    throw new Error(await parseApiError(response));
+    if (!response.ok) {
+      throw new Error(await parseApiError(response));
+    }
+  } catch (error) {
+    if (error instanceof Error) {
+      throw new Error(
+        error.message === "Failed to fetch"
+          ? "Could not reach /api/auth/session to persist the login cookie."
+          : error.message
+      );
+    }
+
+    throw new Error("Could not persist login session.");
   }
 }
 
