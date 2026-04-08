@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../lib/supabaseClient";
@@ -35,6 +36,24 @@ const buttonStyle: React.CSSProperties = {
   width: "100%",
 };
 
+function formatAuthError(message?: string | null) {
+  const text = (message || "").trim();
+  if (!text) return "Login failed.";
+
+  const lowered = text.toLowerCase();
+  if (lowered.includes("invalid login credentials")) {
+    return "Invalid login credentials. This login only works for existing Supabase Auth users.";
+  }
+  if (lowered.includes("email not confirmed")) {
+    return "Your email is not confirmed yet. Check your inbox for the Supabase confirmation email.";
+  }
+  if (lowered.includes("email provider is disabled")) {
+    return "Supabase email/password auth is disabled for this project.";
+  }
+
+  return text;
+}
+
 export default function LoginPage() {
   const router = useRouter();
   const [nextPath] = useState(() => {
@@ -57,8 +76,12 @@ export default function LoginPage() {
       try {
         await syncSessionWithServer(data.session);
         router.replace(nextPath);
-      } catch {
-        // Let the user log in again if cookie sync fails.
+      } catch (error) {
+        if (!cancelled) {
+          setErrorMessage(
+            error instanceof Error ? error.message : "Could not persist login session."
+          );
+        }
       }
     });
 
@@ -78,7 +101,7 @@ export default function LoginPage() {
     });
 
     if (error || !data.session) {
-      setErrorMessage(error?.message || "Login failed.");
+      setErrorMessage(formatAuthError(error?.message));
       setSaving(false);
       return;
     }
@@ -101,6 +124,24 @@ export default function LoginPage() {
         <h1 style={{ marginTop: 0, color: "#173b6c", fontSize: "34px" }}>CFSP Login</h1>
         <p style={{ color: "#64748b", lineHeight: 1.6 }}>
           Sign in with your Supabase account to access CFSP operations.
+        </p>
+        <p
+          style={{
+            marginTop: "10px",
+            padding: "10px 12px",
+            borderRadius: "10px",
+            background: "#f8fbff",
+            color: "#475569",
+            lineHeight: 1.6,
+          }}
+        >
+          This login only works for existing Supabase Auth users.
+          {" "}
+          <Link href="/signup" style={{ color: "#1d4ed8", fontWeight: 700 }}>
+            Create a test account
+          </Link>
+          {" "}
+          if you do not have one yet.
         </p>
 
         {errorMessage ? (
