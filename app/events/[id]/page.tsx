@@ -111,6 +111,25 @@ type EventEditorState = {
   sp_needed: string;
 };
 
+const emptySpRow: SPRow = {
+  id: "",
+  first_name: null,
+  last_name: null,
+  full_name: null,
+  working_email: null,
+  email: null,
+  phone: null,
+  portrayal_age: null,
+  race: null,
+  sex: null,
+  telehealth: null,
+  pt_preferred: null,
+  other_roles: null,
+  speaks_spanish: null,
+  notes: null,
+  status: null,
+};
+
 const cardStyle: React.CSSProperties = {
   background: "#ffffff",
   border: "1px solid #dbe4ee",
@@ -211,14 +230,14 @@ const assignmentStatusLabels: Record<AssignmentStatus, string> = {
 
 const assignmentStatusStyles: Record<AssignmentStatus, React.CSSProperties> = {
   invited: {
-    background: "#eff6ff",
-    color: "#1d4ed8",
-    border: "1px solid #bfdbfe",
+    background: "#f1f5f9",
+    color: "#475569",
+    border: "1px solid #cbd5e1",
   },
   contacted: {
-    background: "#f5f3ff",
-    color: "#6d28d9",
-    border: "1px solid #ddd6fe",
+    background: "#fef9c3",
+    color: "#854d0e",
+    border: "1px solid #fde68a",
   },
   confirmed: {
     background: "#dcfce7",
@@ -360,6 +379,20 @@ function getAssignmentStatus(assignment: AssignmentRow): AssignmentStatus {
 function getContactMethod(assignment: AssignmentRow) {
   const rawMethod = asText(assignment.contact_method) as ContactMethod;
   return contactMethods.includes(rawMethod) ? rawMethod : "";
+}
+
+function getContactMethodLabel(assignment: AssignmentRow) {
+  const raw = getContactMethod(assignment);
+  return raw || "Not set";
+}
+
+function getAssignmentStatusRank(status: AssignmentStatus) {
+  if (status === "confirmed") return 0;
+  if (status === "contacted") return 1;
+  if (status === "invited") return 2;
+  if (status === "backup") return 3;
+  if (status === "declined") return 4;
+  return 5;
 }
 
 function getAvailabilitySpId(row: AvailabilityRow) {
@@ -626,6 +659,21 @@ export default function EventDetailPage() {
   const assignedSpIds = useMemo(
     () => new Set(assignments.map((assignment) => asText(assignment.sp_id)).filter(Boolean)),
     [assignments]
+  );
+
+  const sortedAssignments = useMemo(
+    () =>
+      [...assignments].sort((a, b) => {
+        const aStatus = getAssignmentStatus(a);
+        const bStatus = getAssignmentStatus(b);
+        const rankDiff = getAssignmentStatusRank(aStatus) - getAssignmentStatusRank(bStatus);
+        if (rankDiff !== 0) return rankDiff;
+
+        const aSp = a.sp_id ? spsById.get(a.sp_id) : undefined;
+        const bSp = b.sp_id ? spsById.get(b.sp_id) : undefined;
+        return getFullName(aSp || emptySpRow).localeCompare(getFullName(bSp || emptySpRow));
+      }),
+    [assignments, spsById]
   );
 
   const assignmentsBySpId = useMemo(() => {
@@ -1323,6 +1371,290 @@ export default function EventDetailPage() {
       </div>
 
       <div style={cardStyle}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            gap: "12px",
+            flexWrap: "wrap",
+            alignItems: "center",
+          }}
+        >
+          <div>
+            <h2 style={{ margin: 0, color: "#173b6c" }}>Assigned SPs</h2>
+            <p style={{ margin: "6px 0 0", color: "#64748b", fontWeight: 700 }}>
+              Confirmed assignments are listed first so coverage risk is easy to scan.
+            </p>
+          </div>
+          <div style={{ color: "#64748b", fontWeight: 800 }}>
+            {confirmedCount} confirmed · {unconfirmedCount} unconfirmed
+          </div>
+        </div>
+
+        {assignments.length === 0 ? (
+          <p style={{ color: "#64748b", marginBottom: 0, marginTop: "14px" }}>
+            No SPs assigned yet.
+          </p>
+        ) : (
+          <div style={{ display: "grid", gap: "12px", marginTop: "14px" }}>
+            {sortedAssignments.map((assignment) => {
+              const sp = assignment.sp_id ? spsById.get(assignment.sp_id) : undefined;
+              const status = getAssignmentStatus(assignment);
+              const confirmed = status === "confirmed";
+              const email = sp ? getEmail(sp) : "";
+              const statusStyle = assignmentStatusStyles[status];
+              const contactMethod = getContactMethod(assignment);
+              const availabilityForSp = assignment.sp_id
+                ? availabilityBySpId.get(assignment.sp_id) || []
+                : [];
+
+              return (
+                <div
+                  key={assignment.id}
+                  style={{
+                    border: statusStyle.border,
+                    borderRadius: "20px",
+                    padding: "18px",
+                    background: confirmed ? "#ecfdf3" : "#ffffff",
+                    boxShadow: "0 8px 24px rgba(15, 23, 42, 0.05)",
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      gap: "16px",
+                      flexWrap: "wrap",
+                      alignItems: "flex-start",
+                    }}
+                  >
+                    <div style={{ flex: "1 1 320px" }}>
+                      <div
+                        style={{
+                          display: "flex",
+                          gap: "12px",
+                          flexWrap: "wrap",
+                          alignItems: "center",
+                        }}
+                      >
+                        <h3 style={{ margin: 0, color: "#173b6c", fontSize: "24px" }}>
+                          {sp ? getFullName(sp) : "Unknown SP"}
+                        </h3>
+                        <span
+                          style={{
+                            ...statusStyle,
+                            borderRadius: "999px",
+                            padding: "9px 14px",
+                            fontWeight: 900,
+                            fontSize: "14px",
+                            letterSpacing: "0.01em",
+                          }}
+                        >
+                          {assignmentStatusLabels[status]}
+                        </span>
+                      </div>
+
+                      <div style={{ marginTop: 6, color: "#64748b", fontWeight: 700 }}>
+                        {email || assignment.sp_id || "No SP id"}
+                      </div>
+
+                      <div style={{ ...detailGridStyle, marginTop: "14px" }}>
+                        <div style={{ ...statCard, background: "#ffffff" }}>
+                          <div style={statLabel}>Contact Method</div>
+                          <div style={{ ...statValue, fontSize: "16px" }}>
+                            {getContactMethodLabel(assignment)}
+                          </div>
+                        </div>
+
+                        <div style={{ ...statCard, background: "#ffffff" }}>
+                          <div style={statLabel}>Last Contacted</div>
+                          <div style={{ ...statValue, fontSize: "16px" }}>
+                            {formatTimestamp(assignment.last_contacted_at)}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div
+                        style={{
+                          marginTop: "14px",
+                          border: "1px solid #dbe4ee",
+                          borderRadius: "16px",
+                          padding: "14px",
+                          background: "#f8fbff",
+                        }}
+                      >
+                        <div style={statLabel}>Notes</div>
+                        <div
+                          style={{
+                            marginTop: "6px",
+                            color: "#334155",
+                            whiteSpace: "pre-wrap",
+                            lineHeight: 1.6,
+                          }}
+                        >
+                          {assignment.notes || "No notes yet."}
+                        </div>
+                      </div>
+
+                      <div style={{ marginTop: 10, color: "#334155", lineHeight: 1.6 }}>
+                        <strong>Availability:</strong>
+                        <span style={{ display: "block", whiteSpace: "pre-wrap" }}>
+                          {formatAvailabilityRows(availabilityForSp)}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div style={{ display: "grid", gap: "10px", minWidth: "220px" }}>
+                      <div
+                        style={{
+                          border: statusStyle.border,
+                          borderRadius: "18px",
+                          padding: "14px",
+                          background: statusStyle.background,
+                          color: statusStyle.color,
+                        }}
+                      >
+                        <div style={{ fontSize: "12px", fontWeight: 800, textTransform: "uppercase" }}>
+                          Current Status
+                        </div>
+                        <div style={{ marginTop: "6px", fontSize: "22px", fontWeight: 900 }}>
+                          {assignmentStatusLabels[status]}
+                        </div>
+                      </div>
+
+                      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                        <button
+                          type="button"
+                          onClick={() => void handleStatusChange(assignment, "confirmed")}
+                          disabled={saving || status === "confirmed"}
+                          style={{ ...buttonStyle, opacity: saving || status === "confirmed" ? 0.65 : 1 }}
+                        >
+                          Confirm
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleStatusChange(assignment, "contacted")}
+                          disabled={saving || status === "contacted"}
+                          style={{
+                            ...buttonStyle,
+                            background: "#ffffff",
+                            color: "#854d0e",
+                            border: "1px solid #fde68a",
+                            opacity: saving || status === "contacted" ? 0.65 : 1,
+                          }}
+                        >
+                          Mark Contacted
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleStatusChange(assignment, "declined")}
+                          disabled={saving || status === "declined"}
+                          style={{
+                            ...buttonStyle,
+                            background: "#fff5f5",
+                            color: "#991b1b",
+                            border: "1px solid #fecaca",
+                            opacity: saving || status === "declined" ? 0.65 : 1,
+                          }}
+                        >
+                          Decline
+                        </button>
+                      </div>
+
+                      <select
+                        value={status}
+                        onChange={(e) =>
+                          handleStatusChange(assignment, e.target.value as AssignmentStatus)
+                        }
+                        disabled={saving}
+                        style={{
+                          ...selectStyle,
+                          width: "100%",
+                          maxWidth: "100%",
+                          background: "#ffffff",
+                        }}
+                      >
+                        {assignmentStatuses.map((option) => (
+                          <option key={option} value={option}>
+                            {assignmentStatusLabels[option]}
+                          </option>
+                        ))}
+                      </select>
+
+                      <button
+                        type="button"
+                        onClick={() => void handleRemoveAssignment(assignment)}
+                        disabled={saving}
+                        style={dangerButtonStyle}
+                      >
+                        Remove Assignment
+                      </button>
+                    </div>
+                  </div>
+
+                  <div style={{ ...detailGridStyle, marginTop: "16px" }}>
+                    <label style={{ display: "grid", gap: "6px" }}>
+                      <span style={statLabel}>Contact Method</span>
+                      <select
+                        value={contactMethod}
+                        onChange={(e) =>
+                          handleAssignmentDetailsChange(assignment, {
+                            contact_method: e.target.value
+                              ? (e.target.value as ContactMethod)
+                              : null,
+                          })
+                        }
+                        disabled={saving}
+                        style={{ ...selectStyle, maxWidth: "100%", width: "100%", background: "#ffffff" }}
+                      >
+                        <option value="">Not set</option>
+                        {contactMethods.map((method) => (
+                          <option key={method} value={method}>
+                            {method}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <label style={{ display: "grid", gap: "6px" }}>
+                      <span style={statLabel}>Last Contacted</span>
+                      <input
+                        type="datetime-local"
+                        defaultValue={toDatetimeLocalValue(assignment.last_contacted_at)}
+                        onBlur={(e) =>
+                          handleAssignmentDetailsChange(assignment, {
+                            last_contacted_at: fromDatetimeLocalValue(e.target.value),
+                          })
+                        }
+                        disabled={saving}
+                        style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                      />
+                    </label>
+                  </div>
+
+                  <label style={{ display: "grid", gap: "6px", marginTop: "16px" }}>
+                    <span style={statLabel}>Assignment Notes</span>
+                    <textarea
+                      key={`${assignment.id}-${assignment.notes || ""}`}
+                      defaultValue={assignment.notes || ""}
+                      onBlur={(e) =>
+                        handleAssignmentDetailsChange(assignment, {
+                          notes: e.target.value.trim() || null,
+                        })
+                      }
+                      placeholder="Add contact notes, constraints, follow-up details..."
+                      disabled={saving}
+                      style={textareaStyle}
+                    />
+                  </label>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      <div style={cardStyle}>
         <h2 style={{ marginTop: 0, color: "#173b6c" }}>Assign SP</h2>
         <p style={{ marginTop: 0, color: "#64748b", fontWeight: 700 }}>
           Search, filter, and add SPs as invited while coverage stays visible.
@@ -1577,187 +1909,6 @@ export default function EventDetailPage() {
         ) : null}
       </div>
 
-      <div style={cardStyle}>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            gap: "12px",
-            flexWrap: "wrap",
-            alignItems: "center",
-          }}
-        >
-          <h2 style={{ margin: 0, color: "#173b6c" }}>Assigned SPs</h2>
-          <div style={{ color: "#64748b", fontWeight: 800 }}>
-            {confirmedCount} confirmed · {unconfirmedCount} unconfirmed
-          </div>
-        </div>
-
-        {assignments.length === 0 ? (
-          <p style={{ color: "#64748b", marginBottom: 0, marginTop: "14px" }}>
-            No SPs assigned yet.
-          </p>
-        ) : (
-          <div style={{ display: "grid", gap: "12px", marginTop: "14px" }}>
-            {assignments.map((assignment) => {
-              const sp = assignment.sp_id ? spsById.get(assignment.sp_id) : undefined;
-              const status = getAssignmentStatus(assignment);
-              const confirmed = status === "confirmed";
-              const email = sp ? getEmail(sp) : "";
-              const statusStyle = assignmentStatusStyles[status];
-              const contactMethod = getContactMethod(assignment);
-              const availabilityForSp = assignment.sp_id
-                ? availabilityBySpId.get(assignment.sp_id) || []
-                : [];
-
-              return (
-                <div
-                  key={assignment.id}
-                  style={{
-                    border: statusStyle.border,
-                    borderRadius: "18px",
-                    padding: "16px",
-                    background: confirmed ? "#ecfdf3" : "#ffffff",
-                  }}
-                >
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      gap: "12px",
-                      flexWrap: "wrap",
-                      alignItems: "flex-start",
-                    }}
-                  >
-                    <div>
-                      <h3 style={{ margin: 0, color: "#173b6c", fontSize: "24px" }}>
-                        {sp ? getFullName(sp) : "Unknown SP"}
-                      </h3>
-                      <div style={{ marginTop: 6, color: "#64748b", fontWeight: 700 }}>
-                        {email || assignment.sp_id || "No SP id"}
-                      </div>
-                      <div style={{ marginTop: 6, color: "#334155", lineHeight: 1.6 }}>
-                        <strong>Phone:</strong> {sp?.phone || "—"}
-                      </div>
-                      <div style={{ marginTop: 6, color: "#334155", lineHeight: 1.6 }}>
-                        <strong>Last contact:</strong> {formatTimestamp(assignment.last_contacted_at)}
-                      </div>
-                      <div style={{ marginTop: 6, color: "#334155", lineHeight: 1.6 }}>
-                        <strong>Availability:</strong>
-                        <span style={{ display: "block", whiteSpace: "pre-wrap" }}>
-                          {formatAvailabilityRows(availabilityForSp)}
-                        </span>
-                      </div>
-                      <div
-                        style={{
-                          display: "inline-flex",
-                          marginTop: 10,
-                          borderRadius: "999px",
-                          padding: "7px 11px",
-                          background: statusStyle.background,
-                          color: statusStyle.color,
-                          border: statusStyle.border,
-                          fontWeight: 900,
-                          fontSize: "13px",
-                        }}
-                      >
-                        {assignmentStatusLabels[status]}
-                      </div>
-                    </div>
-
-                    <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", justifyContent: "flex-end" }}>
-                      <select
-                        value={status}
-                        onChange={(e) =>
-                          handleStatusChange(assignment, e.target.value as AssignmentStatus)
-                        }
-                        disabled={saving}
-                        style={{
-                          ...selectStyle,
-                          width: "190px",
-                          maxWidth: "190px",
-                          background: "#ffffff",
-                        }}
-                      >
-                        {assignmentStatuses.map((option) => (
-                          <option key={option} value={option}>
-                            {assignmentStatusLabels[option]}
-                          </option>
-                        ))}
-                      </select>
-
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveAssignment(assignment)}
-                        disabled={saving}
-                        style={dangerButtonStyle}
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  </div>
-
-                  <div style={{ ...detailGridStyle, marginTop: "16px" }}>
-                    <label style={{ display: "grid", gap: "6px" }}>
-                      <span style={statLabel}>Contact Method</span>
-                      <select
-                        value={contactMethod}
-                        onChange={(e) =>
-                          handleAssignmentDetailsChange(assignment, {
-                            contact_method: e.target.value
-                              ? (e.target.value as ContactMethod)
-                              : null,
-                          })
-                        }
-                        disabled={saving}
-                        style={{ ...selectStyle, maxWidth: "100%", width: "100%", background: "#ffffff" }}
-                      >
-                        <option value="">Not set</option>
-                        {contactMethods.map((method) => (
-                          <option key={method} value={method}>
-                            {method}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-
-                    <label style={{ display: "grid", gap: "6px" }}>
-                      <span style={statLabel}>Last Contacted</span>
-                      <input
-                        type="datetime-local"
-                        defaultValue={toDatetimeLocalValue(assignment.last_contacted_at)}
-                        onBlur={(e) =>
-                          handleAssignmentDetailsChange(assignment, {
-                            last_contacted_at: fromDatetimeLocalValue(e.target.value),
-                          })
-                        }
-                        disabled={saving}
-                        style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
-                      />
-                    </label>
-                  </div>
-
-                  <label style={{ display: "grid", gap: "6px", marginTop: "16px" }}>
-                    <span style={statLabel}>Assignment Notes</span>
-                    <textarea
-                      key={`${assignment.id}-${assignment.notes || ""}`}
-                      defaultValue={assignment.notes || ""}
-                      onBlur={(e) =>
-                        handleAssignmentDetailsChange(assignment, {
-                          notes: e.target.value.trim() || null,
-                        })
-                      }
-                      placeholder="Add contact notes, constraints, follow-up details..."
-                      disabled={saving}
-                      style={textareaStyle}
-                    />
-                  </label>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
     </SiteShell>
   );
 }
