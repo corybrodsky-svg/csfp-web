@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import SiteShell from "../../components/SiteShell";
-import { supabase } from "../../lib/supabaseClient";
 
 type EventDetailRow = {
   id: string;
@@ -517,95 +516,57 @@ function buildMailtoHref(args: { bcc: string[]; subject: string; body: string })
   return `mailto:?${params.toString()}`;
 }
 
-async function fetchCommandCenterData(eventId: string): Promise<CommandCenterData> {
-  const { data: event, error: eventError } = await supabase
-    .from("events")
-    .select("id,name,status,date_text,sp_needed,visibility,location,notes,created_at")
-    .eq("id", eventId)
-    .maybeSingle<EventDetailRow>();
+async function parseApiError(response: Response) {
+  try {
+    const body = await response.json();
+    return body?.error || `${response.status} ${response.statusText}`;
+  } catch {
+    return `${response.status} ${response.statusText}`;
+  }
+}
 
-  if (eventError) {
+async function fetchCommandCenterData(eventId: string): Promise<CommandCenterData> {
+  try {
+    const response = await fetch(`/api/events/${encodeURIComponent(eventId)}`, {
+      cache: "no-store",
+    });
+    const body = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      return {
+        event: null,
+        sessions: [],
+        sps: [],
+        assignments: [],
+        availabilityRows: [],
+        errorMessage: body?.error || `Could not load event (${response.status}).`,
+        sessionErrorMessage: "",
+        availabilityErrorMessage: "",
+      };
+    }
+
+    return {
+      event: body?.event || null,
+      sessions: Array.isArray(body?.sessions) ? body.sessions : [],
+      sps: Array.isArray(body?.sps) ? [...body.sps].sort(sortSPs) : [],
+      assignments: Array.isArray(body?.assignments) ? body.assignments : [],
+      availabilityRows: Array.isArray(body?.availabilityRows) ? body.availabilityRows : [],
+      errorMessage: body?.errorMessage || "",
+      sessionErrorMessage: body?.sessionErrorMessage || "",
+      availabilityErrorMessage: body?.availabilityErrorMessage || "",
+    };
+  } catch (error) {
     return {
       event: null,
       sessions: [],
       sps: [],
       assignments: [],
       availabilityRows: [],
-      errorMessage: eventError.message || "Could not load event from Supabase.",
+      errorMessage: error instanceof Error ? error.message : "Could not load event.",
       sessionErrorMessage: "",
       availabilityErrorMessage: "",
     };
   }
-
-  const { data: sessions, error: sessionError } = await supabase
-    .from("event_sessions")
-    .select("id,event_id,session_date,start_time,end_time,location,room,created_at")
-    .eq("event_id", eventId)
-    .order("session_date", { ascending: true })
-    .order("start_time", { ascending: true })
-    .returns<EventSessionRow[]>();
-
-  const { data: sps, error: spError } = await supabase
-    .from("sps")
-    .select("id,first_name,last_name,full_name,working_email,email,phone,portrayal_age,race,sex,telehealth,pt_preferred,other_roles,speaks_spanish,notes,status")
-    .returns<SPRow[]>();
-
-  if (spError) {
-    return {
-      event,
-      sessions: sessions || [],
-      sps: [],
-      assignments: [],
-      availabilityRows: [],
-      errorMessage: spError.message || "Could not load SPs from Supabase.",
-      sessionErrorMessage: sessionError
-        ? sessionError.message || "Could not load event sessions from Supabase."
-        : "",
-      availabilityErrorMessage: "",
-    };
-  }
-
-  const { data: assignments, error: assignmentError } = await supabase
-    .from("event_sps")
-    .select("id,event_id,sp_id,status,confirmed,notes,last_contacted_at,contact_method,created_at")
-    .eq("event_id", eventId)
-    .returns<AssignmentRow[]>();
-
-  if (assignmentError) {
-    return {
-      event,
-      sessions: sessions || [],
-      sps: [...(sps || [])].sort(sortSPs),
-      assignments: [],
-      availabilityRows: [],
-      errorMessage: assignmentError.message || "Could not load assignments from Supabase.",
-      sessionErrorMessage: sessionError
-        ? sessionError.message || "Could not load event sessions from Supabase."
-        : "",
-      availabilityErrorMessage: "",
-    };
-  }
-
-  const { data: availabilityRows, error: availabilityError } = await supabase
-    .from("sp_availability")
-    .select("*")
-    .limit(1000)
-    .returns<AvailabilityRow[]>();
-
-  return {
-    event,
-    sessions: sessions || [],
-    sps: [...(sps || [])].sort(sortSPs),
-    assignments: assignments || [],
-    availabilityRows: availabilityRows || [],
-    errorMessage: "",
-    sessionErrorMessage: sessionError
-      ? sessionError.message || "Could not load event sessions from Supabase."
-      : "",
-    availabilityErrorMessage: availabilityError
-      ? availabilityError.message || "Could not load SP availability from Supabase."
-      : "",
-  };
 }
 
 function getRouteId(params: ReturnType<typeof useParams>) {
@@ -802,6 +763,18 @@ export default function EventDetailPage() {
     setSelectedSpId("");
   }
 
+  async function saveAssignmentRequest(method: "POST" | "PATCH" | "DELETE", body: object) {
+    const response = await fetch(`/api/events/${encodeURIComponent(id)}`, {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      throw new Error(await parseApiError(response));
+    }
+  }
+
   useEffect(() => {
     let cancelled = false;
 
@@ -829,22 +802,9 @@ export default function EventDetailPage() {
 
     window.addEventListener("focus", refresh);
 
-    const channel = supabase
-      .channel(`event-command-center-${id}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "events" }, refresh)
-      .on("postgres_changes", { event: "*", schema: "public", table: "event_sessions" }, refresh)
-      .on("postgres_changes", { event: "*", schema: "public", table: "sps" }, refresh)
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "event_sps" },
-        refresh
-      )
-      .subscribe();
-
     return () => {
       cancelled = true;
       window.removeEventListener("focus", refresh);
-      supabase.removeChannel(channel);
     };
   }, [id]);
 
@@ -854,15 +814,12 @@ export default function EventDetailPage() {
     setSaving(true);
     setErrorMessage("");
 
-    const { error } = await supabase.from("event_sps").insert({
-      event_id: id,
-      sp_id: spId,
-      status: "invited",
-      confirmed: false,
-    });
-
-    if (error) {
-      setErrorMessage(error.message || "Could not save assignment.");
+    try {
+      await saveAssignmentRequest("POST", {
+        sp_id: spId,
+      });
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Could not save assignment.");
       setSaving(false);
       return;
     }
@@ -875,13 +832,13 @@ export default function EventDetailPage() {
     setSaving(true);
     setErrorMessage("");
 
-    const { error } = await supabase
-      .from("event_sps")
-      .update({ status, confirmed: status === "confirmed" })
-      .eq("id", assignment.id);
-
-    if (error) {
-      setErrorMessage(error.message || "Could not update assignment.");
+    try {
+      await saveAssignmentRequest("PATCH", {
+        assignment_id: assignment.id,
+        updates: { status, confirmed: status === "confirmed" },
+      });
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Could not update assignment.");
       setSaving(false);
       return;
     }
@@ -897,10 +854,13 @@ export default function EventDetailPage() {
     setSaving(true);
     setErrorMessage("");
 
-    const { error } = await supabase.from("event_sps").update(updates).eq("id", assignment.id);
-
-    if (error) {
-      setErrorMessage(error.message || "Could not update assignment details.");
+    try {
+      await saveAssignmentRequest("PATCH", {
+        assignment_id: assignment.id,
+        updates,
+      });
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Could not update assignment details.");
       setSaving(false);
       return;
     }
@@ -913,13 +873,12 @@ export default function EventDetailPage() {
     setSaving(true);
     setErrorMessage("");
 
-    const { error } = await supabase
-      .from("event_sps")
-      .delete()
-      .eq("id", assignment.id);
-
-    if (error) {
-      setErrorMessage(error.message || "Could not remove assignment.");
+    try {
+      await saveAssignmentRequest("DELETE", {
+        assignment_id: assignment.id,
+      });
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Could not remove assignment.");
       setSaving(false);
       return;
     }
