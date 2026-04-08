@@ -91,6 +91,13 @@ type AvailabilityMatchStatus =
   | "none"
   | "unknown";
 
+type AvailabilityMatchDetails = {
+  status: AvailabilityMatchStatus;
+  matchedSessions: number;
+  totalSessions: number;
+  reason: string;
+};
+
 type CommandCenterData = {
   event: EventDetailRow | null;
   sessions: EventSessionRow[];
@@ -262,15 +269,15 @@ const assignmentStatusStyles: Record<AssignmentStatus, React.CSSProperties> = {
 };
 
 const availabilityMatchLabels: Record<AvailabilityMatchStatus, string> = {
-  available: "Available for this event",
-  partial: "Partial availability",
-  none: "No matching availability",
-  unknown: "Unknown",
+  available: "BEST MATCH",
+  partial: "USABLE",
+  none: "DO NOT USE",
+  unknown: "UNKNOWN",
 };
 
 const availabilityMatchStyles: Record<AvailabilityMatchStatus, React.CSSProperties> = {
   available: {
-    background: "#dcfce7",
+    background: "#ecfdf3",
     color: "#166534",
     border: "1px solid #86efac",
   },
@@ -431,14 +438,21 @@ function getAvailabilityStatus(row: AvailabilityRow) {
   );
 }
 
-function isAvailabilityRowAvailable(row: AvailabilityRow) {
-  if (typeof row.available === "boolean") return row.available;
-
+function getAvailabilityState(row: AvailabilityRow) {
+  if (typeof row.available === "boolean") {
+    return row.available ? "available" : "unavailable";
+  }
   const status = asText(row.availability_status || row.status).toLowerCase();
-  if (!status) return false;
-  if (["available", "yes", "true", "open"].includes(status)) return true;
-  if (status.includes("available") && !status.includes("unavailable")) return true;
-  return false;
+  if (!status) return "unknown";
+  if (
+    ["unavailable", "no", "false", "busy", "blocked"].includes(status) ||
+    status.includes("unavailable")
+  ) {
+    return "unavailable";
+  }
+  if (["available", "yes", "true", "open"].includes(status)) return "available";
+  if (status.includes("available") && !status.includes("unavailable")) return "available";
+  return "unknown";
 }
 
 function getAvailabilityTime(row: AvailabilityRow) {
@@ -474,23 +488,110 @@ function formatAvailabilityRows(rows: AvailabilityRow[]) {
     .join("\n");
 }
 
-function getAvailabilityMatch(
-  eventDates: string[],
+function parseTimeToMinutes(value?: string | null) {
+  const raw = asText(value).toLowerCase();
+  if (!raw) return null;
+
+  const normalized = raw.replace(/\s+/g, "");
+  const match = normalized.match(/^(\d{1,2})(?::(\d{2}))?(am|pm)?$/);
+  if (!match) return null;
+
+  let hours = Number(match[1]);
+  const minutes = Number(match[2] || "0");
+  const meridiem = match[3];
+
+  if (meridiem === "pm" && hours < 12) hours += 12;
+  if (meridiem === "am" && hours === 12) hours = 0;
+  if (hours > 23 || minutes > 59) return null;
+  return hours * 60 + minutes;
+}
+
+function sessionMatchesAvailability(session: EventSessionRow, row: AvailabilityRow) {
+  const sessionDate = normalizeDateValue(session.session_date);
+  const availabilityDate = normalizeDateValue(getAvailabilityDate(row));
+  if (!sessionDate || !availabilityDate || sessionDate !== availabilityDate) return false;
+
+  const sessionStart = parseTimeToMinutes(session.start_time);
+  const sessionEnd = parseTimeToMinutes(session.end_time);
+  const availabilityStart = parseTimeToMinutes(asText(row.start_time));
+  const availabilityEnd = parseTimeToMinutes(asText(row.end_time));
+
+  if (
+    sessionStart === null ||
+    sessionEnd === null ||
+    availabilityStart === null ||
+    availabilityEnd === null
+  ) {
+    return true;
+  }
+
+  return availabilityStart < sessionEnd && availabilityEnd > sessionStart;
+}
+
+function getAvailabilityMatchDetails(
+  eventSessions: EventSessionRow[],
   rows: AvailabilityRow[]
-): AvailabilityMatchStatus {
-  if (!eventDates.length || !rows.length) return "unknown";
+): AvailabilityMatchDetails {
+  if (!eventSessions.length || !rows.length) {
+    return {
+      status: "unknown",
+      matchedSessions: 0,
+      totalSessions: eventSessions.length,
+      reason: "No structured availability match data",
+    };
+  }
 
-  const availableDates = new Set(
-    rows
-      .filter(isAvailabilityRowAvailable)
-      .map((row) => normalizeDateValue(getAvailabilityDate(row)))
-      .filter(Boolean)
-  );
+  let matchedSessions = 0;
+  let sawRelevantAvailability = false;
+  let sawUnavailableConflict = false;
 
-  const matchedCount = eventDates.filter((date) => availableDates.has(date)).length;
-  if (matchedCount === eventDates.length) return "available";
-  if (matchedCount > 0) return "partial";
-  return "none";
+  eventSessions.forEach((session) => {
+    const relevantRows = rows.filter((row) => sessionMatchesAvailability(session, row));
+    if (!relevantRows.length) return;
+
+    sawRelevantAvailability = true;
+    if (relevantRows.some((row) => getAvailabilityState(row) === "unavailable")) {
+      sawUnavailableConflict = true;
+    }
+    const hasAvailableMatch = relevantRows.some(
+      (row) => getAvailabilityState(row) === "available"
+    );
+    if (hasAvailableMatch) matchedSessions += 1;
+  });
+
+  if (matchedSessions === eventSessions.length) {
+    return {
+      status: "available",
+      matchedSessions,
+      totalSessions: eventSessions.length,
+      reason: "Available for all sessions",
+    };
+  }
+
+  if (matchedSessions > 0) {
+    return {
+      status: "partial",
+      matchedSessions,
+      totalSessions: eventSessions.length,
+      reason: `Available for ${matchedSessions} of ${eventSessions.length} sessions`,
+    };
+  }
+
+  if (sawRelevantAvailability || sawUnavailableConflict) {
+    return {
+      status: "none",
+      matchedSessions,
+      totalSessions: eventSessions.length,
+      reason: "Conflict with session time",
+    };
+  }
+
+  return {
+    status: "unknown",
+    matchedSessions,
+    totalSessions: eventSessions.length,
+    reason: "No matching availability rows",
+  };
 }
 
 function getAvailabilityMatchRank(status: AvailabilityMatchStatus) {
@@ -511,15 +612,30 @@ function formatSessionDate(value?: string | null) {
   if (!value) return "Date TBD";
   const parsed = new Date(`${value}T00:00:00`);
   if (Number.isNaN(parsed.getTime())) return value;
-  return parsed.toLocaleDateString();
+  return parsed.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function formatDisplayTime(value?: string | null) {
+  const minutes = parseTimeToMinutes(value);
+  if (minutes === null) return asText(value) || "Time TBD";
+
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  const normalizedHours = hours % 12 || 12;
+  const suffix = hours >= 12 ? "PM" : "AM";
+  return `${normalizedHours}:${String(mins).padStart(2, "0")} ${suffix}`;
 }
 
 function formatSessionTime(session: EventSessionRow) {
   if (session.start_time && session.end_time) {
-    return `${session.start_time}-${session.end_time}`;
+    return `${formatDisplayTime(session.start_time)} - ${formatDisplayTime(session.end_time)}`;
   }
 
-  return session.start_time || session.end_time || "Time TBD";
+  return formatDisplayTime(session.start_time || session.end_time);
 }
 
 function formatSessionLocation(session: EventSessionRow, eventLocation?: string | null) {
@@ -695,45 +811,35 @@ export default function EventDetailPage() {
     return next;
   }, [availabilityRows, sps]);
 
-  const eventSessionDates = useMemo(
-    () =>
-      Array.from(
-        new Set(
-          sessions
-            .map((session) => normalizeDateValue(session.session_date))
-            .filter(Boolean)
-        )
-      ),
-    [sessions]
-  );
-
   const availabilityMatchBySpId = useMemo(() => {
-    const next = new Map<string, AvailabilityMatchStatus>();
+    const next = new Map<string, AvailabilityMatchDetails>();
 
     sps.forEach((sp) => {
-      next.set(sp.id, getAvailabilityMatch(eventSessionDates, availabilityBySpId.get(sp.id) || []));
+      next.set(sp.id, getAvailabilityMatchDetails(sessions, availabilityBySpId.get(sp.id) || []));
     });
 
     return next;
-  }, [availabilityBySpId, eventSessionDates, sps]);
+  }, [availabilityBySpId, sessions, sps]);
 
   const filteredCandidateSps = useMemo(
     () =>
       sps
         .filter((sp) => {
           const query = candidateQuery.trim().toLowerCase();
-          const availabilityMatch = availabilityMatchBySpId.get(sp.id) || "unknown";
+          const availabilityMatch = availabilityMatchBySpId.get(sp.id)?.status || "unknown";
           if (query && !getCandidateSearchText(sp).includes(query)) return false;
           if (activeOnly && !isActiveSp(sp)) return false;
           if (spanishOnly && !speaksSpanish(sp)) return false;
           if (telehealthOnly && !hasTelehealth(sp)) return false;
           if (ptPreferredOnly && !hasPtPreferred(sp)) return false;
-          if (availableForEventOnly && availabilityMatch !== "available") return false;
+          if (availableForEventOnly && !["available", "partial"].includes(availabilityMatch)) {
+            return false;
+          }
           return true;
         })
         .sort((a, b) => {
-          const aMatch = availabilityMatchBySpId.get(a.id) || "unknown";
-          const bMatch = availabilityMatchBySpId.get(b.id) || "unknown";
+          const aMatch = availabilityMatchBySpId.get(a.id)?.status || "unknown";
+          const bMatch = availabilityMatchBySpId.get(b.id)?.status || "unknown";
           const rankDiff = getAvailabilityMatchRank(aMatch) - getAvailabilityMatchRank(bMatch);
           if (rankDiff !== 0) return rankDiff;
           return sortSPs(a, b);
@@ -755,6 +861,18 @@ export default function EventDetailPage() {
     [assignedSpIds, filteredCandidateSps]
   );
 
+  const recommendedSps = useMemo(
+    () =>
+      availableSps
+        .filter((sp) => {
+          const matchStatus = availabilityMatchBySpId.get(sp.id)?.status || "unknown";
+          if (matchStatus === "available") return isActiveSp(sp);
+          return matchStatus === "partial";
+        })
+        .slice(0, 5),
+    [availabilityMatchBySpId, availableSps]
+  );
+
   const confirmedCount = assignments.filter(
     (assignment) => getAssignmentStatus(assignment) === "confirmed"
   ).length;
@@ -768,6 +886,31 @@ export default function EventDetailPage() {
     ? sessions.map((session) => formatSessionLabel(session, event?.location)).join("; ")
     : "";
   const eventDateLabel = structuredDateLabel || event?.date_text || "TBD";
+  const uniqueSessionDates = useMemo(
+    () =>
+      Array.from(
+        new Set(sessions.map((session) => formatSessionDate(session.session_date)).filter(Boolean))
+      ),
+    [sessions]
+  );
+  const sessionSummaryLabel = useMemo(() => {
+    if (!sessions.length) return event?.date_text || "Date TBD";
+    if (sessions.length === 1) return formatSessionDate(sessions[0]?.session_date);
+    if (uniqueSessionDates.length === 1) {
+      return `${sessions.length} sessions on ${uniqueSessionDates[0]}`;
+    }
+    return `${sessions.length} sessions across ${uniqueSessionDates.join(", ")}`;
+  }, [event?.date_text, sessions, uniqueSessionDates]);
+  const summaryTimeLabel = useMemo(() => {
+    if (!sessions.length) return "Time TBD";
+    if (sessions.length === 1) return formatSessionTime(sessions[0]);
+    const firstStart = sessions[0]?.start_time;
+    const lastEnd = sessions[sessions.length - 1]?.end_time;
+    if (firstStart && lastEnd) {
+      return `${formatDisplayTime(firstStart)} - ${formatDisplayTime(lastEnd)}`;
+    }
+    return "See sessions below";
+  }, [sessions]);
   const assignedEmailSources = useMemo(() => {
     return assignments
       .map((assignment) => {
@@ -1177,6 +1320,74 @@ export default function EventDetailPage() {
             {eventSaveError}
           </div>
         ) : null}
+
+        <div
+          style={{
+            marginTop: "18px",
+            border: "1px solid #dbe4ee",
+            borderRadius: "22px",
+            padding: "18px",
+            background: "#f8fbff",
+          }}
+        >
+          <div style={{ fontSize: "12px", fontWeight: 800, color: "#64748b", textTransform: "uppercase" }}>
+            Event Summary
+          </div>
+
+          <div style={{ marginTop: "8px", fontSize: "34px", fontWeight: 900, color: "#173b6c" }}>
+            {event.name || "Untitled Event"}
+          </div>
+
+          <div style={detailGridStyle}>
+            <div style={{ ...statCard, background: "#ffffff" }}>
+              <div style={statLabel}>Date</div>
+              <div style={statValue}>{sessionSummaryLabel}</div>
+            </div>
+
+            <div style={{ ...statCard, background: "#ffffff" }}>
+              <div style={statLabel}>Time</div>
+              <div style={statValue}>{summaryTimeLabel}</div>
+            </div>
+
+            <div style={{ ...statCard, background: "#ffffff" }}>
+              <div style={statLabel}>Location</div>
+              <div style={statValue}>{event.location || "Location TBD"}</div>
+            </div>
+
+            <div style={{ ...statCard, background: "#ffffff" }}>
+              <div style={statLabel}>Status</div>
+              <div style={statValue}>{event.status || "No status"}</div>
+            </div>
+
+            <div style={{ ...statCard, background: "#ffffff" }}>
+              <div style={statLabel}>SP Needed</div>
+              <div style={statValue}>{needed}</div>
+            </div>
+          </div>
+
+          {sessions.length > 1 ? (
+            <div style={{ marginTop: "16px" }}>
+              <div style={statLabel}>Sessions</div>
+              <div style={{ display: "grid", gap: "10px", marginTop: "10px" }}>
+                {sessions.map((session) => (
+                  <div key={session.id} style={{ ...statCard, background: "#ffffff" }}>
+                    <div style={{ color: "#173b6c", fontWeight: 900 }}>
+                      {formatSessionDate(session.session_date)}
+                    </div>
+                    <div style={{ marginTop: "6px", color: "#334155", lineHeight: 1.7 }}>
+                      <div>
+                        <strong>Time:</strong> {formatSessionTime(session)}
+                      </div>
+                      <div>
+                        <strong>Location/Room:</strong> {formatSessionLocation(session, event.location)}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </div>
 
         <div style={coverageHeroStyle}>
           <div
@@ -1677,6 +1888,82 @@ export default function EventDetailPage() {
             </div>
           </div>
 
+          <div style={{ ...statCard, background: "#ffffff" }}>
+            <div style={statLabel}>Recommended SPs</div>
+            <div style={{ marginTop: "6px", color: "#64748b", fontWeight: 700 }}>
+              Top matches based on availability for this event
+            </div>
+
+            {recommendedSps.length === 0 ? (
+              <div style={{ marginTop: "10px", color: "#64748b", fontWeight: 700 }}>
+                No recommended SPs yet.
+              </div>
+            ) : (
+              <div style={{ display: "grid", gap: "10px", marginTop: "10px" }}>
+                {recommendedSps.map((sp) => {
+                  const availabilityMatch = availabilityMatchBySpId.get(sp.id) || {
+                    status: "unknown" as AvailabilityMatchStatus,
+                    matchedSessions: 0,
+                    totalSessions: sessions.length,
+                    reason: "No structured availability match data",
+                  };
+
+                  return (
+                    <div
+                      key={sp.id}
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        gap: "12px",
+                        flexWrap: "wrap",
+                        alignItems: "center",
+                        borderRadius: "16px",
+                        padding: "12px 14px",
+                        background:
+                          availabilityMatch.status === "available" ? "#f0fdf4" : "#fffbeb",
+                        border:
+                          availabilityMatch.status === "available"
+                            ? "1px solid #86efac"
+                            : "1px solid #fde68a",
+                      }}
+                    >
+                      <div>
+                        <div style={{ color: "#173b6c", fontWeight: 900 }}>
+                          {getFullName(sp)}
+                        </div>
+                        <div
+                          style={{
+                            marginTop: "4px",
+                            display: "inline-flex",
+                            borderRadius: "999px",
+                            padding: "6px 10px",
+                            fontSize: "12px",
+                            fontWeight: 900,
+                            ...availabilityMatchStyles[availabilityMatch.status],
+                          }}
+                        >
+                          {availabilityMatchLabels[availabilityMatch.status]}
+                        </div>
+                        <div style={{ marginTop: "6px", color: "#64748b", fontWeight: 700 }}>
+                          {availabilityMatch.reason}
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => void handleAddAssignment(sp.id)}
+                        disabled={saving}
+                        style={{ ...buttonStyle, opacity: saving ? 0.65 : 1 }}
+                      >
+                        Assign
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
           <input
             value={candidateQuery}
             onChange={(event) => setCandidateQuery(event.target.value)}
@@ -1749,7 +2036,12 @@ export default function EventDetailPage() {
             ) : (
               filteredCandidateSps.slice(0, 12).map((sp) => {
                 const rows = availabilityBySpId.get(sp.id) || [];
-                const availabilityMatch = availabilityMatchBySpId.get(sp.id) || "unknown";
+                const availabilityMatch = availabilityMatchBySpId.get(sp.id) || {
+                  status: "unknown" as AvailabilityMatchStatus,
+                  matchedSessions: 0,
+                  totalSessions: sessions.length,
+                  reason: "No structured availability match data",
+                };
                 const assignment = assignmentsBySpId.get(sp.id);
                 const assignmentStatus = assignment ? getAssignmentStatus(assignment) : null;
                 const demographics = [sp.portrayal_age, sp.race, sp.sex]
@@ -1762,7 +2054,27 @@ export default function EventDetailPage() {
                   .join(" / ");
 
                 return (
-                  <div key={sp.id} style={{ ...statCard, background: "#ffffff" }}>
+                  <div
+                    key={sp.id}
+                    style={{
+                      ...statCard,
+                      background:
+                        availabilityMatch.status === "available"
+                          ? "#f0fdf4"
+                          : availabilityMatch.status === "none"
+                            ? "#fafafa"
+                            : "#ffffff",
+                      border:
+                        availabilityMatch.status === "available"
+                          ? "1px solid #86efac"
+                          : availabilityMatch.status === "partial"
+                            ? "1px solid #fde68a"
+                            : availabilityMatch.status === "none"
+                              ? "1px solid #fecaca"
+                              : "1px solid #dbe4ee",
+                      opacity: availabilityMatch.status === "none" ? 0.75 : 1,
+                    }}
+                  >
                     <div
                       style={{
                         display: "flex",
@@ -1787,14 +2099,15 @@ export default function EventDetailPage() {
                       <div style={{ display: "grid", gap: "8px", justifyItems: "end" }}>
                         <span
                           style={{
-                            ...availabilityMatchStyles[availabilityMatch],
+                            ...availabilityMatchStyles[availabilityMatch.status],
                             borderRadius: "999px",
-                            padding: "7px 11px",
-                            fontSize: "12px",
+                            padding: "8px 12px",
+                            fontSize: "13px",
                             fontWeight: 900,
+                            letterSpacing: "0.02em",
                           }}
                         >
-                          {availabilityMatchLabels[availabilityMatch]}
+                          {availabilityMatchLabels[availabilityMatch.status]}
                         </span>
 
                         {assignmentStatus ? (
@@ -1820,6 +2133,21 @@ export default function EventDetailPage() {
                           </button>
                         )}
                       </div>
+                    </div>
+
+                    <div
+                      style={{
+                        marginTop: "10px",
+                        color:
+                          availabilityMatch.status === "none"
+                            ? "#991b1b"
+                            : availabilityMatch.status === "available"
+                              ? "#166534"
+                              : "#64748b",
+                        fontWeight: 800,
+                      }}
+                    >
+                      Match reason: {availabilityMatch.reason}
                     </div>
 
                     <div style={{ marginTop: "10px", color: "#64748b", whiteSpace: "pre-wrap" }}>
