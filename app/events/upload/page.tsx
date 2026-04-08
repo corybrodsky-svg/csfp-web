@@ -1,10 +1,22 @@
 "use client";
 
-import type { FormEvent } from "react";
+import type { CSSProperties, FormEvent } from "react";
 import { useState } from "react";
-import SiteShell from "../../components/SiteShell";
+import Link from "next/link";
 
-const cardStyle: React.CSSProperties = {
+const shellStyle: CSSProperties = {
+  minHeight: "100vh",
+  background: "#f4f7fb",
+  fontFamily: "Arial, Helvetica, sans-serif",
+};
+
+const containerStyle: CSSProperties = {
+  maxWidth: "960px",
+  margin: "0 auto",
+  padding: "24px",
+};
+
+const cardStyle: CSSProperties = {
   background: "#ffffff",
   border: "1px solid #dbe4ee",
   borderRadius: "24px",
@@ -13,7 +25,7 @@ const cardStyle: React.CSSProperties = {
   marginBottom: "18px",
 };
 
-const buttonStyle: React.CSSProperties = {
+const buttonStyle: CSSProperties = {
   border: "1px solid #173b6c",
   borderRadius: "12px",
   background: "#173b6c",
@@ -21,6 +33,14 @@ const buttonStyle: React.CSSProperties = {
   cursor: "pointer",
   fontWeight: 800,
   padding: "11px 16px",
+};
+
+const linkStyle: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  textDecoration: "none",
+  color: "#1d4ed8",
+  fontWeight: 800,
 };
 
 type ImportSummary = {
@@ -64,6 +84,13 @@ function normalizeImportSummary(value: unknown): ImportSummary | null {
   };
 }
 
+function getErrorMessage(body: unknown, response: Response) {
+  if (body && typeof body === "object" && typeof (body as { error?: unknown }).error === "string") {
+    return (body as { error: string }).error;
+  }
+  return `Import failed (${response.status}).`;
+}
+
 export default function EventUploadPage() {
   const [file, setFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
@@ -93,17 +120,16 @@ export default function EventUploadPage() {
       const body = await response.json().catch(() => null);
 
       if (!response.ok) {
-        setErrorMessage(
-          typeof body?.error === "string" ? body.error : `Import failed (${response.status}).`
-        );
-        setSaving(false);
+        setErrorMessage(getErrorMessage(body, response));
         return;
       }
 
-      const normalized = normalizeImportSummary(body?.imported);
+      const normalized = normalizeImportSummary(
+        body && typeof body === "object" ? (body as { imported?: unknown }).imported : null
+      );
+
       if (!normalized) {
         setErrorMessage("Import finished, but the server returned an unexpected summary.");
-        setSaving(false);
         return;
       }
 
@@ -116,70 +142,81 @@ export default function EventUploadPage() {
   }
 
   return (
-    <SiteShell
-      title="Upload Event Schedule"
-      subtitle="Import real CFSP events from seasonal Excel schedule workbooks."
-    >
-      {errorMessage ? (
-        <div
-          style={{
-            ...cardStyle,
-            borderColor: "#fecaca",
-            background: "#fff5f5",
-            color: "#991b1b",
-            fontWeight: 700,
-          }}
-        >
-          {errorMessage}
-        </div>
-      ) : null}
-
-      {summary ? (
-        <div
-          style={{
-            ...cardStyle,
-            borderColor: "#bbf7d0",
-            background: "#f0fdf4",
-            color: "#166534",
-          }}
-        >
-          <h2 style={{ marginTop: 0 }}>Import Complete</h2>
-          <div><strong>Sheet imported:</strong> {summary.sheetLabel || "Unknown sheet"}</div>
-          <div><strong>Total rows parsed:</strong> {summary.totalRowsParsed}</div>
-          <div><strong>Event rows seen:</strong> {summary.eventRowsSeen}</div>
-          <div><strong>Events created:</strong> {summary.eventsCreated}</div>
-          <div><strong>Sessions created:</strong> {summary.sessionsCreated}</div>
-          <div><strong>Duplicates skipped:</strong> {summary.duplicatesSkipped}</div>
-          <div><strong>Rows skipped with no date:</strong> {summary.rowsSkippedNoDate}</div>
-          <div><strong>Rows skipped ignored:</strong> {summary.rowsSkippedIgnored}</div>
-          <div><strong>Rows skipped blank:</strong> {summary.rowsSkippedBlank}</div>
-        </div>
-      ) : null}
-
-      <form onSubmit={handleSubmit} style={{ ...cardStyle, display: "grid", gap: "16px" }}>
-        <div>
-          <label style={{ display: "block", color: "#173b6c", fontWeight: 900, marginBottom: "8px" }}>
-            Excel workbook
-          </label>
-          <input
-            type="file"
-            accept=".xlsx,.xls"
-            onChange={(event) => setFile(event.target.files?.[0] || null)}
-          />
+    <main style={shellStyle}>
+      <div style={containerStyle}>
+        <div style={cardStyle}>
+          <Link href="/events" style={linkStyle}>
+            ← Back to Events
+          </Link>
+          <h1 style={{ margin: "14px 0 0", color: "#16213e", fontSize: "36px" }}>
+            Upload Event Schedule
+          </h1>
+          <p style={{ margin: "8px 0 0", color: "#5a667a", fontSize: "16px" }}>
+            Import real CFSP events from the Spring 2026 Excel workbook.
+          </p>
         </div>
 
-        <p style={{ margin: 0, color: "#64748b", fontWeight: 700, lineHeight: 1.6 }}>
-          Expected format: the workbook must include a <strong>Spring 2026</strong> sheet with
-          columns for Session Name, Event Lead/Team, Rooms Assigned, Session Time,
-          Summative or Formative, Number of students, and Course Faculty.
-        </p>
+        {errorMessage ? (
+          <div
+            style={{
+              ...cardStyle,
+              borderColor: "#fecaca",
+              background: "#fff5f5",
+              color: "#991b1b",
+              fontWeight: 700,
+            }}
+          >
+            {errorMessage}
+          </div>
+        ) : null}
 
-        <div>
-          <button type="submit" disabled={saving} style={{ ...buttonStyle, opacity: saving ? 0.7 : 1 }}>
-            {saving ? "Importing..." : "Import Schedule"}
-          </button>
-        </div>
-      </form>
-    </SiteShell>
+        {summary ? (
+          <div
+            style={{
+              ...cardStyle,
+              borderColor: "#bbf7d0",
+              background: "#f0fdf4",
+              color: "#166534",
+            }}
+          >
+            <h2 style={{ marginTop: 0 }}>Import Complete</h2>
+            <div><strong>Sheet imported:</strong> {summary.sheetLabel || "Unknown sheet"}</div>
+            <div><strong>Total rows parsed:</strong> {summary.totalRowsParsed}</div>
+            <div><strong>Event rows seen:</strong> {summary.eventRowsSeen}</div>
+            <div><strong>Events created:</strong> {summary.eventsCreated}</div>
+            <div><strong>Sessions created:</strong> {summary.sessionsCreated}</div>
+            <div><strong>Duplicates skipped:</strong> {summary.duplicatesSkipped}</div>
+            <div><strong>Rows skipped with no date:</strong> {summary.rowsSkippedNoDate}</div>
+            <div><strong>Rows skipped ignored:</strong> {summary.rowsSkippedIgnored}</div>
+            <div><strong>Rows skipped blank:</strong> {summary.rowsSkippedBlank}</div>
+          </div>
+        ) : null}
+
+        <form onSubmit={handleSubmit} style={{ ...cardStyle, display: "grid", gap: "16px" }}>
+          <div>
+            <label style={{ display: "block", color: "#173b6c", fontWeight: 900, marginBottom: "8px" }}>
+              Excel workbook
+            </label>
+            <input
+              type="file"
+              accept=".xlsx,.xls"
+              onChange={(event) => setFile(event.target.files?.[0] || null)}
+            />
+          </div>
+
+          <p style={{ margin: 0, color: "#64748b", fontWeight: 700, lineHeight: 1.6 }}>
+            Expected format: the workbook must include a <strong>Spring 2026</strong> sheet with
+            columns for Session Name, Event Lead/Team, Rooms Assigned, Session Time,
+            Summative or Formative, Number of students, and Course Faculty.
+          </p>
+
+          <div>
+            <button type="submit" disabled={saving} style={{ ...buttonStyle, opacity: saving ? 0.7 : 1 }}>
+              {saving ? "Importing..." : "Import Schedule"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </main>
   );
 }
