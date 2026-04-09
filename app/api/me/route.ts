@@ -1,7 +1,12 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { AUTH_ACCESS_COOKIE } from "../../lib/authCookies";
-import { ensureProfileForUser, getProfileForUser, updateProfileForUser } from "../../lib/profileServer";
+import {
+  ensureProfileForUser,
+  getProfileForUser,
+  updateProfileForUser,
+  type ProfileResult,
+} from "../../lib/profileServer";
 import { createSupabaseServerClient } from "../../lib/supabaseServerClient";
 
 function asText(value: unknown) {
@@ -13,6 +18,37 @@ function normalizeProfileRole(value: unknown) {
   const role = asText(value).toLowerCase();
   if (role === "sim_op" || role === "admin" || role === "sp") return role;
   return "sp";
+}
+
+function buildProfileResponse(
+  user: Awaited<ReturnType<typeof getAuthenticatedUser>>["user"],
+  profile: {
+    id: string;
+    full_name: string | null;
+    schedule_name: string | null;
+    email: string | null;
+    role: string | null;
+    is_active: boolean | null;
+  } | null,
+  overrides?: {
+    full_name?: string | null;
+    schedule_name?: string | null;
+    role?: string | null;
+  }
+) {
+  if (!user) return null;
+
+  const fallbackFullName = asText(user.user_metadata?.full_name) || null;
+  const fallbackScheduleName = asText(user.user_metadata?.schedule_name) || null;
+
+  return {
+    id: profile?.id || user.id,
+    full_name: profile?.full_name ?? overrides?.full_name ?? fallbackFullName,
+    schedule_name: profile?.schedule_name ?? overrides?.schedule_name ?? fallbackScheduleName,
+    email: profile?.email || user.email || null,
+    role: normalizeProfileRole(profile?.role || overrides?.role || user.user_metadata?.role),
+    is_active: profile?.is_active ?? null,
+  };
 }
 
 async function getAuthenticatedUser() {
@@ -42,9 +78,9 @@ export async function GET() {
     return NextResponse.json({ error: auth.error || "Unauthorized" }, { status: 401 });
   }
 
-  let profileResult = await getProfileForUser(auth.user.id);
+  let profileResult: ProfileResult = await getProfileForUser(auth.user.id, auth.accessToken);
   if (!profileResult.profile && profileResult.available !== false) {
-    profileResult = await ensureProfileForUser(auth.user);
+    profileResult = await ensureProfileForUser(auth.user, auth.accessToken);
   }
 
   if (profileResult.error && !profileResult.profile) {
@@ -59,17 +95,9 @@ export async function GET() {
       id: auth.user.id,
       email: auth.user.email,
     },
-    profile: profileResult.profile
-      ? {
-          ...profileResult.profile,
-          schedule_name:
-            profileResult.profile.schedule_name ||
-            asText(auth.user.user_metadata?.schedule_name) ||
-            null,
-          role: normalizeProfileRole(profileResult.profile.role || auth.user.user_metadata?.role),
-        }
-      : null,
+    profile: buildProfileResponse(auth.user, profileResult.profile),
     profile_available: profileResult.available,
+    ...(profileResult.error ? { warning: profileResult.error } : {}),
   });
 }
 
@@ -93,18 +121,15 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Full name is required." }, { status: 400 });
     }
 
-    const profileResult = await updateProfileForUser(auth.user, {
-      full_name: fullName,
-      schedule_name: scheduleName || null,
-      role,
-    });
-
-    if (profileResult.available === false) {
-      return NextResponse.json(
-        { error: "Profiles are not available on this deployment yet.", profile_available: false },
-        { status: 500 }
-      );
-    }
+    const profileResult = await updateProfileForUser(
+      auth.user,
+      {
+        full_name: fullName,
+        schedule_name: scheduleName || null,
+        role,
+      },
+      auth.accessToken
+    );
 
     if (profileResult.error && !profileResult.profile) {
       return NextResponse.json(
@@ -120,13 +145,11 @@ export async function POST(request: Request) {
         id: auth.user.id,
         email: auth.user.email,
       },
-      profile: profileResult.profile
-        ? {
-            ...profileResult.profile,
-            schedule_name: profileResult.profile.schedule_name || scheduleName || null,
-            role: normalizeProfileRole(profileResult.profile.role || role),
-          }
-        : null,
+      profile: buildProfileResponse(auth.user, profileResult.profile, {
+        full_name: fullName,
+        schedule_name: scheduleName || null,
+        role,
+      }),
       profile_available: profileResult.available,
       warning: profileResult.error || "",
     });
