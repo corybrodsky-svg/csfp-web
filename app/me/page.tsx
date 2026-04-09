@@ -226,15 +226,8 @@ export default function MePage() {
     }
 
     void run();
-
-    function handleFocus() {
-      void loadProfile();
-    }
-
-    window.addEventListener("focus", handleFocus);
     return () => {
       cancelled = true;
-      window.removeEventListener("focus", handleFocus);
     };
   }, [loadProfile]);
 
