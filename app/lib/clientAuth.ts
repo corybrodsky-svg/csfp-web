@@ -12,6 +12,11 @@ async function parseApiError(response: Response) {
   }
 }
 
+function asErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message.trim()) return error.message;
+  return fallback;
+}
+
 export async function syncSessionWithServer(session: Session) {
   try {
     const response = await fetch("/api/auth/session", {
@@ -40,15 +45,25 @@ export async function syncSessionWithServer(session: Session) {
 }
 
 export async function clearServerSession() {
-  await fetch("/api/auth/logout", {
+  const response = await fetch("/api/auth/logout", {
     method: "POST",
+    credentials: "include",
+    cache: "no-store",
   });
+
+  if (!response.ok) {
+    throw new Error(await parseApiError(response));
+  }
 }
 
 export async function signOutUser() {
   if (!getSupabaseBrowserClientError()) {
-    const browserClient = requireSupabaseBrowserClient();
-    await browserClient.auth.signOut();
+    try {
+      const browserClient = requireSupabaseBrowserClient();
+      await browserClient.auth.signOut();
+    } catch (error) {
+      console.warn(asErrorMessage(error, "Browser auth sign-out failed."));
+    }
   }
   await clearServerSession();
 }

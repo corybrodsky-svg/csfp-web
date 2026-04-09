@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import SiteShell from "../components/SiteShell";
 import { signOutUser } from "../lib/clientAuth";
@@ -103,6 +103,12 @@ export default function MePage() {
   const [data, setData] = useState<MeResponse | null>(null);
   const [fullName, setFullName] = useState("");
 
+  const redirectToLogin = useCallback(() => {
+    router.replace("/login");
+    router.refresh();
+    window.location.replace("/login");
+  }, [router]);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -116,6 +122,11 @@ export default function MePage() {
         const response = await fetch("/api/me", { cache: "no-store" });
         const body = (await response.json().catch(() => null)) as MeResponse | null;
         if (cancelled) return;
+
+        if (response.status === 401) {
+          redirectToLogin();
+          return;
+        }
 
         if (!response.ok) {
           setErrorMessage(body?.error || "Could not load account details.");
@@ -138,7 +149,7 @@ export default function MePage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [redirectToLogin]);
 
   async function handleSave(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -159,6 +170,11 @@ export default function MePage() {
       });
 
       const body = (await response.json().catch(() => null)) as MeResponse | null;
+      if (response.status === 401) {
+        redirectToLogin();
+        return;
+      }
+
       if (!response.ok) {
         setErrorMessage(body?.error || "Could not save profile.");
         setSaving(false);
@@ -180,7 +196,10 @@ export default function MePage() {
     setSigningOut(true);
     try {
       await signOutUser();
-      router.push("/login");
+      redirectToLogin();
+      return;
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Could not sign out cleanly.");
     } finally {
       setSigningOut(false);
     }

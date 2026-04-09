@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import SiteShell from "../components/SiteShell";
 import { formatHumanDate, getDateSortValue, getImportedYearHint } from "../lib/eventDateUtils";
 
@@ -170,11 +171,18 @@ async function parseApiError(response: Response) {
 }
 
 export default function DashboardPage() {
+  const router = useRouter();
   const [mode, setMode] = useState<DashboardMode>("all");
   const [events, setEvents] = useState<EventRow[]>([]);
   const [me, setMe] = useState<MeResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
+
+  const redirectToLogin = useCallback(() => {
+    router.replace("/login");
+    router.refresh();
+    window.location.replace("/login");
+  }, [router]);
 
   useEffect(() => {
     let cancelled = false;
@@ -193,6 +201,11 @@ export default function DashboardPage() {
         const eventsBody = await eventsResponse.json().catch(() => null);
 
         if (cancelled) return;
+
+        if (meResponse.status === 401 || eventsResponse.status === 401) {
+          redirectToLogin();
+          return;
+        }
 
         if (!meResponse.ok) {
           setErrorMessage(meBody?.error || "Could not load current user.");
@@ -233,7 +246,7 @@ export default function DashboardPage() {
       cancelled = true;
       window.removeEventListener("focus", loadDashboard);
     };
-  }, []);
+  }, [redirectToLogin]);
 
   const currentUserId = asText(me?.user?.id);
   const userName = asText(me?.profile?.full_name) || asText(me?.user?.email) || "CFSP user";

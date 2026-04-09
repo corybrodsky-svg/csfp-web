@@ -24,6 +24,12 @@ type ProfileResult = {
   error?: string;
 };
 
+type ProfileDirectoryResult = {
+  profiles: AppProfile[];
+  available: boolean;
+  error?: string;
+};
+
 export async function ensureProfileForUser(user: User) {
   const admin = createSupabaseAdminClient();
   if (!admin) {
@@ -136,4 +142,33 @@ export async function updateProfileForUser(user: User, updates: { full_name?: st
     available: true,
     ...(metadataError ? { error: metadataError } : {}),
   } satisfies ProfileResult;
+}
+
+export async function getProfilesByIds(userIds: string[]): Promise<ProfileDirectoryResult> {
+  const ids = Array.from(new Set(userIds.map(asText).filter(Boolean)));
+  if (!ids.length) {
+    return { profiles: [], available: true };
+  }
+
+  const admin = createSupabaseAdminClient();
+  if (!admin) {
+    return { profiles: [], available: false };
+  }
+
+  const { data, error } = await admin
+    .from("profiles")
+    .select("id,full_name,email,role,is_active")
+    .in("id", ids);
+
+  if (error) {
+    if (isMissingProfilesTable(error.message)) {
+      return { profiles: [], available: false };
+    }
+    return { profiles: [], available: true, error: error.message };
+  }
+
+  return {
+    profiles: Array.isArray(data) ? (data as AppProfile[]) : [],
+    available: true,
+  };
 }

@@ -1,6 +1,10 @@
+import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import { AUTH_ACCESS_COOKIE } from "../../lib/authCookies";
 import { supabaseServer } from "../../lib/supabaseServerClient";
 import { getDateSortValue, getImportedYearHint, normalizeLooseDateToIso } from "../../lib/eventDateUtils";
+import { getProfilesByIds } from "../../lib/profileServer";
+import { createSupabaseServerClient } from "../../lib/supabaseServerClient";
 
 export const dynamic = "force-dynamic";
 
@@ -37,7 +41,24 @@ type EventApiRow = {
   notes: string | null;
   created_at: string | null;
   owner_id?: string | null;
+  owner_name?: string | null;
 };
+
+async function getAuthenticatedUserId() {
+  const cookieStore = await cookies();
+  const accessToken = cookieStore.get(AUTH_ACCESS_COOKIE)?.value;
+
+  if (!accessToken) return "";
+
+  const supabase = createSupabaseServerClient();
+  const {
+    data: { user },
+    error,
+  } = await supabase.auth.getUser(accessToken);
+
+  if (error || !user) return "";
+  return user.id;
+}
 
 export async function GET() {
   try {
@@ -112,6 +133,14 @@ export async function GET() {
 
     const assignmentRows = assignments || [];
     const sessionRows = sessions || [];
+    const ownerIds = Array.from(new Set((data || []).map((event) => asText(event.owner_id)).filter(Boolean)));
+    const ownerProfilesResult = await getProfilesByIds(ownerIds);
+    const ownerNameById = new Map(
+      ownerProfilesResult.profiles.map((profile) => [
+        profile.id,
+        asText(profile.full_name) || asText(profile.email) || "Assigned user",
+      ])
+    );
     const spNameById = new Map(
       (sps || []).map((sp) => {
         const fullName =
@@ -140,6 +169,7 @@ export async function GET() {
       return {
         ...event,
         owner_id: asText(event.owner_id) || null,
+        owner_name: ownerNameById.get(asText(event.owner_id)) || null,
         earliest_session_date: earliestSessionDate,
         assigned_sp_names: assignedNames,
         total_assignments: eventAssignments.length,
@@ -166,24 +196,50 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
     const name = asText(body?.name);
+    const ownerId = await getAuthenticatedUserId();
 
     if (!name) {
       return NextResponse.json({ error: "Event name is required." }, { status: 400 });
     }
 
-    const payload = {
+    const payload: {
+      name: string;
+      status: string;
+      date_text: string | null;
+      sp_needed: number;
+      visibility: string;
+      owner_id?: string;
+    } = {
       name,
       status: asText(body?.status) || "Needs SPs",
       date_text: asText(body?.date_text) || null,
       sp_needed: parseNumber(body?.sp_needed),
       visibility: asText(body?.visibility) || "team",
     };
+    if (ownerId) payload.owner_id = ownerId;
 
-    const { data, error } = await supabaseServer
+    let insertResult = await supabaseServer
       .from("events")
       .insert(payload)
-      .select("id,name,status,date_text,sp_needed,visibility,location,notes,created_at")
+      .select("id,name,status,date_text,sp_needed,visibility,location,notes,created_at,owner_id")
       .single();
+
+    if (insertResult.error && /column .*owner_id.*does not exist/i.test(insertResult.error.message)) {
+      const fallbackPayload = {
+        name,
+        status: asText(body?.status) || "Needs SPs",
+        date_text: asText(body?.date_text) || null,
+        sp_needed: parseNumber(body?.sp_needed),
+        visibility: asText(body?.visibility) || "team",
+      };
+      insertResult = await supabaseServer
+        .from("events")
+        .insert(fallbackPayload)
+        .select("id,name,status,date_text,sp_needed,visibility,location,notes,created_at")
+        .single();
+    }
+
+    const { data, error } = insertResult;
 
     if (error) {
       return NextResponse.json(
