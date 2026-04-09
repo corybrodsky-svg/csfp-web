@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createSupabaseAdminClient } from "../../../lib/supabaseAdminClient";
+import { createSupabaseServerClient } from "../../../lib/supabaseServerClient";
 
 function asText(value: unknown) {
   if (value === null || value === undefined) return "";
@@ -39,24 +39,15 @@ export async function POST(request: Request) {
       );
     }
 
-    const admin = createSupabaseAdminClient();
-    if (!admin) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "Signup requires SUPABASE_SERVICE_ROLE_KEY on the server.",
-        },
-        { status: 500 }
-      );
-    }
-
-    const { error } = await admin.auth.admin.createUser({
+    const supabase = createSupabaseServerClient();
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      email_confirm: true,
-      user_metadata: {
-        full_name: fullName || null,
-        role: "viewer",
+      options: {
+        data: {
+          full_name: fullName || null,
+          role: "viewer",
+        },
       },
     });
 
@@ -72,7 +63,9 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       ok: true,
-      message: "Account created. You can sign in now.",
+      message: data.session
+        ? "Account created. You can sign in now."
+        : "Account created. Check your email to verify your address, then sign in to complete your profile.",
     });
   } catch (error) {
     return NextResponse.json(
