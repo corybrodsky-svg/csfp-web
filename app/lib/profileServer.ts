@@ -10,6 +10,8 @@ export type AppProfile = {
   is_active: boolean | null;
 };
 
+const ALLOWED_PROFILE_ROLES = new Set(["sp", "sim_op", "admin"]);
+
 function asText(value: unknown) {
   if (value === null || value === undefined) return "";
   return String(value).trim();
@@ -17,6 +19,11 @@ function asText(value: unknown) {
 
 function isMissingProfilesTable(message: string) {
   return /relation .*profiles/i.test(message) || /table .*profiles/i.test(message);
+}
+
+function normalizeProfileRole(value: unknown) {
+  const role = asText(value).toLowerCase();
+  return ALLOWED_PROFILE_ROLES.has(role) ? role : "sp";
 }
 
 type ProfileResult = {
@@ -40,7 +47,7 @@ export async function ensureProfileForUser(user: User) {
   const fullName = asText(user.user_metadata?.full_name) || null;
   const scheduleName = asText(user.user_metadata?.schedule_name) || null;
   const email = user.email || null;
-  const role = asText(user.user_metadata?.role) || "viewer";
+  const role = normalizeProfileRole(user.user_metadata?.role);
 
   const { data, error } = await admin
     .from("profiles")
@@ -102,7 +109,7 @@ export async function getProfileForUser(userId: string) {
 
 export async function updateProfileForUser(
   user: User,
-  updates: { full_name?: string | null; schedule_name?: string | null }
+  updates: { full_name?: string | null; schedule_name?: string | null; role?: string | null }
 ) {
   const admin = createSupabaseAdminClient();
   if (!admin) {
@@ -116,7 +123,9 @@ export async function updateProfileForUser(
     ? asText(updates.schedule_name) || null
     : asText(user.user_metadata?.schedule_name) || null;
   const email = user.email || null;
-  const role = asText(user.user_metadata?.role) || "viewer";
+  const role = Object.prototype.hasOwnProperty.call(updates, "role")
+    ? normalizeProfileRole(updates.role)
+    : normalizeProfileRole(user.user_metadata?.role);
 
   const { data, error } = await admin
     .from("profiles")

@@ -2,8 +2,12 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { usePathname, useRouter } from "next/navigation";
-import { redirectToLogin, signOutUserAndRedirect } from "../lib/clientAuth";
+import { usePathname } from "next/navigation";
+import {
+  AUTH_STATE_EVENT,
+  redirectToLogin,
+  signOutUserAndRedirect,
+} from "../lib/clientAuth";
 
 type SiteShellProps = {
   title: string;
@@ -147,12 +151,15 @@ function asText(value: unknown) {
   return String(value).trim();
 }
 
+function isPublicPath(pathname: string) {
+  return pathname === "/login" || pathname === "/signup";
+}
+
 export default function SiteShell({
   title,
   subtitle,
   children,
 }: SiteShellProps) {
-  const router = useRouter();
   const pathname = usePathname();
   const [authenticated, setAuthenticated] = useState(false);
   const [authReady, setAuthReady] = useState(false);
@@ -190,12 +197,32 @@ export default function SiteShell({
     void loadAuthState();
   }, [loadAuthState, pathname]);
 
+  useEffect(() => {
+    function handleAuthState(event: Event) {
+      const nextAuthenticated =
+        event instanceof CustomEvent &&
+        typeof event.detail?.authenticated === "boolean"
+          ? event.detail.authenticated
+          : false;
+
+      setAuthenticated(nextAuthenticated);
+      setAuthReady(true);
+    }
+
+    window.addEventListener(AUTH_STATE_EVENT, handleAuthState);
+    return () => {
+      window.removeEventListener(AUTH_STATE_EVENT, handleAuthState);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!authReady || authenticated || isPublicPath(pathname)) return;
+    redirectToLogin();
+  }, [authReady, authenticated, pathname]);
+
   async function handleLogout() {
     setLoggingOut(true);
     try {
-      setAuthenticated(false);
-      router.replace("/login");
-      router.refresh();
       await signOutUserAndRedirect();
     } catch {
       redirectToLogin();
@@ -245,7 +272,7 @@ export default function SiteShell({
             <Link href="/staff" style={navLinkStyle}>Staff</Link>
             <Link href="/admin" style={navLinkStyle}>Admin</Link>
             <Link href="/me" style={navLinkStyle}>Me</Link>
-            {authReady && authenticated ? (
+            {!authReady ? null : authenticated ? (
               <button
                 type="button"
                 onClick={() => void handleLogout()}

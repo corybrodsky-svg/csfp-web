@@ -9,6 +9,12 @@ function asText(value: unknown) {
   return String(value).trim();
 }
 
+function normalizeProfileRole(value: unknown) {
+  const role = asText(value).toLowerCase();
+  if (role === "sim_op" || role === "admin" || role === "sp") return role;
+  return "sp";
+}
+
 async function getAuthenticatedUser() {
   const cookieStore = await cookies();
   const accessToken = cookieStore.get(AUTH_ACCESS_COOKIE)?.value;
@@ -60,6 +66,7 @@ export async function GET() {
             profileResult.profile.schedule_name ||
             asText(auth.user.user_metadata?.schedule_name) ||
             null,
+          role: normalizeProfileRole(profileResult.profile.role || auth.user.user_metadata?.role),
         }
       : null,
     profile_available: profileResult.available,
@@ -78,6 +85,9 @@ export async function POST(request: Request) {
     const scheduleName = asText(
       body && typeof body === "object" ? (body as { schedule_name?: unknown }).schedule_name : ""
     );
+    const role = normalizeProfileRole(
+      body && typeof body === "object" ? (body as { role?: unknown }).role : ""
+    );
 
     if (!fullName) {
       return NextResponse.json({ error: "Full name is required." }, { status: 400 });
@@ -86,6 +96,7 @@ export async function POST(request: Request) {
     const profileResult = await updateProfileForUser(auth.user, {
       full_name: fullName,
       schedule_name: scheduleName || null,
+      role,
     });
 
     if (profileResult.available === false) {
@@ -113,6 +124,7 @@ export async function POST(request: Request) {
         ? {
             ...profileResult.profile,
             schedule_name: profileResult.profile.schedule_name || scheduleName || null,
+            role: normalizeProfileRole(profileResult.profile.role || role),
           }
         : null,
       profile_available: profileResult.available,

@@ -296,7 +296,10 @@ export default function DashboardPage() {
   }, [redirectToLogin]);
 
   const currentUserId = asText(me?.user?.id);
-  const userName = asText(me?.profile?.full_name) || asText(me?.user?.email) || "CFSP user";
+  const profileName = asText(me?.profile?.full_name);
+  const userEmail = asText(me?.user?.email);
+  const userName = profileName || userEmail || "CFSP user";
+  const isUsingEmailFallback = !profileName && Boolean(userEmail);
   const scheduleName = asText(me?.profile?.schedule_name);
 
   const myEvents = useMemo(
@@ -398,6 +401,37 @@ export default function DashboardPage() {
             <p style={{ margin: "12px 0 0", maxWidth: "620px", lineHeight: 1.7, opacity: 0.95 }}>
               Monitor event coverage, focus on shortage risk, and move directly into the highest-priority work.
             </p>
+            {!loading && isUsingEmailFallback ? (
+              <div
+                style={{
+                  marginTop: "14px",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "10px",
+                  flexWrap: "wrap",
+                  padding: "10px 12px",
+                  borderRadius: "14px",
+                  background: "rgba(255,255,255,0.14)",
+                  border: "1px solid rgba(255,255,255,0.24)",
+                }}
+              >
+                <span style={{ fontWeight: 700, lineHeight: 1.5 }}>
+                  Finish your profile so your dashboard reflects your name and assignments correctly.
+                </span>
+                <Link
+                  href="/me"
+                  style={{
+                    ...actionLinkStyle,
+                    padding: "8px 12px",
+                    background: "#ffffff",
+                    color: "#173b6c",
+                    border: "none",
+                  }}
+                >
+                  Complete Profile
+                </Link>
+              </div>
+            ) : null}
           </div>
 
           <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>

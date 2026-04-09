@@ -43,6 +43,11 @@ const inputStyle: React.CSSProperties = {
   fontSize: "15px",
 };
 
+const selectStyle: React.CSSProperties = {
+  ...inputStyle,
+  appearance: "none",
+};
+
 const readOnlyInputStyle: React.CSSProperties = {
   ...inputStyle,
   background: "#f8fafc",
@@ -88,9 +93,25 @@ type MeResponse = {
   error?: string;
 };
 
+const ROLE_OPTIONS = [
+  { value: "sp", label: "SP" },
+  { value: "sim_op", label: "Sim Op" },
+  { value: "admin", label: "Admin" },
+] as const;
+
 function asText(value: unknown) {
   if (value === null || value === undefined) return "";
   return String(value).trim();
+}
+
+function normalizeRole(value: unknown) {
+  const role = asText(value).toLowerCase();
+  if (role === "sim_op" || role === "admin" || role === "sp") return role;
+  return "sp";
+}
+
+function formatRoleLabel(role: string) {
+  return ROLE_OPTIONS.find((option) => option.value === role)?.label || "SP";
 }
 
 export default function MePage() {
@@ -104,6 +125,8 @@ export default function MePage() {
   const [data, setData] = useState<MeResponse | null>(null);
   const [fullName, setFullName] = useState("");
   const [scheduleName, setScheduleName] = useState("");
+  const [role, setRole] = useState("sp");
+  const [justSaved, setJustSaved] = useState(false);
 
   const redirectToLogin = useCallback(() => {
     router.replace("/login");
@@ -111,19 +134,19 @@ export default function MePage() {
     window.location.replace("/login");
   }, [router]);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadProfile() {
+  const loadProfile = useCallback(
+    async (preserveSuccessMessage = false) => {
       setLoading(true);
       setErrorMessage("");
-      setSuccessMessage("");
+      if (!preserveSuccessMessage) {
+        setSuccessMessage("");
+        setJustSaved(false);
+      }
       setWarningMessage("");
 
       try {
-        const response = await fetch("/api/me", { cache: "no-store" });
+        const response = await fetch("/api/me", { cache: "no-store", credentials: "include" });
         const body = (await response.json().catch(() => null)) as MeResponse | null;
-        if (cancelled) return;
 
         if (response.status === 401) {
           redirectToLogin();
@@ -139,20 +162,36 @@ export default function MePage() {
         setData(body);
         setFullName(asText(body?.profile?.full_name));
         setScheduleName(asText(body?.profile?.schedule_name));
+        setRole(normalizeRole(body?.profile?.role));
         setLoading(false);
       } catch (error) {
-        if (cancelled) return;
         setErrorMessage(error instanceof Error ? error.message : "Could not load account details.");
         setLoading(false);
       }
+    },
+    [redirectToLogin]
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function run() {
+      await loadProfile();
+      if (cancelled) return;
     }
 
-    void loadProfile();
+    void run();
 
+    function handleFocus() {
+      void loadProfile(true);
+    }
+
+    window.addEventListener("focus", handleFocus);
     return () => {
       cancelled = true;
+      window.removeEventListener("focus", handleFocus);
     };
-  }, [redirectToLogin]);
+  }, [loadProfile]);
 
   async function handleSave(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -160,6 +199,7 @@ export default function MePage() {
     setErrorMessage("");
     setSuccessMessage("");
     setWarningMessage("");
+    setJustSaved(false);
 
     try {
       const response = await fetch("/api/me", {
@@ -170,6 +210,7 @@ export default function MePage() {
         body: JSON.stringify({
           full_name: fullName,
           schedule_name: scheduleName,
+          role,
         }),
       });
 
@@ -188,8 +229,10 @@ export default function MePage() {
       setData(body);
       setFullName(asText(body?.profile?.full_name));
       setScheduleName(asText(body?.profile?.schedule_name));
-      setSuccessMessage(body?.message || "Profile saved.");
+      setRole(normalizeRole(body?.profile?.role));
+      setSuccessMessage(body?.message || "Profile saved successfully.");
       setWarningMessage(asText(body?.warning));
+      setJustSaved(true);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Could not save profile.");
     } finally {
@@ -210,7 +253,6 @@ export default function MePage() {
   }
 
   const email = data?.profile?.email || data?.user?.email || "";
-  const role = data?.profile?.role || "viewer";
   const isActive = useMemo(() => {
     if (data?.profile?.is_active === null || data?.profile?.is_active === undefined) {
       return "Unknown";
@@ -230,7 +272,15 @@ export default function MePage() {
       ) : null}
 
       {successMessage ? (
-        <div style={{ ...sectionStyle, borderColor: "#bbf7d0", background: "#f0fdf4", color: "#166534" }}>
+        <div
+          style={{
+            ...sectionStyle,
+            borderColor: "#86efac",
+            background: "#ecfdf3",
+            color: "#166534",
+            fontWeight: 800,
+          }}
+        >
           {successMessage}
         </div>
       ) : null}
@@ -288,12 +338,27 @@ export default function MePage() {
 
               <label style={labelStyle}>
                 Role
-                <input type="text" value={role} readOnly style={readOnlyInputStyle} />
+                <select value={role} onChange={(event) => setRole(event.target.value)} style={selectStyle}>
+                  {ROLE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
               </label>
 
               <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "4px" }}>
-                <button type="submit" style={{ ...primaryButtonStyle, opacity: saving ? 0.7 : 1 }} disabled={saving}>
-                  {saving ? "Saving..." : "Save Profile"}
+                <button
+                  type="submit"
+                  style={{
+                    ...primaryButtonStyle,
+                    opacity: saving ? 0.7 : 1,
+                    background: justSaved ? "#166534" : primaryButtonStyle.background,
+                    borderColor: justSaved ? "#166534" : "#173b6c",
+                  }}
+                  disabled={saving}
+                >
+                  {saving ? "Saving..." : justSaved ? "Saved" : "Save Profile"}
                 </button>
               </div>
             </div>
@@ -309,7 +374,7 @@ export default function MePage() {
               <div style={{ display: "grid", gap: "10px", marginTop: "14px", color: "#334155" }}>
                 <div><strong>User ID:</strong> {data?.user?.id || "Unavailable"}</div>
                 <div><strong>Email:</strong> {email || "Unavailable"}</div>
-                <div><strong>Role:</strong> {role}</div>
+                <div><strong>Role:</strong> {formatRoleLabel(role)}</div>
                 <div><strong>Account State:</strong> {isActive}</div>
                 <div>
                   <strong>Profile Storage:</strong>{" "}

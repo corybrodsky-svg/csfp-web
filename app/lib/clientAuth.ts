@@ -3,6 +3,8 @@
 import type { Session } from "@supabase/supabase-js";
 import { getSupabaseBrowserClientError, requireSupabaseBrowserClient } from "./supabaseClient";
 
+export const AUTH_STATE_EVENT = "cfsp-auth-state";
+
 async function parseApiError(response: Response) {
   try {
     const body = await response.json();
@@ -15,6 +17,15 @@ async function parseApiError(response: Response) {
 function asErrorMessage(error: unknown, fallback: string) {
   if (error instanceof Error && error.message.trim()) return error.message;
   return fallback;
+}
+
+function emitAuthState(authenticated: boolean) {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent(AUTH_STATE_EVENT, {
+      detail: { authenticated },
+    })
+  );
 }
 
 export async function syncSessionWithServer(session: Session) {
@@ -31,6 +42,8 @@ export async function syncSessionWithServer(session: Session) {
     if (!response.ok) {
       throw new Error(await parseApiError(response));
     }
+
+    emitAuthState(true);
   } catch (error) {
     if (error instanceof Error) {
       throw new Error(
@@ -66,6 +79,7 @@ export async function signOutUser() {
     }
   }
   await clearServerSession();
+  emitAuthState(false);
 }
 
 export function redirectToLogin() {
