@@ -145,23 +145,23 @@ const emptySpRow: SPRow = {
 const cardStyle: React.CSSProperties = {
   background: "#ffffff",
   border: "1px solid #dbe4ee",
-  borderRadius: "24px",
-  padding: "22px",
+  borderRadius: "20px",
+  padding: "16px",
   boxShadow: "0 10px 26px rgba(15, 23, 42, 0.06)",
-  marginBottom: "18px",
+  marginBottom: "14px",
 };
 
 const statGrid: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
-  gap: "14px",
-  marginTop: "14px",
+  gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+  gap: "10px",
+  marginTop: "10px",
 };
 
 const statCard: React.CSSProperties = {
   border: "1px solid #dbe4ee",
-  borderRadius: "18px",
-  padding: "14px",
+  borderRadius: "14px",
+  padding: "11px 12px",
   background: "#f8fbff",
 };
 
@@ -173,7 +173,7 @@ const statLabel: React.CSSProperties = {
 };
 
 const statValue: React.CSSProperties = {
-  fontSize: "18px",
+  fontSize: "17px",
   fontWeight: 800,
   color: "#173b6c",
 };
@@ -207,17 +207,17 @@ const selectStyle: React.CSSProperties = {
 
 const coverageHeroStyle: React.CSSProperties = {
   border: "1px solid #bfdbfe",
-  borderRadius: "22px",
-  padding: "18px",
+  borderRadius: "18px",
+  padding: "14px",
   background: "linear-gradient(135deg, #eff6ff, #f8fbff)",
-  marginTop: "18px",
+  marginTop: "12px",
 };
 
 const detailGridStyle: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
-  gap: "12px",
-  marginTop: "16px",
+  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+  gap: "10px",
+  marginTop: "10px",
 };
 
 const assignmentStatuses: AssignmentStatus[] = [
@@ -314,7 +314,7 @@ const inputStyle: React.CSSProperties = {
 const textareaStyle: React.CSSProperties = {
   ...inputStyle,
   width: "100%",
-  minHeight: "84px",
+  minHeight: "72px",
   resize: "vertical",
   boxSizing: "border-box",
   fontWeight: 600,
@@ -1423,37 +1423,61 @@ export default function EventDetailPage() {
       ) : null}
 
       <div style={cardStyle}>
-        <Link
-          href="/events"
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "8px",
-            color: "#1d4ed8",
-            fontWeight: 900,
-            textDecoration: "none",
-          }}
-        >
-          <span aria-hidden="true">←</span>
-          <span>Back to Events</span>
-        </Link>
-
         <div
           style={{
             display: "flex",
             justifyContent: "space-between",
-            gap: "16px",
+            gap: "12px",
             flexWrap: "wrap",
             alignItems: "flex-start",
-            marginTop: "18px",
           }}
         >
-          <div>
-            <h1 style={{ margin: "0 0 6px", fontSize: "38px", color: "#173b6c" }}>
-              {event.name || "Untitled Event"}
-            </h1>
-            <div style={{ color: "#64748b", fontWeight: 800 }}>
-              {event.status || "No status"}
+          <div style={{ display: "grid", gap: "8px" }}>
+            <Link
+              href="/events"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "8px",
+                color: "#1d4ed8",
+                fontWeight: 900,
+                textDecoration: "none",
+              }}
+            >
+              <span aria-hidden="true">←</span>
+              <span>Back to Events</span>
+            </Link>
+
+            <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+              <h1 style={{ margin: 0, fontSize: "32px", color: "#173b6c", lineHeight: 1.05 }}>
+                {event.name || "Untitled Event"}
+              </h1>
+              <span
+                style={{
+                  ...assignmentStatusStyles[
+                    (event.status || "").toLowerCase() === "confirmed" ? "confirmed" : "invited"
+                  ],
+                  borderRadius: "999px",
+                  padding: "6px 10px",
+                  fontWeight: 900,
+                  fontSize: "12px",
+                }}
+              >
+                {event.status || "No status"}
+              </span>
+              <span
+                style={{
+                  borderRadius: "999px",
+                  padding: "6px 10px",
+                  background: coverageStatus.background,
+                  border: coverageStatus.border,
+                  color: coverageStatus.color,
+                  fontWeight: 900,
+                  fontSize: "12px",
+                }}
+              >
+                {coverageStatus.message}
+              </span>
             </div>
           </div>
 
@@ -1470,12 +1494,12 @@ export default function EventDetailPage() {
         {eventSaveMessage ? (
           <div
             style={{
-              marginTop: "14px",
-              borderRadius: "16px",
+              marginTop: "10px",
+              borderRadius: "12px",
               border: "1px solid #bbf7d0",
               background: "#ecfdf3",
               color: "#166534",
-              padding: "12px 14px",
+              padding: "10px 12px",
               fontWeight: 800,
             }}
           >
@@ -1486,12 +1510,12 @@ export default function EventDetailPage() {
         {eventSaveError ? (
           <div
             style={{
-              marginTop: "14px",
-              borderRadius: "16px",
+              marginTop: "10px",
+              borderRadius: "12px",
               border: "1px solid #fecaca",
               background: "#fff5f5",
               color: "#991b1b",
-              padding: "12px 14px",
+              padding: "10px 12px",
               fontWeight: 800,
             }}
           >
@@ -1501,364 +1525,222 @@ export default function EventDetailPage() {
 
         <div
           style={{
-            marginTop: "16px",
-            border: "1px solid #bfdbfe",
-            borderRadius: "22px",
-            padding: "18px",
-            background: "linear-gradient(135deg, #eff6ff, #f8fbff)",
+            ...detailGridStyle,
+            gridTemplateColumns: "minmax(0, 1.3fr) minmax(280px, 0.7fr)",
+            alignItems: "start",
+            marginTop: "12px",
           }}
         >
           <div
             style={{
-              display: "flex",
-              justifyContent: "space-between",
-              gap: "12px",
-              flexWrap: "wrap",
-              alignItems: "center",
+              border: "1px solid #bfdbfe",
+              borderRadius: "18px",
+              padding: "14px",
+              background: "linear-gradient(135deg, #eff6ff, #f8fbff)",
             }}
           >
-            <div>
-              <div style={{ ...statLabel, color: "#173b6c" }}>Assigned SPs Right Now</div>
-              <div style={{ marginTop: "6px", color: "#173b6c", fontSize: "22px", fontWeight: 900 }}>
-                {assignments.length} assigned
+            <div style={{ ...statGrid, marginTop: 0 }}>
+              <div style={{ ...statCard, background: "#ffffff" }}>
+                <div style={statLabel}>Date</div>
+                <div style={statValue}>{sessionSummaryLabel}</div>
+              </div>
+              <div style={{ ...statCard, background: "#ffffff" }}>
+                <div style={statLabel}>Time</div>
+                <div style={statValue}>{summaryTimeLabel}</div>
+              </div>
+              <div style={{ ...statCard, background: "#ffffff" }}>
+                <div style={statLabel}>Location</div>
+                <div style={statValue}>{event.location || "Location TBD"}</div>
+              </div>
+              <div style={{ ...statCard, background: "#ffffff" }}>
+                <div style={statLabel}>Coverage</div>
+                <div style={statValue}>
+                  {confirmedCount}/{needed || 0}
+                </div>
+                <div style={{ marginTop: "4px", color: "#64748b", fontWeight: 700, fontSize: "12px" }}>
+                  {confirmedCount} confirmed · {shortage} short
+                </div>
               </div>
             </div>
-            <div style={{ color: "#64748b", fontWeight: 800 }}>
-              {confirmedCount} confirmed · {unconfirmedCount} not yet confirmed
-            </div>
-          </div>
 
-          {assignedSummaryItems.length ? (
-            <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", marginTop: "14px" }}>
-              {assignedSummaryItems.map((item) => (
-                <div
-                  key={item.id}
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: "10px",
-                    padding: "12px 16px",
-                    borderRadius: "18px",
-                    background: "#ffffff",
-                    border: assignmentStatusStyles[item.status].border,
-                    color: "#173b6c",
-                    fontWeight: 900,
-                    boxShadow: "0 8px 20px rgba(15, 23, 42, 0.05)",
-                  }}
-                >
-                  <span style={{ fontSize: "15px" }}>{item.name}</span>
-                  <span
-                    style={{
-                      ...assignmentStatusStyles[item.status],
-                      borderRadius: "999px",
-                      padding: "6px 10px",
-                      fontSize: "12px",
-                      fontWeight: 900,
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    {assignmentStatusLabels[item.status]}
-                  </span>
-                </div>
-              ))}
-              {sortedAssignments.length > assignedSummaryItems.length ? (
-                <div
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    padding: "12px 16px",
-                    borderRadius: "18px",
-                    background: "#ffffff",
-                    border: "1px solid #dbe4ee",
-                    color: "#64748b",
-                    fontWeight: 800,
-                  }}
-                >
-                  +{sortedAssignments.length - assignedSummaryItems.length} more
-                </div>
-              ) : null}
-            </div>
-          ) : (
-            <div style={{ marginTop: "10px", color: "#64748b", fontWeight: 700 }}>
-              No SPs assigned yet.
-            </div>
-          )}
-        </div>
-
-        <div
-          style={{
-            marginTop: "18px",
-            border: "1px solid #dbe4ee",
-            borderRadius: "22px",
-            padding: "18px",
-            background: "#f8fbff",
-          }}
-        >
-          <div style={{ fontSize: "12px", fontWeight: 800, color: "#64748b", textTransform: "uppercase" }}>
-            Event Summary
-          </div>
-
-          <div style={{ marginTop: "8px", fontSize: "34px", fontWeight: 900, color: "#173b6c" }}>
-            {event.name || "Untitled Event"}
-          </div>
-
-          <div style={detailGridStyle}>
-            <div style={{ ...statCard, background: "#ffffff" }}>
-              <div style={statLabel}>Date</div>
-              <div style={statValue}>{sessionSummaryLabel}</div>
-            </div>
-
-            <div style={{ ...statCard, background: "#ffffff" }}>
-              <div style={statLabel}>Time</div>
-              <div style={statValue}>{summaryTimeLabel}</div>
-            </div>
-
-            <div style={{ ...statCard, background: "#ffffff" }}>
-              <div style={statLabel}>Location</div>
-              <div style={statValue}>{event.location || "Location TBD"}</div>
-            </div>
-
-            <div style={{ ...statCard, background: "#ffffff" }}>
-              <div style={statLabel}>Status</div>
-              <div style={statValue}>{event.status || "No status"}</div>
-            </div>
-
-            <div style={{ ...statCard, background: "#ffffff" }}>
-              <div style={statLabel}>SP Needed</div>
-              <div style={statValue}>{needed}</div>
-            </div>
-          </div>
-
-          {sessions.length > 1 ? (
-            <div style={{ marginTop: "16px" }}>
-              <div style={statLabel}>Sessions</div>
-              <div style={{ display: "grid", gap: "10px", marginTop: "10px" }}>
-                {sessions.map((session) => (
-                  <div key={session.id} style={{ ...statCard, background: "#ffffff" }}>
-                    <div style={{ color: "#173b6c", fontWeight: 900 }}>
-                      {formatSessionDate(session.session_date, importedYearHint)}
+            <div style={{ marginTop: "12px" }}>
+              <div style={{ ...statLabel, color: "#173b6c" }}>Assigned SPs</div>
+              {assignedSummaryItems.length ? (
+                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "8px" }}>
+                  {assignedSummaryItems.map((item) => (
+                    <div
+                      key={item.id}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "8px",
+                        padding: "8px 10px",
+                        borderRadius: "14px",
+                        background: "#ffffff",
+                        border: assignmentStatusStyles[item.status].border,
+                        color: "#173b6c",
+                        fontWeight: 800,
+                        fontSize: "13px",
+                      }}
+                    >
+                      <span>{item.name}</span>
+                      <span
+                        style={{
+                          ...assignmentStatusStyles[item.status],
+                          borderRadius: "999px",
+                          padding: "4px 8px",
+                          fontSize: "11px",
+                          fontWeight: 900,
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {assignmentStatusLabels[item.status]}
+                      </span>
                     </div>
-                    <div style={{ marginTop: "6px", color: "#334155", lineHeight: 1.7 }}>
-                      <div>
-                        <strong>Time:</strong> {formatSessionTime(session)}
+                  ))}
+                  {sortedAssignments.length > assignedSummaryItems.length ? (
+                    <div
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        padding: "8px 10px",
+                        borderRadius: "14px",
+                        background: "#ffffff",
+                        border: "1px solid #dbe4ee",
+                        color: "#64748b",
+                        fontWeight: 800,
+                        fontSize: "13px",
+                      }}
+                    >
+                      +{sortedAssignments.length - assignedSummaryItems.length} more
+                    </div>
+                  ) : null}
+                </div>
+              ) : (
+                <div style={{ marginTop: "8px", color: "#64748b", fontWeight: 700 }}>
+                  No SPs assigned yet.
+                </div>
+              )}
+            </div>
+
+            {sessions.length ? (
+              <div style={{ marginTop: "12px" }}>
+                <div style={statLabel}>Sessions</div>
+                <div style={{ display: "grid", gap: "8px", marginTop: "8px" }}>
+                  {sessions.map((session) => (
+                    <div key={session.id} style={{ ...statCard, background: "#ffffff" }}>
+                      <div style={{ color: "#173b6c", fontWeight: 900 }}>
+                        {formatSessionDate(session.session_date, importedYearHint)}
                       </div>
-                      <div>
-                        <strong>Location/Room:</strong> {formatSessionLocation(session, event.location)}
+                      <div style={{ marginTop: "4px", color: "#475569", lineHeight: 1.5, fontSize: "13px" }}>
+                        {formatSessionTime(session)} · {formatSessionLocation(session, event.location)}
                       </div>
                     </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
-            </div>
-          ) : null}
-        </div>
+            ) : (
+              <div style={{ marginTop: "10px", color: "#64748b", fontWeight: 700 }}>
+                No structured sessions yet. Fallback date text: {formatEventDateText(event.date_text, importedYearHint)}
+              </div>
+            )}
+          </div>
 
-        <div style={coverageHeroStyle}>
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              gap: "16px",
-              flexWrap: "wrap",
-              alignItems: "center",
-            }}
-          >
-            <div>
-              <div style={statLabel}>Coverage</div>
-              <div style={{ fontSize: "42px", fontWeight: 900, color: "#173b6c", lineHeight: 1 }}>
-                {confirmedCount}/{needed || 0}
-              </div>
-              <div style={{ marginTop: "8px", color: "#64748b", fontWeight: 800 }}>
-                {needed > 0
-                  ? `${coveragePercent}% confirmed coverage`
-                  : "No SP target set"}
+          <div style={{ display: "grid", gap: "10px" }}>
+            <div style={{ ...statCard, background: coverageStatus.background, border: coverageStatus.border }}>
+              <div style={statLabel}>Coverage Status</div>
+              <div style={{ ...statValue, color: coverageStatus.color }}>{coverageStatus.message}</div>
+              <div style={{ marginTop: "4px", color: "#64748b", fontWeight: 700, fontSize: "12px" }}>
+                {needed > 0 ? `${coveragePercent}% confirmed coverage` : "No SP target set"}
               </div>
             </div>
 
-            <div
+            <div style={{ ...detailGridStyle, marginTop: 0, gridTemplateColumns: "1fr 1fr" }}>
+              <label style={{ display: "grid", gap: "6px" }}>
+                <span style={statLabel}>Name</span>
+                <input
+                  value={eventEditor.name}
+                  onChange={(event) =>
+                    setEventEditor((current) => ({ ...current, name: event.target.value }))
+                  }
+                  disabled={saving}
+                  style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                />
+              </label>
+
+              <label style={{ display: "grid", gap: "6px" }}>
+                <span style={statLabel}>Status</span>
+                <input
+                  value={eventEditor.status}
+                  onChange={(event) =>
+                    setEventEditor((current) => ({ ...current, status: event.target.value }))
+                  }
+                  disabled={saving}
+                  style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                />
+              </label>
+
+              <label style={{ display: "grid", gap: "6px" }}>
+                <span style={statLabel}>Visibility</span>
+                <input
+                  value={eventEditor.visibility}
+                  onChange={(event) =>
+                    setEventEditor((current) => ({ ...current, visibility: event.target.value }))
+                  }
+                  disabled={saving}
+                  style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                />
+              </label>
+
+              <label style={{ display: "grid", gap: "6px" }}>
+                <span style={statLabel}>SPs Needed</span>
+                <input
+                  type="number"
+                  min={0}
+                  value={eventEditor.sp_needed}
+                  onChange={(event) =>
+                    setEventEditor((current) => ({ ...current, sp_needed: event.target.value }))
+                  }
+                  disabled={saving}
+                  style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                />
+              </label>
+
+              <label style={{ display: "grid", gap: "6px", gridColumn: "1 / -1" }}>
+                <span style={statLabel}>Location</span>
+                <input
+                  value={eventEditor.location}
+                  onChange={(event) =>
+                    setEventEditor((current) => ({ ...current, location: event.target.value }))
+                  }
+                  disabled={saving}
+                  style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                />
+              </label>
+            </div>
+
+            <details
               style={{
-                borderRadius: "999px",
-                padding: "12px 16px",
-                background: isCovered ? "#ecfdf3" : "#fff7ed",
-                border: isCovered ? "1px solid #bbf7d0" : "1px solid #fed7aa",
-                color: isCovered ? "#166534" : "#9a3412",
-                fontWeight: 900,
+                border: "1px solid #dbe4ee",
+                borderRadius: "14px",
+                padding: "12px",
+                background: "#f8fbff",
               }}
             >
-              {isCovered ? "Covered" : `${shortage} SP short`}
-            </div>
+              <summary style={{ cursor: "pointer", color: "#173b6c", fontWeight: 800 }}>
+                Notes
+              </summary>
+              <textarea
+                value={eventEditor.notes}
+                onChange={(event) =>
+                  setEventEditor((current) => ({ ...current, notes: event.target.value }))
+                }
+                disabled={saving}
+                placeholder="Add operational notes, setup details, reporting instructions..."
+                style={{ ...textareaStyle, marginTop: "10px" }}
+              />
+            </details>
           </div>
-        </div>
-
-        <div
-          style={{
-            marginTop: "14px",
-            borderRadius: "18px",
-            padding: "14px 16px",
-            background: coverageStatus.background,
-            border: coverageStatus.border,
-            color: coverageStatus.color,
-          }}
-        >
-          <div style={statLabel}>Coverage Status</div>
-          <div style={{ marginTop: "6px", fontSize: "20px", fontWeight: 900 }}>
-            {coverageStatus.message}
-          </div>
-        </div>
-
-        <div style={statGrid}>
-          <div style={statCard}>
-            <div style={statLabel}>Confirmed</div>
-            <div style={statValue}>{confirmedCount}</div>
-          </div>
-
-          <div style={statCard}>
-            <div style={statLabel}>Unconfirmed</div>
-            <div style={statValue}>{unconfirmedCount}</div>
-          </div>
-
-          <div style={statCard}>
-            <div style={statLabel}>SPs Needed</div>
-            <div style={statValue}>{needed}</div>
-          </div>
-
-          <div style={statCard}>
-            <div style={statLabel}>Shortage</div>
-            <div style={statValue}>{shortage}</div>
-          </div>
-        </div>
-
-      </div>
-
-      <div style={cardStyle}>
-        <h2 style={{ marginTop: 0, color: "#173b6c" }}>Event Details</h2>
-
-        <div style={detailGridStyle}>
-          <label style={{ display: "grid", gap: "6px" }}>
-            <span style={statLabel}>Name</span>
-            <input
-              value={eventEditor.name}
-              onChange={(event) =>
-                setEventEditor((current) => ({ ...current, name: event.target.value }))
-              }
-              disabled={saving}
-              style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
-            />
-          </label>
-
-          <label style={{ display: "grid", gap: "6px" }}>
-            <span style={statLabel}>Status</span>
-            <input
-              value={eventEditor.status}
-              onChange={(event) =>
-                setEventEditor((current) => ({ ...current, status: event.target.value }))
-              }
-              disabled={saving}
-              style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
-            />
-          </label>
-
-          <label style={{ display: "grid", gap: "6px" }}>
-            <span style={statLabel}>Visibility</span>
-            <input
-              value={eventEditor.visibility}
-              onChange={(event) =>
-                setEventEditor((current) => ({ ...current, visibility: event.target.value }))
-              }
-              disabled={saving}
-              style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
-            />
-          </label>
-
-          <label style={{ display: "grid", gap: "6px" }}>
-            <span style={statLabel}>SPs Needed</span>
-            <input
-              type="number"
-              min={0}
-              value={eventEditor.sp_needed}
-              onChange={(event) =>
-                setEventEditor((current) => ({ ...current, sp_needed: event.target.value }))
-              }
-              disabled={saving}
-              style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
-            />
-          </label>
-
-          <div style={statCard}>
-            <div style={statLabel}>Date</div>
-            <div style={statValue}>{eventDateLabel}</div>
-          </div>
-
-          <label style={{ display: "grid", gap: "6px" }}>
-            <span style={statLabel}>Location</span>
-            <input
-              value={eventEditor.location}
-              onChange={(event) =>
-                setEventEditor((current) => ({ ...current, location: event.target.value }))
-              }
-              disabled={saving}
-              style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
-            />
-          </label>
-        </div>
-
-        <div
-          style={{
-            marginTop: "16px",
-            border: "1px solid #dbe4ee",
-            borderRadius: "18px",
-            padding: "16px",
-            background: "#f8fbff",
-          }}
-        >
-          <div style={statLabel}>Event Sessions</div>
-          {sessions.length ? (
-            <div style={{ display: "grid", gap: "10px", marginTop: "10px" }}>
-              {sessions.map((session) => (
-                <div key={session.id} style={{ ...statCard, background: "#ffffff" }}>
-                  <div style={{ color: "#173b6c", fontWeight: 900 }}>
-                    {formatSessionDate(session.session_date, importedYearHint)}
-                  </div>
-                  <div style={{ marginTop: "6px", color: "#334155", lineHeight: 1.7 }}>
-                    <div>
-                      <strong>Time:</strong> {formatSessionTime(session)}
-                    </div>
-                    <div>
-                      <strong>Location/Room:</strong>{" "}
-                      {formatSessionLocation(session, event.location)}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div style={{ marginTop: "8px", color: "#64748b", fontWeight: 700 }}>
-              No structured sessions yet. Fallback date text: {formatEventDateText(event.date_text, importedYearHint)}
-            </div>
-          )}
-        </div>
-
-        <div
-          style={{
-            marginTop: "16px",
-            border: "1px solid #dbe4ee",
-            borderRadius: "18px",
-            padding: "16px",
-            background: "#f8fbff",
-            color: "#173b6c",
-            lineHeight: 1.7,
-          }}
-        >
-          <div style={statLabel}>Notes</div>
-          <textarea
-            value={eventEditor.notes}
-            onChange={(event) =>
-              setEventEditor((current) => ({ ...current, notes: event.target.value }))
-            }
-            disabled={saving}
-            placeholder="Add operational notes, setup details, reporting instructions..."
-            style={{ ...textareaStyle, marginTop: "8px" }}
-          />
         </div>
       </div>
 

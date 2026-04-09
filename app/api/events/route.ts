@@ -26,12 +26,42 @@ function isConfirmedAssignment(assignment: { status: string | null; confirmed: b
   return status === "confirmed" || (!status && assignment.confirmed === true);
 }
 
+type EventApiRow = {
+  id: string;
+  name: string | null;
+  status: string | null;
+  date_text: string | null;
+  sp_needed: number | null;
+  visibility: string | null;
+  location: string | null;
+  notes: string | null;
+  created_at: string | null;
+  owner_id?: string | null;
+};
+
 export async function GET() {
   try {
-    const { data, error } = await supabaseServer
+    const baseSelect = "id,name,status,date_text,sp_needed,visibility,location,notes,created_at";
+    const ownerSelect = `${baseSelect},owner_id`;
+    let data: EventApiRow[] | null = null;
+    let error: { message?: string | null } | null = null;
+
+    const ownerResult = await supabaseServer
       .from("events")
-      .select("id,name,status,date_text,sp_needed,visibility,location,notes,created_at")
+      .select(ownerSelect)
       .order("created_at", { ascending: false });
+
+    if (ownerResult.error && /column .*owner_id.*does not exist/i.test(ownerResult.error.message)) {
+      const fallbackResult = await supabaseServer
+        .from("events")
+        .select(baseSelect)
+        .order("created_at", { ascending: false });
+      data = (fallbackResult.data as EventApiRow[] | null) || null;
+      error = fallbackResult.error;
+    } else {
+      data = (ownerResult.data as EventApiRow[] | null) || null;
+      error = ownerResult.error;
+    }
 
     if (error) {
       return NextResponse.json(
@@ -109,6 +139,7 @@ export async function GET() {
 
       return {
         ...event,
+        owner_id: asText(event.owner_id) || null,
         earliest_session_date: earliestSessionDate,
         assigned_sp_names: assignedNames,
         total_assignments: eventAssignments.length,
