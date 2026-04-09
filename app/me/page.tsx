@@ -74,6 +74,8 @@ const secondaryButtonStyle: React.CSSProperties = {
   cursor: "pointer",
 };
 
+type RoleValue = "sp" | "sim_op" | "admin";
+
 type MeResponse = {
   user?: {
     id: string;
@@ -96,29 +98,29 @@ type MeResponse = {
 type FormState = {
   fullName: string;
   scheduleName: string;
-  role: string;
+  role: RoleValue;
 };
 
 type SaveState = "idle" | "saving" | "saved" | "error";
 
-const ROLE_OPTIONS = [
+const ROLE_OPTIONS: Array<{ value: RoleValue; label: string }> = [
   { value: "sp", label: "SP" },
   { value: "sim_op", label: "Sim Op" },
   { value: "admin", label: "Admin" },
-] as const;
+];
 
 function asText(value: unknown) {
   if (value === null || value === undefined) return "";
   return String(value).trim();
 }
 
-function normalizeRole(value: unknown) {
+function normalizeRole(value: unknown): RoleValue {
   const role = asText(value).toLowerCase();
   if (role === "sim_op" || role === "admin" || role === "sp") return role;
   return "sp";
 }
 
-function formatRoleLabel(role: string) {
+function formatRoleLabel(role: RoleValue) {
   return ROLE_OPTIONS.find((option) => option.value === role)?.label || "SP";
 }
 
@@ -134,6 +136,21 @@ function sameFormState(a: FormState, b: FormState) {
   return a.fullName === b.fullName && a.scheduleName === b.scheduleName && a.role === b.role;
 }
 
+function parseApiText(text: string) {
+  if (!text.trim()) return null;
+
+  try {
+    return JSON.parse(text) as MeResponse;
+  } catch {
+    return null;
+  }
+}
+
+function getApiErrorMessage(text: string, fallback: string) {
+  const body = parseApiText(text);
+  return asText(body?.error) || asText(body?.message) || asText(text) || fallback;
+}
+
 export default function MePage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
@@ -145,7 +162,7 @@ export default function MePage() {
   const [data, setData] = useState<MeResponse | null>(null);
   const [fullName, setFullName] = useState("");
   const [scheduleName, setScheduleName] = useState("");
-  const [role, setRole] = useState("sp");
+  const [role, setRole] = useState<RoleValue>("sp");
   const [savedForm, setSavedForm] = useState<FormState>({
     fullName: "",
     scheduleName: "",
@@ -177,15 +194,17 @@ export default function MePage() {
         cache: "no-store",
         credentials: "include",
       });
-      const body = (await response.json().catch(() => null)) as MeResponse | null;
 
       if (response.status === 401) {
         redirectToLogin();
         return;
       }
 
+      const responseText = await response.text();
+      const body = parseApiText(responseText);
+
       if (!response.ok) {
-        setErrorMessage(body?.error || "Could not load account details.");
+        setErrorMessage(asText(body?.error) || "Could not load account details.");
         setLoading(false);
         return;
       }
@@ -219,7 +238,7 @@ export default function MePage() {
     };
   }, [loadProfile]);
 
-  const currentForm = useMemo(
+  const currentForm = useMemo<FormState>(
     () => ({
       fullName,
       scheduleName,
@@ -230,17 +249,11 @@ export default function MePage() {
 
   const isDirty = useMemo(() => !sameFormState(currentForm, savedForm), [currentForm, savedForm]);
 
-  const resetSaveFeedbackOnEdit = useCallback(() => {
-    if (saveState !== "idle") {
-      setSaveState("idle");
-    }
-    if (successMessage) {
-      setSuccessMessage("");
-    }
-    if (errorMessage) {
-      setErrorMessage("");
-    }
-  }, [errorMessage, saveState, successMessage]);
+  const clearSaveFeedback = useCallback(() => {
+    setSaveState("idle");
+    setSuccessMessage("");
+    setErrorMessage("");
+  }, []);
 
   const email = data?.profile?.email || data?.user?.email || "";
   const isActive = useMemo(() => {
@@ -257,6 +270,12 @@ export default function MePage() {
     setSuccessMessage("");
     setWarningMessage("");
 
+    const payload = {
+      full_name: fullName,
+      schedule_name: scheduleName,
+      role: normalizeRole(role),
+    };
+
     try {
       const response = await fetch("/api/me", {
         method: "POST",
@@ -264,29 +283,26 @@ export default function MePage() {
           "Content-Type": "application/json",
         },
         credentials: "include",
-        body: JSON.stringify({
-          full_name: fullName,
-          schedule_name: scheduleName,
-          role,
-        }),
+        body: JSON.stringify(payload),
       });
-
-      const body = (await response.json().catch(() => null)) as MeResponse | null;
 
       if (response.status === 401) {
         redirectToLogin();
         return;
       }
 
+      const responseText = await response.text();
+      const body = parseApiText(responseText);
+
       if (!response.ok) {
-        setErrorMessage(body?.error || "Could not save profile.");
+        setErrorMessage(getApiErrorMessage(responseText, `${response.status} ${response.statusText}`));
         setWarningMessage(asText(body?.warning));
         setSaveState("error");
         return;
       }
 
       applyResponseToForm(body);
-      setSuccessMessage(body?.message || "Profile saved.");
+      setSuccessMessage(asText(body?.message) || "Profile saved.");
       setWarningMessage(asText(body?.warning));
       setSaveState("saved");
     } catch (error) {
@@ -358,7 +374,7 @@ export default function MePage() {
                   type="text"
                   value={fullName}
                   onChange={(event) => {
-                    resetSaveFeedbackOnEdit();
+                    clearSaveFeedback();
                     setFullName(event.target.value);
                   }}
                   style={inputStyle}
@@ -372,7 +388,7 @@ export default function MePage() {
                   type="text"
                   value={scheduleName}
                   onChange={(event) => {
-                    resetSaveFeedbackOnEdit();
+                    clearSaveFeedback();
                     setScheduleName(event.target.value);
                   }}
                   style={inputStyle}
@@ -394,7 +410,7 @@ export default function MePage() {
                 <select
                   value={role}
                   onChange={(event) => {
-                    resetSaveFeedbackOnEdit();
+                    clearSaveFeedback();
                     setRole(normalizeRole(event.target.value));
                   }}
                   style={selectStyle}
