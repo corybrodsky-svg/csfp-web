@@ -273,6 +273,19 @@ const assignmentStatusStyles: Record<AssignmentStatus, React.CSSProperties> = {
   },
 };
 
+const confirmationStyles = {
+  confirmed: {
+    background: "#dcfce7",
+    color: "#166534",
+    border: "1px solid #86efac",
+  },
+  pending: {
+    background: "#fff7ed",
+    color: "#9a3412",
+    border: "1px solid #fed7aa",
+  },
+} satisfies Record<"confirmed" | "pending", React.CSSProperties>;
+
 const availabilityMatchLabels: Record<AvailabilityMatchStatus, string> = {
   available: "BEST MATCH",
   partial: "USABLE",
@@ -386,6 +399,10 @@ function getAssignmentStatus(assignment: AssignmentRow): AssignmentStatus {
   const rawStatus = asText(assignment.status) as AssignmentStatus;
   if (assignmentStatuses.includes(rawStatus)) return rawStatus;
   return assignment.confirmed === true ? "confirmed" : "invited";
+}
+
+function isAssignmentConfirmed(assignment: AssignmentRow) {
+  return assignment.confirmed === true || getAssignmentStatus(assignment) === "confirmed";
 }
 
 function getContactMethod(assignment: AssignmentRow) {

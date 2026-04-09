@@ -5,8 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import SiteShell from "../components/SiteShell";
 import { formatHumanDate, getDateSortValue, getImportedYearHint } from "../lib/eventDateUtils";
-
-type DashboardMode = "all" | "mine";
+import { eventMatchesOwnership } from "../lib/eventOwnership";
 
 type EventRow = {
   id: string;
@@ -43,10 +42,10 @@ type MeResponse = {
 };
 
 const heroStyle: React.CSSProperties = {
-  background: "linear-gradient(135deg, #163a6b 0%, #1f4f8f 45%, #f8fbff 100%)",
+  background: "linear-gradient(135deg, #163a6b 0%, #1f4f8f 55%, #f8fbff 100%)",
   border: "1px solid #bfdbfe",
   borderRadius: "24px",
-  padding: "22px",
+  padding: "24px",
   color: "#ffffff",
   marginBottom: "18px",
 };
@@ -61,11 +60,18 @@ const sectionStyle: React.CSSProperties = {
 
 const statGrid: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+  gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
   gap: "12px",
 };
 
 const statCard: React.CSSProperties = {
+  border: "1px solid rgba(255,255,255,0.18)",
+  borderRadius: "18px",
+  padding: "14px",
+  background: "rgba(255,255,255,0.12)",
+};
+
+const secondaryStatCard: React.CSSProperties = {
   border: "1px solid #dbe4ee",
   borderRadius: "16px",
   padding: "14px",
@@ -74,16 +80,16 @@ const statCard: React.CSSProperties = {
 
 const statLabel: React.CSSProperties = {
   fontSize: "12px",
-  fontWeight: 700,
-  color: "#64748b",
+  fontWeight: 800,
   textTransform: "uppercase",
+  letterSpacing: "0.05em",
 };
 
 const statValue: React.CSSProperties = {
   marginTop: "6px",
-  fontSize: "24px",
+  fontSize: "30px",
   fontWeight: 900,
-  color: "#173b6c",
+  lineHeight: 1,
 };
 
 const actionLinkStyle: React.CSSProperties = {
@@ -99,81 +105,16 @@ const actionLinkStyle: React.CSSProperties = {
   background: "#ffffff",
 };
 
-const eventRowStyle: React.CSSProperties = {
+const compactEventRow: React.CSSProperties = {
   border: "1px solid #dbe4ee",
   borderRadius: "16px",
   padding: "14px",
   background: "#ffffff",
 };
 
-const segmentedButton = (active: boolean): React.CSSProperties => ({
-  border: active ? "1px solid #173b6c" : "1px solid #cbd5e1",
-  background: active ? "#173b6c" : "#ffffff",
-  color: active ? "#ffffff" : "#173b6c",
-  borderRadius: "999px",
-  padding: "10px 14px",
-  fontWeight: 900,
-  cursor: "pointer",
-});
-
 function asText(value: unknown) {
   if (value === null || value === undefined) return "";
   return String(value).trim();
-}
-
-function normalizeMatchValue(value: string) {
-  return value.toLowerCase().replace(/\s+/g, " ").trim();
-}
-
-function getScheduleNameVariants(value: string) {
-  const normalized = normalizeMatchValue(value);
-  if (!normalized) return [];
-
-  const variants = new Set<string>([normalized]);
-  const parts = normalized.split(" ").filter(Boolean);
-  if (parts.length > 1) {
-    variants.add(parts[0]);
-    variants.add(parts.slice(0, 2).join(" "));
-  }
-
-  return Array.from(variants);
-}
-
-function ownershipTextMatchesScheduleName(ownerText: string, scheduleName: string) {
-  const normalizedOwner = normalizeMatchValue(ownerText);
-  const normalizedSchedule = normalizeMatchValue(scheduleName);
-  if (!normalizedOwner || !normalizedSchedule) return false;
-
-  const ownerSegments = normalizedOwner
-    .split(/\/|,|;|&|\band\b/)
-    .map((segment) => normalizeMatchValue(segment))
-    .filter(Boolean);
-  const ownerCandidates = Array.from(new Set([normalizedOwner, ...ownerSegments]));
-  const scheduleVariants = getScheduleNameVariants(normalizedSchedule);
-
-  return scheduleVariants.some((variant) =>
-    ownerCandidates.some(
-      (candidate) =>
-        candidate === variant ||
-        candidate.includes(variant) ||
-        variant.includes(candidate)
-    )
-  );
-}
-
-function getOwnershipTextFromNotes(notes: string) {
-  const match = notes.match(/Event Lead\/Team:\s*(.+)/i);
-  return match ? asText(match[1]) : "";
-}
-
-function eventMatchesOwnership(event: EventRow, currentUserId: string, scheduleName: string) {
-  if (asText(event.owner_id) === currentUserId) return true;
-  if (ownershipTextMatchesScheduleName(asText(event.schedule_owner_text), scheduleName)) return true;
-  return ownershipTextMatchesScheduleName(getOwnershipTextFromNotes(asText(event.notes)), scheduleName);
-}
-
-function getOwnershipLabel(event: EventRow) {
-  return asText(event.owner_name) || asText(event.schedule_owner_text) || "Unassigned";
 }
 
 function formatDate(event: EventRow) {
@@ -186,39 +127,6 @@ function getEventSortValue(event: EventRow) {
   return getDateSortValue(event.earliest_session_date || event.date_text || event.created_at, fallbackYear);
 }
 
-function shortagePill(shortage: number, needed: number) {
-  if (needed <= 0) {
-    return {
-      label: "No SP target",
-      style: {
-        background: "#f8fafc",
-        color: "#475569",
-        border: "1px solid #cbd5e1",
-      },
-    };
-  }
-
-  if (shortage <= 0) {
-    return {
-      label: "Coverage complete",
-      style: {
-        background: "#ecfdf3",
-        color: "#166534",
-        border: "1px solid #86efac",
-      },
-    };
-  }
-
-  return {
-    label: `${shortage} still needed`,
-    style: {
-      background: shortage <= 2 ? "#fff7ed" : "#fff5f5",
-      color: shortage <= 2 ? "#9a3412" : "#991b1b",
-      border: shortage <= 2 ? "1px solid #fed7aa" : "1px solid #fecaca",
-    },
-  };
-}
-
 async function parseApiError(response: Response) {
   try {
     const body = await response.json();
@@ -228,9 +136,17 @@ async function parseApiError(response: Response) {
   }
 }
 
+function isPastEvent(event: EventRow, todayStart: number) {
+  return getEventSortValue(event) < todayStart;
+}
+
+function isWithinRange(event: EventRow, start: number, end: number) {
+  const sortValue = getEventSortValue(event);
+  return sortValue >= start && sortValue < end;
+}
+
 export default function DashboardPage() {
   const router = useRouter();
-  const [mode, setMode] = useState<DashboardMode>("all");
   const [events, setEvents] = useState<EventRow[]>([]);
   const [me, setMe] = useState<MeResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -272,9 +188,7 @@ export default function DashboardPage() {
         }
 
         if (!eventsResponse.ok) {
-          setErrorMessage(
-            asText(eventsBody?.error) || (await parseApiError(eventsResponse))
-          );
+          setErrorMessage(asText(eventsBody?.error) || (await parseApiError(eventsResponse)));
           setLoading(false);
           return;
         }
@@ -310,72 +224,77 @@ export default function DashboardPage() {
   const profileName = asText(me?.profile?.full_name);
   const userEmail = asText(me?.user?.email);
   const userName = profileName || userEmail || "CFSP user";
-  const isUsingEmailFallback = !profileName && Boolean(userEmail);
-  const ownershipMatchName =
-    asText(me?.profile?.schedule_name) ||
-    profileName ||
-    userEmail;
+  const ownershipMatchName = asText(me?.profile?.schedule_name) || profileName || userEmail;
 
   const myEvents = useMemo(
-    () =>
-      events.filter((event) => eventMatchesOwnership(event, currentUserId, ownershipMatchName)),
+    () => events.filter((event) => eventMatchesOwnership(event, currentUserId, ownershipMatchName)),
     [currentUserId, events, ownershipMatchName]
   );
 
-  const selectedEvents = mode === "mine" ? myEvents : events;
+  const todayStart = useMemo(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  }, []);
 
-  const metrics = useMemo(() => {
-    const totalEvents = selectedEvents.length;
-    const totalNeeded = selectedEvents.reduce((sum, event) => sum + Number(event.sp_needed || 0), 0);
-    const totalConfirmed = selectedEvents.reduce(
-      (sum, event) => sum + Number(event.confirmed_assignments || 0),
-      0
-    );
-    const totalShortage = selectedEvents.reduce((sum, event) => sum + Number(event.shortage || 0), 0);
-    const atRisk = selectedEvents.filter((event) => Number(event.shortage || 0) > 0).length;
+  const tomorrowStart = todayStart + 24 * 60 * 60 * 1000;
+  const weekEnd = todayStart + 7 * 24 * 60 * 60 * 1000;
+  const yearAgo = todayStart - 365 * 24 * 60 * 60 * 1000;
 
-    return {
-      totalEvents,
-      totalNeeded,
-      totalConfirmed,
-      totalShortage,
-      atRisk,
-    };
-  }, [selectedEvents]);
+  const activeEvents = useMemo(
+    () => events.filter((event) => !isPastEvent(event, todayStart)),
+    [events, todayStart]
+  );
 
-  const priorityEvents = useMemo(
+  const todayEvents = useMemo(
+    () => activeEvents.filter((event) => isWithinRange(event, todayStart, tomorrowStart)),
+    [activeEvents, todayStart, tomorrowStart]
+  );
+
+  const thisWeekEvents = useMemo(
+    () => activeEvents.filter((event) => isWithinRange(event, todayStart, weekEnd)),
+    [activeEvents, todayStart, weekEnd]
+  );
+
+  const myUpcomingEvents = useMemo(
+    () => myEvents.filter((event) => !isPastEvent(event, todayStart)).slice(0, 5),
+    [myEvents, todayStart]
+  );
+
+  const needingActionEvents = useMemo(
     () =>
-      [...selectedEvents]
-        .filter((event) => Number(event.shortage || 0) > 0 || (event.status || "").toLowerCase().includes("need"))
+      activeEvents
+        .filter((event) => Number(event.shortage || 0) > 0 || asText(event.status).toLowerCase().includes("need"))
         .sort((a, b) => {
           const shortageDiff = Number(b.shortage || 0) - Number(a.shortage || 0);
           if (shortageDiff !== 0) return shortageDiff;
           return getEventSortValue(a) - getEventSortValue(b);
         })
-        .slice(0, 5),
-    [selectedEvents]
+        .slice(0, 6),
+    [activeEvents]
   );
 
-  const upcomingEvents = useMemo(
-    () => [...selectedEvents].sort((a, b) => getEventSortValue(a) - getEventSortValue(b)).slice(0, 6),
-    [selectedEvents]
+  const archivedEvents = useMemo(
+    () => events.filter((event) => isPastEvent(event, todayStart)),
+    [events, todayStart]
   );
 
-  const myWorkload = useMemo(() => {
-    const openShortage = myEvents.reduce((sum, event) => sum + Number(event.shortage || 0), 0);
-    const covered = myEvents.filter((event) => Number(event.shortage || 0) <= 0 && Number(event.sp_needed || 0) > 0).length;
-    return {
-      eventCount: myEvents.length,
-      openShortage,
-      covered,
-      needingAttention: myEvents.filter((event) => Number(event.shortage || 0) > 0).length,
-    };
-  }, [myEvents]);
+  const archivedPastYear = useMemo(
+    () => archivedEvents.filter((event) => getEventSortValue(event) >= yearAgo),
+    [archivedEvents, yearAgo]
+  );
+
+  const archivedRecent = useMemo(
+    () => [...archivedEvents].sort((a, b) => getEventSortValue(b) - getEventSortValue(a)).slice(0, 4),
+    [archivedEvents]
+  );
+
+  const totalShortage = activeEvents.reduce((sum, event) => sum + Number(event.shortage || 0), 0);
+  const myShortage = myEvents.reduce((sum, event) => sum + Number(event.shortage || 0), 0);
 
   return (
     <SiteShell
       title="Dashboard"
-      subtitle="CFSP operations home base for event coverage, ownership, and upcoming work."
+      subtitle="Operational home page for what needs attention now, this week, and on your plate next."
     >
       {errorMessage ? (
         <div
@@ -406,116 +325,54 @@ export default function DashboardPage() {
             <div style={{ fontSize: "12px", fontWeight: 900, letterSpacing: "0.08em", textTransform: "uppercase", opacity: 0.85 }}>
               CFSP Command Center
             </div>
-            <h2 style={{ margin: "10px 0 0", fontSize: "36px", lineHeight: 1.05 }}>
+            <h2 style={{ margin: "10px 0 0", fontSize: "38px", lineHeight: 1.05 }}>
               {loading ? "Loading dashboard..." : `Welcome back, ${userName}`}
             </h2>
             <p style={{ margin: "12px 0 0", maxWidth: "620px", lineHeight: 1.7, opacity: 0.95 }}>
-              Monitor event coverage, focus on shortage risk, and move directly into the highest-priority work.
+              Today’s operational snapshot: shortages, events needing action, and your next upcoming assignments.
             </p>
-            {!loading && isUsingEmailFallback ? (
-              <div
-                style={{
-                  marginTop: "14px",
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: "10px",
-                  flexWrap: "wrap",
-                  padding: "10px 12px",
-                  borderRadius: "14px",
-                  background: "rgba(255,255,255,0.14)",
-                  border: "1px solid rgba(255,255,255,0.24)",
-                }}
-              >
-                <span style={{ fontWeight: 700, lineHeight: 1.5 }}>
-                  Finish your profile so your dashboard reflects your name and assignments correctly.
-                </span>
-                <Link
-                  href="/me"
-                  style={{
-                    ...actionLinkStyle,
-                    padding: "8px 12px",
-                    background: "#ffffff",
-                    color: "#173b6c",
-                    border: "none",
-                  }}
-                >
-                  Complete Profile
-                </Link>
-              </div>
-            ) : null}
           </div>
 
           <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-            <Link href="/events/new" style={{ ...actionLinkStyle, border: "none", background: "#ffffff", color: "#173b6c" }}>
+            <Link href="/events" style={{ ...actionLinkStyle, border: "none", background: "#ffffff", color: "#173b6c" }}>
+              Open Events Board
+            </Link>
+            <Link href="/events/new" style={{ ...actionLinkStyle, border: "1px solid rgba(255,255,255,0.25)", background: "rgba(255,255,255,0.12)", color: "#ffffff" }}>
               New Event
             </Link>
-            <Link href="/events/upload" style={{ ...actionLinkStyle, border: "1px solid rgba(255,255,255,0.25)", background: "rgba(255,255,255,0.12)", color: "#ffffff" }}>
-              Upload Schedule
-            </Link>
-            <Link href="/events" style={{ ...actionLinkStyle, border: "1px solid rgba(255,255,255,0.25)", background: "rgba(255,255,255,0.12)", color: "#ffffff" }}>
-              Open Events
-            </Link>
           </div>
         </div>
-      </section>
 
-      <section style={{ ...sectionStyle, marginBottom: "14px" }}>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            gap: "12px",
-            flexWrap: "wrap",
-            alignItems: "center",
-          }}
-        >
-          <div>
-            <div style={{ ...statLabel, color: "#173b6c" }}>View Mode</div>
-            <div style={{ marginTop: "6px", color: "#64748b", fontWeight: 700 }}>
-              Switch between the full event board and the events currently assigned to your account.
-            </div>
+        <section style={{ ...statGrid, marginTop: "18px" }}>
+          <div style={statCard}>
+            <div style={{ ...statLabel, opacity: 0.85 }}>Needs Action</div>
+            <div style={statValue}>{loading ? "..." : needingActionEvents.length}</div>
           </div>
-
-          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-            <button type="button" onClick={() => setMode("all")} style={segmentedButton(mode === "all")}>
-              All Events
-            </button>
-            <button type="button" onClick={() => setMode("mine")} style={segmentedButton(mode === "mine")}>
-              My Events
-            </button>
+          <div style={statCard}>
+            <div style={{ ...statLabel, opacity: 0.85 }}>Open Shortage</div>
+            <div style={statValue}>{loading ? "..." : totalShortage}</div>
           </div>
-        </div>
-      </section>
-
-      <section style={{ ...statGrid, marginBottom: "14px" }}>
-        <div style={statCard}>
-          <div style={statLabel}>{mode === "mine" ? "My Events" : "Total Events"}</div>
-          <div style={statValue}>{loading ? "..." : metrics.totalEvents}</div>
-        </div>
-        <div style={statCard}>
-          <div style={statLabel}>Confirmed SPs</div>
-          <div style={statValue}>{loading ? "..." : metrics.totalConfirmed}</div>
-        </div>
-        <div style={statCard}>
-          <div style={statLabel}>Open Shortage</div>
-          <div style={statValue}>{loading ? "..." : metrics.totalShortage}</div>
-        </div>
-        <div style={statCard}>
-          <div style={statLabel}>Priority Events</div>
-          <div style={statValue}>{loading ? "..." : metrics.atRisk}</div>
-        </div>
+          <div style={statCard}>
+            <div style={{ ...statLabel, opacity: 0.85 }}>Today</div>
+            <div style={statValue}>{loading ? "..." : todayEvents.length}</div>
+          </div>
+          <div style={statCard}>
+            <div style={{ ...statLabel, opacity: 0.85 }}>This Week</div>
+            <div style={statValue}>{loading ? "..." : thisWeekEvents.length}</div>
+          </div>
+        </section>
       </section>
 
       <section
         style={{
           display: "grid",
-          gridTemplateColumns: "1.3fr 0.9fr",
+          gridTemplateColumns: "1.15fr 0.85fr",
           gap: "14px",
           alignItems: "start",
         }}
       >
         <div style={{ display: "grid", gap: "14px" }}>
-          <div style={sectionStyle}>
+          <section style={sectionStyle}>
             <div
               style={{
                 display: "flex",
@@ -526,120 +383,92 @@ export default function DashboardPage() {
               }}
             >
               <div>
-                <h2 style={{ margin: 0, color: "#173b6c" }}>Priority Events</h2>
+                <h2 style={{ margin: 0, color: "#173b6c" }}>Needs Attention</h2>
                 <p style={{ margin: "6px 0 0", color: "#64748b", fontWeight: 700 }}>
-                  Events with active shortage risk or immediate coverage attention.
+                  Active events with shortage risk or immediate staffing follow-up.
                 </p>
               </div>
               <Link href="/events" style={actionLinkStyle}>
-                Full Event List
+                Detailed Events Board
               </Link>
             </div>
 
             <div style={{ display: "grid", gap: "10px", marginTop: "14px" }}>
               {loading ? (
-                <div style={eventRowStyle}>Loading priority events...</div>
-              ) : priorityEvents.length === 0 ? (
-                <div style={{ ...eventRowStyle, color: "#64748b", fontWeight: 700 }}>
-                  {mode === "mine"
-                    ? "No personal events currently need attention."
-                    : "No priority events at the moment."}
+                <div style={compactEventRow}>Loading operational priorities...</div>
+              ) : needingActionEvents.length === 0 ? (
+                <div style={{ ...compactEventRow, color: "#64748b", fontWeight: 700 }}>
+                  No active events currently need action.
                 </div>
               ) : (
-                priorityEvents.map((event) => {
-                  const shortageInfo = shortagePill(Number(event.shortage || 0), Number(event.sp_needed || 0));
-                  return (
-                    <div key={event.id} style={eventRowStyle}>
-                      <div
-                        style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          gap: "12px",
-                          flexWrap: "wrap",
-                          alignItems: "flex-start",
-                        }}
-                      >
-                        <div style={{ flex: "1 1 320px" }}>
-                          <div style={{ color: "#173b6c", fontWeight: 900, fontSize: "18px" }}>
-                            {event.name || "Untitled Event"}
-                          </div>
-                          <div style={{ marginTop: "6px", color: "#64748b", fontWeight: 700 }}>
-                            {formatDate(event)} · {event.location || "Location TBD"}
-                          </div>
-                          <div style={{ marginTop: "8px", color: "#334155", fontWeight: 700 }}>
-                            {Number(event.confirmed_assignments || 0)} confirmed / {Number(event.sp_needed || 0)} needed
-                          </div>
-                          <div style={{ marginTop: "6px", color: "#64748b", fontWeight: 700, fontSize: "13px" }}>
-                            Owner: {getOwnershipLabel(event)}
-                          </div>
-                          {(event.assigned_sp_names || []).length ? (
-                            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "8px" }}>
-                              {(event.assigned_sp_names || []).slice(0, 3).map((name) => (
-                                <span
-                                  key={`${event.id}-${name}`}
-                                  style={{
-                                    display: "inline-flex",
-                                    alignItems: "center",
-                                    padding: "5px 8px",
-                                    borderRadius: "999px",
-                                    background: "#f8fbff",
-                                    border: "1px solid #dbe4ee",
-                                    color: "#173b6c",
-                                    fontWeight: 800,
-                                    fontSize: "12px",
-                                  }}
-                                >
-                                  {name}
-                                </span>
-                              ))}
-                            </div>
-                          ) : null}
+                needingActionEvents.map((event) => (
+                  <div key={event.id} style={compactEventRow}>
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        gap: "12px",
+                        flexWrap: "wrap",
+                        alignItems: "center",
+                      }}
+                    >
+                      <div style={{ flex: "1 1 320px" }}>
+                        <div style={{ color: "#173b6c", fontWeight: 900, fontSize: "18px" }}>
+                          {event.name || "Untitled Event"}
                         </div>
-
-                        <div style={{ display: "grid", gap: "10px", justifyItems: "end" }}>
-                          <span
-                            style={{
-                              display: "inline-flex",
-                              alignItems: "center",
-                              padding: "7px 10px",
-                              borderRadius: "999px",
-                              fontWeight: 900,
-                              fontSize: "12px",
-                              ...shortageInfo.style,
-                            }}
-                          >
-                            {shortageInfo.label}
-                          </span>
-                          <Link href={`/events/${event.id}`} style={actionLinkStyle}>
-                            Open Event
-                          </Link>
+                        <div style={{ marginTop: "4px", color: "#64748b", fontWeight: 700 }}>
+                          {formatDate(event)} · {event.location || "Location TBD"}
+                        </div>
+                        <div style={{ marginTop: "6px", color: "#334155", fontWeight: 800 }}>
+                          {Number(event.confirmed_assignments || 0)} confirmed / {Number(event.sp_needed || 0)} needed
                         </div>
                       </div>
+
+                      <div style={{ display: "grid", gap: "8px", justifyItems: "end" }}>
+                        <div
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            borderRadius: "999px",
+                            padding: "7px 10px",
+                            background: Number(event.shortage || 0) > 0 ? "#fff7ed" : "#ecfdf3",
+                            border: Number(event.shortage || 0) > 0 ? "1px solid #fed7aa" : "1px solid #86efac",
+                            color: Number(event.shortage || 0) > 0 ? "#9a3412" : "#166534",
+                            fontWeight: 900,
+                            fontSize: "12px",
+                          }}
+                        >
+                          {Number(event.shortage || 0) > 0
+                            ? `${Number(event.shortage || 0)} still needed`
+                            : "Coverage complete"}
+                        </div>
+                        <Link href={`/events/${event.id}`} style={actionLinkStyle}>
+                          Open Event
+                        </Link>
+                      </div>
                     </div>
-                  );
-                })
+                  </div>
+                ))
               )}
             </div>
-          </div>
+          </section>
 
-          <div style={sectionStyle}>
-            <div>
-              <h2 style={{ margin: 0, color: "#173b6c" }}>Upcoming Worklist</h2>
-              <p style={{ margin: "6px 0 0", color: "#64748b", fontWeight: 700 }}>
-                Next events in date order for the current view.
-              </p>
-            </div>
+          <section style={sectionStyle}>
+            <h2 style={{ margin: 0, color: "#173b6c" }}>My Upcoming Events</h2>
+            <p style={{ margin: "6px 0 0", color: "#64748b", fontWeight: 700 }}>
+              Your owned upcoming events, matched using schedule ownership and notes parsing.
+            </p>
 
             <div style={{ display: "grid", gap: "10px", marginTop: "14px" }}>
               {loading ? (
-                <div style={eventRowStyle}>Loading upcoming events...</div>
-              ) : upcomingEvents.length === 0 ? (
-                <div style={{ ...eventRowStyle, color: "#64748b", fontWeight: 700 }}>
-                  No events available in this view.
+                <div style={compactEventRow}>Loading your assignments...</div>
+              ) : myUpcomingEvents.length === 0 ? (
+                <div style={{ ...compactEventRow, color: "#64748b", fontWeight: 700 }}>
+                  No upcoming events currently match your ownership.
                 </div>
               ) : (
-                upcomingEvents.map((event) => (
-                  <div key={event.id} style={eventRowStyle}>
+                myUpcomingEvents.map((event) => (
+                  <div key={event.id} style={compactEventRow}>
                     <div
                       style={{
                         display: "flex",
@@ -650,95 +479,96 @@ export default function DashboardPage() {
                       }}
                     >
                       <div>
-                        <div style={{ color: "#173b6c", fontWeight: 900 }}>
-                          {event.name || "Untitled Event"}
-                        </div>
+                        <div style={{ color: "#173b6c", fontWeight: 900 }}>{event.name || "Untitled Event"}</div>
                         <div style={{ marginTop: "4px", color: "#64748b", fontWeight: 700 }}>
                           {formatDate(event)} · {event.location || "Location TBD"}
                         </div>
-                        <div style={{ marginTop: "6px", color: "#64748b", fontWeight: 700, fontSize: "13px" }}>
-                          Owner: {getOwnershipLabel(event)}
-                        </div>
                       </div>
                       <Link href={`/events/${event.id}`} style={actionLinkStyle}>
-                        Review
+                        Open Event
                       </Link>
                     </div>
                   </div>
                 ))
               )}
             </div>
-          </div>
+          </section>
         </div>
 
         <div style={{ display: "grid", gap: "14px" }}>
-          <div style={sectionStyle}>
-            <h2 style={{ margin: 0, color: "#173b6c" }}>My Assignments</h2>
+          <section style={sectionStyle}>
+            <h2 style={{ margin: 0, color: "#173b6c" }}>Today / This Week</h2>
+            <div style={{ ...statGrid, marginTop: "14px" }}>
+              <div style={secondaryStatCard}>
+                <div style={statLabel}>Today</div>
+                <div style={{ ...statValue, fontSize: "24px" }}>{loading ? "..." : todayEvents.length}</div>
+              </div>
+              <div style={secondaryStatCard}>
+                <div style={statLabel}>This Week</div>
+                <div style={{ ...statValue, fontSize: "24px" }}>{loading ? "..." : thisWeekEvents.length}</div>
+              </div>
+              <div style={secondaryStatCard}>
+                <div style={statLabel}>My Open Shortage</div>
+                <div style={{ ...statValue, fontSize: "24px" }}>{loading ? "..." : myShortage}</div>
+              </div>
+              <div style={secondaryStatCard}>
+                <div style={statLabel}>My Upcoming</div>
+                <div style={{ ...statValue, fontSize: "24px" }}>{loading ? "..." : myUpcomingEvents.length}</div>
+              </div>
+            </div>
+          </section>
+
+          <section style={sectionStyle}>
+            <h2 style={{ margin: 0, color: "#173b6c" }}>Archived Snapshot</h2>
             <p style={{ margin: "6px 0 0", color: "#64748b", fontWeight: 700 }}>
-              Personal workload based on events currently assigned to your account.
+              Past events stay available on the Events board without taking over the active dashboard.
             </p>
 
             <div style={{ ...statGrid, marginTop: "14px" }}>
-              <div style={statCard}>
-                <div style={statLabel}>My Event Count</div>
-                <div style={statValue}>{loading ? "..." : myWorkload.eventCount}</div>
+              <div style={secondaryStatCard}>
+                <div style={statLabel}>Archived</div>
+                <div style={{ ...statValue, fontSize: "24px" }}>{loading ? "..." : archivedEvents.length}</div>
               </div>
-              <div style={statCard}>
-                <div style={statLabel}>Need Attention</div>
-                <div style={statValue}>{loading ? "..." : myWorkload.needingAttention}</div>
-              </div>
-              <div style={statCard}>
-                <div style={statLabel}>Covered</div>
-                <div style={statValue}>{loading ? "..." : myWorkload.covered}</div>
-              </div>
-              <div style={statCard}>
-                <div style={statLabel}>My Open Shortage</div>
-                <div style={statValue}>{loading ? "..." : myWorkload.openShortage}</div>
+              <div style={secondaryStatCard}>
+                <div style={statLabel}>Past Year</div>
+                <div style={{ ...statValue, fontSize: "24px" }}>{loading ? "..." : archivedPastYear.length}</div>
               </div>
             </div>
 
-            <div style={{ display: "grid", gap: "10px", marginTop: "14px" }}>
+            <div style={{ display: "grid", gap: "8px", marginTop: "14px" }}>
               {loading ? (
-                <div style={eventRowStyle}>Loading personal workload...</div>
-              ) : myEvents.length === 0 ? (
-                <div style={{ ...eventRowStyle, color: "#64748b", fontWeight: 700 }}>
-                  No events are currently assigned to your account.
-                </div>
+                <div style={{ color: "#64748b", fontWeight: 700 }}>Loading archive summary...</div>
+              ) : archivedRecent.length === 0 ? (
+                <div style={{ color: "#64748b", fontWeight: 700 }}>No archived events yet.</div>
               ) : (
-                myEvents.slice(0, 5).map((event) => (
-                  <div key={event.id} style={eventRowStyle}>
-                    <div style={{ color: "#173b6c", fontWeight: 900 }}>
-                      {event.name || "Untitled Event"}
+                archivedRecent.map((event) => (
+                  <div
+                    key={event.id}
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      gap: "10px",
+                      alignItems: "center",
+                      padding: "10px 12px",
+                      borderRadius: "14px",
+                      background: "#f8fafc",
+                      border: "1px solid #e2e8f0",
+                    }}
+                  >
+                    <div>
+                      <div style={{ color: "#475569", fontWeight: 800 }}>{event.name || "Untitled Event"}</div>
+                      <div style={{ marginTop: "2px", color: "#94a3b8", fontWeight: 700, fontSize: "13px" }}>
+                        {formatDate(event)}
+                      </div>
                     </div>
-                    <div style={{ marginTop: "4px", color: "#64748b", fontWeight: 700 }}>
-                      {formatDate(event)}
-                    </div>
-                    <div style={{ marginTop: "6px", color: "#64748b", fontWeight: 700, fontSize: "13px" }}>
-                      Owner: {getOwnershipLabel(event)}
-                    </div>
-                    <div style={{ marginTop: "6px", color: "#334155", fontWeight: 700 }}>
-                      {Number(event.confirmed_assignments || 0)} confirmed / {Number(event.sp_needed || 0)} needed
-                    </div>
+                    <Link href={`/events/${event.id}`} style={actionLinkStyle}>
+                      View
+                    </Link>
                   </div>
                 ))
               )}
             </div>
-          </div>
-
-          <div style={sectionStyle}>
-            <h2 style={{ margin: 0, color: "#173b6c" }}>Quick Actions</h2>
-            <p style={{ margin: "6px 0 0", color: "#64748b", fontWeight: 700 }}>
-              Jump directly into the operational tasks that keep the board moving.
-            </p>
-
-            <div style={{ display: "grid", gap: "10px", marginTop: "14px" }}>
-              <Link href="/events" style={actionLinkStyle}>Open Events Board</Link>
-              <Link href="/events/new" style={actionLinkStyle}>Create New Event</Link>
-              <Link href="/events/upload" style={actionLinkStyle}>Import Schedule Workbook</Link>
-              <Link href="/sps" style={actionLinkStyle}>Open SP Directory</Link>
-              <Link href="/me" style={actionLinkStyle}>My Profile</Link>
-            </div>
-          </div>
+          </section>
         </div>
       </section>
     </SiteShell>

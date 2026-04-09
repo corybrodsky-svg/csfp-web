@@ -5,8 +5,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import SiteShell from "../components/SiteShell";
 import { formatHumanDate, getDateSortValue, getImportedYearHint } from "../lib/eventDateUtils";
+import { eventMatchesOwnership } from "../lib/eventOwnership";
 
 type EventsMode = "all" | "mine";
+type ArchivedRange = "30" | "90" | "365" | "all";
 
 type EventRow = {
   id: string;
@@ -116,6 +118,16 @@ const segmentedButton = (active: boolean): React.CSSProperties => ({
   cursor: "pointer",
 });
 
+const archiveRangeButton = (active: boolean): React.CSSProperties => ({
+  border: active ? "1px solid #334155" : "1px solid #cbd5e1",
+  background: active ? "#334155" : "#ffffff",
+  color: active ? "#ffffff" : "#475569",
+  borderRadius: "999px",
+  padding: "8px 12px",
+  fontWeight: 800,
+  cursor: "pointer",
+});
+
 const shortagePill = (isCovered: boolean): React.CSSProperties => ({
   display: "inline-flex",
   alignItems: "center",
@@ -132,54 +144,6 @@ const shortagePill = (isCovered: boolean): React.CSSProperties => ({
 function asText(value: unknown) {
   if (value === null || value === undefined) return "";
   return String(value).trim();
-}
-
-function normalizeMatchValue(value: string) {
-  return value.toLowerCase().replace(/\s+/g, " ").trim();
-}
-
-function getScheduleNameVariants(value: string) {
-  const normalized = normalizeMatchValue(value);
-  if (!normalized) return [];
-
-  const variants = new Set<string>([normalized]);
-  const parts = normalized.split(" ").filter(Boolean);
-  if (parts.length > 1) {
-    variants.add(parts[0]);
-    variants.add(parts.slice(0, 2).join(" "));
-  }
-
-  return Array.from(variants);
-}
-
-function ownershipTextMatchesScheduleName(ownerText: string, scheduleName: string) {
-  const normalizedOwner = normalizeMatchValue(ownerText);
-  const normalizedSchedule = normalizeMatchValue(scheduleName);
-  if (!normalizedOwner || !normalizedSchedule) return false;
-
-  const ownerSegments = normalizedOwner
-    .split(/\/|,|;|&|\band\b/)
-    .map((segment) => normalizeMatchValue(segment))
-    .filter(Boolean);
-  const ownerCandidates = Array.from(new Set([normalizedOwner, ...ownerSegments]));
-  const scheduleVariants = getScheduleNameVariants(normalizedSchedule);
-
-  return scheduleVariants.some((variant) =>
-    ownerCandidates.some(
-      (candidate) => candidate === variant || candidate.includes(variant) || variant.includes(candidate)
-    )
-  );
-}
-
-function getOwnershipTextFromNotes(notes: string) {
-  const match = notes.match(/Event Lead\/Team:\s*(.+)/i);
-  return match ? asText(match[1]) : "";
-}
-
-function eventMatchesOwnership(event: EventRow, currentUserId: string, scheduleName: string) {
-  if (asText(event.owner_id) === currentUserId) return true;
-  if (ownershipTextMatchesScheduleName(asText(event.schedule_owner_text), scheduleName)) return true;
-  return ownershipTextMatchesScheduleName(getOwnershipTextFromNotes(asText(event.notes)), scheduleName);
 }
 
 function parseEventDateValue(event: EventRow): number {
@@ -213,11 +177,12 @@ async function parseApiError(response: Response) {
 export default function EventsPage() {
   const router = useRouter();
   const [mode, setMode] = useState<EventsMode>("all");
+  const [archivedRange, setArchivedRange] = useState<ArchivedRange>("365");
   const [events, setEvents] = useState<EventRow[]>([]);
   const [me, setMe] = useState<MeResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
-  const [showPastEvents, setShowPastEvents] = useState(false);
+  const [showArchivedEvents, setShowArchivedEvents] = useState(false);
 
   const redirectToLogin = useCallback(() => {
     router.replace("/login");
@@ -302,9 +267,19 @@ export default function EventsPage() {
     [selectedEvents, todayStart]
   );
 
-  const pastEvents = useMemo(
+  const archivedEvents = useMemo(
     () => selectedEvents.filter((event) => parseEventDateValue(event) < todayStart),
     [selectedEvents, todayStart]
+  );
+
+  const archivedCutoff = useMemo(() => {
+    if (archivedRange === "all") return Number.NEGATIVE_INFINITY;
+    return todayStart - Number(archivedRange) * 24 * 60 * 60 * 1000;
+  }, [archivedRange, todayStart]);
+
+  const filteredArchivedEvents = useMemo(
+    () => archivedEvents.filter((event) => archivedRange === "all" || parseEventDateValue(event) >= archivedCutoff),
+    [archivedCutoff, archivedEvents, archivedRange]
   );
 
   const totalNeeded = selectedEvents.reduce((sum, event) => sum + Number(event.sp_needed || 0), 0);
@@ -314,7 +289,7 @@ export default function EventsPage() {
   return (
     <SiteShell
       title="Events"
-      subtitle="Supabase event list with live SP assignment coverage and earliest-date sorting."
+      subtitle="Detailed events board for active operations, upcoming coverage, and archived history."
     >
       {errorMessage ? (
         <div
@@ -344,7 +319,7 @@ export default function EventsPage() {
           <div>
             <div style={statLabel}>View Mode</div>
             <div style={{ marginTop: "6px", color: "#64748b", fontWeight: 700 }}>
-              Switch between the full event board and the events currently assigned to your account.
+              Explore the full event board or just the events currently assigned to your ownership match.
             </div>
           </div>
 
@@ -371,8 +346,8 @@ export default function EventsPage() {
           </div>
 
           <div style={statCard}>
-            <div style={statLabel}>SPs Needed</div>
-            <div style={statValue}>{totalNeeded}</div>
+            <div style={statLabel}>Upcoming / Current</div>
+            <div style={statValue}>{upcomingEvents.length}</div>
           </div>
 
           <div style={statCard}>
@@ -380,6 +355,17 @@ export default function EventsPage() {
             <div style={statValue}>{totalConfirmed}</div>
           </div>
 
+          <div style={statCard}>
+            <div style={statLabel}>Archived</div>
+            <div style={statValue}>{archivedEvents.length}</div>
+          </div>
+        </div>
+
+        <div style={{ ...statGrid, marginTop: "10px" }}>
+          <div style={statCard}>
+            <div style={statLabel}>SPs Needed</div>
+            <div style={statValue}>{totalNeeded}</div>
+          </div>
           <div style={statCard}>
             <div style={statLabel}>Remaining Shortage</div>
             <div style={statValue}>{totalShortage}</div>
@@ -389,12 +375,34 @@ export default function EventsPage() {
 
       {loading ? (
         <div style={cardStyle}>Loading events from Supabase...</div>
-      ) : upcomingEvents.length === 0 && pastEvents.length === 0 ? (
+      ) : upcomingEvents.length === 0 && archivedEvents.length === 0 ? (
         <div style={cardStyle}>
           {mode === "mine" ? "No events currently match your ownership." : "No events found in Supabase."}
         </div>
       ) : (
         <>
+          <div style={cardStyle}>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                gap: "12px",
+                flexWrap: "wrap",
+                alignItems: "center",
+              }}
+            >
+              <div>
+                <h2 style={{ margin: 0, color: "#173b6c" }}>Upcoming & Current Events</h2>
+                <p style={{ margin: "6px 0 0", color: "#64748b", fontWeight: 700 }}>
+                  Active events stay at the top so planning, staffing, and follow-up remain focused.
+                </p>
+              </div>
+              <Link href="/dashboard" style={buttonStyle}>
+                Back to Dashboard
+              </Link>
+            </div>
+          </div>
+
           {upcomingEvents.length === 0 ? (
             <div style={cardStyle}>
               {mode === "mine"
@@ -409,9 +417,7 @@ export default function EventsPage() {
               const shortage = Number(event.shortage || 0);
               const isCovered = shortage === 0 && needed > 0;
               const coverageText =
-                needed > 0
-                  ? `${confirmedAssignments} confirmed / ${needed} needed`
-                  : `${confirmedAssignments} confirmed`;
+                needed > 0 ? `${confirmedAssignments} confirmed / ${needed} needed` : `${confirmedAssignments} confirmed`;
               const assignedPreview = (event.assigned_sp_names || []).filter(Boolean);
 
               return (
@@ -447,11 +453,7 @@ export default function EventsPage() {
                             fontSize: "12px",
                           }}
                         >
-                          {needed > 0
-                            ? shortage === 0
-                              ? "Coverage complete"
-                              : `${shortage} still needed`
-                            : "No SP target"}
+                          {needed > 0 ? (shortage === 0 ? "Coverage complete" : `${shortage} still needed`) : "No SP target"}
                         </span>
                       </div>
                     </div>
@@ -525,11 +527,44 @@ export default function EventsPage() {
             })
           )}
 
-          {pastEvents.length ? (
+          {archivedEvents.length ? (
             <div style={cardStyle}>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  gap: "12px",
+                  flexWrap: "wrap",
+                  alignItems: "center",
+                  marginBottom: "12px",
+                }}
+              >
+                <div>
+                  <h2 style={{ margin: 0, color: "#475569" }}>Archived Events</h2>
+                  <p style={{ margin: "6px 0 0", color: "#94a3b8", fontWeight: 700 }}>
+                    Past events remain stored and explorable here for at least the past year and beyond.
+                  </p>
+                </div>
+
+                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                  <button type="button" onClick={() => setArchivedRange("30")} style={archiveRangeButton(archivedRange === "30")}>
+                    Past 30 Days
+                  </button>
+                  <button type="button" onClick={() => setArchivedRange("90")} style={archiveRangeButton(archivedRange === "90")}>
+                    Past 90 Days
+                  </button>
+                  <button type="button" onClick={() => setArchivedRange("365")} style={archiveRangeButton(archivedRange === "365")}>
+                    Past Year
+                  </button>
+                  <button type="button" onClick={() => setArchivedRange("all")} style={archiveRangeButton(archivedRange === "all")}>
+                    All Archived
+                  </button>
+                </div>
+              </div>
+
               <button
                 type="button"
-                onClick={() => setShowPastEvents((current) => !current)}
+                onClick={() => setShowArchivedEvents((current) => !current)}
                 style={{
                   width: "100%",
                   display: "flex",
@@ -545,115 +580,124 @@ export default function EventsPage() {
                   cursor: "pointer",
                 }}
               >
-                <span>Past Events ({pastEvents.length})</span>
-                <span style={{ fontSize: "13px", fontWeight: 800 }}>{showPastEvents ? "Hide" : "Show"}</span>
+                <span>
+                  Archived Events ({filteredArchivedEvents.length}
+                  {archivedRange !== "all" ? ` shown of ${archivedEvents.length}` : ""})
+                </span>
+                <span style={{ fontSize: "13px", fontWeight: 800 }}>{showArchivedEvents ? "Hide" : "Show"}</span>
               </button>
 
-              {showPastEvents ? (
+              {showArchivedEvents ? (
                 <div style={{ display: "grid", gap: "10px", marginTop: "14px" }}>
-                  {pastEvents.map((event) => {
-                    const needed = Number(event.sp_needed || 0);
-                    const confirmedAssignments = Number(event.confirmed_assignments || 0);
-                    const shortage = Number(event.shortage || 0);
-                    const isCovered = shortage === 0 && needed > 0;
-                    const assignedPreview = (event.assigned_sp_names || []).filter(Boolean).slice(0, 3);
+                  {filteredArchivedEvents.length === 0 ? (
+                    <div style={{ ...mutedCardStyle, color: "#64748b", fontWeight: 700 }}>
+                      No archived events fall within this range.
+                    </div>
+                  ) : (
+                    filteredArchivedEvents.map((event) => {
+                      const needed = Number(event.sp_needed || 0);
+                      const confirmedAssignments = Number(event.confirmed_assignments || 0);
+                      const shortage = Number(event.shortage || 0);
+                      const isCovered = shortage === 0 && needed > 0;
+                      const assignedPreview = (event.assigned_sp_names || []).filter(Boolean).slice(0, 3);
 
-                    return (
-                      <div key={event.id} style={mutedCardStyle}>
-                        <div
-                          style={{
-                            display: "flex",
-                            justifyContent: "space-between",
-                            gap: "12px",
-                            flexWrap: "wrap",
-                            alignItems: "center",
-                          }}
-                        >
-                          <div style={{ flex: "1 1 360px" }}>
-                            <div
-                              style={{
-                                display: "flex",
-                                gap: "8px",
-                                flexWrap: "wrap",
-                                alignItems: "center",
-                              }}
-                            >
-                              <div style={{ color: "#475569", fontWeight: 900, fontSize: "18px" }}>
-                                {event.name || "Untitled Event"}
-                              </div>
-                              <span
+                      return (
+                        <div key={event.id} style={mutedCardStyle}>
+                          <div
+                            style={{
+                              display: "flex",
+                              justifyContent: "space-between",
+                              gap: "12px",
+                              flexWrap: "wrap",
+                              alignItems: "center",
+                            }}
+                          >
+                            <div style={{ flex: "1 1 360px" }}>
+                              <div
                                 style={{
-                                  display: "inline-flex",
+                                  display: "flex",
+                                  gap: "8px",
+                                  flexWrap: "wrap",
                                   alignItems: "center",
-                                  borderRadius: "999px",
-                                  padding: "5px 8px",
-                                  background: "#e2e8f0",
-                                  color: "#475569",
-                                  fontWeight: 900,
-                                  fontSize: "11px",
-                                  textTransform: "uppercase",
                                 }}
                               >
-                                Past
-                              </span>
-                            </div>
-
-                            <div style={{ marginTop: "6px", color: "#64748b", fontWeight: 700, lineHeight: 1.6 }}>
-                              {getDisplayDate(event)} · {event.location || "Location TBD"}
-                            </div>
-
-                            <div style={{ marginTop: "6px", color: "#64748b", fontWeight: 700, fontSize: "13px" }}>
-                              {confirmedAssignments} confirmed / {needed} needed
-                            </div>
-
-                            {assignedPreview.length ? (
-                              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "8px" }}>
-                                {assignedPreview.map((name) => (
-                                  <span
-                                    key={`${event.id}-${name}`}
-                                    style={{
-                                      display: "inline-flex",
-                                      alignItems: "center",
-                                      borderRadius: "999px",
-                                      padding: "5px 8px",
-                                      background: "#ffffff",
-                                      border: "1px solid #dbe4ee",
-                                      color: "#64748b",
-                                      fontWeight: 800,
-                                      fontSize: "12px",
-                                    }}
-                                  >
-                                    {name}
-                                  </span>
-                                ))}
+                                <div style={{ color: "#475569", fontWeight: 900, fontSize: "18px" }}>
+                                  {event.name || "Untitled Event"}
+                                </div>
+                                <span
+                                  style={{
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    borderRadius: "999px",
+                                    padding: "5px 8px",
+                                    background: "#e2e8f0",
+                                    color: "#475569",
+                                    fontWeight: 900,
+                                    fontSize: "11px",
+                                    textTransform: "uppercase",
+                                  }}
+                                >
+                                  Archived
+                                </span>
                               </div>
-                            ) : null}
-                          </div>
 
-                          <div style={{ display: "grid", gap: "10px", justifyItems: "end" }}>
-                            <span
-                              style={{
-                                ...shortagePill(isCovered),
-                                padding: "5px 8px",
-                                fontSize: "11px",
-                                opacity: 0.85,
-                              }}
-                            >
-                              {needed > 0
-                                ? shortage === 0
-                                  ? "Coverage complete"
-                                  : `${shortage} still needed`
-                                : "No SP target"}
-                            </span>
+                              <div style={{ marginTop: "6px", color: "#64748b", fontWeight: 700, lineHeight: 1.6 }}>
+                                {getDisplayDate(event)} · {event.location || "Location TBD"}
+                              </div>
 
-                            <Link href={`/events/${event.id}`} style={compactButtonStyle}>
-                              Open Event
-                            </Link>
+                              <div style={{ marginTop: "6px", color: "#64748b", fontWeight: 700, fontSize: "13px" }}>
+                                {confirmedAssignments} confirmed / {needed} needed
+                              </div>
+
+                              {assignedPreview.length ? (
+                                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "8px" }}>
+                                  {assignedPreview.map((name) => (
+                                    <span
+                                      key={`${event.id}-${name}`}
+                                      style={{
+                                        display: "inline-flex",
+                                        alignItems: "center",
+                                        borderRadius: "999px",
+                                        padding: "5px 8px",
+                                        background: "#ffffff",
+                                        border: "1px solid #dbe4ee",
+                                        color: "#64748b",
+                                        fontWeight: 800,
+                                        fontSize: "12px",
+                                      }}
+                                    >
+                                      {name}
+                                    </span>
+                                  ))}
+                                </div>
+                              ) : null}
+                            </div>
+
+                            <div style={{ display: "grid", gap: "10px", justifyItems: "end" }}>
+                              <span
+                                style={{
+                                  ...shortagePill(isCovered),
+                                  padding: "5px 8px",
+                                  fontSize: "11px",
+                                  opacity: 0.85,
+                                }}
+                              >
+                                {needed > 0
+                                  ? shortage === 0
+                                    ? "Coverage complete"
+                                    : `${shortage} still needed`
+                                  : "No SP target"}
+                              </span>
+
+                              <Link href={`/events/${event.id}`} style={compactButtonStyle}>
+                                Open Event
+                              </Link>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })
+                  )}
                 </div>
               ) : null}
             </div>
