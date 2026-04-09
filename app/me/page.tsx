@@ -193,6 +193,18 @@ export default function MePage() {
     };
   }, [loadProfile]);
 
+  useEffect(() => {
+    if (!justSaved) return;
+
+    const timeoutId = window.setTimeout(() => {
+      setJustSaved(false);
+    }, 2500);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [justSaved]);
+
   async function handleSave(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSaving(true);
@@ -222,6 +234,7 @@ export default function MePage() {
 
       if (!response.ok) {
         setErrorMessage(body?.error || "Could not save profile.");
+        setJustSaved(false);
         setSaving(false);
         return;
       }
@@ -235,6 +248,7 @@ export default function MePage() {
       setJustSaved(true);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Could not save profile.");
+      setJustSaved(false);
     } finally {
       setSaving(false);
     }
@@ -310,7 +324,10 @@ export default function MePage() {
                 <input
                   type="text"
                   value={fullName}
-                  onChange={(event) => setFullName(event.target.value)}
+                  onChange={(event) => {
+                    setFullName(event.target.value);
+                    setJustSaved(false);
+                  }}
                   style={inputStyle}
                   placeholder="Enter your full name"
                 />
@@ -321,7 +338,10 @@ export default function MePage() {
                 <input
                   type="text"
                   value={scheduleName}
-                  onChange={(event) => setScheduleName(event.target.value)}
+                  onChange={(event) => {
+                    setScheduleName(event.target.value);
+                    setJustSaved(false);
+                  }}
                   style={inputStyle}
                   placeholder="Example: Cory"
                 />
@@ -338,7 +358,14 @@ export default function MePage() {
 
               <label style={labelStyle}>
                 Role
-                <select value={role} onChange={(event) => setRole(event.target.value)} style={selectStyle}>
+                <select
+                  value={role}
+                  onChange={(event) => {
+                    setRole(normalizeRole(event.target.value));
+                    setJustSaved(false);
+                  }}
+                  style={selectStyle}
+                >
                   {ROLE_OPTIONS.map((option) => (
                     <option key={option.value} value={option.value}>
                       {option.label}
@@ -353,8 +380,10 @@ export default function MePage() {
                   style={{
                     ...primaryButtonStyle,
                     opacity: saving ? 0.7 : 1,
-                    background: justSaved ? "#166534" : primaryButtonStyle.background,
-                    borderColor: justSaved ? "#166534" : "#173b6c",
+                    background: justSaved ? "#166534" : "#173b6c",
+                    border: justSaved ? "1px solid #166534" : "1px solid #173b6c",
+                    boxShadow: justSaved ? "0 0 0 3px rgba(34, 197, 94, 0.18)" : "none",
+                    transition: "background-color 140ms ease, border-color 140ms ease, box-shadow 140ms ease",
                   }}
                   disabled={saving}
                 >
