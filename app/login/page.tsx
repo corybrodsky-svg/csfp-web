@@ -1,14 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
-import {
-  checkSupabaseBrowserConnectivity,
-  getSupabaseBrowserClientError,
-  requireSupabaseBrowserClient,
-} from "../lib/supabaseClient";
-import { syncSessionWithServer } from "../lib/clientAuth";
 
 const pageStyle: React.CSSProperties = {
   minHeight: "100vh",
@@ -119,35 +113,27 @@ const helperTextStyle: React.CSSProperties = {
   textAlign: "center",
 };
 
-function formatAuthError(message?: string | null) {
-  const text = (message || "").trim();
-  if (!text) return "Login failed.";
-
-  const lowered = text.toLowerCase();
-  if (lowered.includes("invalid login credentials")) {
-    return "Invalid login credentials. This login only works for existing Supabase Auth users.";
-  }
-  if (lowered.includes("email not confirmed")) {
-    return "Your email is not confirmed yet. Check your inbox for the Supabase confirmation email.";
-  }
-  if (lowered.includes("email provider is disabled")) {
-    return "Supabase email/password auth is disabled for this project.";
-  }
-
-  return text;
+async function parseApiResponse(response: Response) {
+  const body = await response.json().catch(() => null);
+  return {
+    ok: response.ok,
+    error:
+      body && typeof body === "object" && typeof (body as { error?: unknown }).error === "string"
+        ? (body as { error: string }).error
+        : !response.ok
+          ? `${response.status} ${response.statusText}`
+          : "",
+  };
 }
 
-function formatBrowserAuthError(error: unknown) {
+function formatTransportError(error: unknown) {
   if (!(error instanceof Error)) {
-    return "Could not complete browser authentication.";
+    return "Could not complete sign in.";
   }
 
-  const text = error.message.trim();
-  if (text === "Failed to fetch") {
-    return "Browser could not contact Supabase.";
-  }
-
-  return text || "Could not complete browser authentication.";
+  return error.message === "Failed to fetch"
+    ? "Could not reach this app from the browser."
+    : error.message || "Could not complete sign in.";
 }
 
 export default function LoginPage() {
@@ -162,79 +148,34 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [saving, setSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
-  const [connectivityMessage, setConnectivityMessage] = useState(
-    () => getSupabaseBrowserClientError()
-  );
-
-  useEffect(() => {
-    let cancelled = false;
-    if (getSupabaseBrowserClientError()) {
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    void checkSupabaseBrowserConnectivity().then((result) => {
-      if (cancelled || result.ok) return;
-      setConnectivityMessage(result.message);
-    });
-
-    const browserClient = requireSupabaseBrowserClient();
-    void browserClient.auth.getSession().then(async ({ data }) => {
-      if (cancelled || !data.session) return;
-
-      try {
-        await syncSessionWithServer(data.session);
-        router.replace(nextPath);
-      } catch (error) {
-        if (!cancelled) {
-          setErrorMessage(
-            error instanceof Error ? error.message : "Could not persist login session."
-          );
-        }
-      }
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [nextPath, router]);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSaving(true);
     setErrorMessage("");
 
-    let data;
-    let error;
-
     try {
-      const browserClient = requireSupabaseBrowserClient();
-      const result = await browserClient.auth.signInWithPassword({
-        email: email.trim(),
-        password,
+      const response = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email: email.trim(),
+          password,
+        }),
       });
-      data = result.data;
-      error = result.error;
-    } catch (authError) {
-      setErrorMessage(formatBrowserAuthError(authError));
-      setSaving(false);
-      return;
-    }
 
-    if (error || !data.session) {
-      setErrorMessage(formatAuthError(error?.message));
-      setSaving(false);
-      return;
-    }
+      const result = await parseApiResponse(response);
+      if (!result.ok) {
+        setErrorMessage(result.error || "Could not sign in.");
+        setSaving(false);
+        return;
+      }
 
-    try {
-      await syncSessionWithServer(data.session);
       router.replace(nextPath);
-    } catch (syncError) {
-      setErrorMessage(
-        syncError instanceof Error ? syncError.message : "Could not persist login session."
-      );
+    } catch (error) {
+      setErrorMessage(formatTransportError(error));
       setSaving(false);
       return;
     }
@@ -280,23 +221,6 @@ export default function LoginPage() {
           </div>
         ) : null}
 
-        {!errorMessage && connectivityMessage ? (
-          <div
-            style={{
-              marginTop: "18px",
-              padding: "13px 14px",
-              border: "1px solid #fed7aa",
-              background: "#fff7ed",
-              color: "#9a3412",
-              borderRadius: "12px",
-              lineHeight: 1.6,
-              fontWeight: 700,
-            }}
-          >
-            {connectivityMessage}
-          </div>
-        ) : null}
-
         <div style={{ display: "grid", gap: "16px", marginTop: "22px" }}>
           <label style={inputGroupStyle}>
             <span style={labelStyle}>Email</span>
@@ -332,7 +256,7 @@ export default function LoginPage() {
         </div>
 
         <p style={helperTextStyle}>
-          Use your confirmed Supabase Auth account. If sign-in fails, the exact auth message will appear above.
+          Sign in goes through this app first, then the server talks to Supabase and sets your auth cookies.
         </p>
       </form>
     </main>

@@ -1,13 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
-import {
-  checkSupabaseBrowserConnectivity,
-  getSupabaseBrowserClientError,
-  requireSupabaseBrowserClient,
-} from "../lib/supabaseClient";
 
 const pageStyle: React.CSSProperties = {
   minHeight: "100vh",
@@ -112,35 +107,31 @@ const secondaryLinkStyle: React.CSSProperties = {
   boxSizing: "border-box",
 };
 
-function formatSignupError(message?: string | null) {
-  const text = (message || "").trim();
-  if (!text) return "Could not create account.";
-
-  const lowered = text.toLowerCase();
-  if (lowered.includes("user already registered")) {
-    return "That email is already registered. Use the login page instead.";
-  }
-  if (lowered.includes("password should be at least")) {
-    return text;
-  }
-  if (lowered.includes("email provider is disabled")) {
-    return "Supabase email/password auth is disabled for this project.";
-  }
-
-  return text;
+async function parseApiResponse(response: Response) {
+  const body = await response.json().catch(() => null);
+  return {
+    ok: response.ok,
+    error:
+      body && typeof body === "object" && typeof (body as { error?: unknown }).error === "string"
+        ? (body as { error: string }).error
+        : !response.ok
+          ? `${response.status} ${response.statusText}`
+          : "",
+    message:
+      body && typeof body === "object" && typeof (body as { message?: unknown }).message === "string"
+        ? (body as { message: string }).message
+        : "",
+  };
 }
 
-function formatBrowserAuthError(error: unknown) {
+function formatTransportError(error: unknown) {
   if (!(error instanceof Error)) {
-    return "Could not complete browser authentication.";
+    return "Could not create account.";
   }
 
-  const text = error.message.trim();
-  if (text === "Failed to fetch") {
-    return "Browser could not contact Supabase.";
-  }
-
-  return text || "Could not complete browser authentication.";
+  return error.message === "Failed to fetch"
+    ? "Could not reach this app from the browser."
+    : error.message || "Could not create account.";
 }
 
 export default function SignupPage() {
@@ -151,27 +142,6 @@ export default function SignupPage() {
   const [saving, setSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
-  const [connectivityMessage, setConnectivityMessage] = useState(
-    () => getSupabaseBrowserClientError()
-  );
-
-  useEffect(() => {
-    let cancelled = false;
-    if (getSupabaseBrowserClientError()) {
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    void checkSupabaseBrowserConnectivity().then((result) => {
-      if (cancelled || result.ok) return;
-      setConnectivityMessage(result.message);
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -179,38 +149,35 @@ export default function SignupPage() {
     setErrorMessage("");
     setSuccessMessage("");
 
-    let error;
-
     try {
-      const browserClient = requireSupabaseBrowserClient();
-      const result = await browserClient.auth.signUp({
-        email: email.trim(),
-        password,
-        options: {
-          data: {
-            full_name: fullName.trim(),
-            role: "viewer",
-          },
+      const response = await fetch("/api/auth/signup", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
         },
+        body: JSON.stringify({
+          full_name: fullName.trim(),
+          email: email.trim(),
+          password,
+        }),
       });
-      error = result.error;
-    } catch (authError) {
-      setErrorMessage(formatBrowserAuthError(authError));
-      setSaving(false);
-      return;
-    }
 
-    if (error) {
-      setErrorMessage(formatSignupError(error.message));
-      setSaving(false);
-      return;
-    }
+      const result = await parseApiResponse(response);
+      if (!result.ok) {
+        setErrorMessage(result.error || "Could not create account.");
+        setSaving(false);
+        return;
+      }
 
-    setSuccessMessage(
-      "Account created. If email confirmation is enabled, check your inbox. Otherwise you can log in now."
-    );
-    setSaving(false);
-    window.setTimeout(() => router.push("/login"), 1200);
+      setSuccessMessage(
+        result.message || "Account created. You can sign in now."
+      );
+      setSaving(false);
+      window.setTimeout(() => router.push("/login"), 1200);
+    } catch (error) {
+      setErrorMessage(formatTransportError(error));
+      setSaving(false);
+    }
   }
 
   return (
@@ -223,8 +190,7 @@ export default function SignupPage() {
         </p>
 
         <div style={infoPanelStyle}>
-          Already have an account?
-          {" "}
+          Already have an account?{" "}
           <Link href="/login" style={{ color: "#1d4ed8", fontWeight: 800 }}>
             Return to Sign In
           </Link>
@@ -261,23 +227,6 @@ export default function SignupPage() {
             }}
           >
             {successMessage}
-          </div>
-        ) : null}
-
-        {!errorMessage && !successMessage && connectivityMessage ? (
-          <div
-            style={{
-              marginTop: "18px",
-              padding: "13px 14px",
-              border: "1px solid #fed7aa",
-              background: "#fff7ed",
-              color: "#9a3412",
-              borderRadius: "12px",
-              lineHeight: 1.6,
-              fontWeight: 700,
-            }}
-          >
-            {connectivityMessage}
           </div>
         ) : null}
 
