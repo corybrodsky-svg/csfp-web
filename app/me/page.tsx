@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import SiteShell from "../components/SiteShell";
 import { signOutUserAndRedirect } from "../lib/clientAuth";
@@ -93,6 +93,14 @@ type MeResponse = {
   error?: string;
 };
 
+type ProfileFormState = {
+  fullName: string;
+  scheduleName: string;
+  role: string;
+};
+
+type SaveState = "idle" | "saving" | "saved" | "error";
+
 const ROLE_OPTIONS = [
   { value: "sp", label: "SP" },
   { value: "sim_op", label: "Sim Op" },
@@ -114,11 +122,23 @@ function formatRoleLabel(role: string) {
   return ROLE_OPTIONS.find((option) => option.value === role)?.label || "SP";
 }
 
+function getProfileFormState(body: MeResponse | null): ProfileFormState {
+  return {
+    fullName: asText(body?.profile?.full_name),
+    scheduleName: asText(body?.profile?.schedule_name),
+    role: normalizeRole(body?.profile?.role),
+  };
+}
+
+function isSameProfileFormState(a: ProfileFormState, b: ProfileFormState) {
+  return a.fullName === b.fullName && a.scheduleName === b.scheduleName && a.role === b.role;
+}
+
 export default function MePage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
+  const [saveState, setSaveState] = useState<SaveState>("idle");
   const [errorMessage, setErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [warningMessage, setWarningMessage] = useState("");
@@ -126,7 +146,16 @@ export default function MePage() {
   const [fullName, setFullName] = useState("");
   const [scheduleName, setScheduleName] = useState("");
   const [role, setRole] = useState("sp");
-  const [justSaved, setJustSaved] = useState(false);
+  const [lastSavedState, setLastSavedState] = useState<ProfileFormState>({
+    fullName: "",
+    scheduleName: "",
+    role: "sp",
+  });
+  const saveStateRef = useRef<SaveState>("idle");
+
+  useEffect(() => {
+    saveStateRef.current = saveState;
+  }, [saveState]);
 
   const redirectToLogin = useCallback(() => {
     router.replace("/login");
@@ -134,15 +163,25 @@ export default function MePage() {
     window.location.replace("/login");
   }, [router]);
 
+  const applyProfileResponse = useCallback((body: MeResponse | null) => {
+    const nextProfileState = getProfileFormState(body);
+    setData(body);
+    setFullName(nextProfileState.fullName);
+    setScheduleName(nextProfileState.scheduleName);
+    setRole(nextProfileState.role);
+    setLastSavedState(nextProfileState);
+  }, []);
+
   const loadProfile = useCallback(
     async (preserveSuccessMessage = false) => {
       setLoading(true);
       setErrorMessage("");
+      setWarningMessage("");
+
       if (!preserveSuccessMessage) {
         setSuccessMessage("");
-        setJustSaved(false);
+        setSaveState("idle");
       }
-      setWarningMessage("");
 
       try {
         const response = await fetch("/api/me", { cache: "no-store", credentials: "include" });
@@ -155,21 +194,20 @@ export default function MePage() {
 
         if (!response.ok) {
           setErrorMessage(body?.error || "Could not load account details.");
+          setSaveState("idle");
           setLoading(false);
           return;
         }
 
-        setData(body);
-        setFullName(asText(body?.profile?.full_name));
-        setScheduleName(asText(body?.profile?.schedule_name));
-        setRole(normalizeRole(body?.profile?.role));
+        applyProfileResponse(body);
         setLoading(false);
       } catch (error) {
         setErrorMessage(error instanceof Error ? error.message : "Could not load account details.");
+        setSaveState("idle");
         setLoading(false);
       }
     },
-    [redirectToLogin]
+    [applyProfileResponse, redirectToLogin]
   );
 
   useEffect(() => {
@@ -183,7 +221,7 @@ export default function MePage() {
     void run();
 
     function handleFocus() {
-      void loadProfile(true);
+      void loadProfile(saveStateRef.current === "saved");
     }
 
     window.addEventListener("focus", handleFocus);
@@ -193,25 +231,51 @@ export default function MePage() {
     };
   }, [loadProfile]);
 
-  useEffect(() => {
-    if (!justSaved) return;
+  const currentFormState = useMemo(
+    () => ({
+      fullName,
+      scheduleName,
+      role,
+    }),
+    [fullName, scheduleName, role]
+  );
 
-    const timeoutId = window.setTimeout(() => {
-      setJustSaved(false);
-    }, 2500);
+  const isDirty = useMemo(
+    () => !isSameProfileFormState(currentFormState, lastSavedState),
+    [currentFormState, lastSavedState]
+  );
 
-    return () => {
-      window.clearTimeout(timeoutId);
-    };
-  }, [justSaved]);
+  const handleFieldChange = useCallback(
+    (field: keyof ProfileFormState, value: string) => {
+      if (field === "fullName") setFullName(value);
+      if (field === "scheduleName") setScheduleName(value);
+      if (field === "role") setRole(normalizeRole(value));
+
+      const nextFormState =
+        field === "fullName"
+          ? { ...currentFormState, fullName: value }
+          : field === "scheduleName"
+            ? { ...currentFormState, scheduleName: value }
+            : { ...currentFormState, role: normalizeRole(value) };
+
+      if (!isSameProfileFormState(nextFormState, lastSavedState)) {
+        if (saveState === "saved") {
+          setSuccessMessage("");
+        }
+        if (saveState !== "saving") {
+          setSaveState("idle");
+        }
+      }
+    },
+    [currentFormState, lastSavedState, saveState]
+  );
 
   async function handleSave(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setSaving(true);
+    setSaveState("saving");
     setErrorMessage("");
     setSuccessMessage("");
     setWarningMessage("");
-    setJustSaved(false);
 
     try {
       const response = await fetch("/api/me", {
@@ -234,23 +298,17 @@ export default function MePage() {
 
       if (!response.ok) {
         setErrorMessage(body?.error || "Could not save profile.");
-        setJustSaved(false);
-        setSaving(false);
+        setSaveState("error");
         return;
       }
 
-      setData(body);
-      setFullName(asText(body?.profile?.full_name));
-      setScheduleName(asText(body?.profile?.schedule_name));
-      setRole(normalizeRole(body?.profile?.role));
+      applyProfileResponse(body);
       setSuccessMessage(body?.message || "Profile saved successfully.");
       setWarningMessage(asText(body?.warning));
-      setJustSaved(true);
+      setSaveState("saved");
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Could not save profile.");
-      setJustSaved(false);
-    } finally {
-      setSaving(false);
+      setSaveState("error");
     }
   }
 
@@ -325,8 +383,7 @@ export default function MePage() {
                   type="text"
                   value={fullName}
                   onChange={(event) => {
-                    setFullName(event.target.value);
-                    setJustSaved(false);
+                    handleFieldChange("fullName", event.target.value);
                   }}
                   style={inputStyle}
                   placeholder="Enter your full name"
@@ -339,8 +396,7 @@ export default function MePage() {
                   type="text"
                   value={scheduleName}
                   onChange={(event) => {
-                    setScheduleName(event.target.value);
-                    setJustSaved(false);
+                    handleFieldChange("scheduleName", event.target.value);
                   }}
                   style={inputStyle}
                   placeholder="Example: Cory"
@@ -361,8 +417,7 @@ export default function MePage() {
                 <select
                   value={role}
                   onChange={(event) => {
-                    setRole(normalizeRole(event.target.value));
-                    setJustSaved(false);
+                    handleFieldChange("role", event.target.value);
                   }}
                   style={selectStyle}
                 >
@@ -379,15 +434,15 @@ export default function MePage() {
                   type="submit"
                   style={{
                     ...primaryButtonStyle,
-                    opacity: saving ? 0.7 : 1,
-                    background: justSaved ? "#166534" : "#173b6c",
-                    border: justSaved ? "1px solid #166534" : "1px solid #173b6c",
-                    boxShadow: justSaved ? "0 0 0 3px rgba(34, 197, 94, 0.18)" : "none",
+                    opacity: saveState === "saving" ? 0.7 : 1,
+                    background: saveState === "saved" ? "#166534" : "#173b6c",
+                    border: saveState === "saved" ? "1px solid #166534" : "1px solid #173b6c",
+                    boxShadow: saveState === "saved" ? "0 0 0 3px rgba(34, 197, 94, 0.18)" : "none",
                     transition: "background-color 140ms ease, border-color 140ms ease, box-shadow 140ms ease",
                   }}
-                  disabled={saving}
+                  disabled={saveState === "saving" || (!isDirty && saveState !== "saved")}
                 >
-                  {saving ? "Saving..." : justSaved ? "Saved" : "Save Profile"}
+                  {saveState === "saving" ? "Saving..." : saveState === "saved" ? "Saved" : "Save Profile"}
                 </button>
               </div>
             </div>

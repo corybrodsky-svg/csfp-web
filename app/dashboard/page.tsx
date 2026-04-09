@@ -161,6 +161,17 @@ function ownershipTextMatchesScheduleName(ownerText: string, scheduleName: strin
   );
 }
 
+function getOwnershipTextFromNotes(notes: string) {
+  const match = notes.match(/Event Lead\/Team:\s*(.+)/i);
+  return match ? asText(match[1]) : "";
+}
+
+function eventMatchesOwnership(event: EventRow, currentUserId: string, scheduleName: string) {
+  if (asText(event.owner_id) === currentUserId) return true;
+  if (ownershipTextMatchesScheduleName(asText(event.schedule_owner_text), scheduleName)) return true;
+  return ownershipTextMatchesScheduleName(getOwnershipTextFromNotes(asText(event.notes)), scheduleName);
+}
+
 function getOwnershipLabel(event: EventRow) {
   return asText(event.owner_name) || asText(event.schedule_owner_text) || "Unassigned";
 }
@@ -300,15 +311,15 @@ export default function DashboardPage() {
   const userEmail = asText(me?.user?.email);
   const userName = profileName || userEmail || "CFSP user";
   const isUsingEmailFallback = !profileName && Boolean(userEmail);
-  const scheduleName = asText(me?.profile?.schedule_name);
+  const ownershipMatchName =
+    asText(me?.profile?.schedule_name) ||
+    profileName ||
+    userEmail;
 
   const myEvents = useMemo(
     () =>
-      events.filter((event) => {
-        if (asText(event.owner_id) === currentUserId) return true;
-        return ownershipTextMatchesScheduleName(asText(event.schedule_owner_text), scheduleName);
-      }),
-    [currentUserId, events, scheduleName]
+      events.filter((event) => eventMatchesOwnership(event, currentUserId, ownershipMatchName)),
+    [currentUserId, events, ownershipMatchName]
   );
 
   const selectedEvents = mode === "mine" ? myEvents : events;
