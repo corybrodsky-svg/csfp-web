@@ -67,3 +67,14 @@ export async function signOutUser() {
   }
   await clearServerSession();
 }
+
+export function redirectToLogin() {
+  if (typeof window !== "undefined") {
+    window.location.replace("/login");
+  }
+}
+
+export async function signOutUserAndRedirect() {
+  await signOutUser();
+  redirectToLogin();
+}

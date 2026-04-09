@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import SiteShell from "../components/SiteShell";
-import { signOutUser } from "../lib/clientAuth";
+import { signOutUserAndRedirect } from "../lib/clientAuth";
 
 const sectionStyle: React.CSSProperties = {
   border: "1px solid #d8e0ec",
@@ -77,6 +77,7 @@ type MeResponse = {
   profile?: {
     id: string;
     full_name: string | null;
+    schedule_name?: string | null;
     email: string | null;
     role: string | null;
     is_active: boolean | null;
@@ -102,6 +103,7 @@ export default function MePage() {
   const [warningMessage, setWarningMessage] = useState("");
   const [data, setData] = useState<MeResponse | null>(null);
   const [fullName, setFullName] = useState("");
+  const [scheduleName, setScheduleName] = useState("");
 
   const redirectToLogin = useCallback(() => {
     router.replace("/login");
@@ -136,6 +138,7 @@ export default function MePage() {
 
         setData(body);
         setFullName(asText(body?.profile?.full_name));
+        setScheduleName(asText(body?.profile?.schedule_name));
         setLoading(false);
       } catch (error) {
         if (cancelled) return;
@@ -166,6 +169,7 @@ export default function MePage() {
         },
         body: JSON.stringify({
           full_name: fullName,
+          schedule_name: scheduleName,
         }),
       });
 
@@ -183,6 +187,7 @@ export default function MePage() {
 
       setData(body);
       setFullName(asText(body?.profile?.full_name));
+      setScheduleName(asText(body?.profile?.schedule_name));
       setSuccessMessage(body?.message || "Profile saved.");
       setWarningMessage(asText(body?.warning));
     } catch (error) {
@@ -195,8 +200,7 @@ export default function MePage() {
   async function handleSignOut() {
     setSigningOut(true);
     try {
-      await signOutUser();
-      redirectToLogin();
+      await signOutUserAndRedirect();
       return;
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Could not sign out cleanly.");
@@ -261,6 +265,21 @@ export default function MePage() {
                   placeholder="Enter your full name"
                 />
               </label>
+
+              <label style={labelStyle}>
+                Schedule Match Name
+                <input
+                  type="text"
+                  value={scheduleName}
+                  onChange={(event) => setScheduleName(event.target.value)}
+                  style={inputStyle}
+                  placeholder="Example: Cory"
+                />
+              </label>
+
+              <div style={{ color: "#64748b", fontSize: "13px", lineHeight: 1.6, marginTop: "-2px" }}>
+                Use the name that appears in imported schedule lead/team text, such as `Cory` or `Cory Brodsky`.
+              </div>
 
               <label style={labelStyle}>
                 Email

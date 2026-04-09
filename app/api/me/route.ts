@@ -53,7 +53,15 @@ export async function GET() {
       id: auth.user.id,
       email: auth.user.email,
     },
-    profile: profileResult.profile,
+    profile: profileResult.profile
+      ? {
+          ...profileResult.profile,
+          schedule_name:
+            profileResult.profile.schedule_name ||
+            asText(auth.user.user_metadata?.schedule_name) ||
+            null,
+        }
+      : null,
     profile_available: profileResult.available,
   });
 }
@@ -67,6 +75,9 @@ export async function POST(request: Request) {
   try {
     const body = await request.json().catch(() => null);
     const fullName = asText(body && typeof body === "object" ? (body as { full_name?: unknown }).full_name : "");
+    const scheduleName = asText(
+      body && typeof body === "object" ? (body as { schedule_name?: unknown }).schedule_name : ""
+    );
 
     if (!fullName) {
       return NextResponse.json({ error: "Full name is required." }, { status: 400 });
@@ -74,6 +85,7 @@ export async function POST(request: Request) {
 
     const profileResult = await updateProfileForUser(auth.user, {
       full_name: fullName,
+      schedule_name: scheduleName || null,
     });
 
     if (profileResult.available === false) {
@@ -97,7 +109,12 @@ export async function POST(request: Request) {
         id: auth.user.id,
         email: auth.user.email,
       },
-      profile: profileResult.profile,
+      profile: profileResult.profile
+        ? {
+            ...profileResult.profile,
+            schedule_name: profileResult.profile.schedule_name || scheduleName || null,
+          }
+        : null,
       profile_available: profileResult.available,
       warning: profileResult.error || "",
     });

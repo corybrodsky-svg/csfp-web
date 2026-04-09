@@ -18,6 +18,8 @@ type EventRow = {
   created_at: string | null;
   notes: string | null;
   owner_id?: string | null;
+  owner_name?: string | null;
+  schedule_owner_text?: string | null;
   earliest_session_date: string | null;
   assigned_sp_names: string[] | null;
   total_assignments: number | null;
@@ -32,6 +34,7 @@ type MeResponse = {
   };
   profile?: {
     full_name: string | null;
+    schedule_name?: string | null;
     email: string | null;
     role: string | null;
     is_active: boolean | null;
@@ -116,6 +119,50 @@ const segmentedButton = (active: boolean): React.CSSProperties => ({
 function asText(value: unknown) {
   if (value === null || value === undefined) return "";
   return String(value).trim();
+}
+
+function normalizeMatchValue(value: string) {
+  return value.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function getScheduleNameVariants(value: string) {
+  const normalized = normalizeMatchValue(value);
+  if (!normalized) return [];
+
+  const variants = new Set<string>([normalized]);
+  const parts = normalized.split(" ").filter(Boolean);
+  if (parts.length > 1) {
+    variants.add(parts[0]);
+    variants.add(parts.slice(0, 2).join(" "));
+  }
+
+  return Array.from(variants);
+}
+
+function ownershipTextMatchesScheduleName(ownerText: string, scheduleName: string) {
+  const normalizedOwner = normalizeMatchValue(ownerText);
+  const normalizedSchedule = normalizeMatchValue(scheduleName);
+  if (!normalizedOwner || !normalizedSchedule) return false;
+
+  const ownerSegments = normalizedOwner
+    .split(/\/|,|;|&|\band\b/)
+    .map((segment) => normalizeMatchValue(segment))
+    .filter(Boolean);
+  const ownerCandidates = Array.from(new Set([normalizedOwner, ...ownerSegments]));
+  const scheduleVariants = getScheduleNameVariants(normalizedSchedule);
+
+  return scheduleVariants.some((variant) =>
+    ownerCandidates.some(
+      (candidate) =>
+        candidate === variant ||
+        candidate.includes(variant) ||
+        variant.includes(candidate)
+    )
+  );
+}
+
+function getOwnershipLabel(event: EventRow) {
+  return asText(event.owner_name) || asText(event.schedule_owner_text) || "Unassigned";
 }
 
 function formatDate(event: EventRow) {
@@ -250,10 +297,15 @@ export default function DashboardPage() {
 
   const currentUserId = asText(me?.user?.id);
   const userName = asText(me?.profile?.full_name) || asText(me?.user?.email) || "CFSP user";
+  const scheduleName = asText(me?.profile?.schedule_name);
 
   const myEvents = useMemo(
-    () => events.filter((event) => asText(event.owner_id) === currentUserId),
-    [currentUserId, events]
+    () =>
+      events.filter((event) => {
+        if (asText(event.owner_id) === currentUserId) return true;
+        return ownershipTextMatchesScheduleName(asText(event.schedule_owner_text), scheduleName);
+      }),
+    [currentUserId, events, scheduleName]
   );
 
   const selectedEvents = mode === "mine" ? myEvents : events;
@@ -472,6 +524,9 @@ export default function DashboardPage() {
                           <div style={{ marginTop: "8px", color: "#334155", fontWeight: 700 }}>
                             {Number(event.confirmed_assignments || 0)} confirmed / {Number(event.sp_needed || 0)} needed
                           </div>
+                          <div style={{ marginTop: "6px", color: "#64748b", fontWeight: 700, fontSize: "13px" }}>
+                            Owner: {getOwnershipLabel(event)}
+                          </div>
                           {(event.assigned_sp_names || []).length ? (
                             <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "8px" }}>
                               {(event.assigned_sp_names || []).slice(0, 3).map((name) => (
@@ -556,6 +611,9 @@ export default function DashboardPage() {
                         <div style={{ marginTop: "4px", color: "#64748b", fontWeight: 700 }}>
                           {formatDate(event)} · {event.location || "Location TBD"}
                         </div>
+                        <div style={{ marginTop: "6px", color: "#64748b", fontWeight: 700, fontSize: "13px" }}>
+                          Owner: {getOwnershipLabel(event)}
+                        </div>
                       </div>
                       <Link href={`/events/${event.id}`} style={actionLinkStyle}>
                         Review
@@ -609,6 +667,9 @@ export default function DashboardPage() {
                     </div>
                     <div style={{ marginTop: "4px", color: "#64748b", fontWeight: 700 }}>
                       {formatDate(event)}
+                    </div>
+                    <div style={{ marginTop: "6px", color: "#64748b", fontWeight: 700, fontSize: "13px" }}>
+                      Owner: {getOwnershipLabel(event)}
                     </div>
                     <div style={{ marginTop: "6px", color: "#334155", fontWeight: 700 }}>
                       {Number(event.confirmed_assignments || 0)} confirmed / {Number(event.sp_needed || 0)} needed

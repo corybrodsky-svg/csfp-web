@@ -4,6 +4,7 @@ import { createSupabaseAdminClient } from "./supabaseAdminClient";
 export type AppProfile = {
   id: string;
   full_name: string | null;
+  schedule_name: string | null;
   email: string | null;
   role: string | null;
   is_active: boolean | null;
@@ -37,6 +38,7 @@ export async function ensureProfileForUser(user: User) {
   }
 
   const fullName = asText(user.user_metadata?.full_name) || null;
+  const scheduleName = asText(user.user_metadata?.schedule_name) || null;
   const email = user.email || null;
   const role = asText(user.user_metadata?.role) || "viewer";
 
@@ -63,7 +65,12 @@ export async function ensureProfileForUser(user: User) {
   }
 
   return {
-    profile: (data as AppProfile | null) || null,
+    profile: data
+      ? ({
+          ...(data as Omit<AppProfile, "schedule_name">),
+          schedule_name: scheduleName,
+        } as AppProfile)
+      : null,
     available: true,
   } satisfies ProfileResult;
 }
@@ -88,12 +95,15 @@ export async function getProfileForUser(userId: string) {
   }
 
   return {
-    profile: (data as AppProfile | null) || null,
+    profile: data ? ({ ...(data as Omit<AppProfile, "schedule_name">), schedule_name: null } as AppProfile) : null,
     available: true,
   } satisfies ProfileResult;
 }
 
-export async function updateProfileForUser(user: User, updates: { full_name?: string | null }) {
+export async function updateProfileForUser(
+  user: User,
+  updates: { full_name?: string | null; schedule_name?: string | null }
+) {
   const admin = createSupabaseAdminClient();
   if (!admin) {
     return { profile: null as AppProfile | null, available: false } satisfies ProfileResult;
@@ -102,6 +112,9 @@ export async function updateProfileForUser(user: User, updates: { full_name?: st
   const fullName = Object.prototype.hasOwnProperty.call(updates, "full_name")
     ? asText(updates.full_name) || null
     : asText(user.user_metadata?.full_name) || null;
+  const scheduleName = Object.prototype.hasOwnProperty.call(updates, "schedule_name")
+    ? asText(updates.schedule_name) || null
+    : asText(user.user_metadata?.schedule_name) || null;
   const email = user.email || null;
   const role = asText(user.user_metadata?.role) || "viewer";
 
@@ -132,13 +145,19 @@ export async function updateProfileForUser(user: User, updates: { full_name?: st
       user_metadata: {
         ...user.user_metadata,
         full_name: fullName,
+        schedule_name: scheduleName,
         role,
       },
     })
     .then(({ error: authError }) => authError?.message || "");
 
   return {
-    profile: (data as AppProfile | null) || null,
+    profile: data
+      ? ({
+          ...(data as Omit<AppProfile, "schedule_name">),
+          schedule_name: scheduleName,
+        } as AppProfile)
+      : null,
     available: true,
     ...(metadataError ? { error: metadataError } : {}),
   } satisfies ProfileResult;

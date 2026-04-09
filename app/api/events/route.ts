@@ -42,7 +42,13 @@ type EventApiRow = {
   created_at: string | null;
   owner_id?: string | null;
   owner_name?: string | null;
+  schedule_owner_text?: string | null;
 };
+
+function extractScheduleOwnerText(notes: string | null) {
+  const match = asText(notes).match(/(?:^|\n)Event Lead\/Team:\s*(.+?)(?:\n|$)/i);
+  return match ? asText(match[1]) || null : null;
+}
 
 async function getAuthenticatedUserId() {
   const cookieStore = await cookies();
@@ -170,6 +176,7 @@ export async function GET() {
         ...event,
         owner_id: asText(event.owner_id) || null,
         owner_name: ownerNameById.get(asText(event.owner_id)) || null,
+        schedule_owner_text: extractScheduleOwnerText(event.notes),
         earliest_session_date: earliestSessionDate,
         assigned_sp_names: assignedNames,
         total_assignments: eventAssignments.length,

@@ -1,12 +1,28 @@
 "use client";
 
 import Link from "next/link";
-import React from "react";
+import { useCallback, useEffect, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { redirectToLogin, signOutUserAndRedirect } from "../lib/clientAuth";
 
 type SiteShellProps = {
   title: string;
   subtitle?: string;
   children: React.ReactNode;
+};
+
+type MeResponse = {
+  user?: {
+    id: string;
+    email?: string | null;
+  };
+  profile?: {
+    full_name: string | null;
+    email: string | null;
+    role: string | null;
+    is_active: boolean | null;
+  } | null;
+  error?: string;
 };
 
 const shellStyle: React.CSSProperties = {
@@ -112,6 +128,12 @@ const navLinkStyle: React.CSSProperties = {
   fontSize: "13px",
 };
 
+const navButtonStyle: React.CSSProperties = {
+  ...navLinkStyle,
+  cursor: "pointer",
+  fontFamily: "inherit",
+};
+
 const contentCardStyle: React.CSSProperties = {
   background: "#ffffff",
   border: "1px solid #d6deeb",
@@ -120,11 +142,68 @@ const contentCardStyle: React.CSSProperties = {
   boxShadow: "0 8px 24px rgba(15, 23, 42, 0.05)",
 };
 
+function asText(value: unknown) {
+  if (value === null || value === undefined) return "";
+  return String(value).trim();
+}
+
 export default function SiteShell({
   title,
   subtitle,
   children,
 }: SiteShellProps) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const [authenticated, setAuthenticated] = useState(false);
+  const [authReady, setAuthReady] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
+
+  const loadAuthState = useCallback(async () => {
+    try {
+      const response = await fetch("/api/me", {
+        cache: "no-store",
+        credentials: "include",
+      });
+
+      if (response.status === 401) {
+        setAuthenticated(false);
+        setAuthReady(true);
+        return;
+      }
+
+      const body = (await response.json().catch(() => null)) as MeResponse | null;
+      if (!response.ok) {
+        setAuthenticated(false);
+        setAuthReady(true);
+        return;
+      }
+
+      setAuthenticated(Boolean(asText(body?.user?.id)));
+      setAuthReady(true);
+    } catch {
+      setAuthenticated(false);
+      setAuthReady(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadAuthState();
+  }, [loadAuthState, pathname]);
+
+  async function handleLogout() {
+    setLoggingOut(true);
+    try {
+      setAuthenticated(false);
+      router.replace("/login");
+      router.refresh();
+      await signOutUserAndRedirect();
+    } catch {
+      redirectToLogin();
+    } finally {
+      setLoggingOut(false);
+    }
+  }
+
   return (
     <main style={shellStyle}>
       <div style={containerStyle}>
@@ -166,7 +245,18 @@ export default function SiteShell({
             <Link href="/staff" style={navLinkStyle}>Staff</Link>
             <Link href="/admin" style={navLinkStyle}>Admin</Link>
             <Link href="/me" style={navLinkStyle}>Me</Link>
-            <Link href="/login" style={navLinkStyle}>Login</Link>
+            {authReady && authenticated ? (
+              <button
+                type="button"
+                onClick={() => void handleLogout()}
+                disabled={loggingOut}
+                style={{ ...navButtonStyle, opacity: loggingOut ? 0.7 : 1 }}
+              >
+                {loggingOut ? "Logging Out..." : "Logout"}
+              </button>
+            ) : (
+              <Link href="/login" style={navLinkStyle}>Login</Link>
+            )}
           </div>
         </section>
 
