@@ -292,7 +292,12 @@ async function upsertProfile(
 async function updateUserMetadata(
   user: User,
   accessToken: string | undefined,
-  values: { full_name: string | null; schedule_name: string | null; role: string }
+  values: {
+    full_name: string | null;
+    schedule_name: string | null;
+    role: string;
+    profile_image_url: string | null;
+  }
 ) {
   const admin = createSupabaseAdminClient();
   if (admin) {
@@ -302,6 +307,7 @@ async function updateUserMetadata(
         full_name: values.full_name,
         schedule_name: values.schedule_name,
         role: values.role,
+        profile_image_url: values.profile_image_url,
       },
     });
 
@@ -327,6 +333,7 @@ async function updateUserMetadata(
           full_name: values.full_name,
           schedule_name: values.schedule_name,
           role: values.role,
+          profile_image_url: values.profile_image_url,
         },
       }),
     });
@@ -371,7 +378,12 @@ export async function getProfileForUser(userId: string, accessToken?: string): P
 
 export async function updateProfileForUser(
   user: User,
-  updates: { full_name?: string | null; schedule_name?: string | null; role?: string | null },
+  updates: {
+    full_name?: string | null;
+    schedule_name?: string | null;
+    role?: string | null;
+    profile_image_url?: string | null;
+  },
   accessToken?: string
 ): Promise<ProfileResult> {
   const fullName = Object.prototype.hasOwnProperty.call(updates, "full_name")
@@ -384,6 +396,9 @@ export async function updateProfileForUser(
   const role = Object.prototype.hasOwnProperty.call(updates, "role")
     ? normalizeProfileRole(updates.role)
     : normalizeProfileRole(user.user_metadata?.role);
+  const profileImageUrl = Object.prototype.hasOwnProperty.call(updates, "profile_image_url")
+    ? asText(updates.profile_image_url) || null
+    : asText(user.user_metadata?.profile_image_url) || null;
 
   const profileResult = await upsertProfile(
     {
@@ -401,6 +416,7 @@ export async function updateProfileForUser(
     full_name: fullName,
     schedule_name: scheduleName,
     role,
+    profile_image_url: profileImageUrl,
   });
 
   if (profileResult.profile) {

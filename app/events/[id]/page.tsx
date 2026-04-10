@@ -9,6 +9,12 @@ import {
   getImportedYearHint,
   normalizeLooseDateToIso,
 } from "../../lib/eventDateUtils";
+import {
+  classifyEventPresentation,
+  getEventBadgeAppearance,
+  isSkillsWorkshopEvent,
+  type EventDisplayType,
+} from "../../lib/eventClassification";
 
 type EventDetailRow = {
   id: string;
@@ -437,41 +443,9 @@ function getCommandCenterAssignmentTone(assignment: AssignmentRow): "confirmed" 
   return isAssignmentConfirmed(assignment) ? "confirmed" : "pending";
 }
 
-function isSkillsWorkshopEvent(needed: number, assignmentCount: number, confirmedCount: number) {
-  return needed <= 0 && assignmentCount === 0 && confirmedCount === 0;
-}
-
-type EventType = "skills" | "sp" | "hifi";
-
-function getDerivedEventType(event: EventDetailRow | null, isWorkshop: boolean): EventType {
-  if (isWorkshop) return "skills";
-
-  const eventText = [
-    event?.name,
-    event?.status,
-    event?.visibility,
-    event?.location,
-    event?.notes,
-    event?.date_text,
-  ]
-    .map(asText)
-    .join(" ")
-    .toLowerCase();
-
-  if (
-    eventText.includes("hi-fi") ||
-    eventText.includes("hifi") ||
-    eventText.includes("high fidelity")
-  ) {
-    return "hifi";
-  }
-
-  return "sp";
-}
-
-function getEventTypeButtonStyle(type: EventType, activeType: EventType): React.CSSProperties {
+function getEventTypeButtonStyle(type: EventDisplayType, activeType: EventDisplayType): React.CSSProperties {
   const active = type === activeType;
-  const palettes: Record<EventType, { background: string; border: string; color: string }> = {
+  const palettes: Record<EventDisplayType, { background: string; border: string; color: string }> = {
     skills: {
       background: "#ecfeff",
       border: "#99f6e4",
@@ -1010,7 +984,19 @@ export default function EventDetailPage() {
   const unconfirmedCount = Math.max(assignments.length - confirmedCount, 0);
   const needed = Number(event?.sp_needed || 0);
   const shortage = Math.max(needed - confirmedCount, 0);
-  const isWorkshop = isSkillsWorkshopEvent(needed, assignmentCount, confirmedCount);
+  const eventMeta = classifyEventPresentation({
+    name: event?.name,
+    status: event?.status,
+    notes: event?.notes,
+    location: event?.location,
+    visibility: event?.visibility,
+    spNeeded: needed,
+    assignmentCount,
+    confirmedCount,
+    isWorkshop: isSkillsWorkshopEvent(needed, assignmentCount, confirmedCount),
+  });
+  const badgeAppearance = getEventBadgeAppearance(eventMeta.primaryBadgeKind);
+  const isWorkshop = eventMeta.isSkillsWorkshop;
   const coverageStatus =
     isWorkshop
       ? {
@@ -1103,7 +1089,7 @@ export default function EventDetailPage() {
   const hasAssignedEmails = bccEmails.length > 0;
   const assignedCount = assignmentCount;
   const shortageCount = isWorkshop ? 0 : shortage;
-  const eventType = getDerivedEventType(event, isWorkshop);
+  const eventType = eventMeta.eventType;
   const staffingRelevant = eventType !== "hifi" || needed > 0 || assignmentCount > 0;
   const emailSubject = `SP Assignment: ${event?.name || "CFSP Event"}`;
   const emailBody = [
@@ -1605,7 +1591,16 @@ export default function EventDetailPage() {
               >
                 {coverageStatus.message}
               </span>
-              {isWorkshop ? <span style={skillsWorkshopBadgeStyle}>Skills Workshop</span> : null}
+              <span
+                style={{
+                  ...skillsWorkshopBadgeStyle,
+                  background: badgeAppearance.background,
+                  border: `1px solid ${badgeAppearance.border}`,
+                  color: badgeAppearance.color,
+                }}
+              >
+                {eventMeta.primaryBadgeLabel}
+              </span>
             </div>
           </div>
         </div>

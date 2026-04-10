@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import SiteShell from "../components/SiteShell";
@@ -8,7 +9,7 @@ import { signOutUserAndRedirect } from "../lib/clientAuth";
 const sectionStyle: React.CSSProperties = {
   border: "1px solid #d8e0ec",
   borderRadius: "18px",
-  padding: "20px",
+  padding: "18px",
   background: "#f8fbff",
   marginBottom: "16px",
 };
@@ -25,11 +26,53 @@ const fieldGridStyle: React.CSSProperties = {
   gap: "14px",
 };
 
+const profileHeaderStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "96px minmax(0, 1fr)",
+  gap: "16px",
+  alignItems: "center",
+};
+
+const avatarFrameStyle: React.CSSProperties = {
+  width: "96px",
+  height: "96px",
+  borderRadius: "24px",
+  background: "linear-gradient(135deg, #173b6c 0%, #245ca1 100%)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  color: "#ffffff",
+  fontWeight: 900,
+  fontSize: "28px",
+  overflow: "hidden",
+  border: "1px solid #bfdbfe",
+};
+
+const metadataGridStyle: React.CSSProperties = {
+  display: "grid",
+  gap: "10px",
+};
+
+const metadataCardStyle: React.CSSProperties = {
+  border: "1px solid #d8e0ec",
+  borderRadius: "14px",
+  padding: "12px 14px",
+  background: "#ffffff",
+};
+
 const labelStyle: React.CSSProperties = {
   display: "grid",
   gap: "6px",
   color: "#173b6c",
   fontWeight: 800,
+};
+
+const statLabel: React.CSSProperties = {
+  fontSize: "12px",
+  fontWeight: 800,
+  color: "#64748b",
+  textTransform: "uppercase",
+  letterSpacing: "0.04em",
 };
 
 const inputStyle: React.CSSProperties = {
@@ -80,6 +123,9 @@ type MeResponse = {
   user?: {
     id: string;
     email?: string | null;
+    created_at?: string | null;
+    last_sign_in_at?: string | null;
+    email_confirmed_at?: string | null;
   };
   profile?: {
     id: string;
@@ -88,6 +134,7 @@ type MeResponse = {
     email: string | null;
     role: string | null;
     is_active: boolean | null;
+    profile_image_url?: string | null;
   } | null;
   profile_available?: boolean;
   message?: string;
@@ -99,6 +146,7 @@ type FormState = {
   fullName: string;
   scheduleName: string;
   role: RoleValue;
+  profileImageUrl: string;
 };
 
 type SaveState = "idle" | "saving" | "saved" | "error";
@@ -129,11 +177,17 @@ function getFormState(body: MeResponse | null): FormState {
     fullName: asText(body?.profile?.full_name),
     scheduleName: asText(body?.profile?.schedule_name),
     role: normalizeRole(body?.profile?.role),
+    profileImageUrl: asText(body?.profile?.profile_image_url),
   };
 }
 
 function sameFormState(a: FormState, b: FormState) {
-  return a.fullName === b.fullName && a.scheduleName === b.scheduleName && a.role === b.role;
+  return (
+    a.fullName === b.fullName &&
+    a.scheduleName === b.scheduleName &&
+    a.role === b.role &&
+    a.profileImageUrl === b.profileImageUrl
+  );
 }
 
 function parseApiText(text: string) {
@@ -151,6 +205,23 @@ function getApiErrorMessage(text: string, fallback: string) {
   return asText(body?.error) || asText(body?.message) || asText(text) || fallback;
 }
 
+function formatTimestamp(value?: string | null) {
+  if (!value) return "Unavailable";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "Unavailable";
+  return parsed.toLocaleString();
+}
+
+function getRoleTone(role: RoleValue): React.CSSProperties {
+  if (role === "admin") {
+    return { background: "#fee2e2", color: "#991b1b", border: "1px solid #fecaca" };
+  }
+  if (role === "sim_op") {
+    return { background: "#eff6ff", color: "#1d4ed8", border: "1px solid #93c5fd" };
+  }
+  return { background: "#ecfdf3", color: "#166534", border: "1px solid #86efac" };
+}
+
 export default function MePage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
@@ -163,10 +234,12 @@ export default function MePage() {
   const [fullName, setFullName] = useState("");
   const [scheduleName, setScheduleName] = useState("");
   const [role, setRole] = useState<RoleValue>("sp");
+  const [profileImageUrl, setProfileImageUrl] = useState("");
   const [savedForm, setSavedForm] = useState<FormState>({
     fullName: "",
     scheduleName: "",
     role: "sp",
+    profileImageUrl: "",
   });
 
   const redirectToLogin = useCallback(() => {
@@ -181,6 +254,7 @@ export default function MePage() {
     setFullName(nextForm.fullName);
     setScheduleName(nextForm.scheduleName);
     setRole(nextForm.role);
+    setProfileImageUrl(nextForm.profileImageUrl);
     setSavedForm(nextForm);
   }, []);
 
@@ -236,8 +310,9 @@ export default function MePage() {
       fullName,
       scheduleName,
       role,
+      profileImageUrl,
     }),
-    [fullName, scheduleName, role]
+    [fullName, profileImageUrl, role, scheduleName]
   );
 
   const isDirty = useMemo(() => !sameFormState(currentForm, savedForm), [currentForm, savedForm]);
@@ -249,6 +324,16 @@ export default function MePage() {
   }, []);
 
   const email = data?.profile?.email || data?.user?.email || "";
+  const profileId = data?.profile?.id || "Unavailable";
+  const userId = data?.user?.id || "Unavailable";
+  const profileImagePreview = asText(profileImageUrl);
+  const avatarFallback = (asText(fullName) || asText(email) || "CF")
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0] || "")
+    .join("")
+    .toUpperCase()
+    .slice(0, 2);
   const isActive = useMemo(() => {
     if (data?.profile?.is_active === null || data?.profile?.is_active === undefined) {
       return "Unknown";
@@ -267,6 +352,7 @@ export default function MePage() {
       full_name: fullName,
       schedule_name: scheduleName,
       role: normalizeRole(role),
+      profile_image_url: profileImageUrl,
     };
 
     try {
@@ -319,7 +405,7 @@ export default function MePage() {
   return (
     <SiteShell
       title="My Account"
-      subtitle="Complete your CFSP profile so the operations board can reflect your account details cleanly."
+      subtitle="Confidential member profile and internal account details."
     >
       {errorMessage ? (
         <div style={{ ...sectionStyle, borderColor: "#fecaca", background: "#fff5f5", color: "#991b1b" }}>
@@ -349,11 +435,52 @@ export default function MePage() {
 
       <div style={gridStyle}>
         <form onSubmit={handleSave} style={sectionStyle}>
+          <div style={profileHeaderStyle}>
+            <div style={avatarFrameStyle}>
+              {profileImagePreview ? (
+                <Image
+                  src={profileImagePreview}
+                  alt="Profile"
+                  width={96}
+                  height={96}
+                  style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                  unoptimized
+                />
+              ) : (
+                avatarFallback
+              )}
+            </div>
+
+            <div>
+              <div
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  borderRadius: "999px",
+                  padding: "6px 10px",
+                  fontWeight: 900,
+                  fontSize: "12px",
+                  ...getRoleTone(role),
+                }}
+              >
+                {formatRoleLabel(role)}
+              </div>
+              <h2 style={{ margin: "10px 0 0", color: "#173b6c", fontSize: "28px" }}>
+                {fullName || "Member Profile"}
+              </h2>
+              <div style={{ marginTop: "6px", color: "#475569", fontWeight: 700 }}>
+                {email || "No email on file"}
+              </div>
+              <div style={{ marginTop: "6px", color: "#64748b", fontSize: "13px", fontWeight: 700 }}>
+                Account status: {isActive}
+              </div>
+            </div>
+          </div>
+
           <div style={{ marginBottom: "16px" }}>
-            <h2 style={{ margin: 0, color: "#173b6c" }}>Profile Builder</h2>
+            <h2 style={{ margin: "18px 0 0", color: "#173b6c" }}>Editable Profile</h2>
             <p style={{ margin: "8px 0 0", color: "#64748b", lineHeight: 1.6 }}>
-              Finish your account details after sign-in. If this is your first visit, saving this form will create your
-              profile row automatically.
+              Update the internal member details used by scheduling and operations tools.
             </p>
           </div>
 
@@ -397,6 +524,24 @@ export default function MePage() {
                 Email
                 <input type="email" value={email} readOnly style={readOnlyInputStyle} />
               </label>
+
+              <label style={labelStyle}>
+                Profile Image URL
+                <input
+                  type="url"
+                  value={profileImageUrl}
+                  onChange={(event) => {
+                    clearSaveFeedback();
+                    setProfileImageUrl(event.target.value);
+                  }}
+                  style={inputStyle}
+                  placeholder="Optional secure image URL"
+                />
+              </label>
+
+              <div style={{ color: "#64748b", fontSize: "13px", lineHeight: 1.6, marginTop: "-2px" }}>
+                Optional. Stored with your auth profile metadata for member-facing display. Leave blank to use initials.
+              </div>
 
               <label style={labelStyle}>
                 Role
@@ -450,18 +595,80 @@ export default function MePage() {
 
         <div style={{ display: "grid", gap: "16px" }}>
           <div style={sectionStyle}>
-            <h2 style={{ margin: 0, color: "#173b6c" }}>Account Status</h2>
+            <h2 style={{ margin: 0, color: "#173b6c" }}>Member Details</h2>
             {loading ? (
               <p style={{ margin: "12px 0 0", color: "#64748b", fontWeight: 700 }}>Loading account state...</p>
             ) : (
-              <div style={{ display: "grid", gap: "10px", marginTop: "14px", color: "#334155" }}>
-                <div><strong>User ID:</strong> {data?.user?.id || "Unavailable"}</div>
-                <div><strong>Email:</strong> {email || "Unavailable"}</div>
-                <div><strong>Role:</strong> {formatRoleLabel(role)}</div>
-                <div><strong>Account State:</strong> {isActive}</div>
-                <div>
-                  <strong>Profile Storage:</strong>{" "}
-                  {data?.profile_available === false ? "Not available on this deployment" : "Ready"}
+              <div style={{ ...metadataGridStyle, marginTop: "14px" }}>
+                <div style={metadataCardStyle}>
+                  <div style={statLabel}>Schedule Match Name</div>
+                  <div style={{ marginTop: "4px", color: "#173b6c", fontWeight: 800 }}>
+                    {scheduleName || "Not set"}
+                  </div>
+                </div>
+                <div style={metadataCardStyle}>
+                  <div style={statLabel}>Role</div>
+                  <div style={{ marginTop: "4px", color: "#173b6c", fontWeight: 800 }}>
+                    {formatRoleLabel(role)}
+                  </div>
+                </div>
+                <div style={metadataCardStyle}>
+                  <div style={statLabel}>Account State</div>
+                  <div style={{ marginTop: "4px", color: "#173b6c", fontWeight: 800 }}>
+                    {isActive}
+                  </div>
+                </div>
+                <div style={metadataCardStyle}>
+                  <div style={statLabel}>Profile Storage</div>
+                  <div style={{ marginTop: "4px", color: "#173b6c", fontWeight: 800 }}>
+                    {data?.profile_available === false ? "Not available on this deployment" : "Ready"}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div style={sectionStyle}>
+            <h2 style={{ margin: 0, color: "#173b6c" }}>Confidential Account Metadata</h2>
+            {loading ? (
+              <p style={{ margin: "12px 0 0", color: "#64748b", fontWeight: 700 }}>Loading internal details...</p>
+            ) : (
+              <div style={{ ...metadataGridStyle, marginTop: "14px" }}>
+                <div style={metadataCardStyle}>
+                  <div style={statLabel}>User ID</div>
+                  <div style={{ marginTop: "4px", color: "#334155", fontWeight: 700 }}>{userId}</div>
+                </div>
+                <div style={metadataCardStyle}>
+                  <div style={statLabel}>Profile ID</div>
+                  <div style={{ marginTop: "4px", color: "#334155", fontWeight: 700 }}>{profileId}</div>
+                </div>
+                <div style={metadataCardStyle}>
+                  <div style={statLabel}>Email</div>
+                  <div style={{ marginTop: "4px", color: "#334155", fontWeight: 700 }}>{email || "Unavailable"}</div>
+                </div>
+                <div style={metadataCardStyle}>
+                  <div style={statLabel}>Created</div>
+                  <div style={{ marginTop: "4px", color: "#334155", fontWeight: 700 }}>
+                    {formatTimestamp(data?.user?.created_at)}
+                  </div>
+                </div>
+                <div style={metadataCardStyle}>
+                  <div style={statLabel}>Last Sign-In</div>
+                  <div style={{ marginTop: "4px", color: "#334155", fontWeight: 700 }}>
+                    {formatTimestamp(data?.user?.last_sign_in_at)}
+                  </div>
+                </div>
+                <div style={metadataCardStyle}>
+                  <div style={statLabel}>Email Confirmed</div>
+                  <div style={{ marginTop: "4px", color: "#334155", fontWeight: 700 }}>
+                    {formatTimestamp(data?.user?.email_confirmed_at)}
+                  </div>
+                </div>
+                <div style={metadataCardStyle}>
+                  <div style={statLabel}>Confidential Use</div>
+                  <div style={{ marginTop: "4px", color: "#334155", lineHeight: 1.6 }}>
+                    Internal member information shown here is intended for operations and account support only.
+                  </div>
                 </div>
               </div>
             )}
@@ -470,7 +677,7 @@ export default function MePage() {
           <div style={sectionStyle}>
             <h2 style={{ margin: 0, color: "#173b6c" }}>Account Actions</h2>
             <p style={{ margin: "8px 0 14px", color: "#64748b", lineHeight: 1.6 }}>
-              Use sign out when you are done, or after verifying a different account and signing back in.
+              Sign out when you are done or if you need to switch confidential member accounts.
             </p>
             <button
               type="button"

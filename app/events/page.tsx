@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import SiteShell from "../components/SiteShell";
 import { formatHumanDate, getDateSortValue, getImportedYearHint } from "../lib/eventDateUtils";
+import { classifyEventPresentation, getEventBadgeAppearance } from "../lib/eventClassification";
 import { eventMatchesOwnership } from "../lib/eventOwnership";
 
 type EventsMode = "all" | "mine";
@@ -128,7 +129,7 @@ const archiveRangeButton = (active: boolean): React.CSSProperties => ({
   cursor: "pointer",
 });
 
-const skillsWorkshopBadgeStyle: React.CSSProperties = {
+const eventBadgeStyle: React.CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
   gap: "8px",
@@ -136,9 +137,6 @@ const skillsWorkshopBadgeStyle: React.CSSProperties = {
   padding: "8px 12px",
   fontWeight: 800,
   fontSize: "13px",
-  background: "#ecfeff",
-  color: "#0f766e",
-  border: "1px solid #99f6e4",
 };
 
 const shortagePill = (isCovered: boolean): React.CSSProperties => ({
@@ -176,15 +174,6 @@ function getDisplayDate(event: EventRow) {
   return event.earliest_session_date
     ? formatHumanDate(event.earliest_session_date, getImportedYearHint(event.notes))
     : formatHumanDate(event.date_text, getImportedYearHint(event.notes));
-}
-
-function isSkillsWorkshopEvent(event: EventRow) {
-  const needed = Number(event.sp_needed || 0);
-  const assignmentCount = Math.max(
-    Number(event.total_assignments || 0),
-    Number(event.confirmed_assignments || 0)
-  );
-  return needed <= 0 && assignmentCount === 0;
 }
 
 async function parseApiError(response: Response) {
@@ -437,7 +426,17 @@ export default function EventsPage() {
               const totalAssignments = Number(event.total_assignments || 0);
               const confirmedAssignments = Number(event.confirmed_assignments || 0);
               const shortage = Number(event.shortage || 0);
-              const isWorkshop = isSkillsWorkshopEvent(event);
+              const eventMeta = classifyEventPresentation({
+                name: event.name,
+                status: event.status,
+                notes: event.notes,
+                location: event.location,
+                spNeeded: event.sp_needed,
+                assignmentCount: totalAssignments,
+                confirmedCount: confirmedAssignments,
+              });
+              const badgeAppearance = getEventBadgeAppearance(eventMeta.primaryBadgeKind);
+              const isWorkshop = eventMeta.isSkillsWorkshop;
               const isCovered = shortage === 0 && needed > 0;
               const coverageText =
                 isWorkshop
@@ -475,22 +474,19 @@ export default function EventsPage() {
                           <span style={{ color: "#64748b", fontWeight: 700 }}>{event.status || "No status"}</span>
                         <span
                           style={
-                            isWorkshop
-                              ? { ...skillsWorkshopBadgeStyle, padding: "6px 10px", fontSize: "12px" }
-                              : {
-                                  ...shortagePill(isCovered),
-                                  padding: "6px 10px",
-                                  fontSize: "12px",
-                                }
+                            {
+                              ...(isWorkshop
+                                ? eventBadgeStyle
+                                : shortagePill(isCovered)),
+                              padding: "6px 10px",
+                              fontSize: "12px",
+                              background: badgeAppearance.background,
+                              color: badgeAppearance.color,
+                              border: `1px solid ${badgeAppearance.border}`,
+                            }
                           }
                         >
-                          {isWorkshop
-                            ? "Skills Workshop"
-                            : needed > 0
-                              ? shortage === 0
-                                ? "Coverage complete"
-                                : `${shortage} still needed`
-                              : "No SP target"}
+                          {eventMeta.primaryBadgeLabel}
                         </span>
                       </div>
                     </div>
@@ -519,7 +515,7 @@ export default function EventsPage() {
                     </div>
 
                     <div style={statCard}>
-                      <div style={statLabel}>SP Coverage</div>
+                      <div style={statLabel}>{isWorkshop ? "Event Type" : "SP Coverage"}</div>
                       <div
                         style={{
                           ...statValue,
@@ -635,7 +631,19 @@ export default function EventsPage() {
                       const needed = Number(event.sp_needed || 0);
                       const confirmedAssignments = Number(event.confirmed_assignments || 0);
                       const shortage = Number(event.shortage || 0);
-                      const isWorkshop = isSkillsWorkshopEvent(event);
+                      const eventMeta = classifyEventPresentation({
+                        name: event.name,
+                        status: event.status,
+                        notes: event.notes,
+                        location: event.location,
+                        spNeeded: event.sp_needed,
+                        assignmentCount: Math.max(
+                          Number(event.total_assignments || 0),
+                          Number(event.confirmed_assignments || 0)
+                        ),
+                        confirmedCount: confirmedAssignments,
+                      });
+                      const badgeAppearance = getEventBadgeAppearance(eventMeta.primaryBadgeKind);
                       const isCovered = shortage === 0 && needed > 0;
                       const assignedPreview = (event.assigned_sp_names || []).filter(Boolean).slice(0, 3);
 
@@ -677,11 +685,19 @@ export default function EventsPage() {
                                 >
                                   Archived
                                 </span>
-                                {isWorkshop ? (
-                                  <span style={{ ...skillsWorkshopBadgeStyle, padding: "5px 8px", fontSize: "11px", textTransform: "uppercase" }}>
-                                    Skills Workshop
-                                  </span>
-                                ) : null}
+                                <span
+                                  style={{
+                                    ...eventBadgeStyle,
+                                    padding: "5px 8px",
+                                    fontSize: "11px",
+                                    textTransform: "uppercase",
+                                    background: badgeAppearance.background,
+                                    color: badgeAppearance.color,
+                                    border: `1px solid ${badgeAppearance.border}`,
+                                  }}
+                                >
+                                  {eventMeta.primaryBadgeLabel}
+                                </span>
                               </div>
 
                               <div style={{ marginTop: "6px", color: "#64748b", fontWeight: 700, lineHeight: 1.6 }}>
@@ -725,13 +741,7 @@ export default function EventsPage() {
                                   opacity: 0.85,
                                 }}
                             >
-                              {isWorkshop
-                                ? "Skills Workshop"
-                                : needed > 0
-                                  ? shortage === 0
-                                    ? "Coverage complete"
-                                    : `${shortage} still needed`
-                                  : "No SP target"}
+                              {eventMeta.primaryBadgeLabel}
                             </span>
 
                               <Link href={`/events/${event.id}`} style={compactButtonStyle}>

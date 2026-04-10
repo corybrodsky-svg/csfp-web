@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
@@ -266,16 +267,19 @@ export default function SiteShell({
           <div style={headerTopStyle}>
             <div style={brandWrapStyle}>
               <div style={brandMarkStyle} aria-hidden="true">
-                <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
-                  <rect x="4" y="4" width="20" height="20" rx="6" fill="rgba(255,255,255,0.16)" />
-                  <path
-                    d="M10 9.5H18.5M10 14H16.5M10 18.5H14.5"
-                    stroke="#ffffff"
-                    strokeWidth="2.2"
-                    strokeLinecap="round"
-                  />
-                  <circle cx="19.5" cy="18.5" r="2.5" fill="#ffffff" />
-                </svg>
+                <Image
+                  src="/favicon.ico"
+                  alt="CFSP logo"
+                  width={30}
+                  height={30}
+                  style={{
+                    width: "30px",
+                    height: "30px",
+                    objectFit: "contain",
+                    display: "block",
+                    borderRadius: "8px",
+                  }}
+                />
               </div>
 
               <div>

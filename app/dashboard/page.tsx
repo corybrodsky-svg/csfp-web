@@ -5,6 +5,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import SiteShell from "../components/SiteShell";
 import { formatHumanDate, getDateSortValue, getImportedYearHint } from "../lib/eventDateUtils";
+import {
+  classifyEventPresentation,
+  getEventBadgeAppearance,
+  isSkillsWorkshopEvent,
+} from "../lib/eventClassification";
 import { eventMatchesOwnership } from "../lib/eventOwnership";
 
 type EventRow = {
@@ -112,14 +117,11 @@ const compactEventRow: React.CSSProperties = {
   background: "#ffffff",
 };
 
-const skillsWorkshopBadgeStyle: React.CSSProperties = {
+const eventBadgeStyle: React.CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
   borderRadius: "999px",
   padding: "7px 10px",
-  background: "#ecfeff",
-  border: "1px solid #99f6e4",
-  color: "#0f766e",
   fontWeight: 900,
   fontSize: "12px",
 };
@@ -155,15 +157,6 @@ function isPastEvent(event: EventRow, todayStart: number) {
 function isWithinRange(event: EventRow, start: number, end: number) {
   const sortValue = getEventSortValue(event);
   return sortValue >= start && sortValue < end;
-}
-
-function isSkillsWorkshopEvent(event: EventRow) {
-  const needed = Number(event.sp_needed || 0);
-  const assignmentCount = Math.max(
-    Number(event.total_assignments || 0),
-    Number(event.confirmed_assignments || 0)
-  );
-  return needed <= 0 && assignmentCount === 0;
 }
 
 export default function DashboardPage() {
@@ -285,9 +278,16 @@ export default function DashboardPage() {
     () =>
       activeEvents
         .filter(
-          (event) =>
-            !isSkillsWorkshopEvent(event) &&
-            (Number(event.shortage || 0) > 0 || asText(event.status).toLowerCase().includes("need"))
+          (event) => {
+            const assignmentCount = Math.max(
+              Number(event.total_assignments || 0),
+              Number(event.confirmed_assignments || 0)
+            );
+            return (
+              !isSkillsWorkshopEvent(event.sp_needed, assignmentCount, Number(event.confirmed_assignments || 0)) &&
+              (Number(event.shortage || 0) > 0 || asText(event.status).toLowerCase().includes("need"))
+            );
+          }
         )
         .sort((a, b) => {
           const shortageDiff = Number(b.shortage || 0) - Number(a.shortage || 0);
@@ -428,6 +428,22 @@ export default function DashboardPage() {
               ) : (
                 needingActionEvents.map((event) => (
                   <div key={event.id} style={compactEventRow}>
+                    {(() => {
+                      const eventMeta = classifyEventPresentation({
+                        name: event.name,
+                        status: event.status,
+                        notes: event.notes,
+                        location: event.location,
+                        spNeeded: event.sp_needed,
+                        assignmentCount: Math.max(
+                          Number(event.total_assignments || 0),
+                          Number(event.confirmed_assignments || 0)
+                        ),
+                        confirmedCount: Number(event.confirmed_assignments || 0),
+                      });
+                      const badgeAppearance = getEventBadgeAppearance(eventMeta.primaryBadgeKind);
+
+                      return (
                     <div
                       style={{
                         display: "flex",
@@ -438,8 +454,20 @@ export default function DashboardPage() {
                       }}
                     >
                       <div style={{ flex: "1 1 320px" }}>
-                        <div style={{ color: "#173b6c", fontWeight: 900, fontSize: "18px" }}>
-                          {event.name || "Untitled Event"}
+                        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                          <div style={{ color: "#173b6c", fontWeight: 900, fontSize: "18px" }}>
+                            {event.name || "Untitled Event"}
+                          </div>
+                          <span
+                            style={{
+                              ...eventBadgeStyle,
+                              background: badgeAppearance.background,
+                              border: `1px solid ${badgeAppearance.border}`,
+                              color: badgeAppearance.color,
+                            }}
+                          >
+                            {eventMeta.primaryBadgeLabel}
+                          </span>
                         </div>
                         <div style={{ marginTop: "4px", color: "#64748b", fontWeight: 700 }}>
                           {formatDate(event)} · {event.location || "Location TBD"}
@@ -472,6 +500,8 @@ export default function DashboardPage() {
                         </Link>
                       </div>
                     </div>
+                      );
+                    })()}
                   </div>
                 ))
               )}
@@ -494,6 +524,22 @@ export default function DashboardPage() {
               ) : (
                 myUpcomingEvents.map((event) => (
                   <div key={event.id} style={compactEventRow}>
+                    {(() => {
+                      const eventMeta = classifyEventPresentation({
+                        name: event.name,
+                        status: event.status,
+                        notes: event.notes,
+                        location: event.location,
+                        spNeeded: event.sp_needed,
+                        assignmentCount: Math.max(
+                          Number(event.total_assignments || 0),
+                          Number(event.confirmed_assignments || 0)
+                        ),
+                        confirmedCount: Number(event.confirmed_assignments || 0),
+                      });
+                      const badgeAppearance = getEventBadgeAppearance(eventMeta.primaryBadgeKind);
+
+                      return (
                     <div
                       style={{
                         display: "flex",
@@ -502,22 +548,31 @@ export default function DashboardPage() {
                         flexWrap: "wrap",
                       alignItems: "center",
                     }}
-                  >
-                    <div>
-                      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
-                        <div style={{ color: "#173b6c", fontWeight: 900 }}>{event.name || "Untitled Event"}</div>
-                        {isSkillsWorkshopEvent(event) ? (
-                          <span style={skillsWorkshopBadgeStyle}>Skills Workshop</span>
-                        ) : null}
-                      </div>
-                      <div style={{ marginTop: "4px", color: "#64748b", fontWeight: 700 }}>
-                        {formatDate(event)} · {event.location || "Location TBD"}
+                    >
+                      <div>
+                        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                          <div style={{ color: "#173b6c", fontWeight: 900 }}>{event.name || "Untitled Event"}</div>
+                          <span
+                            style={{
+                              ...eventBadgeStyle,
+                              background: badgeAppearance.background,
+                              border: `1px solid ${badgeAppearance.border}`,
+                              color: badgeAppearance.color,
+                            }}
+                          >
+                            {eventMeta.primaryBadgeLabel}
+                          </span>
+                        </div>
+                        <div style={{ marginTop: "4px", color: "#64748b", fontWeight: 700 }}>
+                          {formatDate(event)} · {event.location || "Location TBD"}
                       </div>
                       </div>
                       <Link href={`/events/${event.id}`} style={actionLinkStyle}>
                         Open Event
                       </Link>
                     </div>
+                      );
+                    })()}
                   </div>
                 ))
               )}
@@ -588,9 +643,34 @@ export default function DashboardPage() {
                     <div>
                       <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
                         <div style={{ color: "#475569", fontWeight: 800 }}>{event.name || "Untitled Event"}</div>
-                        {isSkillsWorkshopEvent(event) ? (
-                          <span style={skillsWorkshopBadgeStyle}>Skills Workshop</span>
-                        ) : null}
+                        {(() => {
+                          const eventMeta = classifyEventPresentation({
+                            name: event.name,
+                            status: event.status,
+                            notes: event.notes,
+                            location: event.location,
+                            spNeeded: event.sp_needed,
+                            assignmentCount: Math.max(
+                              Number(event.total_assignments || 0),
+                              Number(event.confirmed_assignments || 0)
+                            ),
+                            confirmedCount: Number(event.confirmed_assignments || 0),
+                          });
+                          const badgeAppearance = getEventBadgeAppearance(eventMeta.primaryBadgeKind);
+
+                          return (
+                            <span
+                              style={{
+                                ...eventBadgeStyle,
+                                background: badgeAppearance.background,
+                                border: `1px solid ${badgeAppearance.border}`,
+                                color: badgeAppearance.color,
+                              }}
+                            >
+                              {eventMeta.primaryBadgeLabel}
+                            </span>
+                          );
+                        })()}
                       </div>
                       <div style={{ marginTop: "2px", color: "#94a3b8", fontWeight: 700, fontSize: "13px" }}>
                         {formatDate(event)}
