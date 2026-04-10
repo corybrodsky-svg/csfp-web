@@ -9,6 +9,7 @@ import {
 import { createSupabaseServerClient } from "./app/lib/supabaseServerClient";
 
 const PUBLIC_ROUTES = new Set(["/login", "/signup"]);
+const PUBLIC_API_PREFIX = "/api/auth/";
 
 function isStaticAsset(pathname: string) {
   return (
@@ -27,6 +28,10 @@ export async function middleware(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
 
   if (isStaticAsset(pathname)) {
+    return NextResponse.next();
+  }
+
+  if (PUBLIC_ROUTES.has(pathname) || pathname.startsWith(PUBLIC_API_PREFIX)) {
     return NextResponse.next();
   }
 
@@ -58,20 +63,6 @@ export async function middleware(request: NextRequest) {
     }
   } catch {
     authError = true;
-  }
-
-  if (PUBLIC_ROUTES.has(pathname)) {
-    if (authenticated) {
-      const response = NextResponse.redirect(new URL("/events", request.url));
-      if (refreshedTokens) setAuthCookies(response, refreshedTokens);
-      return response;
-    }
-
-    const response = NextResponse.next();
-    if ((!authenticated || authError) && (accessToken || refreshToken)) {
-      clearAuthCookies(response);
-    }
-    return response;
   }
 
   if (!authenticated || authError) {

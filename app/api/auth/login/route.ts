@@ -83,7 +83,7 @@ export async function POST(request: Request) {
       );
     }
 
-    let supabase: ReturnType<typeof createSupabaseServerClient>;
+    let supabase;
     try {
       supabase = createSupabaseServerClient();
     } catch (error) {
@@ -97,20 +97,12 @@ export async function POST(request: Request) {
       );
     }
 
-    let data:
-      | Awaited<ReturnType<typeof supabase.auth.signInWithPassword>>["data"]
-      | null = null;
-    let error:
-      | Awaited<ReturnType<typeof supabase.auth.signInWithPassword>>["error"]
-      | null = null;
-
+    let signInResult;
     try {
-      const result = await supabase.auth.signInWithPassword({
+      signInResult = await supabase.auth.signInWithPassword({
         email,
         password,
       });
-      data = result.data;
-      error = result.error;
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not sign in.";
       return NextResponse.json(
@@ -121,6 +113,8 @@ export async function POST(request: Request) {
         { status: getLoginErrorStatus(message) }
       );
     }
+
+    const { data, error } = signInResult;
 
     if (error || !data.session?.access_token || !data.session.refresh_token) {
       const message = error?.message || "Could not sign in.";
