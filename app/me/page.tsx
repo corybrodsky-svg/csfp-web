@@ -163,9 +163,18 @@ function asText(value: unknown) {
 }
 
 function normalizeRole(value: unknown): RoleValue {
-  const role = asText(value).toLowerCase();
+  const role = asText(value).toLowerCase().replace(/[\s-]+/g, "_");
   if (role === "sim_op" || role === "admin" || role === "sp") return role;
   return "sp";
+}
+
+function readFileAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
+    reader.onerror = () => reject(new Error("Could not read image file."));
+    reader.readAsDataURL(file);
+  });
 }
 
 function formatRoleLabel(role: RoleValue) {
@@ -235,6 +244,7 @@ export default function MePage() {
   const [scheduleName, setScheduleName] = useState("");
   const [role, setRole] = useState<RoleValue>("sp");
   const [profileImageUrl, setProfileImageUrl] = useState("");
+  const [imagePickerBusy, setImagePickerBusy] = useState(false);
   const [savedForm, setSavedForm] = useState<FormState>({
     fullName: "",
     scheduleName: "",
@@ -340,6 +350,38 @@ export default function MePage() {
     }
     return data.profile.is_active ? "Active" : "Inactive";
   }, [data]);
+
+  async function handleProfileImageSelected(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      setErrorMessage("Please choose an image file.");
+      return;
+    }
+
+    if (file.size > 600 * 1024) {
+      setErrorMessage("Please choose an image smaller than 600 KB.");
+      return;
+    }
+
+    setImagePickerBusy(true);
+    setErrorMessage("");
+
+    try {
+      const nextUrl = await readFileAsDataUrl(file);
+      if (!nextUrl) {
+        throw new Error("Could not prepare image preview.");
+      }
+      clearSaveFeedback();
+      setProfileImageUrl(nextUrl);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Could not load image.");
+    } finally {
+      setImagePickerBusy(false);
+    }
+  }
 
   async function handleSave(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -526,21 +568,34 @@ export default function MePage() {
               </label>
 
               <label style={labelStyle}>
-                Profile Image URL
+                Profile Picture
                 <input
-                  type="url"
-                  value={profileImageUrl}
-                  onChange={(event) => {
-                    clearSaveFeedback();
-                    setProfileImageUrl(event.target.value);
-                  }}
-                  style={inputStyle}
-                  placeholder="Optional secure image URL"
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp,image/gif"
+                  onChange={(event) => void handleProfileImageSelected(event)}
+                  style={{ ...inputStyle, padding: "10px 12px" }}
                 />
               </label>
 
               <div style={{ color: "#64748b", fontSize: "13px", lineHeight: 1.6, marginTop: "-2px" }}>
-                Optional. Stored with your auth profile metadata for member-facing display. Leave blank to use initials.
+                Choose an image from your browser. A compact copy is saved to your profile metadata and reloads with your account.
+              </div>
+
+              <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center", marginTop: "-2px" }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    clearSaveFeedback();
+                    setProfileImageUrl("");
+                  }}
+                  disabled={!profileImageUrl || imagePickerBusy}
+                  style={{ ...secondaryButtonStyle, padding: "10px 14px" }}
+                >
+                  Remove Photo
+                </button>
+                <span style={{ color: "#64748b", fontSize: "13px", fontWeight: 700 }}>
+                  {imagePickerBusy ? "Preparing image..." : profileImageUrl ? "Photo ready to save" : "Using initials fallback"}
+                </span>
               </div>
 
               <label style={labelStyle}>

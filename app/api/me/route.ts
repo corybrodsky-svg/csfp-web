@@ -15,7 +15,7 @@ function asText(value: unknown) {
 }
 
 function normalizeProfileRole(value: unknown) {
-  const role = asText(value).toLowerCase();
+  const role = asText(value).toLowerCase().replace(/[\s-]+/g, "_");
   if (role === "sim_op" || role === "admin" || role === "sp") return role;
   return "sp";
 }

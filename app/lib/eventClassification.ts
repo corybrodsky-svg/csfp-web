@@ -123,9 +123,9 @@ export function getEventBadgeAppearance(kind: EventBadgeKind) {
       color: "#0f766e",
     },
     sp_event: {
-      background: "#f8fafc",
-      border: "#cbd5e1",
-      color: "#475569",
+      background: "#e0f2fe",
+      border: "#7dd3fc",
+      color: "#075985",
     },
   };
 

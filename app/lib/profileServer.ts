@@ -28,7 +28,7 @@ function isMissingScheduleNameColumn(message: string) {
 }
 
 function normalizeProfileRole(value: unknown) {
-  const role = asText(value).toLowerCase();
+  const role = asText(value).toLowerCase().replace(/[\s-]+/g, "_");
   return ALLOWED_PROFILE_ROLES.has(role) ? role : "sp";
 }
 
