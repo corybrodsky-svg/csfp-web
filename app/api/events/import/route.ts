@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import * as XLSX from "xlsx";
-import { supabaseServer } from "../../../lib/supabaseServerClient";
+import { createSupabaseServerClient } from "../../../lib/supabaseServerClient";
 import { asText, formatUsDate } from "../../../lib/eventDateUtils";
 
 export const dynamic = "force-dynamic";
@@ -378,6 +378,7 @@ function importKey(name: string, dateText: string | null) {
 
 export async function POST(request: Request) {
   try {
+    const supabaseServer = createSupabaseServerClient();
     const formData = await request.formData();
     const file = formData.get("file");
 

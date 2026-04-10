@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { supabaseServer } from "../../../lib/supabaseServerClient";
 import { cookies } from "next/headers";
 import { AUTH_ACCESS_COOKIE } from "../../../lib/authCookies";
 import { createSupabaseServerClient } from "../../../lib/supabaseServerClient";
@@ -150,6 +149,7 @@ export async function GET(
   context: { params: Promise<{ id?: string | string[] }> }
 ) {
   try {
+    const supabaseServer = createSupabaseServerClient();
     const viewer = await getAuthenticatedViewer();
     if (!viewer) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -266,6 +266,7 @@ export async function POST(
   context: { params: Promise<{ id?: string | string[] }> }
 ) {
   try {
+    const supabaseServer = createSupabaseServerClient();
     const params = await context.params;
     const eventId = getRouteId(params);
     const body = await request.json();
@@ -303,6 +304,7 @@ export async function PATCH(
   context: { params: Promise<{ id?: string | string[] }> }
 ) {
   try {
+    const supabaseServer = createSupabaseServerClient();
     const params = await context.params;
     const eventId = getRouteId(params);
     const body = await request.json();
@@ -360,6 +362,7 @@ export async function DELETE(
   context: { params: Promise<{ id?: string | string[] }> }
 ) {
   try {
+    const supabaseServer = createSupabaseServerClient();
     const params = await context.params;
     const eventId = getRouteId(params);
     const body = await request.json();

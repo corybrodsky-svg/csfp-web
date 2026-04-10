@@ -1,7 +1,6 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { AUTH_ACCESS_COOKIE } from "../../lib/authCookies";
-import { supabaseServer } from "../../lib/supabaseServerClient";
 import { getDateSortValue, getImportedYearHint, normalizeLooseDateToIso } from "../../lib/eventDateUtils";
 import { getProfileForUser, getProfilesByIds } from "../../lib/profileServer";
 import { createSupabaseServerClient } from "../../lib/supabaseServerClient";
@@ -165,6 +164,7 @@ function getViewerMatchedSpIds(sps: AssignedSpApiRow[], viewer: ViewerContext) {
 
 export async function GET() {
   try {
+    const supabaseServer = createSupabaseServerClient();
     const viewer = await getAuthenticatedViewer();
     if (!viewer) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -318,6 +318,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    const supabaseServer = createSupabaseServerClient();
     const body = await request.json();
     const name = asText(body?.name);
     const ownerId = await getAuthenticatedUserId();
