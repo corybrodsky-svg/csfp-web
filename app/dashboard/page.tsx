@@ -112,6 +112,18 @@ const compactEventRow: React.CSSProperties = {
   background: "#ffffff",
 };
 
+const skillsWorkshopBadgeStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  borderRadius: "999px",
+  padding: "7px 10px",
+  background: "#ecfeff",
+  border: "1px solid #99f6e4",
+  color: "#0f766e",
+  fontWeight: 900,
+  fontSize: "12px",
+};
+
 function asText(value: unknown) {
   if (value === null || value === undefined) return "";
   return String(value).trim();
@@ -143,6 +155,15 @@ function isPastEvent(event: EventRow, todayStart: number) {
 function isWithinRange(event: EventRow, start: number, end: number) {
   const sortValue = getEventSortValue(event);
   return sortValue >= start && sortValue < end;
+}
+
+function isSkillsWorkshopEvent(event: EventRow) {
+  const needed = Number(event.sp_needed || 0);
+  const assignmentCount = Math.max(
+    Number(event.total_assignments || 0),
+    Number(event.confirmed_assignments || 0)
+  );
+  return needed <= 0 && assignmentCount === 0;
 }
 
 export default function DashboardPage() {
@@ -263,7 +284,11 @@ export default function DashboardPage() {
   const needingActionEvents = useMemo(
     () =>
       activeEvents
-        .filter((event) => Number(event.shortage || 0) > 0 || asText(event.status).toLowerCase().includes("need"))
+        .filter(
+          (event) =>
+            !isSkillsWorkshopEvent(event) &&
+            (Number(event.shortage || 0) > 0 || asText(event.status).toLowerCase().includes("need"))
+        )
         .sort((a, b) => {
           const shortageDiff = Number(b.shortage || 0) - Number(a.shortage || 0);
           if (shortageDiff !== 0) return shortageDiff;
@@ -475,14 +500,19 @@ export default function DashboardPage() {
                         justifyContent: "space-between",
                         gap: "12px",
                         flexWrap: "wrap",
-                        alignItems: "center",
-                      }}
-                    >
-                      <div>
+                      alignItems: "center",
+                    }}
+                  >
+                    <div>
+                      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
                         <div style={{ color: "#173b6c", fontWeight: 900 }}>{event.name || "Untitled Event"}</div>
-                        <div style={{ marginTop: "4px", color: "#64748b", fontWeight: 700 }}>
-                          {formatDate(event)} · {event.location || "Location TBD"}
-                        </div>
+                        {isSkillsWorkshopEvent(event) ? (
+                          <span style={skillsWorkshopBadgeStyle}>Skills Workshop</span>
+                        ) : null}
+                      </div>
+                      <div style={{ marginTop: "4px", color: "#64748b", fontWeight: 700 }}>
+                        {formatDate(event)} · {event.location || "Location TBD"}
+                      </div>
                       </div>
                       <Link href={`/events/${event.id}`} style={actionLinkStyle}>
                         Open Event
@@ -556,7 +586,12 @@ export default function DashboardPage() {
                     }}
                   >
                     <div>
-                      <div style={{ color: "#475569", fontWeight: 800 }}>{event.name || "Untitled Event"}</div>
+                      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                        <div style={{ color: "#475569", fontWeight: 800 }}>{event.name || "Untitled Event"}</div>
+                        {isSkillsWorkshopEvent(event) ? (
+                          <span style={skillsWorkshopBadgeStyle}>Skills Workshop</span>
+                        ) : null}
+                      </div>
                       <div style={{ marginTop: "2px", color: "#94a3b8", fontWeight: 700, fontSize: "13px" }}>
                         {formatDate(event)}
                       </div>

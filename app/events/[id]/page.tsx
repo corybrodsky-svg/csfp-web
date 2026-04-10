@@ -151,13 +151,6 @@ const cardStyle: React.CSSProperties = {
   marginBottom: "14px",
 };
 
-const statGrid: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
-  gap: "10px",
-  marginTop: "10px",
-};
-
 const statCard: React.CSSProperties = {
   border: "1px solid #dbe4ee",
   borderRadius: "14px",
@@ -205,19 +198,34 @@ const selectStyle: React.CSSProperties = {
   fontWeight: 700,
 };
 
-const coverageHeroStyle: React.CSSProperties = {
-  border: "1px solid #bfdbfe",
-  borderRadius: "18px",
-  padding: "14px",
-  background: "linear-gradient(135deg, #eff6ff, #f8fbff)",
-  marginTop: "12px",
-};
-
 const detailGridStyle: React.CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
   gap: "10px",
   marginTop: "10px",
+};
+
+const compactSectionTitleStyle: React.CSSProperties = {
+  margin: 0,
+  color: "#173b6c",
+  fontSize: "22px",
+  lineHeight: 1.1,
+};
+
+const compactSectionHintStyle: React.CSSProperties = {
+  margin: "4px 0 0",
+  color: "#64748b",
+  fontWeight: 700,
+  fontSize: "13px",
+};
+
+const segmentedGroupStyle: React.CSSProperties = {
+  display: "inline-flex",
+  gap: "6px",
+  padding: "4px",
+  borderRadius: "999px",
+  border: "1px solid #dbe4ee",
+  background: "#f8fafc",
 };
 
 const assignmentStatuses: AssignmentStatus[] = [
@@ -275,9 +283,9 @@ const assignmentStatusStyles: Record<AssignmentStatus, React.CSSProperties> = {
 
 const confirmationStyles = {
   confirmed: {
-    background: "#dcfce7",
-    color: "#166534",
-    border: "1px solid #86efac",
+    background: "#173b6c",
+    color: "#ffffff",
+    border: "1px solid #173b6c",
   },
   pending: {
     background: "#fff7ed",
@@ -285,6 +293,18 @@ const confirmationStyles = {
     border: "1px solid #fed7aa",
   },
 } satisfies Record<"confirmed" | "pending", React.CSSProperties>;
+
+const skillsWorkshopBadgeStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  borderRadius: "999px",
+  padding: "6px 10px",
+  background: "#ecfeff",
+  border: "1px solid #99f6e4",
+  color: "#0f766e",
+  fontWeight: 900,
+  fontSize: "12px",
+};
 
 const availabilityMatchLabels: Record<AvailabilityMatchStatus, string> = {
   available: "BEST MATCH",
@@ -403,6 +423,85 @@ function getAssignmentStatus(assignment: AssignmentRow): AssignmentStatus {
 
 function isAssignmentConfirmed(assignment: AssignmentRow) {
   return assignment.confirmed === true || getAssignmentStatus(assignment) === "confirmed";
+}
+
+function getCommandCenterAssignmentLabel(assignment: AssignmentRow) {
+  const status = getAssignmentStatus(assignment);
+  if (status === "confirmed") return "Confirmed";
+  if (status === "declined" || status === "no_show") return "Declined";
+  if (status === "backup") return "Tentative";
+  return "Assigned";
+}
+
+function getCommandCenterAssignmentTone(assignment: AssignmentRow): "confirmed" | "pending" {
+  return isAssignmentConfirmed(assignment) ? "confirmed" : "pending";
+}
+
+function isSkillsWorkshopEvent(needed: number, assignmentCount: number, confirmedCount: number) {
+  return needed <= 0 && assignmentCount === 0 && confirmedCount === 0;
+}
+
+type EventType = "skills" | "sp" | "hifi";
+
+function getDerivedEventType(event: EventDetailRow | null, isWorkshop: boolean): EventType {
+  if (isWorkshop) return "skills";
+
+  const eventText = [
+    event?.name,
+    event?.status,
+    event?.visibility,
+    event?.location,
+    event?.notes,
+    event?.date_text,
+  ]
+    .map(asText)
+    .join(" ")
+    .toLowerCase();
+
+  if (
+    eventText.includes("hi-fi") ||
+    eventText.includes("hifi") ||
+    eventText.includes("high fidelity")
+  ) {
+    return "hifi";
+  }
+
+  return "sp";
+}
+
+function getEventTypeButtonStyle(type: EventType, activeType: EventType): React.CSSProperties {
+  const active = type === activeType;
+  const palettes: Record<EventType, { background: string; border: string; color: string }> = {
+    skills: {
+      background: "#ecfeff",
+      border: "#99f6e4",
+      color: "#0f766e",
+    },
+    sp: {
+      background: "#eff6ff",
+      border: "#93c5fd",
+      color: "#1d4ed8",
+    },
+    hifi: {
+      background: "#f5f3ff",
+      border: "#c4b5fd",
+      color: "#6d28d9",
+    },
+  };
+
+  const palette = palettes[type];
+
+  return {
+    borderRadius: "999px",
+    padding: "7px 12px",
+    fontWeight: 900,
+    fontSize: "12px",
+    border: `1px solid ${active ? palette.border : "#e2e8f0"}`,
+    background: active ? palette.background : "#ffffff",
+    color: active ? palette.color : "#64748b",
+    minWidth: "64px",
+    textAlign: "center",
+  };
 }
 
 function getContactMethod(assignment: AssignmentRow) {
@@ -783,6 +882,7 @@ export default function EventDetailPage() {
   const [saving, setSaving] = useState(false);
   const [assigningSpId, setAssigningSpId] = useState("");
   const [assignmentSuccessMessage, setAssignmentSuccessMessage] = useState("");
+  const [recentAssignedSpId, setRecentAssignedSpId] = useState("");
   const [pollEmailMessage, setPollEmailMessage] = useState("");
   const [sendingPollAssignmentId, setSendingPollAssignmentId] = useState("");
   const [sentPollAssignmentIds, setSentPollAssignmentIds] = useState<string[]>([]);
@@ -906,11 +1006,20 @@ export default function EventDetailPage() {
   const confirmedCount = assignments.filter(
     (assignment) => getAssignmentStatus(assignment) === "confirmed"
   ).length;
+  const assignmentCount = assignments.length;
   const unconfirmedCount = Math.max(assignments.length - confirmedCount, 0);
   const needed = Number(event?.sp_needed || 0);
   const shortage = Math.max(needed - confirmedCount, 0);
+  const isWorkshop = isSkillsWorkshopEvent(needed, assignmentCount, confirmedCount);
   const coverageStatus =
-    needed <= 0
+    isWorkshop
+      ? {
+          message: "Skills Workshop",
+          background: "#ecfeff",
+          border: "1px solid #99f6e4",
+          color: "#0f766e",
+        }
+      : needed <= 0
       ? {
           message: "No SP target set",
           background: "#f8fafc",
@@ -932,7 +1041,6 @@ export default function EventDetailPage() {
           };
   const coveragePercent =
     needed > 0 ? Math.min(100, Math.round((confirmedCount / needed) * 100)) : 0;
-  const isCovered = needed > 0 && shortage === 0;
   const importedYearHint = getImportedYearHint(event?.notes);
   const structuredDateLabel = sessions.length
     ? sessions
@@ -992,19 +1100,11 @@ export default function EventDetailPage() {
     () => Array.from(new Set(assignedEmailSources.map((item) => item.email))),
     [assignedEmailSources]
   );
-  const assignedSummaryItems = useMemo(
-    () =>
-      sortedAssignments.slice(0, 8).map((assignment) => {
-        const sp = assignment.sp_id ? spsById.get(assignment.sp_id) : undefined;
-        return {
-          id: assignment.id,
-          name: sp ? getFullName(sp) : "Unknown SP",
-          status: getAssignmentStatus(assignment),
-        };
-      }),
-    [sortedAssignments, spsById]
-  );
-
+  const hasAssignedEmails = bccEmails.length > 0;
+  const assignedCount = assignmentCount;
+  const shortageCount = isWorkshop ? 0 : shortage;
+  const eventType = getDerivedEventType(event, isWorkshop);
+  const staffingRelevant = eventType !== "hifi" || needed > 0 || assignmentCount > 0;
   const emailSubject = `SP Assignment: ${event?.name || "CFSP Event"}`;
   const emailBody = [
     "Hello,",
@@ -1207,10 +1307,14 @@ export default function EventDetailPage() {
     }
 
     await refreshData();
+    setRecentAssignedSpId(spId);
     setAssignmentSuccessMessage("SP assigned");
     window.setTimeout(() => {
       setAssignmentSuccessMessage("");
     }, 2000);
+    window.setTimeout(() => {
+      setRecentAssignedSpId("");
+    }, 2400);
     setAssigningSpId("");
     setSaving(false);
   }
@@ -1465,8 +1569,14 @@ export default function EventDetailPage() {
               <span>Back to Events</span>
             </Link>
 
+            <div style={segmentedGroupStyle} aria-label="Event type">
+              <span style={getEventTypeButtonStyle("skills", eventType)}>Skills</span>
+              <span style={getEventTypeButtonStyle("sp", eventType)}>SP</span>
+              <span style={getEventTypeButtonStyle("hifi", eventType)}>HiFi</span>
+            </div>
+
             <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
-              <h1 style={{ margin: 0, fontSize: "32px", color: "#173b6c", lineHeight: 1.05 }}>
+              <h1 style={{ margin: 0, fontSize: "28px", color: "#173b6c", lineHeight: 1.05 }}>
                 {event.name || "Untitled Event"}
               </h1>
               <span
@@ -1495,7 +1605,127 @@ export default function EventDetailPage() {
               >
                 {coverageStatus.message}
               </span>
+              {isWorkshop ? <span style={skillsWorkshopBadgeStyle}>Skills Workshop</span> : null}
             </div>
+          </div>
+        </div>
+
+        <div
+          style={{
+            marginTop: "10px",
+            border: "1px solid #bfdbfe",
+            borderRadius: "16px",
+            padding: "14px",
+            background: "#f8fbff",
+          }}
+        >
+          <div style={{ ...statLabel, color: "#173b6c" }}>Event Summary</div>
+          <div style={{ ...detailGridStyle, marginTop: "8px", gap: "8px" }}>
+            <div style={{ ...statCard, background: "#ffffff" }}>
+              <div style={statLabel}>Event Name</div>
+              <div style={statValue}>{event.name || "Untitled Event"}</div>
+            </div>
+            <div style={{ ...statCard, background: "#ffffff" }}>
+              <div style={statLabel}>Status</div>
+              <div style={statValue}>{event.status || "No status"}</div>
+            </div>
+            <div style={{ ...statCard, background: "#ffffff" }}>
+              <div style={statLabel}>Location</div>
+              <div style={statValue}>{event.location || "Location TBD"}</div>
+            </div>
+            <div style={{ ...statCard, background: "#ffffff" }}>
+              <div style={statLabel}>SP Needed</div>
+              <div style={statValue}>{needed}</div>
+            </div>
+            <div style={{ ...statCard, background: "#ffffff" }}>
+              <div style={statLabel}>Assigned</div>
+              <div style={{ ...statValue, color: "#173b6c" }}>{assignedCount}</div>
+            </div>
+            <div style={{ ...statCard, background: "#ffffff" }}>
+              <div style={statLabel}>{isWorkshop ? "Workshop" : "Shortage"}</div>
+              <div style={{ ...statValue, color: isWorkshop ? "#0f766e" : shortage > 0 ? "#9a3412" : "#166534" }}>
+                {isWorkshop ? "Skills Workshop" : shortageCount}
+              </div>
+            </div>
+            <div style={{ ...statCard, background: "#ffffff" }}>
+              <div style={statLabel}>Date</div>
+              <div style={statValue}>{sessionSummaryLabel}</div>
+            </div>
+            <div style={{ ...statCard, background: "#ffffff" }}>
+              <div style={statLabel}>Time</div>
+              <div style={statValue}>{summaryTimeLabel}</div>
+            </div>
+          </div>
+
+          {sessions.length ? (
+            <div style={{ marginTop: "10px" }}>
+              <div style={statLabel}>Sessions</div>
+              <div style={{ display: "grid", gap: "6px", marginTop: "6px" }}>
+                {sessions.map((session) => (
+                  <div key={session.id} style={{ ...statCard, background: "#ffffff" }}>
+                    <div style={{ color: "#173b6c", fontWeight: 900 }}>
+                      {formatSessionDate(session.session_date, importedYearHint)}
+                    </div>
+                    <div style={{ marginTop: "4px", color: "#475569", lineHeight: 1.5, fontSize: "13px" }}>
+                      {formatSessionTime(session)} · {formatSessionLocation(session, event.location)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div style={{ marginTop: "10px", color: "#64748b", fontWeight: 700 }}>
+              No structured sessions yet. Fallback date text: {formatEventDateText(event.date_text, importedYearHint)}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {eventSaveMessage ? (
+        <div
+          style={{
+            ...cardStyle,
+            borderRadius: "12px",
+            border: "1px solid #bbf7d0",
+            background: "#ecfdf3",
+            color: "#166534",
+            padding: "10px 12px",
+            fontWeight: 800,
+          }}
+        >
+          {eventSaveMessage}
+        </div>
+      ) : null}
+
+      {eventSaveError ? (
+        <div
+          style={{
+            ...cardStyle,
+            borderRadius: "12px",
+            border: "1px solid #fecaca",
+            background: "#fff5f5",
+            color: "#991b1b",
+            padding: "10px 12px",
+            fontWeight: 800,
+          }}
+        >
+          {eventSaveError}
+        </div>
+      ) : null}
+
+      <div style={cardStyle}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            gap: "12px",
+            flexWrap: "wrap",
+            alignItems: "flex-start",
+          }}
+        >
+          <div>
+            <h2 style={compactSectionTitleStyle}>Event Editor</h2>
+            <p style={compactSectionHintStyle}>Update the core event record.</p>
           </div>
 
           <button
@@ -1508,167 +1738,24 @@ export default function EventDetailPage() {
           </button>
         </div>
 
-        {eventSaveMessage ? (
-          <div
-            style={{
-              marginTop: "10px",
-              borderRadius: "12px",
-              border: "1px solid #bbf7d0",
-              background: "#ecfdf3",
-              color: "#166534",
-              padding: "10px 12px",
-              fontWeight: 800,
-            }}
-          >
-            {eventSaveMessage}
-          </div>
-        ) : null}
-
-        {eventSaveError ? (
-          <div
-            style={{
-              marginTop: "10px",
-              borderRadius: "12px",
-              border: "1px solid #fecaca",
-              background: "#fff5f5",
-              color: "#991b1b",
-              padding: "10px 12px",
-              fontWeight: 800,
-            }}
-          >
-            {eventSaveError}
-          </div>
-        ) : null}
-
         <div
           style={{
             ...detailGridStyle,
             gridTemplateColumns: "minmax(0, 1.3fr) minmax(280px, 0.7fr)",
             alignItems: "start",
-            marginTop: "12px",
+            marginTop: "10px",
           }}
         >
-          <div
-            style={{
-              border: "1px solid #bfdbfe",
-              borderRadius: "18px",
-              padding: "14px",
-              background: "linear-gradient(135deg, #eff6ff, #f8fbff)",
-            }}
-          >
-            <div style={{ ...statGrid, marginTop: 0 }}>
-              <div style={{ ...statCard, background: "#ffffff" }}>
-                <div style={statLabel}>Date</div>
-                <div style={statValue}>{sessionSummaryLabel}</div>
-              </div>
-              <div style={{ ...statCard, background: "#ffffff" }}>
-                <div style={statLabel}>Time</div>
-                <div style={statValue}>{summaryTimeLabel}</div>
-              </div>
-              <div style={{ ...statCard, background: "#ffffff" }}>
-                <div style={statLabel}>Location</div>
-                <div style={statValue}>{event.location || "Location TBD"}</div>
-              </div>
-              <div style={{ ...statCard, background: "#ffffff" }}>
-                <div style={statLabel}>Coverage</div>
-                <div style={statValue}>
-                  {confirmedCount}/{needed || 0}
-                </div>
-                <div style={{ marginTop: "4px", color: "#64748b", fontWeight: 700, fontSize: "12px" }}>
-                  {confirmedCount} confirmed · {shortage} short
-                </div>
-              </div>
-            </div>
-
-            <div style={{ marginTop: "12px" }}>
-              <div style={{ ...statLabel, color: "#173b6c" }}>Assigned SPs</div>
-              {assignedSummaryItems.length ? (
-                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "8px" }}>
-                  {assignedSummaryItems.map((item) => (
-                    <div
-                      key={item.id}
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: "8px",
-                        padding: "8px 10px",
-                        borderRadius: "14px",
-                        background: "#ffffff",
-                        border: assignmentStatusStyles[item.status].border,
-                        color: "#173b6c",
-                        fontWeight: 800,
-                        fontSize: "13px",
-                      }}
-                    >
-                      <span>{item.name}</span>
-                      <span
-                        style={{
-                          ...assignmentStatusStyles[item.status],
-                          borderRadius: "999px",
-                          padding: "4px 8px",
-                          fontSize: "11px",
-                          fontWeight: 900,
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {assignmentStatusLabels[item.status]}
-                      </span>
-                    </div>
-                  ))}
-                  {sortedAssignments.length > assignedSummaryItems.length ? (
-                    <div
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        padding: "8px 10px",
-                        borderRadius: "14px",
-                        background: "#ffffff",
-                        border: "1px solid #dbe4ee",
-                        color: "#64748b",
-                        fontWeight: 800,
-                        fontSize: "13px",
-                      }}
-                    >
-                      +{sortedAssignments.length - assignedSummaryItems.length} more
-                    </div>
-                  ) : null}
-                </div>
-              ) : (
-                <div style={{ marginTop: "8px", color: "#64748b", fontWeight: 700 }}>
-                  No SPs assigned yet.
-                </div>
-              )}
-            </div>
-
-            {sessions.length ? (
-              <div style={{ marginTop: "12px" }}>
-                <div style={statLabel}>Sessions</div>
-                <div style={{ display: "grid", gap: "8px", marginTop: "8px" }}>
-                  {sessions.map((session) => (
-                    <div key={session.id} style={{ ...statCard, background: "#ffffff" }}>
-                      <div style={{ color: "#173b6c", fontWeight: 900 }}>
-                        {formatSessionDate(session.session_date, importedYearHint)}
-                      </div>
-                      <div style={{ marginTop: "4px", color: "#475569", lineHeight: 1.5, fontSize: "13px" }}>
-                        {formatSessionTime(session)} · {formatSessionLocation(session, event.location)}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : (
-              <div style={{ marginTop: "10px", color: "#64748b", fontWeight: 700 }}>
-                No structured sessions yet. Fallback date text: {formatEventDateText(event.date_text, importedYearHint)}
-              </div>
-            )}
-          </div>
-
           <div style={{ display: "grid", gap: "10px" }}>
             <div style={{ ...statCard, background: coverageStatus.background, border: coverageStatus.border }}>
               <div style={statLabel}>Coverage Status</div>
               <div style={{ ...statValue, color: coverageStatus.color }}>{coverageStatus.message}</div>
-              <div style={{ marginTop: "4px", color: "#64748b", fontWeight: 700, fontSize: "12px" }}>
-                {needed > 0 ? `${coveragePercent}% confirmed coverage` : "No SP target set"}
+              <div style={{ marginTop: "2px", color: "#64748b", fontWeight: 700, fontSize: "12px" }}>
+                {isWorkshop
+                  ? "No SP staffing required for this event"
+                  : needed > 0
+                    ? `${coveragePercent}% confirmed coverage`
+                    : "No SP target set"}
               </div>
             </div>
 
@@ -1735,29 +1822,30 @@ export default function EventDetailPage() {
                 />
               </label>
             </div>
-
-            <details
-              style={{
-                border: "1px solid #dbe4ee",
-                borderRadius: "14px",
-                padding: "12px",
-                background: "#f8fbff",
-              }}
-            >
-              <summary style={{ cursor: "pointer", color: "#173b6c", fontWeight: 800 }}>
-                Notes
-              </summary>
-              <textarea
-                value={eventEditor.notes}
-                onChange={(event) =>
-                  setEventEditor((current) => ({ ...current, notes: event.target.value }))
-                }
-                disabled={saving}
-                placeholder="Add operational notes, setup details, reporting instructions..."
-                style={{ ...textareaStyle, marginTop: "10px" }}
-              />
-            </details>
           </div>
+
+          <details
+            open
+            style={{
+              border: "1px solid #dbe4ee",
+              borderRadius: "14px",
+              padding: "12px",
+              background: "#f8fbff",
+            }}
+          >
+            <summary style={{ cursor: "pointer", color: "#173b6c", fontWeight: 800 }}>
+              Notes
+            </summary>
+            <textarea
+              value={eventEditor.notes}
+              onChange={(event) =>
+                setEventEditor((current) => ({ ...current, notes: event.target.value }))
+              }
+              disabled={saving}
+              placeholder="Add operational notes, setup details, reporting instructions..."
+              style={{ ...textareaStyle, marginTop: "10px" }}
+            />
+          </details>
         </div>
       </div>
 
@@ -1768,58 +1856,135 @@ export default function EventDetailPage() {
             justifyContent: "space-between",
             gap: "12px",
             flexWrap: "wrap",
-            alignItems: "center",
+            alignItems: "flex-start",
           }}
         >
           <div>
-            <h2 style={{ margin: 0, color: "#173b6c" }}>Assigned SPs</h2>
-            <p style={{ margin: "6px 0 0", color: "#64748b", fontWeight: 700 }}>
-              Confirmed assignments are listed first so coverage risk is easy to scan.
+            <h2 style={compactSectionTitleStyle}>Assigned SPs</h2>
+            <p style={compactSectionHintStyle}>
+              {staffingRelevant ? "Primary staffing view." : "HiFi event. Staffing is not currently driving this record."}
             </p>
           </div>
-          <div style={{ color: "#64748b", fontWeight: 800 }}>
-            {confirmedCount} confirmed · {unconfirmedCount} unconfirmed
+          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+            {hasAssignedEmails ? (
+              <a
+                href={mailtoHref}
+                style={{
+                  display: "inline-block",
+                  background: "#16a34a",
+                  color: "#fff",
+                  padding: "10px 14px",
+                  borderRadius: "10px",
+                  fontWeight: 800,
+                  textDecoration: "none",
+                }}
+              >
+                Email Assigned SPs
+              </a>
+            ) : (
+              <span
+                style={{
+                  display: "inline-block",
+                  background: "#e5e7eb",
+                  color: "#6b7280",
+                  padding: "10px 14px",
+                  borderRadius: "10px",
+                  fontWeight: 800,
+                }}
+              >
+                No Assigned SP Emails
+              </span>
+            )}
+            <div
+              style={{
+                display: "grid",
+                gap: "8px",
+                minWidth: "200px",
+                border: "1px solid #dbe4ee",
+                borderRadius: "16px",
+                padding: "12px",
+                background: "#f8fbff",
+              }}
+            >
+              <div style={{ color: "#173b6c", fontWeight: 900, fontSize: "20px" }}>
+                {confirmedCount} confirmed
+              </div>
+              <div style={{ color: "#9a3412", fontWeight: 800 }}>
+                {unconfirmedCount} still need attention
+              </div>
+            </div>
           </div>
         </div>
+
+        {!staffingRelevant ? (
+          <div
+            style={{
+              ...statCard,
+              marginTop: "10px",
+              background: "#faf5ff",
+              border: "1px solid #ddd6fe",
+              color: "#5b21b6",
+            }}
+          >
+            <div style={statLabel}>HiFi Operations</div>
+            <div style={{ marginTop: "4px", fontWeight: 800 }}>
+              This event is currently classified as HiFi. SP staffing stays available if needed, but no active SP coverage target is driving the workflow.
+            </div>
+          </div>
+        ) : null}
+
+        {showEmailDraft ? (
+          <div style={{ ...statCard, marginTop: "12px", background: "#ffffff" }}>
+            <div style={statLabel}>Assigned Email Preview</div>
+            <div style={{ marginTop: "8px", color: "#173b6c", lineHeight: 1.7 }}>
+              {bccEmails.length ? bccEmails.join(", ") : "No assigned SP emails found."}
+            </div>
+          </div>
+        ) : null}
 
         {assignments.length === 0 ? (
           <p style={{ color: "#64748b", marginBottom: 0, marginTop: "14px" }}>
             No SPs assigned yet.
           </p>
         ) : (
-          <div style={{ display: "grid", gap: "12px", marginTop: "14px" }}>
+          <div
+            style={{
+              display: "grid",
+              gap: "12px",
+              marginTop: "12px",
+              gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
+            }}
+          >
             {sortedAssignments.map((assignment) => {
               const sp = assignment.sp_id ? spsById.get(assignment.sp_id) : undefined;
               const status = getAssignmentStatus(assignment);
-              const confirmed = status === "confirmed";
+              const confirmed = isAssignmentConfirmed(assignment);
+              const commandLabel = getCommandCenterAssignmentLabel(assignment);
+              const confirmationTone = getCommandCenterAssignmentTone(assignment);
               const email = sp ? getEmail(sp) : "";
-              const statusStyle = assignmentStatusStyles[status];
               const contactMethod = getContactMethod(assignment);
               const availabilityForSp = assignment.sp_id
                 ? availabilityBySpId.get(assignment.sp_id) || []
                 : [];
+              const isRecentlyAssigned = assignment.sp_id === recentAssignedSpId;
 
               return (
                 <div
                   key={assignment.id}
                   style={{
-                    border: statusStyle.border,
-                    borderRadius: "20px",
-                    padding: "18px",
-                    background: confirmed ? "#ecfdf3" : "#ffffff",
-                    boxShadow: "0 8px 24px rgba(15, 23, 42, 0.05)",
+                    border: confirmed ? "1px solid #173b6c" : confirmationStyles.pending.border,
+                    borderRadius: "18px",
+                    padding: "14px",
+                    background: confirmed ? "#f8fbff" : "#fffdfa",
+                    boxShadow: isRecentlyAssigned
+                      ? "0 0 0 4px rgba(34, 197, 94, 0.18), 0 12px 28px rgba(15, 23, 42, 0.08)"
+                      : "0 8px 24px rgba(15, 23, 42, 0.05)",
+                    transform: isRecentlyAssigned ? "translateY(-2px)" : "translateY(0)",
+                    transition: "box-shadow 180ms ease, transform 180ms ease",
                   }}
                 >
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      gap: "16px",
-                      flexWrap: "wrap",
-                      alignItems: "flex-start",
-                    }}
-                  >
-                    <div style={{ flex: "1 1 320px" }}>
+                  <div style={{ display: "grid", gap: "12px" }}>
+                    <div>
                       <div
                         style={{
                           display: "flex",
@@ -1828,12 +1993,12 @@ export default function EventDetailPage() {
                           alignItems: "center",
                         }}
                       >
-                        <h3 style={{ margin: 0, color: "#173b6c", fontSize: "24px" }}>
+                        <h3 style={{ margin: 0, color: "#173b6c", fontSize: "20px" }}>
                           {sp ? getFullName(sp) : "Unknown SP"}
                         </h3>
                         <span
                           style={{
-                            ...statusStyle,
+                            ...confirmationStyles[confirmationTone],
                             borderRadius: "999px",
                             padding: "9px 14px",
                             fontWeight: 900,
@@ -1841,228 +2006,272 @@ export default function EventDetailPage() {
                             letterSpacing: "0.01em",
                           }}
                         >
-                          {assignmentStatusLabels[status]}
+                          {commandLabel}
+                        </span>
+                        <span
+                          style={{
+                            borderRadius: "999px",
+                            padding: "8px 12px",
+                            background: confirmed ? "#173b6c" : "#fff7ed",
+                            color: confirmed ? "#ffffff" : "#9a3412",
+                            border: confirmed ? "1px solid #173b6c" : "1px solid #fed7aa",
+                            fontWeight: 900,
+                            fontSize: "12px",
+                          }}
+                        >
+                          {confirmed ? "Confirmed" : "Needs Confirmation"}
                         </span>
                       </div>
 
                       <div style={{ marginTop: 6, color: "#64748b", fontWeight: 700 }}>
                         {email || assignment.sp_id || "No SP id"}
                       </div>
-
-                      <div style={{ ...detailGridStyle, marginTop: "14px" }}>
-                        <div style={{ ...statCard, background: "#ffffff" }}>
-                          <div style={statLabel}>Contact Method</div>
-                          <div style={{ ...statValue, fontSize: "16px" }}>
-                            {getContactMethodLabel(assignment)}
-                          </div>
-                        </div>
-
-                        <div style={{ ...statCard, background: "#ffffff" }}>
-                          <div style={statLabel}>Last Contacted</div>
-                          <div style={{ ...statValue, fontSize: "16px" }}>
-                            {formatTimestamp(assignment.last_contacted_at)}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div
-                        style={{
-                          marginTop: "14px",
-                          border: "1px solid #dbe4ee",
-                          borderRadius: "16px",
-                          padding: "14px",
-                          background: "#f8fbff",
-                        }}
-                      >
-                        <div style={statLabel}>Notes</div>
-                        <div
-                          style={{
-                            marginTop: "6px",
-                            color: "#334155",
-                            whiteSpace: "pre-wrap",
-                            lineHeight: 1.6,
-                          }}
-                        >
-                          {assignment.notes || "No notes yet."}
-                        </div>
-                      </div>
-
-                      <div style={{ marginTop: 10, color: "#334155", lineHeight: 1.6 }}>
-                        <strong>Availability:</strong>
-                        <span style={{ display: "block", whiteSpace: "pre-wrap" }}>
-                          {formatAvailabilityRows(availabilityForSp)}
-                        </span>
-                      </div>
                     </div>
 
-                    <div style={{ display: "grid", gap: "10px", minWidth: "220px" }}>
+                    <div
+                      style={{
+                        display: "grid",
+                        gap: "10px",
+                        gridTemplateColumns: "1fr auto",
+                        alignItems: "start",
+                      }}
+                    >
                       <div
                         style={{
-                          border: statusStyle.border,
+                          border: confirmationStyles[confirmationTone].border,
                           borderRadius: "18px",
-                          padding: "14px",
-                          background: statusStyle.background,
-                          color: statusStyle.color,
+                          padding: "12px",
+                          background: confirmationStyles[confirmationTone].background,
+                          color: confirmationStyles[confirmationTone].color,
                         }}
                       >
                         <div style={{ fontSize: "12px", fontWeight: 800, textTransform: "uppercase" }}>
-                          Current Status
+                          Assignment State
                         </div>
-                        <div style={{ marginTop: "6px", fontSize: "22px", fontWeight: 900 }}>
-                          {assignmentStatusLabels[status]}
+                        <div style={{ marginTop: "4px", fontSize: "18px", fontWeight: 900 }}>
+                          {commandLabel}
+                        </div>
+                        <div style={{ marginTop: "6px", fontSize: "12px", fontWeight: 800, opacity: 0.88 }}>
+                          {confirmed ? "Confirmed coverage" : "Still needs confirmation"}
                         </div>
                       </div>
-
-                      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                        <button
-                          type="button"
-                          onClick={() => void handleStatusChange(assignment, "confirmed")}
-                          disabled={saving || status === "confirmed"}
-                          style={{ ...buttonStyle, opacity: saving || status === "confirmed" ? 0.65 : 1 }}
-                        >
-                          Confirm
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void handleStatusChange(assignment, "contacted")}
-                          disabled={saving || status === "contacted"}
-                          style={{
-                            ...buttonStyle,
-                            background: "#ffffff",
-                            color: "#854d0e",
-                            border: "1px solid #fde68a",
-                            opacity: saving || status === "contacted" ? 0.65 : 1,
-                          }}
-                        >
-                          Mark Contacted
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void handleStatusChange(assignment, "declined")}
-                          disabled={saving || status === "declined"}
-                          style={{
-                            ...buttonStyle,
-                            background: "#fff5f5",
-                            color: "#991b1b",
-                            border: "1px solid #fecaca",
-                            opacity: saving || status === "declined" ? 0.65 : 1,
-                          }}
-                        >
-                          Decline
-                        </button>
-                      </div>
-
-                      <select
-                        value={status}
-                        onChange={(e) =>
-                          handleStatusChange(assignment, e.target.value as AssignmentStatus)
-                        }
-                        disabled={saving}
-                        style={{
-                          ...selectStyle,
-                          width: "100%",
-                          maxWidth: "100%",
-                          background: "#ffffff",
-                        }}
-                      >
-                        {assignmentStatuses.map((option) => (
-                          <option key={option} value={option}>
-                            {assignmentStatusLabels[option]}
-                          </option>
-                        ))}
-                      </select>
 
                       <button
                         type="button"
                         onClick={() => void handleRemoveAssignment(assignment)}
                         disabled={saving}
-                        style={dangerButtonStyle}
+                        style={{
+                          ...dangerButtonStyle,
+                          opacity: saving ? 0.65 : 1,
+                          minWidth: "120px",
+                        }}
                       >
-                        Remove Assignment
+                        Remove
                       </button>
+                    </div>
 
-                      {status === "invited" ? (
-                        <div style={{ display: "grid", gap: "8px" }}>
-                          {sentPollAssignmentIds.includes(assignment.id) ? (
-                            <div
-                              style={{
-                                borderRadius: "999px",
-                                padding: "7px 10px",
-                                background: "#ecfdf3",
-                                border: "1px solid #86efac",
-                                color: "#166534",
-                                fontSize: "12px",
-                                fontWeight: 900,
-                                textAlign: "center",
-                              }}
-                            >
-                              Sent
-                            </div>
-                          ) : null}
-                          <button
-                            type="button"
-                            onClick={() => void handleSendPollEmail(assignment)}
-                            disabled={Boolean(sendingPollAssignmentId)}
+                    <div style={{ ...detailGridStyle, marginTop: 0 }}>
+                      <div style={{ ...statCard, background: "#ffffff" }}>
+                        <div style={statLabel}>Status</div>
+                        <select
+                          value={status}
+                          onChange={(e) =>
+                            handleStatusChange(assignment, e.target.value as AssignmentStatus)
+                          }
+                          disabled={saving}
+                          style={{
+                            ...selectStyle,
+                            width: "100%",
+                            maxWidth: "100%",
+                            background: "#ffffff",
+                            marginTop: "8px",
+                          }}
+                        >
+                          {assignmentStatuses.map((option) => (
+                            <option key={option} value={option}>
+                              {assignmentStatusLabels[option]}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div style={{ ...statCard, background: "#ffffff" }}>
+                        <div style={statLabel}>Contact Method</div>
+                        <div style={{ ...statValue, fontSize: "16px" }}>
+                          {getContactMethodLabel(assignment)}
+                        </div>
+                        <div style={{ marginTop: "4px", color: "#64748b", fontWeight: 700, fontSize: "12px" }}>
+                          {formatTimestamp(assignment.last_contacted_at)}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div
+                      style={{
+                        border: "1px solid #dbe4ee",
+                        borderRadius: "16px",
+                        padding: "12px",
+                        background: "#f8fbff",
+                      }}
+                    >
+                      <div style={statLabel}>Notes</div>
+                      <div
+                        style={{
+                          marginTop: "6px",
+                          color: "#334155",
+                          whiteSpace: "pre-wrap",
+                          lineHeight: 1.6,
+                        }}
+                      >
+                        {assignment.notes || "No notes yet."}
+                      </div>
+                    </div>
+
+                    <div
+                      style={{
+                        borderRadius: "16px",
+                        padding: "12px",
+                        background: "#ffffff",
+                        border: "1px solid #dbe4ee",
+                        color: "#334155",
+                        lineHeight: 1.6,
+                      }}
+                    >
+                      <div style={statLabel}>Availability Summary</div>
+                      <div
+                        style={{
+                          marginTop: "6px",
+                          display: "-webkit-box",
+                          WebkitLineClamp: 2,
+                          WebkitBoxOrient: "vertical",
+                          overflow: "hidden",
+                          whiteSpace: "pre-wrap",
+                        }}
+                      >
+                        {formatAvailabilityRows(availabilityForSp)}
+                      </div>
+                    </div>
+
+                    <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                      <button
+                        type="button"
+                        onClick={() => void handleStatusChange(assignment, "confirmed")}
+                        disabled={saving || status === "confirmed"}
+                        style={{ ...buttonStyle, opacity: saving || status === "confirmed" ? 0.65 : 1 }}
+                      >
+                        Confirm
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleStatusChange(assignment, "contacted")}
+                        disabled={saving || status === "contacted"}
+                        style={{
+                          ...buttonStyle,
+                          background: "#ffffff",
+                          color: "#854d0e",
+                          border: "1px solid #fde68a",
+                          opacity: saving || status === "contacted" ? 0.65 : 1,
+                        }}
+                      >
+                        Mark Contacted
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleStatusChange(assignment, "declined")}
+                        disabled={saving || status === "declined"}
+                        style={{
+                          ...buttonStyle,
+                          background: "#fff5f5",
+                          color: "#991b1b",
+                          border: "1px solid #fecaca",
+                          opacity: saving || status === "declined" ? 0.65 : 1,
+                        }}
+                      >
+                        Decline
+                      </button>
+                    </div>
+
+                    {status === "invited" ? (
+                      <div style={{ display: "grid", gap: "8px" }}>
+                        {sentPollAssignmentIds.includes(assignment.id) ? (
+                          <div
                             style={{
-                              ...buttonStyle,
-                              background: "#ffffff",
-                              color: "#173b6c",
-                              border: "1px solid #bfdbfe",
-                              opacity: sendingPollAssignmentId ? 0.65 : 1,
+                              borderRadius: "999px",
+                              padding: "7px 10px",
+                              background: "#ecfdf3",
+                              border: "1px solid #86efac",
+                              color: "#166534",
+                              fontSize: "12px",
+                              fontWeight: 900,
+                              textAlign: "center",
                             }}
                           >
-                            {sendingPollAssignmentId === assignment.id
-                              ? "Sending Poll..."
-                              : sentPollAssignmentIds.includes(assignment.id)
-                                ? "Resend Poll Email"
-                                : "Send Poll Email"}
-                          </button>
-                        </div>
-                      ) : null}
+                            Sent
+                          </div>
+                        ) : null}
+                        <button
+                          type="button"
+                          onClick={() => void handleSendPollEmail(assignment)}
+                          disabled={Boolean(sendingPollAssignmentId)}
+                          style={{
+                            ...buttonStyle,
+                            background: "#ffffff",
+                            color: "#173b6c",
+                            border: "1px solid #bfdbfe",
+                            opacity: sendingPollAssignmentId ? 0.65 : 1,
+                          }}
+                        >
+                          {sendingPollAssignmentId === assignment.id
+                            ? "Sending Poll..."
+                            : sentPollAssignmentIds.includes(assignment.id)
+                              ? "Resend Poll Email"
+                              : "Send Poll Email"}
+                        </button>
+                      </div>
+                    ) : null}
+
+                    <div style={{ ...detailGridStyle, marginTop: "2px" }}>
+                      <label style={{ display: "grid", gap: "6px" }}>
+                        <span style={statLabel}>Contact Method</span>
+                        <select
+                          value={contactMethod}
+                          onChange={(e) =>
+                            handleAssignmentDetailsChange(assignment, {
+                              contact_method: e.target.value
+                                ? (e.target.value as ContactMethod)
+                                : null,
+                            })
+                          }
+                          disabled={saving}
+                          style={{ ...selectStyle, maxWidth: "100%", width: "100%", background: "#ffffff" }}
+                        >
+                          <option value="">Not set</option>
+                          {contactMethods.map((method) => (
+                            <option key={method} value={method}>
+                              {method}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+
+                      <label style={{ display: "grid", gap: "6px" }}>
+                        <span style={statLabel}>Last Contacted</span>
+                        <input
+                          type="datetime-local"
+                          defaultValue={toDatetimeLocalValue(assignment.last_contacted_at)}
+                          onBlur={(e) =>
+                            handleAssignmentDetailsChange(assignment, {
+                              last_contacted_at: fromDatetimeLocalValue(e.target.value),
+                            })
+                          }
+                          disabled={saving}
+                          style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                        />
+                      </label>
                     </div>
                   </div>
 
-                  <div style={{ ...detailGridStyle, marginTop: "16px" }}>
-                    <label style={{ display: "grid", gap: "6px" }}>
-                      <span style={statLabel}>Contact Method</span>
-                      <select
-                        value={contactMethod}
-                        onChange={(e) =>
-                          handleAssignmentDetailsChange(assignment, {
-                            contact_method: e.target.value
-                              ? (e.target.value as ContactMethod)
-                              : null,
-                          })
-                        }
-                        disabled={saving}
-                        style={{ ...selectStyle, maxWidth: "100%", width: "100%", background: "#ffffff" }}
-                      >
-                        <option value="">Not set</option>
-                        {contactMethods.map((method) => (
-                          <option key={method} value={method}>
-                            {method}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-
-                    <label style={{ display: "grid", gap: "6px" }}>
-                      <span style={statLabel}>Last Contacted</span>
-                      <input
-                        type="datetime-local"
-                        defaultValue={toDatetimeLocalValue(assignment.last_contacted_at)}
-                        onBlur={(e) =>
-                          handleAssignmentDetailsChange(assignment, {
-                            last_contacted_at: fromDatetimeLocalValue(e.target.value),
-                          })
-                        }
-                        disabled={saving}
-                        style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
-                      />
-                    </label>
-                  </div>
-
-                  <label style={{ display: "grid", gap: "6px", marginTop: "16px" }}>
+                  <label style={{ display: "grid", gap: "6px", marginTop: "12px" }}>
                     <span style={statLabel}>Assignment Notes</span>
                     <textarea
                       key={`${assignment.id}-${assignment.notes || ""}`}
@@ -2084,34 +2293,85 @@ export default function EventDetailPage() {
         )}
       </div>
 
-      <div style={cardStyle}>
-        <h2 style={{ marginTop: 0, color: "#173b6c" }}>Assign SP</h2>
-        <p style={{ marginTop: 0, color: "#64748b", fontWeight: 700 }}>
-          Search, filter, and add SPs as invited while coverage stays visible.
-        </p>
+      <div style={{ ...cardStyle, background: "#f8fbff", borderColor: "#bfdbfe" }}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            gap: "12px",
+            flexWrap: "wrap",
+            alignItems: "center",
+          }}
+        >
+          <div>
+            <h2 style={compactSectionTitleStyle}>Candidate SPs</h2>
+            <p style={compactSectionHintStyle}>
+              {staffingRelevant ? "Search and assign matches." : "Candidate workflow is available if HiFi staffing becomes relevant."}
+            </p>
+          </div>
+          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+            <button
+              type="button"
+              onClick={() => void handleFillRemainingSpots()}
+              disabled={
+                saving ||
+                shortage <= 0 ||
+                availableSps.filter((sp) => {
+                  const status = availabilityMatchBySpId.get(sp.id)?.status || "unknown";
+                  return status === "available" || status === "partial";
+                }).length === 0
+              }
+              style={{ ...buttonStyle, opacity: saving || shortage <= 0 ? 0.65 : 1 }}
+            >
+              Fill Remaining Spots
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleAddTopMatches()}
+              disabled={saving || recommendedSps.length === 0}
+              style={{
+                ...buttonStyle,
+                background: "#ffffff",
+                color: "#173b6c",
+                border: "1px solid #cbd5e1",
+                opacity: saving || recommendedSps.length === 0 ? 0.65 : 1,
+              }}
+            >
+              Add Top 3 Matches
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowEmailDraft((current) => !current)}
+              disabled={saving}
+              style={{
+                ...buttonStyle,
+                background: "#ffffff",
+                color: "#173b6c",
+                border: "1px solid #bfdbfe",
+                opacity: saving ? 0.65 : 1,
+              }}
+            >
+              {showEmailDraft ? "Hide Email Preview" : "Show Email Preview"}
+            </button>
+          </div>
+        </div>
 
         <div
           style={{
             border: "1px solid #dbe4ee",
-            borderRadius: "18px",
-            padding: "16px",
+            borderRadius: "16px",
+            padding: "14px",
             background: "#f8fbff",
             display: "grid",
-            gap: "14px",
+            gap: "10px",
+            marginTop: "10px",
           }}
         >
-          <div style={{ ...statCard, background: "#ffffff" }}>
-            <div style={statLabel}>Live Coverage</div>
-            <div style={{ marginTop: "6px", color: "#173b6c", fontWeight: 900 }}>
-              {confirmedCount} confirmed / {needed} needed · {shortage} short
-            </div>
-          </div>
-
           {assignmentSuccessMessage ? (
             <div
               style={{
-                borderRadius: "18px",
-                padding: "14px 16px",
+                borderRadius: "14px",
+                padding: "12px 14px",
                 background: "#ecfdf3",
                 border: "1px solid #86efac",
                 color: "#166534",
@@ -2124,73 +2384,29 @@ export default function EventDetailPage() {
 
           <div
             style={{
-              borderRadius: "18px",
-              padding: "14px 16px",
+              borderRadius: "14px",
+              padding: "12px 14px",
               background: coverageStatus.background,
               border: coverageStatus.border,
               color: coverageStatus.color,
             }}
           >
-            <div style={statLabel}>Coverage Status</div>
-            <div style={{ marginTop: "6px", fontSize: "20px", fontWeight: 900 }}>
-              {coverageStatus.message}
+            <div style={statLabel}>{eventType === "hifi" ? "Operational Mode" : "Coverage Status"}</div>
+            <div style={{ marginTop: "4px", fontSize: "18px", fontWeight: 900 }}>
+              {eventType === "hifi" && !staffingRelevant ? "HiFi event with no active SP staffing target" : coverageStatus.message}
             </div>
           </div>
 
+          {staffingRelevant ? (
           <div style={{ ...statCard, background: "#ffffff" }}>
             <div style={statLabel}>Recommended SPs</div>
-            <div
-              style={{
-                marginTop: "6px",
-                display: "flex",
-                justifyContent: "space-between",
-                gap: "12px",
-                flexWrap: "wrap",
-                alignItems: "center",
-              }}
-            >
-              <div style={{ color: "#64748b", fontWeight: 700 }}>
-                Top matches based on availability for this event
-              </div>
-              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                <button
-                  type="button"
-                  onClick={() => void handleFillRemainingSpots()}
-                  disabled={
-                    saving ||
-                    shortage <= 0 ||
-                    availableSps.filter((sp) => {
-                      const status = availabilityMatchBySpId.get(sp.id)?.status || "unknown";
-                      return status === "available" || status === "partial";
-                    }).length === 0
-                  }
-                  style={{ ...buttonStyle, opacity: saving || shortage <= 0 ? 0.65 : 1 }}
-                >
-                  Fill Remaining Spots
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void handleAddTopMatches()}
-                  disabled={saving || recommendedSps.length === 0}
-                  style={{
-                    ...buttonStyle,
-                    background: "#ffffff",
-                    color: "#173b6c",
-                    border: "1px solid #cbd5e1",
-                    opacity: saving || recommendedSps.length === 0 ? 0.65 : 1,
-                  }}
-                >
-                  Add Top 3 Matches
-                </button>
-              </div>
-            </div>
 
             {recommendedSps.length === 0 ? (
-              <div style={{ marginTop: "10px", color: "#64748b", fontWeight: 700 }}>
+              <div style={{ marginTop: "8px", color: "#64748b", fontWeight: 700 }}>
                 No recommended SPs yet.
               </div>
             ) : (
-              <div style={{ display: "grid", gap: "10px", marginTop: "10px" }}>
+              <div style={{ display: "grid", gap: "8px", marginTop: "8px" }}>
                 {recommendedSps.map((sp) => {
                   const availabilityMatch = availabilityMatchBySpId.get(sp.id) || {
                     status: "unknown" as AvailabilityMatchStatus,
@@ -2254,6 +2470,7 @@ export default function EventDetailPage() {
               </div>
             )}
           </div>
+          ) : null}
 
           <input
             value={candidateQuery}
@@ -2315,11 +2532,11 @@ export default function EventDetailPage() {
           </div>
         </div>
 
-        <div style={{ marginTop: "16px" }}>
+        <div style={{ marginTop: "12px" }}>
           <div style={statLabel}>
             Candidate Picker · {availableSps.length} addable / {filteredCandidateSps.length} shown
           </div>
-          <div style={{ display: "grid", gap: "10px", marginTop: "10px" }}>
+          <div style={{ display: "grid", gap: "8px", marginTop: "8px" }}>
             {filteredCandidateSps.length === 0 ? (
               <div style={{ ...statCard, color: "#64748b", fontWeight: 700 }}>
                 No SPs match the current search and filters.
@@ -2406,7 +2623,7 @@ export default function EventDetailPage() {
                             type="button"
                             disabled
                             style={{
-                              ...assignmentStatusStyles[assignmentStatus],
+                              ...(assignment ? confirmationStyles[getCommandCenterAssignmentTone(assignment)] : confirmationStyles.pending),
                               borderRadius: "999px",
                               padding: "7px 11px",
                               fontSize: "12px",
@@ -2415,13 +2632,15 @@ export default function EventDetailPage() {
                               opacity: 0.85,
                             }}
                           >
-                            Already assigned
+                            {assignment
+                              ? `Already ${getCommandCenterAssignmentLabel(assignment)}`
+                              : "Already Assigned"}
                           </button>
                         ) : (
                           <button
                             type="button"
                             onClick={() => void handleAddAssignment(sp.id)}
-                            disabled={saving}
+                            disabled={saving || Boolean(assignmentStatus)}
                             style={{ ...buttonStyle, opacity: saving ? 0.65 : 1 }}
                           >
                             {assigningSpId === sp.id ? "Assigning..." : "Assign"}
@@ -2455,83 +2674,6 @@ export default function EventDetailPage() {
           </div>
         </div>
       </div>
-
-      <div style={cardStyle}>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            gap: "12px",
-            flexWrap: "wrap",
-            alignItems: "center",
-          }}
-        >
-          <div>
-            <h2 style={{ margin: 0, color: "#173b6c" }}>SP Email</h2>
-            <p style={{ margin: "6px 0 0", color: "#64748b", fontWeight: 700 }}>
-              Email addresses are sourced from assigned `event_sps.sp_id` rows matched to `sps.working_email` first, then `sps.email`.
-            </p>
-          </div>
-
-          <button
-            type="button"
-            onClick={() => setShowEmailDraft((current) => !current)}
-            style={buttonStyle}
-          >
-            Generate SP Email
-          </button>
-        </div>
-
-        {showEmailDraft ? (
-          <div style={{ marginTop: "16px", display: "grid", gap: "14px" }}>
-            <div style={statCard}>
-              <div style={statLabel}>BCC Recipients</div>
-              <div style={{ marginTop: "8px", color: "#173b6c", lineHeight: 1.7 }}>
-                {bccEmails.length ? bccEmails.join(", ") : "No assigned SP emails found."}
-              </div>
-            </div>
-
-            <div style={statCard}>
-              <div style={statLabel}>Email Source Detail</div>
-              <div style={{ marginTop: "8px", color: "#173b6c", lineHeight: 1.7 }}>
-                {assignedEmailSources.length ? (
-                  assignedEmailSources.map((item) => (
-                    <div key={item.assignmentId}>
-                      <strong>{item.spName}:</strong> {item.email} from {item.source}
-                    </div>
-                  ))
-                ) : (
-                  "No assigned SPs have an email in sps.working_email or sps.email."
-                )}
-              </div>
-            </div>
-
-            <label style={{ display: "grid", gap: "6px" }}>
-              <span style={statLabel}>Subject</span>
-              <input readOnly value={emailSubject} style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }} />
-            </label>
-
-            <label style={{ display: "grid", gap: "6px" }}>
-              <span style={statLabel}>Copyable Email Body</span>
-              <textarea readOnly value={emailBody} style={{ ...textareaStyle, minHeight: "220px" }} />
-            </label>
-
-            <div>
-              <a
-                href={mailtoHref}
-                style={{
-                  ...buttonStyle,
-                  display: "inline-flex",
-                  textDecoration: "none",
-                }}
-              >
-                Open Mailto Draft
-              </a>
-            </div>
-          </div>
-        ) : null}
-      </div>
-
     </SiteShell>
   );
 }
