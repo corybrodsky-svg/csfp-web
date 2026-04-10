@@ -16,8 +16,17 @@ function asText(value: unknown) {
 
 function normalizeProfileRole(value: unknown) {
   const role = asText(value).toLowerCase().replace(/[\s-]+/g, "_");
-  if (role === "sim_op" || role === "admin" || role === "sp") return role;
+  if (role === "sim_op" || role === "admin" || role === "super_admin" || role === "sp") return role;
   return "sp";
+}
+
+function getForcedSuperAdminRole(email: unknown, role: string) {
+  const normalizedEmail = asText(email).toLowerCase();
+  const emailLocalPart = normalizedEmail.split("@")[0] || "";
+  if (role === "super_admin" || emailLocalPart === "cory.brodsky") {
+    return "super_admin";
+  }
+  return role;
 }
 
 function buildProfileResponse(
@@ -47,7 +56,10 @@ function buildProfileResponse(
     full_name: profile?.full_name ?? overrides?.full_name ?? fallbackFullName,
     schedule_name: profile?.schedule_name ?? overrides?.schedule_name ?? fallbackScheduleName,
     email: profile?.email || user.email || null,
-    role: normalizeProfileRole(profile?.role || overrides?.role || user.user_metadata?.role),
+    role: getForcedSuperAdminRole(
+      profile?.email || user.email || null,
+      normalizeProfileRole(profile?.role || overrides?.role || user.user_metadata?.role)
+    ),
     is_active: profile?.is_active ?? null,
     profile_image_url:
       asText(overrides?.profile_image_url) ||

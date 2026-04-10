@@ -117,7 +117,7 @@ const secondaryButtonStyle: React.CSSProperties = {
   cursor: "pointer",
 };
 
-type RoleValue = "sp" | "sim_op" | "admin";
+type RoleValue = "sp" | "sim_op" | "admin" | "super_admin";
 
 type MeResponse = {
   user?: {
@@ -155,6 +155,7 @@ const ROLE_OPTIONS: Array<{ value: RoleValue; label: string }> = [
   { value: "sp", label: "SP" },
   { value: "sim_op", label: "Sim Op" },
   { value: "admin", label: "Admin" },
+  { value: "super_admin", label: "Super Admin" },
 ];
 
 function asText(value: unknown) {
@@ -164,7 +165,7 @@ function asText(value: unknown) {
 
 function normalizeRole(value: unknown): RoleValue {
   const role = asText(value).toLowerCase().replace(/[\s-]+/g, "_");
-  if (role === "sim_op" || role === "admin" || role === "sp") return role;
+  if (role === "sim_op" || role === "admin" || role === "super_admin" || role === "sp") return role;
   return "sp";
 }
 
@@ -222,6 +223,9 @@ function formatTimestamp(value?: string | null) {
 }
 
 function getRoleTone(role: RoleValue): React.CSSProperties {
+  if (role === "super_admin") {
+    return { background: "#f5f3ff", color: "#6d28d9", border: "1px solid #c4b5fd" };
+  }
   if (role === "admin") {
     return { background: "#fee2e2", color: "#991b1b", border: "1px solid #fecaca" };
   }

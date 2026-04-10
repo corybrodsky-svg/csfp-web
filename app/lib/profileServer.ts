@@ -11,7 +11,7 @@ export type AppProfile = {
   is_active: boolean | null;
 };
 
-const ALLOWED_PROFILE_ROLES = new Set(["sp", "sim_op", "admin"]);
+const ALLOWED_PROFILE_ROLES = new Set(["sp", "sim_op", "admin", "super_admin"]);
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 
 function asText(value: unknown) {

@@ -11,6 +11,13 @@ import { eventMatchesOwnership } from "../lib/eventOwnership";
 type EventsMode = "all" | "mine";
 type ArchivedRange = "30" | "90" | "365" | "all";
 
+type FolderSummary = {
+  name: string;
+  totalCount: number;
+  upcomingCount: number;
+  archivedCount: number;
+};
+
 type EventRow = {
   id: string;
   name: string | null;
@@ -176,6 +183,32 @@ function getDisplayDate(event: EventRow) {
     : formatHumanDate(event.date_text, getImportedYearHint(event.notes));
 }
 
+function deriveEventFolderName(event: EventRow) {
+  const eventText = [
+    event.name,
+    event.status,
+    event.notes,
+    event.location,
+    event.owner_name,
+    event.schedule_owner_text,
+  ]
+    .map(asText)
+    .join(" ")
+    .toLowerCase();
+
+  if (eventText.includes("salus")) return "Salus at Drexel";
+  if (eventText.includes("cnhp") || eventText.includes("cicsp")) return "CNHP / CICSP";
+  if (
+    eventText.includes("pa program") ||
+    eventText.includes("physician assistant") ||
+    /\bpa\b/.test(eventText)
+  ) {
+    return "PA Program";
+  }
+  if (eventText.includes("drexel")) return "Drexel University";
+  return "Other Programs";
+}
+
 async function parseApiError(response: Response) {
   try {
     const body = await response.json();
@@ -189,6 +222,7 @@ export default function EventsPage() {
   const router = useRouter();
   const [mode, setMode] = useState<EventsMode>("all");
   const [archivedRange, setArchivedRange] = useState<ArchivedRange>("365");
+  const [selectedFolder, setSelectedFolder] = useState("all");
   const [events, setEvents] = useState<EventRow[]>([]);
   const [me, setMe] = useState<MeResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -260,13 +294,21 @@ export default function EventsPage() {
   const profileName = asText(me?.profile?.full_name);
   const userEmail = asText(me?.user?.email);
   const ownershipMatchName = asText(me?.profile?.schedule_name) || profileName || userEmail;
+  const isSuperAdmin = asText(me?.profile?.role) === "super_admin";
 
   const myEvents = useMemo(
     () => events.filter((event) => eventMatchesOwnership(event, currentUserId, ownershipMatchName)),
     [currentUserId, events, ownershipMatchName]
   );
 
-  const selectedEvents = mode === "mine" ? myEvents : events;
+  const baseSelectedEvents = mode === "mine" ? myEvents : events;
+  const selectedEvents = useMemo(
+    () =>
+      isSuperAdmin && mode === "all" && selectedFolder !== "all"
+        ? baseSelectedEvents.filter((event) => deriveEventFolderName(event) === selectedFolder)
+        : baseSelectedEvents,
+    [baseSelectedEvents, isSuperAdmin, mode, selectedFolder]
+  );
 
   const todayStart = useMemo(() => {
     const now = new Date();
@@ -292,6 +334,37 @@ export default function EventsPage() {
     () => archivedEvents.filter((event) => archivedRange === "all" || parseEventDateValue(event) >= archivedCutoff),
     [archivedCutoff, archivedEvents, archivedRange]
   );
+
+  const folderSummaries = useMemo<FolderSummary[]>(() => {
+    if (!isSuperAdmin || mode !== "all") return [];
+
+    const summaryMap = new Map<string, FolderSummary>();
+
+    events.forEach((event) => {
+      const folderName = deriveEventFolderName(event);
+      const current = summaryMap.get(folderName) || {
+        name: folderName,
+        totalCount: 0,
+        upcomingCount: 0,
+        archivedCount: 0,
+      };
+
+      current.totalCount += 1;
+      if (parseEventDateValue(event) >= todayStart) {
+        current.upcomingCount += 1;
+      } else {
+        current.archivedCount += 1;
+      }
+
+      summaryMap.set(folderName, current);
+    });
+
+    return [...summaryMap.values()].sort((a, b) => {
+      const activeDiff = b.upcomingCount - a.upcomingCount;
+      if (activeDiff !== 0) return activeDiff;
+      return a.name.localeCompare(b.name);
+    });
+  }, [events, isSuperAdmin, mode, todayStart]);
 
   const totalNeeded = selectedEvents.reduce((sum, event) => sum + Number(event.sp_needed || 0), 0);
   const totalConfirmed = selectedEvents.reduce((sum, event) => sum + Number(event.confirmed_assignments || 0), 0);
@@ -330,7 +403,9 @@ export default function EventsPage() {
           <div>
             <div style={statLabel}>View Mode</div>
             <div style={{ marginTop: "6px", color: "#64748b", fontWeight: 700 }}>
-              Explore the full event board or just the events currently assigned to your ownership match.
+              {isSuperAdmin && mode === "all"
+                ? "Super admin view starts with operational folders derived from existing event data."
+                : "Explore the full event board or just the events currently assigned to your ownership match."}
             </div>
           </div>
 
@@ -386,6 +461,66 @@ export default function EventsPage() {
 
       {loading ? (
         <div style={cardStyle}>Loading events from Supabase...</div>
+      ) : isSuperAdmin && mode === "all" && selectedFolder === "all" ? (
+        <>
+          <div style={cardStyle}>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                gap: "12px",
+                flexWrap: "wrap",
+                alignItems: "center",
+              }}
+            >
+              <div>
+                <h2 style={{ margin: 0, color: "#173b6c" }}>Program Folders</h2>
+                <p style={{ margin: "6px 0 0", color: "#64748b", fontWeight: 700 }}>
+                  Open a folder to view just that program’s events.
+                </p>
+              </div>
+              <Link href="/dashboard" style={buttonStyle}>
+                Back to Dashboard
+              </Link>
+            </div>
+          </div>
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+              gap: "12px",
+            }}
+          >
+            {folderSummaries.map((folder) => (
+              <button
+                key={folder.name}
+                type="button"
+                onClick={() => setSelectedFolder(folder.name)}
+                style={{
+                  ...cardStyle,
+                  marginBottom: 0,
+                  cursor: "pointer",
+                  textAlign: "left",
+                  padding: "16px",
+                }}
+              >
+                <div style={{ color: "#173b6c", fontWeight: 900, fontSize: "18px" }}>{folder.name}</div>
+                <div style={{ marginTop: "6px", color: "#64748b", fontWeight: 700 }}>
+                  {folder.totalCount} event{folder.totalCount === 1 ? "" : "s"}
+                </div>
+                <div style={{ marginTop: "10px", display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                  <span style={{ ...eventBadgeStyle, padding: "6px 10px", fontSize: "12px", background: "#eff6ff", border: "1px solid #bfdbfe", color: "#1d4ed8" }}>
+                    {folder.upcomingCount} active
+                  </span>
+                  <span style={{ ...eventBadgeStyle, padding: "6px 10px", fontSize: "12px", background: "#f8fafc", border: "1px solid #cbd5e1", color: "#475569" }}>
+                    {folder.archivedCount} archived
+                  </span>
+                </div>
+              </button>
+            ))}
+          </div>
+        </>
       ) : upcomingEvents.length === 0 && archivedEvents.length === 0 ? (
         <div style={cardStyle}>
           {mode === "mine" ? "No events currently match your ownership." : "No events found in Supabase."}
@@ -405,12 +540,21 @@ export default function EventsPage() {
               <div>
                 <h2 style={{ margin: 0, color: "#173b6c" }}>Upcoming & Current Events</h2>
                 <p style={{ margin: "6px 0 0", color: "#64748b", fontWeight: 700 }}>
-                  Active events stay at the top so planning, staffing, and follow-up remain focused.
+                  {isSuperAdmin && mode === "all" && selectedFolder !== "all"
+                    ? `Showing events in ${selectedFolder}.`
+                    : "Active events stay at the top so planning, staffing, and follow-up remain focused."}
                 </p>
               </div>
-              <Link href="/dashboard" style={buttonStyle}>
-                Back to Dashboard
-              </Link>
+              <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                {isSuperAdmin && mode === "all" && selectedFolder !== "all" ? (
+                  <button type="button" onClick={() => setSelectedFolder("all")} style={buttonStyle}>
+                    All Folders
+                  </button>
+                ) : null}
+                <Link href="/dashboard" style={buttonStyle}>
+                  Back to Dashboard
+                </Link>
+              </div>
             </div>
           </div>
 
