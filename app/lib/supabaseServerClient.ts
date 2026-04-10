@@ -7,19 +7,16 @@ export const supabaseKey =
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
   process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
 
-if (!supabaseUrl) {
-  throw new Error("Missing SUPABASE_URL or NEXT_PUBLIC_SUPABASE_URL");
-}
-
-if (!supabaseKey) {
-  throw new Error("Missing Supabase server key");
-}
-
 export function createSupabaseServerClient() {
-  const resolvedUrl = supabaseUrl!;
-  const resolvedKey = supabaseKey!;
+  if (!supabaseUrl) {
+    throw new Error("Missing SUPABASE_URL or NEXT_PUBLIC_SUPABASE_URL");
+  }
 
-  return createClient(resolvedUrl, resolvedKey, {
+  if (!supabaseKey) {
+    throw new Error("Missing Supabase server key");
+  }
+
+  return createClient(supabaseUrl, supabaseKey, {
     auth: {
       persistSession: false,
       autoRefreshToken: false,
@@ -27,4 +24,15 @@ export function createSupabaseServerClient() {
   });
 }
 
-export const supabaseServer = createSupabaseServerClient();
+export const supabaseServer = new Proxy(
+  {},
+  {
+    get(_target, property) {
+      const client = createSupabaseServerClient() as unknown as Record<PropertyKey, unknown>;
+      const value = client[property];
+      return typeof value === "function"
+        ? (value as (...args: unknown[]) => unknown).bind(client)
+        : value;
+    },
+  }
+) as ReturnType<typeof createSupabaseServerClient>;

@@ -9,11 +9,11 @@ import {
 import { createSupabaseServerClient } from "./app/lib/supabaseServerClient";
 
 const PUBLIC_ROUTES = new Set(["/login", "/signup"]);
+const PUBLIC_API_PREFIX = "/api/auth/";
 
 function isStaticAsset(pathname: string) {
   return (
     pathname.startsWith("/_next") ||
-    pathname.startsWith("/api") ||
     pathname === "/favicon.ico" ||
     pathname.endsWith(".png") ||
     pathname.endsWith(".jpg") ||
@@ -26,62 +26,56 @@ function isStaticAsset(pathname: string) {
 export async function middleware(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
 
-  if (isStaticAsset(pathname)) {
+  if (
+    isStaticAsset(pathname) ||
+    PUBLIC_ROUTES.has(pathname) ||
+    pathname.startsWith(PUBLIC_API_PREFIX)
+  ) {
     return NextResponse.next();
   }
 
   const accessToken = request.cookies.get(AUTH_ACCESS_COOKIE)?.value || "";
   const refreshToken = request.cookies.get(AUTH_REFRESH_COOKIE)?.value || "";
-  const supabase = createSupabaseServerClient();
 
-  let authenticated = false;
-  let refreshedTokens: { accessToken: string; refreshToken: string } | null = null;
-
-  if (accessToken) {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser(accessToken);
-    authenticated = Boolean(user);
-  }
-
-  if (!authenticated && refreshToken) {
-    const { data } = await supabase.auth.refreshSession({ refresh_token: refreshToken });
-    if (data.session?.access_token && data.session.refresh_token) {
-      authenticated = true;
-      refreshedTokens = {
-        accessToken: data.session.access_token,
-        refreshToken: data.session.refresh_token,
-      };
-    }
-  }
-
-  if (PUBLIC_ROUTES.has(pathname)) {
-    if (authenticated) {
-      const response = NextResponse.redirect(new URL("/events", request.url));
-      if (refreshedTokens) setAuthCookies(response, refreshedTokens);
-      return response;
-    }
-
-    const response = NextResponse.next();
-    if (!authenticated && (accessToken || refreshToken)) {
-      clearAuthCookies(response);
-    }
-    return response;
-  }
-
-  if (!authenticated) {
+  if (!accessToken && !refreshToken) {
     const loginUrl = new URL("/login", request.url);
     loginUrl.searchParams.set("next", `${pathname}${search}`);
-    const response = NextResponse.redirect(loginUrl);
-    if (accessToken || refreshToken) {
-      clearAuthCookies(response);
-    }
-    return response;
+    return NextResponse.redirect(loginUrl);
   }
 
-  const response = NextResponse.next();
-  if (refreshedTokens) {
-    setAuthCookies(response, refreshedTokens);
+  try {
+    const supabase = createSupabaseServerClient();
+
+    if (accessToken) {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser(accessToken);
+
+      if (user) {
+        return NextResponse.next();
+      }
+    }
+
+    if (refreshToken) {
+      const { data } = await supabase.auth.refreshSession({ refresh_token: refreshToken });
+      if (data.session?.access_token && data.session.refresh_token) {
+        const response = NextResponse.next();
+        setAuthCookies(response, {
+          accessToken: data.session.access_token,
+          refreshToken: data.session.refresh_token,
+        });
+        return response;
+      }
+    }
+  } catch {
+    // Fall through to a clean cookie reset + redirect.
+  }
+
+  const loginUrl = new URL("/login", request.url);
+  loginUrl.searchParams.set("next", `${pathname}${search}`);
+  const response = NextResponse.redirect(loginUrl);
+  if (accessToken || refreshToken) {
+    clearAuthCookies(response);
   }
   return response;
 }
