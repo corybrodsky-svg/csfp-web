@@ -69,24 +69,28 @@ function buildProfileResponse(
 }
 
 async function getAuthenticatedUser() {
-  const cookieStore = await cookies();
-  const accessToken = cookieStore.get(AUTH_ACCESS_COOKIE)?.value;
+  try {
+    const cookieStore = await cookies();
+    const accessToken = cookieStore.get(AUTH_ACCESS_COOKIE)?.value;
 
-  if (!accessToken) {
+    if (!accessToken) {
+      return { accessToken: "", user: null, error: "Unauthorized" };
+    }
+
+    const supabase = createSupabaseServerClient();
+    const {
+      data: { user },
+      error,
+    } = await supabase.auth.getUser(accessToken);
+
+    if (error || !user) {
+      return { accessToken, user: null, error: "Unauthorized" };
+    }
+
+    return { accessToken, user, error: "" };
+  } catch {
     return { accessToken: "", user: null, error: "Unauthorized" };
   }
-
-  const supabase = createSupabaseServerClient();
-  const {
-    data: { user },
-    error,
-  } = await supabase.auth.getUser(accessToken);
-
-  if (error || !user) {
-    return { accessToken, user: null, error: "Unauthorized" };
-  }
-
-  return { accessToken, user, error: "" };
 }
 
 export async function GET() {
@@ -98,13 +102,6 @@ export async function GET() {
   let profileResult: ProfileResult = await getProfileForUser(auth.user.id, auth.accessToken);
   if (!profileResult.profile && profileResult.available !== false) {
     profileResult = await ensureProfileForUser(auth.user, auth.accessToken);
-  }
-
-  if (profileResult.error && !profileResult.profile) {
-    return NextResponse.json(
-      { error: profileResult.error, profile_available: profileResult.available },
-      { status: 500 }
-    );
   }
 
   return NextResponse.json({

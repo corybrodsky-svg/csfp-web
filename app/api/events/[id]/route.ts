@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
 import { supabaseServer } from "../../../lib/supabaseServerClient";
+import { cookies } from "next/headers";
+import { AUTH_ACCESS_COOKIE } from "../../../lib/authCookies";
+import { createSupabaseServerClient } from "../../../lib/supabaseServerClient";
+import { getProfileForUser } from "../../../lib/profileServer";
 
 export const dynamic = "force-dynamic";
 
@@ -13,6 +17,93 @@ function getRouteId(params: { id?: string | string[] }) {
   const raw = params.id;
   if (Array.isArray(raw)) return raw[0] || "";
   return typeof raw === "string" ? raw : "";
+}
+
+function asText(value: unknown) {
+  if (value === null || value === undefined) return "";
+  return String(value).trim();
+}
+
+function normalizeRole(value: unknown) {
+  const role = asText(value).toLowerCase().replace(/[\s-]+/g, "_");
+  if (role === "sp" || role === "sim_op" || role === "admin" || role === "super_admin") {
+    return role;
+  }
+  return "sp";
+}
+
+function getEffectiveRole(email: unknown, role: unknown) {
+  const normalizedEmail = asText(email).toLowerCase();
+  const localPart = normalizedEmail.split("@")[0] || "";
+  if (localPart === "cory.brodsky") return "super_admin";
+  return normalizeRole(role);
+}
+
+function normalizeEmail(value: unknown) {
+  return asText(value).toLowerCase();
+}
+
+function normalizeMatchValue(value: unknown) {
+  return asText(value).toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+type ViewerContext = {
+  email: string;
+  role: string;
+  fullName: string;
+  scheduleName: string;
+};
+
+type AssignedSpApiRow = {
+  id: string;
+  first_name: string | null;
+  last_name: string | null;
+  full_name: string | null;
+  working_email?: string | null;
+  email?: string | null;
+};
+
+async function getAuthenticatedViewer(): Promise<ViewerContext | null> {
+  try {
+    const cookieStore = await cookies();
+    const accessToken = cookieStore.get(AUTH_ACCESS_COOKIE)?.value;
+
+    if (!accessToken) return null;
+
+    const supabase = createSupabaseServerClient();
+    const {
+      data: { user },
+      error,
+    } = await supabase.auth.getUser(accessToken);
+
+    if (error || !user) return null;
+
+    const profileResult = await getProfileForUser(user.id, accessToken);
+    const profile = profileResult.profile;
+    const email = asText(profile?.email) || asText(user.email);
+
+    return {
+      email,
+      role: getEffectiveRole(email, profile?.role || user.user_metadata?.role),
+      fullName: asText(profile?.full_name) || asText(user.user_metadata?.full_name),
+      scheduleName: asText(profile?.schedule_name) || asText(user.user_metadata?.schedule_name),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function viewerMatchesAssignedSp(sp: AssignedSpApiRow, viewer: ViewerContext) {
+  const viewerEmails = new Set([normalizeEmail(viewer.email)].filter(Boolean));
+  const viewerNames = new Set(
+    [normalizeMatchValue(viewer.fullName), normalizeMatchValue(viewer.scheduleName)].filter(Boolean)
+  );
+  const spEmails = [normalizeEmail(sp.working_email), normalizeEmail(sp.email)].filter(Boolean);
+  const spName =
+    normalizeMatchValue(sp.full_name) ||
+    normalizeMatchValue([sp.first_name, sp.last_name].map(asText).filter(Boolean).join(" "));
+
+  return spEmails.some((email) => viewerEmails.has(email)) || (spName && viewerNames.has(spName));
 }
 
 function getSafeAssignmentUpdates(rawUpdates: unknown) {
@@ -59,6 +150,11 @@ export async function GET(
   context: { params: Promise<{ id?: string | string[] }> }
 ) {
   try {
+    const viewer = await getAuthenticatedViewer();
+    if (!viewer) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const params = await context.params;
     const eventId = getRouteId(params);
 
@@ -123,6 +219,19 @@ export async function GET(
         { error: assignmentError.message || "Could not load assignments from Supabase." },
         { status: 500 }
       );
+    }
+
+    if (viewer.role === "sp") {
+      const eventSpIds = new Set(
+        (assignments || []).map((assignment) => asText((assignment as { sp_id?: unknown }).sp_id))
+      );
+      const matched = (sps || []).some(
+        (sp) => eventSpIds.has(asText(sp.id)) && viewerMatchesAssignedSp(sp as AssignedSpApiRow, viewer)
+      );
+
+      if (!matched) {
+        return NextResponse.json({ error: "You do not have access to this event." }, { status: 403 });
+      }
     }
 
     const { data: availabilityRows, error: availabilityError } = await supabaseServer

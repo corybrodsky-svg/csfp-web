@@ -294,6 +294,7 @@ export default function EventsPage() {
   const profileName = asText(me?.profile?.full_name);
   const userEmail = asText(me?.user?.email);
   const ownershipMatchName = asText(me?.profile?.schedule_name) || profileName || userEmail;
+  const isSpUser = asText(me?.profile?.role) === "sp";
   const isSuperAdmin = asText(me?.profile?.role) === "super_admin";
 
   const myEvents = useMemo(
@@ -301,7 +302,7 @@ export default function EventsPage() {
     [currentUserId, events, ownershipMatchName]
   );
 
-  const baseSelectedEvents = mode === "mine" ? myEvents : events;
+  const baseSelectedEvents = isSpUser ? events : mode === "mine" ? myEvents : events;
   const selectedEvents = useMemo(
     () =>
       isSuperAdmin && mode === "all" && selectedFolder !== "all"
@@ -403,20 +404,24 @@ export default function EventsPage() {
           <div>
             <div style={statLabel}>View Mode</div>
             <div style={{ marginTop: "6px", color: "#64748b", fontWeight: 700 }}>
-              {isSuperAdmin && mode === "all"
-                ? "Super admin view starts with operational folders derived from existing event data."
-                : "Explore the full event board or just the events currently assigned to your ownership match."}
+              {isSpUser
+                ? "Your events are limited to sessions where you are explicitly assigned."
+                : isSuperAdmin && mode === "all"
+                  ? "Super admin view starts with operational folders derived from existing event data."
+                  : "Explore the full event board or just the events currently assigned to your ownership match."}
             </div>
           </div>
 
-          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-            <button type="button" onClick={() => setMode("all")} style={segmentedButton(mode === "all")}>
-              All Events
-            </button>
-            <button type="button" onClick={() => setMode("mine")} style={segmentedButton(mode === "mine")}>
-              My Events
-            </button>
-          </div>
+          {isSpUser ? null : (
+            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+              <button type="button" onClick={() => setMode("all")} style={segmentedButton(mode === "all")}>
+                All Events
+              </button>
+              <button type="button" onClick={() => setMode("mine")} style={segmentedButton(mode === "mine")}>
+                My Events
+              </button>
+            </div>
+          )}
         </div>
 
         <div
@@ -523,7 +528,11 @@ export default function EventsPage() {
         </>
       ) : upcomingEvents.length === 0 && archivedEvents.length === 0 ? (
         <div style={cardStyle}>
-          {mode === "mine" ? "No events currently match your ownership." : "No events found in Supabase."}
+          {isSpUser
+            ? "No assigned events yet."
+            : mode === "mine"
+              ? "No events currently match your ownership."
+              : "No events found in Supabase."}
         </div>
       ) : (
         <>

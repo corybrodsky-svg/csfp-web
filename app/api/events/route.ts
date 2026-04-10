@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { AUTH_ACCESS_COOKIE } from "../../lib/authCookies";
 import { supabaseServer } from "../../lib/supabaseServerClient";
 import { getDateSortValue, getImportedYearHint, normalizeLooseDateToIso } from "../../lib/eventDateUtils";
-import { getProfilesByIds } from "../../lib/profileServer";
+import { getProfileForUser, getProfilesByIds } from "../../lib/profileServer";
 import { createSupabaseServerClient } from "../../lib/supabaseServerClient";
 
 export const dynamic = "force-dynamic";
@@ -30,6 +30,29 @@ function isConfirmedAssignment(assignment: { status: string | null; confirmed: b
   return status === "confirmed" || (!status && assignment.confirmed === true);
 }
 
+function normalizeRole(value: unknown) {
+  const role = asText(value).toLowerCase().replace(/[\s-]+/g, "_");
+  if (role === "sp" || role === "sim_op" || role === "admin" || role === "super_admin") {
+    return role;
+  }
+  return "sp";
+}
+
+function getEffectiveRole(email: unknown, role: unknown) {
+  const normalizedEmail = asText(email).toLowerCase();
+  const localPart = normalizedEmail.split("@")[0] || "";
+  if (localPart === "cory.brodsky") return "super_admin";
+  return normalizeRole(role);
+}
+
+function normalizeEmail(value: unknown) {
+  return asText(value).toLowerCase();
+}
+
+function normalizeMatchValue(value: unknown) {
+  return asText(value).toLowerCase().replace(/\s+/g, " ").trim();
+}
+
 type EventApiRow = {
   id: string;
   name: string | null;
@@ -43,6 +66,31 @@ type EventApiRow = {
   owner_id?: string | null;
   owner_name?: string | null;
   schedule_owner_text?: string | null;
+};
+
+type ViewerContext = {
+  id: string;
+  email: string;
+  role: string;
+  fullName: string;
+  scheduleName: string;
+};
+
+type AssignmentApiRow = {
+  id: string;
+  event_id: string | null;
+  sp_id: string | null;
+  status: string | null;
+  confirmed: boolean | null;
+};
+
+type AssignedSpApiRow = {
+  id: string;
+  first_name: string | null;
+  last_name: string | null;
+  full_name: string | null;
+  working_email?: string | null;
+  email?: string | null;
 };
 
 function extractScheduleOwnerText(notes: string | null) {
@@ -66,8 +114,62 @@ async function getAuthenticatedUserId() {
   return user.id;
 }
 
+async function getAuthenticatedViewer(): Promise<ViewerContext | null> {
+  try {
+    const cookieStore = await cookies();
+    const accessToken = cookieStore.get(AUTH_ACCESS_COOKIE)?.value;
+
+    if (!accessToken) return null;
+
+    const supabase = createSupabaseServerClient();
+    const {
+      data: { user },
+      error,
+    } = await supabase.auth.getUser(accessToken);
+
+    if (error || !user) return null;
+
+    const profileResult = await getProfileForUser(user.id, accessToken);
+    const profile = profileResult.profile;
+    const email = asText(profile?.email) || asText(user.email);
+
+    return {
+      id: user.id,
+      email,
+      role: getEffectiveRole(email, profile?.role || user.user_metadata?.role),
+      fullName: asText(profile?.full_name) || asText(user.user_metadata?.full_name),
+      scheduleName: asText(profile?.schedule_name) || asText(user.user_metadata?.schedule_name),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function getViewerMatchedSpIds(sps: AssignedSpApiRow[], viewer: ViewerContext) {
+  const emailCandidates = new Set([normalizeEmail(viewer.email)].filter(Boolean));
+  const nameCandidates = new Set(
+    [normalizeMatchValue(viewer.fullName), normalizeMatchValue(viewer.scheduleName)].filter(Boolean)
+  );
+
+  return sps
+    .filter((sp) => {
+      const spEmails = [normalizeEmail(sp.working_email), normalizeEmail(sp.email)].filter(Boolean);
+      const spName =
+        normalizeMatchValue(sp.full_name) ||
+        normalizeMatchValue([sp.first_name, sp.last_name].map(asText).filter(Boolean).join(" "));
+
+      return spEmails.some((email) => emailCandidates.has(email)) || (spName && nameCandidates.has(spName));
+    })
+    .map((sp) => sp.id);
+}
+
 export async function GET() {
   try {
+    const viewer = await getAuthenticatedViewer();
+    if (!viewer) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const baseSelect = "id,name,status,date_text,sp_needed,visibility,location,notes,created_at";
     const ownerSelect = `${baseSelect},owner_id`;
     let data: EventApiRow[] | null = null;
@@ -126,7 +228,7 @@ export async function GET() {
     const { data: sps, error: spsError } = assignedSpIds.length
       ? await supabaseServer
           .from("sps")
-          .select("id,first_name,last_name,full_name")
+          .select("id,first_name,last_name,full_name,working_email,email")
           .in("id", assignedSpIds)
       : { data: [], error: null };
 
@@ -137,7 +239,7 @@ export async function GET() {
       );
     }
 
-    const assignmentRows = assignments || [];
+    const assignmentRows = (assignments || []) as AssignmentApiRow[];
     const sessionRows = sessions || [];
     const ownerIds = Array.from(new Set((data || []).map((event) => asText(event.owner_id)).filter(Boolean)));
     const ownerProfilesResult = await getProfilesByIds(ownerIds);
@@ -189,6 +291,21 @@ export async function GET() {
       if (aDate !== bDate) return aDate - bDate;
       return asText(a.name).localeCompare(asText(b.name));
     });
+
+    if (viewer.role === "sp") {
+      const matchedSpIds = new Set(getViewerMatchedSpIds((sps || []) as AssignedSpApiRow[], viewer));
+      const allowedEventIds = new Set(
+        assignmentRows
+          .filter((assignment) => matchedSpIds.has(asText(assignment.sp_id)))
+          .map((assignment) => asText(assignment.event_id))
+          .filter(Boolean)
+      );
+
+      return NextResponse.json({
+        events: eventsWithCoverage.filter((event) => allowedEventIds.has(event.id)),
+        assignments: assignmentRows.filter((assignment) => allowedEventIds.has(asText(assignment.event_id))),
+      });
+    }
 
     return NextResponse.json({ events: eventsWithCoverage, assignments: assignmentRows });
   } catch (error) {

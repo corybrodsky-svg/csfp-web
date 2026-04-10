@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
+import EventPlanningTimeline from "../../components/EventPlanningTimeline";
 import SiteShell from "../../components/SiteShell";
 import {
   formatHumanDate,
@@ -1675,6 +1676,11 @@ export default function EventDetailPage() {
           )}
         </div>
       </div>
+
+      <EventPlanningTimeline
+        eventDateLabel={eventDateLabel}
+        summaryTimeLabel={summaryTimeLabel}
+      />
 
       {eventSaveMessage ? (
         <div
