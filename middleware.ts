@@ -32,27 +32,32 @@ export async function middleware(request: NextRequest) {
 
   const accessToken = request.cookies.get(AUTH_ACCESS_COOKIE)?.value || "";
   const refreshToken = request.cookies.get(AUTH_REFRESH_COOKIE)?.value || "";
-  const supabase = createSupabaseServerClient();
-
   let authenticated = false;
   let refreshedTokens: { accessToken: string; refreshToken: string } | null = null;
+  let authError = false;
 
-  if (accessToken) {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser(accessToken);
-    authenticated = Boolean(user);
-  }
+  try {
+    const supabase = createSupabaseServerClient();
 
-  if (!authenticated && refreshToken) {
-    const { data } = await supabase.auth.refreshSession({ refresh_token: refreshToken });
-    if (data.session?.access_token && data.session.refresh_token) {
-      authenticated = true;
-      refreshedTokens = {
-        accessToken: data.session.access_token,
-        refreshToken: data.session.refresh_token,
-      };
+    if (accessToken) {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser(accessToken);
+      authenticated = Boolean(user);
     }
+
+    if (!authenticated && refreshToken) {
+      const { data } = await supabase.auth.refreshSession({ refresh_token: refreshToken });
+      if (data.session?.access_token && data.session.refresh_token) {
+        authenticated = true;
+        refreshedTokens = {
+          accessToken: data.session.access_token,
+          refreshToken: data.session.refresh_token,
+        };
+      }
+    }
+  } catch {
+    authError = true;
   }
 
   if (PUBLIC_ROUTES.has(pathname)) {
@@ -63,13 +68,13 @@ export async function middleware(request: NextRequest) {
     }
 
     const response = NextResponse.next();
-    if (!authenticated && (accessToken || refreshToken)) {
+    if ((!authenticated || authError) && (accessToken || refreshToken)) {
       clearAuthCookies(response);
     }
     return response;
   }
 
-  if (!authenticated) {
+  if (!authenticated || authError) {
     const loginUrl = new URL("/login", request.url);
     loginUrl.searchParams.set("next", `${pathname}${search}`);
     const response = NextResponse.redirect(loginUrl);
