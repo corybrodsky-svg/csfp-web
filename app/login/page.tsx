@@ -139,9 +139,9 @@ function formatTransportError(error: unknown) {
 export default function LoginPage() {
   const router = useRouter();
   const [nextPath] = useState(() => {
-    if (typeof window === "undefined") return "/events";
+    if (typeof window === "undefined") return "/dashboard";
     const params = new URLSearchParams(window.location.search);
-    return params.get("next") || "/events";
+    return params.get("next") || "/dashboard";
   });
 
   const [email, setEmail] = useState("");

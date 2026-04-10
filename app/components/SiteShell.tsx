@@ -45,7 +45,7 @@ const headerStyle: React.CSSProperties = {
   background: "#ffffff",
   border: "1px solid #d6deeb",
   borderRadius: "20px",
-  padding: "18px 20px",
+  padding: "18px 20px 16px",
   marginBottom: "16px",
   boxShadow: "0 8px 24px rgba(15, 23, 42, 0.06)",
 };
@@ -62,7 +62,7 @@ const brandWrapStyle: React.CSSProperties = {
   display: "flex",
   alignItems: "center",
   gap: "12px",
-  minWidth: "280px",
+  minWidth: "300px",
 };
 
 const brandMarkStyle: React.CSSProperties = {
@@ -79,10 +79,11 @@ const brandMarkStyle: React.CSSProperties = {
 
 const brandNameStyle: React.CSSProperties = {
   margin: 0,
-  fontSize: "20px",
+  fontSize: "19px",
   fontWeight: 900,
   color: "#16213e",
   lineHeight: 1.1,
+  letterSpacing: "0.01em",
 };
 
 const brandSubtitleStyle: React.CSSProperties = {
@@ -90,7 +91,8 @@ const brandSubtitleStyle: React.CSSProperties = {
   fontSize: "12px",
   color: "#64748b",
   fontWeight: 700,
-  letterSpacing: "0.02em",
+  letterSpacing: "0.04em",
+  textTransform: "uppercase",
 };
 
 const pageIntroStyle: React.CSSProperties = {
@@ -98,16 +100,25 @@ const pageIntroStyle: React.CSSProperties = {
   minWidth: "260px",
 };
 
-const titleStyle: React.CSSProperties = {
+const pageEyebrowStyle: React.CSSProperties = {
   margin: 0,
-  fontSize: "31px",
+  fontSize: "11px",
+  color: "#64748b",
+  fontWeight: 800,
+  letterSpacing: "0.08em",
+  textTransform: "uppercase",
+};
+
+const titleStyle: React.CSSProperties = {
+  margin: "4px 0 0",
+  fontSize: "30px",
   color: "#16213e",
   lineHeight: 1.08,
 };
 
 const subtitleStyle: React.CSSProperties = {
-  margin: "6px 0 0 0",
-  fontSize: "15px",
+  margin: "4px 0 0 0",
+  fontSize: "14px",
   color: "#5a667a",
   lineHeight: 1.5,
 };
@@ -153,6 +164,23 @@ function asText(value: unknown) {
 
 function isPublicPath(pathname: string) {
   return pathname === "/login" || pathname === "/signup";
+}
+
+function isNavActive(pathname: string, href: string) {
+  if (href === "/dashboard") return pathname === "/dashboard";
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
+
+function getNavLinkStyle(active: boolean): React.CSSProperties {
+  if (!active) return navLinkStyle;
+
+  return {
+    ...navLinkStyle,
+    background: "#173b6c",
+    border: "1px solid #173b6c",
+    color: "#ffffff",
+    boxShadow: "0 6px 18px rgba(23, 59, 108, 0.16)",
+  };
 }
 
 export default function SiteShell({
@@ -257,21 +285,22 @@ export default function SiteShell({
             </div>
 
             <div style={pageIntroStyle}>
+              <p style={pageEyebrowStyle}>CFSP Ops Board</p>
               <h1 style={titleStyle}>{title}</h1>
               {subtitle ? <p style={subtitleStyle}>{subtitle}</p> : null}
             </div>
           </div>
 
           <div style={navWrapStyle}>
-            <Link href="/dashboard" style={navLinkStyle}>Dashboard</Link>
-            <Link href="/events" style={navLinkStyle}>Events</Link>
-            <Link href="/events/new" style={navLinkStyle}>New Event</Link>
-            <Link href="/events/upload" style={navLinkStyle}>Upload</Link>
-            <Link href="/sps" style={navLinkStyle}>SP Database</Link>
-            <Link href="/sim-op" style={navLinkStyle}>Sim Op</Link>
-            <Link href="/staff" style={navLinkStyle}>Staff</Link>
-            <Link href="/admin" style={navLinkStyle}>Admin</Link>
-            <Link href="/me" style={navLinkStyle}>Me</Link>
+            <Link href="/dashboard" style={getNavLinkStyle(isNavActive(pathname, "/dashboard"))}>Dashboard</Link>
+            <Link href="/events" style={getNavLinkStyle(isNavActive(pathname, "/events"))}>Events</Link>
+            <Link href="/events/new" style={getNavLinkStyle(isNavActive(pathname, "/events/new"))}>New Event</Link>
+            <Link href="/events/upload" style={getNavLinkStyle(isNavActive(pathname, "/events/upload"))}>Upload</Link>
+            <Link href="/sps" style={getNavLinkStyle(isNavActive(pathname, "/sps"))}>SP Database</Link>
+            <Link href="/sim-op" style={getNavLinkStyle(isNavActive(pathname, "/sim-op"))}>Sim Op</Link>
+            <Link href="/staff" style={getNavLinkStyle(isNavActive(pathname, "/staff"))}>Staff</Link>
+            <Link href="/admin" style={getNavLinkStyle(isNavActive(pathname, "/admin"))}>Admin</Link>
+            <Link href="/me" style={getNavLinkStyle(isNavActive(pathname, "/me"))}>Me</Link>
             {!authReady ? null : authenticated ? (
               <button
                 type="button"
