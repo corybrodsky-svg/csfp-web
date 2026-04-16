@@ -11,6 +11,7 @@ export function createSupabaseServerClient() {
   if (!supabaseUrl) {
     throw new Error("Missing SUPABASE_URL or NEXT_PUBLIC_SUPABASE_URL");
   }
+<<<<<<< HEAD
 
   if (!supabaseKey) {
     throw new Error("Missing Supabase server key");
@@ -18,8 +19,14 @@ export function createSupabaseServerClient() {
 
   const resolvedUrl = supabaseUrl;
   const resolvedKey = supabaseKey;
+=======
+>>>>>>> restore-working-login
 
-  return createClient(resolvedUrl, resolvedKey, {
+  if (!supabaseKey) {
+    throw new Error("Missing Supabase server key");
+  }
+
+  return createClient(supabaseUrl, supabaseKey, {
     auth: {
       persistSession: false,
       autoRefreshToken: false,

@@ -59,14 +59,18 @@ function getLoginErrorStatus(message?: string | null) {
     return 503;
   }
 
+<<<<<<< HEAD
   if (lowered.includes("missing supabase") || lowered.includes("missing next_public_supabase")) {
     return 500;
   }
 
+=======
+>>>>>>> restore-working-login
   return 500;
 }
 
 export async function POST(request: Request) {
+<<<<<<< HEAD
   try {
     const body = await request.json().catch(() => null);
     const email = asText(
@@ -74,15 +78,35 @@ export async function POST(request: Request) {
     ).toLowerCase();
     const password = asText(
       body && typeof body === "object" ? (body as { password?: unknown }).password : ""
+=======
+  const body = await request.json().catch(() => null);
+  const email = asText(
+    body && typeof body === "object" ? (body as { email?: unknown }).email : ""
+  ).toLowerCase();
+  const password = asText(
+    body && typeof body === "object" ? (body as { password?: unknown }).password : ""
+  );
+
+  if (!email || !password) {
+    return NextResponse.json(
+      { ok: false, error: "Email and password are required." },
+      { status: 400 }
+>>>>>>> restore-working-login
     );
+  }
 
-    if (!email || !password) {
-      return NextResponse.json(
-        { ok: false, error: "Email and password are required." },
-        { status: 400 }
-      );
-    }
+  let supabase;
+  try {
+    supabase = createSupabaseServerClient();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Could not initialize auth client.";
+    return NextResponse.json(
+      { ok: false, error: formatLoginError(message) },
+      { status: getLoginErrorStatus(message) }
+    );
+  }
 
+<<<<<<< HEAD
     let supabase;
     try {
       supabase = createSupabaseServerClient();
@@ -139,13 +163,51 @@ export async function POST(request: Request) {
       refreshToken: data.session.refresh_token,
     });
     return response;
+=======
+  let signInResult;
+  try {
+    signInResult = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+>>>>>>> restore-working-login
   } catch (error) {
+    const message = error instanceof Error ? error.message : "Could not sign in.";
     return NextResponse.json(
-      {
-        ok: false,
-        error: error instanceof Error ? error.message : "Could not sign in.",
-      },
+      { ok: false, error: formatLoginError(message) },
+      { status: getLoginErrorStatus(message) }
+    );
+  }
+
+  const { data, error } = signInResult;
+
+  if (error) {
+    return NextResponse.json(
+      { ok: false, error: formatLoginError(error.message) },
+      { status: getLoginErrorStatus(error.message) }
+    );
+  }
+
+  const accessToken = data.session?.access_token || "";
+  const refreshToken = data.session?.refresh_token || "";
+
+  if (!accessToken || !refreshToken) {
+    return NextResponse.json(
+      { ok: false, error: "Supabase did not return a valid session." },
       { status: 500 }
     );
   }
+
+  const response = NextResponse.json({
+    ok: true,
+    user: {
+      id: data.user?.id || null,
+      email: data.user?.email || email,
+    },
+  });
+  setAuthCookies(response, {
+    accessToken,
+    refreshToken,
+  });
+  return response;
 }

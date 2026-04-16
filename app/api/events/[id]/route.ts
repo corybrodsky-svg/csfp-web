@@ -1,8 +1,12 @@
 import { NextResponse } from "next/server";
+<<<<<<< HEAD
 import { cookies } from "next/headers";
 import { AUTH_ACCESS_COOKIE } from "../../../lib/authCookies";
 import { createSupabaseServerClient } from "../../../lib/supabaseServerClient";
 import { getProfileForUser } from "../../../lib/profileServer";
+=======
+import { createSupabaseServerClient } from "../../../lib/supabaseServerClient";
+>>>>>>> restore-working-login
 
 export const dynamic = "force-dynamic";
 
@@ -150,11 +154,14 @@ export async function GET(
 ) {
   try {
     const supabaseServer = createSupabaseServerClient();
+<<<<<<< HEAD
     const viewer = await getAuthenticatedViewer();
     if (!viewer) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+=======
+>>>>>>> restore-working-login
     const params = await context.params;
     const eventId = getRouteId(params);
 

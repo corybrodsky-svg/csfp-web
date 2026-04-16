@@ -112,7 +112,7 @@ export async function GET() {
       last_sign_in_at: auth.user.last_sign_in_at || null,
       email_confirmed_at: auth.user.email_confirmed_at || null,
     },
-    profile: buildProfileResponse(auth.user, profileResult.profile),
+    profile: profileResult.error && !profileResult.profile ? null : buildProfileResponse(auth.user, profileResult.profile),
     profile_available: profileResult.available,
     ...(profileResult.error ? { warning: profileResult.error } : {}),
   });

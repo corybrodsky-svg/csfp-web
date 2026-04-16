@@ -165,11 +165,14 @@ function getViewerMatchedSpIds(sps: AssignedSpApiRow[], viewer: ViewerContext) {
 export async function GET() {
   try {
     const supabaseServer = createSupabaseServerClient();
+<<<<<<< HEAD
     const viewer = await getAuthenticatedViewer();
     if (!viewer) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+=======
+>>>>>>> restore-working-login
     const baseSelect = "id,name,status,date_text,sp_needed,visibility,location,notes,created_at";
     const ownerSelect = `${baseSelect},owner_id`;
     let data: EventApiRow[] | null = null;
