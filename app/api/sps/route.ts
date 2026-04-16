@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { supabaseServer } from "../../lib/supabaseServerClient";
+import { createSupabaseServerClient } from "../../lib/supabaseServerClient";
 
 export const dynamic = "force-dynamic";
 
@@ -51,6 +51,7 @@ function duplicateResponse() {
 
 export async function GET() {
   try {
+    const supabaseServer = createSupabaseServerClient();
     const { data, error } = await supabaseServer
       .from("sps")
       .select(spSelectColumns);
@@ -73,6 +74,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    const supabaseServer = createSupabaseServerClient();
     const payload = await request.json();
     const workingEmail = normalizeEmail(payload?.working_email);
     const fullName = normalizeName(getFullName(payload));

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { supabaseServer } from "../../../lib/supabaseServerClient";
+import { createSupabaseServerClient } from "../../../lib/supabaseServerClient";
 
 export const dynamic = "force-dynamic";
 
@@ -59,6 +59,7 @@ export async function GET(
   context: { params: Promise<{ id?: string | string[] }> }
 ) {
   try {
+    const supabaseServer = createSupabaseServerClient();
     const params = await context.params;
     const eventId = getRouteId(params);
 
@@ -157,6 +158,7 @@ export async function POST(
   context: { params: Promise<{ id?: string | string[] }> }
 ) {
   try {
+    const supabaseServer = createSupabaseServerClient();
     const params = await context.params;
     const eventId = getRouteId(params);
     const body = await request.json();
@@ -194,6 +196,7 @@ export async function PATCH(
   context: { params: Promise<{ id?: string | string[] }> }
 ) {
   try {
+    const supabaseServer = createSupabaseServerClient();
     const params = await context.params;
     const eventId = getRouteId(params);
     const body = await request.json();
@@ -251,6 +254,7 @@ export async function DELETE(
   context: { params: Promise<{ id?: string | string[] }> }
 ) {
   try {
+    const supabaseServer = createSupabaseServerClient();
     const params = await context.params;
     const eventId = getRouteId(params);
     const body = await request.json();

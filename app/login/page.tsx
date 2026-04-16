@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { supabase } from "../lib/supabaseClient";
 
 const pageStyle: React.CSSProperties = {
   minHeight: "100vh",
@@ -113,37 +114,16 @@ const helperTextStyle: React.CSSProperties = {
   textAlign: "center",
 };
 
-async function parseApiResponse(response: Response) {
-  const body = await response.json().catch(() => null);
-  return {
-    ok: response.ok,
-    error:
-      body && typeof body === "object" && typeof (body as { error?: unknown }).error === "string"
-        ? (body as { error: string }).error
-        : !response.ok
-          ? `${response.status} ${response.statusText}`
-          : "",
-  };
-}
-
-function formatTransportError(error: unknown) {
-  if (!(error instanceof Error)) {
-    return "Could not complete sign in.";
+function formatLoginError(message?: string) {
+  if (!message) return "Could not sign in.";
+  if (message.toLowerCase().includes("invalid login credentials")) {
+    return "Invalid email or password.";
   }
-
-  return error.message === "Failed to fetch"
-    ? "Could not reach this app from the browser."
-    : error.message || "Could not complete sign in.";
+  return message;
 }
 
 export default function LoginPage() {
   const router = useRouter();
-  const [nextPath] = useState(() => {
-    if (typeof window === "undefined") return "/dashboard";
-    const params = new URLSearchParams(window.location.search);
-    return params.get("next") || "/dashboard";
-  });
-
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [saving, setSaving] = useState(false);
@@ -154,33 +134,19 @@ export default function LoginPage() {
     setSaving(true);
     setErrorMessage("");
 
-    try {
-      const response = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          email: email.trim(),
-          password,
-        }),
-      });
+    const { error } = await supabase.auth.signInWithPassword({
+      email: email.trim(),
+      password,
+    });
 
-      const result = await parseApiResponse(response);
-      if (!result.ok) {
-        setErrorMessage(result.error || "Could not sign in.");
-        setSaving(false);
-        return;
-      }
-
-      router.replace(nextPath);
-    } catch (error) {
-      setErrorMessage(formatTransportError(error));
+    if (error) {
+      setErrorMessage(formatLoginError(error.message));
       setSaving(false);
       return;
     }
 
-    setSaving(false);
+    router.push("/events");
+    router.refresh();
   }
 
   return (
@@ -256,7 +222,7 @@ export default function LoginPage() {
         </div>
 
         <p style={helperTextStyle}>
-          Sign in goes through this app first, then the server talks to Supabase and sets your auth cookies.
+          Sign in with your CFSP email and password to continue to the events board.
         </p>
       </form>
     </main>

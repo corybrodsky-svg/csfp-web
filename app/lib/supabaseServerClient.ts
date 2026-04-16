@@ -23,16 +23,3 @@ export function createSupabaseServerClient() {
     },
   });
 }
-
-export const supabaseServer = new Proxy(
-  {},
-  {
-    get(_target, property) {
-      const client = createSupabaseServerClient() as unknown as Record<PropertyKey, unknown>;
-      const value = client[property];
-      return typeof value === "function"
-        ? (value as (...args: unknown[]) => unknown).bind(client)
-        : value;
-    },
-  }
-) as ReturnType<typeof createSupabaseServerClient>;

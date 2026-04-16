@@ -1,7 +1,6 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { AUTH_ACCESS_COOKIE } from "../../lib/authCookies";
-import { supabaseServer } from "../../lib/supabaseServerClient";
 import { getDateSortValue, getImportedYearHint, normalizeLooseDateToIso } from "../../lib/eventDateUtils";
 import { getProfilesByIds } from "../../lib/profileServer";
 import { createSupabaseServerClient } from "../../lib/supabaseServerClient";
@@ -68,6 +67,7 @@ async function getAuthenticatedUserId() {
 
 export async function GET() {
   try {
+    const supabaseServer = createSupabaseServerClient();
     const baseSelect = "id,name,status,date_text,sp_needed,visibility,location,notes,created_at";
     const ownerSelect = `${baseSelect},owner_id`;
     let data: EventApiRow[] | null = null;
@@ -201,6 +201,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    const supabaseServer = createSupabaseServerClient();
     const body = await request.json();
     const name = asText(body?.name);
     const ownerId = await getAuthenticatedUserId();
