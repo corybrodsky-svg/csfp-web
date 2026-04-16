@@ -1,33 +1,11 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
-import { usePathname } from "next/navigation";
-import {
-  AUTH_STATE_EVENT,
-  redirectToLogin,
-  signOutUserAndRedirect,
-} from "../lib/clientAuth";
 
 type SiteShellProps = {
   title: string;
   subtitle?: string;
   children: React.ReactNode;
-};
-
-type MeResponse = {
-  user?: {
-    id: string;
-    email?: string | null;
-  };
-  profile?: {
-    full_name: string | null;
-    email: string | null;
-    role: string | null;
-    is_active: boolean | null;
-  } | null;
-  error?: string;
 };
 
 const shellStyle: React.CSSProperties = {
@@ -46,7 +24,7 @@ const headerStyle: React.CSSProperties = {
   background: "#ffffff",
   border: "1px solid #d6deeb",
   borderRadius: "20px",
-  padding: "18px 20px 16px",
+  padding: "18px 20px",
   marginBottom: "16px",
   boxShadow: "0 8px 24px rgba(15, 23, 42, 0.06)",
 };
@@ -63,7 +41,7 @@ const brandWrapStyle: React.CSSProperties = {
   display: "flex",
   alignItems: "center",
   gap: "12px",
-  minWidth: "300px",
+  minWidth: "280px",
 };
 
 const brandMarkStyle: React.CSSProperties = {
@@ -80,11 +58,10 @@ const brandMarkStyle: React.CSSProperties = {
 
 const brandNameStyle: React.CSSProperties = {
   margin: 0,
-  fontSize: "19px",
+  fontSize: "20px",
   fontWeight: 900,
   color: "#16213e",
   lineHeight: 1.1,
-  letterSpacing: "0.01em",
 };
 
 const brandSubtitleStyle: React.CSSProperties = {
@@ -92,8 +69,7 @@ const brandSubtitleStyle: React.CSSProperties = {
   fontSize: "12px",
   color: "#64748b",
   fontWeight: 700,
-  letterSpacing: "0.04em",
-  textTransform: "uppercase",
+  letterSpacing: "0.02em",
 };
 
 const pageIntroStyle: React.CSSProperties = {
@@ -101,25 +77,16 @@ const pageIntroStyle: React.CSSProperties = {
   minWidth: "260px",
 };
 
-const pageEyebrowStyle: React.CSSProperties = {
-  margin: 0,
-  fontSize: "11px",
-  color: "#64748b",
-  fontWeight: 800,
-  letterSpacing: "0.08em",
-  textTransform: "uppercase",
-};
-
 const titleStyle: React.CSSProperties = {
-  margin: "4px 0 0",
-  fontSize: "30px",
+  margin: 0,
+  fontSize: "31px",
   color: "#16213e",
   lineHeight: 1.08,
 };
 
 const subtitleStyle: React.CSSProperties = {
-  margin: "4px 0 0 0",
-  fontSize: "14px",
+  margin: "6px 0 0 0",
+  fontSize: "15px",
   color: "#5a667a",
   lineHeight: 1.5,
 };
@@ -144,12 +111,6 @@ const navLinkStyle: React.CSSProperties = {
   fontSize: "13px",
 };
 
-const navButtonStyle: React.CSSProperties = {
-  ...navLinkStyle,
-  cursor: "pointer",
-  fontFamily: "inherit",
-};
-
 const contentCardStyle: React.CSSProperties = {
   background: "#ffffff",
   border: "1px solid #d6deeb",
@@ -158,108 +119,11 @@ const contentCardStyle: React.CSSProperties = {
   boxShadow: "0 8px 24px rgba(15, 23, 42, 0.05)",
 };
 
-function asText(value: unknown) {
-  if (value === null || value === undefined) return "";
-  return String(value).trim();
-}
-
-function isPublicPath(pathname: string) {
-  return pathname === "/login" || pathname === "/signup";
-}
-
-function isNavActive(pathname: string, href: string) {
-  if (href === "/dashboard") return pathname === "/dashboard";
-  return pathname === href || pathname.startsWith(`${href}/`);
-}
-
-function getNavLinkStyle(active: boolean): React.CSSProperties {
-  if (!active) return navLinkStyle;
-
-  return {
-    ...navLinkStyle,
-    background: "#173b6c",
-    border: "1px solid #173b6c",
-    color: "#ffffff",
-    boxShadow: "0 6px 18px rgba(23, 59, 108, 0.16)",
-  };
-}
-
 export default function SiteShell({
   title,
   subtitle,
   children,
 }: SiteShellProps) {
-  const pathname = usePathname();
-  const [authenticated, setAuthenticated] = useState(false);
-  const [authReady, setAuthReady] = useState(false);
-  const [loggingOut, setLoggingOut] = useState(false);
-
-  const loadAuthState = useCallback(async () => {
-    try {
-      const response = await fetch("/api/me", {
-        cache: "no-store",
-        credentials: "include",
-      });
-
-      if (response.status === 401) {
-        setAuthenticated(false);
-        setAuthReady(true);
-        return;
-      }
-
-      const body = (await response.json().catch(() => null)) as MeResponse | null;
-      if (!response.ok) {
-        setAuthenticated(false);
-        setAuthReady(true);
-        return;
-      }
-
-      setAuthenticated(Boolean(asText(body?.user?.id)));
-      setAuthReady(true);
-    } catch {
-      setAuthenticated(false);
-      setAuthReady(true);
-    }
-  }, []);
-
-  useEffect(() => {
-    void loadAuthState();
-  }, [loadAuthState, pathname]);
-
-  useEffect(() => {
-    function handleAuthState(event: Event) {
-      const nextAuthenticated =
-        event instanceof CustomEvent &&
-        typeof event.detail?.authenticated === "boolean"
-          ? event.detail.authenticated
-          : false;
-
-      setAuthenticated(nextAuthenticated);
-      setAuthReady(true);
-    }
-
-    window.addEventListener(AUTH_STATE_EVENT, handleAuthState);
-    return () => {
-      window.removeEventListener(AUTH_STATE_EVENT, handleAuthState);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!authReady || authenticated || isPublicPath(pathname)) return;
-    redirectToLogin();
-  }, [authReady, authenticated, pathname]);
-
-  async function handleLogout() {
-    setLoggingOut(true);
-    try {
-      await signOutUserAndRedirect();
-    } catch {
-      redirectToLogin();
-    } finally {
-      setLoggingOut(false);
-    }
-  }
-
   return (
     <main style={shellStyle}>
       <div style={containerStyle}>
@@ -267,19 +131,16 @@ export default function SiteShell({
           <div style={headerTopStyle}>
             <div style={brandWrapStyle}>
               <div style={brandMarkStyle} aria-hidden="true">
-                <Image
-                  src="/favicon.ico"
-                  alt="CFSP logo"
-                  width={30}
-                  height={30}
-                  style={{
-                    width: "30px",
-                    height: "30px",
-                    objectFit: "contain",
-                    display: "block",
-                    borderRadius: "8px",
-                  }}
-                />
+                <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+                  <rect x="4" y="4" width="20" height="20" rx="6" fill="rgba(255,255,255,0.16)" />
+                  <path
+                    d="M10 9.5H18.5M10 14H16.5M10 18.5H14.5"
+                    stroke="#ffffff"
+                    strokeWidth="2.2"
+                    strokeLinecap="round"
+                  />
+                  <circle cx="19.5" cy="18.5" r="2.5" fill="#ffffff" />
+                </svg>
               </div>
 
               <div>
@@ -289,34 +150,22 @@ export default function SiteShell({
             </div>
 
             <div style={pageIntroStyle}>
-              <p style={pageEyebrowStyle}>CFSP Ops Board</p>
               <h1 style={titleStyle}>{title}</h1>
               {subtitle ? <p style={subtitleStyle}>{subtitle}</p> : null}
             </div>
           </div>
 
           <div style={navWrapStyle}>
-            <Link href="/dashboard" style={getNavLinkStyle(isNavActive(pathname, "/dashboard"))}>Dashboard</Link>
-            <Link href="/events" style={getNavLinkStyle(isNavActive(pathname, "/events"))}>Events</Link>
-            <Link href="/events/new" style={getNavLinkStyle(isNavActive(pathname, "/events/new"))}>New Event</Link>
-            <Link href="/events/upload" style={getNavLinkStyle(isNavActive(pathname, "/events/upload"))}>Upload</Link>
-            <Link href="/sps" style={getNavLinkStyle(isNavActive(pathname, "/sps"))}>SP Database</Link>
-            <Link href="/sim-op" style={getNavLinkStyle(isNavActive(pathname, "/sim-op"))}>Sim Op</Link>
-            <Link href="/staff" style={getNavLinkStyle(isNavActive(pathname, "/staff"))}>Staff</Link>
-            <Link href="/admin" style={getNavLinkStyle(isNavActive(pathname, "/admin"))}>Admin</Link>
-            <Link href="/me" style={getNavLinkStyle(isNavActive(pathname, "/me"))}>Me</Link>
-            {!authReady ? null : authenticated ? (
-              <button
-                type="button"
-                onClick={() => void handleLogout()}
-                disabled={loggingOut}
-                style={{ ...navButtonStyle, opacity: loggingOut ? 0.7 : 1 }}
-              >
-                {loggingOut ? "Logging Out..." : "Logout"}
-              </button>
-            ) : (
-              <Link href="/login" style={navLinkStyle}>Login</Link>
-            )}
+            <Link href="/dashboard" style={navLinkStyle}>Dashboard</Link>
+            <Link href="/events" style={navLinkStyle}>Events</Link>
+            <Link href="/events/new" style={navLinkStyle}>New Event</Link>
+            <Link href="/events/upload" style={navLinkStyle}>Upload</Link>
+            <Link href="/sps" style={navLinkStyle}>SP Database</Link>
+            <Link href="/sim-op" style={navLinkStyle}>Sim Op</Link>
+            <Link href="/staff" style={navLinkStyle}>Staff</Link>
+            <Link href="/admin" style={navLinkStyle}>Admin</Link>
+            <Link href="/me" style={navLinkStyle}>Me</Link>
+            <Link href="/login" style={navLinkStyle}>Login</Link>
           </div>
         </section>
 
