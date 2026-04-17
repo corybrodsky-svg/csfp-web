@@ -20,5 +20,3 @@ export function getSupabaseClient() {
 
   return createClient(supabaseUrl, supabaseKey);
 }
-sed -n '1,40p' app/lib/supabaseClient.ts
-git diff -- app/lib/supabaseClient.ts
