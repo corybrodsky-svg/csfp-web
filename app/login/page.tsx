@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { getSupabaseClient } from "../lib/supabaseClient";
 
 const pageStyle: React.CSSProperties = {
   minHeight: "100vh",
@@ -126,43 +125,22 @@ export default function LoginPage() {
     setErrorMessage("");
 
     try {
-      const supabase = getSupabaseClient();
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-
-      if (error) {
-        setErrorMessage(error.message);
-        setSaving(false);
-        return;
-      }
-
-      const accessToken = data.session?.access_token || "";
-      const refreshToken = data.session?.refresh_token || "";
-
-      if (!accessToken || !refreshToken) {
-        setErrorMessage("Sign-in succeeded, but the session could not be prepared.");
-        setSaving(false);
-        return;
-      }
-
-      const sessionResponse = await fetch("/api/auth/session", {
+      const response = await fetch("/api/auth/login", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         credentials: "include",
         body: JSON.stringify({
-          access_token: accessToken,
-          refresh_token: refreshToken,
+          email,
+          password,
         }),
       });
 
-      const sessionBody = (await sessionResponse.json().catch(() => null)) as { error?: string } | null;
+      const body = (await response.json().catch(() => null)) as { error?: string } | null;
 
-      if (!sessionResponse.ok) {
-        setErrorMessage(sessionBody?.error || "Could not persist sign-in session.");
+      if (!response.ok) {
+        setErrorMessage(body?.error || "Could not sign in.");
         setSaving(false);
         return;
       }
