@@ -47,29 +47,36 @@ export default function LoginPage() {
       <form onSubmit={handleSubmit}>
         <h1>Login</h1>
 
-        {errorMessage && <p style={{ color: "red" }}>{errorMessage}</p>}
+        {errorMessage ? <p style={{ color: "red" }}>{errorMessage}</p> : null}
 
         <input
           type="email"
           placeholder="email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
+          required
         />
+
+        <br /><br />
 
         <input
           type="password"
           placeholder="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
+          required
         />
+
+        <br /><br />
 
         <button type="submit" disabled={saving}>
           {saving ? "Signing In..." : "Sign In"}
         </button>
+
+        <br /><br />
 
         <Link href="/signup">Create Account</Link>
       </form>
     </main>
   );
 }
-sed -n '1,15p' app/login/page.tsx
