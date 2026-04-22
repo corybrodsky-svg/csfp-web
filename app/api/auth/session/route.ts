@@ -6,6 +6,29 @@ function asText(value: unknown) {
   return String(value).trim();
 }
 
+type SessionPayload = {
+  access_token?: unknown;
+  refresh_token?: unknown;
+  accessToken?: unknown;
+  refreshToken?: unknown;
+};
+
+function getTokenPair(body: unknown) {
+  if (!body || typeof body !== "object") {
+    return {
+      accessToken: "",
+      refreshToken: "",
+    };
+  }
+
+  const payload = body as SessionPayload;
+
+  return {
+    accessToken: asText(payload.access_token ?? payload.accessToken),
+    refreshToken: asText(payload.refresh_token ?? payload.refreshToken),
+  };
+}
+
 export async function POST(request: Request) {
   let body: unknown = null;
 
@@ -15,10 +38,7 @@ export async function POST(request: Request) {
     body = null;
   }
 
-  const accessToken =
-    body && typeof body === "object" ? asText((body as { access_token?: unknown }).access_token) : "";
-  const refreshToken =
-    body && typeof body === "object" ? asText((body as { refresh_token?: unknown }).refresh_token) : "";
+  const { accessToken, refreshToken } = getTokenPair(body);
 
   if (!accessToken || !refreshToken) {
     return NextResponse.json(
@@ -41,7 +61,8 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         ok: false,
-        error: error instanceof Error ? error.message : "Could not persist auth session.",
+        error:
+          error instanceof Error ? error.message : "Could not persist auth session.",
       },
       { status: 500 }
     );

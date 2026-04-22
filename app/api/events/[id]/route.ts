@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { AUTH_ACCESS_COOKIE } from "../../../lib/authCookies";
+import {
+  AUTH_ACCESS_COOKIE,
+  AUTH_REFRESH_COOKIE,
+  clearAuthCookies,
+  setAuthCookies,
+} from "../../../lib/authCookies";
 import { createSupabaseServerClient } from "../../../lib/supabaseServerClient";
 import { getProfileForUser } from "../../../lib/profileServer";
 
@@ -47,10 +52,18 @@ function normalizeMatchValue(value: unknown) {
 }
 
 type ViewerContext = {
+  id: string;
+  accessToken: string;
+  refreshToken: string;
   email: string;
   role: string;
   fullName: string;
   scheduleName: string;
+  refreshedTokens?: {
+    accessToken: string;
+    refreshToken: string;
+  };
+  shouldClearCookies?: boolean;
 };
 
 type AssignedSpApiRow = {
@@ -62,34 +75,118 @@ type AssignedSpApiRow = {
   email?: string | null;
 };
 
-async function getAuthenticatedViewer(): Promise<ViewerContext | null> {
+type AuthenticatedUserResult = {
+  accessToken: string;
+  refreshToken: string;
+  user: Awaited<ReturnType<ReturnType<typeof createSupabaseServerClient>["auth"]["getUser"]>>["data"]["user"] | null;
+  refreshedTokens?: {
+    accessToken: string;
+    refreshToken: string;
+  };
+  shouldClearCookies?: boolean;
+};
+
+async function getAuthenticatedUser(): Promise<AuthenticatedUserResult> {
   try {
     const cookieStore = await cookies();
-    const accessToken = cookieStore.get(AUTH_ACCESS_COOKIE)?.value;
+    const accessToken = cookieStore.get(AUTH_ACCESS_COOKIE)?.value || "";
+    const refreshToken = cookieStore.get(AUTH_REFRESH_COOKIE)?.value || "";
 
-    if (!accessToken) return null;
+    if (!accessToken && !refreshToken) {
+      return { accessToken: "", refreshToken: "", user: null };
+    }
 
     const supabase = createSupabaseServerClient();
-    const {
-      data: { user },
-      error,
-    } = await supabase.auth.getUser(accessToken);
 
-    if (error || !user) return null;
+    if (accessToken) {
+      const {
+        data: { user },
+        error,
+      } = await supabase.auth.getUser(accessToken);
 
-    const profileResult = await getProfileForUser(user.id, accessToken);
-    const profile = profileResult.profile;
-    const email = asText(profile?.email) || asText(user.email);
+      if (!error && user) {
+        return { accessToken, refreshToken, user };
+      }
+    }
+
+    if (!refreshToken) {
+      return {
+        accessToken,
+        refreshToken,
+        user: null,
+        shouldClearCookies: true,
+      };
+    }
+
+    const { data, error } = await supabase.auth.refreshSession({ refresh_token: refreshToken });
+    const refreshedAccessToken = asText(data.session?.access_token);
+    const refreshedRefreshToken = asText(data.session?.refresh_token);
+    const refreshedUser = data.user ?? data.session?.user ?? null;
+
+    if (error || !refreshedUser || !refreshedAccessToken || !refreshedRefreshToken) {
+      return {
+        accessToken,
+        refreshToken,
+        user: null,
+        shouldClearCookies: true,
+      };
+    }
 
     return {
+      accessToken: refreshedAccessToken,
+      refreshToken: refreshedRefreshToken,
+      user: refreshedUser,
+      refreshedTokens: {
+        accessToken: refreshedAccessToken,
+        refreshToken: refreshedRefreshToken,
+      },
+    };
+  } catch {
+    return { accessToken: "", refreshToken: "", user: null };
+  }
+}
+
+async function getAuthenticatedViewer(): Promise<ViewerContext | null> {
+  try {
+    const auth = await getAuthenticatedUser();
+    if (!auth.user) return null;
+
+    const profileResult = await getProfileForUser(auth.user.id, auth.accessToken);
+    const profile = profileResult.profile;
+    const email = asText(profile?.email) || asText(auth.user.email);
+
+    return {
+      id: auth.user.id,
+      accessToken: auth.accessToken,
+      refreshToken: auth.refreshToken,
       email,
-      role: getEffectiveRole(email, profile?.role || user.user_metadata?.role),
-      fullName: asText(profile?.full_name) || asText(user.user_metadata?.full_name),
-      scheduleName: asText(profile?.schedule_name) || asText(user.user_metadata?.schedule_name),
+      role: getEffectiveRole(email, profile?.role || auth.user.user_metadata?.role),
+      fullName: asText(profile?.full_name) || asText(auth.user.user_metadata?.full_name),
+      scheduleName: asText(profile?.schedule_name) || asText(auth.user.user_metadata?.schedule_name),
+      refreshedTokens: auth.refreshedTokens,
+      shouldClearCookies: auth.shouldClearCookies,
     };
   } catch {
     return null;
   }
+}
+
+function applyAuthCookies(response: NextResponse, viewer: ViewerContext | null) {
+  if (!viewer) return response;
+
+  if (viewer.refreshedTokens) {
+    setAuthCookies(response, viewer.refreshedTokens);
+  }
+
+  return response;
+}
+
+function unauthorizedResponse(viewer?: ViewerContext | null) {
+  const response = NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (viewer?.shouldClearCookies) {
+    clearAuthCookies(response);
+  }
+  return response;
 }
 
 function viewerMatchesAssignedSp(sp: AssignedSpApiRow, viewer: ViewerContext) {
@@ -152,14 +249,17 @@ export async function GET(
     const supabaseServer = createSupabaseServerClient();
     const viewer = await getAuthenticatedViewer();
     if (!viewer) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return unauthorizedResponse();
     }
 
     const params = await context.params;
     const eventId = getRouteId(params);
 
     if (!eventId) {
-      return NextResponse.json({ error: "Missing event id." }, { status: 400 });
+      return applyAuthCookies(
+        NextResponse.json({ error: "Missing event id." }, { status: 400 }),
+        viewer
+      );
     }
 
     const { data: event, error: eventError } = await supabaseServer
@@ -169,14 +269,20 @@ export async function GET(
       .maybeSingle();
 
     if (eventError) {
-      return NextResponse.json(
-        { error: eventError.message || "Could not load event from Supabase." },
-        { status: 500 }
+      return applyAuthCookies(
+        NextResponse.json(
+          { error: eventError.message || "Could not load event from Supabase." },
+          { status: 500 }
+        ),
+        viewer
       );
     }
 
     if (!event) {
-      return NextResponse.json({ error: "Event details were not found." }, { status: 404 });
+      return applyAuthCookies(
+        NextResponse.json({ error: "Event details were not found." }, { status: 404 }),
+        viewer
+      );
     }
 
     const { data: sessions, error: sessionError } = await supabaseServer
@@ -191,9 +297,12 @@ export async function GET(
       .select("id,first_name,last_name,full_name,working_email,email,phone,portrayal_age,race,sex,telehealth,pt_preferred,other_roles,speaks_spanish,notes,status");
 
     if (spError) {
-      return NextResponse.json(
-        { error: spError.message || "Could not load SPs from Supabase." },
-        { status: 500 }
+      return applyAuthCookies(
+        NextResponse.json(
+          { error: spError.message || "Could not load SPs from Supabase." },
+          { status: 500 }
+        ),
+        viewer
       );
     }
 
@@ -215,9 +324,12 @@ export async function GET(
     }
 
     if (assignmentError) {
-      return NextResponse.json(
-        { error: assignmentError.message || "Could not load assignments from Supabase." },
-        { status: 500 }
+      return applyAuthCookies(
+        NextResponse.json(
+          { error: assignmentError.message || "Could not load assignments from Supabase." },
+          { status: 500 }
+        ),
+        viewer
       );
     }
 
@@ -230,7 +342,10 @@ export async function GET(
       );
 
       if (!matched) {
-        return NextResponse.json({ error: "You do not have access to this event." }, { status: 403 });
+        return applyAuthCookies(
+          NextResponse.json({ error: "You do not have access to this event." }, { status: 403 }),
+          viewer
+        );
       }
     }
 
@@ -239,20 +354,23 @@ export async function GET(
       .select("*")
       .limit(1000);
 
-    return NextResponse.json({
-      event,
-      sessions: sessions || [],
-      sps: [...(sps || [])],
-      assignments: assignments || [],
-      availabilityRows: availabilityRows || [],
-      errorMessage: "",
-      sessionErrorMessage: sessionError
-        ? sessionError.message || "Could not load event sessions from Supabase."
-        : "",
-      availabilityErrorMessage: availabilityError
-        ? availabilityError.message || "Could not load SP availability from Supabase."
-        : "",
-    });
+    return applyAuthCookies(
+      NextResponse.json({
+        event,
+        sessions: sessions || [],
+        sps: [...(sps || [])],
+        assignments: assignments || [],
+        availabilityRows: availabilityRows || [],
+        errorMessage: "",
+        sessionErrorMessage: sessionError
+          ? sessionError.message || "Could not load event sessions from Supabase."
+          : "",
+        availabilityErrorMessage: availabilityError
+          ? availabilityError.message || "Could not load SP availability from Supabase."
+          : "",
+      }),
+      viewer
+    );
   } catch (error) {
     return NextResponse.json(
       { error: `Supabase request failed: ${getErrorMessage(error)}` },
@@ -266,6 +384,11 @@ export async function POST(
   context: { params: Promise<{ id?: string | string[] }> }
 ) {
   try {
+    const viewer = await getAuthenticatedViewer();
+    if (!viewer) {
+      return unauthorizedResponse();
+    }
+
     const supabaseServer = createSupabaseServerClient();
     const params = await context.params;
     const eventId = getRouteId(params);
@@ -273,7 +396,10 @@ export async function POST(
     const spId = typeof body?.sp_id === "string" ? body.sp_id : "";
 
     if (!eventId || !spId) {
-      return NextResponse.json({ error: "Missing event id or SP id." }, { status: 400 });
+      return applyAuthCookies(
+        NextResponse.json({ error: "Missing event id or SP id." }, { status: 400 }),
+        viewer
+      );
     }
 
     const { error } = await supabaseServer.from("event_sps").insert({
@@ -284,13 +410,16 @@ export async function POST(
     });
 
     if (error) {
-      return NextResponse.json(
-        { error: error.message || "Could not save assignment." },
-        { status: 500 }
+      return applyAuthCookies(
+        NextResponse.json(
+          { error: error.message || "Could not save assignment." },
+          { status: 500 }
+        ),
+        viewer
       );
     }
 
-    return NextResponse.json({ ok: true }, { status: 201 });
+    return applyAuthCookies(NextResponse.json({ ok: true }, { status: 201 }), viewer);
   } catch (error) {
     return NextResponse.json(
       { error: `Supabase request failed: ${getErrorMessage(error)}` },
@@ -304,6 +433,11 @@ export async function PATCH(
   context: { params: Promise<{ id?: string | string[] }> }
 ) {
   try {
+    const viewer = await getAuthenticatedViewer();
+    if (!viewer) {
+      return unauthorizedResponse();
+    }
+
     const supabaseServer = createSupabaseServerClient();
     const params = await context.params;
     const eventId = getRouteId(params);
@@ -319,19 +453,25 @@ export async function PATCH(
         .eq("id", eventId);
 
       if (error) {
-        return NextResponse.json(
-          { error: error.message || "Could not update event details." },
-          { status: 500 }
+        return applyAuthCookies(
+          NextResponse.json(
+            { error: error.message || "Could not update event details." },
+            { status: 500 }
+          ),
+          viewer
         );
       }
 
-      return NextResponse.json({ ok: true });
+      return applyAuthCookies(NextResponse.json({ ok: true }), viewer);
     }
 
     if (!eventId || !assignmentId || !updates) {
-      return NextResponse.json(
-        { error: "Missing event id, assignment id, or updates." },
-        { status: 400 }
+      return applyAuthCookies(
+        NextResponse.json(
+          { error: "Missing event id, assignment id, or updates." },
+          { status: 400 }
+        ),
+        viewer
       );
     }
 
@@ -342,13 +482,16 @@ export async function PATCH(
       .eq("id", assignmentId);
 
     if (error) {
-      return NextResponse.json(
-        { error: error.message || "Could not update assignment." },
-        { status: 500 }
+      return applyAuthCookies(
+        NextResponse.json(
+          { error: error.message || "Could not update assignment." },
+          { status: 500 }
+        ),
+        viewer
       );
     }
 
-    return NextResponse.json({ ok: true });
+    return applyAuthCookies(NextResponse.json({ ok: true }), viewer);
   } catch (error) {
     return NextResponse.json(
       { error: `Supabase request failed: ${getErrorMessage(error)}` },
@@ -362,6 +505,11 @@ export async function DELETE(
   context: { params: Promise<{ id?: string | string[] }> }
 ) {
   try {
+    const viewer = await getAuthenticatedViewer();
+    if (!viewer) {
+      return unauthorizedResponse();
+    }
+
     const supabaseServer = createSupabaseServerClient();
     const params = await context.params;
     const eventId = getRouteId(params);
@@ -369,7 +517,10 @@ export async function DELETE(
     const assignmentId = typeof body?.assignment_id === "string" ? body.assignment_id : "";
 
     if (!eventId || !assignmentId) {
-      return NextResponse.json({ error: "Missing event id or assignment id." }, { status: 400 });
+      return applyAuthCookies(
+        NextResponse.json({ error: "Missing event id or assignment id." }, { status: 400 }),
+        viewer
+      );
     }
 
     const { error } = await supabaseServer
@@ -379,13 +530,16 @@ export async function DELETE(
       .eq("id", assignmentId);
 
     if (error) {
-      return NextResponse.json(
-        { error: error.message || "Could not remove assignment." },
-        { status: 500 }
+      return applyAuthCookies(
+        NextResponse.json(
+          { error: error.message || "Could not remove assignment." },
+          { status: 500 }
+        ),
+        viewer
       );
     }
 
-    return NextResponse.json({ ok: true });
+    return applyAuthCookies(NextResponse.json({ ok: true }), viewer);
   } catch (error) {
     return NextResponse.json(
       { error: `Supabase request failed: ${getErrorMessage(error)}` },

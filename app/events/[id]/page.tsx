@@ -1091,13 +1091,10 @@ export default function EventDetailPage() {
     () => Array.from(new Set(assignedEmailSources.map((item) => item.email))),
     [assignedEmailSources]
   );
-  const invitedAssignmentRecipients = useMemo(
+  const assignedEmailRecipients = useMemo(
     () =>
       sortedAssignments
         .map((assignment) => {
-          const status = getAssignmentStatus(assignment);
-          if (status !== "invited") return null;
-
           const sp = assignment.sp_id ? spsById.get(assignment.sp_id) : undefined;
           if (!sp) return null;
 
@@ -1121,33 +1118,33 @@ export default function EventDetailPage() {
         ),
     [sortedAssignments, spsById]
   );
-  const invitedBccEmails = useMemo(
-    () => Array.from(new Set(invitedAssignmentRecipients.map((item) => item.email))),
-    [invitedAssignmentRecipients]
+  const assignedBccEmails = useMemo(
+    () => Array.from(new Set(assignedEmailRecipients.map((item) => item.email))),
+    [assignedEmailRecipients]
   );
   const assignedCount = assignmentCount;
   const shortageCount = isWorkshop ? 0 : shortage;
   const eventType = eventMeta.eventType;
   const staffingRelevant = eventType !== "hifi" || needed > 0 || assignmentCount > 0;
-  const emailSubject = `[CFSP] Availability Request - ${event?.name || "CFSP Event"} - ${eventDateLabel}`;
+  const emailSubject = `[CFSP] ${event?.name || "CFSP Event"} - ${eventDateLabel}`;
   const emailBody = [
     "Hello,",
     "",
-    "We are reaching out to check your availability for the following CFSP event:",
+    "We are reaching out regarding the following CFSP event:",
     "",
     `Event: ${event?.name || "TBD"}`,
     `Date: ${eventDateLabel || "TBD"}`,
     `Time: ${summaryTimeLabel || "TBD"}`,
     `Location: ${event?.location || "TBD"}`,
     "",
-    "Please reply to let us know whether you are available for this event.",
-    "If you are available, we will confirm next steps and any additional instructions.",
+    "Please reply to confirm your availability and assignment status for this event.",
+    "If you have any scheduling conflicts or questions, include them in your reply.",
     "",
     "Thank you,",
     "CFSP Simulation Operations",
   ].join("\n");
   const mailtoHref = buildMailtoHref({
-    bcc: invitedBccEmails.length ? invitedBccEmails : bccEmails,
+    bcc: assignedBccEmails.length ? assignedBccEmails : bccEmails,
     subject: emailSubject,
     body: emailBody,
   });
@@ -1421,15 +1418,15 @@ export default function EventDetailPage() {
   }
 
   async function handleOpenAvailabilityRequest() {
-    if (!invitedBccEmails.length) {
-      setEventSaveError("No invited SP emails are available for an availability request.");
+    if (!assignedBccEmails.length) {
+      setEventSaveError("No assigned SP emails are available for an email draft.");
       return;
     }
 
     setEventSaveError("");
     window.location.href = mailtoHref;
     setEventSaveMessage(
-      `Availability request draft opened for ${invitedBccEmails.length} invited SP${invitedBccEmails.length === 1 ? "" : "s"}.`
+      `Email draft opened for ${assignedBccEmails.length} assigned SP${assignedBccEmails.length === 1 ? "" : "s"}.`
     );
   }
 
@@ -1876,7 +1873,7 @@ export default function EventDetailPage() {
             </p>
           </div>
           <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
-            {invitedBccEmails.length ? (
+            {assignedBccEmails.length ? (
               <button
                 type="button"
                 onClick={() => void handleOpenAvailabilityRequest()}
@@ -1891,7 +1888,7 @@ export default function EventDetailPage() {
                   cursor: "pointer",
                 }}
               >
-                Send Availability Request
+                Send Email
               </button>
             ) : (
               <span
@@ -1904,7 +1901,7 @@ export default function EventDetailPage() {
                   fontWeight: 800,
                 }}
               >
-                No Invited SP Emails
+                No Assigned SP Emails
               </span>
             )}
             <div
@@ -1919,7 +1916,7 @@ export default function EventDetailPage() {
               }}
             >
               <div style={{ color: "#173b6c", fontWeight: 900, fontSize: "20px" }}>
-                {confirmedCount} confirmed
+                {needed} SPs needed / {confirmedCount} confirmed
               </div>
               <div style={{ color: "#9a3412", fontWeight: 800 }}>
                 {unconfirmedCount} still need attention
@@ -1947,9 +1944,9 @@ export default function EventDetailPage() {
 
         {showEmailDraft ? (
           <div style={{ ...statCard, marginTop: "12px", background: "#ffffff" }}>
-            <div style={statLabel}>Availability Request Preview</div>
+            <div style={statLabel}>Email Draft Preview</div>
             <div style={{ marginTop: "8px", color: "#173b6c", lineHeight: 1.7 }}>
-              <div><strong>Recipients (BCC):</strong> {invitedBccEmails.length ? invitedBccEmails.join(", ") : "No invited SP emails found."}</div>
+              <div><strong>Recipients (BCC):</strong> {assignedBccEmails.length ? assignedBccEmails.join(", ") : "No assigned SP emails found."}</div>
               <div style={{ marginTop: "8px" }}><strong>Subject:</strong> {emailSubject}</div>
               <div style={{ marginTop: "8px", whiteSpace: "pre-wrap" }}><strong>Body:</strong>{"\n"}{emailBody}</div>
             </div>
@@ -2173,19 +2170,23 @@ export default function EventDetailPage() {
                         border: "1px solid #dbe4ee",
                         borderRadius: "16px",
                         padding: "12px",
-                        background: "#f8fbff",
+                        background: confirmed ? "#eff6ff" : "#f8fbff",
                       }}
                     >
                       <div style={statLabel}>Notes</div>
-                      <div
-                        style={{
-                          marginTop: "6px",
-                          color: "#334155",
-                          whiteSpace: "pre-wrap",
-                          lineHeight: 1.6,
-                        }}
-                      >
-                        {assignment.notes || "No notes yet."}
+                      <div style={{ marginTop: "8px" }}>
+                        <textarea
+                          key={`${assignment.id}-${assignment.notes || ""}`}
+                          defaultValue={assignment.notes || ""}
+                          onBlur={(e) =>
+                            handleAssignmentDetailsChange(assignment, {
+                              notes: e.target.value.trim() || null,
+                            })
+                          }
+                          placeholder="Add contact notes, constraints, follow-up details..."
+                          disabled={saving}
+                          style={{ ...textareaStyle, minHeight: "88px" }}
+                        />
                       </div>
                     </div>
 
@@ -2294,21 +2295,6 @@ export default function EventDetailPage() {
                     </div>
                   </div>
 
-                  <label style={{ display: "grid", gap: "6px", marginTop: "12px" }}>
-                    <span style={statLabel}>Assignment Notes</span>
-                    <textarea
-                      key={`${assignment.id}-${assignment.notes || ""}`}
-                      defaultValue={assignment.notes || ""}
-                      onBlur={(e) =>
-                        handleAssignmentDetailsChange(assignment, {
-                          notes: e.target.value.trim() || null,
-                        })
-                      }
-                      placeholder="Add contact notes, constraints, follow-up details..."
-                      disabled={saving}
-                      style={textareaStyle}
-                    />
-                  </label>
                 </div>
               );
             })}
