@@ -463,6 +463,11 @@ function getEventTypeButtonStyle(type: EventDisplayType, activeType: EventDispla
       border: "#c4b5fd",
       color: "#6d28d9",
     },
+    training: {
+      background: "#fff7ed",
+      border: "#fdba74",
+      color: "#9a3412",
+    },
   };
 
   const palette = palettes[type];
@@ -1566,6 +1571,7 @@ export default function EventDetailPage() {
               <span style={getEventTypeButtonStyle("skills", eventType)}>Skills</span>
               <span style={getEventTypeButtonStyle("sp", eventType)}>SP</span>
               <span style={getEventTypeButtonStyle("hifi", eventType)}>HiFi</span>
+              <span style={getEventTypeButtonStyle("training", eventType)}>Training</span>
             </div>
 
             <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
