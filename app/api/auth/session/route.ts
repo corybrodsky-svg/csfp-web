@@ -1,49 +1,63 @@
 import { NextResponse } from "next/server";
 
+export const runtime = "nodejs";
+
+function asText(value: unknown) {
+  if (value == null) return "";
+  return String(value).trim();
+}
+
 export async function POST(request: Request) {
   try {
     const body = await request.json().catch(() => null);
 
-    const accessToken = body?.access_token || body?.accessToken || "";
-    const refreshToken = body?.refresh_token || body?.refreshToken || "";
+    const accessToken = asText(
+      body && typeof body === "object"
+        ? (body as { access_token?: unknown; accessToken?: unknown }).access_token ??
+            (body as { access_token?: unknown; accessToken?: unknown }).accessToken
+        : ""
+    );
+
+    const refreshToken = asText(
+      body && typeof body === "object"
+        ? (body as { refresh_token?: unknown; refreshToken?: unknown }).refresh_token ??
+            (body as { refresh_token?: unknown; refreshToken?: unknown }).refreshToken
+        : ""
+    );
 
     if (!accessToken || !refreshToken) {
       return NextResponse.json(
-        { ok: false, error: "Missing tokens" },
+        { ok: false, error: "Missing access token or refresh token." },
         { status: 400 }
       );
     }
 
-    const res = NextResponse.json({ ok: true });
+    const response = NextResponse.json({ ok: true });
 
-    try {
-      // 🔥 MINIMAL SAFE COOKIE SET (no helpers)
-      res.cookies.set("cfsp-access-token", accessToken.trim(), {
-        httpOnly: true,
-        sameSite: "lax",
-        path: "/",
-      });
+    response.cookies.set("cfsp-access-token", accessToken, {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      path: "/",
+      maxAge: 60 * 60 * 24 * 7,
+    });
 
-      res.cookies.set("cfsp-refresh-token", refreshToken.trim(), {
-        httpOnly: true,
-        sameSite: "lax",
-        path: "/",
-      });
+    response.cookies.set("cfsp-refresh-token", refreshToken, {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      path: "/",
+      maxAge: 60 * 60 * 24 * 7,
+    });
 
-    } catch (cookieError) {
-      console.error("COOKIE CRASH:", cookieError);
-      return NextResponse.json(
-        { ok: false, error: "Cookie write failed" },
-        { status: 500 }
-      );
-    }
-
-    return res;
-
-  } catch (err) {
-    console.error("SESSION CRASH:", err);
+    return response;
+  } catch (error) {
+    console.error("SESSION ROUTE CRASH:", error);
     return NextResponse.json(
-      { ok: false, error: "Session route crashed" },
+      {
+        ok: false,
+        error: error instanceof Error ? error.message : "Session route crashed.",
+      },
       { status: 500 }
     );
   }
