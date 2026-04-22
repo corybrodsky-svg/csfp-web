@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { getSupabaseClient } from "../lib/supabaseClient";
 
 const pageStyle: React.CSSProperties = {
   minHeight: "100vh",
@@ -112,8 +112,38 @@ const helperTextStyle: React.CSSProperties = {
   textAlign: "center",
 };
 
+function asText(value: unknown) {
+  if (value === null || value === undefined) return "";
+  return String(value).trim();
+}
+
+function formatAuthError(message?: string | null) {
+  const text = asText(message);
+  if (!text) return "Could not sign in.";
+
+  const lowered = text.toLowerCase();
+
+  if (lowered.includes("invalid login credentials")) {
+    return "Invalid email or password.";
+  }
+
+  if (lowered.includes("email not confirmed")) {
+    return "Your email is not confirmed yet.";
+  }
+
+  if (
+    lowered.includes("failed to fetch") ||
+    lowered.includes("fetch failed") ||
+    lowered.includes("network") ||
+    lowered.includes("timeout")
+  ) {
+    return "Could not reach the authentication service.";
+  }
+
+  return text;
+}
+
 export default function LoginPage() {
-  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [saving, setSaving] = useState(false);
@@ -125,28 +155,43 @@ export default function LoginPage() {
     setErrorMessage("");
 
     try {
-      const response = await fetch("/api/auth/login", {
+      const supabase = getSupabaseClient();
+
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: email.trim().toLowerCase(),
+        password,
+      });
+
+      if (error || !data.session?.access_token || !data.session.refresh_token) {
+        setErrorMessage(formatAuthError(error?.message || "Could not sign in."));
+        setSaving(false);
+        return;
+      }
+
+      const persistResponse = await fetch("/api/auth/session", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         credentials: "include",
         body: JSON.stringify({
-          email,
-          password,
+          access_token: data.session.access_token,
+          refresh_token: data.session.refresh_token,
         }),
       });
 
-      const body = (await response.json().catch(() => null)) as { error?: string } | null;
+      const persistBody = (await persistResponse.json().catch(() => null)) as
+        | { error?: string }
+        | null;
 
-      if (!response.ok) {
-        setErrorMessage(body?.error || "Could not sign in.");
+      if (!persistResponse.ok) {
+        setErrorMessage(persistBody?.error || "Could not persist sign-in session.");
         setSaving(false);
         return;
       }
 
-      router.push("/events");
-      router.refresh();
+      window.location.assign("/events");
+      return;
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Could not sign in.");
       setSaving(false);

@@ -1,6 +1,11 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-import { AUTH_ACCESS_COOKIE } from "../../lib/authCookies";
+import {
+  AUTH_ACCESS_COOKIE,
+  AUTH_REFRESH_COOKIE,
+  clearAuthCookies,
+  setAuthCookies,
+} from "../../lib/authCookies";
 import {
   ensureProfileForUser,
   getProfileForUser,
@@ -29,8 +34,20 @@ function getForcedSuperAdminRole(email: unknown, role: string) {
   return role;
 }
 
+type AuthenticatedUserResult = {
+  accessToken: string;
+  refreshToken: string;
+  user: Awaited<ReturnType<ReturnType<typeof createSupabaseServerClient>["auth"]["getUser"]>>["data"]["user"] | null;
+  error: string;
+  refreshedTokens?: {
+    accessToken: string;
+    refreshToken: string;
+  };
+  shouldClearCookies?: boolean;
+};
+
 function buildProfileResponse(
-  user: Awaited<ReturnType<typeof getAuthenticatedUser>>["user"],
+  user: AuthenticatedUserResult["user"],
   profile: {
     id: string;
     full_name: string | null;
@@ -68,35 +85,77 @@ function buildProfileResponse(
   };
 }
 
-async function getAuthenticatedUser() {
+async function getAuthenticatedUser(): Promise<AuthenticatedUserResult> {
   try {
     const cookieStore = await cookies();
-    const accessToken = cookieStore.get(AUTH_ACCESS_COOKIE)?.value;
+    const accessToken = cookieStore.get(AUTH_ACCESS_COOKIE)?.value || "";
+    const refreshToken = cookieStore.get(AUTH_REFRESH_COOKIE)?.value || "";
 
-    if (!accessToken) {
-      return { accessToken: "", user: null, error: "Unauthorized" };
+    if (!accessToken && !refreshToken) {
+      return { accessToken: "", refreshToken: "", user: null, error: "Unauthorized" };
     }
 
     const supabase = createSupabaseServerClient();
-    const {
-      data: { user },
-      error,
-    } = await supabase.auth.getUser(accessToken);
 
-    if (error || !user) {
-      return { accessToken, user: null, error: "Unauthorized" };
+    if (accessToken) {
+      const {
+        data: { user },
+        error,
+      } = await supabase.auth.getUser(accessToken);
+
+      if (!error && user) {
+        return { accessToken, refreshToken, user, error: "" };
+      }
     }
 
-    return { accessToken, user, error: "" };
+    if (!refreshToken) {
+      return {
+        accessToken,
+        refreshToken,
+        user: null,
+        error: "Unauthorized",
+        shouldClearCookies: true,
+      };
+    }
+
+    const { data, error } = await supabase.auth.refreshSession({ refresh_token: refreshToken });
+    const refreshedAccessToken = asText(data.session?.access_token);
+    const refreshedRefreshToken = asText(data.session?.refresh_token);
+    const refreshedUser = data.user ?? data.session?.user ?? null;
+
+    if (error || !refreshedUser || !refreshedAccessToken || !refreshedRefreshToken) {
+      return {
+        accessToken,
+        refreshToken,
+        user: null,
+        error: "Unauthorized",
+        shouldClearCookies: true,
+      };
+    }
+
+    return {
+      accessToken: refreshedAccessToken,
+      refreshToken: refreshedRefreshToken,
+      user: refreshedUser,
+      error: "",
+      refreshedTokens: {
+        accessToken: refreshedAccessToken,
+        refreshToken: refreshedRefreshToken,
+      },
+    };
   } catch {
-    return { accessToken: "", user: null, error: "Unauthorized" };
+    return { accessToken: "", refreshToken: "", user: null, error: "Unauthorized" };
   }
 }
 
 export async function GET() {
   const auth = await getAuthenticatedUser();
   if (!auth.user) {
-    return NextResponse.json({ error: auth.error || "Unauthorized" }, { status: 401 });
+    const response = NextResponse.json({ error: auth.error || "Unauthorized" }, { status: 401 });
+    if (auth.shouldClearCookies) {
+      clearAuthCookies(response);
+    }
+    return response;
   }
 
   let profileResult: ProfileResult = await getProfileForUser(auth.user.id, auth.accessToken);
@@ -104,7 +163,7 @@ export async function GET() {
     profileResult = await ensureProfileForUser(auth.user, auth.accessToken);
   }
 
-  return NextResponse.json({
+  const response = NextResponse.json({
     user: {
       id: auth.user.id,
       email: auth.user.email,
@@ -116,12 +175,22 @@ export async function GET() {
     profile_available: profileResult.available,
     ...(profileResult.error ? { warning: profileResult.error } : {}),
   });
+
+  if (auth.refreshedTokens) {
+    setAuthCookies(response, auth.refreshedTokens);
+  }
+
+  return response;
 }
 
 export async function POST(request: Request) {
   const auth = await getAuthenticatedUser();
   if (!auth.user) {
-    return NextResponse.json({ error: auth.error || "Unauthorized" }, { status: 401 });
+    const response = NextResponse.json({ error: auth.error || "Unauthorized" }, { status: 401 });
+    if (auth.shouldClearCookies) {
+      clearAuthCookies(response);
+    }
+    return response;
   }
 
   try {
@@ -159,7 +228,7 @@ export async function POST(request: Request) {
       );
     }
 
-    return NextResponse.json({
+    const response = NextResponse.json({
       ok: true,
       message: "Profile saved.",
       user: {
@@ -178,6 +247,12 @@ export async function POST(request: Request) {
       profile_available: profileResult.available,
       warning: profileResult.error || "",
     });
+
+    if (auth.refreshedTokens) {
+      setAuthCookies(response, auth.refreshedTokens);
+    }
+
+    return response;
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Could not save profile." },
