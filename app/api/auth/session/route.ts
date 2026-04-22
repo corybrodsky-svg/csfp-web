@@ -1,82 +1,49 @@
 import { NextResponse } from "next/server";
-import { setAuthCookies } from "../../../lib/authCookies";
-
-function asText(value: unknown) {
-  if (value === null || value === undefined) return "";
-  return String(value).trim();
-}
-
-type SessionPayload = {
-  access_token?: unknown;
-  refresh_token?: unknown;
-  accessToken?: unknown;
-  refreshToken?: unknown;
-};
-
-function getTokenPair(body: unknown) {
-  if (!body || typeof body !== "object") {
-    return {
-      accessToken: "",
-      refreshToken: "",
-    };
-  }
-
-  const payload = body as SessionPayload;
-
-  return {
-    accessToken: asText(payload.access_token ?? payload.accessToken),
-    refreshToken: asText(payload.refresh_token ?? payload.refreshToken),
-  };
-}
 
 export async function POST(request: Request) {
   try {
-    let body: unknown = null;
+    const body = await request.json().catch(() => null);
 
-    try {
-      body = await request.json().catch(() => null);
-    } catch {
-      body = null;
-    }
-
-    const { accessToken, refreshToken } = getTokenPair(body);
+    const accessToken = body?.access_token || body?.accessToken || "";
+    const refreshToken = body?.refresh_token || body?.refreshToken || "";
 
     if (!accessToken || !refreshToken) {
       return NextResponse.json(
-        {
-          ok: false,
-          error: "Missing access token or refresh token.",
-        },
+        { ok: false, error: "Missing tokens" },
         { status: 400 }
       );
     }
 
+    const res = NextResponse.json({ ok: true });
+
     try {
-      const response = NextResponse.json({ ok: true });
-      const persisted = setAuthCookies(response, {
-        accessToken,
-        refreshToken,
+      // 🔥 MINIMAL SAFE COOKIE SET (no helpers)
+      res.cookies.set("cfsp-access-token", accessToken.trim(), {
+        httpOnly: true,
+        sameSite: "lax",
+        path: "/",
       });
 
-      if (!persisted) {
-        return NextResponse.json(
-          { ok: false, error: "session failed" },
-          { status: 500 }
-        );
-      }
+      res.cookies.set("cfsp-refresh-token", refreshToken.trim(), {
+        httpOnly: true,
+        sameSite: "lax",
+        path: "/",
+      });
 
-      return response;
-    } catch (error) {
-      console.error("SESSION ERROR:", error);
+    } catch (cookieError) {
+      console.error("COOKIE CRASH:", cookieError);
       return NextResponse.json(
-        { ok: false, error: "session failed" },
+        { ok: false, error: "Cookie write failed" },
         { status: 500 }
       );
     }
-  } catch (error) {
-    console.error("SESSION ERROR:", error);
+
+    return res;
+
+  } catch (err) {
+    console.error("SESSION CRASH:", err);
     return NextResponse.json(
-      { ok: false, error: "session failed" },
+      { ok: false, error: "Session route crashed" },
       { status: 500 }
     );
   }
