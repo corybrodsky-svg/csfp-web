@@ -30,40 +30,53 @@ function getTokenPair(body: unknown) {
 }
 
 export async function POST(request: Request) {
-  let body: unknown = null;
-
   try {
-    body = await request.json().catch(() => null);
-  } catch {
-    body = null;
-  }
+    let body: unknown = null;
 
-  const { accessToken, refreshToken } = getTokenPair(body);
+    try {
+      body = await request.json().catch(() => null);
+    } catch {
+      body = null;
+    }
 
-  if (!accessToken || !refreshToken) {
-    return NextResponse.json(
-      {
-        ok: false,
-        error: "Missing access token or refresh token.",
-      },
-      { status: 400 }
-    );
-  }
+    const { accessToken, refreshToken } = getTokenPair(body);
 
-  try {
-    const response = NextResponse.json({ ok: true });
-    setAuthCookies(response, {
-      accessToken,
-      refreshToken,
-    });
-    return response;
+    if (!accessToken || !refreshToken) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Missing access token or refresh token.",
+        },
+        { status: 400 }
+      );
+    }
+
+    try {
+      const response = NextResponse.json({ ok: true });
+      const persisted = setAuthCookies(response, {
+        accessToken,
+        refreshToken,
+      });
+
+      if (!persisted) {
+        return NextResponse.json(
+          { ok: false, error: "session failed" },
+          { status: 500 }
+        );
+      }
+
+      return response;
+    } catch (error) {
+      console.error("SESSION ERROR:", error);
+      return NextResponse.json(
+        { ok: false, error: "session failed" },
+        { status: 500 }
+      );
+    }
   } catch (error) {
+    console.error("SESSION ERROR:", error);
     return NextResponse.json(
-      {
-        ok: false,
-        error:
-          error instanceof Error ? error.message : "Could not persist auth session.",
-      },
+      { ok: false, error: "session failed" },
       { status: 500 }
     );
   }

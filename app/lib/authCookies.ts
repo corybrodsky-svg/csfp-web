@@ -17,13 +17,8 @@ function cookieOptions(maxAge?: number) {
   };
 }
 
-function assertCookieToken(name: string, value: string) {
-  const normalized = normalizeCookieValue(value);
-  if (!normalized) {
-    throw new Error(`Missing ${name}.`);
-  }
-
-  return normalized;
+function safeCookieToken(value: string) {
+  return normalizeCookieValue(value);
 }
 
 export function setAuthCookies(
@@ -31,16 +26,30 @@ export function setAuthCookies(
   tokens: { accessToken: string; refreshToken: string },
   maxAge = 60 * 60 * 24 * 7
 ) {
-  const accessToken = assertCookieToken("access token", tokens.accessToken);
-  const refreshToken = assertCookieToken("refresh token", tokens.refreshToken);
+  const accessToken = safeCookieToken(tokens.accessToken);
+  const refreshToken = safeCookieToken(tokens.refreshToken);
   const options = cookieOptions(maxAge);
 
-  response.cookies.set(AUTH_ACCESS_COOKIE, accessToken, options);
-  response.cookies.set(AUTH_REFRESH_COOKIE, refreshToken, options);
+  if (!accessToken || !refreshToken) {
+    return false;
+  }
+
+  try {
+    response.cookies.set(AUTH_ACCESS_COOKIE, accessToken, options);
+    response.cookies.set(AUTH_REFRESH_COOKIE, refreshToken, options);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function clearAuthCookies(response: NextResponse) {
   const options = cookieOptions(0);
-  response.cookies.set(AUTH_ACCESS_COOKIE, "", options);
-  response.cookies.set(AUTH_REFRESH_COOKIE, "", options);
+
+  try {
+    response.cookies.set(AUTH_ACCESS_COOKIE, "", options);
+    response.cookies.set(AUTH_REFRESH_COOKIE, "", options);
+  } catch {
+    return;
+  }
 }
