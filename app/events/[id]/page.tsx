@@ -96,6 +96,7 @@ type AssignmentStatus =
   | "no_show";
 
 type ContactMethod = "call" | "text" | "email";
+type AssignmentFilterStatus = "all" | "invited" | "confirmed" | "declined";
 
 type AvailabilityMatchStatus =
   | "available"
@@ -853,14 +854,12 @@ export default function EventDetailPage() {
   const [ptPreferredOnly, setPtPreferredOnly] = useState(false);
   const [availableForEventOnly, setAvailableForEventOnly] = useState(false);
   const [showEmailDraft, setShowEmailDraft] = useState(false);
+  const [assignmentFilter, setAssignmentFilter] = useState<AssignmentFilterStatus>("all");
   const [loading, setLoading] = useState(Boolean(id));
   const [saving, setSaving] = useState(false);
   const [assigningSpId, setAssigningSpId] = useState("");
   const [assignmentSuccessMessage, setAssignmentSuccessMessage] = useState("");
   const [recentAssignedSpId, setRecentAssignedSpId] = useState("");
-  const [pollEmailMessage, setPollEmailMessage] = useState("");
-  const [sendingPollAssignmentId, setSendingPollAssignmentId] = useState("");
-  const [sentPollAssignmentIds, setSentPollAssignmentIds] = useState<string[]>([]);
   const [errorMessage, setErrorMessage] = useState("");
   const [eventSaveMessage, setEventSaveMessage] = useState("");
   const [eventSaveError, setEventSaveError] = useState("");
@@ -892,6 +891,11 @@ export default function EventDetailPage() {
       }),
     [assignments, spsById]
   );
+
+  const filteredAssignments = useMemo(() => {
+    if (assignmentFilter === "all") return sortedAssignments;
+    return sortedAssignments.filter((assignment) => getAssignmentStatus(assignment) === assignmentFilter);
+  }, [assignmentFilter, sortedAssignments]);
 
   const assignmentsBySpId = useMemo(() => {
     const next = new Map<string, AssignmentRow>();
@@ -1087,30 +1091,63 @@ export default function EventDetailPage() {
     () => Array.from(new Set(assignedEmailSources.map((item) => item.email))),
     [assignedEmailSources]
   );
-  const hasAssignedEmails = bccEmails.length > 0;
+  const invitedAssignmentRecipients = useMemo(
+    () =>
+      sortedAssignments
+        .map((assignment) => {
+          const status = getAssignmentStatus(assignment);
+          if (status !== "invited") return null;
+
+          const sp = assignment.sp_id ? spsById.get(assignment.sp_id) : undefined;
+          if (!sp) return null;
+
+          const email = getEmail(sp);
+          if (!email) return null;
+
+          return {
+            assignment,
+            sp,
+            email,
+          };
+        })
+        .filter(
+          (
+            item
+          ): item is {
+            assignment: AssignmentRow;
+            sp: SPRow;
+            email: string;
+          } => Boolean(item)
+        ),
+    [sortedAssignments, spsById]
+  );
+  const invitedBccEmails = useMemo(
+    () => Array.from(new Set(invitedAssignmentRecipients.map((item) => item.email))),
+    [invitedAssignmentRecipients]
+  );
   const assignedCount = assignmentCount;
   const shortageCount = isWorkshop ? 0 : shortage;
   const eventType = eventMeta.eventType;
   const staffingRelevant = eventType !== "hifi" || needed > 0 || assignmentCount > 0;
-  const emailSubject = `SP Assignment: ${event?.name || "CFSP Event"}`;
+  const emailSubject = `[CFSP] Availability Request - ${event?.name || "CFSP Event"} - ${eventDateLabel}`;
   const emailBody = [
     "Hello,",
     "",
-    `You are receiving this because you are assigned as an SP for ${event?.name || "this CFSP event"}.`,
+    "We are reaching out to check your availability for the following CFSP event:",
     "",
     `Event: ${event?.name || "TBD"}`,
-    `Date(s): ${eventDateLabel}`,
+    `Date: ${eventDateLabel || "TBD"}`,
+    `Time: ${summaryTimeLabel || "TBD"}`,
     `Location: ${event?.location || "TBD"}`,
     "",
-    "Reporting instructions: Please arrive at the assigned reporting location 15 minutes before the event start time. Additional case-specific instructions will be shared by the simulation operations team.",
-    "",
-    "Please reply to confirm your assignment and availability for this event.",
+    "Please reply to let us know whether you are available for this event.",
+    "If you are available, we will confirm next steps and any additional instructions.",
     "",
     "Thank you,",
     "CFSP Simulation Operations",
   ].join("\n");
   const mailtoHref = buildMailtoHref({
-    bcc: bccEmails,
+    bcc: invitedBccEmails.length ? invitedBccEmails : bccEmails,
     subject: emailSubject,
     body: emailBody,
   });
@@ -1159,7 +1196,6 @@ export default function EventDetailPage() {
     setSaving(true);
     setAssigningSpId("");
     setAssignmentSuccessMessage("");
-    setPollEmailMessage("");
     setErrorMessage("");
     setEventSaveMessage("");
     setEventSaveError("");
@@ -1277,7 +1313,6 @@ export default function EventDetailPage() {
     setSaving(true);
     setAssigningSpId(spId);
     setAssignmentSuccessMessage("");
-    setPollEmailMessage("");
     setErrorMessage("");
     setEventSaveMessage("");
     setEventSaveError("");
@@ -1310,7 +1345,6 @@ export default function EventDetailPage() {
     setSaving(true);
     setAssigningSpId("");
     setAssignmentSuccessMessage("");
-    setPollEmailMessage("");
     setErrorMessage("");
     setEventSaveMessage("");
     setEventSaveError("");
@@ -1318,7 +1352,12 @@ export default function EventDetailPage() {
     try {
       await saveAssignmentRequest("PATCH", {
         assignment_id: assignment.id,
-        updates: { status, confirmed: status === "confirmed" },
+        updates: {
+          status,
+          confirmed: status === "confirmed",
+          last_contacted_at:
+            status === "contacted" ? new Date().toISOString() : assignment.last_contacted_at,
+        },
       });
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Could not update assignment.");
@@ -1327,6 +1366,7 @@ export default function EventDetailPage() {
     }
 
     await refreshData();
+    setEventSaveMessage(`Status updated to ${assignmentStatusLabels[status]}.`);
     setSaving(false);
   }
 
@@ -1337,7 +1377,6 @@ export default function EventDetailPage() {
     setSaving(true);
     setAssigningSpId("");
     setAssignmentSuccessMessage("");
-    setPollEmailMessage("");
     setErrorMessage("");
     setEventSaveMessage("");
     setEventSaveError("");
@@ -1354,6 +1393,7 @@ export default function EventDetailPage() {
     }
 
     await refreshData();
+    setEventSaveMessage("Assignment details saved.");
     setSaving(false);
   }
 
@@ -1361,7 +1401,6 @@ export default function EventDetailPage() {
     setSaving(true);
     setAssigningSpId("");
     setAssignmentSuccessMessage("");
-    setPollEmailMessage("");
     setErrorMessage("");
     setEventSaveMessage("");
     setEventSaveError("");
@@ -1377,37 +1416,21 @@ export default function EventDetailPage() {
     }
 
     await refreshData();
+    setEventSaveMessage("Assignment removed.");
     setSaving(false);
   }
 
-  async function handleSendPollEmail(assignment: AssignmentRow) {
-    if (!id) return;
-
-    setSendingPollAssignmentId(assignment.id);
-    setPollEmailMessage("");
-    setErrorMessage("");
-
-    try {
-      const response = await fetch(`/api/events/${encodeURIComponent(id)}/poll-email`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ assignment_id: assignment.id }),
-      });
-
-      if (!response.ok) {
-        throw new Error(await parseApiError(response));
-      }
-
-      const body = await response.json().catch(() => null);
-      setPollEmailMessage(body?.message || "Poll email sent.");
-      setSentPollAssignmentIds((current) =>
-        current.includes(assignment.id) ? current : [...current, assignment.id]
-      );
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Could not send poll email.");
-    } finally {
-      setSendingPollAssignmentId("");
+  async function handleOpenAvailabilityRequest() {
+    if (!invitedBccEmails.length) {
+      setEventSaveError("No invited SP emails are available for an availability request.");
+      return;
     }
+
+    setEventSaveError("");
+    window.location.href = mailtoHref;
+    setEventSaveMessage(
+      `Availability request draft opened for ${invitedBccEmails.length} invited SP${invitedBccEmails.length === 1 ? "" : "s"}.`
+    );
   }
 
   async function handleFillRemainingSpots() {
@@ -1513,20 +1536,6 @@ export default function EventDetailPage() {
           }}
         >
           Availability warning: {availabilityErrorMessage}
-        </div>
-      ) : null}
-
-      {pollEmailMessage ? (
-        <div
-          style={{
-            ...cardStyle,
-            borderColor: "#86efac",
-            background: "#ecfdf3",
-            color: "#166534",
-            fontWeight: 700,
-          }}
-        >
-          {pollEmailMessage}
         </div>
       ) : null}
 
@@ -1867,9 +1876,10 @@ export default function EventDetailPage() {
             </p>
           </div>
           <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
-            {hasAssignedEmails ? (
-              <a
-                href={mailtoHref}
+            {invitedBccEmails.length ? (
+              <button
+                type="button"
+                onClick={() => void handleOpenAvailabilityRequest()}
                 style={{
                   display: "inline-block",
                   background: "#16a34a",
@@ -1877,11 +1887,12 @@ export default function EventDetailPage() {
                   padding: "10px 14px",
                   borderRadius: "10px",
                   fontWeight: 800,
-                  textDecoration: "none",
+                  border: "none",
+                  cursor: "pointer",
                 }}
               >
-                Email Assigned SPs
-              </a>
+                Send Availability Request
+              </button>
             ) : (
               <span
                 style={{
@@ -1893,7 +1904,7 @@ export default function EventDetailPage() {
                   fontWeight: 800,
                 }}
               >
-                No Assigned SP Emails
+                No Invited SP Emails
               </span>
             )}
             <div
@@ -1936,17 +1947,66 @@ export default function EventDetailPage() {
 
         {showEmailDraft ? (
           <div style={{ ...statCard, marginTop: "12px", background: "#ffffff" }}>
-            <div style={statLabel}>Assigned Email Preview</div>
+            <div style={statLabel}>Availability Request Preview</div>
             <div style={{ marginTop: "8px", color: "#173b6c", lineHeight: 1.7 }}>
-              {bccEmails.length ? bccEmails.join(", ") : "No assigned SP emails found."}
+              <div><strong>Recipients (BCC):</strong> {invitedBccEmails.length ? invitedBccEmails.join(", ") : "No invited SP emails found."}</div>
+              <div style={{ marginTop: "8px" }}><strong>Subject:</strong> {emailSubject}</div>
+              <div style={{ marginTop: "8px", whiteSpace: "pre-wrap" }}><strong>Body:</strong>{"\n"}{emailBody}</div>
             </div>
           </div>
         ) : null}
+
+        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "12px" }}>
+          {[
+            { value: "all", label: `All (${sortedAssignments.length})` },
+            {
+              value: "invited",
+              label: `Invited (${sortedAssignments.filter((item) => getAssignmentStatus(item) === "invited").length})`,
+            },
+            {
+              value: "confirmed",
+              label: `Confirmed (${sortedAssignments.filter((item) => getAssignmentStatus(item) === "confirmed").length})`,
+            },
+            {
+              value: "declined",
+              label: `Declined (${sortedAssignments.filter((item) => getAssignmentStatus(item) === "declined").length})`,
+            },
+          ].map((filter) => (
+            <button
+              key={filter.value}
+              type="button"
+              onClick={() => setAssignmentFilter(filter.value as AssignmentFilterStatus)}
+              style={{
+                ...buttonStyle,
+                background: assignmentFilter === filter.value ? "#173b6c" : "#ffffff",
+                color: assignmentFilter === filter.value ? "#ffffff" : "#173b6c",
+                border: assignmentFilter === filter.value ? "1px solid #173b6c" : "1px solid #cbd5e1",
+                padding: "8px 12px",
+              }}
+            >
+              {filter.label}
+            </button>
+          ))}
+        </div>
 
         {assignments.length === 0 ? (
           <p style={{ color: "#64748b", marginBottom: 0, marginTop: "14px" }}>
             No SPs assigned yet.
           </p>
+        ) : filteredAssignments.length === 0 ? (
+          <div
+            style={{
+              marginTop: "14px",
+              border: "1px solid #dbe4ee",
+              borderRadius: "16px",
+              padding: "16px",
+              background: "#f8fafc",
+              color: "#64748b",
+              fontWeight: 700,
+            }}
+          >
+            No assigned SPs match the current filter.
+          </div>
         ) : (
           <div
             style={{
@@ -1956,7 +2016,7 @@ export default function EventDetailPage() {
               gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
             }}
           >
-            {sortedAssignments.map((assignment) => {
+            {filteredAssignments.map((assignment) => {
               const sp = assignment.sp_id ? spsById.get(assignment.sp_id) : undefined;
               const status = getAssignmentStatus(assignment);
               const confirmed = isAssignmentConfirmed(assignment);
@@ -2024,8 +2084,9 @@ export default function EventDetailPage() {
                         </span>
                       </div>
 
-                      <div style={{ marginTop: 6, color: "#64748b", fontWeight: 700 }}>
-                        {email || assignment.sp_id || "No SP id"}
+                      <div style={{ marginTop: 6, color: "#64748b", fontWeight: 700, lineHeight: 1.6 }}>
+                        <div>{email || assignment.sp_id || "No SP id"}</div>
+                        <div>{sp?.phone || "No phone on file"}</div>
                       </div>
                     </div>
 
@@ -2191,45 +2252,6 @@ export default function EventDetailPage() {
                         Decline
                       </button>
                     </div>
-
-                    {status === "invited" ? (
-                      <div style={{ display: "grid", gap: "8px" }}>
-                        {sentPollAssignmentIds.includes(assignment.id) ? (
-                          <div
-                            style={{
-                              borderRadius: "999px",
-                              padding: "7px 10px",
-                              background: "#ecfdf3",
-                              border: "1px solid #86efac",
-                              color: "#166534",
-                              fontSize: "12px",
-                              fontWeight: 900,
-                              textAlign: "center",
-                            }}
-                          >
-                            Sent
-                          </div>
-                        ) : null}
-                        <button
-                          type="button"
-                          onClick={() => void handleSendPollEmail(assignment)}
-                          disabled={Boolean(sendingPollAssignmentId)}
-                          style={{
-                            ...buttonStyle,
-                            background: "#ffffff",
-                            color: "#173b6c",
-                            border: "1px solid #bfdbfe",
-                            opacity: sendingPollAssignmentId ? 0.65 : 1,
-                          }}
-                        >
-                          {sendingPollAssignmentId === assignment.id
-                            ? "Sending Poll..."
-                            : sentPollAssignmentIds.includes(assignment.id)
-                              ? "Resend Poll Email"
-                              : "Send Poll Email"}
-                        </button>
-                      </div>
-                    ) : null}
 
                     <div style={{ ...detailGridStyle, marginTop: "2px" }}>
                       <label style={{ display: "grid", gap: "6px" }}>
