@@ -47,6 +47,7 @@ type DateGroup = {
 };
 
 type EventsViewMode = "all" | "assigned";
+type DateFilterMode = "active" | "past" | "all";
 
 const shellCardStyle: React.CSSProperties = {
   background: "#ffffff",
@@ -140,14 +141,18 @@ function getDisplayDate(event: EventRow) {
 }
 
 function toDateKey(sortValue: number) {
-  if (!Number.isFinite(sortValue) || sortValue <= 0) return "unscheduled";
+  if (!Number.isFinite(sortValue) || sortValue <= 0 || sortValue === Number.MAX_SAFE_INTEGER) {
+    return "unscheduled";
+  }
   const date = new Date(sortValue);
   if (Number.isNaN(date.getTime())) return "unscheduled";
   return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
 }
 
 function formatDateHeader(sortValue: number) {
-  if (!Number.isFinite(sortValue) || sortValue <= 0) return "Unscheduled";
+  if (!Number.isFinite(sortValue) || sortValue <= 0 || sortValue === Number.MAX_SAFE_INTEGER) {
+    return "Unscheduled";
+  }
   const date = new Date(sortValue);
   if (Number.isNaN(date.getTime())) return "Unscheduled";
   return date.toLocaleDateString(undefined, {
@@ -185,6 +190,23 @@ function getStatusTone(status: string) {
   return { background: "#fff7ed", border: "#fdba74", color: "#9a3412" };
 }
 
+function getStartOfToday() {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+}
+
+function matchesDateFilter(event: EventRow, filterMode: DateFilterMode, startOfToday: number) {
+  if (filterMode === "all") return true;
+
+  const eventDate = parseEventDateValue(event);
+  if (!Number.isFinite(eventDate) || eventDate === Number.MAX_SAFE_INTEGER) {
+    return filterMode === "active";
+  }
+
+  if (filterMode === "past") return eventDate < startOfToday;
+  return eventDate >= startOfToday;
+}
+
 async function parseApiError(response: Response) {
   try {
     const body = await response.json();
@@ -201,6 +223,7 @@ export default function EventsPage() {
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
   const [viewMode, setViewMode] = useState<EventsViewMode>("all");
+  const [dateFilterMode, setDateFilterMode] = useState<DateFilterMode>("active");
 
   const redirectToLogin = useCallback(() => {
     router.replace("/login");
@@ -273,11 +296,22 @@ export default function EventsPage() {
     [currentUserId, events, ownershipMatchName]
   );
   const activeViewMode: EventsViewMode = isSuperAdmin ? viewMode : "assigned";
-  const visibleEvents = useMemo(
+  const scopedEvents = useMemo(
     () => (activeViewMode === "all" ? events : assignedEvents),
     [activeViewMode, assignedEvents, events]
   );
+  const startOfToday = useMemo(() => getStartOfToday(), []);
+  const visibleEvents = useMemo(
+    () => scopedEvents.filter((event) => matchesDateFilter(event, dateFilterMode, startOfToday)),
+    [dateFilterMode, scopedEvents, startOfToday]
+  );
   const viewingLabel = activeViewMode === "all" ? "Viewing: All Events" : "Viewing: My Assigned Events";
+  const dateFilterLabel =
+    dateFilterMode === "active"
+      ? "Showing: Upcoming + Current"
+      : dateFilterMode === "past"
+        ? "Showing: Past Events"
+        : "Showing: All Events";
 
   const groupedEvents = useMemo<DateGroup[]>(() => {
     const groups = new Map<string, DateGroup>();
@@ -387,6 +421,20 @@ export default function EventsPage() {
               >
                 {viewingLabel}
               </span>
+              <span
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  borderRadius: "999px",
+                  padding: "8px 12px",
+                  background: "rgba(255,255,255,0.14)",
+                  border: "1px solid rgba(255,255,255,0.2)",
+                  fontWeight: 800,
+                  fontSize: "13px",
+                }}
+              >
+                {dateFilterLabel}
+              </span>
               {isSuperAdmin ? (
                 <div
                   style={{
@@ -431,12 +479,45 @@ export default function EventsPage() {
                 </div>
               ) : null}
             </div>
+            <div
+              style={{
+                display: "flex",
+                gap: "10px",
+                flexWrap: "wrap",
+                alignItems: "center",
+                marginTop: "12px",
+              }}
+            >
+              {[
+                { value: "active" as DateFilterMode, label: "Upcoming + Current" },
+                { value: "past" as DateFilterMode, label: "Past Events" },
+                { value: "all" as DateFilterMode, label: "All Events" },
+              ].map((filter) => (
+                <button
+                  key={filter.value}
+                  type="button"
+                  onClick={() => setDateFilterMode(filter.value)}
+                  style={{
+                    border: "none",
+                    borderRadius: "999px",
+                    padding: "9px 12px",
+                    fontWeight: 900,
+                    cursor: "pointer",
+                    background: dateFilterMode === filter.value ? "#ffffff" : "rgba(255,255,255,0.12)",
+                    color: dateFilterMode === filter.value ? "#173b6c" : "#ffffff",
+                    borderColor: "transparent",
+                  }}
+                >
+                  {filter.label}
+                </button>
+              ))}
+            </div>
             <h2 style={{ margin: "14px 0 0", fontSize: "34px", lineHeight: 1.08 }}>
               {loading ? "Loading events..." : `${visibleEvents.length} Events Loaded`}
             </h2>
             <p style={{ margin: "10px 0 0", color: "rgba(255,255,255,0.84)", lineHeight: 1.7, fontWeight: 600 }}>
-              All imported events are shown in one chronological list so you can scan the schedule quickly,
-              spot staffing gaps, and jump straight into the event detail page.
+              Upcoming and current work stays front and center by default, while past imported events remain
+              available when you need to review them.
             </p>
           </div>
 
@@ -518,12 +599,18 @@ export default function EventsPage() {
       ) : visibleEvents.length === 0 ? (
         <div style={shellCardStyle}>
           <h3 style={{ marginTop: 0, color: "#173b6c" }}>
-            {activeViewMode === "all" ? "No events yet" : "No assigned events yet"}
+            {dateFilterMode === "past"
+              ? "No past events found"
+              : activeViewMode === "all"
+                ? "No current or upcoming events"
+                : "No current or upcoming assigned events"}
           </h3>
           <p style={{ marginBottom: 0, color: "#64748b", lineHeight: 1.7 }}>
-            {activeViewMode === "all"
-              ? "Imported or manually created events will appear here once they exist. Use the import page or create a new event to begin building the schedule."
-              : "No events currently match your assigned view. Switch to All Events if you need the full board."}
+            {dateFilterMode === "past"
+              ? "Past imported events will appear here when you switch into the archive-style view."
+              : dateFilterMode === "all"
+                ? "Imported or manually created events will appear here once they exist. Use the import page or create a new event to begin building the schedule."
+                : "Switch to Past Events or All Events if you need to review older imported schedules."}
           </p>
         </div>
       ) : (
