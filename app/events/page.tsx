@@ -228,7 +228,7 @@ export default function EventsPage() {
   const redirectToLogin = useCallback(() => {
     router.replace("/login");
     router.refresh();
-    window.location.replace("/login");
+  console.error("Events page load failed", error);
   }, [router]);
 
   useEffect(() => {
@@ -253,17 +253,15 @@ export default function EventsPage() {
           return;
         }
 
-        if (!meResponse.ok) {
-          setErrorMessage(meBody?.error || "Could not load current user.");
-          setLoading(false);
-          return;
-        }
+if (!meResponse.ok) {
+  console.error("Failed to load /api/me", meResponse.status);
+  return;
+}
 
         if (!eventsResponse.ok) {
-          setErrorMessage(asText(eventsBody?.error) || (await parseApiError(eventsResponse)));
-          setLoading(false);
-          return;
-        }
+  console.error("Failed to load /api/events", eventsResponse.status);
+  return;
+}
 
         const eventRows = Array.isArray(eventsBody?.events) ? (eventsBody.events as EventRow[]) : [];
         setMe(meBody);
