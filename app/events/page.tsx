@@ -228,7 +228,7 @@ export default function EventsPage() {
   const redirectToLogin = useCallback(() => {
     router.replace("/login");
     router.refresh();
-  console.error("Events page load failed", error);
+ console.error("Events page load failed");
   }, [router]);
 
   useEffect(() => {
