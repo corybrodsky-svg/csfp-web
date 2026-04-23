@@ -111,8 +111,9 @@ export default function DashboardPage() {
         const meJson = (await meRes.json()) as MeResponse;
 
         if (!meRes.ok || !meJson.ok) {
-          setAuthState("guest");
-          router.replace("/login");
+          setAuthState("authed");
+          setMe(meJson);
+          setError(meJson.error || "Could not load current user.");
           return;
         }
 
