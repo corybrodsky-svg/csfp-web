@@ -1,7 +1,7 @@
 "use client";
 
 import type { CSSProperties, FormEvent } from "react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 
 const shellStyle: CSSProperties = {
@@ -43,46 +43,22 @@ const linkStyle: CSSProperties = {
   fontWeight: 800,
 };
 
-type ImportSummary = {
-  sheetLabel: string;
-  totalRowsParsed: number;
-  eventRowsSeen: number;
-  eventsCreated: number;
-  sessionsCreated: number;
-  duplicatesSkipped: number;
-  rowsSkippedNoDate: number;
-  rowsSkippedIgnored: number;
-  rowsSkippedBlank: number;
+type ImportEntry = {
+  file: string;
+  sheet?: string;
+  event?: string;
+  date?: string | null;
+  simStaffCount?: number;
+  reason?: string;
+  error?: string;
 };
 
-function asNumber(value: unknown) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function normalizeImportSummary(value: unknown): ImportSummary | null {
-  if (!value || typeof value !== "object") return null;
-
-  const imported = value as Record<string, unknown>;
-  const sheetLabel =
-    typeof imported.sheet === "string"
-      ? imported.sheet
-      : Array.isArray(imported.sheets)
-        ? imported.sheets.filter((item): item is string => typeof item === "string").join(", ")
-        : "Unknown sheet";
-
-  return {
-    sheetLabel,
-    totalRowsParsed: asNumber(imported.total_rows_parsed ?? imported.parsed_rows),
-    eventRowsSeen: asNumber(imported.event_rows_seen ?? imported.parsed_rows),
-    eventsCreated: asNumber(imported.events_created ?? imported.created_events),
-    sessionsCreated: asNumber(imported.sessions_created ?? imported.created_sessions),
-    duplicatesSkipped: asNumber(imported.duplicates_skipped ?? imported.skipped_duplicates),
-    rowsSkippedNoDate: asNumber(imported.rows_skipped_no_date),
-    rowsSkippedIgnored: asNumber(imported.rows_skipped_ignored),
-    rowsSkippedBlank: asNumber(imported.rows_skipped_blank),
-  };
-}
+type ImportSummary = {
+  created: ImportEntry[];
+  updated: ImportEntry[];
+  skipped: ImportEntry[];
+  errors: ImportEntry[];
+};
 
 function getErrorMessage(body: unknown, response: Response) {
   if (body && typeof body === "object" && typeof (body as { error?: unknown }).error === "string") {
@@ -91,19 +67,39 @@ function getErrorMessage(body: unknown, response: Response) {
   return `Import failed (${response.status}).`;
 }
 
+function normalizeSummary(value: unknown): ImportSummary | null {
+  if (!value || typeof value !== "object") return null;
+
+  const body = value as Record<string, unknown>;
+  const toEntries = (key: string) =>
+    Array.isArray(body[key]) ? (body[key] as ImportEntry[]) : [];
+
+  return {
+    created: toEntries("created"),
+    updated: toEntries("updated"),
+    skipped: toEntries("skipped"),
+    errors: toEntries("errors"),
+  };
+}
+
 export default function EventUploadPage() {
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
   const [saving, setSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [summary, setSummary] = useState<ImportSummary | null>(null);
+
+  const fileCountLabel = useMemo(() => {
+    if (!files.length) return "No files selected";
+    return `${files.length} file${files.length === 1 ? "" : "s"} selected`;
+  }, [files]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setErrorMessage("");
     setSummary(null);
 
-    if (!file) {
-      setErrorMessage("Choose an Excel workbook to import.");
+    if (!files.length) {
+      setErrorMessage("Choose one or more Excel workbooks to import.");
       return;
     }
 
@@ -111,7 +107,7 @@ export default function EventUploadPage() {
 
     try {
       const formData = new FormData();
-      formData.set("file", file);
+      files.forEach((file) => formData.append("files", file));
 
       const response = await fetch("/api/events/import", {
         method: "POST",
@@ -124,9 +120,7 @@ export default function EventUploadPage() {
         return;
       }
 
-      const normalized = normalizeImportSummary(
-        body && typeof body === "object" ? (body as { imported?: unknown }).imported : null
-      );
+      const normalized = normalizeSummary(body);
 
       if (!normalized) {
         setErrorMessage("Import finished, but the server returned an unexpected summary.");
@@ -149,10 +143,10 @@ export default function EventUploadPage() {
             ← Back to Events
           </Link>
           <h1 style={{ margin: "14px 0 0", color: "#16213e", fontSize: "36px" }}>
-            Upload Event Schedule
+            Upload SP Event Info Files
           </h1>
           <p style={{ margin: "8px 0 0", color: "#5a667a", fontSize: "16px" }}>
-            Import real CFSP events from the Spring 2026 Excel workbook.
+            Import multiple SP Event Info workbooks or a folder and create or update matching CFSP events.
           </p>
         </div>
 
@@ -179,40 +173,69 @@ export default function EventUploadPage() {
               color: "#166534",
             }}
           >
-            <h2 style={{ marginTop: 0 }}>Import Complete</h2>
-            <div><strong>Sheet imported:</strong> {summary.sheetLabel || "Unknown sheet"}</div>
-            <div><strong>Total rows parsed:</strong> {summary.totalRowsParsed}</div>
-            <div><strong>Event rows seen:</strong> {summary.eventRowsSeen}</div>
-            <div><strong>Events created:</strong> {summary.eventsCreated}</div>
-            <div><strong>Sessions created:</strong> {summary.sessionsCreated}</div>
-            <div><strong>Duplicates skipped:</strong> {summary.duplicatesSkipped}</div>
-            <div><strong>Rows skipped with no date:</strong> {summary.rowsSkippedNoDate}</div>
-            <div><strong>Rows skipped ignored:</strong> {summary.rowsSkippedIgnored}</div>
-            <div><strong>Rows skipped blank:</strong> {summary.rowsSkippedBlank}</div>
+            <h2 style={{ marginTop: 0 }}>Import Summary</h2>
+            <div><strong>Created:</strong> {summary.created.length}</div>
+            <div><strong>Updated:</strong> {summary.updated.length}</div>
+            <div><strong>Skipped:</strong> {summary.skipped.length}</div>
+            <div><strong>Errors:</strong> {summary.errors.length}</div>
+
+            {(["created", "updated", "skipped", "errors"] as const).map((key) =>
+              summary[key].length ? (
+                <div key={key} style={{ marginTop: "14px" }}>
+                  <div style={{ fontWeight: 900, textTransform: "capitalize" }}>{key}</div>
+                  <div style={{ display: "grid", gap: "8px", marginTop: "8px" }}>
+                    {summary[key].map((entry, index) => (
+                      <div
+                        key={`${key}-${entry.file}-${entry.sheet || ""}-${index}`}
+                        style={{
+                          border: "1px solid rgba(22, 101, 52, 0.16)",
+                          borderRadius: "12px",
+                          padding: "10px 12px",
+                          background: "#ffffff",
+                          color: "#14532d",
+                        }}
+                      >
+                        <div><strong>File:</strong> {entry.file}</div>
+                        {entry.sheet ? <div><strong>Sheet:</strong> {entry.sheet}</div> : null}
+                        {entry.event ? <div><strong>Event:</strong> {entry.event}</div> : null}
+                        {entry.date ? <div><strong>Date:</strong> {entry.date}</div> : null}
+                        {typeof entry.simStaffCount === "number" ? (
+                          <div><strong>Sim Staff detected:</strong> {entry.simStaffCount}</div>
+                        ) : null}
+                        {entry.reason ? <div><strong>Reason:</strong> {entry.reason}</div> : null}
+                        {entry.error ? <div><strong>Error:</strong> {entry.error}</div> : null}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null
+            )}
           </div>
         ) : null}
 
         <form onSubmit={handleSubmit} style={{ ...cardStyle, display: "grid", gap: "16px" }}>
           <div>
             <label style={{ display: "block", color: "#173b6c", fontWeight: 900, marginBottom: "8px" }}>
-              Excel workbook
+              Excel workbooks or folder
             </label>
             <input
               type="file"
               accept=".xlsx,.xls"
-              onChange={(event) => setFile(event.target.files?.[0] || null)}
+              multiple
+              {...({ webkitdirectory: "" } as Record<string, string>)}
+              onChange={(event) => setFiles(Array.from(event.target.files || []))}
             />
+            <div style={{ marginTop: "8px", color: "#64748b", fontWeight: 700 }}>{fileCountLabel}</div>
           </div>
 
           <p style={{ margin: 0, color: "#64748b", fontWeight: 700, lineHeight: 1.6 }}>
-            Expected format: the workbook must include a <strong>Spring 2026</strong> sheet with
-            columns for Session Name, Event Lead/Team, Rooms Assigned, Session Time,
-            Summative or Formative, Number of students, and Course Faculty.
+            Each file is processed individually. The importer detects valid SP Event Info sheets, extracts title,
+            event dates, Sim Staff, and workbook details, then creates or updates matching events by title + date.
           </p>
 
           <div>
             <button type="submit" disabled={saving} style={{ ...buttonStyle, opacity: saving ? 0.7 : 1 }}>
-              {saving ? "Importing..." : "Import Schedule"}
+              {saving ? "Importing..." : "Import Files"}
             </button>
           </div>
         </form>
