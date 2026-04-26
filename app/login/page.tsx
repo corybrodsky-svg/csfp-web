@@ -3,7 +3,6 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useState } from "react";
-import { getSupabaseClient } from "../lib/supabaseClient";
 
 function asText(value: unknown) {
   if (value === null || value === undefined) return "";
@@ -24,13 +23,21 @@ function formatAuthError(message?: string | null) {
     return "Your email is not confirmed yet.";
   }
 
+  if (lowered.includes("supabase auth")) {
+    return text;
+  }
+
+  if (lowered.includes("session bridge")) {
+    return text;
+  }
+
   if (
     lowered.includes("failed to fetch") ||
     lowered.includes("fetch failed") ||
     lowered.includes("network") ||
     lowered.includes("timeout")
   ) {
-    return "Could not reach the authentication service.";
+    return "Network error: could not reach the sign-in service.";
   }
 
   return text;
@@ -49,35 +56,36 @@ export default function LoginPage() {
     setErrorMessage("");
 
     try {
-      const supabase = getSupabaseClient();
-
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: email.trim().toLowerCase(),
-        password,
-      });
-
-      if (error || !data.session?.access_token || !data.session.refresh_token) {
-        setErrorMessage(formatAuthError(error?.message || "Could not sign in."));
-        setSaving(false);
-        return;
-      }
-
-      const persistResponse = await fetch("/api/auth/session", {
+      const loginResponse = await fetch("/api/auth/login", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         credentials: "include",
         body: JSON.stringify({
-          access_token: data.session.access_token,
-          refresh_token: data.session.refresh_token,
+          email: email.trim().toLowerCase(),
+          password,
         }),
       });
 
-      const persistBody = (await persistResponse.json().catch(() => null)) as { error?: string } | null;
+      const loginBody = (await loginResponse.json().catch(() => null)) as
+        | {
+            ok?: boolean;
+            error?: string;
+          }
+        | null;
 
-      if (!persistResponse.ok) {
-        setErrorMessage(persistBody?.error || "Could not persist sign-in session.");
+      if (!loginResponse.ok || !loginBody?.ok) {
+        const status = loginResponse.status;
+        const serverError = asText(loginBody?.error);
+        const prefix =
+          status === 401
+            ? "Supabase auth error: "
+            : status >= 500
+              ? "Session bridge error: "
+              : "";
+
+        setErrorMessage(formatAuthError(`${prefix}${serverError || "Could not sign in."}`));
         setSaving(false);
         return;
       }
@@ -85,7 +93,8 @@ export default function LoginPage() {
       window.location.assign("/dashboard");
       return;
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Could not sign in.");
+      const message = error instanceof Error ? error.message : "Could not sign in.";
+      setErrorMessage(formatAuthError(`Network/fetch error: ${message}`));
       setSaving(false);
     }
   }
