@@ -6,20 +6,45 @@ import {
   clearAuthCookies,
   setAuthCookies,
 } from "../../lib/authCookies";
+import {
+  ensureProfileForUser,
+  getProfileForUser,
+  updateProfileForUser,
+} from "../../lib/profileServer";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+const SUPER_ADMIN_EMAIL = "cory.brodsky@gmail.com";
+
 type ProfileRow = {
   id: string;
   full_name?: string | null;
-  schedule_match_name?: string | null;
+  schedule_name?: string | null;
   role?: string | null;
-  status?: string | null;
+  is_active?: boolean | null;
   email?: string | null;
-  profile_picture_url?: string | null;
-  notes?: string | null;
 };
+
+function asText(value: unknown) {
+  if (value === null || value === undefined) return "";
+  return String(value).trim();
+}
+
+function normalizeRole(value: unknown) {
+  const role = asText(value).toLowerCase().replace(/[\s-]+/g, "_");
+  if (role === "sim_op" || role === "admin" || role === "super_admin" || role === "sp") return role;
+  return "sp";
+}
+
+function isSuperAdminEmail(email: string | null | undefined) {
+  return asText(email).toLowerCase() === SUPER_ADMIN_EMAIL;
+}
+
+function getForcedRole(email: string | null | undefined, currentRole: unknown) {
+  if (isSuperAdminEmail(email)) return "super_admin";
+  return normalizeRole(currentRole);
+}
 
 function jsonNoStore(body: unknown, init?: ResponseInit) {
   const response = NextResponse.json(body, init);
@@ -43,6 +68,7 @@ async function resolveSession() {
       supabase,
       user: null,
       refreshedSession: null,
+      accessToken: "",
     };
   }
 
@@ -54,6 +80,7 @@ async function resolveSession() {
         supabase,
         user: data.user,
         refreshedSession: null,
+        accessToken,
       };
     }
   }
@@ -69,6 +96,7 @@ async function resolveSession() {
         supabase,
         user: data.user,
         refreshedSession: data.session,
+        accessToken: data.session.access_token,
       };
     }
   }
@@ -79,49 +107,87 @@ async function resolveSession() {
     supabase,
     user: null,
     refreshedSession: null,
+    accessToken: "",
   };
 }
 
-export async function GET() {
-  try {
-    const session = await resolveSession();
+function applyResolvedRole(profile: ProfileRow | null, userEmail: string | null | undefined): ProfileRow | null {
+  if (!profile && !userEmail) return profile;
+  const forcedRole = getForcedRole(userEmail, profile?.role);
 
-    if (!session.ok || !session.user) {
-      const response = jsonNoStore(
-        {
-          ok: false,
-          error: "Unauthorized",
-        },
-        { status: 401 }
-      );
-      clearAuthCookies(response);
-      return response;
-    }
+  return {
+    id: profile?.id || "",
+    full_name: profile?.full_name || null,
+    schedule_name: profile?.schedule_name || null,
+    role: forcedRole,
+    is_active: profile?.is_active ?? true,
+    email: profile?.email || userEmail || null,
+  };
+}
 
-    const user = session.user;
-    const supabase = session.supabase;
+async function ensureCoryIsSuperAdmin(user: { id: string; email?: string | null; user_metadata?: Record<string, unknown> }, accessToken?: string) {
+  if (!isSuperAdminEmail(user.email)) return;
 
-    let profile: ProfileRow | null = null;
+  await updateProfileForUser(
+    user as never,
+    {
+      full_name: asText(user.user_metadata?.full_name) || "Cory Brodsky",
+      schedule_name: asText(user.user_metadata?.schedule_name) || "Cory",
+      role: "super_admin",
+    },
+    accessToken
+  );
+}
 
-    const profileResult = await supabase
-      .from("profiles")
-      .select("id, full_name, schedule_match_name, role, status, email, profile_picture_url, notes")
-      .eq("id", user.id)
-      .maybeSingle();
+function buildResponseProfile(profile: ProfileRow | null, user: { id: string; email?: string | null }) {
+  const resolved = applyResolvedRole(profile, user.email);
 
-    if (!profileResult.error && profileResult.data) {
-      profile = profileResult.data as ProfileRow;
-    } else {
-      const fallbackResult = await supabase
-        .from("profiles")
-        .select("id, full_name, schedule_match_name, role, status, email, profile_picture_url, notes")
-        .eq("email", user.email || "")
-        .maybeSingle();
-
-      if (!fallbackResult.error && fallbackResult.data) {
-        profile = fallbackResult.data as ProfileRow;
+  return resolved
+    ? {
+        id: resolved.id || user.id,
+        full_name: resolved.full_name || "",
+        schedule_match_name: resolved.schedule_name || "",
+        schedule_name: resolved.schedule_name || "",
+        role: resolved.role || "",
+        status: resolved.is_active === false ? "inactive" : "active",
+        email: resolved.email || user.email || "",
+        is_active: resolved.is_active ?? true,
       }
-    }
+    : {
+        id: user.id,
+        full_name: "",
+        schedule_match_name: "",
+        schedule_name: "",
+        role: getForcedRole(user.email, ""),
+        status: "",
+        email: user.email || "",
+        is_active: true,
+      };
+}
+
+async function handleGetOrSave(method: "GET" | "POST" | "PATCH", request?: Request) {
+  const session = await resolveSession();
+
+  if (!session.ok || !session.user) {
+    const response = jsonNoStore(
+      {
+        ok: false,
+        error: "Unauthorized",
+      },
+      { status: 401 }
+    );
+    clearAuthCookies(response);
+    return response;
+  }
+
+  const user = session.user;
+  const accessToken = session.accessToken || session.refreshedSession?.access_token || undefined;
+
+  await ensureCoryIsSuperAdmin(user, accessToken);
+
+  if (method === "GET") {
+    const profileResult = await getProfileForUser(user.id, accessToken);
+    const ensuredProfile = profileResult.profile || (await ensureProfileForUser(user, accessToken)).profile;
 
     const response = jsonNoStore({
       ok: true,
@@ -129,27 +195,9 @@ export async function GET() {
         id: user.id,
         email: user.email || null,
       },
-      profile: profile
-        ? {
-            id: profile.id,
-            full_name: profile.full_name || "",
-            schedule_match_name: profile.schedule_match_name || "",
-            role: profile.role || "",
-            status: profile.status || "",
-            email: profile.email || user.email || "",
-            profile_picture_url: profile.profile_picture_url || "",
-            notes: profile.notes || "",
-          }
-        : {
-            id: user.id,
-            full_name: "",
-            schedule_match_name: "",
-            role: "",
-            status: "",
-            email: user.email || "",
-            profile_picture_url: "",
-            notes: "",
-          },
+      profile: buildResponseProfile(ensuredProfile as ProfileRow | null, user),
+      profile_available: profileResult.available,
+      ...(profileResult.error ? { warning: profileResult.error } : {}),
     });
 
     if (session.refreshedSession?.access_token && session.refreshedSession.refresh_token) {
@@ -160,17 +208,116 @@ export async function GET() {
     }
 
     return response;
+  }
+
+  const body = request ? await request.json().catch(() => null) : null;
+  const fullName = asText(body && typeof body === "object" ? (body as { full_name?: unknown }).full_name : "") || null;
+  const scheduleMatchName =
+    asText(
+      body && typeof body === "object"
+        ? ((body as { schedule_match_name?: unknown; schedule_name?: unknown }).schedule_match_name ??
+            (body as { schedule_name?: unknown }).schedule_name)
+        : ""
+    ) || null;
+  const requestedRole =
+    body && typeof body === "object" ? (body as { role?: unknown }).role : "";
+  const finalRole = getForcedRole(user.email, requestedRole);
+
+  const saveResult = await updateProfileForUser(
+    user,
+    {
+      full_name: fullName,
+      schedule_name: scheduleMatchName,
+      role: finalRole,
+    },
+    accessToken
+  );
+
+  if (!saveResult.profile) {
+    const response = jsonNoStore(
+      {
+        ok: false,
+        error: saveResult.error || "Could not save profile.",
+      },
+      { status: 500 }
+    );
+
+    if (session.refreshedSession?.access_token && session.refreshedSession.refresh_token) {
+      setAuthCookies(response, {
+        accessToken: session.refreshedSession.access_token,
+        refreshToken: session.refreshedSession.refresh_token,
+      });
+    }
+
+    return response;
+  }
+
+  const response = jsonNoStore({
+    ok: true,
+    message: "Profile saved.",
+    ...(saveResult.error ? { warning: saveResult.error } : {}),
+    user: {
+      id: user.id,
+      email: user.email || null,
+    },
+    profile: buildResponseProfile(saveResult.profile as ProfileRow, user),
+    profile_available: saveResult.available,
+  });
+
+  if (session.refreshedSession?.access_token && session.refreshedSession.refresh_token) {
+    setAuthCookies(response, {
+      accessToken: session.refreshedSession.access_token,
+      refreshToken: session.refreshedSession.refresh_token,
+    });
+  }
+
+  return response;
+}
+
+export async function GET() {
+  try {
+    return await handleGetOrSave("GET");
   } catch (error) {
     console.error("/api/me GET failed", error);
 
-    const response = jsonNoStore(
+    return jsonNoStore(
       {
         ok: false,
         error: error instanceof Error ? error.message : "Could not load member profile.",
       },
       { status: 500 }
     );
+  }
+}
 
-    return response;
+export async function POST(request: Request) {
+  try {
+    return await handleGetOrSave("POST", request);
+  } catch (error) {
+    console.error("/api/me POST failed", error);
+
+    return jsonNoStore(
+      {
+        ok: false,
+        error: error instanceof Error ? error.message : "Could not save profile.",
+      },
+      { status: 500 }
+    );
+  }
+}
+
+export async function PATCH(request: Request) {
+  try {
+    return await handleGetOrSave("PATCH", request);
+  } catch (error) {
+    console.error("/api/me PATCH failed", error);
+
+    return jsonNoStore(
+      {
+        ok: false,
+        error: error instanceof Error ? error.message : "Could not save profile.",
+      },
+      { status: 500 }
+    );
   }
 }

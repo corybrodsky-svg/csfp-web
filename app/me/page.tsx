@@ -135,11 +135,11 @@ type MeResponse = {
   profile?: {
     id: string;
     full_name: string | null;
+    schedule_match_name?: string | null;
     schedule_name?: string | null;
     email: string | null;
     role: string | null;
     is_active: boolean | null;
-    profile_image_url?: string | null;
   } | null;
   profile_available?: boolean;
   message?: string;
@@ -180,7 +180,7 @@ function formatRoleLabel(role: RoleValue) {
 function getFormState(body: MeResponse | null): FormState {
   return {
     fullName: asText(body?.profile?.full_name),
-    scheduleName: asText(body?.profile?.schedule_name),
+    scheduleName: asText(body?.profile?.schedule_match_name ?? body?.profile?.schedule_name),
     role: normalizeRole(body?.profile?.role),
   };
 }
@@ -348,6 +348,7 @@ export default function MePage() {
 
     const payload = {
       full_name: fullName,
+      schedule_match_name: scheduleName,
       schedule_name: scheduleName,
       role: normalizeRole(role),
     };
