@@ -82,7 +82,7 @@ export default function LoginPage() {
         return;
       }
 
-      window.location.assign("/events");
+      window.location.assign("/dashboard");
       return;
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Could not sign in.");
@@ -209,7 +209,7 @@ export default function LoginPage() {
           </div>
 
           <p className="mt-5 text-center text-sm leading-6 text-[#6a7e91]">
-            Sign in with your CFSP email and password to continue to the events board.
+            Sign in with your CFSP email and password to continue to your dashboard.
           </p>
         </form>
       </div>

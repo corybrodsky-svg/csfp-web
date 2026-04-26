@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import SiteShell from "../components/SiteShell";
@@ -97,6 +96,12 @@ const readOnlyInputStyle: React.CSSProperties = {
   color: "#475569",
 };
 
+const statusMessageStyle: React.CSSProperties = {
+  minHeight: "22px",
+  fontSize: "14px",
+  fontWeight: 700,
+};
+
 const primaryButtonStyle: React.CSSProperties = {
   padding: "12px 18px",
   borderRadius: "12px",
@@ -146,7 +151,6 @@ type FormState = {
   fullName: string;
   scheduleName: string;
   role: RoleValue;
-  profileImageUrl: string;
 };
 
 type SaveState = "idle" | "saving" | "saved" | "error";
@@ -169,15 +173,6 @@ function normalizeRole(value: unknown): RoleValue {
   return "sp";
 }
 
-function readFileAsDataUrl(file: File) {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
-    reader.onerror = () => reject(new Error("Could not read image file."));
-    reader.readAsDataURL(file);
-  });
-}
-
 function formatRoleLabel(role: RoleValue) {
   return ROLE_OPTIONS.find((option) => option.value === role)?.label || "SP";
 }
@@ -187,17 +182,11 @@ function getFormState(body: MeResponse | null): FormState {
     fullName: asText(body?.profile?.full_name),
     scheduleName: asText(body?.profile?.schedule_name),
     role: normalizeRole(body?.profile?.role),
-    profileImageUrl: asText(body?.profile?.profile_image_url),
   };
 }
 
 function sameFormState(a: FormState, b: FormState) {
-  return (
-    a.fullName === b.fullName &&
-    a.scheduleName === b.scheduleName &&
-    a.role === b.role &&
-    a.profileImageUrl === b.profileImageUrl
-  );
+  return a.fullName === b.fullName && a.scheduleName === b.scheduleName && a.role === b.role;
 }
 
 function parseApiText(text: string) {
@@ -247,14 +236,12 @@ export default function MePage() {
   const [fullName, setFullName] = useState("");
   const [scheduleName, setScheduleName] = useState("");
   const [role, setRole] = useState<RoleValue>("sp");
-  const [profileImageUrl, setProfileImageUrl] = useState("");
-  const [imagePickerBusy, setImagePickerBusy] = useState(false);
   const [savedForm, setSavedForm] = useState<FormState>({
     fullName: "",
     scheduleName: "",
     role: "sp",
-    profileImageUrl: "",
   });
+  const [showAdvancedDetails, setShowAdvancedDetails] = useState(false);
 
   const redirectToLogin = useCallback(() => {
     router.replace("/login");
@@ -268,7 +255,6 @@ export default function MePage() {
     setFullName(nextForm.fullName);
     setScheduleName(nextForm.scheduleName);
     setRole(nextForm.role);
-    setProfileImageUrl(nextForm.profileImageUrl);
     setSavedForm(nextForm);
   }, []);
 
@@ -324,9 +310,8 @@ export default function MePage() {
       fullName,
       scheduleName,
       role,
-      profileImageUrl,
     }),
-    [fullName, profileImageUrl, role, scheduleName]
+    [fullName, role, scheduleName]
   );
 
   const isDirty = useMemo(() => !sameFormState(currentForm, savedForm), [currentForm, savedForm]);
@@ -340,7 +325,6 @@ export default function MePage() {
   const email = data?.profile?.email || data?.user?.email || "";
   const profileId = data?.profile?.id || "Unavailable";
   const userId = data?.user?.id || "Unavailable";
-  const profileImagePreview = asText(profileImageUrl);
   const avatarFallback = (asText(fullName) || asText(email) || "CF")
     .split(/\s+/)
     .slice(0, 2)
@@ -355,38 +339,6 @@ export default function MePage() {
     return data.profile.is_active ? "Active" : "Inactive";
   }, [data]);
 
-  async function handleProfileImageSelected(event: React.ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-    if (!file) return;
-
-    if (!file.type.startsWith("image/")) {
-      setErrorMessage("Please choose an image file.");
-      return;
-    }
-
-    if (file.size > 600 * 1024) {
-      setErrorMessage("Please choose an image smaller than 600 KB.");
-      return;
-    }
-
-    setImagePickerBusy(true);
-    setErrorMessage("");
-
-    try {
-      const nextUrl = await readFileAsDataUrl(file);
-      if (!nextUrl) {
-        throw new Error("Could not prepare image preview.");
-      }
-      clearSaveFeedback();
-      setProfileImageUrl(nextUrl);
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Could not load image.");
-    } finally {
-      setImagePickerBusy(false);
-    }
-  }
-
   async function handleSave(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSaveState("saving");
@@ -398,7 +350,6 @@ export default function MePage() {
       full_name: fullName,
       schedule_name: scheduleName,
       role: normalizeRole(role),
-      profile_image_url: profileImageUrl,
     };
 
     try {
@@ -430,6 +381,7 @@ export default function MePage() {
       setSuccessMessage(asText(body?.message) || "Profile saved.");
       setWarningMessage(asText(body?.warning));
       setSaveState("saved");
+      await loadProfile();
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Could not save profile.");
       setSaveState("error");
@@ -450,8 +402,8 @@ export default function MePage() {
 
   return (
     <SiteShell
-      title="My Account"
-      subtitle="Confidential member profile and internal account details."
+      title="Profile Settings"
+      subtitle="Manage the profile details CFSP uses to match events, staffing, and operational ownership."
     >
       {errorMessage ? (
         <div style={{ ...sectionStyle, borderColor: "#fecaca", background: "#fff5f5", color: "#991b1b" }}>
@@ -483,18 +435,7 @@ export default function MePage() {
         <form onSubmit={handleSave} style={sectionStyle}>
           <div style={profileHeaderStyle}>
             <div style={avatarFrameStyle}>
-              {profileImagePreview ? (
-                <Image
-                  src={profileImagePreview}
-                  alt="Profile"
-                  width={96}
-                  height={96}
-                  style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                  unoptimized
-                />
-              ) : (
-                avatarFallback
-              )}
+              {avatarFallback}
             </div>
 
             <div>
@@ -572,37 +513,6 @@ export default function MePage() {
               </label>
 
               <label style={labelStyle}>
-                Profile Picture
-                <input
-                  type="file"
-                  accept="image/png,image/jpeg,image/webp,image/gif"
-                  onChange={(event) => void handleProfileImageSelected(event)}
-                  style={{ ...inputStyle, padding: "10px 12px" }}
-                />
-              </label>
-
-              <div style={{ color: "#64748b", fontSize: "13px", lineHeight: 1.6, marginTop: "-2px" }}>
-                Choose an image from your browser. A compact copy is saved to your profile metadata and reloads with your account.
-              </div>
-
-              <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center", marginTop: "-2px" }}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    clearSaveFeedback();
-                    setProfileImageUrl("");
-                  }}
-                  disabled={!profileImageUrl || imagePickerBusy}
-                  style={{ ...secondaryButtonStyle, padding: "10px 14px" }}
-                >
-                  Remove Photo
-                </button>
-                <span style={{ color: "#64748b", fontSize: "13px", fontWeight: 700 }}>
-                  {imagePickerBusy ? "Preparing image..." : profileImageUrl ? "Photo ready to save" : "Using initials fallback"}
-                </span>
-              </div>
-
-              <label style={labelStyle}>
                 Role
                 <select
                   value={role}
@@ -644,9 +554,29 @@ export default function MePage() {
                     : saveState === "saved"
                       ? "Saved"
                       : saveState === "error"
-                        ? "Error"
+                        ? "Error saving"
                         : "Save Profile"}
                 </button>
+              </div>
+
+              <div
+                style={{
+                  ...statusMessageStyle,
+                  color:
+                    saveState === "error"
+                      ? "#991b1b"
+                      : saveState === "saved"
+                        ? "#166534"
+                        : "#64748b",
+                }}
+              >
+                {saveState === "saving"
+                  ? "Saving your profile..."
+                  : saveState === "saved"
+                    ? successMessage || "Profile saved."
+                    : saveState === "error"
+                      ? errorMessage || "Could not save profile."
+                      : "Update your profile details and save when you are ready."}
               </div>
             </div>
           )}
@@ -688,48 +618,61 @@ export default function MePage() {
           </div>
 
           <div style={sectionStyle}>
-            <h2 style={{ margin: 0, color: "#173b6c" }}>Confidential Account Metadata</h2>
-            {loading ? (
-              <p style={{ margin: "12px 0 0", color: "#64748b", fontWeight: 700 }}>Loading internal details...</p>
+            <button
+              type="button"
+              onClick={() => setShowAdvancedDetails((value) => !value)}
+              style={{
+                ...secondaryButtonStyle,
+                width: "100%",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+              }}
+            >
+              <span>Advanced account details</span>
+              <span>{showAdvancedDetails ? "Hide" : "Show"}</span>
+            </button>
+            {showAdvancedDetails ? (
+              loading ? (
+                <p style={{ margin: "12px 0 0", color: "#64748b", fontWeight: 700 }}>Loading internal details...</p>
+              ) : (
+                <div style={{ ...metadataGridStyle, marginTop: "14px" }}>
+                  <div style={metadataCardStyle}>
+                    <div style={statLabel}>User ID</div>
+                    <div style={{ marginTop: "4px", color: "#334155", fontWeight: 700 }}>{userId}</div>
+                  </div>
+                  <div style={metadataCardStyle}>
+                    <div style={statLabel}>Profile ID</div>
+                    <div style={{ marginTop: "4px", color: "#334155", fontWeight: 700 }}>{profileId}</div>
+                  </div>
+                  <div style={metadataCardStyle}>
+                    <div style={statLabel}>Email</div>
+                    <div style={{ marginTop: "4px", color: "#334155", fontWeight: 700 }}>{email || "Unavailable"}</div>
+                  </div>
+                  <div style={metadataCardStyle}>
+                    <div style={statLabel}>Created</div>
+                    <div style={{ marginTop: "4px", color: "#334155", fontWeight: 700 }}>
+                      {formatTimestamp(data?.user?.created_at)}
+                    </div>
+                  </div>
+                  <div style={metadataCardStyle}>
+                    <div style={statLabel}>Last Sign-In</div>
+                    <div style={{ marginTop: "4px", color: "#334155", fontWeight: 700 }}>
+                      {formatTimestamp(data?.user?.last_sign_in_at)}
+                    </div>
+                  </div>
+                  <div style={metadataCardStyle}>
+                    <div style={statLabel}>Email Confirmed</div>
+                    <div style={{ marginTop: "4px", color: "#334155", fontWeight: 700 }}>
+                      {formatTimestamp(data?.user?.email_confirmed_at)}
+                    </div>
+                  </div>
+                </div>
+              )
             ) : (
-              <div style={{ ...metadataGridStyle, marginTop: "14px" }}>
-                <div style={metadataCardStyle}>
-                  <div style={statLabel}>User ID</div>
-                  <div style={{ marginTop: "4px", color: "#334155", fontWeight: 700 }}>{userId}</div>
-                </div>
-                <div style={metadataCardStyle}>
-                  <div style={statLabel}>Profile ID</div>
-                  <div style={{ marginTop: "4px", color: "#334155", fontWeight: 700 }}>{profileId}</div>
-                </div>
-                <div style={metadataCardStyle}>
-                  <div style={statLabel}>Email</div>
-                  <div style={{ marginTop: "4px", color: "#334155", fontWeight: 700 }}>{email || "Unavailable"}</div>
-                </div>
-                <div style={metadataCardStyle}>
-                  <div style={statLabel}>Created</div>
-                  <div style={{ marginTop: "4px", color: "#334155", fontWeight: 700 }}>
-                    {formatTimestamp(data?.user?.created_at)}
-                  </div>
-                </div>
-                <div style={metadataCardStyle}>
-                  <div style={statLabel}>Last Sign-In</div>
-                  <div style={{ marginTop: "4px", color: "#334155", fontWeight: 700 }}>
-                    {formatTimestamp(data?.user?.last_sign_in_at)}
-                  </div>
-                </div>
-                <div style={metadataCardStyle}>
-                  <div style={statLabel}>Email Confirmed</div>
-                  <div style={{ marginTop: "4px", color: "#334155", fontWeight: 700 }}>
-                    {formatTimestamp(data?.user?.email_confirmed_at)}
-                  </div>
-                </div>
-                <div style={metadataCardStyle}>
-                  <div style={statLabel}>Confidential Use</div>
-                  <div style={{ marginTop: "4px", color: "#334155", lineHeight: 1.6 }}>
-                    Internal member information shown here is intended for operations and account support only.
-                  </div>
-                </div>
-              </div>
+              <p style={{ margin: "12px 0 0", color: "#64748b", lineHeight: 1.6 }}>
+                Internal account identifiers and timestamps are hidden by default to keep your profile page focused.
+              </p>
             )}
           </div>
 

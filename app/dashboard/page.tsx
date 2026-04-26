@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import SiteShell from "../components/SiteShell";
 import { classifyEventPresentation } from "../lib/eventClassification";
 import { getSimStaffLabel } from "../lib/eventRoster";
+import { eventMatchesOwnership, ownershipTextMatchesScheduleName } from "../lib/eventOwnership";
 
 type MeResponse = {
   ok: boolean;
@@ -37,6 +38,8 @@ type EventRecord = {
   assigned_sp_names?: string[] | null;
   visibility?: string | null;
   notes?: string | null;
+  schedule_owner_text?: string | null;
+  owner_id?: string | null;
   sessions?: Array<{
     session_date?: string | null;
     start_time?: string | null;
@@ -53,6 +56,7 @@ type EventsResponse = {
 };
 
 type AuthState = "loading" | "authed" | "guest";
+type DashboardScope = "my" | "all";
 
 type EventWithMeta = {
   event: EventRecord;
@@ -61,6 +65,11 @@ type EventWithMeta = {
   assigned: number;
   shortage: number;
 };
+
+function asText(value: unknown) {
+  if (value === null || value === undefined) return "";
+  return String(value).trim();
+}
 
 function parseEventStart(event: EventRecord): Date | null {
   const firstSession = Array.isArray(event.sessions) && event.sessions.length > 0 ? event.sessions[0] : null;
@@ -152,6 +161,75 @@ function renderAssignedPeople(names?: string[] | null) {
   );
 }
 
+function splitPeopleList(value: string) {
+  return value
+    .split(/\s*(?:,|;|\/| and | & )\s*/i)
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function getNotesRosterLine(notes: string, labelPattern: RegExp) {
+  const lines = notes
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  for (const line of lines) {
+    const match = line.match(labelPattern);
+    if (match?.[1]) {
+      return splitPeopleList(match[1]);
+    }
+  }
+
+  return [];
+}
+
+function eventMatchesProfile(event: EventRecord, currentUserId: string, scheduleMatchName: string, firstName: string) {
+  if (eventMatchesOwnership(event, currentUserId, scheduleMatchName)) return true;
+
+  const notes = asText(event.notes);
+  const matchCandidates = [scheduleMatchName, firstName].filter(Boolean);
+
+  if (!matchCandidates.length) return false;
+
+  const rosterGroups = [
+    getNotesRosterLine(notes, /^Sim Staff\s*:\s*(.+)$/i),
+    getNotesRosterLine(notes, /^Staff Hiring\s*:\s*(.+)$/i),
+    getNotesRosterLine(notes, /^Event Lead\/Team\s*:\s*(.+)$/i),
+    getNotesRosterLine(notes, /^Course Faculty\s*:\s*(.+)$/i),
+    getNotesRosterLine(notes, /^Faculty\s*:\s*(.+)$/i),
+  ];
+
+  return rosterGroups.some((group) =>
+    group.some((person) =>
+      matchCandidates.some((candidate) => ownershipTextMatchesScheduleName(person, candidate))
+    )
+  );
+}
+
+function getFirstName(fullName: string) {
+  return asText(fullName).split(/\s+/).filter(Boolean)[0] || "";
+}
+
+function getEmailUsername(email: string) {
+  const text = asText(email);
+  const atIndex = text.indexOf("@");
+  return atIndex > 0 ? text.slice(0, atIndex) : text;
+}
+
+function getGreetingName(me: MeResponse | null) {
+  const fullNameFirst = getFirstName(asText(me?.profile?.full_name));
+  if (fullNameFirst) return fullNameFirst;
+
+  const scheduleName = asText(me?.profile?.schedule_match_name);
+  if (scheduleName) return scheduleName;
+
+  const emailUsername = getEmailUsername(asText(me?.user?.email));
+  if (emailUsername) return emailUsername;
+
+  return asText(me?.user?.email) || "Member";
+}
+
 function WorkflowSection({
   title,
   description,
@@ -240,6 +318,7 @@ export default function DashboardPage() {
   const [me, setMe] = useState<MeResponse | null>(null);
   const [events, setEvents] = useState<EventRecord[]>([]);
   const [error, setError] = useState("");
+  const [scope, setScope] = useState<DashboardScope>("my");
 
   useEffect(() => {
     let cancelled = false;
@@ -320,6 +399,13 @@ export default function DashboardPage() {
     };
   }, [router]);
 
+  const currentUserId = asText(me?.user?.id);
+  const scheduleMatchName = asText(me?.profile?.schedule_match_name);
+  const firstName = getFirstName(asText(me?.profile?.full_name));
+  const displayName = getGreetingName(me);
+  const isAdmin = asText(me?.profile?.role).toLowerCase().includes("admin");
+  const profileIncomplete = !asText(me?.profile?.full_name) || !scheduleMatchName;
+
   const eventMeta = useMemo(() => {
     const now = new Date();
 
@@ -344,35 +430,46 @@ export default function DashboardPage() {
       });
   }, [events]);
 
-  const displayName =
-    me?.profile?.full_name?.trim() ||
-    me?.profile?.schedule_match_name?.trim() ||
-    me?.user?.email ||
-    "Member";
+  const allVisibleEvents = eventMeta;
 
+  const myMatchedEvents = useMemo(
+    () =>
+      eventMeta.filter(({ event }) =>
+        eventMatchesProfile(event, currentUserId, scheduleMatchName, firstName)
+      ),
+    [currentUserId, eventMeta, firstName, scheduleMatchName]
+  );
+
+  const selectedEvents = scope === "my" ? myMatchedEvents : allVisibleEvents;
   const openShortageCount = useMemo(
-    () => eventMeta.reduce((sum, event) => sum + event.shortage, 0),
-    [eventMeta]
+    () => selectedEvents.reduce((sum, event) => sum + event.shortage, 0),
+    [selectedEvents]
   );
 
   const startOfToday = useMemo(() => getStartOfToday(), []);
 
   const needsAttention = useMemo(
     () =>
-      eventMeta
+      selectedEvents
         .filter((item) => item.shortage > 0 && (isTodayOrTomorrow(item.start, startOfToday) || item.assigned === 0))
         .slice(0, 8),
-    [eventMeta, startOfToday]
+    [selectedEvents, startOfToday]
   );
 
   const inProgress = useMemo(
-    () => eventMeta.filter((item) => item.needed > 0 && item.assigned > 0 && item.assigned < item.needed).slice(0, 8),
-    [eventMeta]
+    () =>
+      selectedEvents
+        .filter((item) => item.needed > 0 && item.assigned > 0 && item.assigned < item.needed)
+        .slice(0, 8),
+    [selectedEvents]
   );
 
   const ready = useMemo(
-    () => eventMeta.filter((item) => item.needed <= 0 || item.assigned >= item.needed).slice(0, 8),
-    [eventMeta]
+    () =>
+      selectedEvents
+        .filter((item) => item.needed <= 0 || item.assigned >= item.needed)
+        .slice(0, 8),
+    [selectedEvents]
   );
 
   if (authState === "loading") {
@@ -395,17 +492,31 @@ export default function DashboardPage() {
   return (
     <SiteShell
       title="Dashboard"
-      subtitle="See what needs staffing attention first, what is underway, and what is ready to run."
+      subtitle="Use your dashboard as a personal home base for matched events, staffing work, and profile setup."
     >
       <div className="grid gap-5">
+        {profileIncomplete ? (
+          <div className="cfsp-alert cfsp-alert-info flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="font-black text-[#14304f]">Complete your profile so CFSP can match events to you.</div>
+              <div className="mt-1 text-sm text-[#5e7388]">
+                Add your full name and schedule match name to improve event matching.
+              </div>
+            </div>
+            <Link href="/me" className="cfsp-btn cfsp-btn-secondary">
+              Edit Profile
+            </Link>
+          </div>
+        ) : null}
+
         <section className="grid gap-5 xl:grid-cols-[1.45fr_0.95fr]">
           <div className="rounded-[14px] border border-[#dce6ee] bg-[linear-gradient(180deg,#f8fbfd_0%,#eef5fb_100%)] px-5 py-5">
-            <p className="cfsp-kicker">Operational view</p>
+            <p className="cfsp-kicker">Home base</p>
             <h2 className="mt-3 text-[1.8rem] leading-tight font-black text-[#14304f]">
               Welcome back, {displayName}.
             </h2>
             <p className="mt-3 max-w-2xl text-[0.98rem] leading-6 text-[#5e7388]">
-              Start with events that still need staffing attention, then move through in-progress coverage and ready-to-run events.
+              Start with events connected to you, then switch to the full event list whenever you need a broader operational view.
             </p>
 
             <div className="mt-5 flex flex-wrap gap-2">
@@ -415,23 +526,42 @@ export default function DashboardPage() {
               <Link href="/events/new" className="cfsp-btn cfsp-btn-primary">
                 Create New Event
               </Link>
-              <Link href="/sps" className="cfsp-btn cfsp-btn-success">
-                Open SP Database
+              <Link href="/me" className="cfsp-btn cfsp-btn-success">
+                Edit Profile
               </Link>
             </div>
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
-            <Link
-              href="/events"
-              className="cfsp-panel rounded-[14px] px-4 py-4 no-underline transition-transform hover:-translate-y-0.5"
-            >
-              <div className="cfsp-label">Needs attention</div>
-              <div className="mt-2 text-lg font-black text-[#14304f]">{needsAttention.length} priority events</div>
-              <p className="mt-2 text-sm leading-6 text-[#5e7388]">
-                Today and tomorrow shortages, plus events with zero assignments, are surfaced first.
+            <div className="cfsp-panel rounded-[14px] px-4 py-4">
+              <div className="cfsp-label">Dashboard view</div>
+              <div className="mt-3 inline-flex rounded-[12px] border border-[#d8e4ec] bg-white p-1">
+                <button
+                  type="button"
+                  onClick={() => setScope("my")}
+                  className={`min-w-[120px] rounded-[10px] px-4 py-2 text-sm font-black transition ${
+                    scope === "my" ? "bg-[#145b96] text-white" : "text-[#4f677d] hover:bg-[#f3f8fb]"
+                  }`}
+                >
+                  My Events
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setScope("all")}
+                  className={`min-w-[120px] rounded-[10px] px-4 py-2 text-sm font-black transition ${
+                    scope === "all" ? "bg-[#145b96] text-white" : "text-[#4f677d] hover:bg-[#f3f8fb]"
+                  }`}
+                >
+                  All Events
+                </button>
+              </div>
+              <p className="mt-3 text-sm leading-6 text-[#5e7388]">
+                {scope === "my"
+                  ? "Showing events matched to your profile, schedule match name, or imported staffing notes."
+                  : "Showing the full visible event list across the app."}
               </p>
-            </Link>
+            </div>
+
             <Link
               href="/admin"
               className="cfsp-panel rounded-[14px] px-4 py-4 no-underline transition-transform hover:-translate-y-0.5"
@@ -447,16 +577,16 @@ export default function DashboardPage() {
 
         <section className="cfsp-grid-stats">
           <div className="cfsp-stat-card">
+            <div className="cfsp-label">{scope === "my" ? "My Events" : "All Events"}</div>
+            <div className="cfsp-stat-value">{selectedEvents.length}</div>
+          </div>
+          <div className="cfsp-stat-card">
             <div className="cfsp-label">Needs Attention</div>
             <div className="cfsp-stat-value">{needsAttention.length}</div>
           </div>
           <div className="cfsp-stat-card">
             <div className="cfsp-label">In Progress</div>
             <div className="cfsp-stat-value">{inProgress.length}</div>
-          </div>
-          <div className="cfsp-stat-card">
-            <div className="cfsp-label">Ready</div>
-            <div className="cfsp-stat-value">{ready.length}</div>
           </div>
           <div className="cfsp-stat-card">
             <div className="cfsp-label">Open SP Shortage</div>
@@ -466,25 +596,59 @@ export default function DashboardPage() {
 
         {error ? <div className="cfsp-alert cfsp-alert-error">{error}</div> : null}
 
-        {!error ? (
+        {!error && scope === "my" && selectedEvents.length === 0 ? (
+          <div className="cfsp-panel px-6 py-6">
+            <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">No events are matched to your profile yet.</h3>
+            <p className="mt-3 text-sm leading-6 text-[#5e7388]">
+              CFSP is currently using <strong>{scheduleMatchName || "no schedule match name"}</strong> to match your events.
+            </p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Link href="/me" className="cfsp-btn cfsp-btn-secondary">
+                Edit Profile
+              </Link>
+              <button type="button" onClick={() => setScope("all")} className="cfsp-btn cfsp-btn-primary">
+                View All Events
+              </button>
+            </div>
+            {isAdmin ? (
+              <p className="mt-4 text-sm leading-6 text-[#5e7388]">
+                You have admin access, so you can switch to All Events while profile matching is being completed.
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+
+        {!error && !(scope === "my" && selectedEvents.length === 0) ? (
           <div className="grid gap-5 2xl:grid-cols-3">
             <WorkflowSection
               title="Needs Attention"
               description="Shortage events coming up today or tomorrow, plus anything with zero assignments."
               items={needsAttention}
-              emptyMessage="No high-priority staffing gaps are surfaced right now."
+              emptyMessage={
+                scope === "my"
+                  ? "No high-priority staffing gaps are surfaced in your matched events right now."
+                  : "No high-priority staffing gaps are surfaced right now."
+              }
             />
             <WorkflowSection
               title="In Progress"
               description="Events with some staffing in place, but still short of full coverage."
               items={inProgress}
-              emptyMessage="No partially staffed events right now."
+              emptyMessage={
+                scope === "my"
+                  ? "No partially staffed events are currently matched to your profile."
+                  : "No partially staffed events right now."
+              }
             />
             <WorkflowSection
               title="Ready"
               description="Events with full coverage already in place and ready to run."
               items={ready}
-              emptyMessage="No fully staffed upcoming events are ready yet."
+              emptyMessage={
+                scope === "my"
+                  ? "No fully staffed matched events are ready yet."
+                  : "No fully staffed upcoming events are ready yet."
+              }
             />
           </div>
         ) : null}
