@@ -1,4 +1,4 @@
-export type AnyRecord = Record<string, any>;
+export type AnyRecord = Record<string, unknown>;
 
 export type ImportedEvent = {
   id: string;
