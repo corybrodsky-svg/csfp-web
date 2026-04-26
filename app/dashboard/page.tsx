@@ -202,6 +202,16 @@ export default function DashboardPage() {
     me?.user?.email ||
     "Member";
 
+  const openShortageCount = useMemo(
+    () =>
+      events.reduce((sum, event) => {
+        const needed = Number(event.sp_needed || 0);
+        const assigned = Number(event.sp_assigned || 0);
+        return sum + Math.max(needed - assigned, 0);
+      }, 0),
+    [events]
+  );
+
   if (authState === "loading") {
     return (
       <main className="cfsp-page">
@@ -222,32 +232,43 @@ export default function DashboardPage() {
   return (
     <SiteShell
       title="Dashboard"
-      subtitle="Stay on top of simulation coverage, upcoming events, and the current staffing picture."
+      subtitle="Keep today’s coverage, next event, and staffing priorities visible in one place."
     >
       <div className="grid gap-5">
-        <section className="cfsp-panel-muted rounded-[12px] border border-[#dce6ee] px-5 py-5">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <p className="cfsp-kicker">CFSP Operations</p>
-              <h2 className="mt-3 text-[1.8rem] leading-tight font-black text-[#14304f]">
-                Welcome back, {displayName}.
-              </h2>
-              <p className="mt-2 max-w-2xl text-[0.98rem] leading-6 text-[#5e7388]">
-                Review your live event queue, jump into staffing work, and keep the day moving with fewer clicks.
-              </p>
-            </div>
+        <section className="grid gap-5 xl:grid-cols-[1.45fr_0.95fr]">
+          <div className="rounded-[14px] border border-[#dce6ee] bg-[linear-gradient(180deg,#f8fbfd_0%,#eef5fb_100%)] px-5 py-5">
+            <p className="cfsp-kicker">Operational view</p>
+            <h2 className="mt-3 text-[1.8rem] leading-tight font-black text-[#14304f]">
+              Welcome back, {displayName}.
+            </h2>
+            <p className="mt-3 max-w-2xl text-[0.98rem] leading-6 text-[#5e7388]">
+              Review coverage, open the next event quickly, and keep the staffing pipeline moving without digging through menus.
+            </p>
 
-            <div className="flex flex-wrap gap-2">
+            <div className="mt-5 flex flex-wrap gap-2">
               <Link href="/events" className="cfsp-btn cfsp-btn-primary">
                 Open Events Board
               </Link>
               <Link href="/events/new" className="cfsp-btn cfsp-btn-secondary">
-                Create Event
+                Create New Event
               </Link>
-              <Link href="/sps" className="cfsp-btn cfsp-btn-secondary">
-                SP Database
+              <Link href="/sps" className="cfsp-btn cfsp-btn-success">
+                Open SP Database
               </Link>
             </div>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+            <Link href="/events" className="cfsp-panel rounded-[14px] px-4 py-4 no-underline transition-transform hover:-translate-y-0.5">
+              <div className="cfsp-label">Quick Action</div>
+              <div className="mt-2 text-lg font-black text-[#14304f]">Review today’s event queue</div>
+              <p className="mt-2 text-sm leading-6 text-[#5e7388]">See active coverage, staffing gaps, and open the next event fast.</p>
+            </Link>
+            <Link href="/admin" className="cfsp-panel rounded-[14px] px-4 py-4 no-underline transition-transform hover:-translate-y-0.5">
+              <div className="cfsp-label">Quick Action</div>
+              <div className="mt-2 text-lg font-black text-[#14304f]">Open admin tools</div>
+              <p className="mt-2 text-sm leading-6 text-[#5e7388]">Jump into imports, staff tools, and operational shortcuts.</p>
+            </Link>
           </div>
         </section>
 
@@ -261,8 +282,12 @@ export default function DashboardPage() {
             <div className="cfsp-stat-value">{events.length}</div>
           </div>
           <div className="cfsp-stat-card">
+            <div className="cfsp-label">Open SP Shortage</div>
+            <div className="cfsp-stat-value">{openShortageCount}</div>
+          </div>
+          <div className="cfsp-stat-card">
             <div className="cfsp-label">Role</div>
-            <div className="cfsp-stat-value text-[1.55rem]">
+            <div className="cfsp-stat-value text-[1.45rem]">
               {me?.profile?.role?.trim() || "Unassigned"}
             </div>
           </div>
@@ -270,17 +295,20 @@ export default function DashboardPage() {
 
         <section className="cfsp-panel overflow-hidden">
           <div className="border-b border-[#e5edf3] px-5 py-4">
-            <h2 className="cfsp-section-title text-[1.35rem]">My Upcoming Events</h2>
-            <p className="cfsp-section-copy">
-              Fresh auth-checked event list with the current schedule front and center.
-            </p>
+            <h2 className="cfsp-section-title text-[1.3rem]">My Upcoming Events</h2>
+            <p className="cfsp-section-copy">Current and future events are listed here for quick operational review.</p>
           </div>
 
           <div className="px-5 py-5">
             {error ? <div className="cfsp-alert cfsp-alert-error">{error}</div> : null}
 
             {!error && sortedUpcoming.length === 0 ? (
-              <div className="cfsp-alert cfsp-alert-info">No upcoming events right now.</div>
+              <div className="cfsp-alert cfsp-alert-info">
+                <div className="text-base font-black text-[#14304f]">No upcoming events right now.</div>
+                <div className="mt-2 text-sm leading-6 text-[#5e7388]">
+                  When new events are available, they will appear here with a direct open action.
+                </div>
+              </div>
             ) : null}
 
             {!error && sortedUpcoming.length > 0 ? (
@@ -289,21 +317,15 @@ export default function DashboardPage() {
                   const tone = getStatusTone(event.status);
 
                   return (
-                    <article
-                      key={event.id}
-                      className="rounded-[12px] border border-[#d9e4ec] bg-[#f8fbfd] px-4 py-4"
-                    >
+                    <article key={event.id} className="rounded-[12px] border border-[#d9e4ec] bg-[#f8fbfd] px-4 py-4">
                       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                         <div className="min-w-0 flex-1">
                           <div className="mb-2 flex flex-wrap gap-2">
-                            <span
-                              className="cfsp-badge"
-                              style={tone}
-                            >
+                            <span className="cfsp-badge" style={tone}>
                               {event.status?.trim() || "No status"}
                             </span>
                           </div>
-                          <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">
+                          <h3 className="m-0 text-[1.15rem] font-black text-[#14304f]">
                             {event.name?.trim() || "Untitled Event"}
                           </h3>
                           <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm font-semibold text-[#5e7388]">
