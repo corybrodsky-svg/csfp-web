@@ -3,13 +3,25 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { signOutUserAndRedirect } from "../lib/clientAuth";
 
 type SiteShellProps = {
   title: string;
   subtitle?: string;
   children: React.ReactNode;
+};
+
+type ShellMeResponse = {
+  user?: {
+    email?: string | null;
+  };
+  profile?: {
+    full_name?: string | null;
+    schedule_match_name?: string | null;
+    schedule_name?: string | null;
+    email?: string | null;
+  } | null;
 };
 
 type NavItem = {
@@ -62,10 +74,39 @@ function isNavActive(pathname: string, item: NavItem) {
   return pathname === item.href;
 }
 
+function asText(value: unknown) {
+  if (value === null || value === undefined) return "";
+  return String(value).trim();
+}
+
+function getFirstName(fullName: string) {
+  return asText(fullName).split(/\s+/).filter(Boolean)[0] || "";
+}
+
+function getEmailUsername(email: string) {
+  const text = asText(email);
+  const atIndex = text.indexOf("@");
+  return atIndex > 0 ? text.slice(0, atIndex) : text;
+}
+
+function getDisplayName(me: ShellMeResponse | null) {
+  const fullNameFirst = getFirstName(asText(me?.profile?.full_name));
+  if (fullNameFirst) return fullNameFirst;
+
+  const scheduleMatchName = asText(me?.profile?.schedule_match_name) || asText(me?.profile?.schedule_name);
+  if (scheduleMatchName) return scheduleMatchName;
+
+  const emailUsername = getEmailUsername(asText(me?.user?.email) || asText(me?.profile?.email));
+  if (emailUsername) return emailUsername;
+
+  return asText(me?.user?.email) || asText(me?.profile?.email) || "Account";
+}
+
 export default function SiteShell({ title, subtitle, children }: SiteShellProps) {
   const pathname = usePathname();
   const [logoVisible, setLogoVisible] = useState(true);
   const [signingOut, setSigningOut] = useState(false);
+  const [me, setMe] = useState<ShellMeResponse | null>(null);
 
   const activeMap = useMemo(() => {
     const next = new Map<string, boolean>();
@@ -74,6 +115,33 @@ export default function SiteShell({ title, subtitle, children }: SiteShellProps)
     });
     return next;
   }, [pathname]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadAccountSummary() {
+      try {
+        const response = await fetch("/api/me", {
+          cache: "no-store",
+          credentials: "include",
+        });
+
+        if (!response.ok) return;
+
+        const body = (await response.json().catch(() => null)) as ShellMeResponse | null;
+        if (cancelled || !body) return;
+        setMe(body);
+      } catch {
+        return;
+      }
+    }
+
+    void loadAccountSummary();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function handleSignOut() {
     try {
@@ -84,6 +152,8 @@ export default function SiteShell({ title, subtitle, children }: SiteShellProps)
       setSigningOut(false);
     }
   }
+
+  const accountDisplayName = getDisplayName(me);
 
   return (
     <main className="cfsp-page">
@@ -148,15 +218,8 @@ export default function SiteShell({ title, subtitle, children }: SiteShellProps)
                 ))}
               </nav>
 
-              <div className="mt-auto grid gap-2 border-t border-[var(--cfsp-sidebar-border)] pt-4">
-                <button
-                  type="button"
-                  onClick={handleSignOut}
-                  disabled={signingOut}
-                  className="cfsp-shell-account-button min-h-[42px] rounded-[10px] border border-white/18 bg-white/8 px-3 py-2 text-left text-sm font-bold text-white transition-colors hover:bg-white/12 disabled:opacity-60"
-                >
-                  {signingOut ? "Signing out..." : "Sign Out"}
-                </button>
+              <div className="mt-auto border-t border-[var(--cfsp-sidebar-border)] pt-4 text-xs font-semibold text-white/62">
+                Account controls are available in the header menu.
               </div>
             </div>
           </aside>
@@ -170,13 +233,50 @@ export default function SiteShell({ title, subtitle, children }: SiteShellProps)
                   {subtitle ? <p className="cfsp-section-copy">{subtitle}</p> : null}
                 </div>
 
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <Link href="/events" className="cfsp-btn cfsp-btn-subtle">
                     Events
                   </Link>
                   <Link href="/events/new" className="cfsp-btn cfsp-btn-primary min-w-[140px]">
                     New Event
                   </Link>
+                  <details className="relative">
+                    <summary
+                      className="flex min-h-[44px] cursor-pointer list-none items-center gap-2 rounded-[12px] border border-[#d7e2ea] bg-white px-3 py-2 text-left text-sm font-bold text-[#14304f] transition-colors hover:bg-[#f8fbfd]"
+                      style={{ boxShadow: "0 1px 2px rgba(15, 23, 42, 0.04)" }}
+                    >
+                      <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[#eaf3fb] text-xs font-black text-[#145b96]">
+                        {accountDisplayName.slice(0, 1).toUpperCase()}
+                      </span>
+                      <span className="max-w-[120px] truncate">{accountDisplayName}</span>
+                      <span className="text-xs text-[#6a7e91]">▾</span>
+                    </summary>
+                    <div
+                      className="absolute right-0 z-20 mt-2 min-w-[190px] overflow-hidden rounded-[12px] border border-[#d8e4ec] bg-white shadow-[0_16px_32px_rgba(15,23,42,0.12)]"
+                      style={{ top: "100%" }}
+                    >
+                      <div className="border-b border-[#e7eef4] px-4 py-3">
+                        <div className="text-xs font-black uppercase tracking-[0.08em] text-[#6a7e91]">Account</div>
+                        <div className="mt-1 text-sm font-bold text-[#14304f]">{accountDisplayName}</div>
+                      </div>
+                      <div className="grid">
+                        <Link
+                          href="/me"
+                          className="min-h-[44px] px-4 py-3 text-sm font-semibold text-[#14304f] no-underline transition-colors hover:bg-[#f8fbfd]"
+                        >
+                          My Profile
+                        </Link>
+                        <button
+                          type="button"
+                          onClick={handleSignOut}
+                          disabled={signingOut}
+                          className="min-h-[44px] border-0 border-t border-[#e7eef4] bg-white px-4 py-3 text-left text-sm font-semibold text-[#14304f] transition-colors hover:bg-[#f8fbfd] disabled:opacity-60"
+                        >
+                          {signingOut ? "Signing out..." : "Sign Out"}
+                        </button>
+                      </div>
+                    </div>
+                  </details>
                 </div>
               </div>
             </header>
