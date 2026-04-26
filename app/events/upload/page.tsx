@@ -60,6 +60,9 @@ type ImportSummary = {
   errors: ImportEntry[];
 };
 
+const acceptedSpreadsheetTypes =
+  ".xlsx,.xlsm,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,application/vnd.ms-excel.sheet.macroEnabled.12";
+
 function getErrorMessage(body: unknown, response: Response) {
   if (body && typeof body === "object" && typeof (body as { error?: unknown }).error === "string") {
     return (body as { error: string }).error;
@@ -92,6 +95,27 @@ export default function EventUploadPage() {
     if (!files.length) return "No files selected";
     return `${files.length} file${files.length === 1 ? "" : "s"} selected`;
   }, [files]);
+
+  function mergeSelectedFiles(nextFiles: FileList | null) {
+    if (!nextFiles) return;
+
+    setFiles((current) => {
+      const merged = [...current];
+      const seen = new Set(
+        current.map((file) => `${file.name}__${file.size}__${file.lastModified}`)
+      );
+
+      Array.from(nextFiles).forEach((file) => {
+        const key = `${file.name}__${file.size}__${file.lastModified}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          merged.push(file);
+        }
+      });
+
+      return merged;
+    });
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -214,18 +238,48 @@ export default function EventUploadPage() {
         ) : null}
 
         <form onSubmit={handleSubmit} style={{ ...cardStyle, display: "grid", gap: "16px" }}>
-          <div>
-            <label style={{ display: "block", color: "#173b6c", fontWeight: 900, marginBottom: "8px" }}>
-              Excel workbooks or folder
-            </label>
-            <input
-              type="file"
-              accept=".xlsx,.xls"
-              multiple
-              {...({ webkitdirectory: "" } as Record<string, string>)}
-              onChange={(event) => setFiles(Array.from(event.target.files || []))}
-            />
-            <div style={{ marginTop: "8px", color: "#64748b", fontWeight: 700 }}>{fileCountLabel}</div>
+          <div style={{ display: "grid", gap: "14px" }}>
+            <div>
+              <label style={{ display: "block", color: "#173b6c", fontWeight: 900, marginBottom: "8px" }}>
+                Upload Excel Files
+              </label>
+              <input
+                type="file"
+                accept={acceptedSpreadsheetTypes}
+                multiple
+                onChange={(event) => mergeSelectedFiles(event.target.files)}
+              />
+            </div>
+
+            <div>
+              <label style={{ display: "block", color: "#173b6c", fontWeight: 900, marginBottom: "8px" }}>
+                Upload Folder
+              </label>
+              <input
+                type="file"
+                accept={acceptedSpreadsheetTypes}
+                multiple
+                {...({ webkitdirectory: "" } as Record<string, string>)}
+                onChange={(event) => mergeSelectedFiles(event.target.files)}
+              />
+            </div>
+
+            <div style={{ marginTop: "4px", color: "#64748b", fontWeight: 700 }}>{fileCountLabel}</div>
+            {files.length ? (
+              <button
+                type="button"
+                onClick={() => setFiles([])}
+                style={{
+                  ...buttonStyle,
+                  width: "fit-content",
+                  background: "#ffffff",
+                  color: "#173b6c",
+                  border: "1px solid #cbd5e1",
+                }}
+              >
+                Clear Selection
+              </button>
+            ) : null}
           </div>
 
           <p style={{ margin: 0, color: "#64748b", fontWeight: 700, lineHeight: 1.6 }}>
