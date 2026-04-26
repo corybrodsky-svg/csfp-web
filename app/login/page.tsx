@@ -3,6 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useState } from "react";
+import { getSupabaseClient } from "../lib/supabaseClient";
 
 function asText(value: unknown) {
   if (value === null || value === undefined) return "";
@@ -23,21 +24,13 @@ function formatAuthError(message?: string | null) {
     return "Your email is not confirmed yet.";
   }
 
-  if (lowered.includes("supabase auth")) {
-    return text;
-  }
-
-  if (lowered.includes("session bridge")) {
-    return text;
-  }
-
   if (
     lowered.includes("failed to fetch") ||
     lowered.includes("fetch failed") ||
     lowered.includes("network") ||
     lowered.includes("timeout")
   ) {
-    return "Network error: could not reach the sign-in service.";
+    return "Could not reach the authentication service.";
   }
 
   return text;
@@ -56,36 +49,64 @@ export default function LoginPage() {
     setErrorMessage("");
 
     try {
-      const loginResponse = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        credentials: "include",
-        body: JSON.stringify({
+      let accessToken = "";
+      let refreshToken = "";
+
+      try {
+        const supabase = getSupabaseClient();
+        const { data, error } = await supabase.auth.signInWithPassword({
           email: email.trim().toLowerCase(),
           password,
-        }),
-      });
+        });
 
-      const loginBody = (await loginResponse.json().catch(() => null)) as
+        if (error || !data.session?.access_token || !data.session.refresh_token) {
+          setErrorMessage(
+            `Supabase auth error: ${formatAuthError(error?.message || "Could not sign in.")}`
+          );
+          setSaving(false);
+          return;
+        }
+
+        accessToken = data.session.access_token;
+        refreshToken = data.session.refresh_token;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Could not sign in.";
+        setErrorMessage(`Supabase auth error: ${formatAuthError(message)}`);
+        setSaving(false);
+        return;
+      }
+
+      let persistResponse: Response;
+      try {
+        persistResponse = await fetch("/api/auth/session", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          credentials: "include",
+          body: JSON.stringify({
+            access_token: accessToken,
+            refresh_token: refreshToken,
+          }),
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "No response from session bridge.";
+        setErrorMessage(`Network/fetch error: ${message}`);
+        setSaving(false);
+        return;
+      }
+
+      const persistBody = (await persistResponse.json().catch(() => null)) as
         | {
             ok?: boolean;
             error?: string;
           }
         | null;
 
-      if (!loginResponse.ok || !loginBody?.ok) {
-        const status = loginResponse.status;
-        const serverError = asText(loginBody?.error);
-        const prefix =
-          status === 401
-            ? "Supabase auth error: "
-            : status >= 500
-              ? "Session bridge error: "
-              : "";
-
-        setErrorMessage(formatAuthError(`${prefix}${serverError || "Could not sign in."}`));
+      if (!persistResponse.ok || !persistBody?.ok) {
+        setErrorMessage(
+          `Session bridge error: ${persistBody?.error || `${persistResponse.status} ${persistResponse.statusText}`}`
+        );
         setSaving(false);
         return;
       }
@@ -93,8 +114,7 @@ export default function LoginPage() {
       window.location.assign("/dashboard");
       return;
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Could not sign in.";
-      setErrorMessage(formatAuthError(`Network/fetch error: ${message}`));
+      setErrorMessage(error instanceof Error ? error.message : "Could not sign in.");
       setSaving(false);
     }
   }
