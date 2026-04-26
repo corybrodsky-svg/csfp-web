@@ -18,6 +18,7 @@ type MeResponse = {
     id: string;
     full_name: string;
     schedule_match_name: string;
+    schedule_name?: string;
     role: string;
     status: string;
     email: string;
@@ -221,7 +222,7 @@ function getGreetingName(me: MeResponse | null) {
   const fullNameFirst = getFirstName(asText(me?.profile?.full_name));
   if (fullNameFirst) return fullNameFirst;
 
-  const scheduleName = asText(me?.profile?.schedule_match_name);
+  const scheduleName = asText(me?.profile?.schedule_match_name) || asText(me?.profile?.schedule_name);
   if (scheduleName) return scheduleName;
 
   const emailUsername = getEmailUsername(asText(me?.user?.email));
@@ -400,11 +401,23 @@ export default function DashboardPage() {
   }, [router]);
 
   const currentUserId = asText(me?.user?.id);
-  const scheduleMatchName = asText(me?.profile?.schedule_match_name);
+  const scheduleMatchName = asText(me?.profile?.schedule_match_name) || asText(me?.profile?.schedule_name);
+  const legacyScheduleName = asText(me?.profile?.schedule_name);
   const firstName = getFirstName(asText(me?.profile?.full_name));
+  const emailUsername = getEmailUsername(asText(me?.user?.email));
   const displayName = getGreetingName(me);
   const isAdmin = asText(me?.profile?.role).toLowerCase().includes("admin");
   const profileIncomplete = !asText(me?.profile?.full_name) || !scheduleMatchName;
+  const matchTerms = Array.from(new Set([scheduleMatchName, legacyScheduleName, firstName, emailUsername].filter(Boolean)));
+
+  useEffect(() => {
+    if (process.env.NODE_ENV !== "production") {
+      console.log("dashboard match terms", {
+        email: me?.user?.email || null,
+        matchTerms,
+      });
+    }
+  }, [matchTerms, me?.user?.email]);
 
   const eventMeta = useMemo(() => {
     const now = new Date();
@@ -435,9 +448,14 @@ export default function DashboardPage() {
   const myMatchedEvents = useMemo(
     () =>
       eventMeta.filter(({ event }) =>
-        eventMatchesProfile(event, currentUserId, scheduleMatchName, firstName)
+        eventMatchesProfile(
+          event,
+          currentUserId,
+          scheduleMatchName || legacyScheduleName || emailUsername,
+          firstName || emailUsername
+        )
       ),
-    [currentUserId, eventMeta, firstName, scheduleMatchName]
+    [currentUserId, emailUsername, eventMeta, firstName, legacyScheduleName, scheduleMatchName]
   );
 
   const selectedEvents = scope === "my" ? myMatchedEvents : allVisibleEvents;
@@ -600,7 +618,7 @@ export default function DashboardPage() {
           <div className="cfsp-panel px-6 py-6">
             <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">No events are matched to your profile yet.</h3>
             <p className="mt-3 text-sm leading-6 text-[#5e7388]">
-              CFSP is currently using <strong>{scheduleMatchName || "no schedule match name"}</strong> to match your events.
+              CFSP is currently using <strong>{matchTerms.length ? matchTerms.join(", ") : "no schedule match name"}</strong> to match your events.
             </p>
             <div className="mt-4 flex flex-wrap gap-2">
               <Link href="/me" className="cfsp-btn cfsp-btn-secondary">

@@ -46,6 +46,19 @@ function getForcedRole(email: string | null | undefined, currentRole: unknown) {
   return normalizeRole(currentRole);
 }
 
+function getCoryFallbackProfile(user: { id: string; email?: string | null }) {
+  if (!isSuperAdminEmail(user.email)) return null;
+
+  return {
+    id: user.id,
+    full_name: "Cory Brodsky",
+    schedule_name: "Cory",
+    role: "super_admin",
+    is_active: true,
+    email: user.email || SUPER_ADMIN_EMAIL,
+  } satisfies ProfileRow;
+}
+
 function jsonNoStore(body: unknown, init?: ResponseInit) {
   const response = NextResponse.json(body, init);
   response.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
@@ -111,18 +124,31 @@ async function resolveSession() {
   };
 }
 
-function applyResolvedRole(profile: ProfileRow | null, userEmail: string | null | undefined): ProfileRow | null {
-  if (!profile && !userEmail) return profile;
-  const forcedRole = getForcedRole(userEmail, profile?.role);
+function buildNormalizedProfile(
+  profile: ProfileRow | null,
+  user: { id: string; email?: string | null; user_metadata?: Record<string, unknown> }
+) {
+  const coryFallback = getCoryFallbackProfile(user);
+  const fullName =
+    asText(profile?.full_name) ||
+    asText(user.user_metadata?.full_name) ||
+    asText(coryFallback?.full_name);
+  const scheduleName =
+    asText(profile?.schedule_name) ||
+    asText(user.user_metadata?.schedule_name) ||
+    asText(coryFallback?.schedule_name);
+  const role = getForcedRole(user.email, profile?.role || user.user_metadata?.role || coryFallback?.role);
+  const isActive = profile?.is_active ?? coryFallback?.is_active ?? true;
+  const email = profile?.email || user.email || coryFallback?.email || null;
 
   return {
-    id: profile?.id || "",
-    full_name: profile?.full_name || null,
-    schedule_name: profile?.schedule_name || null,
-    role: forcedRole,
-    is_active: profile?.is_active ?? true,
-    email: profile?.email || userEmail || null,
-  };
+    id: profile?.id || coryFallback?.id || user.id,
+    full_name: fullName || null,
+    schedule_name: scheduleName || null,
+    role,
+    is_active: isActive,
+    email,
+  } satisfies ProfileRow;
 }
 
 async function ensureCoryIsSuperAdmin(user: { id: string; email?: string | null; user_metadata?: Record<string, unknown> }, accessToken?: string) {
@@ -139,8 +165,11 @@ async function ensureCoryIsSuperAdmin(user: { id: string; email?: string | null;
   );
 }
 
-function buildResponseProfile(profile: ProfileRow | null, user: { id: string; email?: string | null }) {
-  const resolved = applyResolvedRole(profile, user.email);
+function buildResponseProfile(
+  profile: ProfileRow | null,
+  user: { id: string; email?: string | null; user_metadata?: Record<string, unknown> }
+) {
+  const resolved = buildNormalizedProfile(profile, user);
 
   return resolved
     ? {
@@ -155,11 +184,11 @@ function buildResponseProfile(profile: ProfileRow | null, user: { id: string; em
       }
     : {
         id: user.id,
-        full_name: "",
-        schedule_match_name: "",
-        schedule_name: "",
+        full_name: getCoryFallbackProfile(user)?.full_name || "",
+        schedule_match_name: getCoryFallbackProfile(user)?.schedule_name || "",
+        schedule_name: getCoryFallbackProfile(user)?.schedule_name || "",
         role: getForcedRole(user.email, ""),
-        status: "",
+        status: "active",
         email: user.email || "",
         is_active: true,
       };
@@ -199,6 +228,13 @@ async function handleGetOrSave(method: "GET" | "POST" | "PATCH", request?: Reque
       profile_available: profileResult.available,
       ...(profileResult.error ? { warning: profileResult.error } : {}),
     });
+
+    if (process.env.NODE_ENV !== "production") {
+      console.log("/api/me normalized profile returned", {
+        email: user.email || null,
+        profile: buildResponseProfile(ensuredProfile as ProfileRow | null, user),
+      });
+    }
 
     if (session.refreshedSession?.access_token && session.refreshedSession.refresh_token) {
       setAuthCookies(response, {
@@ -263,6 +299,13 @@ async function handleGetOrSave(method: "GET" | "POST" | "PATCH", request?: Reque
     profile: buildResponseProfile(saveResult.profile as ProfileRow, user),
     profile_available: saveResult.available,
   });
+
+  if (process.env.NODE_ENV !== "production") {
+    console.log("/api/me normalized profile returned", {
+      email: user.email || null,
+      profile: buildResponseProfile(saveResult.profile as ProfileRow, user),
+    });
+  }
 
   if (session.refreshedSession?.access_token && session.refreshedSession.refresh_token) {
     setAuthCookies(response, {
