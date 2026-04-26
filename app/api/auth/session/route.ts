@@ -1,78 +1,50 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const ACCESS_COOKIE = "cfsp-access-token";
-const REFRESH_COOKIE = "cfsp-refresh-token";
-
-function getString(value: unknown): string | null {
-  return typeof value === "string" && value.length > 0 ? value : null;
-}
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 export async function POST(request: NextRequest) {
-  let body: Record<string, unknown> = {};
-
   try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json(
-      { ok: false, step: "parse_body", error: "Could not parse request body." },
-      { status: 400 }
-    );
-  }
+    const body = await request.json();
 
-  const session =
-    typeof body.session === "object" && body.session !== null
-      ? (body.session as Record<string, unknown>)
-      : {};
+    const accessToken = body?.access_token || body?.accessToken;
+    const refreshToken = body?.refresh_token || body?.refreshToken;
 
-  const accessToken =
-    getString(body.access_token) ||
-    getString(body.accessToken) ||
-    getString(session.access_token) ||
-    getString(session.accessToken);
+    if (!accessToken || !refreshToken) {
+      return NextResponse.json(
+        { ok: false, error: "Missing tokens", receivedKeys: Object.keys(body || {}) },
+        { status: 400 }
+      );
+    }
 
-  const refreshToken =
-    getString(body.refresh_token) ||
-    getString(body.refreshToken) ||
-    getString(session.refresh_token) ||
-    getString(session.refreshToken);
+    const response = NextResponse.json({ ok: true });
 
-  if (!accessToken || !refreshToken) {
+    response.cookies.set("cfsp-access-token", accessToken, {
+      httpOnly: true,
+      secure: true,
+      sameSite: "lax",
+      path: "/",
+    });
+
+    response.cookies.set("cfsp-refresh-token", refreshToken, {
+      httpOnly: true,
+      secure: true,
+      sameSite: "lax",
+      path: "/",
+    });
+
+    return response;
+  } catch (error) {
     return NextResponse.json(
       {
         ok: false,
-        step: "missing_tokens",
-        error: "Missing access or refresh token.",
-        receivedKeys: Object.keys(body),
+        error: error instanceof Error ? error.message : String(error),
       },
-      { status: 400 }
+      { status: 500 }
     );
   }
-
-  const response = NextResponse.json({ ok: true });
-
-  response.cookies.set(ACCESS_COOKIE, accessToken, {
-    httpOnly: true,
-    secure: true,
-    sameSite: "lax",
-    path: "/",
-    maxAge: 60 * 60 * 24 * 7,
-  });
-
-  response.cookies.set(REFRESH_COOKIE, refreshToken, {
-    httpOnly: true,
-    secure: true,
-    sameSite: "lax",
-    path: "/",
-    maxAge: 60 * 60 * 24 * 30,
-  });
-
-  return response;
 }
 
 export async function GET() {
-  return NextResponse.json({
-    ok: true,
-    route: "/api/auth/session",
-    methods: ["POST"],
-  });
+  return NextResponse.json({ ok: true, route: "/api/auth/session" });
 }
