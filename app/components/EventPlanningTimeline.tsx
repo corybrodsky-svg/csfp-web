@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+
 type EventPlanningTimelineProps = {
   eventDateLabel: string;
   summaryTimeLabel: string;
@@ -94,6 +96,7 @@ export default function EventPlanningTimeline({
   summaryTimeLabel,
 }: EventPlanningTimelineProps) {
   const steps = buildTimeline(eventDateLabel, summaryTimeLabel);
+  const [expanded, setExpanded] = useState(false);
 
   return (
     <section style={sectionStyle}>
@@ -120,30 +123,49 @@ export default function EventPlanningTimeline({
           Planning Aid
         </span>
       </div>
-
-      <div style={{ display: "grid", gap: "2px", marginTop: "14px" }}>
-        {steps.map((step, index) => (
-          <div
-            key={step.title}
-            style={{
-              ...stepStyle,
-              paddingBottom: index === steps.length - 1 ? 0 : "14px",
-              borderLeft: index === steps.length - 1 ? "2px solid transparent" : stepStyle.borderLeft,
-            }}
-          >
-            <span style={dotStyle} aria-hidden="true" />
-            <div style={{ color: "#173b6c", fontWeight: 900 }}>{step.title}</div>
-            <div style={{ marginTop: "3px", color: "#64748b", fontWeight: 800, fontSize: "13px" }}>
-              {step.timing}
-            </div>
-            <ul style={{ margin: "8px 0 0", paddingLeft: "18px", color: "#334155", lineHeight: 1.6 }}>
-              {step.tasks.map((task) => (
-                <li key={task}>{task}</li>
-              ))}
-            </ul>
-          </div>
-        ))}
+      <div style={{ marginTop: "14px" }}>
+        <button
+          type="button"
+          onClick={() => setExpanded((value) => !value)}
+          style={{
+            border: "1px solid #cbd5e1",
+            borderRadius: "12px",
+            background: "#ffffff",
+            color: "#173b6c",
+            cursor: "pointer",
+            fontWeight: 800,
+            padding: "10px 14px",
+          }}
+        >
+          {expanded ? "Hide Planning Timeline" : "Show Planning Timeline"}
+        </button>
       </div>
+
+      {expanded ? (
+        <div style={{ display: "grid", gap: "2px", marginTop: "14px" }}>
+          {steps.map((step, index) => (
+            <div
+              key={step.title}
+              style={{
+                ...stepStyle,
+                paddingBottom: index === steps.length - 1 ? 0 : "14px",
+                borderLeft: index === steps.length - 1 ? "2px solid transparent" : stepStyle.borderLeft,
+              }}
+            >
+              <span style={dotStyle} aria-hidden="true" />
+              <div style={{ color: "#173b6c", fontWeight: 900 }}>{step.title}</div>
+              <div style={{ marginTop: "3px", color: "#64748b", fontWeight: 800, fontSize: "13px" }}>
+                {step.timing}
+              </div>
+              <ul style={{ margin: "8px 0 0", paddingLeft: "18px", color: "#334155", lineHeight: 1.6 }}>
+                {step.tasks.map((task) => (
+                  <li key={task}>{task}</li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+      ) : null}
     </section>
   );
 }

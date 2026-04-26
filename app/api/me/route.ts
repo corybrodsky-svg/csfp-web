@@ -24,6 +24,7 @@ type ProfileRow = {
   role?: string | null;
   is_active?: boolean | null;
   email?: string | null;
+  profile_image_url?: string | null;
 };
 
 function asText(value: unknown) {
@@ -140,6 +141,8 @@ function buildNormalizedProfile(
   const role = getForcedRole(user.email, profile?.role || user.user_metadata?.role || coryFallback?.role);
   const isActive = profile?.is_active ?? coryFallback?.is_active ?? true;
   const email = profile?.email || user.email || coryFallback?.email || null;
+  const profileImageUrl =
+    asText(profile?.profile_image_url) || asText(user.user_metadata?.profile_image_url);
 
   return {
     id: profile?.id || coryFallback?.id || user.id,
@@ -148,6 +151,7 @@ function buildNormalizedProfile(
     role,
     is_active: isActive,
     email,
+    profile_image_url: profileImageUrl || null,
   } satisfies ProfileRow;
 }
 
@@ -181,6 +185,7 @@ function buildResponseProfile(
         status: resolved.is_active === false ? "inactive" : "active",
         email: resolved.email || user.email || "",
         is_active: resolved.is_active ?? true,
+        profile_image_url: resolved.profile_image_url || "",
       }
     : {
         id: user.id,
@@ -191,6 +196,7 @@ function buildResponseProfile(
         status: "active",
         email: user.email || "",
         is_active: true,
+        profile_image_url: asText(user.user_metadata?.profile_image_url) || "",
       };
 }
 
@@ -257,6 +263,8 @@ async function handleGetOrSave(method: "GET" | "POST" | "PATCH", request?: Reque
     ) || null;
   const requestedRole =
     body && typeof body === "object" ? (body as { role?: unknown }).role : "";
+  const profileImageUrl =
+    asText(body && typeof body === "object" ? (body as { profile_image_url?: unknown }).profile_image_url : "") || null;
   const finalRole = getForcedRole(user.email, requestedRole);
 
   const saveResult = await updateProfileForUser(
@@ -265,6 +273,7 @@ async function handleGetOrSave(method: "GET" | "POST" | "PATCH", request?: Reque
       full_name: fullName,
       schedule_name: scheduleMatchName,
       role: finalRole,
+      profile_image_url: profileImageUrl,
     },
     accessToken
   );

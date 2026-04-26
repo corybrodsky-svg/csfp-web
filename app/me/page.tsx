@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import SiteShell from "../components/SiteShell";
@@ -140,6 +141,7 @@ type MeResponse = {
     email: string | null;
     role: string | null;
     is_active: boolean | null;
+    profile_image_url?: string | null;
   } | null;
   profile_available?: boolean;
   message?: string;
@@ -151,6 +153,7 @@ type FormState = {
   fullName: string;
   scheduleName: string;
   role: RoleValue;
+  profileImageUrl: string;
 };
 
 type SaveState = "idle" | "saving" | "saved" | "error";
@@ -177,16 +180,31 @@ function formatRoleLabel(role: RoleValue) {
   return ROLE_OPTIONS.find((option) => option.value === role)?.label || "SP";
 }
 
+function readFileAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
+    reader.onerror = () => reject(new Error("Could not read image file."));
+    reader.readAsDataURL(file);
+  });
+}
+
 function getFormState(body: MeResponse | null): FormState {
   return {
     fullName: asText(body?.profile?.full_name),
     scheduleName: asText(body?.profile?.schedule_match_name ?? body?.profile?.schedule_name),
     role: normalizeRole(body?.profile?.role),
+    profileImageUrl: asText(body?.profile?.profile_image_url),
   };
 }
 
 function sameFormState(a: FormState, b: FormState) {
-  return a.fullName === b.fullName && a.scheduleName === b.scheduleName && a.role === b.role;
+  return (
+    a.fullName === b.fullName &&
+    a.scheduleName === b.scheduleName &&
+    a.role === b.role &&
+    a.profileImageUrl === b.profileImageUrl
+  );
 }
 
 function parseApiText(text: string) {
@@ -236,12 +254,15 @@ export default function MePage() {
   const [fullName, setFullName] = useState("");
   const [scheduleName, setScheduleName] = useState("");
   const [role, setRole] = useState<RoleValue>("sp");
+  const [profileImageUrl, setProfileImageUrl] = useState("");
   const [savedForm, setSavedForm] = useState<FormState>({
     fullName: "",
     scheduleName: "",
     role: "sp",
+    profileImageUrl: "",
   });
   const [showAdvancedDetails, setShowAdvancedDetails] = useState(false);
+  const [imagePickerBusy, setImagePickerBusy] = useState(false);
 
   const redirectToLogin = useCallback(() => {
     router.replace("/login");
@@ -255,6 +276,7 @@ export default function MePage() {
     setFullName(nextForm.fullName);
     setScheduleName(nextForm.scheduleName);
     setRole(nextForm.role);
+    setProfileImageUrl(nextForm.profileImageUrl);
     setSavedForm(nextForm);
   }, []);
 
@@ -310,8 +332,9 @@ export default function MePage() {
       fullName,
       scheduleName,
       role,
+      profileImageUrl,
     }),
-    [fullName, role, scheduleName]
+    [fullName, profileImageUrl, role, scheduleName]
   );
 
   const isDirty = useMemo(() => !sameFormState(currentForm, savedForm), [currentForm, savedForm]);
@@ -325,6 +348,7 @@ export default function MePage() {
   const email = data?.profile?.email || data?.user?.email || "";
   const profileId = data?.profile?.id || "Unavailable";
   const userId = data?.user?.id || "Unavailable";
+  const profileImagePreview = asText(profileImageUrl);
   const avatarFallback = (asText(fullName) || asText(email) || "CF")
     .split(/\s+/)
     .slice(0, 2)
@@ -339,6 +363,36 @@ export default function MePage() {
     return data.profile.is_active ? "Active" : "Inactive";
   }, [data]);
 
+  async function handleProfileImageSelected(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      setErrorMessage("Please choose an image file.");
+      return;
+    }
+
+    if (file.size > 600 * 1024) {
+      setErrorMessage("Please choose an image smaller than 600 KB.");
+      return;
+    }
+
+    setImagePickerBusy(true);
+    setErrorMessage("");
+
+    try {
+      const nextUrl = await readFileAsDataUrl(file);
+      if (!nextUrl) throw new Error("Could not prepare image preview.");
+      clearSaveFeedback();
+      setProfileImageUrl(nextUrl);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Could not load image.");
+    } finally {
+      setImagePickerBusy(false);
+    }
+  }
+
   async function handleSave(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSaveState("saving");
@@ -351,6 +405,7 @@ export default function MePage() {
       schedule_match_name: scheduleName,
       schedule_name: scheduleName,
       role: normalizeRole(role),
+      profile_image_url: profileImageUrl,
     };
 
     try {
@@ -382,6 +437,9 @@ export default function MePage() {
       setSuccessMessage(asText(body?.message) || "Profile saved.");
       setWarningMessage(asText(body?.warning));
       setSaveState("saved");
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("cfsp-profile-updated"));
+      }
       await loadProfile();
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Could not save profile.");
@@ -436,7 +494,18 @@ export default function MePage() {
         <form onSubmit={handleSave} style={sectionStyle}>
           <div style={profileHeaderStyle}>
             <div style={avatarFrameStyle}>
-              {avatarFallback}
+              {profileImagePreview ? (
+                <Image
+                  src={profileImagePreview}
+                  alt="Profile"
+                  width={96}
+                  height={96}
+                  style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                  unoptimized
+                />
+              ) : (
+                avatarFallback
+              )}
             </div>
 
             <div>
@@ -512,6 +581,37 @@ export default function MePage() {
                 Email
                 <input type="email" value={email} readOnly style={readOnlyInputStyle} />
               </label>
+
+              <label style={labelStyle}>
+                Profile Picture
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp,image/gif"
+                  onChange={(event) => void handleProfileImageSelected(event)}
+                  style={{ ...inputStyle, padding: "10px 12px" }}
+                />
+              </label>
+
+              <div style={{ color: "#64748b", fontSize: "13px", lineHeight: 1.6, marginTop: "-2px" }}>
+                Choose an image from your browser. It saves through the current profile metadata flow and will reload with your account.
+              </div>
+
+              <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center", marginTop: "-2px" }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    clearSaveFeedback();
+                    setProfileImageUrl("");
+                  }}
+                  disabled={!profileImageUrl || imagePickerBusy}
+                  style={{ ...secondaryButtonStyle, padding: "10px 14px" }}
+                >
+                  Remove Photo
+                </button>
+                <span style={{ color: "#64748b", fontSize: "13px", fontWeight: 700 }}>
+                  {imagePickerBusy ? "Preparing image..." : profileImageUrl ? "Photo ready to save" : "Using initials fallback"}
+                </span>
+              </div>
 
               <label style={labelStyle}>
                 Role

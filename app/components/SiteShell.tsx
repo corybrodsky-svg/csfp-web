@@ -22,6 +22,7 @@ type ShellMeResponse = {
     schedule_name?: string | null;
     email?: string | null;
     role?: string | null;
+    profile_image_url?: string | null;
   } | null;
 };
 
@@ -118,9 +119,13 @@ export default function SiteShell({ title, subtitle, children }: SiteShellProps)
     }
 
     void loadAccountSummary();
+    window.addEventListener("focus", loadAccountSummary);
+    window.addEventListener("cfsp-profile-updated", loadAccountSummary as EventListener);
 
     return () => {
       cancelled = true;
+      window.removeEventListener("focus", loadAccountSummary);
+      window.removeEventListener("cfsp-profile-updated", loadAccountSummary as EventListener);
     };
   }, []);
 
@@ -136,6 +141,7 @@ export default function SiteShell({ title, subtitle, children }: SiteShellProps)
 
   const accountDisplayName = getDisplayName(me);
   const accountRole = normalizeRole(me?.profile?.role);
+  const profileImageUrl = asText(me?.profile?.profile_image_url);
 
   return (
     <main className="cfsp-page">
@@ -188,8 +194,19 @@ export default function SiteShell({ title, subtitle, children }: SiteShellProps)
                       className="flex min-h-[46px] cursor-pointer list-none items-center gap-3 rounded-[12px] border border-[#d7e2ea] bg-white px-3 py-2 text-left text-sm font-bold text-[#14304f] transition-colors hover:bg-[#f8fbfd]"
                       style={{ boxShadow: "0 1px 2px rgba(15, 23, 42, 0.04)" }}
                     >
-                      <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[#eaf3fb] text-sm font-black text-[#145b96]">
-                        {accountDisplayName.slice(0, 1).toUpperCase()}
+                      <span className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-[#eaf3fb] text-sm font-black text-[#145b96]">
+                        {profileImageUrl ? (
+                          <Image
+                            src={profileImageUrl}
+                            alt={accountDisplayName}
+                            width={36}
+                            height={36}
+                            unoptimized
+                            style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                          />
+                        ) : (
+                          accountDisplayName.slice(0, 1).toUpperCase()
+                        )}
                       </span>
                       <span className="min-w-0">
                         <span className="block max-w-[120px] truncate text-sm font-black">{accountDisplayName}</span>

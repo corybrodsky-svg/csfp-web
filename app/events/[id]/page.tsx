@@ -1177,7 +1177,8 @@ export default function EventDetailPage() {
   const assignedCount = assignmentCount;
   const shortageCount = isWorkshop ? 0 : shortage;
   const eventType = eventMeta.eventType;
-  const staffingRelevant = eventType !== "hifi" || needed > 0 || assignmentCount > 0;
+  const noSpStaffingRequired = eventType === "skills" || isWorkshop || needed <= 0;
+  const staffingRelevant = !noSpStaffingRequired && (eventType !== "hifi" || needed > 0 || assignmentCount > 0);
   const progressItems = useMemo(
     () => [
       {
@@ -1820,26 +1821,37 @@ export default function EventDetailPage() {
           }}
         >
           <div style={{ ...statCard, background: "#ffffff" }}>
-            <div style={statLabel}>Confirmed vs Needed</div>
-            <div style={statValue}>
-              {confirmedCount} / {needed}
-            </div>
+            <div style={statLabel}>{noSpStaffingRequired ? "Coverage" : "Confirmed vs Needed"}</div>
+            <div style={statValue}>{noSpStaffingRequired ? "No SPs required" : `${confirmedCount} / ${needed}`}</div>
           </div>
           <div style={{ ...statCard, background: "#ffffff" }}>
-            <div style={statLabel}>Assigned SPs</div>
-            <div style={statValue}>{assignedCount}</div>
+            <div style={statLabel}>{noSpStaffingRequired ? "Event Type" : "Assigned SPs"}</div>
+            <div style={statValue}>{noSpStaffingRequired ? "Skills Workshop" : assignedCount}</div>
           </div>
           <div style={{ ...statCard, background: "#ffffff" }}>
-            <div style={statLabel}>Still Open</div>
+            <div style={statLabel}>{noSpStaffingRequired ? "Staffing" : "Still Open"}</div>
             <div style={{ ...statValue, color: shortageCount > 0 ? "#af2f26" : "#196b57" }}>
-              {shortageCount}
+              {noSpStaffingRequired ? "Not required" : shortageCount}
             </div>
           </div>
         </div>
 
         <div style={{ marginTop: "14px", display: "grid", gap: "10px" }}>
           <div style={statLabel}>Assigned SP status</div>
-          {sortedAssignments.length === 0 ? (
+          {noSpStaffingRequired ? (
+            <div
+              style={{
+                border: "1px solid #99f6e4",
+                borderRadius: "12px",
+                background: "#ecfeff",
+                color: "#0f766e",
+                padding: "12px 14px",
+                fontWeight: 800,
+              }}
+            >
+              No SP staffing required for this skills event.
+            </div>
+          ) : sortedAssignments.length === 0 ? (
             <div style={{ color: "#6a7e91", fontWeight: 700 }}>No SPs assigned yet.</div>
           ) : (
             <div style={{ display: "grid", gap: "10px" }}>
@@ -2133,13 +2145,15 @@ export default function EventDetailPage() {
           <div>
             <h2 style={compactSectionTitleStyle}>Coverage Actions</h2>
             <p style={compactSectionHintStyle}>
-              {staffingRelevant
+              {noSpStaffingRequired
+                ? "This skills event does not require SP staffing."
+                : staffingRelevant
                 ? "Manage assigned SPs, update contact status, and confirm coverage without leaving the page."
                 : "HiFi event. Staffing tools remain available if this event needs SP support."}
             </p>
           </div>
           <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
-            {assignedBccEmails.length ? (
+            {!noSpStaffingRequired && assignedBccEmails.length ? (
               <button
                 type="button"
                 onClick={() => void handleOpenAvailabilityRequest()}
@@ -2156,7 +2170,7 @@ export default function EventDetailPage() {
               >
                 Send Email
               </button>
-            ) : (
+            ) : !noSpStaffingRequired ? (
               <span
                 style={{
                   display: "inline-block",
@@ -2169,25 +2183,27 @@ export default function EventDetailPage() {
               >
                 No Assigned SP Emails
               </span>
-            )}
-            <div
-              style={{
-                display: "grid",
-                gap: "8px",
-                minWidth: "200px",
-                border: "1px solid #dbe4ee",
-                borderRadius: "16px",
-                padding: "12px",
-                background: "#f8fbff",
-              }}
-            >
-              <div style={{ color: "#173b6c", fontWeight: 900, fontSize: "20px" }}>
-                {needed} SPs needed / {confirmedCount} confirmed
+            ) : null}
+            {!noSpStaffingRequired ? (
+              <div
+                style={{
+                  display: "grid",
+                  gap: "8px",
+                  minWidth: "200px",
+                  border: "1px solid #dbe4ee",
+                  borderRadius: "16px",
+                  padding: "12px",
+                  background: "#f8fbff",
+                }}
+              >
+                <div style={{ color: "#173b6c", fontWeight: 900, fontSize: "20px" }}>
+                  {needed} SPs needed / {confirmedCount} confirmed
+                </div>
+                <div style={{ color: "#9a3412", fontWeight: 800 }}>
+                  {unconfirmedCount} still need attention
+                </div>
               </div>
-              <div style={{ color: "#9a3412", fontWeight: 800 }}>
-                {unconfirmedCount} still need attention
-              </div>
-            </div>
+            ) : null}
           </div>
         </div>
 
@@ -2208,6 +2224,22 @@ export default function EventDetailPage() {
           </div>
         ) : null}
 
+        {noSpStaffingRequired ? (
+          <div
+            style={{
+              marginTop: "14px",
+              border: "1px solid #99f6e4",
+              borderRadius: "16px",
+              padding: "16px",
+              background: "#ecfeff",
+              color: "#0f766e",
+              fontWeight: 800,
+            }}
+          >
+            No SP staffing required for this skills event.
+          </div>
+        ) : (
+          <>
         {showEmailDraft ? (
           <div style={{ ...statCard, marginTop: "12px", background: "#ffffff" }}>
             <div style={statLabel}>Email Draft Preview</div>
@@ -2566,8 +2598,25 @@ export default function EventDetailPage() {
             })}
           </div>
         )}
+          </>
+        )}
       </div>
 
+      {noSpStaffingRequired ? (
+        <div
+          style={{
+            ...cardStyle,
+            background: "#ecfeff",
+            borderColor: "#99f6e4",
+            color: "#0f766e",
+          }}
+        >
+          <h2 style={compactSectionTitleStyle}>SP Staffing</h2>
+          <p style={{ ...compactSectionHintStyle, color: "#0f766e" }}>
+            No SP staffing required for this skills event.
+          </p>
+        </div>
+      ) : (
       <div style={{ ...cardStyle, background: "#f8fbff", borderColor: "#bfdbfe" }}>
         <div
           style={{
@@ -2987,6 +3036,7 @@ export default function EventDetailPage() {
           </div>
         </div>
       </div>
+      )}
     </SiteShell>
   );
 }

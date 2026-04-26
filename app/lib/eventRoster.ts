@@ -5,7 +5,8 @@ function asText(value: unknown) {
 
 function splitPeopleList(value: string) {
   return value
-    .split(/\s*(?:,|;|\/| and | & )\s*/i)
+    .replace(/\r/g, "\n")
+    .split(/\s*(?:\n|,|;|\/| and | & )\s*/i)
     .map((part) => part.trim())
     .filter(Boolean);
 }
@@ -26,16 +27,48 @@ function extractRosterLine(notes: string, labelPattern: RegExp) {
   return [];
 }
 
-export function getSimStaffNames(notes?: string | null) {
-  const text = asText(notes);
-  if (!text) return [];
+const ROSTER_LABEL_PATTERNS = [
+  { label: "Sim Staff", pattern: /^Sim Staff\s*:\s*(.+)$/i },
+  { label: "Staff Hiring", pattern: /^Staff Hiring\s*:\s*(.+)$/i },
+  { label: "Team", pattern: /^Event Lead\/Team\s*:\s*(.+)$/i },
+  { label: "Team", pattern: /^Event Lead\s*:\s*(.+)$/i },
+  { label: "Team", pattern: /^Team\s*:\s*(.+)$/i },
+  { label: "Course Faculty", pattern: /^Course Faculty\s*:\s*(.+)$/i },
+  { label: "Faculty", pattern: /^Faculty\s*:\s*(.+)$/i },
+] as const;
 
-  const names = extractRosterLine(text, /^Sim Staff\s*:\s*(.+)$/i);
-  return Array.from(new Set(names));
+export function getEventTeamInfo(notes?: string | null) {
+  const text = asText(notes);
+  if (!text) {
+    return {
+      names: [],
+      label: "",
+    };
+  }
+
+  for (const roster of ROSTER_LABEL_PATTERNS) {
+    const names = extractRosterLine(text, roster.pattern);
+    if (names.length) {
+      return {
+        names: Array.from(new Set(names)),
+        label: roster.label,
+      };
+    }
+  }
+
+  return {
+    names: [],
+    label: "",
+  };
+}
+
+export function getSimStaffNames(notes?: string | null) {
+  return getEventTeamInfo(notes).names;
 }
 
 export function getSimStaffLabel(notes?: string | null) {
-  const names = getSimStaffNames(notes);
-  if (!names.length) return "No sim staff listed";
-  return names.join(", ");
+  const info = getEventTeamInfo(notes);
+  if (!info.names.length) return "No sim staff listed";
+  if (info.label === "Sim Staff") return info.names.join(", ");
+  return `${info.label}: ${info.names.join(", ")}`;
 }
