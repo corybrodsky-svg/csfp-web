@@ -1,6 +1,9 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { useMemo, useState } from "react";
 
 type SiteShellProps = {
   title: string;
@@ -8,168 +11,110 @@ type SiteShellProps = {
   children: React.ReactNode;
 };
 
-const shellStyle: React.CSSProperties = {
-  minHeight: "100vh",
-  background: "#f4f7fb",
-  fontFamily: "Arial, Helvetica, sans-serif",
+type NavItem = {
+  href: string;
+  label: string;
+  match?: "exact" | "prefix";
 };
 
-const containerStyle: React.CSSProperties = {
-  maxWidth: "1200px",
-  margin: "0 auto",
-  padding: "20px 24px 24px",
-};
+const navItems: NavItem[] = [
+  { href: "/dashboard", label: "Dashboard", match: "exact" },
+  { href: "/events", label: "Events", match: "prefix" },
+  { href: "/events/new", label: "New Event", match: "exact" },
+  { href: "/events/upload", label: "Upload", match: "exact" },
+  { href: "/sps", label: "SP Database", match: "prefix" },
+  { href: "/sim-op", label: "Sim Op", match: "prefix" },
+  { href: "/staff", label: "Staff", match: "prefix" },
+  { href: "/admin", label: "Admin", match: "prefix" },
+  { href: "/me", label: "Me", match: "prefix" },
+  { href: "/login", label: "Login", match: "exact" },
+];
 
-const headerStyle: React.CSSProperties = {
-  background: "#ffffff",
-  border: "1px solid #d6deeb",
-  borderRadius: "20px",
-  padding: "18px 20px",
-  marginBottom: "16px",
-  boxShadow: "0 8px 24px rgba(15, 23, 42, 0.06)",
-};
+function isNavActive(pathname: string, item: NavItem) {
+  if (item.href === "/events" && pathname.startsWith("/events/")) return true;
+  if (item.match === "prefix") return pathname === item.href || pathname.startsWith(`${item.href}/`);
+  return pathname === item.href;
+}
 
-const headerTopStyle: React.CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "flex-start",
-  gap: "18px",
-  flexWrap: "wrap",
-};
+export default function SiteShell({ title, subtitle, children }: SiteShellProps) {
+  const pathname = usePathname();
+  const [logoVisible, setLogoVisible] = useState(true);
 
-const brandWrapStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: "12px",
-  minWidth: "280px",
-};
+  const activeMap = useMemo(() => {
+    const next = new Map<string, boolean>();
+    navItems.forEach((item) => next.set(item.href, isNavActive(pathname, item)));
+    return next;
+  }, [pathname]);
 
-const brandMarkStyle: React.CSSProperties = {
-  width: "46px",
-  height: "46px",
-  borderRadius: "14px",
-  background: "linear-gradient(135deg, #173b6c 0%, #245ca1 100%)",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  boxShadow: "inset 0 1px 0 rgba(255, 255, 255, 0.15)",
-  flexShrink: 0,
-};
-
-const brandNameStyle: React.CSSProperties = {
-  margin: 0,
-  fontSize: "20px",
-  fontWeight: 900,
-  color: "#16213e",
-  lineHeight: 1.1,
-};
-
-const brandSubtitleStyle: React.CSSProperties = {
-  margin: "4px 0 0",
-  fontSize: "12px",
-  color: "#64748b",
-  fontWeight: 700,
-  letterSpacing: "0.02em",
-};
-
-const pageIntroStyle: React.CSSProperties = {
-  flex: "1 1 300px",
-  minWidth: "260px",
-};
-
-const titleStyle: React.CSSProperties = {
-  margin: 0,
-  fontSize: "31px",
-  color: "#16213e",
-  lineHeight: 1.08,
-};
-
-const subtitleStyle: React.CSSProperties = {
-  margin: "6px 0 0 0",
-  fontSize: "15px",
-  color: "#5a667a",
-  lineHeight: 1.5,
-};
-
-const navWrapStyle: React.CSSProperties = {
-  display: "flex",
-  flexWrap: "wrap",
-  gap: "8px",
-  marginTop: "16px",
-  paddingTop: "14px",
-  borderTop: "1px solid #e7edf5",
-};
-
-const navLinkStyle: React.CSSProperties = {
-  textDecoration: "none",
-  padding: "9px 13px",
-  borderRadius: "12px",
-  border: "1px solid #cfd7e6",
-  background: "#ffffff",
-  color: "#16213e",
-  fontWeight: 700,
-  fontSize: "13px",
-};
-
-const contentCardStyle: React.CSSProperties = {
-  background: "#ffffff",
-  border: "1px solid #d6deeb",
-  borderRadius: "18px",
-  padding: "22px",
-  boxShadow: "0 8px 24px rgba(15, 23, 42, 0.05)",
-};
-
-export default function SiteShell({
-  title,
-  subtitle,
-  children,
-}: SiteShellProps) {
   return (
-    <main style={shellStyle}>
-      <div style={containerStyle}>
-        <section style={headerStyle}>
-          <div style={headerTopStyle}>
-            <div style={brandWrapStyle}>
-              <div style={brandMarkStyle} aria-hidden="true">
-                <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
-                  <rect x="4" y="4" width="20" height="20" rx="6" fill="rgba(255,255,255,0.16)" />
-                  <path
-                    d="M10 9.5H18.5M10 14H16.5M10 18.5H14.5"
-                    stroke="#ffffff"
-                    strokeWidth="2.2"
-                    strokeLinecap="round"
-                  />
-                  <circle cx="19.5" cy="18.5" r="2.5" fill="#ffffff" />
-                </svg>
+    <main className="cfsp-page">
+      <div className="cfsp-container">
+        <header className="cfsp-panel mb-4 overflow-hidden">
+          <div className="flex flex-col gap-4 px-5 py-4">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div className="flex min-w-0 items-center gap-3">
+                <Link
+                  href="/dashboard"
+                  className="flex min-h-[52px] items-center gap-3 rounded-xl border border-[#d6e0e8] bg-white px-3 py-2 text-inherit no-underline"
+                >
+                  <div className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-lg border border-[#d4e3ea] bg-[#f0f8f6] text-sm font-black tracking-[0.12em] text-[#0f4471]">
+                    {logoVisible ? (
+                      <Image
+                        src="/branding/cfsp-logo.png"
+                        alt="CFSP"
+                        width={44}
+                        height={44}
+                        unoptimized
+                        onError={() => setLogoVisible(false)}
+                      />
+                    ) : (
+                      <span>CFSP</span>
+                    )}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="m-0 text-[1.05rem] font-black leading-tight text-[#14304f]">CFSP</p>
+                    <p className="m-0 mt-0.5 text-xs font-bold text-[#5e7388]">
+                      Conflict-Free SP operations
+                    </p>
+                  </div>
+                </Link>
+
+                <div className="hidden min-h-[36px] items-center rounded-full border border-[#bfe4d6] bg-[#eaf7f2] px-4 py-1 text-sm font-black text-[#196b57] md:inline-flex">
+                  CFSP • Conflict-Free SP
+                </div>
               </div>
 
-              <div>
-                <p style={brandNameStyle}>CFSP Ops Board</p>
-                <p style={brandSubtitleStyle}>Conflict-Free SP · Simulation Operations</p>
+              <div className="min-w-0 flex-1 lg:max-w-[52%]">
+                <p className="cfsp-kicker">Healthcare Simulation Operations</p>
+                <h1 className="m-0 mt-2 text-[1.9rem] leading-tight font-black text-[#14304f]">{title}</h1>
+                {subtitle ? <p className="cfsp-section-copy">{subtitle}</p> : null}
               </div>
             </div>
 
-            <div style={pageIntroStyle}>
-              <h1 style={titleStyle}>{title}</h1>
-              {subtitle ? <p style={subtitleStyle}>{subtitle}</p> : null}
-            </div>
-          </div>
+            <nav className="flex flex-wrap gap-2 border-t border-[#e6edf3] pt-3" aria-label="Primary navigation">
+              {navItems.map((item) => {
+                const active = activeMap.get(item.href);
 
-          <div style={navWrapStyle}>
-            <Link href="/dashboard" style={navLinkStyle}>Dashboard</Link>
-            <Link href="/events" style={navLinkStyle}>Events</Link>
-            <Link href="/events/new" style={navLinkStyle}>New Event</Link>
-            <Link href="/events/upload" style={navLinkStyle}>Upload</Link>
-            <Link href="/sps" style={navLinkStyle}>SP Database</Link>
-            <Link href="/sim-op" style={navLinkStyle}>Sim Op</Link>
-            <Link href="/staff" style={navLinkStyle}>Staff</Link>
-            <Link href="/admin" style={navLinkStyle}>Admin</Link>
-            <Link href="/me" style={navLinkStyle}>Me</Link>
-            <Link href="/login" style={navLinkStyle}>Login</Link>
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className="cfsp-nav-link min-h-[42px] rounded-[10px] border px-3 py-2 text-[0.92rem] font-bold no-underline transition-colors"
+                    style={{
+                      background: active ? "#165a96" : "#ffffff",
+                      borderColor: active ? "#165a96" : "#d6e0e8",
+                      color: active ? "#ffffff" : "#14304f",
+                    }}
+                  >
+                    {item.label}
+                  </Link>
+                );
+              })}
+            </nav>
           </div>
-        </section>
+        </header>
 
-        <section style={contentCardStyle}>{children}</section>
+        <section className="cfsp-panel px-5 py-5">{children}</section>
       </div>
     </main>
   );

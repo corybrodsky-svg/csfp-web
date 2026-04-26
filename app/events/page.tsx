@@ -49,73 +49,6 @@ type DateGroup = {
 type EventsViewMode = "all" | "assigned";
 type DateFilterMode = "active" | "past" | "all";
 
-const shellCardStyle: React.CSSProperties = {
-  background: "#ffffff",
-  border: "1px solid #dbe4ee",
-  borderRadius: "24px",
-  padding: "20px",
-  boxShadow: "0 12px 30px rgba(15, 23, 42, 0.06)",
-};
-
-const statCardStyle: React.CSSProperties = {
-  border: "1px solid #dbe4ee",
-  borderRadius: "18px",
-  padding: "14px 16px",
-  background: "#f8fbff",
-};
-
-const statLabelStyle: React.CSSProperties = {
-  fontSize: "12px",
-  fontWeight: 800,
-  color: "#64748b",
-  textTransform: "uppercase",
-  letterSpacing: "0.05em",
-};
-
-const statValueStyle: React.CSSProperties = {
-  marginTop: "8px",
-  fontSize: "22px",
-  fontWeight: 900,
-  color: "#173b6c",
-};
-
-const groupHeaderStyle: React.CSSProperties = {
-  position: "sticky",
-  top: "12px",
-  zIndex: 1,
-  display: "inline-flex",
-  alignItems: "center",
-  borderRadius: "999px",
-  padding: "8px 14px",
-  background: "rgba(23, 59, 108, 0.92)",
-  color: "#ffffff",
-  fontWeight: 900,
-  fontSize: "14px",
-  letterSpacing: "0.02em",
-  boxShadow: "0 10px 24px rgba(15, 23, 42, 0.18)",
-};
-
-const eventCardStyle: React.CSSProperties = {
-  display: "grid",
-  gap: "16px",
-  border: "1px solid #dbe4ee",
-  borderRadius: "24px",
-  padding: "20px",
-  background: "linear-gradient(180deg, #ffffff 0%, #fbfdff 100%)",
-  boxShadow: "0 14px 32px rgba(15, 23, 42, 0.08)",
-  textDecoration: "none",
-};
-
-const pillStyle: React.CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  gap: "8px",
-  borderRadius: "999px",
-  padding: "7px 11px",
-  fontSize: "12px",
-  fontWeight: 800,
-};
-
 function asText(value: unknown) {
   if (value === null || value === undefined) return "";
   return String(value).trim();
@@ -179,15 +112,15 @@ function getStatusTone(status: string) {
   const normalized = status.toLowerCase();
 
   if (normalized.includes("complete")) {
-    return { background: "#ecfdf3", border: "#86efac", color: "#166534" };
+    return { background: "#eaf7f2", border: "#bfe4d6", color: "#196b57" };
   }
   if (normalized.includes("progress")) {
-    return { background: "#eff6ff", border: "#93c5fd", color: "#1d4ed8" };
+    return { background: "#edf5fb", border: "#c7dcee", color: "#165a96" };
   }
   if (normalized.includes("scheduled")) {
-    return { background: "#f5f3ff", border: "#c4b5fd", color: "#6d28d9" };
+    return { background: "#f4f7fb", border: "#d6e0e8", color: "#4f677d" };
   }
-  return { background: "#fff7ed", border: "#fdba74", color: "#9a3412" };
+  return { background: "#fff6e9", border: "#f1d1a7", color: "#9f630e" };
 }
 
 function getStartOfToday() {
@@ -207,13 +140,8 @@ function matchesDateFilter(event: EventRow, filterMode: DateFilterMode, startOfT
   return eventDate >= startOfToday;
 }
 
-async function parseApiError(response: Response) {
-  try {
-    const body = await response.json();
-    return asText(body?.error) || `${response.status} ${response.statusText}`;
-  } catch {
-    return `${response.status} ${response.statusText}`;
-  }
+function getToggleButtonClass(active: boolean) {
+  return `cfsp-btn ${active ? "cfsp-btn-primary" : "cfsp-btn-secondary"}`;
 }
 
 export default function EventsPage() {
@@ -228,7 +156,6 @@ export default function EventsPage() {
   const redirectToLogin = useCallback(() => {
     router.replace("/login");
     router.refresh();
- console.error("Events page load failed");
   }, [router]);
 
   useEffect(() => {
@@ -253,15 +180,15 @@ export default function EventsPage() {
           return;
         }
 
-if (!meResponse.ok) {
-  console.error("Failed to load /api/me", meResponse.status);
-  return;
-}
+        if (!meResponse.ok) {
+          console.error("Failed to load /api/me", meResponse.status);
+          return;
+        }
 
         if (!eventsResponse.ok) {
-  console.error("Failed to load /api/events", eventsResponse.status);
-  return;
-}
+          console.error("Failed to load /api/events", eventsResponse.status);
+          return;
+        }
 
         const eventRows = Array.isArray(eventsBody?.events) ? (eventsBody.events as EventRow[]) : [];
         setMe(meBody);
@@ -303,13 +230,6 @@ if (!meResponse.ok) {
     () => scopedEvents.filter((event) => matchesDateFilter(event, dateFilterMode, startOfToday)),
     [dateFilterMode, scopedEvents, startOfToday]
   );
-  const viewingLabel = activeViewMode === "all" ? "Viewing: All Events" : "Viewing: My Assigned Events";
-  const dateFilterLabel =
-    dateFilterMode === "active"
-      ? "Showing: Upcoming + Current"
-      : dateFilterMode === "past"
-        ? "Showing: Past Events"
-        : "Showing: All Events";
 
   const groupedEvents = useMemo<DateGroup[]>(() => {
     const groups = new Map<string, DateGroup>();
@@ -347,462 +267,246 @@ if (!meResponse.ok) {
   return (
     <SiteShell
       title="Events"
-      subtitle="Chronological operations board for imported schedules, staffing needs, and day-to-day review."
+      subtitle="Review live simulation events, staffing coverage, and operational priorities in one compact board."
     >
-      {errorMessage ? (
-        <div
-          style={{
-            ...shellCardStyle,
-            borderColor: "#fecaca",
-            background: "#fff5f5",
-            color: "#991b1b",
-            fontWeight: 700,
-          }}
-        >
-          Events error: {errorMessage}
-        </div>
-      ) : null}
+      <div className="grid gap-5">
+        {errorMessage ? <div className="cfsp-alert cfsp-alert-error">Events error: {errorMessage}</div> : null}
 
-      <div
-        style={{
-          ...shellCardStyle,
-          background: "linear-gradient(135deg, #173b6c 0%, #245ca1 65%, #2e6db5 100%)",
-          color: "#ffffff",
-          border: "none",
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            gap: "16px",
-            flexWrap: "wrap",
-            alignItems: "end",
-          }}
-        >
-          <div style={{ maxWidth: "720px" }}>
-            <div
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                borderRadius: "999px",
-                padding: "7px 12px",
-                background: "rgba(255,255,255,0.14)",
-                fontWeight: 900,
-                fontSize: "12px",
-                letterSpacing: "0.06em",
-                textTransform: "uppercase",
-              }}
-            >
-              {isSuperAdmin ? "Super Admin View" : "Events Board"}
+        <section className="cfsp-panel-muted rounded-[12px] border border-[#dce6ee] px-5 py-5">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+            <div className="min-w-0 flex-1">
+              <p className="cfsp-kicker">{isSuperAdmin ? "Super Admin View" : "Events Board"}</p>
+              <h2 className="mt-3 text-[1.8rem] leading-tight font-black text-[#14304f]">
+                {loading ? "Loading events..." : `${visibleEvents.length} operational events`}
+              </h2>
+              <p className="mt-2 max-w-3xl text-[0.98rem] leading-6 text-[#5e7388]">
+                Keep upcoming work front and center, review coverage, and open the next event with fewer clicks.
+              </p>
             </div>
-            <div
-              style={{
-                display: "flex",
-                gap: "10px",
-                flexWrap: "wrap",
-                alignItems: "center",
-                marginTop: "12px",
-              }}
-            >
-              <span
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  borderRadius: "999px",
-                  padding: "8px 12px",
-                  background: "rgba(255,255,255,0.14)",
-                  border: "1px solid rgba(255,255,255,0.2)",
-                  fontWeight: 800,
-                  fontSize: "13px",
-                }}
-              >
-                {viewingLabel}
-              </span>
-              <span
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  borderRadius: "999px",
-                  padding: "8px 12px",
-                  background: "rgba(255,255,255,0.14)",
-                  border: "1px solid rgba(255,255,255,0.2)",
-                  fontWeight: 800,
-                  fontSize: "13px",
-                }}
-              >
-                {dateFilterLabel}
-              </span>
-              {isSuperAdmin ? (
-                <div
-                  style={{
-                    display: "inline-flex",
-                    gap: "6px",
-                    padding: "4px",
-                    borderRadius: "999px",
-                    background: "rgba(255,255,255,0.1)",
-                    border: "1px solid rgba(255,255,255,0.16)",
-                  }}
-                >
+
+            <div className="flex flex-wrap gap-2">
+              <Link href="/events/new" className="cfsp-btn cfsp-btn-primary">
+                Create Event
+              </Link>
+              <Link href="/events/upload" className="cfsp-btn cfsp-btn-secondary">
+                Import Events
+              </Link>
+            </div>
+          </div>
+
+          <div className="mt-5 grid gap-4 lg:grid-cols-[1.2fr_1fr]">
+            <div className="rounded-[12px] border border-[#d9e4ec] bg-white px-4 py-4">
+              <div className="cfsp-label">Scope</div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {isSuperAdmin ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setViewMode("all")}
+                      className={getToggleButtonClass(activeViewMode === "all")}
+                    >
+                      All Events
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setViewMode("assigned")}
+                      className={getToggleButtonClass(activeViewMode === "assigned")}
+                    >
+                      My Assigned Events
+                    </button>
+                  </>
+                ) : (
+                  <span className="cfsp-chip">My Assigned Events</span>
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-[12px] border border-[#d9e4ec] bg-white px-4 py-4">
+              <div className="cfsp-label">Date Range</div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {[
+                  { value: "active" as DateFilterMode, label: "Upcoming + Current" },
+                  { value: "past" as DateFilterMode, label: "Past Events" },
+                  { value: "all" as DateFilterMode, label: "All Events" },
+                ].map((filter) => (
                   <button
+                    key={filter.value}
                     type="button"
-                    onClick={() => setViewMode("all")}
-                    style={{
-                      border: "none",
-                      borderRadius: "999px",
-                      padding: "9px 12px",
-                      fontWeight: 900,
-                      cursor: "pointer",
-                      background: activeViewMode === "all" ? "#ffffff" : "transparent",
-                      color: activeViewMode === "all" ? "#173b6c" : "#ffffff",
-                    }}
+                    onClick={() => setDateFilterMode(filter.value)}
+                    className={getToggleButtonClass(dateFilterMode === filter.value)}
                   >
-                    All Events
+                    {filter.label}
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => setViewMode("assigned")}
-                    style={{
-                      border: "none",
-                      borderRadius: "999px",
-                      padding: "9px 12px",
-                      fontWeight: 900,
-                      cursor: "pointer",
-                      background: activeViewMode === "assigned" ? "#ffffff" : "transparent",
-                      color: activeViewMode === "assigned" ? "#173b6c" : "#ffffff",
-                    }}
-                  >
-                    My Assigned Events
-                  </button>
-                </div>
-              ) : null}
+                ))}
+              </div>
             </div>
-            <div
-              style={{
-                display: "flex",
-                gap: "10px",
-                flexWrap: "wrap",
-                alignItems: "center",
-                marginTop: "12px",
-              }}
-            >
-              {[
-                { value: "active" as DateFilterMode, label: "Upcoming + Current" },
-                { value: "past" as DateFilterMode, label: "Past Events" },
-                { value: "all" as DateFilterMode, label: "All Events" },
-              ].map((filter) => (
-                <button
-                  key={filter.value}
-                  type="button"
-                  onClick={() => setDateFilterMode(filter.value)}
-                  style={{
-                    border: "none",
-                    borderRadius: "999px",
-                    padding: "9px 12px",
-                    fontWeight: 900,
-                    cursor: "pointer",
-                    background: dateFilterMode === filter.value ? "#ffffff" : "rgba(255,255,255,0.12)",
-                    color: dateFilterMode === filter.value ? "#173b6c" : "#ffffff",
-                    borderColor: "transparent",
-                  }}
-                >
-                  {filter.label}
-                </button>
-              ))}
-            </div>
-            <h2 style={{ margin: "14px 0 0", fontSize: "34px", lineHeight: 1.08 }}>
-              {loading ? "Loading events..." : `${visibleEvents.length} Events Loaded`}
-            </h2>
-            <p style={{ margin: "10px 0 0", color: "rgba(255,255,255,0.84)", lineHeight: 1.7, fontWeight: 600 }}>
-              Upcoming and current work stays front and center by default, while past imported events remain
-              available when you need to review them.
+          </div>
+        </section>
+
+        <section className="cfsp-grid-stats">
+          <div className="cfsp-stat-card">
+            <div className="cfsp-label">Events Loaded</div>
+            <div className="cfsp-stat-value">{visibleEvents.length}</div>
+          </div>
+          <div className="cfsp-stat-card">
+            <div className="cfsp-label">Date Groups</div>
+            <div className="cfsp-stat-value">{groupedEvents.length}</div>
+          </div>
+          <div className="cfsp-stat-card">
+            <div className="cfsp-label">Confirmed SPs</div>
+            <div className="cfsp-stat-value">{totalConfirmed}</div>
+          </div>
+          <div className="cfsp-stat-card">
+            <div className="cfsp-label">SPs Needed</div>
+            <div className="cfsp-stat-value">{totalNeeded}</div>
+          </div>
+          <div className="cfsp-stat-card">
+            <div className="cfsp-label">Open Shortage</div>
+            <div className="cfsp-stat-value">{totalShortage}</div>
+          </div>
+        </section>
+
+        {loading ? (
+          <div className="cfsp-alert cfsp-alert-info">Loading events from Supabase...</div>
+        ) : visibleEvents.length === 0 ? (
+          <div className="cfsp-alert cfsp-alert-info">
+            <h3 className="m-0 text-lg font-black text-[#14304f]">
+              {dateFilterMode === "past"
+                ? "No past events found"
+                : activeViewMode === "all"
+                  ? "No current or upcoming events"
+                  : "No current or upcoming assigned events"}
+            </h3>
+            <p className="mt-2 mb-0 text-sm leading-6 text-[#5e7388]">
+              {dateFilterMode === "past"
+                ? "Past imported events will appear here when you switch into the archive-style view."
+                : dateFilterMode === "all"
+                  ? "Imported or manually created events will appear here once they exist. Use the import page or create a new event to begin building the schedule."
+                  : "Switch to Past Events or All Events if you need to review older imported schedules."}
             </p>
           </div>
+        ) : (
+          <div className="grid gap-5">
+            {groupedEvents.map((group) => (
+              <section key={group.key} className="grid gap-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="inline-flex min-h-[34px] items-center rounded-full border border-[#d9e4ec] bg-[#edf5fb] px-4 py-1.5 text-sm font-black text-[#14304f]">
+                    {group.label}
+                  </div>
+                  <div className="text-sm font-semibold text-[#5e7388]">
+                    {group.events.length} event{group.events.length === 1 ? "" : "s"}
+                  </div>
+                </div>
 
-          <div
-            style={{
-              display: "grid",
-              gap: "10px",
-              minWidth: "220px",
-            }}
-          >
-            <Link
-              href="/events/new"
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                justifyContent: "center",
-                borderRadius: "14px",
-                padding: "12px 16px",
-                textDecoration: "none",
-                fontWeight: 900,
-                background: "#ffffff",
-                color: "#173b6c",
-              }}
-            >
-              Create Event
-            </Link>
-            <Link
-              href="/events/upload"
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                justifyContent: "center",
-                borderRadius: "14px",
-                padding: "12px 16px",
-                textDecoration: "none",
-                fontWeight: 800,
-                background: "rgba(255,255,255,0.12)",
-                color: "#ffffff",
-                border: "1px solid rgba(255,255,255,0.24)",
-              }}
-            >
-              Import More Events
-            </Link>
-          </div>
-        </div>
-      </div>
+                <div className="grid gap-3">
+                  {group.events.map((event) => {
+                    const needed = Number(event.sp_needed || 0);
+                    const confirmedAssignments = Number(event.confirmed_assignments || 0);
+                    const totalAssignments = Number(event.total_assignments || 0);
+                    const shortage = Number(event.shortage || 0);
+                    const sessionCount = estimateSessionCount(event);
+                    const assignedPreview = (event.assigned_sp_names || []).filter(Boolean).slice(0, 5);
+                    const eventMeta = classifyEventPresentation({
+                      name: event.name,
+                      status: event.status,
+                      notes: event.notes,
+                      location: event.location,
+                      spNeeded: event.sp_needed,
+                      assignmentCount: totalAssignments,
+                      confirmedCount: confirmedAssignments,
+                    });
+                    const badgeAppearance = getEventBadgeAppearance(eventMeta.primaryBadgeKind);
+                    const statusTone = getStatusTone(asText(event.status) || "needs sps");
+                    const coverageTone =
+                      shortage > 0
+                        ? { background: "#fff6e9", border: "#f1d1a7", color: "#9f630e" }
+                        : { background: "#eaf7f2", border: "#bfe4d6", color: "#196b57" };
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-          gap: "12px",
-        }}
-      >
-        <div style={statCardStyle}>
-          <div style={statLabelStyle}>Events Loaded</div>
-          <div style={statValueStyle}>{visibleEvents.length}</div>
-        </div>
-        <div style={statCardStyle}>
-          <div style={statLabelStyle}>Date Groups</div>
-          <div style={statValueStyle}>{groupedEvents.length}</div>
-        </div>
-        <div style={statCardStyle}>
-          <div style={statLabelStyle}>Confirmed SPs</div>
-          <div style={statValueStyle}>{totalConfirmed}</div>
-        </div>
-        <div style={statCardStyle}>
-          <div style={statLabelStyle}>SPs Needed</div>
-          <div style={statValueStyle}>{totalNeeded}</div>
-        </div>
-        <div style={statCardStyle}>
-          <div style={statLabelStyle}>Open Shortage</div>
-          <div style={statValueStyle}>{totalShortage}</div>
-        </div>
-      </div>
-
-      {loading ? (
-        <div style={shellCardStyle}>Loading events from Supabase...</div>
-      ) : visibleEvents.length === 0 ? (
-        <div style={shellCardStyle}>
-          <h3 style={{ marginTop: 0, color: "#173b6c" }}>
-            {dateFilterMode === "past"
-              ? "No past events found"
-              : activeViewMode === "all"
-                ? "No current or upcoming events"
-                : "No current or upcoming assigned events"}
-          </h3>
-          <p style={{ marginBottom: 0, color: "#64748b", lineHeight: 1.7 }}>
-            {dateFilterMode === "past"
-              ? "Past imported events will appear here when you switch into the archive-style view."
-              : dateFilterMode === "all"
-                ? "Imported or manually created events will appear here once they exist. Use the import page or create a new event to begin building the schedule."
-                : "Switch to Past Events or All Events if you need to review older imported schedules."}
-          </p>
-        </div>
-      ) : (
-        <div style={{ display: "grid", gap: "22px" }}>
-          {groupedEvents.map((group) => (
-            <section key={group.key} style={{ display: "grid", gap: "12px" }}>
-              <div style={groupHeaderStyle}>
-                {group.label}
-                <span style={{ opacity: 0.76, marginLeft: "10px", fontSize: "12px" }}>
-                  {group.events.length} event{group.events.length === 1 ? "" : "s"}
-                </span>
-              </div>
-
-              <div style={{ display: "grid", gap: "12px" }}>
-                {group.events.map((event) => {
-                  const needed = Number(event.sp_needed || 0);
-                  const confirmedAssignments = Number(event.confirmed_assignments || 0);
-                  const totalAssignments = Number(event.total_assignments || 0);
-                  const shortage = Number(event.shortage || 0);
-                  const sessionCount = estimateSessionCount(event);
-                  const assignedPreview = (event.assigned_sp_names || []).filter(Boolean).slice(0, 4);
-                  const eventMeta = classifyEventPresentation({
-                    name: event.name,
-                    status: event.status,
-                    notes: event.notes,
-                    location: event.location,
-                    spNeeded: event.sp_needed,
-                    assignmentCount: totalAssignments,
-                    confirmedCount: confirmedAssignments,
-                  });
-                  const badgeAppearance = getEventBadgeAppearance(eventMeta.primaryBadgeKind);
-                  const statusTone = getStatusTone(asText(event.status) || "needs sps");
-                  const coverageTone =
-                    shortage > 0
-                      ? { background: "#fff7ed", border: "#fdba74", color: "#9a3412" }
-                      : { background: "#ecfdf3", border: "#86efac", color: "#166534" };
-
-                  return (
-                    <Link key={event.id} href={`/events/${event.id}`} style={eventCardStyle}>
-                      <div
-                        style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          gap: "16px",
-                          flexWrap: "wrap",
-                          alignItems: "start",
-                        }}
+                    return (
+                      <article
+                        key={event.id}
+                        className="rounded-[14px] border border-[#d9e4ec] bg-white px-5 py-5 shadow-[0_8px_22px_rgba(20,48,79,0.05)]"
                       >
-                        <div style={{ flex: "1 1 560px", minWidth: 260 }}>
-                          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
-                            <span
-                              style={{
-                                ...pillStyle,
-                                background: statusTone.background,
-                                color: statusTone.color,
-                                border: `1px solid ${statusTone.border}`,
-                              }}
-                            >
-                              {event.status || "No status"}
-                            </span>
-                            <span
-                              style={{
-                                ...pillStyle,
-                                background: badgeAppearance.background,
-                                color: badgeAppearance.color,
-                                border: `1px solid ${badgeAppearance.border}`,
-                              }}
-                            >
-                              {eventMeta.primaryBadgeLabel}
-                            </span>
-                            <span
-                              style={{
-                                ...pillStyle,
-                                background: coverageTone.background,
-                                color: coverageTone.color,
-                                border: `1px solid ${coverageTone.border}`,
-                              }}
-                            >
-                              {shortage > 0 ? `${shortage} open` : "Covered"}
-                            </span>
-                          </div>
-
-                          <h2
-                            style={{
-                              margin: "12px 0 0",
-                              fontSize: "30px",
-                              lineHeight: 1.08,
-                              color: "#173b6c",
-                            }}
-                          >
-                            {event.name || "Untitled Event"}
-                          </h2>
-
-                          <div
-                            style={{
-                              display: "flex",
-                              gap: "14px",
-                              flexWrap: "wrap",
-                              alignItems: "center",
-                              marginTop: "10px",
-                              color: "#475569",
-                              fontWeight: 700,
-                            }}
-                          >
-                            <span>{getDisplayDate(event) || "Date TBD"}</span>
-                            <span>{event.location || "Location TBD"}</span>
-                            <span>
-                              {sessionCount === null
-                                ? "Session count unavailable"
-                                : `${sessionCount} session${sessionCount === 1 ? "" : "s"}`}
-                            </span>
-                          </div>
-                        </div>
-
-                        <div
-                          style={{
-                            display: "grid",
-                            gap: "8px",
-                            minWidth: "180px",
-                            justifyItems: "end",
-                          }}
-                        >
-                          <div style={{ color: "#173b6c", fontWeight: 900 }}>Open Event</div>
-                          <div style={{ color: "#64748b", fontWeight: 700, fontSize: "13px" }}>
-                            Review staffing, notes, and sessions
-                          </div>
-                        </div>
-                      </div>
-
-                      <div
-                        style={{
-                          display: "grid",
-                          gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
-                          gap: "10px",
-                        }}
-                      >
-                        <div style={statCardStyle}>
-                          <div style={statLabelStyle}>SP Coverage</div>
-                          <div style={{ ...statValueStyle, fontSize: "18px" }}>
-                            {confirmedAssignments} / {needed}
-                          </div>
-                        </div>
-                        <div style={statCardStyle}>
-                          <div style={statLabelStyle}>Assignments</div>
-                          <div style={{ ...statValueStyle, fontSize: "18px" }}>{totalAssignments}</div>
-                        </div>
-                        <div style={statCardStyle}>
-                          <div style={statLabelStyle}>Shortage</div>
-                          <div
-                            style={{
-                              ...statValueStyle,
-                              fontSize: "18px",
-                              color: shortage > 0 ? "#b45309" : "#166534",
-                            }}
-                          >
-                            {shortage}
-                          </div>
-                        </div>
-                        <div style={statCardStyle}>
-                          <div style={statLabelStyle}>Location</div>
-                          <div style={{ ...statValueStyle, fontSize: "18px" }}>{event.location || "TBD"}</div>
-                        </div>
-                      </div>
-
-                      <div style={{ display: "grid", gap: "8px" }}>
-                        <div style={{ ...statLabelStyle, fontSize: "11px" }}>Assigned SPs</div>
-                        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                          {assignedPreview.length ? (
-                            assignedPreview.map((name) => (
-                              <span
-                                key={`${event.id}-${name}`}
-                                style={{
-                                  ...pillStyle,
-                                  background: "#f8fbff",
-                                  color: "#173b6c",
-                                  border: "1px solid #dbe4ee",
-                                }}
-                              >
-                                {name}
+                        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                          <div className="min-w-0 flex-1">
+                            <div className="mb-3 flex flex-wrap gap-2">
+                              <span className="cfsp-badge" style={statusTone}>
+                                {event.status || "No status"}
                               </span>
-                            ))
-                          ) : (
-                            <span style={{ color: "#64748b", fontWeight: 700 }}>No assigned SPs yet</span>
-                          )}
+                              <span className="cfsp-badge" style={badgeAppearance}>
+                                {eventMeta.primaryBadgeLabel}
+                              </span>
+                              <span className="cfsp-badge" style={coverageTone}>
+                                {shortage > 0 ? `${shortage} open` : "Covered"}
+                              </span>
+                            </div>
+
+                            <h3 className="m-0 text-[1.55rem] leading-tight font-black text-[#14304f]">
+                              {event.name || "Untitled Event"}
+                            </h3>
+
+                            <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-sm font-semibold text-[#5e7388]">
+                              <span>{getDisplayDate(event) || "Date TBD"}</span>
+                              <span>{event.location || "Location TBD"}</span>
+                              <span>
+                                {sessionCount === null
+                                  ? "Session count unavailable"
+                                  : `${sessionCount} session${sessionCount === 1 ? "" : "s"}`}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="flex shrink-0 items-start">
+                            <Link href={`/events/${event.id}`} className="cfsp-btn cfsp-btn-primary">
+                              Open Event
+                            </Link>
+                          </div>
                         </div>
-                      </div>
-                    </Link>
-                  );
-                })}
-              </div>
-            </section>
-          ))}
-        </div>
-      )}
+
+                        <div className="mt-5 grid gap-3 md:grid-cols-4">
+                          <div className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
+                            <div className="cfsp-label">SP Coverage</div>
+                            <div className="mt-2 text-xl font-black text-[#14304f]">
+                              {confirmedAssignments} / {needed}
+                            </div>
+                          </div>
+                          <div className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
+                            <div className="cfsp-label">Assignments</div>
+                            <div className="mt-2 text-xl font-black text-[#14304f]">{totalAssignments}</div>
+                          </div>
+                          <div className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
+                            <div className="cfsp-label">Shortage</div>
+                            <div className="mt-2 text-xl font-black text-[#14304f]">{shortage}</div>
+                          </div>
+                          <div className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
+                            <div className="cfsp-label">Location</div>
+                            <div className="mt-2 text-base font-black text-[#14304f]">{event.location || "TBD"}</div>
+                          </div>
+                        </div>
+
+                        <div className="mt-5 grid gap-2">
+                          <div className="cfsp-label">Assigned SPs</div>
+                          <div className="flex flex-wrap gap-2">
+                            {assignedPreview.length ? (
+                              assignedPreview.map((name) => (
+                                <span key={`${event.id}-${name}`} className="cfsp-chip">
+                                  {name}
+                                </span>
+                              ))
+                            ) : (
+                              <span className="text-sm font-semibold text-[#6a7e91]">No assigned SPs yet</span>
+                            )}
+                          </div>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              </section>
+            ))}
+          </div>
+        )}
+      </div>
     </SiteShell>
   );
 }
