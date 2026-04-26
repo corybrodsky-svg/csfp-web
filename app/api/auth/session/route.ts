@@ -1,52 +1,54 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
-export async function POST(req: Request) {
+const ACCESS_COOKIE = "cfsp-access-token";
+const REFRESH_COOKIE = "cfsp-refresh-token";
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+export async function POST(request: NextRequest) {
   try {
-    const body = await req.json();
+    const body = await request.json().catch((error: unknown) => {
+      throw new Error(`Could not parse request JSON: ${errorMessage(error)}`);
+    });
 
-    const { access_token, refresh_token } = body;
+    const accessToken = body?.access_token;
+    const refreshToken = body?.refresh_token;
 
-    if (!access_token || !refresh_token) {
+    if (!accessToken || !refreshToken) {
       return NextResponse.json(
-        { ok: false, step: "missing_tokens" },
+        {
+          ok: false,
+          step: "missing_tokens",
+          error: "Missing access_token or refresh_token.",
+        },
         { status: 400 }
       );
     }
 
-    const res = NextResponse.json({ ok: true });
+    const response = NextResponse.json({ ok: true });
 
-    try {
-      res.cookies.set("cfsp-access-token", access_token, {
-        httpOnly: true,
-        path: "/",
-      });
+    const cookieOptions = {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax" as const,
+      path: "/",
+      maxAge: 60 * 60 * 24 * 7,
+    };
 
-      res.cookies.set("cfsp-refresh-token", refresh_token, {
-        httpOnly: true,
-        path: "/",
-      });
-    } catch (cookieError: any) {
-      console.error("COOKIE ERROR:", cookieError);
+    response.cookies.set(ACCESS_COOKIE, accessToken, cookieOptions);
+    response.cookies.set(REFRESH_COOKIE, refreshToken, cookieOptions);
 
-      return NextResponse.json(
-        {
-          ok: false,
-          step: "cookie_set_failed",
-          error: cookieError?.message || "unknown",
-        },
-        { status: 500 }
-      );
-    }
-
-    return res;
-  } catch (err: any) {
-    console.error("SESSION ROUTE ERROR:", err);
+    return response;
+  } catch (error: unknown) {
+    console.error("/api/auth/session failed:", error);
 
     return NextResponse.json(
       {
         ok: false,
-        step: "session_route_crash",
-        error: err?.message || "unknown",
+        step: "session_route_failed",
+        error: errorMessage(error),
       },
       { status: 500 }
     );
