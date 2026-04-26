@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import SiteShell from "../components/SiteShell";
 import { classifyEventPresentation } from "../lib/eventClassification";
-import { getSimStaffLabel } from "../lib/eventRoster";
+import { getEventTeamInfo } from "../lib/eventRoster";
 import { eventMatchesOwnership, ownershipTextMatchesScheduleName } from "../lib/eventOwnership";
 
 type MeResponse = {
@@ -281,10 +281,26 @@ function WorkflowSection({
                       </div>
 
                       <div className="mt-3 grid gap-2">
-                        <div className="cfsp-label">Sim Staff</div>
-                        <div className="text-sm font-semibold text-[#5e7388]">
-                          {getSimStaffLabel(item.event.notes)}
-                        </div>
+                        {(() => {
+                          const teamInfo = getEventTeamInfo(item.event.notes);
+                          const teamLabel = teamInfo.names.length
+                            ? `${teamInfo.label || "Team"}: ${teamInfo.names.join(", ")}`
+                            : "No sim staff listed";
+
+                          return (
+                            <>
+                              <div className="cfsp-label">Team / Staff</div>
+                              <div className="text-sm font-semibold text-[#5e7388]">
+                                {teamLabel}
+                              </div>
+                              {process.env.NODE_ENV !== "production" && !teamInfo.names.length ? (
+                                <div className="text-xs font-semibold text-[#6a7e91]">
+                                  Notes checked: {item.event.notes ? "yes" : "no"} · Ownership labels found: none
+                                </div>
+                              ) : null}
+                            </>
+                          );
+                        })()}
                       </div>
 
                       <div className="mt-3 grid gap-2">

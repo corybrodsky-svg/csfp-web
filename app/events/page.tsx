@@ -7,7 +7,7 @@ import SiteShell from "../components/SiteShell";
 import { formatHumanDate, getDateSortValue, getImportedYearHint } from "../lib/eventDateUtils";
 import { classifyEventPresentation, getEventBadgeAppearance } from "../lib/eventClassification";
 import { eventMatchesOwnership } from "../lib/eventOwnership";
-import { getSimStaffLabel, getSimStaffNames } from "../lib/eventRoster";
+import { getEventTeamInfo } from "../lib/eventRoster";
 
 type EventRow = {
   id: string;
@@ -193,7 +193,10 @@ function EventWorkflowSection({
             const workflowTone = getWorkflowToneForEvent(item);
             const assignedPreview = (event.assigned_sp_names || []).filter(Boolean).slice(0, 5);
             const sessionCount = estimateSessionCount(event);
-            const simStaffNames = getSimStaffNames(event.notes);
+            const teamInfo = getEventTeamInfo(event.notes);
+            const teamLabel = teamInfo.names.length
+              ? `${teamInfo.label || "Team"}: ${teamInfo.names.join(", ")}`
+              : "No sim staff listed";
 
             return (
               <article
@@ -255,10 +258,15 @@ function EventWorkflowSection({
                     <div className="mt-2 text-base font-black text-[#14304f]">{event.location || "TBD"}</div>
                   </div>
                   <div className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
-                    <div className="cfsp-label">Sim Staff</div>
-                    <div className={`mt-2 text-sm font-bold ${simStaffNames.length ? "text-[#14304f]" : "text-[#af2f26]"}`}>
-                      {getSimStaffLabel(event.notes)}
+                    <div className="cfsp-label">Team / Staff</div>
+                    <div className={`mt-2 text-sm font-bold ${teamInfo.names.length ? "text-[#14304f]" : "text-[#af2f26]"}`}>
+                      {teamLabel}
                     </div>
+                    {process.env.NODE_ENV !== "production" && !teamInfo.names.length ? (
+                      <div className="mt-2 text-xs font-semibold text-[#6a7e91]">
+                        Notes checked: {event.notes ? "yes" : "no"} · Ownership labels found: none
+                      </div>
+                    ) : null}
                   </div>
                 </div>
 

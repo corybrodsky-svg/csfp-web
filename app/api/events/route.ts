@@ -18,6 +18,11 @@ function parseNumber(value: unknown) {
   return Math.max(0, Math.floor(n));
 }
 
+function parseNullableText(value: unknown) {
+  const text = asText(value);
+  return text || null;
+}
+
 function getErrorMessage(error: unknown) {
   if (error instanceof Error) return error.message;
   if (typeof error === "string") return error;
@@ -333,6 +338,8 @@ export async function POST(request: Request) {
       date_text: string | null;
       sp_needed: number;
       visibility: string;
+      location: string | null;
+      notes: string | null;
       owner_id?: string;
     } = {
       name,
@@ -340,6 +347,8 @@ export async function POST(request: Request) {
       date_text: asText(body?.date_text) || null,
       sp_needed: parseNumber(body?.sp_needed),
       visibility: asText(body?.visibility) || "team",
+      location: parseNullableText(body?.location),
+      notes: parseNullableText(body?.notes),
     };
     if (ownerId) payload.owner_id = ownerId;
 
@@ -356,6 +365,8 @@ export async function POST(request: Request) {
         date_text: asText(body?.date_text) || null,
         sp_needed: parseNumber(body?.sp_needed),
         visibility: asText(body?.visibility) || "team",
+        location: parseNullableText(body?.location),
+        notes: parseNullableText(body?.notes),
       };
       insertResult = await supabaseServer
         .from("events")
@@ -373,7 +384,43 @@ export async function POST(request: Request) {
       );
     }
 
-    return NextResponse.json({ event: data }, { status: 201 });
+    const createdEvent = data;
+    const sessions = Array.isArray(body?.sessions) ? body.sessions : [];
+
+    if (createdEvent?.id && sessions.length) {
+      const sessionPayload = sessions
+        .map((session: unknown) => {
+          const sessionDate = parseNullableText((session as { session_date?: unknown }).session_date);
+          const startTime = parseNullableText((session as { start_time?: unknown }).start_time);
+          const endTime = parseNullableText((session as { end_time?: unknown }).end_time);
+          const room = parseNullableText((session as { room?: unknown }).room);
+          const location = parseNullableText((session as { location?: unknown }).location) || parseNullableText(body?.location);
+
+          if (!sessionDate || !startTime) return null;
+
+          return {
+            event_id: createdEvent.id,
+            session_date: sessionDate,
+            start_time: startTime,
+            end_time: endTime,
+            location,
+            room,
+          };
+        })
+        .filter(Boolean);
+
+      if (sessionPayload.length) {
+        const { error: sessionInsertError } = await supabaseServer.from("event_sessions").insert(sessionPayload);
+        if (sessionInsertError) {
+          return NextResponse.json(
+            { error: sessionInsertError.message || "Event created, but sessions could not be saved." },
+            { status: 500 }
+          );
+        }
+      }
+    }
+
+    return NextResponse.json({ event: createdEvent }, { status: 201 });
   } catch (error) {
     return NextResponse.json(
       { error: `Supabase request failed: ${getErrorMessage(error)}` },
