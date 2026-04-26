@@ -5,15 +5,32 @@ import { asText, formatUsDate } from "../../../lib/eventDateUtils";
 
 export const dynamic = "force-dynamic";
 
+type ParsedSession = {
+  date: string;
+  time: string | null;
+};
+
+type ParsedRosterRow = {
+  email: string;
+  name: string;
+  caseText: string | null;
+  assignmentText: string | null;
+  notesText: string | null;
+  statusByDate: Record<string, string>;
+};
+
 type ParsedSheet = {
   sheet: string;
+  format: "sp_event_info" | "sp_info";
   title: string;
-  eventDates: string[];
-  eventTime: string | null;
+  term: string | null;
+  sessions: ParsedSession[];
   trainingDate: string | null;
   zoomLink: string | null;
   caseText: string | null;
   simStaffNames: string[];
+  staffLine: string | null;
+  rosterRows: ParsedRosterRow[];
 };
 
 type ImportResultEntry = {
@@ -24,6 +41,12 @@ type ImportResultEntry = {
   simStaffCount?: number;
   reason?: string;
   error?: string;
+  checkedSheets?: string[];
+  detectorMatched?: ParsedSheet["format"];
+  extractedTitle?: string;
+  extractedDates?: string[];
+  staffExtracted?: string | null;
+  spRowCount?: number;
 };
 
 type ImportResponse = {
@@ -40,12 +63,39 @@ type EventRow = {
   notes: string | null;
 };
 
+type SPDirectoryRow = {
+  id: string;
+  full_name: string | null;
+  working_email: string | null;
+  email: string | null;
+};
+
+type EventAssignmentRow = {
+  id: string;
+  event_id: string;
+  sp_id: string;
+  status: string | null;
+  confirmed: boolean | null;
+};
+
 function normalizeTitle(value: string) {
   return asText(value).toLowerCase().replace(/\s+/g, " ").trim();
 }
 
 function normalizeDateKey(value: string | null) {
   return formatUsDate(value) || asText(value);
+}
+
+function normalizeEmail(value: string | null | undefined) {
+  return asText(value).toLowerCase();
+}
+
+function normalizeName(value: string | null | undefined) {
+  return asText(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function getMergedCellValue(sheet: XLSX.WorkSheet, address: string) {
@@ -97,6 +147,13 @@ function parseExcelDate(value: unknown) {
 }
 
 function parseTimeValue(value: unknown) {
+  if (typeof value === "number") {
+    const parsed = XLSX.SSF.parse_date_code(value);
+    if (parsed) {
+      return `${String(parsed.H).padStart(2, "0")}:${String(parsed.M).padStart(2, "0")}:00`;
+    }
+  }
+
   const raw = asText(value);
   if (!raw) return null;
 
@@ -132,6 +189,11 @@ function isKnownHeader(value: string) {
     "sp names",
     "location",
     "room",
+    "staff hiring",
+    "email",
+    "sp hired",
+    "assignment",
+    "notes",
   ]);
 
   return exactHeaders.has(normalized);
@@ -142,7 +204,7 @@ function looksLikeDateOrTime(value: string) {
     /^\d{1,2}\/\d{1,2}(?:\/\d{2,4})?$/.test(value) ||
     /^\d{1,2}:\d{2}(?:\s?[ap]m)?$/i.test(value) ||
     /^\d{1,2}\s?[ap]m$/i.test(value) ||
-    /\b(am|pm)\b/i.test(value) ||
+    /\b(am|pm)\b/i.test(value.toLowerCase()) ||
     /\b(mon|tue|wed|thu|fri|sat|sun)\b/i.test(value.toLowerCase())
   );
 }
@@ -173,7 +235,17 @@ function looksLikePersonName(value: string) {
     .map((part) => part.replace(/[^A-Za-z'.-]/g, ""))
     .filter(Boolean);
 
-  return words.length >= 2 && words.length <= 4;
+  return words.length >= 1 && words.length <= 4;
+}
+
+function splitStaffNames(raw: string) {
+  const clean = asText(raw).replace(/^(sim staff|staff hiring)\s*:\s*/i, "");
+  if (!clean) return [];
+
+  return clean
+    .split(/\s*(?:,|;|\/| and | & )\s*/i)
+    .map((part) => part.trim())
+    .filter((part) => looksLikePersonName(part));
 }
 
 function extractSimStaffNames(sheet: XLSX.WorkSheet) {
@@ -189,13 +261,20 @@ function extractSimStaffNames(sheet: XLSX.WorkSheet) {
     const value = asText(getMergedCellValue(sheet, `B${row + 1}`));
     if (!looksLikePersonName(value)) continue;
 
-    const normalized = value.toLowerCase();
-    if (seen.has(normalized)) continue;
+    const normalized = normalizeName(value);
+    if (!normalized || seen.has(normalized)) continue;
     seen.add(normalized);
     names.push(value);
   }
 
   return names;
+}
+
+function addUniqueDateSession(sessions: ParsedSession[], date: string | null, time: string | null) {
+  if (!date) return;
+  const key = `${date}|${time || ""}`;
+  if (sessions.some((session) => `${session.date}|${session.time || ""}` === key)) return;
+  sessions.push({ date, time });
 }
 
 function buildNotesBlock(parsed: ParsedSheet, existingNotes?: string | null) {
@@ -205,9 +284,25 @@ function buildNotesBlock(parsed: ParsedSheet, existingNotes?: string | null) {
     .filter(Boolean);
 
   const replacements = [
-    { prefix: "Sim Staff:", value: parsed.simStaffNames.length ? `Sim Staff: ${parsed.simStaffNames.join(", ")}` : "" },
+    {
+      prefix: "Sim Staff:",
+      value:
+        parsed.staffLine && parsed.staffLine.toLowerCase().startsWith("sim staff:")
+          ? parsed.staffLine
+          : parsed.simStaffNames.length
+            ? `Sim Staff: ${parsed.simStaffNames.join(", ")}`
+            : "",
+    },
+    {
+      prefix: "Staff Hiring:",
+      value:
+        parsed.staffLine && parsed.staffLine.toLowerCase().startsWith("staff hiring:")
+          ? parsed.staffLine
+          : "",
+    },
     { prefix: "Zoom:", value: parsed.zoomLink ? `Zoom: ${parsed.zoomLink}` : "" },
     { prefix: "Training Date:", value: parsed.trainingDate ? `Training Date: ${parsed.trainingDate}` : "" },
+    { prefix: "Term:", value: parsed.term ? `Term: ${parsed.term}` : "" },
     { prefix: "Case:", value: parsed.caseText ? `Case: ${parsed.caseText}` : "" },
   ];
 
@@ -232,25 +327,123 @@ function parseSpEventInfoSheet(sheet: XLSX.WorkSheet, sheetName: string): Parsed
   const trainingDate = parseExcelDate(getMergedCellValue(sheet, "D14"));
   const eventTime = parseTimeValue(getMergedCellValue(sheet, "D15"));
   const caseText = asText(getMergedCellValue(sheet, "D83")) || null;
+  const sessions: ParsedSession[] = [];
 
-  const eventDates = ["E14", "F14", "G14", "H14", "I14"]
-    .map((address) => parseExcelDate(getMergedCellValue(sheet, address)))
-    .filter((value): value is string => Boolean(value));
+  ["E14", "F14", "G14", "H14", "I14"].forEach((address) => {
+    addUniqueDateSession(sessions, parseExcelDate(getMergedCellValue(sheet, address)), eventTime);
+  });
 
-  if (!title || eventDates.length === 0) {
+  if (!title || sessions.length === 0) {
     return null;
   }
 
+  const simStaffNames = extractSimStaffNames(sheet);
+
   return {
     sheet: sheetName,
+    format: "sp_event_info",
     title,
-    eventDates: Array.from(new Set(eventDates)),
-    eventTime,
+    term: null,
+    sessions,
     trainingDate,
     zoomLink,
     caseText,
-    simStaffNames: extractSimStaffNames(sheet),
+    simStaffNames,
+    staffLine: simStaffNames.length ? `Sim Staff: ${simStaffNames.join(", ")}` : null,
+    rosterRows: [],
   };
+}
+
+function parseSpInfoSheet(sheet: XLSX.WorkSheet, sheetName: string): ParsedSheet | null {
+  const title = asText(getMergedCellValue(sheet, "A1"));
+  const term = asText(getMergedCellValue(sheet, "A2")) || null;
+  const emailHeader = asText(getMergedCellValue(sheet, "A14")).toLowerCase();
+  const hiredHeader = asText(getMergedCellValue(sheet, "B14")).toLowerCase();
+  const staffHiringRaw = asText(getMergedCellValue(sheet, "D13"));
+  const sessions: ParsedSession[] = [];
+  const dateColumns = ["D", "E", "F", "G"];
+  const statusColumnsByDate = new Map<string, string>();
+
+  dateColumns.forEach((column) => {
+    const date = parseExcelDate(getMergedCellValue(sheet, `${column}14`));
+    const time = parseTimeValue(getMergedCellValue(sheet, `${column}15`));
+    addUniqueDateSession(sessions, date, time);
+    if (date) {
+      statusColumnsByDate.set(date, column);
+    }
+  });
+
+  const looksValid =
+    Boolean(title) &&
+    emailHeader.includes("email") &&
+    hiredHeader.includes("sp hired") &&
+    sessions.length > 0;
+
+  if (!looksValid) {
+    return null;
+  }
+
+  const rosterRows: ParsedRosterRow[] = [];
+  let blankRowStreak = 0;
+
+  for (let row = 16; row <= 250; row += 1) {
+    const email = asText(getMergedCellValue(sheet, `A${row}`));
+    const name = asText(getMergedCellValue(sheet, `B${row}`));
+    const caseText = asText(getMergedCellValue(sheet, `H${row}`)) || null;
+    const assignmentText = asText(getMergedCellValue(sheet, `I${row}`)) || null;
+    const notesText = asText(getMergedCellValue(sheet, `J${row}`)) || null;
+
+    const statuses = Object.fromEntries(
+      [...statusColumnsByDate.entries()].map(([date, column]) => [date, asText(getMergedCellValue(sheet, `${column}${row}`))])
+    );
+    const hasUsefulStatus = Object.values(statuses).some(Boolean);
+    const isBlank = !email && !name && !caseText && !assignmentText && !notesText && !hasUsefulStatus;
+
+    if (isBlank) {
+      blankRowStreak += 1;
+      if (blankRowStreak >= 5) break;
+      continue;
+    }
+
+    blankRowStreak = 0;
+
+    if (!email && !name) continue;
+
+    rosterRows.push({
+      email,
+      name,
+      caseText,
+      assignmentText,
+      notesText,
+      statusByDate: statuses,
+    });
+  }
+
+  const staffLine = staffHiringRaw
+    ? /^staff hiring\s*:/i.test(staffHiringRaw)
+      ? staffHiringRaw
+      : `Staff Hiring: ${staffHiringRaw}`
+    : null;
+  const simStaffNames = splitStaffNames(staffHiringRaw);
+  const caseText = rosterRows.map((row) => row.caseText).find(Boolean) || null;
+
+  return {
+    sheet: sheetName,
+    format: "sp_info",
+    title,
+    term,
+    sessions,
+    trainingDate: null,
+    zoomLink: null,
+    caseText,
+    simStaffNames,
+    staffLine,
+    rosterRows,
+  };
+}
+
+function parseSupportedSheet(sheet: XLSX.WorkSheet, sheetName: string) {
+  return parseSpEventInfoSheet(sheet, sheetName) || parseSpInfoSheet(sheet, sheetName);
 }
 
 async function ensureSessions(
@@ -271,12 +464,12 @@ async function ensureSessions(
     (existingSessions || []).map((session) => `${asText(session.session_date)}|${asText(session.start_time)}`)
   );
 
-  const inserts = parsed.eventDates
-    .filter((date) => !existingKeys.has(`${date}|${parsed.eventTime || ""}`))
-    .map((date) => ({
+  const inserts = parsed.sessions
+    .filter((session) => !existingKeys.has(`${session.date}|${session.time || ""}`))
+    .map((session) => ({
       event_id: eventId,
-      session_date: date,
-      start_time: parsed.eventTime,
+      session_date: session.date,
+      start_time: session.time,
       end_time: null,
       location: null,
       room: null,
@@ -290,29 +483,118 @@ async function ensureSessions(
   }
 }
 
+function isPositiveAssignmentMark(value: string) {
+  const normalized = value.trim().toLowerCase();
+  return ["x", "yes", "y", "assigned", "hired", "confirmed"].includes(normalized);
+}
+
+async function syncRosterAssignments(
+  supabaseServer: ReturnType<typeof createSupabaseServerClient>,
+  eventId: string,
+  parsed: ParsedSheet,
+  spDirectory: SPDirectoryRow[]
+) {
+  if (!parsed.rosterRows.length) {
+    return { extractedCount: 0 };
+  }
+
+  const actionableRows = parsed.rosterRows.filter((row) =>
+    Object.values(row.statusByDate).some((value) => isPositiveAssignmentMark(value))
+  );
+
+  if (!actionableRows.length) {
+    return { extractedCount: parsed.rosterRows.length };
+  }
+
+  const { data: existingAssignments, error: existingAssignmentError } = await supabaseServer
+    .from("event_sps")
+    .select("id,event_id,sp_id,status,confirmed")
+    .eq("event_id", eventId);
+
+  if (existingAssignmentError) {
+    throw new Error(existingAssignmentError.message);
+  }
+
+  const assignmentBySpId = new Map<string, EventAssignmentRow>();
+  (existingAssignments || []).forEach((assignment) => {
+    assignmentBySpId.set(asText(assignment.sp_id), assignment as EventAssignmentRow);
+  });
+
+  for (const row of actionableRows) {
+    const normalizedEmail = normalizeEmail(row.email);
+    const normalizedName = normalizeName(row.name);
+    const matchedSp =
+      spDirectory.find((sp) => normalizedEmail && normalizeEmail(sp.working_email) === normalizedEmail) ||
+      spDirectory.find((sp) => normalizedEmail && normalizeEmail(sp.email) === normalizedEmail) ||
+      spDirectory.find((sp) => normalizedName && normalizeName(sp.full_name) === normalizedName);
+
+    if (!matchedSp) {
+      continue;
+    }
+
+    const existingAssignment = assignmentBySpId.get(matchedSp.id);
+    if (existingAssignment) {
+      if (existingAssignment.status !== "confirmed" || existingAssignment.confirmed !== true) {
+        const { error } = await supabaseServer
+          .from("event_sps")
+          .update({ status: "confirmed", confirmed: true })
+          .eq("id", existingAssignment.id);
+        if (error) {
+          throw new Error(error.message);
+        }
+      }
+      continue;
+    }
+
+    const { data: insertedAssignment, error: insertError } = await supabaseServer
+      .from("event_sps")
+      .insert({
+        event_id: eventId,
+        sp_id: matchedSp.id,
+        status: "confirmed",
+        confirmed: true,
+      })
+      .select("id,event_id,sp_id,status,confirmed")
+      .single();
+
+    if (insertError) {
+      throw new Error(insertError.message);
+    }
+
+    if (insertedAssignment) {
+      assignmentBySpId.set(matchedSp.id, insertedAssignment as EventAssignmentRow);
+    }
+  }
+
+  return { extractedCount: parsed.rosterRows.length };
+}
+
 async function processWorkbookFile(
   supabaseServer: ReturnType<typeof createSupabaseServerClient>,
   file: File,
   existingEvents: EventRow[],
+  spDirectory: SPDirectoryRow[],
   results: ImportResponse
 ) {
   try {
     const buffer = Buffer.from(await file.arrayBuffer());
     const workbook = XLSX.read(buffer, { type: "buffer", cellDates: true });
+    const checkedSheets = [...workbook.SheetNames];
     const parsedSheets = workbook.SheetNames
-      .map((sheetName) => parseSpEventInfoSheet(workbook.Sheets[sheetName], sheetName))
+      .map((sheetName) => parseSupportedSheet(workbook.Sheets[sheetName], sheetName))
       .filter((value): value is ParsedSheet => Boolean(value));
 
     if (!parsedSheets.length) {
       results.skipped.push({
         file: file.name,
-        reason: "No valid SP Event Info sheets detected.",
+        checkedSheets,
+        reason: `No supported sheet format found. Checked sheets: ${checkedSheets.join(", ")}`,
       });
       return;
     }
 
     for (const parsed of parsedSheets) {
-      const primaryDate = parsed.eventDates[0] || null;
+      const primaryDate = parsed.sessions[0]?.date || null;
       const matchingEvent = existingEvents.find(
         (event) =>
           normalizeTitle(event.name || "") === normalizeTitle(parsed.title) &&
@@ -336,11 +618,13 @@ async function processWorkbookFile(
             event: parsed.title,
             date: primaryDate,
             error: updateError.message,
+            detectorMatched: parsed.format,
           });
           continue;
         }
 
         await ensureSessions(supabaseServer, matchingEvent.id, parsed);
+        await syncRosterAssignments(supabaseServer, matchingEvent.id, parsed, spDirectory);
 
         matchingEvent.notes = nextNotes;
         matchingEvent.date_text = normalizeDateKey(primaryDate) || matchingEvent.date_text;
@@ -351,6 +635,11 @@ async function processWorkbookFile(
           event: parsed.title,
           date: primaryDate,
           simStaffCount: parsed.simStaffNames.length,
+          detectorMatched: parsed.format,
+          extractedTitle: parsed.title,
+          extractedDates: parsed.sessions.map((session) => session.date),
+          staffExtracted: parsed.staffLine,
+          spRowCount: parsed.rosterRows.length,
         });
         continue;
       }
@@ -377,11 +666,13 @@ async function processWorkbookFile(
           event: parsed.title,
           date: primaryDate,
           error: createError?.message || "Could not create event.",
+          detectorMatched: parsed.format,
         });
         continue;
       }
 
       await ensureSessions(supabaseServer, createdEvent.id, parsed);
+      await syncRosterAssignments(supabaseServer, createdEvent.id, parsed, spDirectory);
       existingEvents.push(createdEvent);
 
       results.created.push({
@@ -390,6 +681,11 @@ async function processWorkbookFile(
         event: parsed.title,
         date: primaryDate,
         simStaffCount: parsed.simStaffNames.length,
+        detectorMatched: parsed.format,
+        extractedTitle: parsed.title,
+        extractedDates: parsed.sessions.map((session) => session.date),
+        staffExtracted: parsed.staffLine,
+        spRowCount: parsed.rosterRows.length,
       });
     }
   } catch (error) {
@@ -421,6 +717,14 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: existingError.message }, { status: 500 });
     }
 
+    const { data: spDirectory, error: spDirectoryError } = await supabaseServer
+      .from("sps")
+      .select("id,full_name,working_email,email");
+
+    if (spDirectoryError) {
+      return NextResponse.json({ error: spDirectoryError.message }, { status: 500 });
+    }
+
     const results: ImportResponse = {
       created: [],
       updated: [],
@@ -430,7 +734,13 @@ export async function POST(request: Request) {
     const mutableExistingEvents: EventRow[] = [...(existingEvents || [])];
 
     for (const file of uploadedFiles) {
-      await processWorkbookFile(supabaseServer, file, mutableExistingEvents, results);
+      await processWorkbookFile(
+        supabaseServer,
+        file,
+        mutableExistingEvents,
+        [...(spDirectory || [])] as SPDirectoryRow[],
+        results
+      );
     }
 
     return NextResponse.json(results);
