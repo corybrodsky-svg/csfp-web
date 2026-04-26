@@ -315,10 +315,10 @@ const skillsWorkshopBadgeStyle: React.CSSProperties = {
 };
 
 const availabilityMatchLabels: Record<AvailabilityMatchStatus, string> = {
-  available: "BEST MATCH",
-  partial: "USABLE",
-  none: "DO NOT USE",
-  unknown: "UNKNOWN",
+  available: "Available",
+  partial: "Partial",
+  none: "Conflict",
+  unknown: "Unknown",
 };
 
 const availabilityMatchStyles: Record<AvailabilityMatchStatus, React.CSSProperties> = {
@@ -701,6 +701,50 @@ function getAvailabilityMatchRank(status: AvailabilityMatchStatus) {
   return 3;
 }
 
+function getCoverageWorkflowTone(needed: number, confirmedCount: number, assignedCount: number) {
+  if (needed <= 0) {
+    return {
+      background: "#f4f7fb",
+      border: "1px solid #d6e0e8",
+      color: "#4f677d",
+      label: "No target set",
+    };
+  }
+
+  if (confirmedCount >= needed) {
+    return {
+      background: "#eaf7f2",
+      border: "1px solid #bfe4d6",
+      color: "#196b57",
+      label: "Fully staffed",
+    };
+  }
+
+  if (assignedCount > 0) {
+    return {
+      background: "#fff6e8",
+      border: "1px solid #f1d1a7",
+      color: "#a86411",
+      label: "Partially staffed",
+    };
+  }
+
+  return {
+    background: "#fff2f1",
+    border: "1px solid #efc4c0",
+    color: "#af2f26",
+    label: "Needs attention",
+  };
+}
+
+function getSpTagLabels(sp: SPRow) {
+  const tags: string[] = [];
+  if (hasTelehealth(sp)) tags.push("Telehealth");
+  if (hasPtPreferred(sp)) tags.push("PT preferred");
+  if (speaksSpanish(sp)) tags.push("Spanish");
+  return tags;
+}
+
 function formatTimestamp(value?: string | null) {
   if (!value) return "Not contacted yet";
   const parsed = new Date(value);
@@ -994,6 +1038,7 @@ export default function EventDetailPage() {
   const unconfirmedCount = Math.max(assignments.length - confirmedCount, 0);
   const needed = Number(event?.sp_needed || 0);
   const shortage = Math.max(needed - confirmedCount, 0);
+  const workflowTone = getCoverageWorkflowTone(needed, confirmedCount, assignmentCount);
   const eventMeta = classifyEventPresentation({
     name: event?.name,
     status: event?.status,
@@ -1689,6 +1734,113 @@ export default function EventDetailPage() {
         </div>
       </div>
 
+      <div style={{ ...cardStyle, background: "#f8fbfd", borderColor: "#dce6ee" }}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            gap: "12px",
+            flexWrap: "wrap",
+            alignItems: "flex-start",
+          }}
+        >
+          <div>
+            <h2 style={compactSectionTitleStyle}>Current Coverage</h2>
+            <p style={compactSectionHintStyle}>
+              See confirmed coverage, assigned SPs, and the current staffing state at a glance.
+            </p>
+          </div>
+          <div
+            style={{
+              borderRadius: "999px",
+              padding: "8px 12px",
+              background: workflowTone.background,
+              border: workflowTone.border,
+              color: workflowTone.color,
+              fontWeight: 900,
+              fontSize: "13px",
+            }}
+          >
+            {workflowTone.label}
+          </div>
+        </div>
+
+        <div
+          style={{
+            ...detailGridStyle,
+            marginTop: "12px",
+            gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+          }}
+        >
+          <div style={{ ...statCard, background: "#ffffff" }}>
+            <div style={statLabel}>Confirmed vs Needed</div>
+            <div style={statValue}>
+              {confirmedCount} / {needed}
+            </div>
+          </div>
+          <div style={{ ...statCard, background: "#ffffff" }}>
+            <div style={statLabel}>Assigned SPs</div>
+            <div style={statValue}>{assignedCount}</div>
+          </div>
+          <div style={{ ...statCard, background: "#ffffff" }}>
+            <div style={statLabel}>Still Open</div>
+            <div style={{ ...statValue, color: shortageCount > 0 ? "#af2f26" : "#196b57" }}>
+              {shortageCount}
+            </div>
+          </div>
+        </div>
+
+        <div style={{ marginTop: "14px", display: "grid", gap: "10px" }}>
+          <div style={statLabel}>Assigned SP status</div>
+          {sortedAssignments.length === 0 ? (
+            <div style={{ color: "#6a7e91", fontWeight: 700 }}>No SPs assigned yet.</div>
+          ) : (
+            <div style={{ display: "grid", gap: "10px" }}>
+              {sortedAssignments.map((assignment) => {
+                const sp = assignment.sp_id ? spsById.get(assignment.sp_id) : undefined;
+                const status = getAssignmentStatus(assignment);
+                return (
+                  <div
+                    key={`coverage-${assignment.id}`}
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      gap: "10px",
+                      flexWrap: "wrap",
+                      border: "1px solid #d9e4ec",
+                      borderRadius: "12px",
+                      background: "#ffffff",
+                      padding: "12px 14px",
+                    }}
+                  >
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontWeight: 900, color: "#14304f" }}>
+                        {sp ? getFullName(sp) : "Unknown SP"}
+                      </div>
+                      <div style={{ marginTop: "4px", color: "#5e7388", fontSize: "13px", fontWeight: 700 }}>
+                        {sp ? getEmail(sp) || sp.phone || "No contact details" : assignment.sp_id || "No SP id"}
+                      </div>
+                    </div>
+                    <span
+                      style={{
+                        ...assignmentStatusStyles[status],
+                        borderRadius: "999px",
+                        padding: "6px 10px",
+                        fontSize: "12px",
+                        fontWeight: 900,
+                      }}
+                    >
+                      {assignmentStatusLabels[status]}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+
       <EventPlanningTimeline
         eventDateLabel={eventDateLabel}
         summaryTimeLabel={summaryTimeLabel}
@@ -1873,9 +2025,11 @@ export default function EventDetailPage() {
           }}
         >
           <div>
-            <h2 style={compactSectionTitleStyle}>Assigned SPs</h2>
+            <h2 style={compactSectionTitleStyle}>Coverage Actions</h2>
             <p style={compactSectionHintStyle}>
-              {staffingRelevant ? "Primary staffing view." : "HiFi event. Staffing is not currently driving this record."}
+              {staffingRelevant
+                ? "Manage assigned SPs, update contact status, and confirm coverage without leaving the page."
+                : "HiFi event. Staffing tools remain available if this event needs SP support."}
             </p>
           </div>
           <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
@@ -2319,9 +2473,11 @@ export default function EventDetailPage() {
           }}
         >
           <div>
-            <h2 style={compactSectionTitleStyle}>Candidate SPs</h2>
+            <h2 style={compactSectionTitleStyle}>Available / Suggested SPs</h2>
             <p style={compactSectionHintStyle}>
-              {staffingRelevant ? "Search and assign matches." : "Candidate workflow is available if HiFi staffing becomes relevant."}
+              {staffingRelevant
+                ? "Review suggested SPs, check availability against event sessions, and assign from one place."
+                : "Suggested-SP workflow stays available if HiFi staffing becomes relevant."}
             </p>
           </div>
           <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
@@ -2414,11 +2570,11 @@ export default function EventDetailPage() {
 
           {staffingRelevant ? (
           <div style={{ ...statCard, background: "#ffffff" }}>
-            <div style={statLabel}>Recommended SPs</div>
+            <div style={statLabel}>Suggested SPs</div>
 
             {recommendedSps.length === 0 ? (
               <div style={{ marginTop: "8px", color: "#64748b", fontWeight: 700 }}>
-                No recommended SPs yet.
+                No suggested SPs yet.
               </div>
             ) : (
               <div style={{ display: "grid", gap: "8px", marginTop: "8px" }}>
@@ -2452,6 +2608,24 @@ export default function EventDetailPage() {
                       <div>
                         <div style={{ color: "#173b6c", fontWeight: 900 }}>
                           {getFullName(sp)}
+                        </div>
+                        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "6px" }}>
+                          {getSpTagLabels(sp).map((tag) => (
+                            <span
+                              key={`${sp.id}-${tag}`}
+                              style={{
+                                borderRadius: "999px",
+                                padding: "5px 8px",
+                                background: "#f4f7fb",
+                                border: "1px solid #d9e4ec",
+                                color: "#4f677d",
+                                fontSize: "12px",
+                                fontWeight: 800,
+                              }}
+                            >
+                              {tag}
+                            </span>
+                          ))}
                         </div>
                         <div
                           style={{
@@ -2547,9 +2721,9 @@ export default function EventDetailPage() {
           </div>
         </div>
 
-        <div style={{ marginTop: "12px" }}>
+          <div style={{ marginTop: "12px" }}>
           <div style={statLabel}>
-            Candidate Picker · {availableSps.length} addable / {filteredCandidateSps.length} shown
+            Available SP list · {availableSps.length} addable / {filteredCandidateSps.length} shown
           </div>
           <div style={{ display: "grid", gap: "8px", marginTop: "8px" }}>
             {filteredCandidateSps.length === 0 ? (
@@ -2611,6 +2785,24 @@ export default function EventDetailPage() {
                         <div style={{ color: "#173b6c", fontWeight: 900, fontSize: "18px" }}>
                           {getFullName(sp)}
                         </div>
+                        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "6px" }}>
+                          {getSpTagLabels(sp).map((tag) => (
+                            <span
+                              key={`${sp.id}-tag-${tag}`}
+                              style={{
+                                borderRadius: "999px",
+                                padding: "5px 8px",
+                                background: "#f4f7fb",
+                                border: "1px solid #d9e4ec",
+                                color: "#4f677d",
+                                fontSize: "12px",
+                                fontWeight: 800,
+                              }}
+                            >
+                              {tag}
+                            </span>
+                          ))}
+                        </div>
                         <div style={{ marginTop: "6px", color: "#334155", lineHeight: 1.6 }}>
                           <div><strong>Email:</strong> {getEmail(sp) || "—"}</div>
                           <div><strong>Phone:</strong> {sp.phone || "—"}</div>
@@ -2658,7 +2850,7 @@ export default function EventDetailPage() {
                             disabled={saving || Boolean(assignmentStatus)}
                             style={{ ...buttonStyle, opacity: saving ? 0.65 : 1 }}
                           >
-                            {assigningSpId === sp.id ? "Assigning..." : "Assign"}
+                            {assigningSpId === sp.id ? "Assigning..." : "Assign SP"}
                           </button>
                         )}
                       </div>

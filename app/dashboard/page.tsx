@@ -32,6 +32,7 @@ type EventRecord = {
   location?: string | null;
   sp_needed?: number | null;
   sp_assigned?: number | null;
+  assigned_sp_names?: string[] | null;
   visibility?: string | null;
   notes?: string | null;
   sessions?: Array<{
@@ -50,6 +51,14 @@ type EventsResponse = {
 };
 
 type AuthState = "loading" | "authed" | "guest";
+
+type EventWithMeta = {
+  event: EventRecord;
+  start: Date | null;
+  needed: number;
+  assigned: number;
+  shortage: number;
+};
 
 function parseEventStart(event: EventRecord): Date | null {
   const firstSession = Array.isArray(event.sessions) && event.sessions.length > 0 ? event.sessions[0] : null;
@@ -75,20 +84,126 @@ function eventLocation(event: EventRecord): string {
   return firstSession?.location || firstSession?.room || event.location || "Location TBD";
 }
 
-function getStatusTone(status?: string | null) {
-  const normalized = String(status || "").toLowerCase();
+function getStartOfToday() {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+}
 
-  if (normalized.includes("complete")) {
-    return { background: "#eaf7f2", borderColor: "#bfe4d6", color: "#196b57" };
+function getStartOfDay(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+}
+
+function isTodayOrTomorrow(date: Date | null, startOfToday: number) {
+  if (!date) return false;
+  const dayStart = getStartOfDay(date);
+  const tomorrowStart = startOfToday + 24 * 60 * 60 * 1000;
+  return dayStart === startOfToday || dayStart === tomorrowStart;
+}
+
+function getWorkflowTone(kind: "shortage" | "partial" | "full") {
+  if (kind === "shortage") {
+    return { background: "#fff2f1", borderColor: "#efc4c0", color: "#af2f26", label: "Shortage" };
   }
-  if (normalized.includes("progress")) {
-    return { background: "#edf5fb", borderColor: "#c7dcee", color: "#165a96" };
+  if (kind === "partial") {
+    return { background: "#fff6e8", borderColor: "#f1d1a7", color: "#a86411", label: "Partial" };
   }
-  if (normalized.includes("scheduled")) {
-    return { background: "#f4f7fb", borderColor: "#d6e0e8", color: "#4f677d" };
+  return { background: "#eaf7f2", borderColor: "#bfe4d6", color: "#196b57", label: "Full" };
+}
+
+function getEventCoverageTone(event: EventWithMeta) {
+  if (event.shortage > 0 && event.assigned === 0) return getWorkflowTone("shortage");
+  if (event.shortage > 0) return getWorkflowTone("partial");
+  return getWorkflowTone("full");
+}
+
+function formatEventDate(start: Date | null, fallback?: string | null) {
+  return start ? start.toLocaleString() : fallback || "Date TBD";
+}
+
+function renderAssignedPeople(names?: string[] | null) {
+  const preview = (names || []).filter(Boolean).slice(0, 4);
+
+  if (!preview.length) {
+    return <span className="text-sm font-semibold text-[#6a7e91]">No assigned SPs yet</span>;
   }
 
-  return { background: "#fff6e9", borderColor: "#f1d1a7", color: "#9f630e" };
+  return (
+    <>
+      {preview.map((name) => (
+        <span key={name} className="cfsp-chip">
+          {name}
+        </span>
+      ))}
+    </>
+  );
+}
+
+function WorkflowSection({
+  title,
+  description,
+  items,
+  emptyMessage,
+}: {
+  title: string;
+  description: string;
+  items: EventWithMeta[];
+  emptyMessage: string;
+}) {
+  return (
+    <section className="cfsp-panel overflow-hidden">
+      <div className="border-b border-[#e5edf3] px-5 py-4">
+        <h2 className="cfsp-section-title text-[1.25rem]">{title}</h2>
+        <p className="cfsp-section-copy">{description}</p>
+      </div>
+
+      <div className="px-5 py-5">
+        {items.length === 0 ? (
+          <div className="cfsp-alert cfsp-alert-info">{emptyMessage}</div>
+        ) : (
+          <div className="grid gap-3">
+            {items.map((item) => {
+              const tone = getEventCoverageTone(item);
+
+              return (
+                <article key={item.event.id} className="rounded-[12px] border border-[#d9e4ec] bg-[#f8fbfd] px-4 py-4">
+                  <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                    <div className="min-w-0 flex-1">
+                      <div className="mb-2 flex flex-wrap gap-2">
+                        <span className="cfsp-badge" style={tone}>
+                          {tone.label}
+                        </span>
+                      </div>
+
+                      <h3 className="m-0 text-[1.12rem] font-black text-[#14304f]">
+                        {item.event.name?.trim() || "Untitled Event"}
+                      </h3>
+
+                      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm font-semibold text-[#5e7388]">
+                        <span>{formatEventDate(item.start, item.event.date_text)}</span>
+                        <span>{eventLocation(item.event)}</span>
+                        <span>
+                          Coverage {item.assigned}/{item.needed}
+                        </span>
+                      </div>
+
+                      <div className="mt-3 grid gap-2">
+                        <div className="cfsp-label">Assigned SPs</div>
+                        <div className="flex flex-wrap gap-2">{renderAssignedPeople(item.event.assigned_sp_names)}</div>
+                      </div>
+                    </div>
+
+                    <Link href={`/events/${item.event.id}`} className="cfsp-btn cfsp-btn-secondary">
+                      Open Event
+                    </Link>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </section>
+  );
 }
 
 export default function DashboardPage() {
@@ -178,22 +293,28 @@ export default function DashboardPage() {
     };
   }, [router]);
 
-  const sortedUpcoming = useMemo(() => {
+  const eventMeta = useMemo(() => {
     const now = new Date();
 
     return [...events]
-      .map((event) => ({
-        event,
-        start: parseEventStart(event),
-      }))
+      .map((event) => {
+        const needed = Number(event.sp_needed || 0);
+        const assigned = Number(event.sp_assigned || 0);
+        return {
+          event,
+          start: parseEventStart(event),
+          needed,
+          assigned,
+          shortage: Math.max(needed - assigned, 0),
+        };
+      })
       .filter(({ start }) => !start || start >= now)
       .sort((a, b) => {
         if (!a.start && !b.start) return 0;
         if (!a.start) return 1;
         if (!b.start) return -1;
         return a.start.getTime() - b.start.getTime();
-      })
-      .slice(0, 8);
+      });
   }, [events]);
 
   const displayName =
@@ -203,13 +324,28 @@ export default function DashboardPage() {
     "Member";
 
   const openShortageCount = useMemo(
+    () => eventMeta.reduce((sum, event) => sum + event.shortage, 0),
+    [eventMeta]
+  );
+
+  const startOfToday = useMemo(() => getStartOfToday(), []);
+
+  const needsAttention = useMemo(
     () =>
-      events.reduce((sum, event) => {
-        const needed = Number(event.sp_needed || 0);
-        const assigned = Number(event.sp_assigned || 0);
-        return sum + Math.max(needed - assigned, 0);
-      }, 0),
-    [events]
+      eventMeta
+        .filter((item) => item.shortage > 0 && (isTodayOrTomorrow(item.start, startOfToday) || item.assigned === 0))
+        .slice(0, 8),
+    [eventMeta, startOfToday]
+  );
+
+  const inProgress = useMemo(
+    () => eventMeta.filter((item) => item.needed > 0 && item.assigned > 0 && item.assigned < item.needed).slice(0, 8),
+    [eventMeta]
+  );
+
+  const ready = useMemo(
+    () => eventMeta.filter((item) => item.needed > 0 && item.assigned >= item.needed).slice(0, 8),
+    [eventMeta]
   );
 
   if (authState === "loading") {
@@ -232,7 +368,7 @@ export default function DashboardPage() {
   return (
     <SiteShell
       title="Dashboard"
-      subtitle="Keep today’s coverage, next event, and staffing priorities visible in one place."
+      subtitle="See what needs staffing attention first, what is underway, and what is ready to run."
     >
       <div className="grid gap-5">
         <section className="grid gap-5 xl:grid-cols-[1.45fr_0.95fr]">
@@ -242,14 +378,14 @@ export default function DashboardPage() {
               Welcome back, {displayName}.
             </h2>
             <p className="mt-3 max-w-2xl text-[0.98rem] leading-6 text-[#5e7388]">
-              Review coverage, open the next event quickly, and keep the staffing pipeline moving without digging through menus.
+              Start with events that still need staffing attention, then move through in-progress coverage and ready-to-run events.
             </p>
 
             <div className="mt-5 flex flex-wrap gap-2">
-              <Link href="/events" className="cfsp-btn cfsp-btn-primary">
+              <Link href="/events" className="cfsp-btn cfsp-btn-secondary">
                 Open Events Board
               </Link>
-              <Link href="/events/new" className="cfsp-btn cfsp-btn-secondary">
+              <Link href="/events/new" className="cfsp-btn cfsp-btn-primary">
                 Create New Event
               </Link>
               <Link href="/sps" className="cfsp-btn cfsp-btn-success">
@@ -259,92 +395,72 @@ export default function DashboardPage() {
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
-            <Link href="/events" className="cfsp-panel rounded-[14px] px-4 py-4 no-underline transition-transform hover:-translate-y-0.5">
-              <div className="cfsp-label">Quick Action</div>
-              <div className="mt-2 text-lg font-black text-[#14304f]">Review today’s event queue</div>
-              <p className="mt-2 text-sm leading-6 text-[#5e7388]">See active coverage, staffing gaps, and open the next event fast.</p>
+            <Link
+              href="/events"
+              className="cfsp-panel rounded-[14px] px-4 py-4 no-underline transition-transform hover:-translate-y-0.5"
+            >
+              <div className="cfsp-label">Needs attention</div>
+              <div className="mt-2 text-lg font-black text-[#14304f]">{needsAttention.length} priority events</div>
+              <p className="mt-2 text-sm leading-6 text-[#5e7388]">
+                Today and tomorrow shortages, plus events with zero assignments, are surfaced first.
+              </p>
             </Link>
-            <Link href="/admin" className="cfsp-panel rounded-[14px] px-4 py-4 no-underline transition-transform hover:-translate-y-0.5">
-              <div className="cfsp-label">Quick Action</div>
+            <Link
+              href="/admin"
+              className="cfsp-panel rounded-[14px] px-4 py-4 no-underline transition-transform hover:-translate-y-0.5"
+            >
+              <div className="cfsp-label">Quick action</div>
               <div className="mt-2 text-lg font-black text-[#14304f]">Open admin tools</div>
-              <p className="mt-2 text-sm leading-6 text-[#5e7388]">Jump into imports, staff tools, and operational shortcuts.</p>
+              <p className="mt-2 text-sm leading-6 text-[#5e7388]">
+                Launch imports, people tools, and other workflow shortcuts directly.
+              </p>
             </Link>
           </div>
         </section>
 
         <section className="cfsp-grid-stats">
           <div className="cfsp-stat-card">
-            <div className="cfsp-label">Upcoming / Current</div>
-            <div className="cfsp-stat-value">{sortedUpcoming.length}</div>
+            <div className="cfsp-label">Needs Attention</div>
+            <div className="cfsp-stat-value">{needsAttention.length}</div>
           </div>
           <div className="cfsp-stat-card">
-            <div className="cfsp-label">Total Visible Events</div>
-            <div className="cfsp-stat-value">{events.length}</div>
+            <div className="cfsp-label">In Progress</div>
+            <div className="cfsp-stat-value">{inProgress.length}</div>
+          </div>
+          <div className="cfsp-stat-card">
+            <div className="cfsp-label">Ready</div>
+            <div className="cfsp-stat-value">{ready.length}</div>
           </div>
           <div className="cfsp-stat-card">
             <div className="cfsp-label">Open SP Shortage</div>
             <div className="cfsp-stat-value">{openShortageCount}</div>
           </div>
-          <div className="cfsp-stat-card">
-            <div className="cfsp-label">Role</div>
-            <div className="cfsp-stat-value text-[1.45rem]">
-              {me?.profile?.role?.trim() || "Unassigned"}
-            </div>
-          </div>
         </section>
 
-        <section className="cfsp-panel overflow-hidden">
-          <div className="border-b border-[#e5edf3] px-5 py-4">
-            <h2 className="cfsp-section-title text-[1.3rem]">My Upcoming Events</h2>
-            <p className="cfsp-section-copy">Current and future events are listed here for quick operational review.</p>
+        {error ? <div className="cfsp-alert cfsp-alert-error">{error}</div> : null}
+
+        {!error ? (
+          <div className="grid gap-5 2xl:grid-cols-3">
+            <WorkflowSection
+              title="Needs Attention"
+              description="Shortage events coming up today or tomorrow, plus anything with zero assignments."
+              items={needsAttention}
+              emptyMessage="No high-priority staffing gaps are surfaced right now."
+            />
+            <WorkflowSection
+              title="In Progress"
+              description="Events with some staffing in place, but still short of full coverage."
+              items={inProgress}
+              emptyMessage="No partially staffed events right now."
+            />
+            <WorkflowSection
+              title="Ready"
+              description="Events with full coverage already in place and ready to run."
+              items={ready}
+              emptyMessage="No fully staffed upcoming events are ready yet."
+            />
           </div>
-
-          <div className="px-5 py-5">
-            {error ? <div className="cfsp-alert cfsp-alert-error">{error}</div> : null}
-
-            {!error && sortedUpcoming.length === 0 ? (
-              <div className="cfsp-alert cfsp-alert-info">
-                <div className="text-base font-black text-[#14304f]">No upcoming events right now.</div>
-                <div className="mt-2 text-sm leading-6 text-[#5e7388]">
-                  When new events are available, they will appear here with a direct open action.
-                </div>
-              </div>
-            ) : null}
-
-            {!error && sortedUpcoming.length > 0 ? (
-              <div className="grid gap-3">
-                {sortedUpcoming.map(({ event, start }) => {
-                  const tone = getStatusTone(event.status);
-
-                  return (
-                    <article key={event.id} className="rounded-[12px] border border-[#d9e4ec] bg-[#f8fbfd] px-4 py-4">
-                      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                        <div className="min-w-0 flex-1">
-                          <div className="mb-2 flex flex-wrap gap-2">
-                            <span className="cfsp-badge" style={tone}>
-                              {event.status?.trim() || "No status"}
-                            </span>
-                          </div>
-                          <h3 className="m-0 text-[1.15rem] font-black text-[#14304f]">
-                            {event.name?.trim() || "Untitled Event"}
-                          </h3>
-                          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm font-semibold text-[#5e7388]">
-                            <span>{start ? start.toLocaleString() : event.date_text || "Date TBD"}</span>
-                            <span>{eventLocation(event)}</span>
-                          </div>
-                        </div>
-
-                        <Link href={`/events/${event.id}`} className="cfsp-btn cfsp-btn-secondary">
-                          Open Event
-                        </Link>
-                      </div>
-                    </article>
-                  );
-                })}
-              </div>
-            ) : null}
-          </div>
-        </section>
+        ) : null}
       </div>
     </SiteShell>
   );

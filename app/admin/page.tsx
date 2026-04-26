@@ -1,120 +1,87 @@
 import Link from "next/link";
 import SiteShell from "../components/SiteShell";
 
-type AdminCard = {
+type AdminAction = {
   href: string;
-  title: string;
-  description: string;
+  label: string;
+  tone?: "primary" | "secondary" | "success";
 };
 
-const sections: Array<{ title: string; description: string; cards: AdminCard[] }> = [
+type AdminPanel = {
+  title: string;
+  description: string;
+  actions: AdminAction[];
+};
+
+const panels: AdminPanel[] = [
   {
     title: "Event Management",
-    description: "Open the live events workspace and create or review event records.",
-    cards: [
-      {
-        href: "/events",
-        title: "Events Board",
-        description: "Review current and upcoming events, coverage, and staffing gaps.",
-      },
-      {
-        href: "/events/new",
-        title: "Create New Event",
-        description: "Add a new event record and begin operational planning.",
-      },
+    description: "Open the live board, create new events, or jump straight into the current schedule workflow.",
+    actions: [
+      { href: "/events", label: "Open Events Board", tone: "primary" },
+      { href: "/events/new", label: "Create New Event", tone: "secondary" },
     ],
   },
   {
     title: "SP / People Management",
-    description: "Manage standardized patients and supporting people records.",
-    cards: [
-      {
-        href: "/sps",
-        title: "SP Database",
-        description: "Open the full SP directory, import people, and manage records.",
-      },
-      {
-        href: "/staff",
-        title: "Staff",
-        description: "Review staff-facing tools and supporting operational pages.",
-      },
+    description: "Manage standardized patient records and supporting staff pages without extra navigation steps.",
+    actions: [
+      { href: "/sps", label: "Open SP Database", tone: "success" },
+      { href: "/staff", label: "Open Staff", tone: "secondary" },
     ],
   },
   {
     title: "Import / Tools",
-    description: "Use operational utilities for uploads and simulation support.",
-    cards: [
-      {
-        href: "/events/upload",
-        title: "Upload Events",
-        description: "Import workbook or schedule data into the events workflow.",
-      },
-      {
-        href: "/sim-op",
-        title: "Sim Op",
-        description: "Open simulation operations tools and supporting workflow pages.",
-      },
+    description: "Launch uploads and simulation support tools directly from the admin hub.",
+    actions: [
+      { href: "/events/upload", label: "Upload Events", tone: "primary" },
+      { href: "/sim-op", label: "Open Sim Op", tone: "secondary" },
     ],
   },
   {
     title: "System / Account",
-    description: "Quick access to account and control surfaces.",
-    cards: [
-      {
-        href: "/dashboard",
-        title: "Dashboard",
-        description: "Return to the operational dashboard and quick actions view.",
-      },
-      {
-        href: "/me",
-        title: "My Account",
-        description: "Open your profile, role, and current account details.",
-      },
-      {
-        href: "/login",
-        title: "Login Screen",
-        description: "Open the sign-in page for testing or access handoff.",
-      },
+    description: "Move between the dashboard, account tools, and the login screen from one control surface.",
+    actions: [
+      { href: "/dashboard", label: "Open Dashboard", tone: "secondary" },
+      { href: "/me", label: "Open My Account", tone: "secondary" },
+      { href: "/login", label: "Open Login", tone: "secondary" },
     ],
   },
 ];
+
+function buttonClass(tone: AdminAction["tone"]) {
+  if (tone === "success") return "cfsp-btn cfsp-btn-success";
+  if (tone === "primary") return "cfsp-btn cfsp-btn-primary";
+  return "cfsp-btn cfsp-btn-secondary";
+}
 
 export default function AdminPage() {
   return (
     <SiteShell
       title="Admin"
-      subtitle="Use the admin hub to move quickly between event operations, people tools, imports, and account controls."
+      subtitle="Launch operational tools directly from the admin hub without taking an extra navigation step."
     >
       <div className="grid gap-5">
         <section className="rounded-[14px] border border-[#dce6ee] bg-[linear-gradient(180deg,#f8fbfd_0%,#eef5fb_100%)] px-5 py-5">
           <p className="cfsp-kicker">Administrative hub</p>
           <h2 className="mt-3 text-[1.7rem] leading-tight font-black text-[#14304f]">CFSP control center</h2>
           <p className="mt-3 max-w-3xl text-[0.98rem] leading-6 text-[#5e7388]">
-            Launch the most important sections of the app from one place without hunting through scattered links.
+            Use these action panels to jump straight into the work you need to do next.
           </p>
         </section>
 
-        <div className="grid gap-5">
-          {sections.map((section) => (
-            <section key={section.title} className="cfsp-panel overflow-hidden">
+        <div className="grid gap-5 lg:grid-cols-2">
+          {panels.map((panel) => (
+            <section key={panel.title} className="cfsp-panel overflow-hidden">
               <div className="border-b border-[#e5edf3] px-5 py-4">
-                <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">{section.title}</h3>
-                <p className="mt-2 mb-0 text-sm leading-6 text-[#5e7388]">{section.description}</p>
+                <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">{panel.title}</h3>
+                <p className="mt-2 mb-0 text-sm leading-6 text-[#5e7388]">{panel.description}</p>
               </div>
 
-              <div className="grid gap-4 px-5 py-5 md:grid-cols-2 xl:grid-cols-3">
-                {section.cards.map((card) => (
-                  <Link
-                    key={card.href}
-                    href={card.href}
-                    className="rounded-[12px] border border-[#d9e4ec] bg-[#f8fbfd] px-4 py-4 no-underline transition-transform hover:-translate-y-0.5"
-                  >
-                    <div className="cfsp-label">Open section</div>
-                    <div className="mt-2 text-lg font-black text-[#14304f]">{card.title}</div>
-                    <p className="mt-2 text-sm leading-6 text-[#5e7388]">{card.description}</p>
-                    <div className="mt-4">
-                      <span className="cfsp-btn cfsp-btn-secondary">Open</span>
-                    </div>
+              <div className="grid gap-3 px-5 py-5">
+                {panel.actions.map((action) => (
+                  <Link key={action.href} href={action.href} className={buttonClass(action.tone)}>
+                    {action.label}
                   </Link>
                 ))}
               </div>

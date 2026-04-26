@@ -171,10 +171,10 @@ export default function SiteShell({ title, subtitle, children }: SiteShellProps)
                 </div>
 
                 <div className="flex flex-wrap gap-2">
-                  <Link href="/events" className="cfsp-btn cfsp-btn-secondary">
+                  <Link href="/events" className="cfsp-btn cfsp-btn-subtle">
                     Events
                   </Link>
-                  <Link href="/events/new" className="cfsp-btn cfsp-btn-primary">
+                  <Link href="/events/new" className="cfsp-btn cfsp-btn-primary min-w-[140px]">
                     New Event
                   </Link>
                 </div>
