@@ -7,6 +7,7 @@ import SiteShell from "../components/SiteShell";
 import { formatHumanDate, getDateSortValue, getImportedYearHint } from "../lib/eventDateUtils";
 import { classifyEventPresentation, getEventBadgeAppearance } from "../lib/eventClassification";
 import { eventMatchesOwnership } from "../lib/eventOwnership";
+import { getSimStaffLabel, getSimStaffNames } from "../lib/eventRoster";
 
 type EventRow = {
   id: string;
@@ -39,15 +40,17 @@ type MeResponse = {
   error?: string;
 };
 
-type DateGroup = {
-  key: string;
-  label: string;
-  sortValue: number;
-  events: EventRow[];
-};
-
 type EventsViewMode = "all" | "assigned";
 type DateFilterMode = "active" | "past" | "all";
+
+type EventWithMeta = {
+  event: EventRow;
+  eventDateValue: number;
+  needed: number;
+  assigned: number;
+  confirmed: number;
+  shortage: number;
+};
 
 function asText(value: unknown) {
   if (value === null || value === undefined) return "";
@@ -71,28 +74,6 @@ function getDisplayDate(event: EventRow) {
   return event.earliest_session_date
     ? formatHumanDate(event.earliest_session_date, getImportedYearHint(event.notes))
     : formatHumanDate(event.date_text, getImportedYearHint(event.notes));
-}
-
-function toDateKey(sortValue: number) {
-  if (!Number.isFinite(sortValue) || sortValue <= 0 || sortValue === Number.MAX_SAFE_INTEGER) {
-    return "unscheduled";
-  }
-  const date = new Date(sortValue);
-  if (Number.isNaN(date.getTime())) return "unscheduled";
-  return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
-}
-
-function formatDateHeader(sortValue: number) {
-  if (!Number.isFinite(sortValue) || sortValue <= 0 || sortValue === Number.MAX_SAFE_INTEGER) {
-    return "Unscheduled";
-  }
-  const date = new Date(sortValue);
-  if (Number.isNaN(date.getTime())) return "Unscheduled";
-  return date.toLocaleDateString(undefined, {
-    month: "long",
-    day: "numeric",
-    weekday: "long",
-  });
 }
 
 function estimateSessionCount(event: EventRow) {
@@ -128,6 +109,17 @@ function getStartOfToday() {
   return new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
 }
 
+function getStartOfDayFromValue(timestamp: number) {
+  const date = new Date(timestamp);
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+}
+
+function isTodayOrTomorrow(timestamp: number, startOfToday: number) {
+  if (!Number.isFinite(timestamp) || timestamp === Number.MAX_SAFE_INTEGER) return false;
+  const dayStart = getStartOfDayFromValue(timestamp);
+  return dayStart === startOfToday || dayStart === startOfToday + 24 * 60 * 60 * 1000;
+}
+
 function matchesDateFilter(event: EventRow, filterMode: DateFilterMode, startOfToday: number) {
   if (filterMode === "all") return true;
 
@@ -142,6 +134,155 @@ function matchesDateFilter(event: EventRow, filterMode: DateFilterMode, startOfT
 
 function getToggleButtonClass(active: boolean) {
   return `cfsp-btn ${active ? "cfsp-btn-primary" : "cfsp-btn-secondary"}`;
+}
+
+function getWorkflowTone(kind: "shortage" | "partial" | "full") {
+  if (kind === "shortage") {
+    return { background: "#fff2f1", border: "#efc4c0", color: "#af2f26", label: "Shortage" };
+  }
+  if (kind === "partial") {
+    return { background: "#fff6e8", border: "#f1d1a7", color: "#a86411", label: "Partial" };
+  }
+  return { background: "#eaf7f2", border: "#bfe4d6", color: "#196b57", label: "Full" };
+}
+
+function getWorkflowToneForEvent(item: EventWithMeta) {
+  if (item.shortage > 0 && item.assigned === 0) return getWorkflowTone("shortage");
+  if (item.shortage > 0) return getWorkflowTone("partial");
+  return getWorkflowTone("full");
+}
+
+function EventWorkflowSection({
+  title,
+  description,
+  items,
+}: {
+  title: string;
+  description: string;
+  items: EventWithMeta[];
+}) {
+  return (
+    <section className="grid gap-3">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">{title}</h3>
+          <p className="mt-1 mb-0 text-sm leading-6 text-[#5e7388]">{description}</p>
+        </div>
+        <div className="text-sm font-semibold text-[#5e7388]">
+          {items.length} event{items.length === 1 ? "" : "s"}
+        </div>
+      </div>
+
+      {items.length === 0 ? (
+        <div className="cfsp-alert cfsp-alert-info">No events in this section right now.</div>
+      ) : (
+        <div className="grid gap-3">
+          {items.map((item) => {
+            const event = item.event;
+            const eventMeta = classifyEventPresentation({
+              name: event.name,
+              status: event.status,
+              notes: event.notes,
+              location: event.location,
+              spNeeded: event.sp_needed,
+              assignmentCount: item.assigned,
+              confirmedCount: item.confirmed,
+            });
+            const badgeAppearance = getEventBadgeAppearance(eventMeta.primaryBadgeKind);
+            const statusTone = getStatusTone(asText(event.status) || "needs sps");
+            const workflowTone = getWorkflowToneForEvent(item);
+            const assignedPreview = (event.assigned_sp_names || []).filter(Boolean).slice(0, 5);
+            const sessionCount = estimateSessionCount(event);
+            const simStaffNames = getSimStaffNames(event.notes);
+
+            return (
+              <article
+                key={event.id}
+                className="rounded-[14px] border border-[#d9e4ec] bg-white px-5 py-5 shadow-[0_8px_22px_rgba(20,48,79,0.05)]"
+              >
+                <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                  <div className="min-w-0 flex-1">
+                    <div className="mb-3 flex flex-wrap gap-2">
+                      <span className="cfsp-badge" style={statusTone}>
+                        {event.status || "No status"}
+                      </span>
+                      <span className="cfsp-badge" style={badgeAppearance}>
+                        {eventMeta.primaryBadgeLabel}
+                      </span>
+                      <span className="cfsp-badge" style={workflowTone}>
+                        {workflowTone.label}
+                      </span>
+                    </div>
+
+                    <h3 className="m-0 text-[1.45rem] leading-tight font-black text-[#14304f]">
+                      {event.name || "Untitled Event"}
+                    </h3>
+
+                    <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-sm font-semibold text-[#5e7388]">
+                      <span>{getDisplayDate(event) || "Date TBD"}</span>
+                      <span>{event.location || "Location TBD"}</span>
+                      <span>
+                        {sessionCount === null
+                          ? "Session count unavailable"
+                          : `${sessionCount} session${sessionCount === 1 ? "" : "s"}`}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    <Link href={`/events/${event.id}#coverage-actions`} className="cfsp-btn cfsp-btn-primary">
+                      Quick Assign
+                    </Link>
+                    <Link href={`/events/${event.id}`} className="cfsp-btn cfsp-btn-secondary">
+                      Open Event
+                    </Link>
+                  </div>
+                </div>
+
+                <div className="mt-5 grid gap-3 md:grid-cols-4">
+                  <div className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
+                    <div className="cfsp-label">Coverage</div>
+                    <div className="mt-2 text-xl font-black text-[#14304f]">
+                      {item.confirmed} / {item.needed}
+                    </div>
+                  </div>
+                  <div className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
+                    <div className="cfsp-label">Event Type</div>
+                    <div className="mt-2 text-base font-black text-[#14304f]">{eventMeta.primaryBadgeLabel}</div>
+                  </div>
+                  <div className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
+                    <div className="cfsp-label">Location</div>
+                    <div className="mt-2 text-base font-black text-[#14304f]">{event.location || "TBD"}</div>
+                  </div>
+                  <div className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
+                    <div className="cfsp-label">Sim Staff</div>
+                    <div className={`mt-2 text-sm font-bold ${simStaffNames.length ? "text-[#14304f]" : "text-[#af2f26]"}`}>
+                      {getSimStaffLabel(event.notes)}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-5 grid gap-2">
+                  <div className="cfsp-label">Assigned SPs</div>
+                  <div className="flex flex-wrap gap-2">
+                    {assignedPreview.length ? (
+                      assignedPreview.map((name) => (
+                        <span key={`${event.id}-${name}`} className="cfsp-chip">
+                          {name}
+                        </span>
+                      ))
+                    ) : (
+                      <span className="text-sm font-semibold text-[#6a7e91]">No assigned SPs yet</span>
+                    )}
+                  </div>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
 }
 
 export default function EventsPage() {
@@ -231,34 +372,49 @@ export default function EventsPage() {
     [dateFilterMode, scopedEvents, startOfToday]
   );
 
-  const groupedEvents = useMemo<DateGroup[]>(() => {
-    const groups = new Map<string, DateGroup>();
+  const workflowEvents = useMemo<EventWithMeta[]>(
+    () =>
+      visibleEvents
+        .map((event) => {
+          const needed = Number(event.sp_needed || 0);
+          const assigned = Number(event.total_assignments || 0);
+          const confirmed = Number(event.confirmed_assignments || 0);
+          return {
+            event,
+            eventDateValue: parseEventDateValue(event),
+            needed,
+            assigned,
+            confirmed,
+            shortage: Math.max(needed - confirmed, 0),
+          };
+        })
+        .sort((a, b) => a.eventDateValue - b.eventDateValue || asText(a.event.name).localeCompare(asText(b.event.name))),
+    [visibleEvents]
+  );
 
-    visibleEvents.forEach((event) => {
-      const sortValue = parseEventDateValue(event);
-      const key = toDateKey(sortValue);
-      const existing = groups.get(key);
+  const needsStaff = useMemo(
+    () =>
+      workflowEvents.filter(
+        (item) => item.shortage > 0 && (item.assigned === 0 || isTodayOrTomorrow(item.eventDateValue, startOfToday))
+      ),
+    [startOfToday, workflowEvents]
+  );
 
-      if (existing) {
-        existing.events.push(event);
-        return;
-      }
+  const inProgress = useMemo(
+    () =>
+      workflowEvents.filter(
+        (item) =>
+          item.shortage > 0 &&
+          item.assigned > 0 &&
+          !(item.assigned === 0 || isTodayOrTomorrow(item.eventDateValue, startOfToday))
+      ),
+    [startOfToday, workflowEvents]
+  );
 
-      groups.set(key, {
-        key,
-        label: formatDateHeader(sortValue),
-        sortValue: key === "unscheduled" ? Number.MAX_SAFE_INTEGER : sortValue,
-        events: [event],
-      });
-    });
-
-    return [...groups.values()]
-      .sort((a, b) => a.sortValue - b.sortValue || a.label.localeCompare(b.label))
-      .map((group) => ({
-        ...group,
-        events: [...group.events].sort(sortEventsByDateThenName),
-      }));
-  }, [visibleEvents]);
+  const ready = useMemo(
+    () => workflowEvents.filter((item) => item.needed <= 0 || item.confirmed >= item.needed),
+    [workflowEvents]
+  );
 
   const totalConfirmed = visibleEvents.reduce((sum, event) => sum + Number(event.confirmed_assignments || 0), 0);
   const totalNeeded = visibleEvents.reduce((sum, event) => sum + Number(event.sp_needed || 0), 0);
@@ -280,7 +436,7 @@ export default function EventsPage() {
                 {loading ? "Loading events..." : `${visibleEvents.length} operational events`}
               </h2>
               <p className="mt-2 max-w-3xl text-[0.98rem] leading-6 text-[#5e7388]">
-                Keep upcoming work front and center, review coverage, and open the next event with fewer clicks.
+                Keep upcoming work front and center, review coverage, and jump straight into staffing actions.
               </p>
             </div>
 
@@ -300,11 +456,7 @@ export default function EventsPage() {
               <div className="mt-3 flex flex-wrap gap-2">
                 {isSuperAdmin ? (
                   <>
-                    <button
-                      type="button"
-                      onClick={() => setViewMode("all")}
-                      className={getToggleButtonClass(activeViewMode === "all")}
-                    >
+                    <button type="button" onClick={() => setViewMode("all")} className={getToggleButtonClass(activeViewMode === "all")}>
                       All Events
                     </button>
                     <button
@@ -345,12 +497,16 @@ export default function EventsPage() {
 
         <section className="cfsp-grid-stats">
           <div className="cfsp-stat-card">
-            <div className="cfsp-label">Events Loaded</div>
-            <div className="cfsp-stat-value">{visibleEvents.length}</div>
+            <div className="cfsp-label">Needs Staff</div>
+            <div className="cfsp-stat-value">{needsStaff.length}</div>
           </div>
           <div className="cfsp-stat-card">
-            <div className="cfsp-label">Date Groups</div>
-            <div className="cfsp-stat-value">{groupedEvents.length}</div>
+            <div className="cfsp-label">In Progress</div>
+            <div className="cfsp-stat-value">{inProgress.length}</div>
+          </div>
+          <div className="cfsp-stat-card">
+            <div className="cfsp-label">Ready</div>
+            <div className="cfsp-stat-value">{ready.length}</div>
           </div>
           <div className="cfsp-stat-card">
             <div className="cfsp-label">Confirmed SPs</div>
@@ -387,123 +543,21 @@ export default function EventsPage() {
           </div>
         ) : (
           <div className="grid gap-5">
-            {groupedEvents.map((group) => (
-              <section key={group.key} className="grid gap-3">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="inline-flex min-h-[34px] items-center rounded-full border border-[#d9e4ec] bg-[#edf5fb] px-4 py-1.5 text-sm font-black text-[#14304f]">
-                    {group.label}
-                  </div>
-                  <div className="text-sm font-semibold text-[#5e7388]">
-                    {group.events.length} event{group.events.length === 1 ? "" : "s"}
-                  </div>
-                </div>
-
-                <div className="grid gap-3">
-                  {group.events.map((event) => {
-                    const needed = Number(event.sp_needed || 0);
-                    const confirmedAssignments = Number(event.confirmed_assignments || 0);
-                    const totalAssignments = Number(event.total_assignments || 0);
-                    const shortage = Number(event.shortage || 0);
-                    const sessionCount = estimateSessionCount(event);
-                    const assignedPreview = (event.assigned_sp_names || []).filter(Boolean).slice(0, 5);
-                    const eventMeta = classifyEventPresentation({
-                      name: event.name,
-                      status: event.status,
-                      notes: event.notes,
-                      location: event.location,
-                      spNeeded: event.sp_needed,
-                      assignmentCount: totalAssignments,
-                      confirmedCount: confirmedAssignments,
-                    });
-                    const badgeAppearance = getEventBadgeAppearance(eventMeta.primaryBadgeKind);
-                    const statusTone = getStatusTone(asText(event.status) || "needs sps");
-                    const coverageTone =
-                      shortage > 0
-                        ? { background: "#fff6e9", border: "#f1d1a7", color: "#9f630e" }
-                        : { background: "#eaf7f2", border: "#bfe4d6", color: "#196b57" };
-
-                    return (
-                      <article
-                        key={event.id}
-                        className="rounded-[14px] border border-[#d9e4ec] bg-white px-5 py-5 shadow-[0_8px_22px_rgba(20,48,79,0.05)]"
-                      >
-                        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-                          <div className="min-w-0 flex-1">
-                            <div className="mb-3 flex flex-wrap gap-2">
-                              <span className="cfsp-badge" style={statusTone}>
-                                {event.status || "No status"}
-                              </span>
-                              <span className="cfsp-badge" style={badgeAppearance}>
-                                {eventMeta.primaryBadgeLabel}
-                              </span>
-                              <span className="cfsp-badge" style={coverageTone}>
-                                {shortage > 0 ? `${shortage} open` : "Covered"}
-                              </span>
-                            </div>
-
-                            <h3 className="m-0 text-[1.55rem] leading-tight font-black text-[#14304f]">
-                              {event.name || "Untitled Event"}
-                            </h3>
-
-                            <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-sm font-semibold text-[#5e7388]">
-                              <span>{getDisplayDate(event) || "Date TBD"}</span>
-                              <span>{event.location || "Location TBD"}</span>
-                              <span>
-                                {sessionCount === null
-                                  ? "Session count unavailable"
-                                  : `${sessionCount} session${sessionCount === 1 ? "" : "s"}`}
-                              </span>
-                            </div>
-                          </div>
-
-                          <div className="flex shrink-0 items-start">
-                            <Link href={`/events/${event.id}`} className="cfsp-btn cfsp-btn-primary">
-                              Open Event
-                            </Link>
-                          </div>
-                        </div>
-
-                        <div className="mt-5 grid gap-3 md:grid-cols-4">
-                          <div className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
-                            <div className="cfsp-label">SP Coverage</div>
-                            <div className="mt-2 text-xl font-black text-[#14304f]">
-                              {confirmedAssignments} / {needed}
-                            </div>
-                          </div>
-                          <div className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
-                            <div className="cfsp-label">Assignments</div>
-                            <div className="mt-2 text-xl font-black text-[#14304f]">{totalAssignments}</div>
-                          </div>
-                          <div className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
-                            <div className="cfsp-label">Shortage</div>
-                            <div className="mt-2 text-xl font-black text-[#14304f]">{shortage}</div>
-                          </div>
-                          <div className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
-                            <div className="cfsp-label">Location</div>
-                            <div className="mt-2 text-base font-black text-[#14304f]">{event.location || "TBD"}</div>
-                          </div>
-                        </div>
-
-                        <div className="mt-5 grid gap-2">
-                          <div className="cfsp-label">Assigned SPs</div>
-                          <div className="flex flex-wrap gap-2">
-                            {assignedPreview.length ? (
-                              assignedPreview.map((name) => (
-                                <span key={`${event.id}-${name}`} className="cfsp-chip">
-                                  {name}
-                                </span>
-                              ))
-                            ) : (
-                              <span className="text-sm font-semibold text-[#6a7e91]">No assigned SPs yet</span>
-                            )}
-                          </div>
-                        </div>
-                      </article>
-                    );
-                  })}
-                </div>
-              </section>
-            ))}
+            <EventWorkflowSection
+              title="Needs Staff"
+              description="Priority events that are short on confirmed coverage, especially with no assignments or approaching soon."
+              items={needsStaff}
+            />
+            <EventWorkflowSection
+              title="In Progress"
+              description="Events that have some staffing movement but still need more coverage."
+              items={inProgress}
+            />
+            <EventWorkflowSection
+              title="Ready"
+              description="Events that are fully covered or do not currently require SP staffing."
+              items={ready}
+            />
           </div>
         )}
       </div>

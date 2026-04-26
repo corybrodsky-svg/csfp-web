@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import SiteShell from "../components/SiteShell";
+import { classifyEventPresentation } from "../lib/eventClassification";
+import { getSimStaffLabel } from "../lib/eventRoster";
 
 type MeResponse = {
   ok: boolean;
@@ -120,6 +122,18 @@ function formatEventDate(start: Date | null, fallback?: string | null) {
   return start ? start.toLocaleString() : fallback || "Date TBD";
 }
 
+function getEventTypeLabel(event: EventRecord) {
+  return classifyEventPresentation({
+    name: event.name,
+    status: event.status,
+    notes: event.notes,
+    location: event.location,
+    spNeeded: event.sp_needed,
+    assignmentCount: event.sp_assigned,
+    confirmedCount: event.sp_assigned,
+  }).primaryBadgeLabel;
+}
+
 function renderAssignedPeople(names?: string[] | null) {
   const preview = (names || []).filter(Boolean).slice(0, 4);
 
@@ -184,6 +198,14 @@ function WorkflowSection({
                         <span>
                           Coverage {item.assigned}/{item.needed}
                         </span>
+                        <span>{getEventTypeLabel(item.event)}</span>
+                      </div>
+
+                      <div className="mt-3 grid gap-2">
+                        <div className="cfsp-label">Sim Staff</div>
+                        <div className="text-sm font-semibold text-[#5e7388]">
+                          {getSimStaffLabel(item.event.notes)}
+                        </div>
                       </div>
 
                       <div className="mt-3 grid gap-2">
@@ -192,9 +214,14 @@ function WorkflowSection({
                       </div>
                     </div>
 
-                    <Link href={`/events/${item.event.id}`} className="cfsp-btn cfsp-btn-secondary">
-                      Open Event
-                    </Link>
+                    <div className="flex flex-wrap gap-2">
+                      <Link href={`/events/${item.event.id}#coverage-actions`} className="cfsp-btn cfsp-btn-primary">
+                        Quick Assign
+                      </Link>
+                      <Link href={`/events/${item.event.id}`} className="cfsp-btn cfsp-btn-secondary">
+                        Open Event
+                      </Link>
+                    </div>
                   </div>
                 </article>
               );
@@ -344,7 +371,7 @@ export default function DashboardPage() {
   );
 
   const ready = useMemo(
-    () => eventMeta.filter((item) => item.needed > 0 && item.assigned >= item.needed).slice(0, 8),
+    () => eventMeta.filter((item) => item.needed <= 0 || item.assigned >= item.needed).slice(0, 8),
     [eventMeta]
   );
 

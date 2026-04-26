@@ -16,6 +16,7 @@ import {
   isSkillsWorkshopEvent,
   type EventDisplayType,
 } from "../../lib/eventClassification";
+import { getSimStaffNames } from "../../lib/eventRoster";
 
 type EventDetailRow = {
   id: string;
@@ -1083,6 +1084,7 @@ export default function EventDetailPage() {
   const coveragePercent =
     needed > 0 ? Math.min(100, Math.round((confirmedCount / needed) * 100)) : 0;
   const importedYearHint = getImportedYearHint(event?.notes);
+  const simStaffNames = useMemo(() => getSimStaffNames(event?.notes), [event?.notes]);
   const structuredDateLabel = sessions.length
     ? sessions
         .map((session) => formatSessionLabel(session, event?.location, importedYearHint))
@@ -1176,6 +1178,51 @@ export default function EventDetailPage() {
   const shortageCount = isWorkshop ? 0 : shortage;
   const eventType = eventMeta.eventType;
   const staffingRelevant = eventType !== "hifi" || needed > 0 || assignmentCount > 0;
+  const progressItems = useMemo(
+    () => [
+      {
+        label: "Intake complete",
+        complete: Boolean(asText(event?.name) && (asText(event?.date_text) || sessions.length)),
+        detail: "Event has a name and date information on file.",
+      },
+      {
+        label: "Sessions scheduled",
+        complete: sessions.length > 0,
+        detail: sessions.length > 0 ? `${sessions.length} session${sessions.length === 1 ? "" : "s"} on file.` : "No structured sessions yet.",
+      },
+      {
+        label: "Sim staff assigned",
+        complete: simStaffNames.length > 0,
+        detail: simStaffNames.length ? simStaffNames.join(", ") : "No sim staff listed yet.",
+      },
+      {
+        label: "SPs assigned",
+        complete: assignmentCount > 0,
+        detail: assignmentCount > 0 ? `${assignmentCount} assigned.` : "No SP assignments yet.",
+      },
+      {
+        label: "SPs confirmed",
+        complete: confirmedCount > 0,
+        detail: confirmedCount > 0 ? `${confirmedCount} confirmed.` : "No confirmed SPs yet.",
+      },
+      {
+        label: "Emails sent",
+        complete: assignments.some(
+          (assignment) =>
+            Boolean(assignment.last_contacted_at) ||
+            ["contacted", "confirmed", "declined"].includes(getAssignmentStatus(assignment))
+        ),
+        detail: assignments.some(
+          (assignment) =>
+            Boolean(assignment.last_contacted_at) ||
+            ["contacted", "confirmed", "declined"].includes(getAssignmentStatus(assignment))
+        )
+          ? "At least one assignment has contact activity recorded."
+          : "No contact activity recorded yet.",
+      },
+    ],
+    [assignmentCount, assignments, confirmedCount, event?.date_text, event?.name, sessions, simStaffNames]
+  );
   const emailSubject = `[CFSP] ${event?.name || "CFSP Event"} - ${eventDateLabel}`;
   const emailBody = [
     "Hello,",
@@ -1846,6 +1893,65 @@ export default function EventDetailPage() {
         summaryTimeLabel={summaryTimeLabel}
       />
 
+      <details
+        style={{
+          ...cardStyle,
+          borderColor: "#dce6ee",
+          background: "#f8fbfd",
+        }}
+      >
+        <summary
+          style={{
+            cursor: "pointer",
+            color: "#14304f",
+            fontWeight: 900,
+            fontSize: "20px",
+            listStyle: "none",
+          }}
+        >
+          Event Progress
+        </summary>
+
+        <div style={{ display: "grid", gap: "10px", marginTop: "14px" }}>
+          {progressItems.map((item) => (
+            <div
+              key={item.label}
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                gap: "12px",
+                alignItems: "center",
+                flexWrap: "wrap",
+                border: "1px solid #d9e4ec",
+                borderRadius: "12px",
+                background: "#ffffff",
+                padding: "12px 14px",
+              }}
+            >
+              <div>
+                <div style={{ color: "#14304f", fontWeight: 900 }}>{item.label}</div>
+                <div style={{ marginTop: "4px", color: "#5e7388", fontSize: "13px", fontWeight: 700 }}>
+                  {item.detail}
+                </div>
+              </div>
+              <span
+                style={{
+                  borderRadius: "999px",
+                  padding: "6px 10px",
+                  fontSize: "12px",
+                  fontWeight: 900,
+                  background: item.complete ? "#eaf7f2" : "#f4f7fb",
+                  border: item.complete ? "1px solid #bfe4d6" : "1px solid #d6e0e8",
+                  color: item.complete ? "#196b57" : "#4f677d",
+                }}
+              >
+                {item.complete ? "Complete" : "Pending"}
+              </span>
+            </div>
+          ))}
+        </div>
+      </details>
+
       {eventSaveMessage ? (
         <div
           style={{
@@ -1878,7 +1984,7 @@ export default function EventDetailPage() {
         </div>
       ) : null}
 
-      <div style={cardStyle}>
+      <div id="coverage-actions" style={cardStyle}>
         <div
           style={{
             display: "flex",
