@@ -162,6 +162,35 @@ function renderAssignedPeople(names?: string[] | null) {
   );
 }
 
+function TeamOwnershipBlock({ notes }: { notes?: string | null }) {
+  const teamInfo = getEventTeamInfo(notes);
+
+  return (
+    <div className="rounded-[12px] border border-[#dce6ee] bg-[linear-gradient(180deg,#f8fbfd_0%,#eef6fb_100%)] px-4 py-3">
+      <div className="cfsp-label">Team / Staff</div>
+      {teamInfo.names.length ? (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {teamInfo.names.map((name) => (
+            <span
+              key={name}
+              className="inline-flex min-h-[32px] items-center rounded-full border border-[#bcd8e8] bg-white px-3 py-1 text-sm font-bold text-[#145b96]"
+            >
+              {name}
+            </span>
+          ))}
+        </div>
+      ) : (
+        <div className="mt-3 text-sm font-semibold text-[#9f630e]">Team not assigned</div>
+      )}
+      {process.env.NODE_ENV !== "production" && !teamInfo.names.length ? (
+        <div className="mt-2 text-xs font-semibold text-[#6a7e91]">
+          Notes checked: {notes ? "yes" : "no"} · Ownership labels found: none
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function splitPeopleList(value: string) {
   return value
     .split(/\s*(?:,|;|\/| and | & )\s*/i)
@@ -280,27 +309,8 @@ function WorkflowSection({
                         <span>{getEventTypeLabel(item.event)}</span>
                       </div>
 
-                      <div className="mt-3 grid gap-2">
-                        {(() => {
-                          const teamInfo = getEventTeamInfo(item.event.notes);
-                          const teamLabel = teamInfo.names.length
-                            ? `${teamInfo.label || "Team"}: ${teamInfo.names.join(", ")}`
-                            : "No sim staff listed";
-
-                          return (
-                            <>
-                              <div className="cfsp-label">Team / Staff</div>
-                              <div className="text-sm font-semibold text-[#5e7388]">
-                                {teamLabel}
-                              </div>
-                              {process.env.NODE_ENV !== "production" && !teamInfo.names.length ? (
-                                <div className="text-xs font-semibold text-[#6a7e91]">
-                                  Notes checked: {item.event.notes ? "yes" : "no"} · Ownership labels found: none
-                                </div>
-                              ) : null}
-                            </>
-                          );
-                        })()}
+                      <div className="mt-3">
+                        <TeamOwnershipBlock notes={item.event.notes} />
                       </div>
 
                       <div className="mt-3 grid gap-2">

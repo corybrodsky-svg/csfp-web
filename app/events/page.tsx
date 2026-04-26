@@ -152,6 +152,35 @@ function getWorkflowToneForEvent(item: EventWithMeta) {
   return getWorkflowTone("full");
 }
 
+function TeamOwnershipBlock({ notes }: { notes?: string | null }) {
+  const teamInfo = getEventTeamInfo(notes);
+
+  return (
+    <div className="rounded-[12px] border border-[#dce6ee] bg-[linear-gradient(180deg,#f8fbfd_0%,#eef6fb_100%)] px-4 py-3">
+      <div className="cfsp-label">Team / Staff</div>
+      {teamInfo.names.length ? (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {teamInfo.names.map((name) => (
+            <span
+              key={name}
+              className="inline-flex min-h-[32px] items-center rounded-full border border-[#bcd8e8] bg-white px-3 py-1 text-sm font-bold text-[#145b96]"
+            >
+              {name}
+            </span>
+          ))}
+        </div>
+      ) : (
+        <div className="mt-3 text-sm font-semibold text-[#9f630e]">Team not assigned</div>
+      )}
+      {process.env.NODE_ENV !== "production" && !teamInfo.names.length ? (
+        <div className="mt-2 text-xs font-semibold text-[#6a7e91]">
+          Notes checked: {notes ? "yes" : "no"} · Ownership labels found: none
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function EventWorkflowSection({
   title,
   description,
@@ -193,11 +222,6 @@ function EventWorkflowSection({
             const workflowTone = getWorkflowToneForEvent(item);
             const assignedPreview = (event.assigned_sp_names || []).filter(Boolean).slice(0, 5);
             const sessionCount = estimateSessionCount(event);
-            const teamInfo = getEventTeamInfo(event.notes);
-            const teamLabel = teamInfo.names.length
-              ? `${teamInfo.label || "Team"}: ${teamInfo.names.join(", ")}`
-              : "No sim staff listed";
-
             return (
               <article
                 key={event.id}
@@ -257,17 +281,7 @@ function EventWorkflowSection({
                     <div className="cfsp-label">Location</div>
                     <div className="mt-2 text-base font-black text-[#14304f]">{event.location || "TBD"}</div>
                   </div>
-                  <div className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
-                    <div className="cfsp-label">Team / Staff</div>
-                    <div className={`mt-2 text-sm font-bold ${teamInfo.names.length ? "text-[#14304f]" : "text-[#af2f26]"}`}>
-                      {teamLabel}
-                    </div>
-                    {process.env.NODE_ENV !== "production" && !teamInfo.names.length ? (
-                      <div className="mt-2 text-xs font-semibold text-[#6a7e91]">
-                        Notes checked: {event.notes ? "yes" : "no"} · Ownership labels found: none
-                      </div>
-                    ) : null}
-                  </div>
+                  <TeamOwnershipBlock notes={event.notes} />
                 </div>
 
                 <div className="mt-5 grid gap-2">

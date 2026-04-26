@@ -41,26 +41,47 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [saving, setSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const [debugStep, setDebugStep] = useState("");
   const [logoVisible, setLogoVisible] = useState(true);
+
+  function markStep(step: string, detail?: string) {
+    const line = detail ? `${step} — ${detail}` : step;
+    setDebugStep(line);
+    console.info("[CFSP login]", line);
+  }
+
+  function failAtStep(step: string, detail: string) {
+    const line = `${step} failed — ${detail}`;
+    setDebugStep(line);
+    setErrorMessage(line);
+    console.error("[CFSP login]", line);
+  }
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSaving(true);
     setErrorMessage("");
+    setDebugStep("");
 
     try {
       let accessToken = "";
       let refreshToken = "";
 
       try {
+        markStep("STEP 1", "Supabase client initialized");
         const supabase = getSupabaseClient();
+
+        markStep("STEP 2", "Supabase signInWithPassword started");
         const { data, error } = await supabase.auth.signInWithPassword({
           email: email.trim().toLowerCase(),
           password,
         });
 
+        markStep("STEP 3", "Supabase signInWithPassword returned");
+
         if (error || !data.session?.access_token || !data.session.refresh_token) {
-          setErrorMessage(
+          failAtStep(
+            "STEP 3",
             `Supabase auth error: ${formatAuthError(error?.message || "Could not sign in.")}`
           );
           setSaving(false);
@@ -71,13 +92,14 @@ export default function LoginPage() {
         refreshToken = data.session.refresh_token;
       } catch (error) {
         const message = error instanceof Error ? error.message : "Could not sign in.";
-        setErrorMessage(`Supabase auth error: ${formatAuthError(message)}`);
+        failAtStep("STEP 1/2/3", `Supabase auth error: ${formatAuthError(message)}`);
         setSaving(false);
         return;
       }
 
       let persistResponse: Response;
       try {
+        markStep("STEP 4", "POST /api/auth/session started");
         persistResponse = await fetch("/api/auth/session", {
           method: "POST",
           headers: {
@@ -91,7 +113,7 @@ export default function LoginPage() {
         });
       } catch (error) {
         const message = error instanceof Error ? error.message : "No response from session bridge.";
-        setErrorMessage(`Network/fetch error: ${message}`);
+        failAtStep("STEP 4", `Network/fetch error posting to /api/auth/session: ${message}`);
         setSaving(false);
         return;
       }
@@ -103,18 +125,28 @@ export default function LoginPage() {
           }
         | null;
 
+      markStep(
+        "STEP 5",
+        `/api/auth/session returned ${persistResponse.status} ${persistResponse.statusText}${
+          persistBody?.error ? ` — ${persistBody.error}` : ""
+        }`
+      );
+
       if (!persistResponse.ok || !persistBody?.ok) {
-        setErrorMessage(
+        failAtStep(
+          "STEP 5",
           `Session bridge error: ${persistBody?.error || `${persistResponse.status} ${persistResponse.statusText}`}`
         );
         setSaving(false);
         return;
       }
 
+      markStep("STEP 6", "redirect to /dashboard");
       window.location.assign("/dashboard");
       return;
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Could not sign in.");
+      const message = error instanceof Error ? error.message : "Could not sign in.";
+      failAtStep("UNKNOWN STEP", message);
       setSaving(false);
     }
   }
@@ -206,6 +238,11 @@ export default function LoginPage() {
           </div>
 
           {errorMessage ? <div className="cfsp-alert cfsp-alert-error mt-5">{errorMessage}</div> : null}
+          {debugStep ? (
+            <div className="mt-3 text-sm leading-6 text-[#5e7388]">
+              Login status: <span className="font-semibold text-[#14304f]">{debugStep}</span>
+            </div>
+          ) : null}
 
           <div className="mt-6 grid gap-4">
             <label className="grid gap-2">

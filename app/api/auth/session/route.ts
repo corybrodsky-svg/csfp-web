@@ -1,15 +1,14 @@
 import { NextResponse } from "next/server";
 
-export async function POST(request: Request) {
+export async function POST(req: Request) {
   try {
-    const body = await request.json().catch(() => null);
+    const body = await req.json();
 
-    const accessToken = body?.access_token || body?.accessToken || "";
-    const refreshToken = body?.refresh_token || body?.refreshToken || "";
+    const { access_token, refresh_token } = body;
 
-    if (!accessToken || !refreshToken) {
+    if (!access_token || !refresh_token) {
       return NextResponse.json(
-        { ok: false, error: "Missing tokens" },
+        { ok: false, step: "missing_tokens" },
         { status: 400 }
       );
     }
@@ -17,33 +16,38 @@ export async function POST(request: Request) {
     const res = NextResponse.json({ ok: true });
 
     try {
-      // 🔥 MINIMAL SAFE COOKIE SET (no helpers)
-      res.cookies.set("cfsp-access-token", accessToken.trim(), {
+      res.cookies.set("cfsp-access-token", access_token, {
         httpOnly: true,
-        sameSite: "lax",
         path: "/",
       });
 
-      res.cookies.set("cfsp-refresh-token", refreshToken.trim(), {
+      res.cookies.set("cfsp-refresh-token", refresh_token, {
         httpOnly: true,
-        sameSite: "lax",
         path: "/",
       });
+    } catch (cookieError: any) {
+      console.error("COOKIE ERROR:", cookieError);
 
-    } catch (cookieError) {
-      console.error("COOKIE CRASH:", cookieError);
       return NextResponse.json(
-        { ok: false, error: "Cookie write failed" },
+        {
+          ok: false,
+          step: "cookie_set_failed",
+          error: cookieError?.message || "unknown",
+        },
         { status: 500 }
       );
     }
 
     return res;
+  } catch (err: any) {
+    console.error("SESSION ROUTE ERROR:", err);
 
-  } catch (err) {
-    console.error("SESSION CRASH:", err);
     return NextResponse.json(
-      { ok: false, error: "Session route crashed" },
+      {
+        ok: false,
+        step: "session_route_crash",
+        error: err?.message || "unknown",
+      },
       { status: 500 }
     );
   }

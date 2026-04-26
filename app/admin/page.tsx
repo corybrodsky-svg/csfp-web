@@ -27,7 +27,7 @@ const panels: AdminPanel[] = [
     description: "Manage standardized patient records and supporting staff pages without extra navigation steps.",
     actions: [
       { href: "/sps", label: "Open SP Database", tone: "success" },
-      { href: "/staff", label: "Open Staff", tone: "secondary" },
+      { href: "/staff", label: "Organization Members", tone: "secondary" },
     ],
   },
   {
