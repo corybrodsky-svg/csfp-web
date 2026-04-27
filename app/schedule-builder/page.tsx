@@ -1,642 +1,452 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import SiteShell from "../components/SiteShell";
+import { formatHumanDate, getImportedYearHint } from "../lib/eventDateUtils";
 
-type EventType = "SP Event" | "Skills" | "Training" | "Virtual/VIR" | "Hi-Fi";
+type EventRow = {
+  id: string;
+  name: string | null;
+  status: string | null;
+  date_text: string | null;
+  location: string | null;
+  sp_needed: number | null;
+  notes: string | null;
+  earliest_session_date?: string | null;
+  assigned_sp_names?: string[] | null;
+  total_assignments?: number | null;
+  confirmed_assignments?: number | null;
+};
+
+type EventsResponse = {
+  events?: EventRow[];
+  error?: string;
+};
+
+type GeneratedRoomSlot = {
+  roomName: string;
+  roomType: "exam" | "flex";
+  capacityLabel: string;
+  pairingLabel: string;
+};
 
 type GeneratedRound = {
   round: number;
-  start: number;
-  end: number;
-  rooms: string[];
+  startTime: string;
+  endTime: string;
+  roomSlots: GeneratedRoomSlot[];
 };
 
-export default function ScheduleBuilderPage() {
-  const [eventTitle, setEventTitle] = useState("");
-  const [courseProgram, setCourseProgram] = useState("");
-  const [facultyLead, setFacultyLead] = useState("");
-  const [eventDates, setEventDates] = useState("");
-  const [eventTime, setEventTime] = useState("");
-  const [assessment, setAssessment] = useState("Formative");
-  const [eventType, setEventType] = useState<EventType>("SP Event");
-  const [notes, setNotes] = useState("");
-
-  const [needsSPs, setNeedsSPs] = useState("Yes");
-  const [spsNeeded, setSpsNeeded] = useState(1);
-  const [spTrainingDate, setSpTrainingDate] = useState("");
-  const [spTrainingTime, setSpTrainingTime] = useState("");
-  const [numberOfCases, setNumberOfCases] = useState(1);
-  const [recording, setRecording] = useState("Yes");
-  const [liveStream, setLiveStream] = useState("No");
-  const [modality, setModality] = useState("SPL");
-
-  const [roomsRequested, setRoomsRequested] = useState(1);
-  const [equipmentList, setEquipmentList] = useState("No");
-  const [learnersPerSession, setLearnersPerSession] = useState(1);
-  const [groupsPerDay, setGroupsPerDay] = useState(1);
-  const [accessibilityNeeds, setAccessibilityNeeds] = useState("");
-
-  const [totalLearners, setTotalLearners] = useState(0);
-  const [totalRooms, setTotalRooms] = useState(1);
-  const [casesPerLearner, setCasesPerLearner] = useState(1);
-  const [encounterTime, setEncounterTime] = useState(20);
-  const [checklistTime, setChecklistTime] = useState(10);
-  const [feedbackTime, setFeedbackTime] = useState(5);
-  const [turnoverTime, setTurnoverTime] = useState(5);
-  const [learnersPerRoom, setLearnersPerRoom] = useState(1);
-
-  const [schedule, setSchedule] = useState<GeneratedRound[]>([]);
-  const [scheduleError, setScheduleError] = useState("");
-
-  const noSpStaffingRequired =
-    needsSPs === "No" || eventType === "Skills" || spsNeeded === 0;
-
-  const flow = useMemo(() => {
-    const capacityPerRound = Math.max(totalRooms * learnersPerRoom, 0);
-    const roundsNeeded =
-      capacityPerRound > 0 ? Math.ceil(totalLearners / capacityPerRound) : 0;
-    const timePerRound =
-      encounterTime + checklistTime + feedbackTime + turnoverTime;
-    const totalTime = roundsNeeded * timePerRound;
-
-    return {
-      capacityPerRound,
-      roundsNeeded,
-      timePerRound,
-      totalTime,
-      hours: Math.floor(totalTime / 60),
-      minutes: totalTime % 60,
-    };
-  }, [
-    totalLearners,
-    totalRooms,
-    learnersPerRoom,
-    encounterTime,
-    checklistTime,
-    feedbackTime,
-    turnoverTime,
-  ]);
-
-  function generateSchedule() {
-    setScheduleError("");
-
-    const parsedStart = parseStartTime(eventTime);
-
-    if (!parsedStart) {
-      setSchedule([]);
-      setScheduleError(
-        "Enter an event time that starts with a recognizable time, like 1:00 PM-5:00 PM or 13:00-17:00."
-      );
-      return;
-    }
-
-    if (flow.roundsNeeded <= 0) {
-      setSchedule([]);
-      setScheduleError(
-        "Enter total learners, rooms, and learners per room before generating a schedule."
-      );
-      return;
-    }
-
-    if (flow.timePerRound <= 0) {
-      setSchedule([]);
-      setScheduleError("Round time must be greater than zero.");
-      return;
-    }
-
-    const rounds: GeneratedRound[] = [];
-    let currentMinutes = parsedStart;
-
-    for (let i = 0; i < flow.roundsNeeded; i += 1) {
-      const start = currentMinutes;
-      const end = start + flow.timePerRound;
-
-      const rooms = Array.from({ length: Math.max(totalRooms, 1) }, (_, index) => {
-        return `Room ${index + 1}`;
-      });
-
-      rounds.push({
-        round: i + 1,
-        start,
-        end,
-        rooms,
-      });
-
-      currentMinutes = end;
-    }
-
-    setSchedule(rounds);
-  }
-
-  return (
-    <main className="mx-auto max-w-7xl space-y-6 p-6">
-      <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <p className="mb-2 inline-flex rounded-full bg-blue-50 px-3 py-1 text-xs font-bold uppercase tracking-wide text-blue-800">
-          CFSP Schedule Builder
-        </p>
-        <h1 className="text-3xl font-bold text-slate-900">
-          Session Intake Builder
-        </h1>
-        <p className="mt-2 max-w-3xl text-slate-600">
-          Build simulation flow from intake details, calculate room/session
-          needs, and preview the event structure before saving to CFSP.
-        </p>
-      </section>
-
-      <section className="grid gap-6 lg:grid-cols-[1fr_340px]">
-        <div className="space-y-6">
-          <Panel title="Event Basics">
-            <Field label="Event Title">
-              <input
-                className="cfsp-input"
-                value={eventTitle}
-                onChange={(event) => setEventTitle(event.target.value)}
-              />
-            </Field>
-
-            <div className="grid gap-4 md:grid-cols-2">
-              <Field label="Course / Program">
-                <input
-                  className="cfsp-input"
-                  value={courseProgram}
-                  onChange={(event) => setCourseProgram(event.target.value)}
-                />
-              </Field>
-
-              <Field label="Faculty Lead">
-                <input
-                  className="cfsp-input"
-                  value={facultyLead}
-                  onChange={(event) => setFacultyLead(event.target.value)}
-                />
-              </Field>
-
-              <Field label="Event Dates">
-                <input
-                  className="cfsp-input"
-                  placeholder="Example: 6/26 + 9/04"
-                  value={eventDates}
-                  onChange={(event) => setEventDates(event.target.value)}
-                />
-              </Field>
-
-              <Field label="Event Time">
-                <input
-                  className="cfsp-input"
-                  placeholder="Example: 1:00 PM-5:00 PM"
-                  value={eventTime}
-                  onChange={(event) => setEventTime(event.target.value)}
-                />
-              </Field>
-
-              <Field label="Assessment">
-                <select
-                  className="cfsp-input"
-                  value={assessment}
-                  onChange={(event) => setAssessment(event.target.value)}
-                >
-                  <option>Formative</option>
-                  <option>Summative</option>
-                  <option>Practice</option>
-                  <option>Training</option>
-                </select>
-              </Field>
-
-              <Field label="Event Type">
-                <select
-                  className="cfsp-input"
-                  value={eventType}
-                  onChange={(event) => setEventType(event.target.value as EventType)}
-                >
-                  <option>SP Event</option>
-                  <option>Skills</option>
-                  <option>Training</option>
-                  <option>Virtual/VIR</option>
-                  <option>Hi-Fi</option>
-                </select>
-              </Field>
-            </div>
-
-            <Field label="Notes">
-              <textarea
-                className="cfsp-input min-h-24"
-                value={notes}
-                onChange={(event) => setNotes(event.target.value)}
-              />
-            </Field>
-          </Panel>
-
-          <Panel title="Simulation Requirements">
-            <div className="grid gap-4 md:grid-cols-3">
-              <Field label="Standardized Patients?">
-                <select
-                  className="cfsp-input"
-                  value={needsSPs}
-                  onChange={(event) => setNeedsSPs(event.target.value)}
-                >
-                  <option>Yes</option>
-                  <option>No</option>
-                </select>
-              </Field>
-
-              <Field label="How Many Needed?">
-                <input
-                  className="cfsp-input"
-                  type="number"
-                  min={0}
-                  value={spsNeeded}
-                  onChange={(event) => setSpsNeeded(Number(event.target.value))}
-                  disabled={needsSPs === "No"}
-                />
-              </Field>
-
-              <Field label="Number of Cases">
-                <input
-                  className="cfsp-input"
-                  type="number"
-                  min={0}
-                  value={numberOfCases}
-                  onChange={(event) => setNumberOfCases(Number(event.target.value))}
-                />
-              </Field>
-
-              <Field label="SP Training Date">
-                <input
-                  className="cfsp-input"
-                  value={spTrainingDate}
-                  onChange={(event) => setSpTrainingDate(event.target.value)}
-                  disabled={noSpStaffingRequired}
-                />
-              </Field>
-
-              <Field label="SP Training Time">
-                <input
-                  className="cfsp-input"
-                  value={spTrainingTime}
-                  onChange={(event) => setSpTrainingTime(event.target.value)}
-                  disabled={noSpStaffingRequired}
-                />
-              </Field>
-
-              <Field label="Modality">
-                <input
-                  className="cfsp-input"
-                  value={modality}
-                  onChange={(event) => setModality(event.target.value)}
-                />
-              </Field>
-
-              <Field label="Recording?">
-                <select
-                  className="cfsp-input"
-                  value={recording}
-                  onChange={(event) => setRecording(event.target.value)}
-                >
-                  <option>Yes</option>
-                  <option>No</option>
-                </select>
-              </Field>
-
-              <Field label="Live Stream?">
-                <select
-                  className="cfsp-input"
-                  value={liveStream}
-                  onChange={(event) => setLiveStream(event.target.value)}
-                >
-                  <option>No</option>
-                  <option>Yes</option>
-                </select>
-              </Field>
-            </div>
-
-            {noSpStaffingRequired && (
-              <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4 font-semibold text-emerald-800">
-                No SP staffing required for this event.
-              </div>
-            )}
-          </Panel>
-
-          <Panel title="Rooms and Logistics">
-            <div className="grid gap-4 md:grid-cols-3">
-              <Field label="Rooms Requested">
-                <input
-                  className="cfsp-input"
-                  type="number"
-                  min={1}
-                  value={roomsRequested}
-                  onChange={(event) => setRoomsRequested(Number(event.target.value))}
-                />
-              </Field>
-
-              <Field label="Equipment List">
-                <input
-                  className="cfsp-input"
-                  value={equipmentList}
-                  onChange={(event) => setEquipmentList(event.target.value)}
-                />
-              </Field>
-
-              <Field label="Learners per Session">
-                <input
-                  className="cfsp-input"
-                  type="number"
-                  min={1}
-                  value={learnersPerSession}
-                  onChange={(event) =>
-                    setLearnersPerSession(Number(event.target.value))
-                  }
-                />
-              </Field>
-
-              <Field label="Groups per Day">
-                <input
-                  className="cfsp-input"
-                  type="number"
-                  min={1}
-                  value={groupsPerDay}
-                  onChange={(event) => setGroupsPerDay(Number(event.target.value))}
-                />
-              </Field>
-
-              <Field label="Accessibility Needs">
-                <input
-                  className="cfsp-input"
-                  value={accessibilityNeeds}
-                  onChange={(event) => setAccessibilityNeeds(event.target.value)}
-                />
-              </Field>
-            </div>
-          </Panel>
-
-          <Panel title="Sim Flow Calculator">
-            <div className="grid gap-4 md:grid-cols-4">
-              <NumberField
-                label="Total Learners"
-                value={totalLearners}
-                setValue={setTotalLearners}
-              />
-              <NumberField
-                label="Total Rooms"
-                value={totalRooms}
-                setValue={setTotalRooms}
-                min={1}
-              />
-              <NumberField
-                label="Cases per Learner"
-                value={casesPerLearner}
-                setValue={setCasesPerLearner}
-                min={1}
-              />
-              <NumberField
-                label="Learners per Room"
-                value={learnersPerRoom}
-                setValue={setLearnersPerRoom}
-                min={1}
-              />
-              <NumberField
-                label="Encounter Time"
-                value={encounterTime}
-                setValue={setEncounterTime}
-              />
-              <NumberField
-                label="Checklist Time"
-                value={checklistTime}
-                setValue={setChecklistTime}
-              />
-              <NumberField
-                label="SP Feedback Time"
-                value={feedbackTime}
-                setValue={setFeedbackTime}
-              />
-              <NumberField
-                label="Turnover Time"
-                value={turnoverTime}
-                setValue={setTurnoverTime}
-              />
-            </div>
-
-            <div className="mt-5 flex flex-wrap gap-3">
-              <button
-                type="button"
-                onClick={generateSchedule}
-                className="rounded-xl bg-emerald-600 px-5 py-3 font-bold text-white shadow-sm hover:bg-emerald-700"
-              >
-                Generate Schedule
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setSchedule([]);
-                  setScheduleError("");
-                }}
-                className="rounded-xl border border-slate-300 bg-white px-5 py-3 font-bold text-slate-700 hover:bg-slate-50"
-              >
-                Clear Schedule
-              </button>
-            </div>
-
-            {scheduleError && (
-              <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 font-semibold text-amber-900">
-                {scheduleError}
-              </div>
-            )}
-
-            {schedule.length > 0 && (
-              <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                <h3 className="text-lg font-black text-slate-900">
-                  Generated Schedule
-                </h3>
-                <p className="mt-1 text-sm text-slate-600">
-                  {schedule.length} rounds generated from {formatTime(schedule[0].start)}.
-                </p>
-
-                <div className="mt-4 space-y-3">
-                  {schedule.map((round) => (
-                    <div
-                      key={round.round}
-                      className="rounded-xl border border-slate-200 bg-white p-4"
-                    >
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <p className="font-black text-slate-900">
-                          Round {round.round}
-                        </p>
-                        <p className="rounded-full bg-blue-50 px-3 py-1 text-sm font-bold text-blue-800">
-                          {formatTime(round.start)} – {formatTime(round.end)}
-                        </p>
-                      </div>
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        {round.rooms.map((room) => (
-                          <span
-                            key={`${round.round}-${room}`}
-                            className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-sm font-bold text-emerald-800"
-                          >
-                            {room}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </Panel>
-        </div>
-
-        <aside className="space-y-4">
-          <div className="sticky top-6 rounded-2xl border border-blue-200 bg-blue-50 p-5 shadow-sm">
-            <p className="text-xs font-bold uppercase tracking-wide text-blue-800">
-              Sim Flow Results
-            </p>
-
-            <Result label="Capacity per Round" value={flow.capacityPerRound} />
-            <Result label="Rounds Needed" value={flow.roundsNeeded} />
-            <Result label="Time per Round" value={`${flow.timePerRound} min`} />
-            <Result label="Total Minutes" value={`${flow.totalTime} min`} />
-            <Result label="Total Time" value={`${flow.hours} h ${flow.minutes} min`} />
-
-            <div className="mt-5 rounded-xl bg-white p-4 text-sm text-slate-700">
-              <p className="font-bold text-slate-900">Preview</p>
-              <p className="mt-2">{eventTitle || "Untitled Event"}</p>
-              <p>{eventDates || "No dates entered"}</p>
-              <p>{eventTime || "No time entered"}</p>
-              <p>
-                {noSpStaffingRequired
-                  ? "No SP staffing required"
-                  : `${spsNeeded} SPs needed`}
-              </p>
-              {schedule.length > 0 && (
-                <p className="mt-2 font-bold text-emerald-700">
-                  {schedule.length} scheduled rounds generated
-                </p>
-              )}
-            </div>
-
-            <button
-              type="button"
-              onClick={() => window.print()}
-              className="mt-4 w-full rounded-xl bg-blue-700 px-4 py-3 font-bold text-white hover:bg-blue-800"
-            >
-              Export / Print Summary
-            </button>
-
-            <button
-              type="button"
-              disabled
-              className="mt-3 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 font-bold text-slate-400"
-            >
-              Save to CFSP Coming Next
-            </button>
-          </div>
-        </aside>
-      </section>
-    </main>
-  );
+function asText(value: unknown) {
+  if (value === null || value === undefined) return "";
+  return String(value).trim();
 }
 
-function parseStartTime(value: string): number | null {
-  const rawStart = value.split("-")[0]?.trim();
-  if (!rawStart) return null;
+function parseNumber(value: string, fallback: number) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(0, Math.floor(parsed));
+}
 
-  const normalized = rawStart.toLowerCase().replace(/\s+/g, "");
-  const isPm = normalized.includes("pm");
-  const isAm = normalized.includes("am");
-  const clean = normalized.replace("am", "").replace("pm", "");
-
-  const match = clean.match(/^(\d{1,2})(?::(\d{1,2}))?$/);
-  if (!match) return null;
-
-  let hours = Number(match[1]);
-  const minutes = Number(match[2] ?? 0);
-
-  if (Number.isNaN(hours) || Number.isNaN(minutes)) return null;
-  if (minutes < 0 || minutes > 59) return null;
-
-  if (isPm && hours < 12) hours += 12;
-  if (isAm && hours === 12) hours = 0;
-
-  if (hours < 0 || hours > 23) return null;
-
+function toMinutes(value: string) {
+  const [hoursText, minutesText] = asText(value).split(":");
+  const hours = Number(hoursText);
+  const minutes = Number(minutesText);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
   return hours * 60 + minutes;
 }
 
-function formatTime(totalMinutes: number) {
-  const normalized = ((totalMinutes % 1440) + 1440) % 1440;
-  const hours24 = Math.floor(normalized / 60);
+function toDisplayTime(totalMinutes: number) {
+  const normalized = ((totalMinutes % (24 * 60)) + (24 * 60)) % (24 * 60);
+  const hours = Math.floor(normalized / 60);
   const minutes = normalized % 60;
-  const suffix = hours24 >= 12 ? "PM" : "AM";
-  const hours12 = hours24 % 12 || 12;
-
-  return `${hours12}:${minutes.toString().padStart(2, "0")} ${suffix}`;
+  const suffix = hours >= 12 ? "PM" : "AM";
+  const twelveHour = hours % 12 || 12;
+  return `${twelveHour}:${String(minutes).padStart(2, "0")} ${suffix}`;
 }
 
-function Panel({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
+function formatEventDate(event: EventRow) {
+  const dateSource = event.earliest_session_date || event.date_text;
+  if (!dateSource) return "Date TBD";
+  return formatHumanDate(dateSource, getImportedYearHint(event.notes)) || dateSource;
+}
+
+function getAssignedNames(event: EventRow) {
+  return (event.assigned_sp_names || []).filter(Boolean);
+}
+
+function buildRounds(args: {
+  startMinutes: number;
+  sessionLengthMinutes: number;
+  rounds: number;
+  examRoomCount: number;
+  flexRoomCount: number;
+  maxPairsPerFlexRoom: number;
 }) {
-  return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <h2 className="mb-4 text-xl font-bold text-slate-900">{title}</h2>
-      <div className="space-y-4">{children}</div>
-    </section>
+  const generated: GeneratedRound[] = [];
+
+  for (let roundIndex = 0; roundIndex < args.rounds; roundIndex += 1) {
+    const start = args.startMinutes + roundIndex * args.sessionLengthMinutes;
+    const end = start + args.sessionLengthMinutes;
+
+    const examSlots: GeneratedRoomSlot[] = Array.from({ length: args.examRoomCount }, (_, index) => ({
+      roomName: `Exam Room ${index + 1}`,
+      roomType: "exam",
+      capacityLabel: "1 pair",
+      pairingLabel: `Pair ${roundIndex * Math.max(args.examRoomCount, 1) + index + 1}`,
+    }));
+
+    const flexSlots: GeneratedRoomSlot[] = Array.from({ length: args.flexRoomCount }, (_, index) => ({
+      roomName: `Flex Room ${index + 1}`,
+      roomType: "flex",
+      capacityLabel: `Up to ${args.maxPairsPerFlexRoom} pairs`,
+      pairingLabel: `Pairs 1-${args.maxPairsPerFlexRoom}`,
+    }));
+
+    generated.push({
+      round: roundIndex + 1,
+      startTime: toDisplayTime(start),
+      endTime: toDisplayTime(end),
+      roomSlots: [...examSlots, ...flexSlots],
+    });
+  }
+
+  return generated;
+}
+
+export default function ScheduleBuilderPage() {
+  const router = useRouter();
+  const [events, setEvents] = useState<EventRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState("");
+  const [selectedEventId, setSelectedEventId] = useState("");
+  const [startTime, setStartTime] = useState("08:10");
+  const [sessionLengthMinutes, setSessionLengthMinutes] = useState("50");
+  const [roundCount, setRoundCount] = useState("4");
+  const [examRoomCount, setExamRoomCount] = useState("4");
+  const [flexRoomCount, setFlexRoomCount] = useState("1");
+  const [maxPairsPerFlexRoom, setMaxPairsPerFlexRoom] = useState("3");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadEvents() {
+      setLoading(true);
+      setErrorMessage("");
+
+      try {
+        const response = await fetch("/api/events", {
+          cache: "no-store",
+          credentials: "include",
+        });
+
+        if (cancelled) return;
+
+        if (response.status === 401) {
+          router.replace("/login");
+          return;
+        }
+
+        const body = (await response.json().catch(() => null)) as EventsResponse | null;
+
+        if (!response.ok) {
+          setErrorMessage(asText(body?.error) || `Could not load events (${response.status}).`);
+          setLoading(false);
+          return;
+        }
+
+        const loadedEvents = Array.isArray(body?.events) ? body.events : [];
+        setEvents(loadedEvents);
+        setSelectedEventId((current) => current || loadedEvents[0]?.id || "");
+      } catch (error) {
+        if (cancelled) return;
+        setErrorMessage(error instanceof Error ? error.message : "Could not load events.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    void loadEvents();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [router]);
+
+  const selectedEvent = useMemo(
+    () => events.find((event) => event.id === selectedEventId) || null,
+    [events, selectedEventId]
   );
-}
 
-function Field({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <label className="block">
-      <span className="mb-1 block text-sm font-bold text-slate-700">
-        {label}
-      </span>
-      {children}
-    </label>
-  );
-}
+  const parsedStartMinutes = toMinutes(startTime);
+  const parsedSessionLength = parseNumber(sessionLengthMinutes, 50);
+  const parsedRounds = parseNumber(roundCount, 4);
+  const parsedExamRooms = parseNumber(examRoomCount, 4);
+  const parsedFlexRooms = parseNumber(flexRoomCount, 1);
+  const parsedMaxPairs = Math.max(1, parseNumber(maxPairsPerFlexRoom, 3));
 
-function NumberField({
-  label,
-  value,
-  setValue,
-  min = 0,
-}: {
-  label: string;
-  value: number;
-  setValue: (value: number) => void;
-  min?: number;
-}) {
-  return (
-    <Field label={label}>
-      <input
-        className="cfsp-input"
-        type="number"
-        min={min}
-        value={value}
-        onChange={(event) => setValue(Number(event.target.value))}
-      />
-    </Field>
-  );
-}
+  const generatedRounds = useMemo(() => {
+    if (parsedStartMinutes === null) return [];
+    if (parsedSessionLength <= 0 || parsedRounds <= 0) return [];
 
-function Result({
-  label,
-  value,
-}: {
-  label: string;
-  value: string | number;
-}) {
+    return buildRounds({
+      startMinutes: parsedStartMinutes,
+      sessionLengthMinutes: parsedSessionLength,
+      rounds: parsedRounds,
+      examRoomCount: parsedExamRooms,
+      flexRoomCount: parsedFlexRooms,
+      maxPairsPerFlexRoom: parsedMaxPairs,
+    });
+  }, [parsedExamRooms, parsedFlexRooms, parsedMaxPairs, parsedRounds, parsedSessionLength, parsedStartMinutes]);
+
+  const totalRoomSlotsPerRound = parsedExamRooms + parsedFlexRooms;
+  const totalFlexCapacityPerRound = parsedFlexRooms * parsedMaxPairs;
+  const assignedNames = selectedEvent ? getAssignedNames(selectedEvent) : [];
+
   return (
-    <div className="mt-4 flex items-center justify-between border-b border-blue-100 pb-2">
-      <span className="text-sm font-semibold text-slate-600">{label}</span>
-      <span className="text-lg font-black text-slate-900">{value}</span>
-    </div>
+    <SiteShell
+      title="Schedule Builder"
+      subtitle="Select a real CFSP event, set round and room inputs, and preview a JWAN-style rotation without changing saved event data."
+    >
+      <div className="grid gap-5">
+        {errorMessage ? <div className="cfsp-alert cfsp-alert-error">{errorMessage}</div> : null}
+
+        <section className="rounded-[14px] border border-[#dce6ee] bg-[linear-gradient(180deg,#f8fbfd_0%,#eef5fb_100%)] px-5 py-5">
+          <p className="cfsp-kicker">Connected builder</p>
+          <h2 className="mt-3 text-[1.7rem] leading-tight font-black text-[#14304f]">First live CFSP schedule builder</h2>
+          <p className="mt-3 max-w-3xl text-[0.98rem] leading-6 text-[#5e7388]">
+            This first version works from real CFSP events, previews rounds and rooms, and keeps the generated schedule out of the database until the save flow is ready.
+          </p>
+        </section>
+
+        {loading ? (
+          <div className="cfsp-alert cfsp-alert-info">Loading events for schedule building...</div>
+        ) : events.length === 0 ? (
+          <div className="cfsp-panel px-5 py-6">
+            <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">No events available yet</h3>
+            <p className="mt-3 text-sm leading-6 text-[#5e7388]">
+              CFSP could not find any events to build a schedule from yet. Start by creating a new event or importing one from an upload workbook.
+            </p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Link href="/events/new" className="cfsp-btn cfsp-btn-primary">
+                Create New Event
+              </Link>
+              <Link href="/events/upload" className="cfsp-btn cfsp-btn-secondary">
+                Upload Events
+              </Link>
+            </div>
+          </div>
+        ) : (
+          <div className="grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
+            <section className="cfsp-panel px-5 py-5">
+              <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">1. Select event</h3>
+              <div className="mt-4 grid gap-4">
+                <label className="grid gap-2">
+                  <span className="cfsp-label">Event</span>
+                  <select
+                    value={selectedEventId}
+                    onChange={(event) => setSelectedEventId(event.target.value)}
+                    className="cfsp-input"
+                  >
+                    {events.map((event) => (
+                      <option key={event.id} value={event.id}>
+                        {event.name || "Untitled Event"}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                {selectedEvent ? (
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
+                      <div className="cfsp-label">Event</div>
+                      <div className="mt-2 text-base font-black text-[#14304f]">{selectedEvent.name || "Untitled Event"}</div>
+                    </div>
+                    <div className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
+                      <div className="cfsp-label">Date</div>
+                      <div className="mt-2 text-base font-black text-[#14304f]">{formatEventDate(selectedEvent)}</div>
+                    </div>
+                    <div className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
+                      <div className="cfsp-label">Location</div>
+                      <div className="mt-2 text-base font-black text-[#14304f]">{selectedEvent.location || "TBD"}</div>
+                    </div>
+                    <div className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
+                      <div className="cfsp-label">SP Coverage</div>
+                      <div className="mt-2 text-base font-black text-[#14304f]">
+                        {Number(selectedEvent.confirmed_assignments || 0)} / {Number(selectedEvent.sp_needed || 0)}
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+
+                <div className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
+                  <div className="cfsp-label">Assigned SPs</div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {assignedNames.length ? (
+                      assignedNames.map((name) => (
+                        <span key={name} className="cfsp-chip">
+                          {name}
+                        </span>
+                      ))
+                    ) : (
+                      <span className="text-sm font-semibold text-[#6a7e91]">No assigned SPs yet</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section className="cfsp-panel px-5 py-5">
+              <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">2. Build preview</h3>
+              <div className="mt-4 grid gap-4 md:grid-cols-2">
+                <label className="grid gap-2">
+                  <span className="cfsp-label">Start time</span>
+                  <input
+                    type="time"
+                    value={startTime}
+                    onChange={(event) => setStartTime(event.target.value)}
+                    className="cfsp-input"
+                  />
+                </label>
+                <label className="grid gap-2">
+                  <span className="cfsp-label">Session length (minutes)</span>
+                  <input
+                    type="number"
+                    min={1}
+                    value={sessionLengthMinutes}
+                    onChange={(event) => setSessionLengthMinutes(event.target.value)}
+                    className="cfsp-input"
+                  />
+                </label>
+                <label className="grid gap-2">
+                  <span className="cfsp-label">Number of rounds</span>
+                  <input
+                    type="number"
+                    min={1}
+                    value={roundCount}
+                    onChange={(event) => setRoundCount(event.target.value)}
+                    className="cfsp-input"
+                  />
+                </label>
+                <label className="grid gap-2">
+                  <span className="cfsp-label">Exam Rooms</span>
+                  <input
+                    type="number"
+                    min={0}
+                    value={examRoomCount}
+                    onChange={(event) => setExamRoomCount(event.target.value)}
+                    className="cfsp-input"
+                  />
+                </label>
+                <label className="grid gap-2">
+                  <span className="cfsp-label">Flex Rooms</span>
+                  <input
+                    type="number"
+                    min={0}
+                    value={flexRoomCount}
+                    onChange={(event) => setFlexRoomCount(event.target.value)}
+                    className="cfsp-input"
+                  />
+                </label>
+                <label className="grid gap-2">
+                  <span className="cfsp-label">Max pairs per Flex Room</span>
+                  <input
+                    type="number"
+                    min={1}
+                    value={maxPairsPerFlexRoom}
+                    onChange={(event) => setMaxPairsPerFlexRoom(event.target.value)}
+                    className="cfsp-input"
+                  />
+                </label>
+              </div>
+
+              <div className="mt-5 grid gap-3 md:grid-cols-3">
+                <div className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
+                  <div className="cfsp-label">Rounds</div>
+                  <div className="mt-2 text-xl font-black text-[#14304f]">{generatedRounds.length}</div>
+                </div>
+                <div className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
+                  <div className="cfsp-label">Room Slots / Round</div>
+                  <div className="mt-2 text-xl font-black text-[#14304f]">{totalRoomSlotsPerRound}</div>
+                </div>
+                <div className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
+                  <div className="cfsp-label">Flex Capacity / Round</div>
+                  <div className="mt-2 text-xl font-black text-[#14304f]">{totalFlexCapacityPerRound}</div>
+                </div>
+              </div>
+            </section>
+          </div>
+        )}
+
+        {!loading && events.length > 0 ? (
+          <section className="cfsp-panel px-5 py-5">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">3. Schedule preview</h3>
+                <p className="mt-2 mb-0 text-sm leading-6 text-[#5e7388]">
+                  Preview the round rotation concept with Exam Rooms and Flex Rooms before any save path is introduced.
+                </p>
+              </div>
+              <button type="button" disabled className="cfsp-btn cfsp-btn-secondary opacity-70">
+                Save Schedule Coming Soon
+              </button>
+            </div>
+
+            {parsedStartMinutes === null ? (
+              <div className="cfsp-alert cfsp-alert-error mt-5">
+                Enter a valid start time to generate the schedule preview.
+              </div>
+            ) : !generatedRounds.length ? (
+              <div className="cfsp-alert cfsp-alert-info mt-5">
+                Add at least one round with a positive session length to generate the preview table.
+              </div>
+            ) : (
+              <div className="mt-5 overflow-x-auto">
+                <table className="w-full border-collapse text-left">
+                  <thead>
+                    <tr className="border-b border-[#dce6ee] text-sm text-[#5e7388]">
+                      <th className="px-3 py-3 font-black">Round</th>
+                      <th className="px-3 py-3 font-black">Time</th>
+                      <th className="px-3 py-3 font-black">Room</th>
+                      <th className="px-3 py-3 font-black">Type</th>
+                      <th className="px-3 py-3 font-black">Capacity</th>
+                      <th className="px-3 py-3 font-black">Rotation</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {generatedRounds.flatMap((round) =>
+                      round.roomSlots.map((slot, index) => (
+                        <tr key={`${round.round}-${slot.roomName}`} className="border-b border-[#eef3f7] text-sm text-[#14304f]">
+                          <td className="px-3 py-3 font-bold">{index === 0 ? `Round ${round.round}` : ""}</td>
+                          <td className="px-3 py-3 font-semibold">{index === 0 ? `${round.startTime} - ${round.endTime}` : ""}</td>
+                          <td className="px-3 py-3 font-semibold">{slot.roomName}</td>
+                          <td className="px-3 py-3">
+                            <span
+                              className="inline-flex rounded-full px-3 py-1 text-xs font-black"
+                              style={
+                                slot.roomType === "exam"
+                                  ? { background: "#edf5fb", color: "#165a96" }
+                                  : { background: "#eaf7f2", color: "#196b57" }
+                              }
+                            >
+                              {slot.roomType === "exam" ? "Exam Room" : "Flex Room"}
+                            </span>
+                          </td>
+                          <td className="px-3 py-3 font-semibold">{slot.capacityLabel}</td>
+                          <td className="px-3 py-3 font-semibold text-[#5e7388]">{slot.pairingLabel}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        ) : null}
+      </div>
+    </SiteShell>
   );
 }

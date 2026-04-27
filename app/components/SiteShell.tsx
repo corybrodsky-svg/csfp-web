@@ -37,6 +37,7 @@ const navItems: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", match: "exact" },
   { href: "/events", label: "Events", match: "prefix" },
   { href: "/events/new", label: "New Event", match: "exact", tone: "primary" },
+  { href: "/schedule-builder", label: "Schedule Builder", match: "exact" },
   { href: "/events/upload", label: "Upload", match: "exact" },
   { href: "/sps", label: "SP Database", match: "prefix" },
   { href: "/staff", label: "Staff", match: "prefix" },
