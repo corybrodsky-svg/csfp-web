@@ -16,6 +16,7 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 const SUPER_ADMIN_EMAIL = "cory.brodsky@gmail.com";
+const ADMIN_FALLBACK_EMAIL = "cwb55@drexel.edu";
 
 type ProfileRow = {
   id: string;
@@ -42,9 +43,19 @@ function isSuperAdminEmail(email: string | null | undefined) {
   return asText(email).toLowerCase() === SUPER_ADMIN_EMAIL;
 }
 
+function isAdminFallbackEmail(email: string | null | undefined) {
+  return asText(email).toLowerCase() === ADMIN_FALLBACK_EMAIL;
+}
+
 function getForcedRole(email: string | null | undefined, currentRole: unknown) {
+  const normalizedCurrentRole = normalizeRole(currentRole);
   if (isSuperAdminEmail(email)) return "super_admin";
-  return normalizeRole(currentRole);
+  if (isAdminFallbackEmail(email)) {
+    if (normalizedCurrentRole === "super_admin") return "super_admin";
+    if (normalizedCurrentRole === "admin" || normalizedCurrentRole === "sim_op") return normalizedCurrentRole;
+    return "admin";
+  }
+  return normalizedCurrentRole;
 }
 
 function getCoryFallbackProfile(user: { id: string; email?: string | null }) {
@@ -57,6 +68,19 @@ function getCoryFallbackProfile(user: { id: string; email?: string | null }) {
     role: "super_admin",
     is_active: true,
     email: user.email || SUPER_ADMIN_EMAIL,
+  } satisfies ProfileRow;
+}
+
+function getAdminFallbackProfile(user: { id: string; email?: string | null }) {
+  if (!isAdminFallbackEmail(user.email)) return null;
+
+  return {
+    id: user.id,
+    full_name: null,
+    schedule_name: null,
+    role: "admin",
+    is_active: true,
+    email: user.email || ADMIN_FALLBACK_EMAIL,
   } satisfies ProfileRow;
 }
 
@@ -130,22 +154,25 @@ function buildNormalizedProfile(
   user: { id: string; email?: string | null; user_metadata?: Record<string, unknown> }
 ) {
   const coryFallback = getCoryFallbackProfile(user);
+  const adminFallback = getAdminFallbackProfile(user);
   const fullName =
     asText(profile?.full_name) ||
     asText(user.user_metadata?.full_name) ||
-    asText(coryFallback?.full_name);
+    asText(coryFallback?.full_name) ||
+    asText(adminFallback?.full_name);
   const scheduleName =
     asText(profile?.schedule_name) ||
     asText(user.user_metadata?.schedule_name) ||
-    asText(coryFallback?.schedule_name);
-  const role = getForcedRole(user.email, profile?.role || user.user_metadata?.role || coryFallback?.role);
-  const isActive = profile?.is_active ?? coryFallback?.is_active ?? true;
-  const email = profile?.email || user.email || coryFallback?.email || null;
+    asText(coryFallback?.schedule_name) ||
+    asText(adminFallback?.schedule_name);
+  const role = getForcedRole(user.email, profile?.role || user.user_metadata?.role || coryFallback?.role || adminFallback?.role);
+  const isActive = profile?.is_active ?? coryFallback?.is_active ?? adminFallback?.is_active ?? true;
+  const email = profile?.email || user.email || coryFallback?.email || adminFallback?.email || null;
   const profileImageUrl =
     asText(profile?.profile_image_url) || asText(user.user_metadata?.profile_image_url);
 
   return {
-    id: profile?.id || coryFallback?.id || user.id,
+    id: profile?.id || coryFallback?.id || adminFallback?.id || user.id,
     full_name: fullName || null,
     schedule_name: scheduleName || null,
     role,
@@ -155,18 +182,40 @@ function buildNormalizedProfile(
   } satisfies ProfileRow;
 }
 
-async function ensureCoryIsSuperAdmin(user: { id: string; email?: string | null; user_metadata?: Record<string, unknown> }, accessToken?: string) {
-  if (!isSuperAdminEmail(user.email)) return;
+async function ensurePreferredRole(
+  user: { id: string; email?: string | null; user_metadata?: Record<string, unknown> },
+  accessToken?: string
+) {
+  if (isSuperAdminEmail(user.email)) {
+    await updateProfileForUser(
+      user as never,
+      {
+        full_name: asText(user.user_metadata?.full_name) || "Cory Brodsky",
+        schedule_name: asText(user.user_metadata?.schedule_name) || "Cory",
+        role: "super_admin",
+      },
+      accessToken
+    );
+    return;
+  }
 
-  await updateProfileForUser(
-    user as never,
-    {
-      full_name: asText(user.user_metadata?.full_name) || "Cory Brodsky",
-      schedule_name: asText(user.user_metadata?.schedule_name) || "Cory",
-      role: "super_admin",
-    },
-    accessToken
-  );
+  if (isAdminFallbackEmail(user.email)) {
+    const existingRole = normalizeRole(user.user_metadata?.role);
+    const preferredRole =
+      existingRole === "super_admin" || existingRole === "admin" || existingRole === "sim_op"
+        ? existingRole
+        : "admin";
+
+    await updateProfileForUser(
+      user as never,
+      {
+        full_name: asText(user.user_metadata?.full_name) || null,
+        schedule_name: asText(user.user_metadata?.schedule_name) || null,
+        role: preferredRole,
+      },
+      accessToken
+    );
+  }
 }
 
 function buildResponseProfile(
@@ -218,7 +267,7 @@ async function handleGetOrSave(method: "GET" | "POST" | "PATCH", request?: Reque
   const user = session.user;
   const accessToken = session.accessToken || session.refreshedSession?.access_token || undefined;
 
-  await ensureCoryIsSuperAdmin(user, accessToken);
+  await ensurePreferredRole(user, accessToken);
 
   if (method === "GET") {
     const profileResult = await getProfileForUser(user.id, accessToken);

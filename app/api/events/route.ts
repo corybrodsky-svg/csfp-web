@@ -39,13 +39,20 @@ function normalizeRole(value: unknown) {
   if (role === "sp" || role === "sim_op" || role === "admin" || role === "super_admin") {
     return role;
   }
-  return "sp";
+  return "unknown";
 }
 
 function getEffectiveRole(email: unknown, role: unknown) {
   const normalizedEmail = asText(email).toLowerCase();
   const localPart = normalizedEmail.split("@")[0] || "";
   if (localPart === "cory.brodsky") return "super_admin";
+  if (normalizedEmail === "cwb55@drexel.edu") {
+    const normalizedRole = normalizeRole(role);
+    if (normalizedRole === "super_admin" || normalizedRole === "admin" || normalizedRole === "sim_op") {
+      return normalizedRole;
+    }
+    return "admin";
+  }
   return normalizeRole(role);
 }
 
@@ -174,6 +181,9 @@ export async function GET() {
     if (!viewer) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+
+    console.log("CFSP /api/events role:", viewer.role);
+    console.log("CFSP /api/events user:", viewer.id);
 
     const baseSelect = "id,name,status,date_text,sp_needed,visibility,location,notes,created_at";
     const ownerSelect = `${baseSelect},owner_id`;
@@ -306,12 +316,16 @@ export async function GET() {
           .filter(Boolean)
       );
 
+      const filteredEvents = eventsWithCoverage.filter((event) => allowedEventIds.has(event.id));
+      console.log("CFSP /api/events returning count:", filteredEvents.length);
+
       return NextResponse.json({
-        events: eventsWithCoverage.filter((event) => allowedEventIds.has(event.id)),
+        events: filteredEvents,
         assignments: assignmentRows.filter((assignment) => allowedEventIds.has(asText(assignment.event_id))),
       });
     }
 
+    console.log("CFSP /api/events returning count:", eventsWithCoverage.length);
     return NextResponse.json({ events: eventsWithCoverage, assignments: assignmentRows });
   } catch (error) {
     return NextResponse.json(
