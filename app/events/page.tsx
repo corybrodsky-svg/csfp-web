@@ -50,6 +50,18 @@ type EventWithMeta = {
   assigned: number;
   confirmed: number;
   shortage: number;
+  isUpcoming: boolean;
+  isThisWeek: boolean;
+  isTraining: boolean;
+  isSpEvent: boolean;
+  isVirtual: boolean;
+  isSkills: boolean;
+  isMissingKeyInfo: boolean;
+  isRecentlyImported: boolean;
+  needsVirtualPrep: boolean;
+  needsAttention: boolean;
+  needsPrep: boolean;
+  isReady: boolean;
 };
 
 function asText(value: unknown) {
@@ -109,17 +121,6 @@ function getStartOfToday() {
   return new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
 }
 
-function getStartOfDayFromValue(timestamp: number) {
-  const date = new Date(timestamp);
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
-}
-
-function isTodayOrTomorrow(timestamp: number, startOfToday: number) {
-  if (!Number.isFinite(timestamp) || timestamp === Number.MAX_SAFE_INTEGER) return false;
-  const dayStart = getStartOfDayFromValue(timestamp);
-  return dayStart === startOfToday || dayStart === startOfToday + 24 * 60 * 60 * 1000;
-}
-
 function matchesDateFilter(event: EventRow, filterMode: DateFilterMode, startOfToday: number) {
   if (filterMode === "all") return true;
 
@@ -147,9 +148,24 @@ function getWorkflowTone(kind: "shortage" | "partial" | "full") {
 }
 
 function getWorkflowToneForEvent(item: EventWithMeta) {
+  if (item.isMissingKeyInfo) return getWorkflowTone("shortage");
+  if (item.needsVirtualPrep || item.isTraining) return getWorkflowTone("partial");
   if (item.shortage > 0 && item.assigned === 0) return getWorkflowTone("shortage");
   if (item.shortage > 0) return getWorkflowTone("partial");
   return getWorkflowTone("full");
+}
+
+function buildEventSearchText(event: EventRow) {
+  return [event.name, event.location, event.notes, event.status].map(asText).filter(Boolean).join(" ").toLowerCase();
+}
+
+function eventHasAnyKeyword(text: string, keywords: string[]) {
+  return keywords.some((keyword) => text.includes(keyword));
+}
+
+function hasMeaningfulName(name: string | null) {
+  const normalized = asText(name).toLowerCase();
+  return Boolean(normalized) && normalized !== "untitled event" && normalized !== "tbd";
 }
 
 function TeamOwnershipBlock({ notes }: { notes?: string | null }) {
@@ -268,9 +284,9 @@ function EventWorkflowSection({
 
                 <div className="mt-5 grid gap-3 md:grid-cols-4">
                   <div className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
-                    <div className="cfsp-label">Coverage</div>
+                    <div className="cfsp-label">SP Coverage</div>
                     <div className="mt-2 text-xl font-black text-[#14304f]">
-                      {item.confirmed} / {item.needed}
+                      {item.needed > 0 ? `${item.confirmed} / ${item.needed}` : "No SPs required"}
                     </div>
                   </div>
                   <div className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
@@ -420,46 +436,119 @@ export default function EventsPage() {
           const needed = Number(event.sp_needed || 0);
           const assigned = Number(event.total_assignments || 0);
           const confirmed = Number(event.confirmed_assignments || 0);
+          const eventDateValue = parseEventDateValue(event);
+          const eventText = buildEventSearchText(event);
+          const eventMeta = classifyEventPresentation({
+            name: event.name,
+            status: event.status,
+            notes: event.notes,
+            location: event.location,
+            spNeeded: event.sp_needed,
+            assignmentCount: assigned,
+            confirmedCount: confirmed,
+          });
+          const isUpcoming = Number.isFinite(eventDateValue) && eventDateValue !== Number.MAX_SAFE_INTEGER && eventDateValue >= startOfToday;
+          const isThisWeek = isUpcoming && eventDateValue < startOfToday + 7 * 24 * 60 * 60 * 1000;
+          const isTraining =
+            eventMeta.eventType === "training" ||
+            eventHasAnyKeyword(eventText, ["training", "prep", "orientation", "sp training"]);
+          const isVirtual =
+            eventHasAnyKeyword(eventText, ["virtual", " vir", "vir ", "telehealth", "zoom", "online", "simiq"]);
+          const isSkills =
+            eventMeta.eventType === "skills" ||
+            eventHasAnyKeyword(eventText, ["skills", "lab", "checkoff", "practice", "in class", "in-class"]);
+          const isSpEvent =
+            needed > 0 || eventMeta.eventType === "sp" || isVirtual || eventHasAnyKeyword(eventText, ["sp event"]);
+          const isMissingKeyInfo = !hasMeaningfulName(event.name) || !asText(event.location) || eventDateValue === Number.MAX_SAFE_INTEGER;
+          const createdAtValue = Date.parse(asText(event.created_at));
+          const isRecentlyImported =
+            Number.isFinite(createdAtValue) && createdAtValue >= Date.now() - 7 * 24 * 60 * 60 * 1000;
+          const needsVirtualPrep = isVirtual && !eventHasAnyKeyword(eventText, ["zoom", "simiq", "teams", "webex", "online link"]);
+          const needsAttention =
+            isMissingKeyInfo || (needed > 0 && assigned === 0) || isThisWeek || isTraining || needsVirtualPrep;
+          const needsPrep =
+            !needsAttention &&
+            (isTraining || isVirtual || isThisWeek || (needed > 0 && confirmed < needed) || isRecentlyImported);
+          const isReady =
+            !needsAttention && !needsPrep && (needed <= 0 || confirmed >= needed);
+
           return {
             event,
-            eventDateValue: parseEventDateValue(event),
+            eventDateValue,
             needed,
             assigned,
             confirmed,
             shortage: Math.max(needed - confirmed, 0),
+            isUpcoming,
+            isThisWeek,
+            isTraining,
+            isSpEvent,
+            isVirtual,
+            isSkills,
+            isMissingKeyInfo,
+            isRecentlyImported,
+            needsVirtualPrep,
+            needsAttention,
+            needsPrep,
+            isReady,
           };
         })
         .sort((a, b) => a.eventDateValue - b.eventDateValue || asText(a.event.name).localeCompare(asText(b.event.name))),
-    [visibleEvents]
+    [startOfToday, visibleEvents]
   );
 
-  const needsStaff = useMemo(
+  const actionNeeded = useMemo(() => workflowEvents.filter((item) => item.needsAttention), [workflowEvents]);
+  const prepNeeded = useMemo(() => workflowEvents.filter((item) => item.needsPrep), [workflowEvents]);
+  const ready = useMemo(() => workflowEvents.filter((item) => item.isReady), [workflowEvents]);
+
+  const metricSource = useMemo(
     () =>
-      workflowEvents.filter(
-        (item) => item.shortage > 0 && (item.assigned === 0 || isTodayOrTomorrow(item.eventDateValue, startOfToday))
-      ),
-    [startOfToday, workflowEvents]
-  );
+      scopedEvents
+        .map((event) => {
+          const needed = Number(event.sp_needed || 0);
+          const assigned = Number(event.total_assignments || 0);
+          const confirmed = Number(event.confirmed_assignments || 0);
+          const eventDateValue = parseEventDateValue(event);
+          const eventText = buildEventSearchText(event);
+          const eventMeta = classifyEventPresentation({
+            name: event.name,
+            status: event.status,
+            notes: event.notes,
+            location: event.location,
+            spNeeded: event.sp_needed,
+            assignmentCount: assigned,
+            confirmedCount: confirmed,
+          });
+          const isUpcoming = Number.isFinite(eventDateValue) && eventDateValue !== Number.MAX_SAFE_INTEGER && eventDateValue >= startOfToday;
+          const isThisWeek = isUpcoming && eventDateValue < startOfToday + 7 * 24 * 60 * 60 * 1000;
+          const isTraining =
+            eventMeta.eventType === "training" ||
+            eventHasAnyKeyword(eventText, ["training", "prep", "orientation", "sp training"]);
+          const isVirtual =
+            eventHasAnyKeyword(eventText, ["virtual", " vir", "vir ", "telehealth", "zoom", "online", "simiq"]);
+          const isSkills =
+            eventMeta.eventType === "skills" ||
+            eventHasAnyKeyword(eventText, ["skills", "lab", "checkoff", "practice", "in class", "in-class"]);
+          const isSpEvent =
+            needed > 0 || eventMeta.eventType === "sp" || isVirtual || eventHasAnyKeyword(eventText, ["sp event"]);
+          const isMissingKeyInfo = !hasMeaningfulName(event.name) || !asText(event.location) || eventDateValue === Number.MAX_SAFE_INTEGER;
+          const createdAtValue = Date.parse(asText(event.created_at));
+          const isRecentlyImported =
+            Number.isFinite(createdAtValue) && createdAtValue >= Date.now() - 7 * 24 * 60 * 60 * 1000;
 
-  const inProgress = useMemo(
-    () =>
-      workflowEvents.filter(
-        (item) =>
-          item.shortage > 0 &&
-          item.assigned > 0 &&
-          !(item.assigned === 0 || isTodayOrTomorrow(item.eventDateValue, startOfToday))
-      ),
-    [startOfToday, workflowEvents]
+          return {
+            isUpcoming,
+            isThisWeek,
+            isTraining,
+            isSpEvent,
+            isVirtual,
+            isSkills,
+            isMissingKeyInfo,
+            isRecentlyImported,
+          };
+        }),
+    [scopedEvents, startOfToday]
   );
-
-  const ready = useMemo(
-    () => workflowEvents.filter((item) => item.needed <= 0 || item.confirmed >= item.needed),
-    [workflowEvents]
-  );
-
-  const totalConfirmed = visibleEvents.reduce((sum, event) => sum + Number(event.confirmed_assignments || 0), 0);
-  const totalNeeded = visibleEvents.reduce((sum, event) => sum + Number(event.sp_needed || 0), 0);
-  const totalShortage = visibleEvents.reduce((sum, event) => sum + Number(event.shortage || 0), 0);
 
   return (
     <SiteShell
@@ -543,28 +632,36 @@ export default function EventsPage() {
 
         <section className="cfsp-grid-stats">
           <div className="cfsp-stat-card">
-            <div className="cfsp-label">Needs Staff</div>
-            <div className="cfsp-stat-value">{needsStaff.length}</div>
+            <div className="cfsp-label">Upcoming Events</div>
+            <div className="cfsp-stat-value">{metricSource.filter((item) => item.isUpcoming).length}</div>
           </div>
           <div className="cfsp-stat-card">
-            <div className="cfsp-label">In Progress</div>
-            <div className="cfsp-stat-value">{inProgress.length}</div>
+            <div className="cfsp-label">Events This Week</div>
+            <div className="cfsp-stat-value">{metricSource.filter((item) => item.isThisWeek).length}</div>
           </div>
           <div className="cfsp-stat-card">
-            <div className="cfsp-label">Ready</div>
-            <div className="cfsp-stat-value">{ready.length}</div>
+            <div className="cfsp-label">Trainings / Prep</div>
+            <div className="cfsp-stat-value">{metricSource.filter((item) => item.isTraining).length}</div>
           </div>
           <div className="cfsp-stat-card">
-            <div className="cfsp-label">Confirmed SPs</div>
-            <div className="cfsp-stat-value">{totalConfirmed}</div>
+            <div className="cfsp-label">SP Events</div>
+            <div className="cfsp-stat-value">{metricSource.filter((item) => item.isSpEvent).length}</div>
           </div>
           <div className="cfsp-stat-card">
-            <div className="cfsp-label">SPs Needed</div>
-            <div className="cfsp-stat-value">{totalNeeded}</div>
+            <div className="cfsp-label">Virtual / VIR</div>
+            <div className="cfsp-stat-value">{metricSource.filter((item) => item.isVirtual).length}</div>
           </div>
           <div className="cfsp-stat-card">
-            <div className="cfsp-label">Open Shortage</div>
-            <div className="cfsp-stat-value">{totalShortage}</div>
+            <div className="cfsp-label">Skills / Lab</div>
+            <div className="cfsp-stat-value">{metricSource.filter((item) => item.isSkills).length}</div>
+          </div>
+          <div className="cfsp-stat-card">
+            <div className="cfsp-label">Missing Logistics</div>
+            <div className="cfsp-stat-value">{metricSource.filter((item) => item.isMissingKeyInfo).length}</div>
+          </div>
+          <div className="cfsp-stat-card">
+            <div className="cfsp-label">Recently Imported</div>
+            <div className="cfsp-stat-value">{metricSource.filter((item) => item.isRecentlyImported).length}</div>
           </div>
         </section>
 
@@ -590,18 +687,18 @@ export default function EventsPage() {
         ) : (
           <div className="grid gap-5">
             <EventWorkflowSection
-              title="Needs Staff"
-              description="Priority events that are short on confirmed coverage, especially with no assignments or approaching soon."
-              items={needsStaff}
+              title="Action Needed"
+              description="Operational events that need Sim Ops attention now: missing logistics, open SP coverage, upcoming this week, training prep, or virtual setup without clear Zoom / SimIQ details."
+              items={actionNeeded}
             />
             <EventWorkflowSection
-              title="In Progress"
-              description="Events that have some staffing movement but still need more coverage."
-              items={inProgress}
+              title="Prep Needed"
+              description="Events that are moving forward but still need prep work around staffing, training readiness, recent imports, or virtual / SimIQ coordination."
+              items={prepNeeded}
             />
             <EventWorkflowSection
               title="Ready"
-              description="Events that are fully covered or do not currently require SP staffing."
+              description="Events that appear staffed and operationally ready based on current logistics, coverage, and prep signals."
               items={ready}
             />
           </div>
