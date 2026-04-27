@@ -469,6 +469,8 @@ export default function DashboardPage() {
       });
   }, [events]);
 
+  const archivedEventCount = Math.max(events.length - eventMeta.length, 0);
+
   const allVisibleEvents = eventMeta;
 
   const myMatchedEvents = useMemo(
@@ -639,6 +641,20 @@ export default function DashboardPage() {
         </section>
 
         {error ? <div className="cfsp-alert cfsp-alert-error">{error}</div> : null}
+
+        {!error && eventMeta.length === 0 && events.length > 0 ? (
+          <div className="cfsp-alert cfsp-alert-info flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="font-black text-[#14304f]">Your events are still in CFSP.</div>
+              <div className="mt-1 text-sm text-[#5e7388]">
+                There are no upcoming events right now, but {archivedEventCount} imported event{archivedEventCount === 1 ? "" : "s"} are still available in the Events board.
+              </div>
+            </div>
+            <Link href="/events" className="cfsp-btn cfsp-btn-secondary">
+              Open Events Board
+            </Link>
+          </div>
+        ) : null}
 
         {!error && scope === "my" && selectedEvents.length === 0 ? (
           <div className="cfsp-panel px-6 py-6">

@@ -315,6 +315,7 @@ export default function EventsPage() {
   const [errorMessage, setErrorMessage] = useState("");
   const [viewMode, setViewMode] = useState<EventsViewMode>("all");
   const [dateFilterMode, setDateFilterMode] = useState<DateFilterMode>("active");
+  const [autoSwitchedToAll, setAutoSwitchedToAll] = useState(false);
 
   const redirectToLogin = useCallback(() => {
     router.replace("/login");
@@ -344,12 +345,14 @@ export default function EventsPage() {
         }
 
         if (!meResponse.ok) {
-          console.error("Failed to load /api/me", meResponse.status);
+          setErrorMessage(asText(meBody?.error) || `Could not load your account (${meResponse.status}).`);
+          setLoading(false);
           return;
         }
 
         if (!eventsResponse.ok) {
-          console.error("Failed to load /api/events", eventsResponse.status);
+          setErrorMessage(asText(eventsBody?.error) || `Could not load events (${eventsResponse.status}).`);
+          setLoading(false);
           return;
         }
 
@@ -374,7 +377,8 @@ export default function EventsPage() {
     };
   }, [redirectToLogin]);
 
-  const isSuperAdmin = asText(me?.profile?.role) === "super_admin";
+  const role = asText(me?.profile?.role).toLowerCase();
+  const canViewAllEvents = role === "super_admin" || role === "admin" || role === "sim_op";
   const currentUserId = asText(me?.user?.id);
   const profileName = asText(me?.profile?.full_name);
   const userEmail = asText(me?.user?.email);
@@ -383,16 +387,31 @@ export default function EventsPage() {
     () => events.filter((event) => eventMatchesOwnership(event, currentUserId, ownershipMatchName)),
     [currentUserId, events, ownershipMatchName]
   );
-  const activeViewMode: EventsViewMode = isSuperAdmin ? viewMode : "assigned";
+  const activeViewMode: EventsViewMode = canViewAllEvents ? viewMode : "assigned";
   const scopedEvents = useMemo(
     () => (activeViewMode === "all" ? events : assignedEvents),
     [activeViewMode, assignedEvents, events]
   );
   const startOfToday = useMemo(() => getStartOfToday(), []);
+  const hasActiveScopedEvents = useMemo(
+    () => scopedEvents.some((event) => matchesDateFilter(event, "active", startOfToday)),
+    [scopedEvents, startOfToday]
+  );
   const visibleEvents = useMemo(
     () => scopedEvents.filter((event) => matchesDateFilter(event, dateFilterMode, startOfToday)),
     [dateFilterMode, scopedEvents, startOfToday]
   );
+
+  useEffect(() => {
+    if (loading) return;
+    if (autoSwitchedToAll) return;
+    if (dateFilterMode !== "active") return;
+    if (!scopedEvents.length) return;
+    if (hasActiveScopedEvents) return;
+
+    setDateFilterMode("all");
+    setAutoSwitchedToAll(true);
+  }, [autoSwitchedToAll, dateFilterMode, hasActiveScopedEvents, loading, scopedEvents.length]);
 
   const workflowEvents = useMemo<EventWithMeta[]>(
     () =>
@@ -449,11 +468,16 @@ export default function EventsPage() {
     >
       <div className="grid gap-5">
         {errorMessage ? <div className="cfsp-alert cfsp-alert-error">Events error: {errorMessage}</div> : null}
+        {!loading && autoSwitchedToAll ? (
+          <div className="cfsp-alert cfsp-alert-info">
+            No current or upcoming events were found in this view, so CFSP switched to <strong>All Events</strong> to keep your imported event history visible.
+          </div>
+        ) : null}
 
         <section className="cfsp-panel-muted rounded-[12px] border border-[#dce6ee] px-5 py-5">
           <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
             <div className="min-w-0 flex-1">
-              <p className="cfsp-kicker">{isSuperAdmin ? "Super Admin View" : "Events Board"}</p>
+              <p className="cfsp-kicker">{canViewAllEvents ? "Operations View" : "Events Board"}</p>
               <h2 className="mt-3 text-[1.8rem] leading-tight font-black text-[#14304f]">
                 {loading ? "Loading events..." : `${visibleEvents.length} operational events`}
               </h2>
@@ -476,7 +500,7 @@ export default function EventsPage() {
             <div className="rounded-[12px] border border-[#d9e4ec] bg-white px-4 py-4">
               <div className="cfsp-label">Scope</div>
               <div className="mt-3 flex flex-wrap gap-2">
-                {isSuperAdmin ? (
+                {canViewAllEvents ? (
                   <>
                     <button type="button" onClick={() => setViewMode("all")} className={getToggleButtonClass(activeViewMode === "all")}>
                       All Events
