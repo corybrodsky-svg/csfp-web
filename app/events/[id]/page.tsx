@@ -121,6 +121,8 @@ type CommandCenterData = {
   errorMessage: string;
   sessionErrorMessage: string;
   availabilityErrorMessage: string;
+  accessDenied: boolean;
+  notFound: boolean;
 };
 
 type EventEditorState = {
@@ -131,6 +133,14 @@ type EventEditorState = {
   notes: string;
   sp_needed: string;
 };
+
+type WorkflowGroupKey =
+  | "planning"
+  | "staffing"
+  | "schedule"
+  | "platform"
+  | "day_of"
+  | "wrap_up";
 
 const emptySpRow: SPRow = {
   id: "",
@@ -820,6 +830,10 @@ function buildMailtoHref(args: { bcc: string[]; subject: string; body: string })
   return `mailto:?${params.toString()}`;
 }
 
+function hasNotesLine(notes: string | null | undefined, pattern: RegExp) {
+  return pattern.test(asText(notes));
+}
+
 async function parseApiError(response: Response) {
   try {
     const body = await response.json();
@@ -846,6 +860,8 @@ async function fetchCommandCenterData(eventId: string): Promise<CommandCenterDat
         errorMessage: body?.error || `Could not load event (${response.status}).`,
         sessionErrorMessage: "",
         availabilityErrorMessage: "",
+        accessDenied: response.status === 403,
+        notFound: response.status === 404,
       };
     }
 
@@ -858,6 +874,8 @@ async function fetchCommandCenterData(eventId: string): Promise<CommandCenterDat
       errorMessage: body?.errorMessage || "",
       sessionErrorMessage: body?.sessionErrorMessage || "",
       availabilityErrorMessage: body?.availabilityErrorMessage || "",
+      accessDenied: false,
+      notFound: false,
     };
   } catch (error) {
     return {
@@ -869,6 +887,8 @@ async function fetchCommandCenterData(eventId: string): Promise<CommandCenterDat
       errorMessage: error instanceof Error ? error.message : "Could not load event.",
       sessionErrorMessage: "",
       availabilityErrorMessage: "",
+      accessDenied: false,
+      notFound: false,
     };
   }
 }
@@ -915,6 +935,9 @@ export default function EventDetailPage() {
   const [eventSaveError, setEventSaveError] = useState("");
   const [sessionErrorMessage, setSessionErrorMessage] = useState("");
   const [availabilityErrorMessage, setAvailabilityErrorMessage] = useState("");
+  const [accessDenied, setAccessDenied] = useState(false);
+  const [notFound, setNotFound] = useState(false);
+  const [workflowChecks, setWorkflowChecks] = useState<Record<string, boolean>>({});
 
   const spsById = useMemo(() => {
     const next = new Map<string, SPRow>();
@@ -1179,6 +1202,11 @@ export default function EventDetailPage() {
   const eventType = eventMeta.eventType;
   const noSpStaffingRequired = eventType === "skills" || isWorkshop || needed <= 0;
   const staffingRelevant = !noSpStaffingRequired && (eventType !== "hifi" || needed > 0 || assignmentCount > 0);
+  const hasFaculty = hasNotesLine(event?.notes, /^(Course Faculty|Faculty)\s*:/im);
+  const hasCase = hasNotesLine(event?.notes, /^Case\s*:/im);
+  const hasTrainingScheduled = hasNotesLine(event?.notes, /^Training Date\s*:/im);
+  const hasZoomReady = hasNotesLine(event?.notes, /^(Zoom|SimIQ)\s*:/im) || /zoom|simiq|online|virtual/i.test(asText(event?.notes));
+  const hasRoomsBuilt = sessions.some((session) => Boolean(asText(session.room) || asText(session.location)));
   const progressItems = useMemo(
     () => [
       {
@@ -1224,6 +1252,206 @@ export default function EventDetailPage() {
     ],
     [assignmentCount, assignments, confirmedCount, event?.date_text, event?.name, sessions, simStaffNames]
   );
+  const workflowGroups = useMemo(
+    () => [
+      {
+        key: "planning" as WorkflowGroupKey,
+        title: "Planning",
+        items: [
+          {
+            id: "event_details_confirmed",
+            label: "Event details confirmed",
+            autoComplete: Boolean(asText(event?.name) && asText(event?.status)),
+            detail: "Event name and status are filled in.",
+          },
+          {
+            id: "date_time_confirmed",
+            label: "Date/time confirmed",
+            autoComplete: Boolean(asText(event?.date_text) || sessions.length) && summaryTimeLabel !== "Time TBD",
+            detail: "Event date and usable time information are on file.",
+          },
+          {
+            id: "location_rooms_confirmed",
+            label: "Location/rooms confirmed",
+            autoComplete: Boolean(asText(event?.location) || hasRoomsBuilt),
+            detail: "A site or room plan is listed for the event.",
+          },
+          {
+            id: "faculty_confirmed",
+            label: "Faculty/contact confirmed",
+            autoComplete: hasFaculty,
+            detail: hasFaculty ? "Faculty/contact details found in notes." : "Add Course Faculty or Faculty notes when ready.",
+          },
+          {
+            id: "case_materials_confirmed",
+            label: "Case/materials confirmed",
+            autoComplete: hasCase,
+            detail: hasCase ? "Case details found in notes." : "Case/materials are not clearly documented yet.",
+          },
+        ],
+      },
+      {
+        key: "staffing" as WorkflowGroupKey,
+        title: "SP Staffing",
+        items: [
+          {
+            id: "sp_count_confirmed",
+            label: "SP count confirmed",
+            autoComplete: noSpStaffingRequired || needed > 0,
+            detail: noSpStaffingRequired ? "No SP staffing required for this event." : `${needed} SP target on file.`,
+          },
+          {
+            id: "sps_assigned",
+            label: "SPs assigned",
+            autoComplete: noSpStaffingRequired || assignmentCount > 0,
+            detail: noSpStaffingRequired ? "SP assignment workflow suppressed." : `${assignmentCount} SP assignment${assignmentCount === 1 ? "" : "s"} recorded.`,
+          },
+          {
+            id: "sps_contacted",
+            label: "SPs contacted",
+            autoComplete: noSpStaffingRequired || assignments.some((assignment) => Boolean(assignment.last_contacted_at) || ["contacted", "confirmed", "declined"].includes(getAssignmentStatus(assignment))),
+            detail: noSpStaffingRequired ? "No SP outreach required." : "Contact activity is tracked from assignment status or last-contacted timestamp.",
+          },
+          {
+            id: "sp_confirmations_complete",
+            label: "SP confirmations complete",
+            autoComplete: noSpStaffingRequired || (needed > 0 && confirmedCount >= needed),
+            detail: noSpStaffingRequired ? "No confirmations required." : `${confirmedCount} confirmed of ${needed} needed.`,
+          },
+          {
+            id: "sp_training_scheduled",
+            label: "SP training scheduled",
+            autoComplete: noSpStaffingRequired || hasTrainingScheduled,
+            detail: hasTrainingScheduled ? "Training date is stored in notes." : "Add a Training Date note when scheduling prep.",
+          },
+          {
+            id: "sp_training_completed",
+            label: "SP training completed",
+            autoComplete: false,
+            detail: "Mark this locally when training has actually been completed.",
+          },
+        ],
+      },
+      {
+        key: "schedule" as WorkflowGroupKey,
+        title: "Schedule / Rooms",
+        items: [
+          {
+            id: "student_schedule_built",
+            label: "Student schedule imported or built",
+            autoComplete: sessions.length > 0,
+            detail: sessions.length ? `${sessions.length} structured session${sessions.length === 1 ? "" : "s"} loaded.` : "No structured sessions are built yet.",
+          },
+          {
+            id: "room_schedule_built",
+            label: "Room schedule built",
+            autoComplete: hasRoomsBuilt,
+            detail: hasRoomsBuilt ? "At least one session includes room or location details." : "No room assignments are structured yet.",
+          },
+          {
+            id: "checklists_ready",
+            label: "Checklists/forms ready",
+            autoComplete: false,
+            detail: "Use this once printed or digital evaluation materials are ready.",
+          },
+          {
+            id: "soap_ready",
+            label: "SOAP note workflow ready if applicable",
+            autoComplete: /soap/i.test(asText(event?.notes)),
+            detail: /soap/i.test(asText(event?.notes)) ? "SOAP note workflow appears in notes." : "Mark when SOAP workflow is confirmed for the event.",
+          },
+        ],
+      },
+      {
+        key: "platform" as WorkflowGroupKey,
+        title: "Simulation Platform",
+        items: [
+          {
+            id: "zoom_ready",
+            label: "Zoom/SimIQ link confirmed if virtual",
+            autoComplete: !eventMeta.isVirtualSp || hasZoomReady,
+            detail: !eventMeta.isVirtualSp ? "Not a virtual event." : hasZoomReady ? "Virtual platform details found in notes." : "Virtual logistics still need a Zoom / SimIQ note.",
+          },
+        ],
+      },
+      {
+        key: "day_of" as WorkflowGroupKey,
+        title: "Day-of Operations",
+        items: [
+          {
+            id: "faculty_briefing_complete",
+            label: "Faculty briefing complete",
+            autoComplete: false,
+            detail: "Manual check for the live faculty briefing step.",
+          },
+          {
+            id: "setup_complete",
+            label: "Day-of setup complete",
+            autoComplete: false,
+            detail: "Manual check for room, platform, and staffing setup.",
+          },
+          {
+            id: "event_completed",
+            label: "Event completed",
+            autoComplete: /complete/i.test(asText(event?.status)),
+            detail: /complete/i.test(asText(event?.status)) ? "Event status already indicates completion." : "Mark once the live event ends.",
+          },
+        ],
+      },
+      {
+        key: "wrap_up" as WorkflowGroupKey,
+        title: "Wrap-Up",
+        items: [
+          {
+            id: "debrief_complete",
+            label: "Debrief complete",
+            autoComplete: false,
+            detail: "Manual check for the post-event debrief step.",
+          },
+          {
+            id: "breakdown_complete",
+            label: "Breakdown/reset complete",
+            autoComplete: false,
+            detail: "Manual check for room or platform reset.",
+          },
+          {
+            id: "follow_up_complete",
+            label: "Post-event follow-up complete",
+            autoComplete: false,
+            detail: "Manual check for emails, notes, and post-event wrap-up.",
+          },
+        ],
+      },
+    ],
+    [
+      assignmentCount,
+      assignments,
+      confirmedCount,
+      event?.date_text,
+      event?.location,
+      event?.name,
+      event?.notes,
+      event?.status,
+      eventMeta.isVirtualSp,
+      hasCase,
+      hasFaculty,
+      hasRoomsBuilt,
+      hasTrainingScheduled,
+      hasZoomReady,
+      needed,
+      noSpStaffingRequired,
+      sessions,
+      summaryTimeLabel,
+    ]
+  );
+  const workflowProgress = useMemo(() => {
+    const flatItems = workflowGroups.flatMap((group) => group.items);
+    const completeCount = flatItems.filter((item) => item.autoComplete || workflowChecks[item.id]).length;
+    return {
+      completeCount,
+      totalCount: flatItems.length,
+    };
+  }, [workflowChecks, workflowGroups]);
   const emailSubject = `[CFSP] ${event?.name || "CFSP Event"} - ${eventDateLabel}`;
   const emailBody = [
     "Hello,",
@@ -1270,6 +1498,8 @@ export default function EventDetailPage() {
     setErrorMessage(result.errorMessage);
     setSessionErrorMessage(result.sessionErrorMessage);
     setAvailabilityErrorMessage(result.availabilityErrorMessage);
+    setAccessDenied(result.accessDenied);
+    setNotFound(result.notFound);
     setSelectedSpId("");
   }
 
@@ -1388,6 +1618,8 @@ export default function EventDetailPage() {
         setErrorMessage(result.errorMessage);
         setSessionErrorMessage(result.sessionErrorMessage);
         setAvailabilityErrorMessage(result.availabilityErrorMessage);
+        setAccessDenied(result.accessDenied);
+        setNotFound(result.notFound);
         setLoading(false);
       });
     };
@@ -1578,7 +1810,7 @@ export default function EventDetailPage() {
       <SiteShell title="Event Command Center" subtitle="Event details were not found.">
         <div style={cardStyle}>
           {errorMessage ? <p style={{ color: "#991b1b", fontWeight: 700 }}>{errorMessage}</p> : null}
-          <p>Event not found.</p>
+          <p>{accessDenied ? "You do not have access to this event." : notFound ? "Event not found." : "Event not found."}</p>
           <Link href="/events" style={{ color: "#1d4ed8", fontWeight: 700 }}>
             Back to Events
           </Link>
@@ -1904,6 +2136,140 @@ export default function EventDetailPage() {
         eventDateLabel={eventDateLabel}
         summaryTimeLabel={summaryTimeLabel}
       />
+
+      <section style={cardStyle}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            gap: "12px",
+            alignItems: "flex-start",
+            flexWrap: "wrap",
+          }}
+        >
+          <div>
+            <h2 style={compactSectionTitleStyle}>Session Details &amp; Workflow Tracker</h2>
+            <p style={compactSectionHintStyle}>
+              {workflowProgress.completeCount}/{workflowProgress.totalCount} complete. Saving coming soon.
+            </p>
+          </div>
+          <div
+            style={{
+              borderRadius: "999px",
+              padding: "8px 12px",
+              background: "#eff6ff",
+              border: "1px solid #93c5fd",
+              color: "#1d4ed8",
+              fontWeight: 900,
+              fontSize: "13px",
+            }}
+          >
+            Preview-only tracker
+          </div>
+        </div>
+
+        <div style={{ ...detailGridStyle, marginTop: "14px" }}>
+          <div style={statCard}>
+            <div style={statLabel}>Progress</div>
+            <div style={statValue}>
+              {workflowProgress.completeCount} / {workflowProgress.totalCount}
+            </div>
+          </div>
+          <div style={statCard}>
+            <div style={statLabel}>SP Staffing</div>
+            <div style={statValue}>{noSpStaffingRequired ? "Not required" : `${confirmedCount}/${needed || 0} confirmed`}</div>
+          </div>
+          <div style={statCard}>
+            <div style={statLabel}>Sessions</div>
+            <div style={statValue}>{sessions.length || 0}</div>
+          </div>
+          <div style={statCard}>
+            <div style={statLabel}>Virtual Platform</div>
+            <div style={statValue}>{eventMeta.isVirtualSp ? (hasZoomReady ? "Ready" : "Needs setup") : "N/A"}</div>
+          </div>
+        </div>
+
+        <div style={{ display: "grid", gap: "14px", marginTop: "16px" }}>
+          {workflowGroups.map((group) => (
+            <section
+              key={group.key}
+              style={{
+                border: "1px solid #dbe4ee",
+                borderRadius: "14px",
+                background: "#f8fbff",
+                padding: "14px",
+              }}
+            >
+              <div style={{ color: "#173b6c", fontWeight: 900, fontSize: "16px" }}>{group.title}</div>
+              <div style={{ display: "grid", gap: "10px", marginTop: "10px" }}>
+                {group.items.map((item) => {
+                  const complete = item.autoComplete || workflowChecks[item.id];
+                  const manualOnly = !item.autoComplete;
+                  return (
+                    <div
+                      key={item.id}
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        gap: "12px",
+                        alignItems: "center",
+                        flexWrap: "wrap",
+                        border: "1px solid #d9e4ec",
+                        borderRadius: "12px",
+                        background: "#ffffff",
+                        padding: "12px 14px",
+                      }}
+                    >
+                      <div>
+                        <div style={{ color: "#14304f", fontWeight: 900 }}>{item.label}</div>
+                        <div style={{ marginTop: "4px", color: "#5e7388", fontSize: "13px", fontWeight: 700 }}>
+                          {item.detail}
+                        </div>
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                        {item.autoComplete ? (
+                          <span
+                            style={{
+                              borderRadius: "999px",
+                              padding: "6px 10px",
+                              fontSize: "12px",
+                              fontWeight: 900,
+                              background: "#eaf7f2",
+                              border: "1px solid #bfe4d6",
+                              color: "#196b57",
+                            }}
+                          >
+                            Auto-complete
+                          </span>
+                        ) : null}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!manualOnly) return;
+                            setWorkflowChecks((current) => ({
+                              ...current,
+                              [item.id]: !complete,
+                            }));
+                          }}
+                          style={{
+                            ...buttonStyle,
+                            background: manualOnly ? (complete ? "#ffffff" : "#173b6c") : "#f8fbff",
+                            color: manualOnly ? (complete ? "#173b6c" : "#ffffff") : "#64748b",
+                            border: manualOnly ? buttonStyle.border : "1px solid #d6e0e8",
+                            cursor: manualOnly ? "pointer" : "default",
+                          }}
+                        >
+                          {manualOnly ? (complete ? "Mark Pending" : "Mark Complete") : "Auto-complete"}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          ))}
+        </div>
+      </section>
 
       <details
         style={{

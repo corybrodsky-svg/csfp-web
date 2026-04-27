@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import * as XLSX from "xlsx";
 import { createSupabaseServerClient } from "../../../lib/supabaseServerClient";
-import { asText, formatUsDate } from "../../../lib/eventDateUtils";
+import { asText, formatUsDate, normalizeLooseDateToIso } from "../../../lib/eventDateUtils";
 
 export const dynamic = "force-dynamic";
 
@@ -26,34 +26,48 @@ type ParsedSheet = {
   term: string | null;
   sessions: ParsedSession[];
   trainingDate: string | null;
+  eventTime: string | null;
   zoomLink: string | null;
   caseText: string | null;
+  location: string | null;
   simStaffNames: string[];
   staffLine: string | null;
+  eventLeadTeam: string | null;
+  courseFaculty: string | null;
   rosterRows: ParsedRosterRow[];
 };
 
-type ImportResultEntry = {
+type ImportEntry = {
   file: string;
-  sheet?: string;
-  event?: string;
-  date?: string | null;
-  simStaffCount?: number;
+  sheet: string;
+  detectorMatched: ParsedSheet["format"];
+  extractedTitle: string;
+  extractedDates: string[];
+  fieldsFound: string[];
+  spFound: number;
+  simStaffCount: number;
+  staffExtracted: string | null;
+  matchedEvent?: string;
+  matchedEventId?: string;
+  confidence?: number;
+  confidenceLabel?: "exact" | "high" | "medium" | "low";
+  willUpdate?: string[];
+  needsReviewReason?: string;
   reason?: string;
   error?: string;
   checkedSheets?: string[];
-  detectorMatched?: ParsedSheet["format"];
-  extractedTitle?: string;
-  extractedDates?: string[];
-  staffExtracted?: string | null;
-  spRowCount?: number;
+  spMatched?: number;
+  spAssignmentsCreated?: number;
+  duplicatesAvoided?: number;
+  unmatchedSpRows?: Array<{ name: string; email: string }>;
 };
 
 type ImportResponse = {
-  created: ImportResultEntry[];
-  updated: ImportResultEntry[];
-  skipped: ImportResultEntry[];
-  errors: ImportResultEntry[];
+  preview: ImportEntry[];
+  updated: ImportEntry[];
+  skipped: ImportEntry[];
+  errors: ImportEntry[];
+  needsReview: ImportEntry[];
 };
 
 type EventRow = {
@@ -61,6 +75,13 @@ type EventRow = {
   name: string | null;
   date_text: string | null;
   notes: string | null;
+  location: string | null;
+  created_at: string | null;
+};
+
+type EventSessionRow = {
+  event_id: string | null;
+  session_date: string | null;
 };
 
 type SPDirectoryRow = {
@@ -77,6 +98,16 @@ type EventAssignmentRow = {
   status: string | null;
   confirmed: boolean | null;
 };
+
+type MatchCandidate = {
+  event: EventRow;
+  confidence: number;
+  label: "exact" | "high" | "medium" | "low";
+  reason: string;
+};
+
+const IMPORT_START = "[SP_EVENT_INFO_IMPORT]";
+const IMPORT_END = "[/SP_EVENT_INFO_IMPORT]";
 
 function normalizeTitle(value: string) {
   return asText(value).toLowerCase().replace(/\s+/g, " ").trim();
@@ -118,6 +149,10 @@ function getMergedCellValue(sheet: XLSX.WorkSheet, address: string) {
   }
 
   return undefined;
+}
+
+function getMergedCellText(sheet: XLSX.WorkSheet, address: string) {
+  return asText(getMergedCellValue(sheet, address));
 }
 
 function parseExcelDate(value: unknown) {
@@ -172,10 +207,22 @@ function parseTimeValue(value: unknown) {
   return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:00`;
 }
 
+function formatTimeLabel(value: string | null) {
+  if (!value) return null;
+  const parts = value.split(":");
+  const hours = Number(parts[0]);
+  const minutes = Number(parts[1] || "0");
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return value;
+  const suffix = hours >= 12 ? "PM" : "AM";
+  const twelveHour = hours % 12 || 12;
+  return `${twelveHour}:${String(minutes).padStart(2, "0")} ${suffix}`;
+}
+
 function isKnownHeader(value: string) {
   const normalized = value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
   const exactHeaders = new Set([
     "sim staff",
+    "staff hiring",
     "event",
     "event title",
     "zoom",
@@ -189,7 +236,10 @@ function isKnownHeader(value: string) {
     "sp names",
     "location",
     "room",
-    "staff hiring",
+    "event lead",
+    "event lead team",
+    "course faculty",
+    "faculty",
     "email",
     "sp hired",
     "assignment",
@@ -238,21 +288,19 @@ function looksLikePersonName(value: string) {
   return words.length >= 1 && words.length <= 4;
 }
 
-function splitStaffNames(raw: string) {
-  const clean = asText(raw).replace(/^(sim staff|staff hiring)\s*:\s*/i, "");
-  if (!clean) return [];
-
-  return clean
-    .split(/\s*(?:,|;|\/| and | & )\s*/i)
+function splitPeopleList(raw: string) {
+  return asText(raw)
+    .replace(/^(sim staff|staff hiring|event lead\/team|event lead|team|course faculty|faculty)\s*:\s*/i, "")
+    .replace(/\r/g, "\n")
+    .split(/\s*(?:\n|,|;|\/| and | & )\s*/i)
     .map((part) => part.trim())
     .filter((part) => looksLikePersonName(part));
 }
 
-function extractSimStaffNames(sheet: XLSX.WorkSheet) {
+function extractSimStaffNamesFromColumnB(sheet: XLSX.WorkSheet) {
   const names: string[] = [];
   const seen = new Set<string>();
   const rangeRef = sheet["!ref"];
-
   if (!rangeRef) return names;
 
   const range = XLSX.utils.decode_range(rangeRef);
@@ -270,6 +318,42 @@ function extractSimStaffNames(sheet: XLSX.WorkSheet) {
   return names;
 }
 
+function getSheetRange(sheet: XLSX.WorkSheet) {
+  if (!sheet["!ref"]) return null;
+  return XLSX.utils.decode_range(sheet["!ref"]);
+}
+
+function findLabeledValue(sheet: XLSX.WorkSheet, labels: string[]) {
+  const range = getSheetRange(sheet);
+  if (!range) return null;
+  const normalizedLabels = labels.map((label) => label.toLowerCase());
+
+  for (let row = range.s.r; row <= range.e.r; row += 1) {
+    for (let col = range.s.c; col <= range.e.c; col += 1) {
+      const address = XLSX.utils.encode_cell({ r: row, c: col });
+      const value = asText(getMergedCellValue(sheet, address));
+      if (!value) continue;
+
+      const normalized = value.toLowerCase().replace(/\s+/g, " ").trim();
+      const matches = normalizedLabels.some(
+        (label) => normalized === label || normalized.startsWith(`${label}:`)
+      );
+      if (!matches) continue;
+
+      const inlineMatch = value.match(/:\s*(.+)$/);
+      if (inlineMatch?.[1]) return asText(inlineMatch[1]);
+
+      const rightValue = asText(getMergedCellValue(sheet, XLSX.utils.encode_cell({ r: row, c: col + 1 })));
+      if (rightValue) return rightValue;
+
+      const belowValue = asText(getMergedCellValue(sheet, XLSX.utils.encode_cell({ r: row + 1, c: col })));
+      if (belowValue) return belowValue;
+    }
+  }
+
+  return null;
+}
+
 function addUniqueDateSession(sessions: ParsedSession[], date: string | null, time: string | null) {
   if (!date) return;
   const key = `${date}|${time || ""}`;
@@ -277,67 +361,70 @@ function addUniqueDateSession(sessions: ParsedSession[], date: string | null, ti
   sessions.push({ date, time });
 }
 
-function buildNotesBlock(parsed: ParsedSheet, existingNotes?: string | null) {
-  const lines = asText(existingNotes)
-    .split(/\r?\n/)
-    .map((line) => line.trimEnd())
-    .filter(Boolean);
+function parseSpEventInfoRoster(sheet: XLSX.WorkSheet) {
+  const rows: ParsedRosterRow[] = [];
+  let blankRowStreak = 0;
 
-  const replacements = [
-    {
-      prefix: "Sim Staff:",
-      value:
-        parsed.staffLine && parsed.staffLine.toLowerCase().startsWith("sim staff:")
-          ? parsed.staffLine
-          : parsed.simStaffNames.length
-            ? `Sim Staff: ${parsed.simStaffNames.join(", ")}`
-            : "",
-    },
-    {
-      prefix: "Staff Hiring:",
-      value:
-        parsed.staffLine && parsed.staffLine.toLowerCase().startsWith("staff hiring:")
-          ? parsed.staffLine
-          : "",
-    },
-    { prefix: "Zoom:", value: parsed.zoomLink ? `Zoom: ${parsed.zoomLink}` : "" },
-    { prefix: "Training Date:", value: parsed.trainingDate ? `Training Date: ${parsed.trainingDate}` : "" },
-    { prefix: "Term:", value: parsed.term ? `Term: ${parsed.term}` : "" },
-    { prefix: "Case:", value: parsed.caseText ? `Case: ${parsed.caseText}` : "" },
-  ];
+  for (let row = 16; row <= 220; row += 1) {
+    const email = getMergedCellText(sheet, `B${row}`);
+    const name = getMergedCellText(sheet, `C${row}`);
+    const caseText = getMergedCellText(sheet, `D${row}`) || null;
+    const assignmentText = getMergedCellText(sheet, `E${row}`) || null;
+    const notesText = getMergedCellText(sheet, `F${row}`) || null;
+    const isBlank = !email && !name && !caseText && !assignmentText && !notesText;
 
-  const nextLines = [...lines];
-
-  replacements.forEach((item) => {
-    if (!item.value) return;
-    const index = nextLines.findIndex((line) => line.toLowerCase().startsWith(item.prefix.toLowerCase()));
-    if (index >= 0) {
-      nextLines[index] = item.value;
-    } else {
-      nextLines.push(item.value);
+    if (isBlank) {
+      blankRowStreak += 1;
+      if (blankRowStreak >= 5) break;
+      continue;
     }
-  });
 
-  return nextLines.join("\n");
+    blankRowStreak = 0;
+    if (!email && !name) continue;
+
+    rows.push({
+      email,
+      name,
+      caseText,
+      assignmentText,
+      notesText,
+      statusByDate: {},
+    });
+  }
+
+  return rows;
 }
 
 function parseSpEventInfoSheet(sheet: XLSX.WorkSheet, sheetName: string): ParsedSheet | null {
-  const title = asText(getMergedCellValue(sheet, "B1"));
-  const zoomLink = asText(getMergedCellValue(sheet, "B7")) || null;
+  const title = getMergedCellText(sheet, "B2");
+  const simStaffAnchorText = [
+    getMergedCellText(sheet, "D12"),
+    getMergedCellText(sheet, "E12"),
+    getMergedCellText(sheet, "F12"),
+  ]
+    .join(" ")
+    .toLowerCase();
+  const zoomLink = getMergedCellText(sheet, "B7") || null;
   const trainingDate = parseExcelDate(getMergedCellValue(sheet, "D14"));
   const eventTime = parseTimeValue(getMergedCellValue(sheet, "D15"));
-  const caseText = asText(getMergedCellValue(sheet, "D83")) || null;
+  const caseText = getMergedCellText(sheet, "D83") || null;
   const sessions: ParsedSession[] = [];
 
   ["E14", "F14", "G14", "H14", "I14"].forEach((address) => {
     addUniqueDateSession(sessions, parseExcelDate(getMergedCellValue(sheet, address)), eventTime);
   });
 
-  if (!title || sessions.length === 0) {
+  if (!title || sessions.length === 0 || !simStaffAnchorText.includes("sim staff")) {
     return null;
   }
 
-  const simStaffNames = extractSimStaffNames(sheet);
+  const labeledSimStaff = splitPeopleList(findLabeledValue(sheet, ["Sim Staff", "Staff Hiring"]) || "");
+  const columnSimStaff = extractSimStaffNamesFromColumnB(sheet);
+  const simStaffNames = Array.from(new Set([...labeledSimStaff, ...columnSimStaff]));
+  const eventLeadTeam = findLabeledValue(sheet, ["Event Lead/Team", "Event Lead", "Team"]);
+  const courseFaculty = findLabeledValue(sheet, ["Course Faculty", "Faculty"]);
+  const location = findLabeledValue(sheet, ["Location", "Room"]);
+  const rosterRows = parseSpEventInfoRoster(sheet);
 
   return {
     sheet: sheetName,
@@ -346,20 +433,24 @@ function parseSpEventInfoSheet(sheet: XLSX.WorkSheet, sheetName: string): Parsed
     term: null,
     sessions,
     trainingDate,
+    eventTime,
     zoomLink,
     caseText,
+    location: location || null,
     simStaffNames,
     staffLine: simStaffNames.length ? `Sim Staff: ${simStaffNames.join(", ")}` : null,
-    rosterRows: [],
+    eventLeadTeam: eventLeadTeam ? `Event Lead/Team: ${eventLeadTeam}` : null,
+    courseFaculty: courseFaculty ? `Course Faculty: ${courseFaculty}` : null,
+    rosterRows,
   };
 }
 
 function parseSpInfoSheet(sheet: XLSX.WorkSheet, sheetName: string): ParsedSheet | null {
-  const title = asText(getMergedCellValue(sheet, "A1"));
-  const term = asText(getMergedCellValue(sheet, "A2")) || null;
-  const emailHeader = asText(getMergedCellValue(sheet, "A14")).toLowerCase();
-  const hiredHeader = asText(getMergedCellValue(sheet, "B14")).toLowerCase();
-  const staffHiringRaw = asText(getMergedCellValue(sheet, "D13"));
+  const title = getMergedCellText(sheet, "A1");
+  const term = getMergedCellText(sheet, "A2") || null;
+  const emailHeader = getMergedCellText(sheet, "A14").toLowerCase();
+  const hiredHeader = getMergedCellText(sheet, "B14").toLowerCase();
+  const staffHiringRaw = getMergedCellText(sheet, "D13");
   const sessions: ParsedSession[] = [];
   const dateColumns = ["D", "E", "F", "G"];
   const statusColumnsByDate = new Map<string, string>();
@@ -368,9 +459,7 @@ function parseSpInfoSheet(sheet: XLSX.WorkSheet, sheetName: string): ParsedSheet
     const date = parseExcelDate(getMergedCellValue(sheet, `${column}14`));
     const time = parseTimeValue(getMergedCellValue(sheet, `${column}15`));
     addUniqueDateSession(sessions, date, time);
-    if (date) {
-      statusColumnsByDate.set(date, column);
-    }
+    if (date) statusColumnsByDate.set(date, column);
   });
 
   const looksValid =
@@ -379,22 +468,20 @@ function parseSpInfoSheet(sheet: XLSX.WorkSheet, sheetName: string): ParsedSheet
     hiredHeader.includes("sp hired") &&
     sessions.length > 0;
 
-  if (!looksValid) {
-    return null;
-  }
+  if (!looksValid) return null;
 
   const rosterRows: ParsedRosterRow[] = [];
   let blankRowStreak = 0;
 
   for (let row = 16; row <= 250; row += 1) {
-    const email = asText(getMergedCellValue(sheet, `A${row}`));
-    const name = asText(getMergedCellValue(sheet, `B${row}`));
-    const caseText = asText(getMergedCellValue(sheet, `H${row}`)) || null;
-    const assignmentText = asText(getMergedCellValue(sheet, `I${row}`)) || null;
-    const notesText = asText(getMergedCellValue(sheet, `J${row}`)) || null;
+    const email = getMergedCellText(sheet, `A${row}`);
+    const name = getMergedCellText(sheet, `B${row}`);
+    const caseText = getMergedCellText(sheet, `H${row}`) || null;
+    const assignmentText = getMergedCellText(sheet, `I${row}`) || null;
+    const notesText = getMergedCellText(sheet, `J${row}`) || null;
 
     const statuses = Object.fromEntries(
-      [...statusColumnsByDate.entries()].map(([date, column]) => [date, asText(getMergedCellValue(sheet, `${column}${row}`))])
+      [...statusColumnsByDate.entries()].map(([date, column]) => [date, getMergedCellText(sheet, `${column}${row}`)])
     );
     const hasUsefulStatus = Object.values(statuses).some(Boolean);
     const isBlank = !email && !name && !caseText && !assignmentText && !notesText && !hasUsefulStatus;
@@ -406,7 +493,6 @@ function parseSpInfoSheet(sheet: XLSX.WorkSheet, sheetName: string): ParsedSheet
     }
 
     blankRowStreak = 0;
-
     if (!email && !name) continue;
 
     rosterRows.push({
@@ -424,7 +510,7 @@ function parseSpInfoSheet(sheet: XLSX.WorkSheet, sheetName: string): ParsedSheet
       ? staffHiringRaw
       : `Staff Hiring: ${staffHiringRaw}`
     : null;
-  const simStaffNames = splitStaffNames(staffHiringRaw);
+  const simStaffNames = splitPeopleList(staffHiringRaw);
   const caseText = rosterRows.map((row) => row.caseText).find(Boolean) || null;
 
   return {
@@ -434,16 +520,204 @@ function parseSpInfoSheet(sheet: XLSX.WorkSheet, sheetName: string): ParsedSheet
     term,
     sessions,
     trainingDate: null,
+    eventTime: sessions[0]?.time || null,
     zoomLink: null,
     caseText,
+    location: null,
     simStaffNames,
     staffLine,
+    eventLeadTeam: null,
+    courseFaculty: null,
     rosterRows,
   };
 }
 
 function parseSupportedSheet(sheet: XLSX.WorkSheet, sheetName: string) {
   return parseSpEventInfoSheet(sheet, sheetName) || parseSpInfoSheet(sheet, sheetName);
+}
+
+function tokenizeTitle(value: string) {
+  return normalizeTitle(value)
+    .split(" ")
+    .map((token) => token.trim())
+    .filter(Boolean);
+}
+
+function scoreTitleSimilarity(a: string, b: string) {
+  const normalizedA = normalizeTitle(a);
+  const normalizedB = normalizeTitle(b);
+  if (!normalizedA || !normalizedB) return 0;
+  if (normalizedA === normalizedB) return 1;
+  if (normalizedA.includes(normalizedB) || normalizedB.includes(normalizedA)) return 0.9;
+
+  const aTokens = new Set(tokenizeTitle(a));
+  const bTokens = new Set(tokenizeTitle(b));
+  const intersection = [...aTokens].filter((token) => bTokens.has(token)).length;
+  const union = new Set([...aTokens, ...bTokens]).size || 1;
+  return intersection / union;
+}
+
+function dateDistanceDays(a: string | null, b: string | null) {
+  const isoA = normalizeLooseDateToIso(a);
+  const isoB = normalizeLooseDateToIso(b);
+  if (!isoA || !isoB) return Number.POSITIVE_INFINITY;
+  const timeA = Date.parse(`${isoA}T00:00:00`);
+  const timeB = Date.parse(`${isoB}T00:00:00`);
+  if (Number.isNaN(timeA) || Number.isNaN(timeB)) return Number.POSITIVE_INFINITY;
+  return Math.abs(timeA - timeB) / (24 * 60 * 60 * 1000);
+}
+
+function scoreDateCloseness(a: string | null, b: string | null) {
+  const distance = dateDistanceDays(a, b);
+  if (!Number.isFinite(distance)) return 0;
+  if (distance === 0) return 1;
+  if (distance <= 1) return 0.92;
+  if (distance <= 3) return 0.84;
+  if (distance <= 7) return 0.72;
+  return 0.2;
+}
+
+function classifyConfidence(score: number, exact: boolean): MatchCandidate["label"] {
+  if (exact || score >= 0.95) return "exact";
+  if (score >= 0.86) return "high";
+  if (score >= 0.72) return "medium";
+  return "low";
+}
+
+function getPrimaryDate(parsed: ParsedSheet) {
+  return parsed.sessions[0]?.date || null;
+}
+
+function getEventReferenceDate(event: EventRow, sessionDatesByEventId: Map<string, string | null>) {
+  return sessionDatesByEventId.get(event.id) || event.date_text || null;
+}
+
+function findBestEventMatch(
+  parsed: ParsedSheet,
+  existingEvents: EventRow[],
+  sessionDatesByEventId: Map<string, string | null>
+) {
+  const primaryDate = getPrimaryDate(parsed);
+  const exactMatch = existingEvents.find((event) => {
+    const sameTitle = normalizeTitle(event.name || "") === normalizeTitle(parsed.title);
+    const sameDate = normalizeDateKey(getEventReferenceDate(event, sessionDatesByEventId)) === normalizeDateKey(primaryDate);
+    return sameTitle && sameDate;
+  });
+
+  if (exactMatch) {
+    return {
+      event: exactMatch,
+      confidence: 1,
+      label: "exact" as const,
+      reason: "Exact title and date match",
+    };
+  }
+
+  let best: MatchCandidate | null = null;
+
+  existingEvents.forEach((event) => {
+    const titleScore = scoreTitleSimilarity(parsed.title, event.name || "");
+    if (titleScore < 0.45) return;
+    const dateScore = scoreDateCloseness(primaryDate, getEventReferenceDate(event, sessionDatesByEventId));
+    const confidence = titleScore * 0.72 + dateScore * 0.28;
+    const label = classifyConfidence(confidence, false);
+    const candidate: MatchCandidate = {
+      event,
+      confidence,
+      label,
+      reason:
+        label === "high"
+          ? "Strong title match with nearby date"
+          : label === "medium"
+            ? "Possible title/date match needs review"
+            : "Low-confidence match",
+    };
+
+    if (!best || candidate.confidence > best.confidence) {
+      best = candidate;
+    }
+  });
+
+  return best;
+}
+
+function buildFieldsFound(parsed: ParsedSheet) {
+  const fields: string[] = [];
+  if (parsed.title) fields.push("Event title");
+  if (parsed.sessions.length) fields.push("Event dates");
+  if (parsed.eventTime) fields.push("Event time");
+  if (parsed.trainingDate) fields.push("Training date");
+  if (parsed.location) fields.push("Location");
+  if (parsed.caseText) fields.push("Case");
+  if (parsed.zoomLink) fields.push("Zoom");
+  if (parsed.simStaffNames.length) fields.push("Sim Staff");
+  if (parsed.eventLeadTeam) fields.push("Event Lead/Team");
+  if (parsed.courseFaculty) fields.push("Course Faculty");
+  return fields;
+}
+
+function buildWillUpdate(parsed: ParsedSheet, event: EventRow | null) {
+  const updates: string[] = [];
+  updates.push("Append or refresh [SP_EVENT_INFO_IMPORT] notes section");
+  if (parsed.simStaffNames.length) updates.push("Update Team / Sim Staff details in notes");
+  if (parsed.eventLeadTeam) updates.push("Update Event Lead/Team notes");
+  if (parsed.courseFaculty) updates.push("Update Course Faculty notes");
+  if (parsed.zoomLink) updates.push("Store Zoom / virtual logistics");
+  if (parsed.trainingDate) updates.push("Store training date");
+  if (parsed.sessions.length) updates.push("Ensure event sessions exist for imported dates");
+  if (!asText(event?.location) && parsed.location) updates.push("Fill missing location from workbook");
+  if (parsed.rosterRows.length) updates.push("Create missing SP assignments from workbook roster");
+  return updates;
+}
+
+function upsertImportSection(existingNotes: string | null, parsed: ParsedSheet, sourceFile: string) {
+  const base = asText(existingNotes);
+  const withoutSection = base
+    .replace(new RegExp(`${IMPORT_START}[\\s\\S]*?${IMPORT_END}\\n*`, "g"), "")
+    .trimEnd();
+
+  const sectionLines = [
+    IMPORT_START,
+    `Source File: ${sourceFile}`,
+    `Imported Title: ${parsed.title}`,
+    parsed.sessions.length ? `Event Dates: ${parsed.sessions.map((session) => normalizeDateKey(session.date)).join(", ")}` : "",
+    parsed.eventTime ? `Event Time: ${formatTimeLabel(parsed.eventTime)}` : "",
+    parsed.trainingDate ? `Training Date: ${normalizeDateKey(parsed.trainingDate)}` : "",
+    parsed.location ? `Location: ${parsed.location}` : "",
+    parsed.zoomLink ? `Zoom: ${parsed.zoomLink}` : "",
+    parsed.caseText ? `Case: ${parsed.caseText}` : "",
+    parsed.staffLine || "",
+    parsed.eventLeadTeam || "",
+    parsed.courseFaculty || "",
+    IMPORT_END,
+  ].filter(Boolean);
+
+  const section = sectionLines.join("\n");
+  return withoutSection ? `${withoutSection}\n\n${section}` : section;
+}
+
+function buildPreviewEntry(
+  fileName: string,
+  parsed: ParsedSheet,
+  match: MatchCandidate | null,
+  event: EventRow | null
+): ImportEntry {
+  return {
+    file: fileName,
+    sheet: parsed.sheet,
+    detectorMatched: parsed.format,
+    extractedTitle: parsed.title,
+    extractedDates: parsed.sessions.map((session) => normalizeDateKey(session.date)),
+    fieldsFound: buildFieldsFound(parsed),
+    spFound: parsed.rosterRows.length,
+    simStaffCount: parsed.simStaffNames.length,
+    staffExtracted: parsed.staffLine || parsed.eventLeadTeam || parsed.courseFaculty || null,
+    matchedEvent: event?.name || undefined,
+    matchedEventId: event?.id || undefined,
+    confidence: match ? Number(match.confidence.toFixed(2)) : undefined,
+    confidenceLabel: match?.label,
+    willUpdate: buildWillUpdate(parsed, event),
+  };
 }
 
 async function ensureSessions(
@@ -456,9 +730,7 @@ async function ensureSessions(
     .select("id,event_id,session_date,start_time,end_time,location,room")
     .eq("event_id", eventId);
 
-  if (sessionFetchError) {
-    throw new Error(sessionFetchError.message);
-  }
+  if (sessionFetchError) throw new Error(sessionFetchError.message);
 
   const existingKeys = new Set(
     (existingSessions || []).map((session) => `${asText(session.session_date)}|${asText(session.start_time)}`)
@@ -471,21 +743,38 @@ async function ensureSessions(
       session_date: session.date,
       start_time: session.time,
       end_time: null,
-      location: null,
+      location: parsed.location || null,
       room: null,
     }));
 
   if (!inserts.length) return;
 
   const { error } = await supabaseServer.from("event_sessions").insert(inserts);
-  if (error) {
-    throw new Error(error.message);
-  }
+  if (error) throw new Error(error.message);
 }
 
-function isPositiveAssignmentMark(value: string) {
-  const normalized = value.trim().toLowerCase();
-  return ["x", "yes", "y", "assigned", "hired", "confirmed"].includes(normalized);
+function rowIndicatesConfirmed(row: ParsedRosterRow) {
+  const allTexts = [
+    row.assignmentText,
+    row.notesText,
+    ...Object.values(row.statusByDate),
+  ]
+    .map(asText)
+    .join(" ")
+    .toLowerCase();
+
+  return allTexts.includes("confirmed");
+}
+
+function rowIsActionable(row: ParsedRosterRow, format: ParsedSheet["format"]) {
+  if (format === "sp_event_info") {
+    return Boolean(asText(row.email) || asText(row.name));
+  }
+
+  return Object.values(row.statusByDate).some((value) => {
+    const normalized = asText(value).toLowerCase();
+    return ["x", "yes", "y", "assigned", "hired", "confirmed", "contacted", "invited"].includes(normalized);
+  });
 }
 
 async function syncRosterAssignments(
@@ -494,16 +783,14 @@ async function syncRosterAssignments(
   parsed: ParsedSheet,
   spDirectory: SPDirectoryRow[]
 ) {
-  if (!parsed.rosterRows.length) {
-    return { extractedCount: 0 };
-  }
-
-  const actionableRows = parsed.rosterRows.filter((row) =>
-    Object.values(row.statusByDate).some((value) => isPositiveAssignmentMark(value))
-  );
-
+  const actionableRows = parsed.rosterRows.filter((row) => rowIsActionable(row, parsed.format));
   if (!actionableRows.length) {
-    return { extractedCount: parsed.rosterRows.length };
+    return {
+      spMatched: 0,
+      spAssignmentsCreated: 0,
+      duplicatesAvoided: 0,
+      unmatchedSpRows: [] as Array<{ name: string; email: string }>,
+    };
   }
 
   const { data: existingAssignments, error: existingAssignmentError } = await supabaseServer
@@ -511,14 +798,17 @@ async function syncRosterAssignments(
     .select("id,event_id,sp_id,status,confirmed")
     .eq("event_id", eventId);
 
-  if (existingAssignmentError) {
-    throw new Error(existingAssignmentError.message);
-  }
+  if (existingAssignmentError) throw new Error(existingAssignmentError.message);
 
   const assignmentBySpId = new Map<string, EventAssignmentRow>();
   (existingAssignments || []).forEach((assignment) => {
     assignmentBySpId.set(asText(assignment.sp_id), assignment as EventAssignmentRow);
   });
+
+  let spMatched = 0;
+  let spAssignmentsCreated = 0;
+  let duplicatesAvoided = 0;
+  const unmatchedSpRows: Array<{ name: string; email: string }> = [];
 
   for (const row of actionableRows) {
     const normalizedEmail = normalizeEmail(row.email);
@@ -529,19 +819,23 @@ async function syncRosterAssignments(
       spDirectory.find((sp) => normalizedName && normalizeName(sp.full_name) === normalizedName);
 
     if (!matchedSp) {
+      unmatchedSpRows.push({ name: row.name, email: row.email });
       continue;
     }
 
+    spMatched += 1;
+    const shouldConfirm = rowIndicatesConfirmed(row);
+    const nextStatus = shouldConfirm ? "confirmed" : "contacted";
     const existingAssignment = assignmentBySpId.get(matchedSp.id);
+
     if (existingAssignment) {
-      if (existingAssignment.status !== "confirmed" || existingAssignment.confirmed !== true) {
+      duplicatesAvoided += 1;
+      if (shouldConfirm && (existingAssignment.status !== "confirmed" || existingAssignment.confirmed !== true)) {
         const { error } = await supabaseServer
           .from("event_sps")
           .update({ status: "confirmed", confirmed: true })
           .eq("id", existingAssignment.id);
-        if (error) {
-          throw new Error(error.message);
-        }
+        if (error) throw new Error(error.message);
       }
       continue;
     }
@@ -551,155 +845,79 @@ async function syncRosterAssignments(
       .insert({
         event_id: eventId,
         sp_id: matchedSp.id,
-        status: "confirmed",
-        confirmed: true,
+        status: nextStatus,
+        confirmed: shouldConfirm,
       })
       .select("id,event_id,sp_id,status,confirmed")
       .single();
 
-    if (insertError) {
-      throw new Error(insertError.message);
-    }
+    if (insertError) throw new Error(insertError.message);
 
     if (insertedAssignment) {
       assignmentBySpId.set(matchedSp.id, insertedAssignment as EventAssignmentRow);
+      spAssignmentsCreated += 1;
     }
   }
 
-  return { extractedCount: parsed.rosterRows.length };
+  return { spMatched, spAssignmentsCreated, duplicatesAvoided, unmatchedSpRows };
 }
 
-async function processWorkbookFile(
-  supabaseServer: ReturnType<typeof createSupabaseServerClient>,
+async function analyzeWorkbookFile(
   file: File,
   existingEvents: EventRow[],
-  spDirectory: SPDirectoryRow[],
-  results: ImportResponse
+  sessionDatesByEventId: Map<string, string | null>
 ) {
-  try {
-    const buffer = Buffer.from(await file.arrayBuffer());
-    const workbook = XLSX.read(buffer, { type: "buffer", cellDates: true });
-    const checkedSheets = [...workbook.SheetNames];
-    const parsedSheets = workbook.SheetNames
-      .map((sheetName) => parseSupportedSheet(workbook.Sheets[sheetName], sheetName))
-      .filter((value): value is ParsedSheet => Boolean(value));
+  const buffer = Buffer.from(await file.arrayBuffer());
+  const workbook = XLSX.read(buffer, { type: "buffer", cellDates: true });
+  const checkedSheets = [...workbook.SheetNames];
+  const parsedSheets = workbook.SheetNames
+    .map((sheetName) => parseSupportedSheet(workbook.Sheets[sheetName], sheetName))
+    .filter((value): value is ParsedSheet => Boolean(value));
 
-    if (!parsedSheets.length) {
-      results.skipped.push({
-        file: file.name,
-        checkedSheets,
-        reason: `No supported sheet format found. Checked sheets: ${checkedSheets.join(", ")}`,
-      });
-      return;
-    }
-
-    for (const parsed of parsedSheets) {
-      const primaryDate = parsed.sessions[0]?.date || null;
-      const matchingEvent = existingEvents.find(
-        (event) =>
-          normalizeTitle(event.name || "") === normalizeTitle(parsed.title) &&
-          normalizeDateKey(event.date_text) === normalizeDateKey(primaryDate)
-      );
-
-      if (matchingEvent) {
-        const nextNotes = buildNotesBlock(parsed, matchingEvent.notes);
-        const { error: updateError } = await supabaseServer
-          .from("events")
-          .update({
-            notes: nextNotes,
-            date_text: normalizeDateKey(primaryDate) || matchingEvent.date_text,
-          })
-          .eq("id", matchingEvent.id);
-
-        if (updateError) {
-          results.errors.push({
-            file: file.name,
-            sheet: parsed.sheet,
-            event: parsed.title,
-            date: primaryDate,
-            error: updateError.message,
-            detectorMatched: parsed.format,
-          });
-          continue;
-        }
-
-        await ensureSessions(supabaseServer, matchingEvent.id, parsed);
-        await syncRosterAssignments(supabaseServer, matchingEvent.id, parsed, spDirectory);
-
-        matchingEvent.notes = nextNotes;
-        matchingEvent.date_text = normalizeDateKey(primaryDate) || matchingEvent.date_text;
-
-        results.updated.push({
+  if (!parsedSheets.length) {
+    return {
+      preview: [] as Array<{ parsed: ParsedSheet; match: MatchCandidate | null; entry: ImportEntry }>,
+      skipped: [
+        {
           file: file.name,
-          sheet: parsed.sheet,
-          event: parsed.title,
-          date: primaryDate,
-          simStaffCount: parsed.simStaffNames.length,
-          detectorMatched: parsed.format,
-          extractedTitle: parsed.title,
-          extractedDates: parsed.sessions.map((session) => session.date),
-          staffExtracted: parsed.staffLine,
-          spRowCount: parsed.rosterRows.length,
-        });
-        continue;
-      }
-
-      const notes = buildNotesBlock(parsed, null);
-      const { data: createdEvent, error: createError } = await supabaseServer
-        .from("events")
-        .insert({
-          name: parsed.title,
-          status: "Scheduled",
-          date_text: normalizeDateKey(primaryDate),
-          sp_needed: 0,
-          visibility: "team",
-          location: null,
-          notes,
-        })
-        .select("id,name,date_text,notes")
-        .single();
-
-      if (createError || !createdEvent) {
-        results.errors.push({
-          file: file.name,
-          sheet: parsed.sheet,
-          event: parsed.title,
-          date: primaryDate,
-          error: createError?.message || "Could not create event.",
-          detectorMatched: parsed.format,
-        });
-        continue;
-      }
-
-      await ensureSessions(supabaseServer, createdEvent.id, parsed);
-      await syncRosterAssignments(supabaseServer, createdEvent.id, parsed, spDirectory);
-      existingEvents.push(createdEvent);
-
-      results.created.push({
-        file: file.name,
-        sheet: parsed.sheet,
-        event: parsed.title,
-        date: primaryDate,
-        simStaffCount: parsed.simStaffNames.length,
-        detectorMatched: parsed.format,
-        extractedTitle: parsed.title,
-        extractedDates: parsed.sessions.map((session) => session.date),
-        staffExtracted: parsed.staffLine,
-        spRowCount: parsed.rosterRows.length,
-      });
-    }
-  } catch (error) {
-    results.errors.push({
-      file: file.name,
-      error: error instanceof Error ? error.message : "Could not process workbook.",
-    });
+          sheet: "",
+          detectorMatched: "sp_event_info" as const,
+          extractedTitle: "",
+          extractedDates: [],
+          fieldsFound: [],
+          spFound: 0,
+          simStaffCount: 0,
+          staffExtracted: null,
+          checkedSheets,
+          reason: `No supported sheet format found. Checked sheets: ${checkedSheets.join(", ")}`,
+        } satisfies ImportEntry,
+      ],
+      errors: [] as ImportEntry[],
+    };
   }
+
+  const preview = parsedSheets.map((parsed) => {
+    const match = findBestEventMatch(parsed, existingEvents, sessionDatesByEventId);
+    const event = match?.event || null;
+    return {
+      parsed,
+      match,
+      entry: buildPreviewEntry(file.name, parsed, match, event),
+    };
+  });
+
+  return {
+    preview,
+    skipped: [] as ImportEntry[],
+    errors: [] as ImportEntry[],
+  };
 }
 
 export async function POST(request: Request) {
   try {
     const supabaseServer = createSupabaseServerClient();
     const formData = await request.formData();
+    const action = asText(formData.get("action")).toLowerCase() || "preview";
     const uploadedFiles = [
       ...formData.getAll("files").filter((value): value is File => value instanceof File),
       ...formData.getAll("file").filter((value): value is File => value instanceof File),
@@ -711,11 +929,27 @@ export async function POST(request: Request) {
 
     const { data: existingEvents, error: existingError } = await supabaseServer
       .from("events")
-      .select("id,name,date_text,notes");
+      .select("id,name,date_text,notes,location,created_at");
 
     if (existingError) {
       return NextResponse.json({ error: existingError.message }, { status: 500 });
     }
+
+    const { data: eventSessions, error: sessionError } = await supabaseServer
+      .from("event_sessions")
+      .select("event_id,session_date")
+      .order("session_date", { ascending: true });
+
+    if (sessionError) {
+      return NextResponse.json({ error: sessionError.message }, { status: 500 });
+    }
+
+    const sessionDatesByEventId = new Map<string, string | null>();
+    (eventSessions || []).forEach((session) => {
+      const eventId = asText((session as EventSessionRow).event_id);
+      if (!eventId || sessionDatesByEventId.has(eventId)) return;
+      sessionDatesByEventId.set(eventId, asText((session as EventSessionRow).session_date) || null);
+    });
 
     const { data: spDirectory, error: spDirectoryError } = await supabaseServer
       .from("sps")
@@ -726,21 +960,93 @@ export async function POST(request: Request) {
     }
 
     const results: ImportResponse = {
-      created: [],
+      preview: [],
       updated: [],
       skipped: [],
       errors: [],
+      needsReview: [],
     };
-    const mutableExistingEvents: EventRow[] = [...(existingEvents || [])];
 
     for (const file of uploadedFiles) {
-      await processWorkbookFile(
-        supabaseServer,
-        file,
-        mutableExistingEvents,
-        [...(spDirectory || [])] as SPDirectoryRow[],
-        results
-      );
+      try {
+        const analyzed = await analyzeWorkbookFile(file, [...(existingEvents || [])], sessionDatesByEventId);
+        results.skipped.push(...analyzed.skipped);
+        results.errors.push(...analyzed.errors);
+
+        for (const item of analyzed.preview) {
+          const entry = item.entry;
+          results.preview.push(entry);
+
+          if (!item.match || item.match.label === "low" || item.match.label === "medium") {
+            results.needsReview.push({
+              ...entry,
+              needsReviewReason: item.match?.reason || "No confident event match found",
+            });
+            continue;
+          }
+
+          if (action !== "apply") continue;
+
+          const matchedEvent = item.match.event;
+          const nextNotes = upsertImportSection(matchedEvent.notes, item.parsed, file.name);
+          const updatePayload: Record<string, unknown> = { notes: nextNotes };
+
+          if (!asText(matchedEvent.location) && item.parsed.location) {
+            updatePayload.location = item.parsed.location;
+          }
+
+          const primaryDate = getPrimaryDate(item.parsed);
+          if (!asText(matchedEvent.date_text) && primaryDate) {
+            updatePayload.date_text = normalizeDateKey(primaryDate);
+          }
+
+          const { error: updateError } = await supabaseServer
+            .from("events")
+            .update(updatePayload)
+            .eq("id", matchedEvent.id);
+
+          if (updateError) {
+            results.errors.push({
+              ...entry,
+              matchedEvent: matchedEvent.name || undefined,
+              matchedEventId: matchedEvent.id,
+              error: updateError.message,
+            });
+            continue;
+          }
+
+          await ensureSessions(supabaseServer, matchedEvent.id, item.parsed);
+          const assignmentResult = await syncRosterAssignments(
+            supabaseServer,
+            matchedEvent.id,
+            item.parsed,
+            [...(spDirectory || [])] as SPDirectoryRow[]
+          );
+
+          results.updated.push({
+            ...entry,
+            matchedEvent: matchedEvent.name || undefined,
+            matchedEventId: matchedEvent.id,
+            spMatched: assignmentResult.spMatched,
+            spAssignmentsCreated: assignmentResult.spAssignmentsCreated,
+            duplicatesAvoided: assignmentResult.duplicatesAvoided,
+            unmatchedSpRows: assignmentResult.unmatchedSpRows,
+          });
+        }
+      } catch (error) {
+        results.errors.push({
+          file: file.name,
+          sheet: "",
+          detectorMatched: "sp_event_info",
+          extractedTitle: "",
+          extractedDates: [],
+          fieldsFound: [],
+          spFound: 0,
+          simStaffCount: 0,
+          staffExtracted: null,
+          error: error instanceof Error ? error.message : "Could not process workbook.",
+        });
+      }
     }
 
     return NextResponse.json(results);

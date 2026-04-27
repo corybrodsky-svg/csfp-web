@@ -33,14 +33,32 @@ function normalizeRole(value: unknown) {
   if (role === "sp" || role === "sim_op" || role === "admin" || role === "super_admin") {
     return role;
   }
-  return "sp";
+  return "unknown";
 }
 
 function getEffectiveRole(email: unknown, role: unknown) {
   const normalizedEmail = asText(email).toLowerCase();
   const localPart = normalizedEmail.split("@")[0] || "";
-  if (localPart === "cory.brodsky") return "super_admin";
-  return normalizeRole(role);
+  const normalizedRole = normalizeRole(role);
+
+  const coryAdminEmails = new Set([
+    "cwb55@drexel.edu",
+    "cory.brodsky@drexel.edu",
+  ]);
+
+  if (coryAdminEmails.has(normalizedEmail) || localPart === "cory.brodsky") {
+    if (
+      normalizedRole === "super_admin" ||
+      normalizedRole === "admin" ||
+      normalizedRole === "sim_op"
+    ) {
+      return normalizedRole;
+    }
+
+    return "super_admin";
+  }
+
+  return normalizedRole;
 }
 
 function normalizeEmail(value: unknown) {
