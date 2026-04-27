@@ -180,6 +180,7 @@ export default function SPPage() {
   const [errorMessage, setErrorMessage] = useState("");
   const [query, setQuery] = useState("");
   const [form, setForm] = useState<NewSPForm>(emptyForm);
+  const [showAddForm, setShowAddForm] = useState(false);
 
   async function loadSPs() {
     try {
@@ -238,6 +239,14 @@ export default function SPPage() {
     setForm((current) => ({ ...current, [field]: value }));
   }
 
+  function toggleAddForm() {
+    setShowAddForm((current) => {
+      const next = !current;
+      setErrorMessage("");
+      return next;
+    });
+  }
+
   async function handleCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSaving(true);
@@ -284,6 +293,7 @@ export default function SPPage() {
 
     setForm(emptyForm);
     setSaving(false);
+    setShowAddForm(false);
     await loadSPs();
   }
 
@@ -337,31 +347,6 @@ export default function SPPage() {
           </div>
         </section>
 
-        <form onSubmit={handleCreate} style={{ ...cardStyle, display: "grid", gap: "14px" }}>
-          <h2 style={{ margin: 0, color: "#173b6c" }}>Add SP</h2>
-
-          <div style={gridStyle}>
-            <TextField label="First name" value={form.first_name} onChange={(value) => updateForm("first_name", value)} />
-            <TextField label="Last name" value={form.last_name} onChange={(value) => updateForm("last_name", value)} />
-            <TextField label="Working email" value={form.working_email} onChange={(value) => updateForm("working_email", value)} />
-            <TextField label="Phone" value={form.phone} onChange={(value) => updateForm("phone", value)} />
-            <TextField label="Portrayal age" value={form.portrayal_age} onChange={(value) => updateForm("portrayal_age", value)} />
-            <TextField label="Race" value={form.race} onChange={(value) => updateForm("race", value)} />
-            <TextField label="Sex" value={form.sex} onChange={(value) => updateForm("sex", value)} />
-            <TextField label="Telehealth" value={form.telehealth} onChange={(value) => updateForm("telehealth", value)} />
-            <TextField label="PT preferred" value={form.pt_preferred} onChange={(value) => updateForm("pt_preferred", value)} />
-            <TextField label="Other roles" value={form.other_roles} onChange={(value) => updateForm("other_roles", value)} />
-            <TextField label="Status" value={form.status} onChange={(value) => updateForm("status", value)} />
-            <TextField label="Notes" value={form.notes} onChange={(value) => updateForm("notes", value)} />
-          </div>
-
-          <div>
-            <button type="submit" disabled={saving} style={{ ...buttonStyle, opacity: saving ? 0.7 : 1 }}>
-              {saving ? "Saving..." : "Save SP to Supabase"}
-            </button>
-          </div>
-        </form>
-
         <section style={{ ...cardStyle, display: "grid", gap: "14px" }}>
           <div
             style={{
@@ -372,10 +357,24 @@ export default function SPPage() {
               flexWrap: "wrap",
             }}
           >
-            <h2 style={{ margin: 0, color: "#173b6c" }}>Directory</h2>
-            <button type="button" onClick={loadSPs} style={{ ...buttonStyle, background: "#ffffff", color: "#173b6c" }}>
-              Refresh
-            </button>
+            <div>
+              <h2 style={{ margin: 0, color: "#173b6c" }}>Directory</h2>
+              <div style={{ color: "#64748b", fontWeight: 700, marginTop: "4px" }}>
+                Search and manage your existing SP database first.
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+              <button
+                type="button"
+                onClick={toggleAddForm}
+                style={{ ...buttonStyle, background: "#ffffff", color: "#173b6c", border: "1px solid #cbd5e1" }}
+              >
+                {showAddForm ? "Close Add SP" : "+ Add SP"}
+              </button>
+              <button type="button" onClick={loadSPs} style={{ ...buttonStyle, background: "#ffffff", color: "#173b6c" }}>
+                Refresh
+              </button>
+            </div>
           </div>
 
           <label style={labelStyle}>
@@ -387,6 +386,55 @@ export default function SPPage() {
               style={inputStyle}
             />
           </label>
+
+          {showAddForm ? (
+            <form
+              onSubmit={handleCreate}
+              style={{
+                border: "1px solid #dbe4ee",
+                borderRadius: "16px",
+                padding: "16px",
+                background: "#f8fbff",
+                display: "grid",
+                gap: "14px",
+              }}
+            >
+              <div>
+                <h3 style={{ margin: 0, color: "#173b6c" }}>Add SP</h3>
+                <div style={{ color: "#64748b", fontWeight: 700, marginTop: "4px" }}>
+                  Enter at least a first or last name before saving.
+                </div>
+              </div>
+
+              <div style={gridStyle}>
+                <TextField label="First name" value={form.first_name} onChange={(value) => updateForm("first_name", value)} />
+                <TextField label="Last name" value={form.last_name} onChange={(value) => updateForm("last_name", value)} />
+                <TextField label="Working email" value={form.working_email} onChange={(value) => updateForm("working_email", value)} />
+                <TextField label="Phone" value={form.phone} onChange={(value) => updateForm("phone", value)} />
+                <TextField label="Portrayal age" value={form.portrayal_age} onChange={(value) => updateForm("portrayal_age", value)} />
+                <TextField label="Race" value={form.race} onChange={(value) => updateForm("race", value)} />
+                <TextField label="Sex" value={form.sex} onChange={(value) => updateForm("sex", value)} />
+                <TextField label="Telehealth" value={form.telehealth} onChange={(value) => updateForm("telehealth", value)} />
+                <TextField label="PT preferred" value={form.pt_preferred} onChange={(value) => updateForm("pt_preferred", value)} />
+                <TextField label="Other roles" value={form.other_roles} onChange={(value) => updateForm("other_roles", value)} />
+                <TextField label="Status" value={form.status} onChange={(value) => updateForm("status", value)} />
+                <TextField label="Notes" value={form.notes} onChange={(value) => updateForm("notes", value)} />
+              </div>
+
+              <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                <button type="submit" disabled={saving} style={{ ...buttonStyle, opacity: saving ? 0.7 : 1 }}>
+                  {saving ? "Saving..." : "Save SP to Supabase"}
+                </button>
+                <button
+                  type="button"
+                  onClick={toggleAddForm}
+                  style={{ ...buttonStyle, background: "#ffffff", color: "#173b6c", border: "1px solid #cbd5e1" }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          ) : null}
 
           {loading ? (
             <p style={{ margin: 0, color: "#64748b" }}>Loading SPs from Supabase...</p>
