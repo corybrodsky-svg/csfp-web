@@ -41,112 +41,31 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [saving, setSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
-  const [debugStep, setDebugStep] = useState("");
   const [logoVisible, setLogoVisible] = useState(true);
-
-  function markStep(step: string, detail?: string) {
-    const line = detail ? `${step} — ${detail}` : step;
-    setDebugStep(line);
-    console.info("[CFSP login]", line);
-  }
-
-  function failAtStep(step: string, detail: string) {
-    const line = `${step} failed — ${detail}`;
-    setDebugStep(line);
-    setErrorMessage(line);
-    console.error("[CFSP login]", line);
-  }
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSaving(true);
     setErrorMessage("");
-    setDebugStep("");
 
     try {
-      let accessToken = "";
-      let refreshToken = "";
+      const supabase = getSupabaseClient();
 
-      try {
-        markStep("STEP 1", "Supabase client initialized");
-        const supabase = getSupabaseClient();
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: email.trim().toLowerCase(),
+        password,
+      });
 
-        markStep("STEP 2", "Supabase signInWithPassword started");
-        const { data, error } = await supabase.auth.signInWithPassword({
-          email: email.trim().toLowerCase(),
-          password,
-        });
-
-        markStep("STEP 3", "Supabase signInWithPassword returned");
-
-        if (error || !data.session?.access_token || !data.session.refresh_token) {
-          failAtStep(
-            "STEP 3",
-            `Supabase auth error: ${formatAuthError(error?.message || "Could not sign in.")}`
-          );
-          setSaving(false);
-          return;
-        }
-
-        accessToken = data.session.access_token;
-        refreshToken = data.session.refresh_token;
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "Could not sign in.";
-        failAtStep("STEP 1/2/3", `Supabase auth error: ${formatAuthError(message)}`);
+      if (error || !data.session) {
+        setErrorMessage(formatAuthError(error?.message || "Could not sign in."));
         setSaving(false);
         return;
       }
 
-      let persistResponse: Response;
-      try {
-        markStep("STEP 4", "POST /api/auth/session started");
-        persistResponse = await fetch("/api/auth/session", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          credentials: "include",
-          body: JSON.stringify({
-            access_token: accessToken,
-            refresh_token: refreshToken,
-          }),
-        });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "No response from session bridge.";
-        failAtStep("STEP 4", `Network/fetch error posting to /api/auth/session: ${message}`);
-        setSaving(false);
-        return;
-      }
-
-      const persistBody = (await persistResponse.json().catch(() => null)) as
-        | {
-            ok?: boolean;
-            error?: string;
-          }
-        | null;
-
-      markStep(
-        "STEP 5",
-        `/api/auth/session returned ${persistResponse.status} ${persistResponse.statusText}${
-          persistBody?.error ? ` — ${persistBody.error}` : ""
-        }`
-      );
-
-      if (!persistResponse.ok || !persistBody?.ok) {
-        failAtStep(
-          "STEP 5",
-          `Session bridge error: ${persistBody?.error || `${persistResponse.status} ${persistResponse.statusText}`}`
-        );
-        setSaving(false);
-        return;
-      }
-
-      markStep("STEP 6", "redirect to /dashboard");
-      window.location.assign("/dashboard");
-      return;
+      window.location.replace("/dashboard");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not sign in.";
-      failAtStep("UNKNOWN STEP", message);
+      setErrorMessage(formatAuthError(message));
       setSaving(false);
     }
   }
@@ -172,8 +91,12 @@ export default function LoginPage() {
                 )}
               </div>
               <div>
-                <p className="m-0 text-sm font-black uppercase tracking-[0.12em] text-[#d1f0e5]">CFSP</p>
-                <h1 className="m-0 mt-1 text-[2rem] leading-tight font-black">Conflict-Free SP</h1>
+                <p className="m-0 text-sm font-black uppercase tracking-[0.12em] text-[#d1f0e5]">
+                  CFSP
+                </p>
+                <h1 className="m-0 mt-1 text-[2rem] leading-tight font-black">
+                  Conflict-Free SP
+                </h1>
               </div>
             </div>
 
@@ -184,7 +107,9 @@ export default function LoginPage() {
 
           <div className="grid gap-4">
             <div className="rounded-[14px] border border-white/16 bg-white/8 px-5 py-4">
-              <p className="text-xs font-black uppercase tracking-[0.12em] text-white/70">Why teams use CFSP</p>
+              <p className="text-xs font-black uppercase tracking-[0.12em] text-white/70">
+                Why teams use CFSP
+              </p>
               <ul className="mt-3 grid gap-2 pl-5 text-sm leading-6 text-white/88">
                 <li>Keep simulation event coverage organized in one workflow.</li>
                 <li>Review assignments, staffing gaps, and coverage status quickly.</li>
@@ -211,13 +136,17 @@ export default function LoginPage() {
               )}
             </div>
             <div>
-              <p className="m-0 text-xs font-black uppercase tracking-[0.12em] text-[#165a96]">CFSP</p>
+              <p className="m-0 text-xs font-black uppercase tracking-[0.12em] text-[#165a96]">
+                CFSP
+              </p>
               <p className="m-0 text-sm font-bold text-[#4f677d]">Conflict-Free SP</p>
             </div>
           </div>
 
           <p className="cfsp-kicker">Sign in</p>
-          <h2 className="mt-3 text-[2rem] leading-tight font-black text-[#14304f]">Access your workspace</h2>
+          <h2 className="mt-3 text-[2rem] leading-tight font-black text-[#14304f]">
+            Access your workspace
+          </h2>
           <p className="mt-3 max-w-xl text-[0.98rem] leading-6 text-[#5e7388]">
             Sign in with your existing account to manage coverage, assignments, and simulation operations.
           </p>
@@ -237,11 +166,8 @@ export default function LoginPage() {
             </div>
           </div>
 
-          {errorMessage ? <div className="cfsp-alert cfsp-alert-error mt-5">{errorMessage}</div> : null}
-          {debugStep ? (
-            <div className="mt-3 text-sm leading-6 text-[#5e7388]">
-              Login status: <span className="font-semibold text-[#14304f]">{debugStep}</span>
-            </div>
+          {errorMessage ? (
+            <div className="cfsp-alert cfsp-alert-error mt-5">{errorMessage}</div>
           ) : null}
 
           <div className="mt-6 grid gap-4">
@@ -269,7 +195,11 @@ export default function LoginPage() {
               />
             </label>
 
-            <button type="submit" disabled={saving} className="cfsp-btn cfsp-btn-primary mt-1 w-full disabled:opacity-70">
+            <button
+              type="submit"
+              disabled={saving}
+              className="cfsp-btn cfsp-btn-primary mt-1 w-full disabled:opacity-70"
+            >
               {saving ? "Signing In..." : "Sign In"}
             </button>
           </div>
