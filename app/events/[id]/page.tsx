@@ -4,7 +4,6 @@ import * as XLSX from "xlsx";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
-import EventPlanningTimeline from "../../components/EventPlanningTimeline";
 import SiteShell from "../../components/SiteShell";
 import {
   formatHumanDate,
@@ -172,6 +171,11 @@ type TrainingImportResult = {
   facultyDetected: string[];
   importedAt: string;
   importedCount: number;
+  confirmedCount: number;
+  trainingDate: string;
+  trainingTime: string;
+  eventDatesDetected: string[];
+  eventTimesDetected: string[];
 };
 
 type TrainingMaterialKind = "case_file" | "doorsign" | "supplemental_doc";
@@ -1049,6 +1053,49 @@ function normalizeMatchName(value: string) {
     .trim();
 }
 
+function parseWorkflowManualChecks(value?: string | null) {
+  return Array.from(
+    new Set(
+      asText(value)
+        .split("|")
+        .map((item) => item.trim())
+        .filter(Boolean)
+    )
+  );
+}
+
+function serializeWorkflowManualChecks(ids: string[]) {
+  return Array.from(new Set(ids.map((item) => item.trim()).filter(Boolean))).join("|");
+}
+
+function inferEventModalityLabel(eventTypeSet: Set<EditableEventType>, metadata: TrainingEventMetadata, event?: EventDetailRow | null) {
+  const explicit = asText(metadata.modality).toLowerCase();
+  if (explicit === "virtual") return "Virtual";
+  if (explicit === "hybrid") return "Hybrid";
+  if (explicit === "in_person" || explicit === "in-person" || explicit === "in person") return "In-person";
+
+  const source = [event?.name, event?.location, event?.notes].map(asText).join(" ").toLowerCase();
+  if (eventTypeSet.has("virtual") || /\b(virtual|vir|zoom|breakout)\b/.test(source)) return "Virtual";
+  return "In-person";
+}
+
+function getMaterialStatusLabel(metadata: TrainingEventMetadata) {
+  const materialsReady = [
+    metadata.case_file_url,
+    metadata.doorsign_url,
+    metadata.supplemental_doc_url,
+    metadata.case_name,
+  ].some((value) => Boolean(asText(value)));
+  return materialsReady ? "Ready" : "Needs materials";
+}
+
+function getEmailStatusLabel(metadata: TrainingEventMetadata) {
+  const status = asText(metadata.email_status).toLowerCase();
+  if (status === "sent") return "Sent";
+  if (status === "draft_opened") return "Draft opened";
+  return "Not started";
+}
+
 function getDefaultRelatedEventKeyword(title?: string | null) {
   const text = asText(title);
   if (!text) return "";
@@ -1081,12 +1128,20 @@ function parseTrainingImportWorkbook(file: File) {
         eventTitle: "",
         entries: [] as { email: string; name: string }[],
         facultyDetected: [] as string[],
+        trainingDate: "",
+        trainingTime: "",
+        eventDatesDetected: [] as string[],
+        eventTimesDetected: [] as string[],
       };
     }
 
     const eventTitle = getSheetCellText(sheet, "B1");
     const entries: { email: string; name: string }[] = [];
     const facultyDetected = new Set<string>();
+    const trainingDate = getSheetCellText(sheet, "D14");
+    const trainingTime = getSheetCellText(sheet, "D15");
+    const eventDatesDetected: string[] = [];
+    const eventTimesDetected: string[] = [];
 
     for (let row = 16; row <= 35; row += 1) {
       const email = getSheetCellText(sheet, `B${row}`);
@@ -1098,10 +1153,23 @@ function parseTrainingImportWorkbook(file: File) {
       entries.push({ email, name });
     }
 
+    ["E", "F", "G", "H", "I"].forEach((column) => {
+      const dateValue = getSheetCellText(sheet, `${column}14`);
+      const timeValue = getSheetCellText(sheet, `${column}15`);
+      if (dateValue && timeValue) {
+        eventDatesDetected.push(dateValue);
+        eventTimesDetected.push(timeValue);
+      }
+    });
+
     return {
       eventTitle,
       entries,
       facultyDetected: Array.from(facultyDetected),
+      trainingDate,
+      trainingTime,
+      eventDatesDetected,
+      eventTimesDetected,
     };
   });
 }
@@ -1160,6 +1228,7 @@ export default function EventDetailPage() {
   const [trainingImportResult, setTrainingImportResult] = useState<TrainingImportResult | null>(null);
   const [trainingImportError, setTrainingImportError] = useState("");
   const [trainingImporting, setTrainingImporting] = useState(false);
+  const [showWorkflowAdvanced, setShowWorkflowAdvanced] = useState(false);
   const [showPushRelatedPanel, setShowPushRelatedPanel] = useState(false);
   const [relatedKeyword, setRelatedKeyword] = useState("");
   const [relatedMustInclude, setRelatedMustInclude] = useState("");
@@ -1187,6 +1256,7 @@ export default function EventDetailPage() {
   const caseFileInputRef = useRef<HTMLInputElement | null>(null);
   const doorsignInputRef = useRef<HTMLInputElement | null>(null);
   const supplementalDocInputRef = useRef<HTMLInputElement | null>(null);
+  const feedbackTimeoutRef = useRef<number | null>(null);
 
   const spsById = useMemo(() => {
     const next = new Map<string, SPRow>();
@@ -1362,7 +1432,7 @@ export default function EventDetailPage() {
         }
       : needed <= 0
       ? {
-          message: "No SP target set",
+          message: assignmentCount > 0 ? "Roster assigned" : "SP target not set",
           background: "rgba(168, 183, 204, 0.12)",
           border: "1px solid var(--cfsp-border)",
           color: "var(--cfsp-text-muted)",
@@ -1387,6 +1457,10 @@ export default function EventDetailPage() {
   const trainingMetadata = useMemo(
     () => parseTrainingEventMetadata(eventEditor.notes),
     [eventEditor.notes]
+  );
+  const persistedWorkflowChecks = useMemo(
+    () => new Set(parseWorkflowManualChecks(trainingMetadata.workflow_manual_checks)),
+    [trainingMetadata.workflow_manual_checks]
   );
   const fallbackFacultyText = useMemo(() => getFacultyText(eventEditor.notes), [eventEditor.notes]);
   const structuredDateLabel = sessions.length
@@ -1494,11 +1568,17 @@ export default function EventDetailPage() {
   const trainingFacultyText = trainingMetadata.faculty_names || fallbackFacultyText;
   const trainingSimContact =
     trainingMetadata.sim_contact || simStaffNames.join(", ") || "Sim Team Assigned";
-  const trainingLocationModality = eventMeta.isVirtualSp
-    ? event?.location
-      ? `${event.location} · Virtual`
-      : "Virtual"
-    : event?.location || "Location TBD";
+  const selectedModalityLabel = inferEventModalityLabel(activeEventTypeSet, trainingMetadata, event);
+  const trainingLocationModality =
+    selectedModalityLabel === "Hybrid"
+      ? event?.location
+        ? `${event.location} · Hybrid`
+        : "Hybrid"
+      : selectedModalityLabel === "Virtual"
+        ? event?.location
+          ? `${event.location} · Virtual`
+          : "Virtual"
+        : event?.location || "Location TBD";
   const trainingMaterialCards = useMemo(
     () => [
       {
@@ -1524,6 +1604,8 @@ export default function EventDetailPage() {
       ? "Ready"
       : "Needs case";
   const trainingRecordingStatus = trainingMetadata.recording_url ? "Ready" : "Not added";
+  const materialsStatusLabel = getMaterialStatusLabel(trainingMetadata);
+  const emailStatusLabel = getEmailStatusLabel(trainingMetadata);
   const trainingRosterPreview = useMemo(
     () => (showAllTrainingRoster ? sortedAssignments : sortedAssignments.slice(0, 8)),
     [showAllTrainingRoster, sortedAssignments]
@@ -1794,14 +1876,88 @@ export default function EventDetailPage() {
       summaryTimeLabel,
     ]
   );
-  const workflowProgress = useMemo(() => {
-    const flatItems = workflowGroups.flatMap((group) => group.items);
-    const completeCount = flatItems.filter((item) => item.autoComplete || workflowChecks[item.id]).length;
-    return {
-      completeCount,
-      totalCount: flatItems.length,
-    };
-  }, [workflowChecks, workflowGroups]);
+  const workflowReportItems = useMemo(
+    () => [
+      {
+        id: "staffing",
+        label: "SP staffing",
+        value: noSpStaffingRequired
+          ? "Not required"
+          : `${confirmedCount} confirmed / ${assignmentCount} assigned`,
+        complete: noSpStaffingRequired || (needed > 0 ? confirmedCount >= needed : assignmentCount > 0),
+        detail: noSpStaffingRequired
+          ? "No SP staffing required."
+          : needed > 0
+            ? `${Math.max(needed - confirmedCount, 0)} still open`
+            : assignmentCount > 0
+              ? "Roster assigned"
+              : "No roster yet",
+      },
+      {
+        id: "session",
+        label: "Session details",
+        value: sessions.length ? `${sessions.length} session${sessions.length === 1 ? "" : "s"}` : "Not built",
+        complete: Boolean((asText(event?.date_text) || sessions.length) && summaryTimeLabel !== "Time TBD"),
+        detail: sessions.length ? summaryTimeLabel : "Date/time still incomplete",
+      },
+      {
+        id: "faculty",
+        label: "Faculty / contact",
+        value: trainingFacultyText || (hasFaculty ? "Recorded" : "Needs contact"),
+        complete: Boolean(trainingFacultyText || hasFaculty || trainingSimContact),
+        detail: trainingSimContact || "No sim contact recorded",
+      },
+      {
+        id: "materials",
+        label: "Materials",
+        value: materialsStatusLabel,
+        complete: materialsStatusLabel === "Ready",
+        detail: trainingCaseStatus,
+      },
+      {
+        id: "email",
+        label: "Email",
+        value: emailStatusLabel,
+        complete: emailStatusLabel === "Sent",
+        detail:
+          emailStatusLabel === "Draft opened"
+            ? "Draft was opened from CFSP."
+            : emailStatusLabel === "Sent"
+              ? "Marked sent."
+              : "No email action recorded yet.",
+      },
+      {
+        id: "schedule",
+        label: "Schedule",
+        value: rotationScheduleBuilt ? "Built" : "Not built",
+        complete: rotationScheduleBuilt,
+        detail: hasRoomsBuilt ? "Session structure exists." : "No structured schedule saved.",
+      },
+    ],
+    [
+      assignmentCount,
+      confirmedCount,
+      emailStatusLabel,
+      event?.date_text,
+      hasFaculty,
+      hasRoomsBuilt,
+      materialsStatusLabel,
+      needed,
+      noSpStaffingRequired,
+      rotationScheduleBuilt,
+      sessions.length,
+      summaryTimeLabel,
+      trainingCaseStatus,
+      trainingFacultyText,
+      trainingSimContact,
+    ]
+  );
+  const workflowPercent =
+    workflowReportItems.length > 0
+      ? Math.round(
+          (workflowReportItems.filter((item) => item.complete).length / workflowReportItems.length) * 100
+        )
+      : 0;
   const emailSubject = `[CFSP] ${event?.name || "CFSP Event"} - ${eventDateLabel}`;
   const emailBody = [
     "Hello,",
@@ -1824,6 +1980,25 @@ export default function EventDetailPage() {
     subject: emailSubject,
     body: emailBody,
   });
+
+  function clearActionFeedbackTimers() {
+    if (feedbackTimeoutRef.current) {
+      window.clearTimeout(feedbackTimeoutRef.current);
+      feedbackTimeoutRef.current = null;
+    }
+  }
+
+  function showSuccessMessage(message: string, duration = 4200) {
+    setErrorMessage("");
+    setAssignmentSuccessMessage("");
+    setEventSaveError("");
+    setEventSaveMessage(message);
+    clearActionFeedbackTimers();
+    feedbackTimeoutRef.current = window.setTimeout(() => {
+      setEventSaveMessage("");
+      feedbackTimeoutRef.current = null;
+    }, duration);
+  }
 
   async function refreshData() {
     if (!id) return;
@@ -1866,7 +2041,11 @@ export default function EventDetailPage() {
     }
   }
 
-  async function assignMultipleSpIds(spIds: string[], successLabel: string) {
+  async function assignMultipleSpIds(
+    spIds: string[],
+    successLabel: string,
+    options?: { status?: AssignmentStatus; confirmed?: boolean }
+  ) {
     if (!id || spIds.length === 0) return;
 
     setSaving(true);
@@ -1878,14 +2057,15 @@ export default function EventDetailPage() {
 
     try {
       for (const spId of spIds) {
-        await saveAssignmentRequest("POST", { sp_id: spId });
+        await saveAssignmentRequest("POST", {
+          sp_id: spId,
+          status: options?.status,
+          confirmed: options?.confirmed,
+        });
       }
 
       await refreshData();
-      setAssignmentSuccessMessage(successLabel);
-      window.setTimeout(() => {
-        setAssignmentSuccessMessage("");
-      }, 2200);
+      showSuccessMessage(successLabel);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Could not save assignment.");
     } finally {
@@ -1934,7 +2114,7 @@ export default function EventDetailPage() {
         throw new Error(await parseApiError(response));
       }
 
-      setEventSaveMessage("Event details saved.");
+      showSuccessMessage("Saved");
       await refreshData();
     } catch (error) {
       setEventSaveError(
@@ -1996,8 +2176,30 @@ export default function EventDetailPage() {
       notes: nextNotes,
     }));
     setEvent((current) => (current ? { ...current, notes: nextNotes } : current));
-    setEventSaveMessage(successMessage);
+    showSuccessMessage(successMessage);
     return true;
+  }
+
+  async function persistWorkflowChecks(nextChecks: Record<string, boolean>) {
+    const selectedIds = Object.entries(nextChecks)
+      .filter(([, complete]) => complete)
+      .map(([workflowId]) => workflowId);
+    const nextNotes = upsertTrainingEventMetadata(eventEditor.notes, {
+      workflow_manual_checks: serializeWorkflowManualChecks(selectedIds),
+    });
+    const persisted = await persistTrainingNotes(nextNotes, "Workflow updated.");
+    if (persisted) {
+      setWorkflowChecks(nextChecks);
+    }
+    return persisted;
+  }
+
+  async function persistTrainingMetadataFields(
+    partial: Partial<TrainingEventMetadata>,
+    successMessage: string
+  ) {
+    const nextNotes = upsertTrainingEventMetadata(eventEditor.notes, partial);
+    return persistTrainingNotes(nextNotes, successMessage);
   }
 
   function setTrainingMaterialSavingState(kind: TrainingMaterialKind, savingState: boolean) {
@@ -2163,13 +2365,24 @@ export default function EventDetailPage() {
       if (matchedSpIds.length) {
         await assignMultipleSpIds(
           matchedSpIds,
-          `Imported ${matchedSpIds.length} SP${matchedSpIds.length === 1 ? "" : "s"} from workbook.`
+          `${matchedSpIds.length} SP${matchedSpIds.length === 1 ? "" : "s"} imported and confirmed.`,
+          { status: "confirmed", confirmed: true }
         );
       }
 
+      const importMetadataUpdate: Partial<TrainingEventMetadata> = {
+        imported_event_info_at: new Date().toISOString(),
+        imported_event_info_count: String(parsed.entries.length),
+        imported_training_date: parsed.trainingDate,
+        imported_training_time: parsed.trainingTime,
+        imported_event_dates_count: String(parsed.eventDatesDetected.length),
+      };
+
       if (parsed.facultyDetected.length && !trainingMetadata.faculty_names.trim()) {
-        handleTrainingMetadataChange("faculty_names", parsed.facultyDetected.join(", "));
+        importMetadataUpdate.faculty_names = parsed.facultyDetected.join(", ");
       }
+
+      await persistTrainingMetadataFields(importMetadataUpdate, "Event info imported.");
 
       setTrainingImportResult({
         eventTitle: parsed.eventTitle,
@@ -2179,6 +2392,11 @@ export default function EventDetailPage() {
         facultyDetected: parsed.facultyDetected,
         importedAt: new Date().toISOString(),
         importedCount: parsed.entries.length,
+        confirmedCount: matchedAssigned.length,
+        trainingDate: parsed.trainingDate,
+        trainingTime: parsed.trainingTime,
+        eventDatesDetected: parsed.eventDatesDetected,
+        eventTimesDetected: parsed.eventTimesDetected,
       });
     } catch (error) {
       setTrainingImportError(
@@ -2311,7 +2529,7 @@ export default function EventDetailPage() {
       }
 
       setRelatedPushSummary(body.summary);
-      setEventSaveMessage("Pushed successfully");
+      showSuccessMessage("Pushed successfully");
       await handlePreviewRelatedEvents();
     } catch (error) {
       setRelatedPushError(
@@ -2416,6 +2634,20 @@ export default function EventDetailPage() {
     setRelatedKeyword((current) => (current ? current : defaultRelatedKeyword));
   }, [defaultRelatedKeyword]);
 
+  useEffect(() => {
+    const next: Record<string, boolean> = {};
+    persistedWorkflowChecks.forEach((id) => {
+      next[id] = true;
+    });
+    setWorkflowChecks(next);
+  }, [persistedWorkflowChecks]);
+
+  useEffect(() => {
+    return () => {
+      clearActionFeedbackTimers();
+    };
+  }, []);
+
   async function handleAddAssignment(spId = selectedSpId) {
     if (!id || !spId) return;
 
@@ -2439,10 +2671,7 @@ export default function EventDetailPage() {
 
     await refreshData();
     setRecentAssignedSpId(spId);
-    setAssignmentSuccessMessage("SP assigned");
-    window.setTimeout(() => {
-      setAssignmentSuccessMessage("");
-    }, 2000);
+    showSuccessMessage("SP assigned");
     window.setTimeout(() => {
       setRecentAssignedSpId("");
     }, 2400);
@@ -2475,7 +2704,7 @@ export default function EventDetailPage() {
     }
 
     await refreshData();
-    setEventSaveMessage(`Status updated to ${assignmentStatusLabels[status]}.`);
+    showSuccessMessage(`Updated to ${assignmentStatusLabels[status]}.`);
     setSaving(false);
   }
 
@@ -2502,7 +2731,7 @@ export default function EventDetailPage() {
     }
 
     await refreshData();
-    setEventSaveMessage("Assignment details saved.");
+    showSuccessMessage("Updated");
     setSaving(false);
   }
 
@@ -2525,7 +2754,7 @@ export default function EventDetailPage() {
     }
 
     await refreshData();
-    setEventSaveMessage("Assignment removed.");
+    showSuccessMessage("Updated");
     setSaving(false);
   }
 
@@ -2536,10 +2765,74 @@ export default function EventDetailPage() {
     }
 
     setEventSaveError("");
-    window.location.href = mailtoHref;
-    setEventSaveMessage(
-      `Email draft opened for ${assignedBccEmails.length} assigned SP${assignedBccEmails.length === 1 ? "" : "s"}.`
+    await persistTrainingMetadataFields(
+      {
+        email_status: "draft_opened",
+        email_draft_opened_at: new Date().toISOString(),
+      },
+      "Draft opened."
     );
+    window.location.href = mailtoHref;
+    showSuccessMessage(
+      `Draft opened for ${assignedBccEmails.length} assigned SP${assignedBccEmails.length === 1 ? "" : "s"}.`
+    );
+  }
+
+  async function handleMarkEmailSent() {
+    await persistTrainingMetadataFields(
+      {
+        email_status: "sent",
+        email_sent_at: new Date().toISOString(),
+      },
+      "Email marked sent."
+    );
+  }
+
+  async function handleToggleWorkflowCheck(itemId: string, complete: boolean) {
+    const nextChecks = {
+      ...workflowChecks,
+      [itemId]: !complete,
+    };
+    if (!nextChecks[itemId]) {
+      delete nextChecks[itemId];
+    }
+    try {
+      await persistWorkflowChecks(nextChecks);
+    } catch (error) {
+      setEventSaveError(error instanceof Error ? error.message : "Could not update workflow.");
+    }
+  }
+
+  async function handleConfirmAllAssignments() {
+    const pendingAssignments = sortedAssignments.filter((assignment) => !isAssignmentConfirmed(assignment));
+    if (!pendingAssignments.length) {
+      showSuccessMessage("All assigned SPs are already confirmed.");
+      return;
+    }
+
+    setSaving(true);
+    setAssignmentSuccessMessage("");
+    setErrorMessage("");
+    setEventSaveError("");
+    setEventSaveMessage("");
+
+    try {
+      for (const assignment of pendingAssignments) {
+        await saveAssignmentRequest("PATCH", {
+          assignment_id: assignment.id,
+          updates: {
+            status: "confirmed",
+            confirmed: true,
+          },
+        });
+      }
+      await refreshData();
+      showSuccessMessage("SPs confirmed");
+    } catch (error) {
+      setEventSaveError(error instanceof Error ? error.message : "Could not confirm all SPs.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function handleFillRemainingSpots() {
@@ -3694,6 +3987,9 @@ export default function EventDetailPage() {
                           Workbook event: {trainingImportResult.eventTitle || "Untitled workbook event"}
                         </div>
                         <div style={{ color: "var(--cfsp-green)", fontWeight: 800 }}>
+                          {trainingImportResult.confirmedCount} SP{trainingImportResult.confirmedCount === 1 ? "" : "s"} imported and confirmed
+                        </div>
+                        <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
                           Imported rows: {trainingImportResult.importedCount} · {formatUploadedTimestamp(trainingImportResult.importedAt)}
                         </div>
                         <div style={{ color: "var(--cfsp-green)", fontWeight: 800 }}>
@@ -3708,6 +4004,16 @@ export default function EventDetailPage() {
                         {trainingImportResult.facultyDetected.length ? (
                           <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
                             Faculty detected: {trainingImportResult.facultyDetected.join(", ")}
+                          </div>
+                        ) : null}
+                        {trainingImportResult.trainingDate || trainingImportResult.trainingTime ? (
+                          <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
+                            Training date/time detected: {[trainingImportResult.trainingDate, trainingImportResult.trainingTime].filter(Boolean).join(" · ")}
+                          </div>
+                        ) : null}
+                        {trainingImportResult.eventDatesDetected.length ? (
+                          <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
+                            {trainingImportResult.eventDatesDetected.length} event date(s) detected
                           </div>
                         ) : null}
                       </div>
@@ -3898,201 +4204,215 @@ export default function EventDetailPage() {
       ) : null}
 
       {!isTrainingMode ? (
-        <>
-      <div style={{ ...cardStyle, background: "var(--cfsp-surface-muted)", borderColor: "var(--cfsp-border)" }}>
-        <div
+        <section
           style={{
-            display: "flex",
-            justifyContent: "space-between",
-            gap: "12px",
-            flexWrap: "wrap",
-            alignItems: "flex-start",
+            ...cardStyle,
+            background: "var(--cfsp-surface-muted)",
+            borderColor: "rgba(120, 180, 255, 0.24)",
+            position: "sticky",
+            top: "16px",
           }}
         >
-          <div>
-            <h2 style={compactSectionTitleStyle}>Current Coverage</h2>
-            <p style={compactSectionHintStyle}>
-              See confirmed coverage, assigned SPs, and the current staffing state at a glance.
-            </p>
-          </div>
           <div
             style={{
-              borderRadius: "999px",
-              padding: "8px 12px",
-              background: workflowTone.background,
-              border: workflowTone.border,
-              color: workflowTone.color,
-              fontWeight: 900,
-              fontSize: "13px",
+              display: "flex",
+              justifyContent: "space-between",
+              gap: "12px",
+              flexWrap: "wrap",
+              alignItems: "flex-start",
             }}
           >
-            {workflowTone.label}
-          </div>
-        </div>
-
-        <div
-          style={{
-            ...detailGridStyle,
-            marginTop: "12px",
-            gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-          }}
-        >
-          <div style={statCard}>
-            <div style={statLabel}>{noSpStaffingRequired ? "Coverage" : "Confirmed vs Needed"}</div>
-            <div style={statValue}>{noSpStaffingRequired ? "No SPs required" : `${confirmedCount} / ${needed}`}</div>
-          </div>
-          <div style={statCard}>
-            <div style={statLabel}>{noSpStaffingRequired ? "Event Type" : "Assigned SPs"}</div>
-            <div style={statValue}>{noSpStaffingRequired ? "Skills Workshop" : assignedCount}</div>
-          </div>
-          <div style={statCard}>
-            <div style={statLabel}>{noSpStaffingRequired ? "Staffing" : "Still Open"}</div>
-            <div style={{ ...statValue, color: shortageCount > 0 ? "var(--cfsp-danger)" : "var(--cfsp-green)" }}>
-              {noSpStaffingRequired ? "Not required" : shortageCount}
+            <div>
+              <h2 style={compactSectionTitleStyle}>Workflow Report</h2>
+              <p style={compactSectionHintStyle}>
+                Compact progress view with saved workflow checks and operational status.
+              </p>
             </div>
-          </div>
-        </div>
-
-        <div style={{ marginTop: "14px", display: "grid", gap: "10px" }}>
-          <div style={statLabel}>Assigned SP status</div>
-          {noSpStaffingRequired ? (
             <div
               style={{
-                border: "1px solid rgba(44, 211, 173, 0.24)",
-                borderRadius: "12px",
-                background: "rgba(44, 211, 173, 0.14)",
-                color: "var(--cfsp-green)",
-                padding: "12px 14px",
-                fontWeight: 800,
+                borderRadius: "999px",
+                padding: "8px 12px",
+                background: workflowTone.background,
+                border: workflowTone.border,
+                color: workflowTone.color,
+                fontWeight: 900,
+                fontSize: "13px",
               }}
             >
-              No SP staffing required for this skills event.
+              {workflowPercent}% complete
             </div>
-          ) : sortedAssignments.length === 0 ? (
-            <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>No SPs assigned yet.</div>
-          ) : (
-            <div style={{ display: "grid", gap: "10px" }}>
-              {sortedAssignments.map((assignment) => {
-                const sp = assignment.sp_id ? spsById.get(assignment.sp_id) : undefined;
-                const status = getAssignmentStatus(assignment);
-                return (
-                  <div
-                    key={`coverage-${assignment.id}`}
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                      gap: "10px",
-                      flexWrap: "wrap",
-                      border: "1px solid var(--cfsp-border)",
-                      borderRadius: "12px",
-                      background: "var(--cfsp-surface)",
-                      padding: "12px 14px",
-                    }}
-                  >
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontWeight: 900, color: "var(--cfsp-text)" }}>
-                        {sp ? getFullName(sp) : "Unknown SP"}
-                      </div>
-                      <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontSize: "13px", fontWeight: 700 }}>
-                        {sp ? getEmail(sp) || sp.phone || "No contact details" : assignment.sp_id || "No SP id"}
-                      </div>
-                    </div>
-                    <span
-                      style={{
-                        ...assignmentStatusStyles[status],
-                        borderRadius: "999px",
-                        padding: "6px 10px",
-                        fontSize: "12px",
-                        fontWeight: 900,
-                      }}
-                    >
-                      {assignmentStatusLabels[status]}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      </div>
-
-      <EventPlanningTimeline
-        eventDateLabel={eventDateLabel}
-        summaryTimeLabel={summaryTimeLabel}
-      />
-
-      <section style={cardStyle}>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            gap: "12px",
-            alignItems: "flex-start",
-            flexWrap: "wrap",
-          }}
-        >
-          <div>
-            <h2 style={compactSectionTitleStyle}>Session Details &amp; Workflow Tracker</h2>
-            <p style={compactSectionHintStyle}>
-              {workflowProgress.completeCount}/{workflowProgress.totalCount} complete. Saving coming soon.
-            </p>
           </div>
+
           <div
             style={{
-              borderRadius: "999px",
-              padding: "8px 12px",
-              background: "rgba(73, 168, 255, 0.14)",
-              border: "1px solid rgba(120, 180, 255, 0.24)",
-              color: "var(--cfsp-blue)",
-              fontWeight: 900,
-              fontSize: "13px",
+              ...detailGridStyle,
+              marginTop: "12px",
+              gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
             }}
           >
-            Preview-only tracker
+            {workflowReportItems.map((item) => (
+              <div key={item.id} style={statCard}>
+                <div style={statLabel}>{item.label}</div>
+                <div
+                  style={{
+                    ...statValue,
+                    fontSize: "15px",
+                    color: item.complete ? "var(--cfsp-green)" : "var(--cfsp-text)",
+                  }}
+                >
+                  {item.value}
+                </div>
+                <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 700 }}>
+                  {item.detail}
+                </div>
+              </div>
+            ))}
           </div>
-        </div>
 
-        <div style={{ ...detailGridStyle, marginTop: "14px" }}>
-          <div style={statCard}>
-            <div style={statLabel}>Progress</div>
-            <div style={statValue}>
-              {workflowProgress.completeCount} / {workflowProgress.totalCount}
-            </div>
-          </div>
-          <div style={statCard}>
-            <div style={statLabel}>SP Staffing</div>
-            <div style={statValue}>{noSpStaffingRequired ? "Not required" : `${confirmedCount}/${needed || 0} confirmed`}</div>
-          </div>
-          <div style={statCard}>
-            <div style={statLabel}>Sessions</div>
-            <div style={statValue}>{sessions.length || 0}</div>
-          </div>
-          <div style={statCard}>
-            <div style={statLabel}>Virtual Platform</div>
-            <div style={statValue}>{eventMeta.isVirtualSp ? (hasZoomReady ? "Ready" : "Needs setup") : "N/A"}</div>
-          </div>
-        </div>
-
-        <div style={{ display: "grid", gap: "14px", marginTop: "16px" }}>
-          {workflowGroups.map((group) => (
-            <section
-              key={group.key}
+          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "12px" }}>
+            {!noSpStaffingRequired ? (
+              <button
+                type="button"
+                onClick={() => void handleConfirmAllAssignments()}
+                disabled={saving || sortedAssignments.length === 0}
+                style={{ ...buttonStyle, opacity: saving || sortedAssignments.length === 0 ? 0.65 : 1 }}
+              >
+                Confirm All
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => void handleOpenAvailabilityRequest()}
+              disabled={saving || !assignedBccEmails.length}
               style={{
-                border: "1px solid var(--cfsp-border)",
-                borderRadius: "14px",
-                background: "var(--cfsp-surface-muted)",
-                padding: "14px",
+                ...buttonStyle,
+                background: "var(--cfsp-surface)",
+                color: "var(--cfsp-text)",
+                border: "1px solid rgba(120, 180, 255, 0.24)",
+                opacity: saving || !assignedBccEmails.length ? 0.65 : 1,
               }}
             >
-              <div style={{ color: "var(--cfsp-text)", fontWeight: 900, fontSize: "16px" }}>{group.title}</div>
-              <div style={{ display: "grid", gap: "10px", marginTop: "10px" }}>
-                {group.items.map((item) => {
-                  const complete = item.autoComplete || workflowChecks[item.id];
-                  const manualOnly = !item.autoComplete;
-                  return (
+              Draft Email
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleMarkEmailSent()}
+              disabled={saving}
+              style={{
+                ...buttonStyle,
+                background: "var(--cfsp-surface)",
+                color: "var(--cfsp-green)",
+                border: "1px solid rgba(44, 211, 173, 0.24)",
+                opacity: saving ? 0.65 : 1,
+              }}
+            >
+              Mark Email Sent
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowWorkflowAdvanced((current) => !current)}
+              style={{
+                ...buttonStyle,
+                background: "var(--cfsp-surface)",
+                color: "var(--cfsp-text)",
+                border: "1px solid var(--cfsp-border)",
+              }}
+            >
+              {showWorkflowAdvanced ? "Hide Advanced Workflow" : "Advanced Workflow / Expand"}
+            </button>
+          </div>
+
+          {showWorkflowAdvanced ? (
+            <div style={{ display: "grid", gap: "14px", marginTop: "16px" }}>
+              {workflowGroups.map((group) => (
+                <section
+                  key={group.key}
+                  style={{
+                    border: "1px solid var(--cfsp-border)",
+                    borderRadius: "14px",
+                    background: "var(--cfsp-surface)",
+                    padding: "14px",
+                  }}
+                >
+                  <div style={{ color: "var(--cfsp-text)", fontWeight: 900, fontSize: "16px" }}>{group.title}</div>
+                  <div style={{ display: "grid", gap: "10px", marginTop: "10px" }}>
+                    {group.items.map((item) => {
+                      const complete = item.autoComplete || workflowChecks[item.id];
+                      const manualOnly = !item.autoComplete;
+                      return (
+                        <div
+                          key={item.id}
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            gap: "12px",
+                            alignItems: "center",
+                            flexWrap: "wrap",
+                            border: "1px solid var(--cfsp-border)",
+                            borderRadius: "12px",
+                            background: "var(--cfsp-surface-muted)",
+                            padding: "12px 14px",
+                          }}
+                        >
+                          <div>
+                            <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>{item.label}</div>
+                            <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontSize: "13px", fontWeight: 700 }}>
+                              {item.detail}
+                            </div>
+                          </div>
+                          <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                            <span
+                              style={{
+                                borderRadius: "999px",
+                                padding: "6px 10px",
+                                fontSize: "12px",
+                                fontWeight: 900,
+                                background: complete ? "var(--cfsp-green-soft)" : "rgba(168, 183, 204, 0.12)",
+                                border: complete
+                                  ? "1px solid rgba(44, 211, 173, 0.24)"
+                                  : "1px solid var(--cfsp-border)",
+                                color: complete ? "var(--cfsp-green)" : "var(--cfsp-text-muted)",
+                              }}
+                            >
+                              {complete ? "Complete" : item.autoComplete ? "Auto check pending" : "Manual check"}
+                            </span>
+                            {manualOnly ? (
+                              <button
+                                type="button"
+                                onClick={() => void handleToggleWorkflowCheck(item.id, complete)}
+                                disabled={saving}
+                                style={{
+                                  ...buttonStyle,
+                                  background: complete ? "var(--cfsp-surface)" : "var(--cfsp-blue)",
+                                  color: complete ? "var(--cfsp-text)" : "#ffffff",
+                                  border: complete ? "1px solid var(--cfsp-border)" : buttonStyle.border,
+                                  opacity: saving ? 0.65 : 1,
+                                }}
+                              >
+                                {complete ? "Mark Pending" : "Mark Complete"}
+                              </button>
+                            ) : null}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
+              ))}
+
+              <section
+                style={{
+                  border: "1px solid var(--cfsp-border)",
+                  borderRadius: "14px",
+                  background: "var(--cfsp-surface)",
+                  padding: "14px",
+                }}
+              >
+                <div style={{ color: "var(--cfsp-text)", fontWeight: 900, fontSize: "16px" }}>Progress Milestones</div>
+                <div style={{ display: "grid", gap: "10px", marginTop: "10px" }}>
+                  {progressItems.map((item) => (
                     <div
-                      key={item.id}
+                      key={item.label}
                       style={{
                         display: "flex",
                         justifyContent: "space-between",
@@ -4101,7 +4421,7 @@ export default function EventDetailPage() {
                         flexWrap: "wrap",
                         border: "1px solid var(--cfsp-border)",
                         borderRadius: "12px",
-                        background: "var(--cfsp-surface)",
+                        background: "var(--cfsp-surface-muted)",
                         padding: "12px 14px",
                       }}
                     >
@@ -4111,116 +4431,28 @@ export default function EventDetailPage() {
                           {item.detail}
                         </div>
                       </div>
-                      <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-                        {item.autoComplete ? (
-                          <span
-                            style={{
-                              borderRadius: "999px",
-                              padding: "6px 10px",
-                              fontSize: "12px",
-                              fontWeight: 900,
-                              background: "var(--cfsp-green-soft)",
-                              border: "1px solid rgba(44, 211, 173, 0.24)",
-                              color: "var(--cfsp-green)",
-                            }}
-                          >
-                            Auto-complete
-                          </span>
-                        ) : null}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (!manualOnly) return;
-                            setWorkflowChecks((current) => ({
-                              ...current,
-                              [item.id]: !complete,
-                            }));
-                          }}
-                          style={{
-                            ...buttonStyle,
-                            background: manualOnly
-                              ? (complete ? "var(--cfsp-surface)" : "var(--cfsp-blue)")
-                              : "var(--cfsp-surface-muted)",
-                            color: manualOnly
-                              ? (complete ? "var(--cfsp-text)" : "#ffffff")
-                              : "var(--cfsp-text-muted)",
-                            border: manualOnly ? buttonStyle.border : "1px solid var(--cfsp-border)",
-                            cursor: manualOnly ? "pointer" : "default",
-                          }}
-                        >
-                          {manualOnly ? (complete ? "Mark Pending" : "Mark Complete") : "Auto-complete"}
-                        </button>
-                      </div>
+                      <span
+                        style={{
+                          borderRadius: "999px",
+                          padding: "6px 10px",
+                          fontSize: "12px",
+                          fontWeight: 900,
+                          background: item.complete ? "var(--cfsp-green-soft)" : "rgba(168, 183, 204, 0.12)",
+                          border: item.complete
+                            ? "1px solid rgba(44, 211, 173, 0.24)"
+                            : "1px solid var(--cfsp-border)",
+                          color: item.complete ? "var(--cfsp-green)" : "var(--cfsp-text-muted)",
+                        }}
+                      >
+                        {item.complete ? "Complete" : "Pending"}
+                      </span>
                     </div>
-                  );
-                })}
-              </div>
-            </section>
-          ))}
-        </div>
-      </section>
-
-      <details
-        style={{
-          ...cardStyle,
-          borderColor: "var(--cfsp-border)",
-          background: "var(--cfsp-surface-muted)",
-        }}
-      >
-        <summary
-          style={{
-            cursor: "pointer",
-            color: "var(--cfsp-text)",
-            fontWeight: 900,
-            fontSize: "20px",
-            listStyle: "none",
-          }}
-        >
-          Event Progress
-        </summary>
-
-        <div style={{ display: "grid", gap: "10px", marginTop: "14px" }}>
-          {progressItems.map((item) => (
-            <div
-              key={item.label}
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                gap: "12px",
-                alignItems: "center",
-                flexWrap: "wrap",
-                border: "1px solid var(--cfsp-border)",
-                borderRadius: "12px",
-                background: "var(--cfsp-surface)",
-                padding: "12px 14px",
-              }}
-            >
-              <div>
-                <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>{item.label}</div>
-                <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontSize: "13px", fontWeight: 700 }}>
-                  {item.detail}
+                  ))}
                 </div>
-              </div>
-              <span
-                style={{
-                  borderRadius: "999px",
-                  padding: "6px 10px",
-                  fontSize: "12px",
-                  fontWeight: 900,
-                  background: item.complete ? "var(--cfsp-green-soft)" : "rgba(168, 183, 204, 0.12)",
-                  border: item.complete
-                    ? "1px solid rgba(44, 211, 173, 0.24)"
-                    : "1px solid var(--cfsp-border)",
-                  color: item.complete ? "var(--cfsp-green)" : "var(--cfsp-text-muted)",
-                }}
-              >
-                {item.complete ? "Complete" : "Pending"}
-              </span>
+              </section>
             </div>
-          ))}
-        </div>
-      </details>
-        </>
+          ) : null}
+        </section>
       ) : null}
 
       {eventSaveMessage ? (

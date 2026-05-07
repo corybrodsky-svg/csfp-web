@@ -22,6 +22,16 @@ export type TrainingEventMetadata = {
   sim_contact: string;
   training_notes: string;
   rotation_schedule_status: string;
+  modality: string;
+  workflow_manual_checks: string;
+  email_status: string;
+  email_sent_at: string;
+  email_draft_opened_at: string;
+  imported_event_info_at: string;
+  imported_event_info_count: string;
+  imported_training_date: string;
+  imported_training_time: string;
+  imported_event_dates_count: string;
 };
 
 const TRAINING_METADATA_START = "[CFSP_TRAINING_METADATA]";
@@ -51,6 +61,16 @@ const TRAINING_METADATA_KEYS = [
   "sim_contact",
   "training_notes",
   "rotation_schedule_status",
+  "modality",
+  "workflow_manual_checks",
+  "email_status",
+  "email_sent_at",
+  "email_draft_opened_at",
+  "imported_event_info_at",
+  "imported_event_info_count",
+  "imported_training_date",
+  "imported_training_time",
+  "imported_event_dates_count",
 ] as const satisfies readonly (keyof TrainingEventMetadata)[];
 
 function asText(value: unknown) {
@@ -89,6 +109,16 @@ export function emptyTrainingEventMetadata(): TrainingEventMetadata {
     sim_contact: "",
     training_notes: "",
     rotation_schedule_status: "",
+    modality: "",
+    workflow_manual_checks: "",
+    email_status: "",
+    email_sent_at: "",
+    email_draft_opened_at: "",
+    imported_event_info_at: "",
+    imported_event_info_count: "",
+    imported_training_date: "",
+    imported_training_time: "",
+    imported_event_dates_count: "",
   };
 }
 

@@ -434,6 +434,8 @@ export async function POST(
     const eventId = getRouteId(params);
     const body = await request.json();
     const spId = typeof body?.sp_id === "string" ? body.sp_id : "";
+    const requestedStatus = typeof body?.status === "string" ? body.status.trim() : "";
+    const requestedConfirmed = typeof body?.confirmed === "boolean" ? body.confirmed : undefined;
 
     if (!eventId || !spId) {
       return applyAuthCookies(
@@ -469,8 +471,8 @@ export async function POST(
     const { error } = await supabaseServer.from("event_sps").insert({
       event_id: eventId,
       sp_id: spId,
-      status: "invited",
-      confirmed: false,
+      status: requestedStatus || "invited",
+      confirmed: typeof requestedConfirmed === "boolean" ? requestedConfirmed : requestedStatus === "confirmed",
     });
 
     if (error) {
