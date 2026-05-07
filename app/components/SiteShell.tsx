@@ -92,12 +92,24 @@ export default function SiteShell({ title, subtitle, children }: SiteShellProps)
   const [logoVisible, setLogoVisible] = useState(true);
   const [signingOut, setSigningOut] = useState(false);
   const [me, setMe] = useState<ShellMeResponse | null>(null);
+  const [nightMode, setNightMode] = useState(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return window.localStorage.getItem("cfsp-theme") === "dark";
+    } catch {
+      return false;
+    }
+  });
 
   const activeMap = useMemo(() => {
     const next = new Map<string, boolean>();
     navItems.forEach((item) => next.set(item.href, isNavActive(pathname, item)));
     return next;
   }, [pathname]);
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", nightMode ? "dark" : "light");
+  }, [nightMode]);
 
   useEffect(() => {
     let cancelled = false;
@@ -140,6 +152,19 @@ export default function SiteShell({ title, subtitle, children }: SiteShellProps)
     }
   }
 
+  function handleToggleNightMode() {
+    setNightMode((current) => {
+      const next = !current;
+      try {
+        window.localStorage.setItem("cfsp-theme", next ? "dark" : "light");
+      } catch {
+        return next;
+      }
+      document.documentElement.setAttribute("data-theme", next ? "dark" : "light");
+      return next;
+    });
+  }
+
   const accountDisplayName = getDisplayName(me);
   const accountRole = normalizeRole(me?.profile?.role);
   const profileImageUrl = asText(me?.profile?.profile_image_url);
@@ -155,9 +180,16 @@ export default function SiteShell({ title, subtitle, children }: SiteShellProps)
                   <div className="flex flex-wrap items-center gap-3">
                     <Link
                       href="/dashboard"
-                      className="flex items-center gap-3 rounded-[12px] border border-[#d8e4ec] bg-white px-3 py-2 text-inherit no-underline shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
+                      className="flex items-center gap-3 rounded-[12px] px-3 py-2 text-inherit no-underline shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
+                      style={{
+                        border: "1px solid var(--cfsp-header-border)",
+                        background: "var(--cfsp-header-bg)",
+                      }}
                     >
-                      <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-[10px] bg-[#0f4673] text-xs font-black tracking-[0.14em] text-white">
+                      <div
+                        className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-[10px] text-xs font-black tracking-[0.14em] text-white"
+                        style={{ background: "var(--cfsp-logo-bg)" }}
+                      >
                         {logoVisible ? (
                           <Image
                             src="/branding/cfsp-logo.png"
@@ -172,12 +204,19 @@ export default function SiteShell({ title, subtitle, children }: SiteShellProps)
                         )}
                       </div>
                       <div className="min-w-0">
-                        <div className="text-sm font-black leading-tight text-[#14304f]">CFSP</div>
-                        <div className="text-xs font-semibold text-[#5e7388]">Conflict-Free SP</div>
+                        <div className="text-sm font-black leading-tight text-[var(--cfsp-text)]">CFSP</div>
+                        <div className="text-xs font-semibold text-[var(--cfsp-text-muted)]">Conflict-Free SP</div>
                       </div>
                     </Link>
 
-                    <div className="inline-flex items-center rounded-full border border-[#8cd4be] bg-[#eaf7f2] px-3 py-1 text-xs font-black text-[#13624f]">
+                    <div
+                      className="inline-flex items-center rounded-full px-3 py-1 text-xs font-black"
+                      style={{
+                        border: "1px solid var(--cfsp-shell-chip-border)",
+                        background: "var(--cfsp-shell-chip-bg)",
+                        color: "var(--cfsp-shell-chip-text)",
+                      }}
+                    >
                       CFSP • Conflict-Free SP
                     </div>
                   </div>
@@ -190,12 +229,32 @@ export default function SiteShell({ title, subtitle, children }: SiteShellProps)
                 </div>
 
                 <div className="self-start lg:ml-4">
+                  <div className="mb-3 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={handleToggleNightMode}
+                      className="cfsp-btn cfsp-btn-subtle min-h-[40px]"
+                    >
+                      {nightMode ? "Night Mode: On" : "Night Mode"}
+                    </button>
+                  </div>
                   <details className="relative">
                     <summary
-                      className="flex min-h-[46px] cursor-pointer list-none items-center gap-3 rounded-[12px] border border-[#d7e2ea] bg-white px-3 py-2 text-left text-sm font-bold text-[#14304f] transition-colors hover:bg-[#f8fbfd]"
-                      style={{ boxShadow: "0 1px 2px rgba(15, 23, 42, 0.04)" }}
+                      className="flex min-h-[46px] cursor-pointer list-none items-center gap-3 rounded-[12px] px-3 py-2 text-left text-sm font-bold transition-colors"
+                      style={{
+                        border: "1px solid var(--cfsp-header-border)",
+                        background: "var(--cfsp-header-bg)",
+                        color: "var(--cfsp-text)",
+                        boxShadow: "0 1px 2px rgba(15, 23, 42, 0.04)",
+                      }}
                     >
-                      <span className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-[#eaf3fb] text-sm font-black text-[#145b96]">
+                      <span
+                        className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full text-sm font-black"
+                        style={{
+                          background: "var(--cfsp-theme-toggle-bg)",
+                          color: "var(--cfsp-blue-dark)",
+                        }}
+                      >
                         {profileImageUrl ? (
                           <Image
                             src={profileImageUrl}
@@ -211,23 +270,28 @@ export default function SiteShell({ title, subtitle, children }: SiteShellProps)
                       </span>
                       <span className="min-w-0">
                         <span className="block max-w-[120px] truncate text-sm font-black">{accountDisplayName}</span>
-                        <span className="block text-xs font-semibold text-[#6a7e91]">{accountRole}</span>
+                        <span className="block text-xs font-semibold text-[var(--cfsp-text-muted)]">{accountRole}</span>
                       </span>
-                      <span className="text-xs text-[#6a7e91]">▾</span>
+                      <span className="text-xs text-[var(--cfsp-text-muted)]">▾</span>
                     </summary>
                     <div
-                      className="absolute right-0 z-20 mt-2 min-w-[220px] overflow-hidden rounded-[12px] border border-[#d8e4ec] bg-white shadow-[0_16px_32px_rgba(15,23,42,0.12)]"
-                      style={{ top: "100%" }}
+                      className="absolute right-0 z-20 mt-2 min-w-[220px] overflow-hidden rounded-[12px] shadow-[0_16px_32px_rgba(15,23,42,0.12)]"
+                      style={{
+                        top: "100%",
+                        border: "1px solid var(--cfsp-header-border)",
+                        background: "var(--cfsp-header-bg)",
+                      }}
                     >
-                      <div className="border-b border-[#e7eef4] px-4 py-3">
-                        <div className="text-xs font-black uppercase tracking-[0.08em] text-[#6a7e91]">Account</div>
-                        <div className="mt-1 text-sm font-bold text-[#14304f]">{accountDisplayName}</div>
-                        <div className="mt-1 text-xs font-semibold text-[#6a7e91]">{accountRole}</div>
+                      <div className="px-4 py-3" style={{ borderBottom: "1px solid var(--cfsp-border)" }}>
+                        <div className="text-xs font-black uppercase tracking-[0.08em] text-[var(--cfsp-text-muted)]">Account</div>
+                        <div className="mt-1 text-sm font-bold text-[var(--cfsp-text)]">{accountDisplayName}</div>
+                        <div className="mt-1 text-xs font-semibold text-[var(--cfsp-text-muted)]">{accountRole}</div>
                       </div>
                       <div className="grid">
                         <Link
                           href="/me"
-                          className="min-h-[44px] px-4 py-3 text-sm font-semibold text-[#14304f] no-underline transition-colors hover:bg-[#f8fbfd]"
+                          className="min-h-[44px] px-4 py-3 text-sm font-semibold no-underline transition-colors"
+                          style={{ color: "var(--cfsp-text)" }}
                         >
                           My Profile
                         </Link>
@@ -235,7 +299,11 @@ export default function SiteShell({ title, subtitle, children }: SiteShellProps)
                           type="button"
                           onClick={handleSignOut}
                           disabled={signingOut}
-                          className="min-h-[44px] border-0 border-t border-[#e7eef4] bg-white px-4 py-3 text-left text-sm font-semibold text-[#14304f] transition-colors hover:bg-[#f8fbfd] disabled:opacity-60"
+                          className="min-h-[44px] border-0 bg-transparent px-4 py-3 text-left text-sm font-semibold transition-colors disabled:opacity-60"
+                          style={{
+                            borderTop: "1px solid var(--cfsp-border)",
+                            color: "var(--cfsp-text)",
+                          }}
                         >
                           {signingOut ? "Signing out..." : "Sign Out"}
                         </button>
@@ -245,7 +313,7 @@ export default function SiteShell({ title, subtitle, children }: SiteShellProps)
                 </div>
               </div>
 
-              <nav className="flex flex-wrap gap-2 border-t border-[#e5edf3] pt-4" aria-label="Primary navigation">
+              <nav className="flex flex-wrap gap-2 pt-4" aria-label="Primary navigation" style={{ borderTop: "1px solid var(--cfsp-border)" }}>
                 {navItems.map((item) => {
                   const active = activeMap.get(item.href);
                   const isPrimary = item.tone === "primary";
@@ -256,9 +324,9 @@ export default function SiteShell({ title, subtitle, children }: SiteShellProps)
                       href={item.href}
                       className="min-h-[42px] rounded-[10px] px-3 py-2 text-sm font-bold no-underline transition-colors"
                       style={{
-                        background: active ? "#14304f" : isPrimary ? "#145b96" : "#ffffff",
-                        border: active || isPrimary ? "1px solid transparent" : "1px solid #d7e2ea",
-                        color: active || isPrimary ? "#ffffff" : "#14304f",
+                        background: active ? "var(--cfsp-blue-dark)" : isPrimary ? "var(--cfsp-blue)" : "var(--cfsp-header-bg)",
+                        border: active || isPrimary ? "1px solid transparent" : "1px solid var(--cfsp-header-border)",
+                        color: active || isPrimary ? "#ffffff" : "var(--cfsp-text)",
                         boxShadow: active || isPrimary ? "0 1px 2px rgba(15, 23, 42, 0.08)" : "none",
                       }}
                     >

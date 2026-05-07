@@ -102,8 +102,18 @@ export default function LoginPage() {
 
   return (
     <main className="cfsp-page flex min-h-screen items-center justify-center px-4 py-6">
-      <div className="grid w-full max-w-6xl overflow-hidden rounded-[18px] border border-[#d9e4ec] bg-white shadow-[0_18px_42px_rgba(24,52,78,0.08)] lg:grid-cols-[1.05fr_0.95fr]">
-        <section className="hidden bg-[linear-gradient(180deg,#0f4673_0%,#145b96_100%)] px-8 py-8 text-white lg:flex lg:flex-col lg:justify-between">
+      <div
+        className="grid w-full max-w-6xl overflow-hidden rounded-[18px] shadow-[0_18px_42px_rgba(24,52,78,0.08)] lg:grid-cols-[1.05fr_0.95fr]"
+        style={{
+          border: "1px solid var(--cfsp-border)",
+          background: "var(--cfsp-surface)",
+          color: "var(--cfsp-text)",
+        }}
+      >
+        <section
+          className="hidden px-8 py-8 text-white lg:flex lg:flex-col lg:justify-between"
+          style={{ background: "linear-gradient(180deg, #081b30 0%, #145b96 100%)" }}
+        >
           <div>
             <div className="flex items-center gap-4">
               <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-xl bg-white text-base font-black tracking-[0.14em] text-[#0f4673]">
@@ -149,7 +159,11 @@ export default function LoginPage() {
           </div>
         </section>
 
-        <form onSubmit={handleSubmit} className="px-6 py-6 sm:px-8 sm:py-8 lg:px-10 lg:py-10">
+        <form
+          onSubmit={handleSubmit}
+          className="px-6 py-6 sm:px-8 sm:py-8 lg:px-10 lg:py-10"
+          style={{ background: "var(--cfsp-surface)", color: "var(--cfsp-text)" }}
+        >
           <div className="mb-6 flex items-center gap-3 lg:hidden">
             <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-xl border border-[#d6e6ea] bg-white text-sm font-black tracking-[0.12em] text-[#0f4471]">
               {logoVisible ? (

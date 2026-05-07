@@ -23,6 +23,51 @@
   --cfsp-danger: #af2f26;
   --cfsp-danger-soft: #fff2f1;
   --cfsp-shadow: 0 10px 28px rgba(24, 52, 78, 0.07);
+  --cfsp-header-bg: #ffffff;
+  --cfsp-header-border: #d8e4ec;
+  --cfsp-header-muted: #f8fbfd;
+  --cfsp-shell-chip-bg: #eaf7f2;
+  --cfsp-shell-chip-border: #8cd4be;
+  --cfsp-shell-chip-text: #13624f;
+  --cfsp-logo-bg: #0f4673;
+  --cfsp-theme-toggle-bg: #edf4fb;
+  --cfsp-theme-toggle-border: #d8e5f1;
+  --cfsp-theme-toggle-text: #145b96;
+}
+
+html[data-theme="dark"] {
+  --background: #07111d;
+  --foreground: #e6f0fa;
+  --cfsp-app-bg: linear-gradient(180deg, #040b14 0%, #081526 100%);
+  --cfsp-surface: #0f1a29;
+  --cfsp-surface-muted: #132132;
+  --cfsp-sidebar: #081b30;
+  --cfsp-sidebar-strong: #061321;
+  --cfsp-sidebar-border: rgba(126, 181, 255, 0.16);
+  --cfsp-border: #21354b;
+  --cfsp-border-strong: #2e4865;
+  --cfsp-text: #e6f0fa;
+  --cfsp-text-muted: #9db3c8;
+  --cfsp-blue: #4c97d9;
+  --cfsp-blue-dark: #77b3e9;
+  --cfsp-green: #30a989;
+  --cfsp-green-dark: #48c4a2;
+  --cfsp-green-soft: rgba(48, 169, 137, 0.14);
+  --cfsp-warning: #f1b860;
+  --cfsp-warning-soft: rgba(241, 184, 96, 0.12);
+  --cfsp-danger: #f08d84;
+  --cfsp-danger-soft: rgba(240, 141, 132, 0.14);
+  --cfsp-shadow: 0 16px 36px rgba(0, 0, 0, 0.34);
+  --cfsp-header-bg: #0d1725;
+  --cfsp-header-border: #203449;
+  --cfsp-header-muted: #132131;
+  --cfsp-shell-chip-bg: rgba(48, 169, 137, 0.16);
+  --cfsp-shell-chip-border: rgba(72, 196, 162, 0.35);
+  --cfsp-shell-chip-text: #98ebd3;
+  --cfsp-logo-bg: #081524;
+  --cfsp-theme-toggle-bg: #102030;
+  --cfsp-theme-toggle-border: #284461;
+  --cfsp-theme-toggle-text: #d9ebff;
 }
 
 @theme inline {
@@ -46,6 +91,7 @@ body {
   background: var(--cfsp-app-bg);
   color: var(--cfsp-text);
   font-family: Arial, Helvetica, sans-serif;
+  transition: background-color 180ms ease, color 180ms ease;
 }
 
 a {
@@ -146,19 +192,19 @@ textarea {
 }
 
 .cfsp-btn-secondary {
-  background: #ffffff;
+  background: var(--cfsp-surface);
   border-color: var(--cfsp-border-strong);
   color: var(--cfsp-text);
 }
 
 .cfsp-btn-secondary:hover {
-  background: #f7fafc;
+  background: var(--cfsp-surface-muted);
   border-color: #aebdcb;
 }
 
 .cfsp-btn-subtle {
-  background: #edf4fb;
-  border-color: #d8e5f1;
+  background: var(--cfsp-theme-toggle-bg);
+  border-color: var(--cfsp-theme-toggle-border);
   color: var(--cfsp-blue-dark);
 }
 
@@ -195,7 +241,7 @@ textarea {
   min-height: 28px;
   border-radius: 999px;
   padding: 5px 10px;
-  background: #f6f9fc;
+  background: var(--cfsp-surface-muted);
   border: 1px solid var(--cfsp-border);
   color: var(--cfsp-text);
   font-size: 0.8rem;
@@ -209,7 +255,7 @@ textarea {
   min-height: 46px;
   border-radius: 10px;
   border: 1px solid var(--cfsp-border-strong);
-  background: #ffffff;
+  background: var(--cfsp-surface);
   color: var(--cfsp-text);
   padding: 10px 12px;
 }
@@ -234,7 +280,7 @@ textarea {
 }
 
 .cfsp-stat-card {
-  background: #ffffff;
+  background: var(--cfsp-surface);
   border: 1px solid var(--cfsp-border);
   border-radius: 12px;
   padding: 15px;
@@ -261,7 +307,7 @@ textarea {
 }
 
 .cfsp-alert-info {
-  background: #f4f9fd;
+  background: var(--cfsp-surface-muted);
   border-color: #d6e6f2;
   color: var(--cfsp-text);
 }
@@ -272,7 +318,7 @@ textarea {
   min-height: 28px;
   padding: 4px 10px;
   border-radius: 999px;
-  background: #edf5fb;
+  background: var(--cfsp-theme-toggle-bg);
   color: var(--cfsp-blue-dark);
   font-size: 0.75rem;
   font-weight: 800;

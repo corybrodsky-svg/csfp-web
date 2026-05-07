@@ -23,10 +23,26 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              try {
+                var theme = localStorage.getItem("cfsp-theme");
+                if (theme === "dark") {
+                  document.documentElement.setAttribute("data-theme", "dark");
+                } else {
+                  document.documentElement.setAttribute("data-theme", "light");
+                }
+              } catch (error) {
+                document.documentElement.setAttribute("data-theme", "light");
+              }
+            `,
+          }}
+        />
         {children}
       </body>
     </html>

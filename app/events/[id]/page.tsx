@@ -25,7 +25,6 @@ import {
   type EditableEventType,
 } from "../../lib/eventTypeNotes";
 import {
-  getFacultyNames,
   getFacultyText,
   getSimStaffNames,
 } from "../../lib/eventRoster";
@@ -165,6 +164,8 @@ type TrainingImportResult = {
   alreadyAssigned: string[];
   notFound: string[];
   facultyDetected: string[];
+  importedAt: string;
+  importedCount: number;
 };
 
 type TrainingMaterialKind = "case_file" | "doorsign" | "supplemental_doc";
@@ -189,38 +190,38 @@ const emptySpRow: SPRow = {
 };
 
 const cardStyle: React.CSSProperties = {
-  background: "#ffffff",
-  border: "1px solid #dbe4ee",
+  background: "var(--cfsp-surface)",
+  border: "1px solid var(--cfsp-border)",
   borderRadius: "20px",
   padding: "16px",
-  boxShadow: "0 10px 26px rgba(15, 23, 42, 0.06)",
+  boxShadow: "var(--cfsp-shadow)",
   marginBottom: "14px",
 };
 
 const statCard: React.CSSProperties = {
-  border: "1px solid #dbe4ee",
+  border: "1px solid var(--cfsp-border)",
   borderRadius: "14px",
   padding: "11px 12px",
-  background: "#f8fbff",
+  background: "var(--cfsp-surface-muted)",
 };
 
 const statLabel: React.CSSProperties = {
   fontSize: "12px",
   fontWeight: 700,
-  color: "#64748b",
+  color: "var(--cfsp-text-muted)",
   textTransform: "uppercase",
 };
 
 const statValue: React.CSSProperties = {
   fontSize: "17px",
   fontWeight: 800,
-  color: "#173b6c",
+  color: "var(--cfsp-text)",
 };
 
 const buttonStyle: React.CSSProperties = {
-  border: "1px solid #173b6c",
+  border: "1px solid var(--cfsp-blue)",
   borderRadius: "12px",
-  background: "#173b6c",
+  background: "var(--cfsp-blue)",
   color: "#ffffff",
   cursor: "pointer",
   fontWeight: 800,
@@ -237,10 +238,11 @@ const dangerButtonStyle: React.CSSProperties = {
 const selectStyle: React.CSSProperties = {
   width: "100%",
   maxWidth: "520px",
-  border: "1px solid #cbd5e1",
+  border: "1px solid var(--cfsp-border-strong)",
   borderRadius: "12px",
   padding: "11px 12px",
-  color: "#173b6c",
+  color: "var(--cfsp-text)",
+  background: "var(--cfsp-surface)",
   fontWeight: 700,
 };
 
@@ -253,14 +255,14 @@ const detailGridStyle: React.CSSProperties = {
 
 const compactSectionTitleStyle: React.CSSProperties = {
   margin: 0,
-  color: "#173b6c",
+  color: "var(--cfsp-text)",
   fontSize: "22px",
   lineHeight: 1.1,
 };
 
 const compactSectionHintStyle: React.CSSProperties = {
   margin: "4px 0 0",
-  color: "#64748b",
+  color: "var(--cfsp-text-muted)",
   fontWeight: 700,
   fontSize: "13px",
 };
@@ -270,8 +272,8 @@ const segmentedGroupStyle: React.CSSProperties = {
   gap: "6px",
   padding: "4px",
   borderRadius: "999px",
-  border: "1px solid #dbe4ee",
-  background: "#f8fafc",
+  border: "1px solid var(--cfsp-border)",
+  background: "var(--cfsp-surface-muted)",
 };
 
 const assignmentStatuses: AssignmentStatus[] = [
@@ -435,10 +437,11 @@ const availabilityMatchStyles: Record<AvailabilityMatchStatus, React.CSSProperti
 };
 
 const inputStyle: React.CSSProperties = {
-  border: "1px solid #cbd5e1",
+  border: "1px solid var(--cfsp-border-strong)",
   borderRadius: "12px",
   padding: "10px 12px",
-  color: "#173b6c",
+  color: "var(--cfsp-text)",
+  background: "var(--cfsp-surface)",
   fontWeight: 700,
 };
 
@@ -1274,7 +1277,6 @@ export default function EventDetailPage() {
     () => parseTrainingEventMetadata(eventEditor.notes),
     [eventEditor.notes]
   );
-  const fallbackFacultyNames = useMemo(() => getFacultyNames(eventEditor.notes), [eventEditor.notes]);
   const fallbackFacultyText = useMemo(() => getFacultyText(eventEditor.notes), [eventEditor.notes]);
   const structuredDateLabel = sessions.length
     ? sessions
@@ -1381,9 +1383,6 @@ export default function EventDetailPage() {
     asText(trainingMetadata.rotation_schedule_status).toLowerCase()
   );
   const trainingFacultyText = trainingMetadata.faculty_names || fallbackFacultyText;
-  const trainingFacultyNames = trainingMetadata.faculty_names
-    ? trainingMetadata.faculty_names
-    : fallbackFacultyNames.join(", ");
   const trainingSimContact =
     trainingMetadata.sim_contact || simStaffNames.join(", ") || "Sim Team Assigned";
   const trainingLocationModality = eventMeta.isVirtualSp
@@ -1945,7 +1944,7 @@ export default function EventDetailPage() {
         [fieldConfig.uploadedByKey]: asText(body.material.uploaded_by),
       });
 
-      await persistTrainingNotes(nextNotes, `${fieldConfig.label} uploaded.`);
+      await persistTrainingNotes(nextNotes, `${fieldConfig.label} saved to training materials.`);
     } catch (error) {
       setEventSaveError(
         error instanceof Error
@@ -2056,6 +2055,8 @@ export default function EventDetailPage() {
         alreadyAssigned,
         notFound,
         facultyDetected: parsed.facultyDetected,
+        importedAt: new Date().toISOString(),
+        importedCount: parsed.entries.length,
       });
     } catch (error) {
       setTrainingImportError(
@@ -2386,7 +2387,7 @@ export default function EventDetailPage() {
 
       <details open style={cardStyle}>
         <summary style={{ cursor: "pointer", color: "#14304f", fontWeight: 900, fontSize: "20px" }}>
-          {isTrainingMode ? "Assigned SPs" : "Coverage Actions"}
+          {isTrainingMode ? "Training Command Center" : "Coverage Actions"}
         </summary>
         <div style={{ marginTop: "12px" }}>
         <div
@@ -2709,7 +2710,7 @@ export default function EventDetailPage() {
                               padding: "8px 12px",
                             }}
                           >
-                            View
+                            Download
                           </a>
                         ) : null}
                         <button
@@ -3054,6 +3055,74 @@ export default function EventDetailPage() {
                     />
                   </label>
                 </div>
+
+                <details
+                  style={{
+                    border: "1px solid #dbe4ee",
+                    borderRadius: "14px",
+                    padding: "12px",
+                    background: "#f8fbff",
+                  }}
+                >
+                  <summary style={{ cursor: "pointer", color: "#173b6c", fontWeight: 800 }}>
+                    Roster Import / Advanced Tools
+                  </summary>
+                  <div style={{ display: "grid", gap: "10px", marginTop: "12px" }}>
+                    <div style={statLabel}>Upload SP Event Info</div>
+                    <input
+                      type="file"
+                      accept=".xlsx,.xls,.xlsm"
+                      disabled={trainingImporting || saving}
+                      onChange={(event) => void handleTrainingWorkbookImport(event.target.files?.[0] || null)}
+                      style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                    />
+                    <div style={{ color: "#64748b", fontSize: "12px", fontWeight: 700 }}>
+                      Reads title from `B1`, SP emails from `B16:B35`, SP names from `C16:C35`, and faculty from column `G`.
+                    </div>
+                    {trainingImporting ? (
+                      <div className="cfsp-alert cfsp-alert-info">Importing SP Event Info workbook...</div>
+                    ) : null}
+                    {trainingImportError ? (
+                      <div className="cfsp-alert cfsp-alert-error">{trainingImportError}</div>
+                    ) : null}
+                    {trainingImportResult ? (
+                      <div
+                        style={{
+                          border: "1px solid #dbe4ee",
+                          borderRadius: "12px",
+                          background: "#ffffff",
+                          padding: "12px 14px",
+                          display: "grid",
+                          gap: "8px",
+                        }}
+                      >
+                        <div style={{ color: "#14304f", fontWeight: 900 }}>
+                          SP Event Info imported
+                        </div>
+                        <div style={{ color: "#475569", fontWeight: 700 }}>
+                          Workbook event: {trainingImportResult.eventTitle || "Untitled workbook event"}
+                        </div>
+                        <div style={{ color: "#166534", fontWeight: 800 }}>
+                          Imported rows: {trainingImportResult.importedCount} · {formatUploadedTimestamp(trainingImportResult.importedAt)}
+                        </div>
+                        <div style={{ color: "#166534", fontWeight: 800 }}>
+                          Matched / assigned: {trainingImportResult.matchedAssigned.length}
+                        </div>
+                        <div style={{ color: "#9a3412", fontWeight: 800 }}>
+                          Already assigned: {trainingImportResult.alreadyAssigned.length}
+                        </div>
+                        <div style={{ color: "#991b1b", fontWeight: 800 }}>
+                          Not found: {trainingImportResult.notFound.length}
+                        </div>
+                        {trainingImportResult.facultyDetected.length ? (
+                          <div style={{ color: "#475569", fontWeight: 700 }}>
+                            Faculty detected: {trainingImportResult.facultyDetected.join(", ")}
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+                </details>
               </div>
             </details>
           </div>
@@ -3136,65 +3205,26 @@ export default function EventDetailPage() {
                 </div>
               </div>
 
-              <div
-                style={{
-                  marginTop: "14px",
-                  border: "1px solid #dbe4ee",
-                  borderRadius: "14px",
-                  padding: "12px",
-                  background: "#ffffff",
-                  display: "grid",
-                  gap: "8px",
-                }}
-              >
-                <div style={statLabel}>Upload SP Event Info</div>
-                <input
-                  type="file"
-                  accept=".xlsx,.xls,.xlsm"
-                  disabled={trainingImporting || saving}
-                  onChange={(event) => void handleTrainingWorkbookImport(event.target.files?.[0] || null)}
-                  style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
-                />
-                <div style={{ color: "#64748b", fontSize: "12px", fontWeight: 700 }}>
-                  Reads title from `B1`, SP emails from `B16:B35`, SP names from `C16:C35`, and faculty from column `G`.
-                </div>
-                {trainingImporting ? (
-                  <div className="cfsp-alert cfsp-alert-info">Importing SP Event Info workbook...</div>
-                ) : null}
-                {trainingImportError ? (
-                  <div className="cfsp-alert cfsp-alert-error">{trainingImportError}</div>
-                ) : null}
-                {trainingImportResult ? (
-                  <div
-                    style={{
-                      border: "1px solid #dbe4ee",
-                      borderRadius: "12px",
-                      background: "#f8fbff",
-                      padding: "10px 12px",
-                      display: "grid",
-                      gap: "6px",
-                    }}
-                  >
-                    <div style={{ color: "#14304f", fontWeight: 900 }}>
-                      Imported workbook event: {trainingImportResult.eventTitle || "Untitled workbook event"}
-                    </div>
-                    <div style={{ color: "#166534", fontWeight: 800 }}>
-                      Matched / assigned: {trainingImportResult.matchedAssigned.length}
-                    </div>
-                    <div style={{ color: "#9a3412", fontWeight: 800 }}>
-                      Already assigned: {trainingImportResult.alreadyAssigned.length}
-                    </div>
-                    <div style={{ color: "#991b1b", fontWeight: 800 }}>
-                      Not found: {trainingImportResult.notFound.length}
-                    </div>
-                    {trainingImportResult.facultyDetected.length ? (
-                      <div style={{ color: "#475569", fontWeight: 700 }}>
-                        Faculty detected: {trainingImportResult.facultyDetected.join(", ")}
-                      </div>
-                    ) : null}
+              {trainingImportResult ? (
+                <div
+                  style={{
+                    marginTop: "14px",
+                    border: "1px solid #86efac",
+                    borderRadius: "14px",
+                    padding: "12px",
+                    background: "#ecfdf3",
+                    display: "grid",
+                    gap: "6px",
+                  }}
+                >
+                  <div style={{ color: "#166534", fontWeight: 900 }}>
+                    SP Event Info imported
                   </div>
-                ) : null}
-              </div>
+                  <div style={{ color: "#166534", fontWeight: 700, fontSize: "13px" }}>
+                    {trainingImportResult.importedCount} roster row{trainingImportResult.importedCount === 1 ? "" : "s"} · {formatUploadedTimestamp(trainingImportResult.importedAt)}
+                  </div>
+                </div>
+              ) : null}
 
               <div style={{ display: "grid", gap: "8px", marginTop: "14px" }}>
                 {sortedAssignments.length === 0 ? (
@@ -4026,190 +4056,7 @@ export default function EventDetailPage() {
           </div>
         </div>
 
-        {isTrainingMode ? (
-          <>
-            <div
-              style={{
-                ...detailGridStyle,
-                marginTop: "14px",
-                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-              }}
-            >
-              <div style={{ ...statCard, background: "#ffffff" }}>
-                <div style={statLabel}>Training Location / Modality</div>
-                <div style={{ ...statValue, fontSize: "15px" }}>{trainingLocationModality}</div>
-              </div>
-              <div style={{ ...statCard, background: "#ffffff" }}>
-                <div style={statLabel}>Zoom / Virtual</div>
-                <div style={{ ...statValue, fontSize: "15px" }}>
-                  {trainingMetadata.zoom_url || (eventMeta.isVirtualSp ? "Needs Zoom URL" : "Not required")}
-                </div>
-              </div>
-              <div style={{ ...statCard, background: "#ffffff" }}>
-                <div style={statLabel}>Faculty</div>
-                <div style={{ ...statValue, fontSize: "15px" }}>{trainingFacultyNames || "Not set"}</div>
-              </div>
-              <div style={{ ...statCard, background: "#ffffff" }}>
-                <div style={statLabel}>Sim Contact</div>
-                <div style={{ ...statValue, fontSize: "15px" }}>{trainingSimContact || "Not set"}</div>
-              </div>
-            </div>
-
-            <div
-              style={{
-                marginTop: "14px",
-                border: "1px solid #dbe4ee",
-                borderRadius: "16px",
-                padding: "14px",
-                background: "#f8fbff",
-                display: "grid",
-                gap: "10px",
-              }}
-            >
-              <div style={{ display: "grid", gap: "10px" }}>
-                <div style={statLabel}>Upload SP Event Info</div>
-                <label style={{ display: "grid", gap: "6px" }}>
-                  <input
-                    type="file"
-                    accept=".xlsx,.xls,.xlsm"
-                    disabled={trainingImporting || saving}
-                    onChange={(event) => void handleTrainingWorkbookImport(event.target.files?.[0] || null)}
-                    style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
-                  />
-                  <span style={{ color: "#64748b", fontSize: "12px", fontWeight: 700 }}>
-                    Reads title from `B1`, SP emails from `B16:B35`, SP names from `C16:C35`, and faculty from column `G`.
-                  </span>
-                </label>
-                {trainingImporting ? (
-                  <div className="cfsp-alert cfsp-alert-info">Importing SP Event Info workbook...</div>
-                ) : null}
-                {trainingImportError ? (
-                  <div className="cfsp-alert cfsp-alert-error">{trainingImportError}</div>
-                ) : null}
-                {trainingImportResult ? (
-                  <div
-                    style={{
-                      border: "1px solid #dbe4ee",
-                      borderRadius: "12px",
-                      background: "#ffffff",
-                      padding: "12px 14px",
-                      display: "grid",
-                      gap: "8px",
-                    }}
-                  >
-                    <div style={{ color: "#14304f", fontWeight: 900 }}>
-                      Imported workbook event: {trainingImportResult.eventTitle || "Untitled workbook event"}
-                    </div>
-                    <div style={{ color: "#166534", fontWeight: 800 }}>
-                      Matched / assigned: {trainingImportResult.matchedAssigned.length}
-                    </div>
-                    <div style={{ color: "#9a3412", fontWeight: 800 }}>
-                      Already assigned: {trainingImportResult.alreadyAssigned.length}
-                    </div>
-                    <div style={{ color: "#991b1b", fontWeight: 800 }}>
-                      Not found: {trainingImportResult.notFound.length}
-                    </div>
-                    {trainingImportResult.facultyDetected.length ? (
-                      <div style={{ color: "#475569", fontWeight: 700 }}>
-                        Faculty detected: {trainingImportResult.facultyDetected.join(", ")}
-                      </div>
-                    ) : null}
-                  </div>
-                ) : null}
-              </div>
-
-              <div style={statLabel}>
-                Assigned SPs · {sortedAssignments.length} on roster
-              </div>
-              {sortedAssignments.length === 0 ? (
-                <div style={{ color: "#64748b", fontWeight: 700 }}>
-                  No SPs assigned to this training yet.
-                </div>
-              ) : (
-                <div style={{ display: "grid", gap: "10px" }}>
-                  {sortedAssignments.map((assignment) => {
-                    const sp = assignment.sp_id ? spsById.get(assignment.sp_id) : undefined;
-                    const status = getAssignmentStatus(assignment);
-                    return (
-                      <div
-                        key={`training-${assignment.id}`}
-                        style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          alignItems: "center",
-                          gap: "12px",
-                          flexWrap: "wrap",
-                          border: "1px solid #d9e4ec",
-                          borderRadius: "12px",
-                          background: "#ffffff",
-                          padding: "12px 14px",
-                        }}
-                      >
-                        <div>
-                          <div style={{ color: "#14304f", fontWeight: 900 }}>
-                            {sp ? getFullName(sp) : "Unknown SP"}
-                          </div>
-                          <div style={{ marginTop: "4px", color: "#5e7388", fontSize: "13px", fontWeight: 700 }}>
-                            {sp ? getEmail(sp) || sp.phone || "No contact details" : assignment.sp_id || "No SP id"}
-                          </div>
-                        </div>
-                        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
-                          <span
-                            style={{
-                              ...assignmentStatusStyles[status],
-                              borderRadius: "999px",
-                              padding: "6px 10px",
-                              fontSize: "12px",
-                              fontWeight: 900,
-                            }}
-                          >
-                            {assignmentStatusLabels[status]}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => void handleRemoveAssignment(assignment)}
-                            disabled={saving}
-                            style={{ ...dangerButtonStyle, opacity: saving ? 0.65 : 1 }}
-                          >
-                            Remove
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-
-              <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
-                <select
-                  value={selectedSpId}
-                  onChange={(e) => setSelectedSpId(e.target.value)}
-                  style={selectStyle}
-                  disabled={saving || availableSps.length === 0}
-                >
-                  <option value="">
-                    {availableSps.length === 0 ? "No matching unassigned SPs" : "Quick select an SP"}
-                  </option>
-                  {availableSps.map((sp) => (
-                    <option key={sp.id} value={sp.id}>
-                      {getFullName(sp)}
-                      {getEmail(sp) ? ` — ${getEmail(sp)}` : ""}
-                    </option>
-                  ))}
-                </select>
-
-                <button
-                  type="button"
-                  onClick={() => void handleAddAssignment()}
-                  disabled={saving || !selectedSpId}
-                  style={{ ...buttonStyle, opacity: saving || !selectedSpId ? 0.65 : 1 }}
-                >
-                  {assigningSpId && assigningSpId === selectedSpId ? "Assigning..." : "Add Selected SP"}
-                </button>
-              </div>
-            </div>
-          </>
-        ) : !staffingRelevant ? (
+        {!staffingRelevant ? (
           <div
             style={{
               ...statCard,
