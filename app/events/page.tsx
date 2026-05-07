@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
 import SiteShell from "../components/SiteShell";
 import { compareByArchiveDate, isPastEvent } from "../lib/eventArchive";
 import { formatHumanDate, getImportedYearHint } from "../lib/eventDateUtils";
@@ -84,18 +83,18 @@ function getEventBadges(event: EventRow) {
 }
 
 export default function EventsPage() {
-  const searchParams = useSearchParams();
   const [events, setEvents] = useState<EventRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [view, setView] = useState<EventView>("current");
 
   useEffect(() => {
-    const requestedView = searchParams.get("view");
+    if (typeof window === "undefined") return;
+    const requestedView = new URLSearchParams(window.location.search).get("view");
     if (requestedView === "archive" || requestedView === "all" || requestedView === "current") {
       setView(requestedView);
     }
-  }, [searchParams]);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
