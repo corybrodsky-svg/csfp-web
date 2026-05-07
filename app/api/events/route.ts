@@ -105,8 +105,22 @@ type AssignedSpApiRow = {
 };
 
 function extractScheduleOwnerText(notes: string | null) {
-  const match = asText(notes).match(/(?:^|\n)Event Lead\/Team:\s*(.+?)(?:\n|$)/i);
-  return match ? asText(match[1]) || null : null;
+  const text = asText(notes);
+  const patterns = [
+    /(?:^|\n)Event Lead\/Team:\s*(.+?)(?:\n|$)/i,
+    /(?:^|\n)Event Lead:\s*(.+?)(?:\n|$)/i,
+    /(?:^|\n)Sim Staff:\s*(.+?)(?:\n|$)/i,
+    /(?:^|\n)Staff Hiring:\s*(.+?)(?:\n|$)/i,
+    /(?:^|\n)Team:\s*(.+?)(?:\n|$)/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    const value = match ? asText(match[1]) : "";
+    if (value && value.toLowerCase() !== "not assigned") return value;
+  }
+
+  return null;
 }
 
 async function getAuthenticatedUserId() {

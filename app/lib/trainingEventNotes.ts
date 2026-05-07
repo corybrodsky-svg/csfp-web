@@ -58,6 +58,12 @@ function asText(value: unknown) {
   return String(value).trim();
 }
 
+export function isMeaningfulTrainingMetadataText(value: unknown) {
+  const normalized = asText(value).toLowerCase();
+  if (!normalized) return false;
+  return !["not assigned", "none", "n/a", "na", "unknown", "unassigned", "tbd"].includes(normalized);
+}
+
 export function emptyTrainingEventMetadata(): TrainingEventMetadata {
   return {
     zoom_url: "",
@@ -147,5 +153,5 @@ export function hasTrainingMetadataValue(
   metadata: TrainingEventMetadata,
   key: keyof TrainingEventMetadata
 ) {
-  return Boolean(asText(metadata[key]));
+  return isMeaningfulTrainingMetadataText(metadata[key]);
 }

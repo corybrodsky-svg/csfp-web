@@ -196,6 +196,7 @@ type PushRelatedSummary = {
   skipped_events: Array<{ id: string; name: string; reason: string }>;
   sps_copied: number;
   duplicates_skipped: number;
+  blank_source_fields?: string[];
 };
 
 const emptySpRow: SPRow = {
@@ -1164,9 +1165,7 @@ export default function EventDetailPage() {
   const [relatedCopyOptions, setRelatedCopyOptions] = useState<RelatedCopyOption[]>([
     "assigned_sps",
     "training_materials",
-    "faculty",
     "zoom_recording",
-    "sim_contact",
     "case_doorsign",
   ]);
   const [relatedMatches, setRelatedMatches] = useState<RelatedEventPreview[]>([]);
@@ -2879,6 +2878,11 @@ export default function EventDetailPage() {
                 <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
                   Skipped events: {relatedPushSummary.skipped_events.length}
                 </div>
+                {relatedPushSummary.blank_source_fields?.length ? (
+                  <div style={{ color: "var(--cfsp-warning)", fontWeight: 700, lineHeight: 1.5 }}>
+                    Blank source fields skipped: {relatedPushSummary.blank_source_fields.join(", ")}
+                  </div>
+                ) : null}
               </div>
             ) : null}
 

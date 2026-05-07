@@ -9,6 +9,7 @@ import {
 import { createSupabaseServerClient } from "../../../../lib/supabaseServerClient";
 import { getProfileForUser } from "../../../../lib/profileServer";
 import {
+  isMeaningfulTrainingMetadataText,
   parseTrainingEventMetadata,
   upsertTrainingEventMetadata,
   type TrainingEventMetadata,
@@ -250,47 +251,65 @@ function normalizeCopyOptions(value: unknown) {
 function getMetadataSubset(
   metadata: TrainingEventMetadata,
   options: CopyOption[]
-): Partial<TrainingEventMetadata> {
+): {
+  partial: Partial<TrainingEventMetadata>;
+  skippedBlankFields: string[];
+} {
   const partial: Partial<TrainingEventMetadata> = {};
+  const skippedBlankFields: string[] = [];
+
+  const setIfMeaningful = (
+    key: keyof TrainingEventMetadata,
+    label: string
+  ) => {
+    if (isMeaningfulTrainingMetadataText(metadata[key])) {
+      partial[key] = metadata[key];
+    } else {
+      skippedBlankFields.push(label);
+    }
+  };
 
   if (options.includes("training_materials")) {
-    partial.supplemental_doc_url = metadata.supplemental_doc_url;
-    partial.supplemental_doc_name = metadata.supplemental_doc_name;
-    partial.supplemental_doc_storage_path = metadata.supplemental_doc_storage_path;
-    partial.supplemental_doc_uploaded_at = metadata.supplemental_doc_uploaded_at;
-    partial.supplemental_doc_uploaded_by = metadata.supplemental_doc_uploaded_by;
-    partial.training_notes = metadata.training_notes;
+    setIfMeaningful("supplemental_doc_url", "Supplemental doc URL");
+    setIfMeaningful("supplemental_doc_name", "Supplemental doc file");
+    setIfMeaningful("supplemental_doc_storage_path", "Supplemental doc storage path");
+    setIfMeaningful("supplemental_doc_uploaded_at", "Supplemental doc uploaded at");
+    setIfMeaningful("supplemental_doc_uploaded_by", "Supplemental doc uploaded by");
+    setIfMeaningful("training_notes", "Training notes");
   }
 
   if (options.includes("faculty")) {
-    partial.faculty_names = metadata.faculty_names;
+    setIfMeaningful("faculty_names", "Faculty");
   }
 
   if (options.includes("zoom_recording")) {
-    partial.zoom_url = metadata.zoom_url;
-    partial.training_password = metadata.training_password;
-    partial.recording_url = metadata.recording_url;
+    setIfMeaningful("zoom_url", "Zoom URL");
+    setIfMeaningful("training_password", "Training password");
+    setIfMeaningful("recording_url", "Recording URL");
   }
 
   if (options.includes("sim_contact")) {
-    partial.sim_contact = metadata.sim_contact;
+    setIfMeaningful("sim_contact", "Sim Team / Event Lead");
   }
 
   if (options.includes("case_doorsign")) {
-    partial.case_name = metadata.case_name;
-    partial.case_file_url = metadata.case_file_url;
-    partial.case_file_name = metadata.case_file_name;
-    partial.case_file_storage_path = metadata.case_file_storage_path;
-    partial.case_file_uploaded_at = metadata.case_file_uploaded_at;
-    partial.case_file_uploaded_by = metadata.case_file_uploaded_by;
-    partial.doorsign_url = metadata.doorsign_url;
-    partial.doorsign_file_name = metadata.doorsign_file_name;
-    partial.doorsign_storage_path = metadata.doorsign_storage_path;
-    partial.doorsign_uploaded_at = metadata.doorsign_uploaded_at;
-    partial.doorsign_uploaded_by = metadata.doorsign_uploaded_by;
+    setIfMeaningful("case_name", "Case name");
+    setIfMeaningful("case_file_url", "Case file URL");
+    setIfMeaningful("case_file_name", "Case file");
+    setIfMeaningful("case_file_storage_path", "Case file storage path");
+    setIfMeaningful("case_file_uploaded_at", "Case file uploaded at");
+    setIfMeaningful("case_file_uploaded_by", "Case file uploaded by");
+    setIfMeaningful("doorsign_url", "Doorsign URL");
+    setIfMeaningful("doorsign_file_name", "Doorsign file");
+    setIfMeaningful("doorsign_storage_path", "Doorsign storage path");
+    setIfMeaningful("doorsign_uploaded_at", "Doorsign uploaded at");
+    setIfMeaningful("doorsign_uploaded_by", "Doorsign uploaded by");
   }
 
-  return partial;
+  return {
+    partial,
+    skippedBlankFields: Array.from(new Set(skippedBlankFields)),
+  };
 }
 
 function sortEvents(events: EventRow[]) {
@@ -414,7 +433,10 @@ export async function POST(
     }
 
     const sourceMetadata = parseTrainingEventMetadata(sourceEvent.notes);
-    const metadataSubset = getMetadataSubset(sourceMetadata, copyOptions);
+    const { partial: metadataSubset, skippedBlankFields } = getMetadataSubset(
+      sourceMetadata,
+      copyOptions
+    );
     const shouldCopyAssignments = copyOptions.includes("assigned_sps");
 
     const targetIds = relatedEvents.map((event) => event.id);
@@ -561,6 +583,7 @@ export async function POST(
           skipped_events: skippedEvents,
           sps_copied: assignmentRowsToInsert.length,
           duplicates_skipped: duplicatesSkipped,
+          blank_source_fields: skippedBlankFields,
         },
       }),
       viewer

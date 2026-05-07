@@ -4,8 +4,10 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import SiteShell from "../components/SiteShell";
 import { compareByArchiveDate, isPastEvent } from "../lib/eventArchive";
+import { getEventCoverageVisualState, getEventCoverageVisualTone } from "../lib/eventCoverageVisual";
 import { formatHumanDate, getImportedYearHint } from "../lib/eventDateUtils";
 import { classifyEventPresentation, getEventBadgeAppearance } from "../lib/eventClassification";
+import { getBestEventTeamInfo } from "../lib/eventRoster";
 import { formatDisplayTime } from "../lib/timeFormat";
 
 type EventRow = {
@@ -16,6 +18,7 @@ type EventRow = {
   location: string | null;
   sp_needed: number | null;
   notes: string | null;
+  schedule_owner_text?: string | null;
   earliest_session_date?: string | null;
   latest_session_date?: string | null;
   earliest_session_start?: string | null;
@@ -217,14 +220,15 @@ export default function EventsPage() {
       <main style={{ padding: 24, display: "grid", gap: 24 }}>
         <section
           style={{
-            border: "1px solid #d9e2ec",
+            border: "1px solid var(--cfsp-border)",
             borderRadius: 18,
             padding: 20,
-            background: "linear-gradient(180deg, #f8fbfd 0%, #eef5fb 100%)",
+            background: "linear-gradient(180deg, var(--cfsp-surface-muted) 0%, var(--cfsp-surface) 100%)",
+            boxShadow: "var(--cfsp-card-glow)",
           }}
         >
-          <h1 style={{ margin: 0, fontSize: 32, color: "#14304f" }}>Event Browser</h1>
-          <p style={{ margin: "10px 0 0", color: "#52616b", maxWidth: 780 }}>
+          <h1 style={{ margin: 0, fontSize: 32, color: "var(--cfsp-text)" }}>Event Browser</h1>
+          <p style={{ margin: "10px 0 0", color: "var(--cfsp-text-muted)", maxWidth: 780 }}>
             Open any event to jump straight into its command center. Cards below show the date, 12-hour time, location, type, and current SP coverage at a glance.
           </p>
           <div
@@ -245,16 +249,17 @@ export default function EventsPage() {
 
         <section
           style={{
-            border: "1px solid #d9e2ec",
+            border: "1px solid var(--cfsp-border)",
             borderRadius: 16,
             padding: 18,
-            background: "white",
+            background: "var(--cfsp-surface)",
+            boxShadow: "var(--cfsp-card-glow)",
           }}
         >
           <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
             <div>
               <h2 style={{ margin: 0 }}>Events</h2>
-              <p style={{ margin: "6px 0 0", color: "#52616b" }}>
+              <p style={{ margin: "6px 0 0", color: "var(--cfsp-text-muted)" }}>
                 {view === "archive"
                   ? "Past events are shown newest first."
                   : view === "all"
@@ -267,9 +272,9 @@ export default function EventsPage() {
                 style={{
                   display: "inline-flex",
                   borderRadius: 999,
-                  border: "1px solid #d9e2ec",
+                  border: "1px solid var(--cfsp-border)",
                   padding: 4,
-                  background: "#f8fbfd",
+                  background: "var(--cfsp-surface-muted)",
                 }}
               >
                 {[
@@ -285,8 +290,8 @@ export default function EventsPage() {
                       border: "none",
                       borderRadius: 999,
                       padding: "8px 12px",
-                      background: view === option.key ? "#173b6c" : "transparent",
-                      color: view === option.key ? "#ffffff" : "#52616b",
+                      background: view === option.key ? "var(--cfsp-blue)" : "transparent",
+                      color: view === option.key ? "#ffffff" : "var(--cfsp-text-muted)",
                       fontWeight: 800,
                       cursor: "pointer",
                     }}
@@ -303,7 +308,7 @@ export default function EventsPage() {
                   textDecoration: "none",
                   borderRadius: 999,
                   padding: "10px 14px",
-                  background: "#173b6c",
+                  background: "var(--cfsp-blue)",
                   color: "#ffffff",
                   fontWeight: 800,
                 }}
@@ -314,7 +319,7 @@ export default function EventsPage() {
           </div>
 
           {loading ? <p>Loading events...</p> : null}
-          {error ? <p style={{ color: "#b42318" }}>{error}</p> : null}
+          {error ? <p style={{ color: "var(--cfsp-danger)" }}>{error}</p> : null}
           {!loading && !error && filteredEvents.length === 0 ? (
             <p>{view === "archive" ? "No past events found." : "No events found."}</p>
           ) : null}
@@ -326,6 +331,20 @@ export default function EventsPage() {
               const assigned = Number(event.total_assignments || 0);
               const confirmed = Number(event.confirmed_assignments || 0);
               const shortage = Math.max(Number(event.shortage || 0), 0);
+              const teamInfo = getBestEventTeamInfo(event);
+              const archived = isPastEvent({
+                latestSessionDate: event.latest_session_date,
+                earliestSessionDate: event.earliest_session_date,
+                dateText: event.date_text,
+                notes: event.notes,
+              });
+              const visualState = getEventCoverageVisualState({
+                needed,
+                assigned,
+                confirmed,
+                archived,
+              });
+              const tone = getEventCoverageVisualTone(visualState);
 
               return (
                 <Link
@@ -335,16 +354,16 @@ export default function EventsPage() {
                     display: "block",
                     textDecoration: "none",
                     color: "inherit",
-                    border: "1px solid #d9e2ec",
+                    border: `1px solid ${tone.cardBorder}`,
                     borderRadius: 16,
                     padding: 16,
-                    background: "#ffffff",
-                    boxShadow: "0 10px 24px rgba(15, 23, 42, 0.05)",
+                    background: tone.cardBackground,
+                    boxShadow: tone.cardShadow,
                   }}
                 >
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
                     <div style={{ display: "grid", gap: 8 }}>
-                      <strong style={{ fontSize: 20, color: "#14304f" }}>{event.name || "Untitled Event"}</strong>
+                      <strong style={{ fontSize: 20, color: tone.titleText }}>{event.name || "Untitled Event"}</strong>
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                         {badges.map((badge) => (
                           <span
@@ -366,18 +385,20 @@ export default function EventsPage() {
                           style={{
                             borderRadius: 999,
                             padding: "6px 10px",
-                            background: "#f8fafc",
-                            border: "1px solid #d9e2ec",
-                            color: "#52616b",
+                            background: tone.pillBackground,
+                            border: `1px solid ${tone.pillBorder}`,
+                            color: tone.pillText,
                             fontWeight: 800,
                             fontSize: 12,
                           }}
                         >
-                          {event.status || "No status"}
+                          {shortage > 0 && assigned > 0
+                            ? `${event.status || "No status"} · ${tone.label}`
+                            : event.status || tone.label}
                         </span>
                       </div>
                     </div>
-                    <div style={{ color: "#52616b", fontWeight: 700, textAlign: "right" }}>
+                    <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700, textAlign: "right" }}>
                       <div>{formatEventDate(event)}</div>
                       <div style={{ marginTop: 4 }}>{formatEventTime(event)}</div>
                     </div>
@@ -392,13 +413,23 @@ export default function EventsPage() {
                     }}
                   >
                     <MetricBlock label="Location" value={event.location || "Location TBD"} />
+                    <MetricBlock
+                      label={teamInfo.teamLabel}
+                      value={teamInfo.teamNames.join(", ") || "Team not assigned"}
+                      valueColor={teamInfo.teamNames.length ? "var(--cfsp-blue)" : "var(--cfsp-warning)"}
+                    />
+                    <MetricBlock
+                      label={teamInfo.facultyLabel}
+                      value={teamInfo.facultyNames.join(", ") || "Faculty not assigned"}
+                      valueColor={teamInfo.facultyNames.length ? "var(--cfsp-text)" : "var(--cfsp-text-muted)"}
+                    />
                     <MetricBlock label="SP Needed" value={String(needed)} />
                     <MetricBlock label="Assigned" value={String(assigned)} />
                     <MetricBlock label="Confirmed" value={String(confirmed)} />
                     <MetricBlock
                       label="Shortage"
                       value={String(shortage)}
-                      valueColor={shortage > 0 ? "#991b1b" : "#166534"}
+                      valueColor={shortage > 0 ? "var(--cfsp-warning)" : "var(--cfsp-green)"}
                     />
                   </div>
                 </Link>
@@ -417,14 +448,14 @@ function SummaryCard(props: { label: string; value: string; tone?: "default" | "
   return (
     <div
       style={{
-        border: "1px solid #d9e2ec",
+        border: "1px solid var(--cfsp-border)",
         borderRadius: 14,
         padding: 14,
-        background: warning ? "#fff5f5" : "#ffffff",
+        background: warning ? "var(--cfsp-warning-soft)" : "var(--cfsp-surface-muted)",
       }}
     >
-      <div style={{ fontSize: 12, fontWeight: 800, textTransform: "uppercase", color: "#64748b" }}>{props.label}</div>
-      <div style={{ marginTop: 6, fontSize: 22, fontWeight: 900, color: warning ? "#991b1b" : "#14304f" }}>{props.value}</div>
+      <div style={{ fontSize: 12, fontWeight: 800, textTransform: "uppercase", color: "var(--cfsp-text-muted)" }}>{props.label}</div>
+      <div style={{ marginTop: 6, fontSize: 22, fontWeight: 900, color: warning ? "var(--cfsp-warning)" : "var(--cfsp-text)" }}>{props.value}</div>
     </div>
   );
 }
@@ -433,14 +464,14 @@ function MetricBlock(props: { label: string; value: string; valueColor?: string 
   return (
     <div
       style={{
-        border: "1px solid #e5edf5",
+        border: "1px solid var(--cfsp-border)",
         borderRadius: 12,
         padding: 12,
-        background: "#f8fbfd",
+        background: "var(--cfsp-surface)",
       }}
     >
-      <div style={{ fontSize: 12, fontWeight: 800, textTransform: "uppercase", color: "#64748b" }}>{props.label}</div>
-      <div style={{ marginTop: 6, fontWeight: 900, color: props.valueColor || "#14304f" }}>{props.value}</div>
+      <div style={{ fontSize: 12, fontWeight: 800, textTransform: "uppercase", color: "var(--cfsp-text-muted)" }}>{props.label}</div>
+      <div style={{ marginTop: 6, fontWeight: 900, color: props.valueColor || "var(--cfsp-text)" }}>{props.value}</div>
     </div>
   );
 }

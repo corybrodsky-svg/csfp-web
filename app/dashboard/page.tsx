@@ -5,8 +5,9 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import SiteShell from "../components/SiteShell";
 import { isPastEvent } from "../lib/eventArchive";
+import { getEventCoverageVisualState, getEventCoverageVisualTone } from "../lib/eventCoverageVisual";
 import { classifyEventPresentation } from "../lib/eventClassification";
-import { getEventTeamInfo } from "../lib/eventRoster";
+import { getBestEventTeamInfo } from "../lib/eventRoster";
 import { eventMatchesOwnership, ownershipTextMatchesScheduleName } from "../lib/eventOwnership";
 
 type MeResponse = {
@@ -37,6 +38,9 @@ type EventRecord = {
   location?: string | null;
   sp_needed?: number | null;
   sp_assigned?: number | null;
+  total_assignments?: number | null;
+  confirmed_assignments?: number | null;
+  shortage?: number | null;
   assigned_sp_names?: string[] | null;
   visibility?: string | null;
   notes?: string | null;
@@ -69,6 +73,7 @@ type EventWithMeta = {
   start: Date | null;
   needed: number;
   assigned: number;
+  confirmed: number;
   shortage: number;
 };
 
@@ -124,35 +129,20 @@ function isTodayOrTomorrow(date: Date | null, startOfToday: number) {
   return dayStart === startOfToday || dayStart === tomorrowStart;
 }
 
-function getWorkflowTone(kind: "shortage" | "partial" | "full") {
-  if (kind === "shortage") {
-    return {
-      background: "var(--cfsp-danger-soft)",
-      borderColor: "var(--cfsp-danger-border)",
-      color: "var(--cfsp-danger)",
-      label: "Shortage",
-    };
-  }
-  if (kind === "partial") {
-    return {
-      background: "var(--cfsp-warning-soft)",
-      borderColor: "rgba(243, 187, 103, 0.24)",
-      color: "var(--cfsp-warning)",
-      label: "Partial",
-    };
-  }
-  return {
-    background: "var(--cfsp-green-soft)",
-    borderColor: "rgba(44, 211, 173, 0.22)",
-    color: "var(--cfsp-green)",
-    label: "Full",
-  };
-}
-
 function getEventCoverageTone(event: EventWithMeta) {
-  if (event.shortage > 0 && event.assigned === 0) return getWorkflowTone("shortage");
-  if (event.shortage > 0) return getWorkflowTone("partial");
-  return getWorkflowTone("full");
+  const state = getEventCoverageVisualState({
+    needed: event.needed,
+    assigned: event.assigned,
+    confirmed: event.confirmed,
+    archived: false,
+  });
+  const tone = getEventCoverageVisualTone(state);
+  return {
+    background: tone.pillBackground,
+    borderColor: tone.pillBorder,
+    color: tone.pillText,
+    label: tone.label,
+  };
 }
 
 function formatEventDate(start: Date | null, fallback?: string | null) {
@@ -166,8 +156,8 @@ function getEventTypeLabel(event: EventRecord) {
     notes: event.notes,
     location: event.location,
     spNeeded: event.sp_needed,
-    assignmentCount: event.sp_assigned,
-    confirmedCount: event.sp_assigned,
+    assignmentCount: event.total_assignments ?? event.sp_assigned,
+    confirmedCount: event.confirmed_assignments ?? event.sp_assigned,
   }).primaryBadgeLabel;
 }
 
@@ -189,8 +179,14 @@ function renderAssignedPeople(names?: string[] | null) {
   );
 }
 
-function TeamOwnershipBlock({ notes }: { notes?: string | null }) {
-  const teamInfo = getEventTeamInfo(notes);
+function TeamOwnershipBlock({
+  notes,
+  scheduleOwnerText,
+}: {
+  notes?: string | null;
+  scheduleOwnerText?: string | null;
+}) {
+  const teamInfo = getBestEventTeamInfo({ notes, schedule_owner_text: scheduleOwnerText });
 
   return (
     <div
@@ -200,10 +196,10 @@ function TeamOwnershipBlock({ notes }: { notes?: string | null }) {
         background: "linear-gradient(180deg, var(--cfsp-surface-muted) 0%, var(--cfsp-surface) 100%)",
       }}
     >
-      <div className="cfsp-label">Team / Staff</div>
-      {teamInfo.names.length ? (
+      <div className="cfsp-label">{teamInfo.teamLabel}</div>
+      {teamInfo.teamNames.length ? (
         <div className="mt-3 flex flex-wrap gap-2">
-          {teamInfo.names.map((name) => (
+          {teamInfo.teamNames.map((name) => (
             <span
               key={name}
               className="inline-flex min-h-[32px] items-center rounded-full px-3 py-1 text-sm font-bold"
@@ -220,7 +216,27 @@ function TeamOwnershipBlock({ notes }: { notes?: string | null }) {
       ) : (
         <div className="mt-3 text-sm font-semibold" style={{ color: "var(--cfsp-warning)" }}>Team not assigned</div>
       )}
-      {process.env.NODE_ENV !== "production" && !teamInfo.names.length ? (
+      {teamInfo.facultyNames.length ? (
+        <div className="mt-3 grid gap-2">
+          <div className="cfsp-label">{teamInfo.facultyLabel}</div>
+          <div className="flex flex-wrap gap-2">
+            {teamInfo.facultyNames.map((name) => (
+              <span
+                key={`faculty-${name}`}
+                className="inline-flex min-h-[30px] items-center rounded-full px-3 py-1 text-sm font-bold"
+                style={{
+                  border: "1px solid var(--cfsp-border)",
+                  background: "var(--cfsp-surface)",
+                  color: "var(--cfsp-text)",
+                }}
+              >
+                {name}
+              </span>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      {process.env.NODE_ENV !== "production" && !teamInfo.teamNames.length ? (
         <div className="mt-2 text-xs font-semibold text-[var(--cfsp-text-muted)]">
           Notes checked: {notes ? "yes" : "no"} · Ownership labels found: none
         </div>
@@ -323,15 +339,23 @@ function WorkflowSection({
           <div className="grid gap-3">
             {items.map((item) => {
               const tone = getEventCoverageTone(item);
+              const visualTone = getEventCoverageVisualTone(
+                getEventCoverageVisualState({
+                  needed: item.needed,
+                  assigned: item.assigned,
+                  confirmed: item.confirmed,
+                  archived: false,
+                })
+              );
 
               return (
                 <article
                   key={item.event.id}
                   className="rounded-[12px] px-4 py-4"
                   style={{
-                    border: "1px solid var(--cfsp-border)",
-                    background: "var(--cfsp-surface-muted)",
-                    boxShadow: "var(--cfsp-card-glow)",
+                    border: `1px solid ${visualTone.cardBorder}`,
+                    background: visualTone.cardBackground,
+                    boxShadow: visualTone.cardShadow,
                   }}
                 >
                   <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
@@ -356,7 +380,10 @@ function WorkflowSection({
                       </div>
 
                       <div className="mt-3">
-                        <TeamOwnershipBlock notes={item.event.notes} />
+                        <TeamOwnershipBlock
+                          notes={item.event.notes}
+                          scheduleOwnerText={item.event.schedule_owner_text}
+                        />
                       </div>
 
                       <div className="mt-3 grid gap-2">
@@ -495,13 +522,15 @@ export default function DashboardPage() {
     return [...events]
       .map((event) => {
         const needed = Number(event.sp_needed || 0);
-        const assigned = Number(event.sp_assigned || 0);
+        const assigned = Number(event.total_assignments ?? event.sp_assigned ?? 0);
+        const confirmed = Number(event.confirmed_assignments ?? event.sp_assigned ?? 0);
         return {
           event,
           start: parseEventStart(event),
           needed,
           assigned,
-          shortage: Math.max(needed - assigned, 0),
+          confirmed,
+          shortage: Math.max(needed - confirmed, 0),
         };
       })
       .filter(
