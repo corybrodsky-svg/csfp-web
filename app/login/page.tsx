@@ -64,7 +64,7 @@ export default function LoginPage() {
 
       const sessionResponse = await fetch("/api/auth/session", {
         method: "POST",
-        credentials: "same-origin",
+        credentials: "include",
         cache: "no-store",
         headers: {
           "Content-Type": "application/json",
@@ -83,7 +83,7 @@ export default function LoginPage() {
 
       const meResponse = await fetch("/api/me", {
         method: "GET",
-        credentials: "same-origin",
+        credentials: "include",
         cache: "no-store",
       });
       const meJson = await meResponse.json().catch(() => null);

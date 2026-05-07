@@ -1,17 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
+import { setAuthCookies } from "../../../lib/authCookies";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-
-const ACCESS_COOKIE = "cfsp-access-token";
-const REFRESH_COOKIE = "cfsp-refresh-token";
 
 function asToken(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : "";
 }
 
+function jsonNoStore(body: unknown, init?: ResponseInit) {
+  const response = NextResponse.json(body, init);
+  response.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  response.headers.set("Pragma", "no-cache");
+  response.headers.set("Expires", "0");
+  return response;
+}
+
 export async function GET() {
-  return NextResponse.json({
+  return jsonNoStore({
     ok: true,
     route: "/api/auth/session",
     methods: ["GET", "POST"],
@@ -25,7 +31,7 @@ export async function POST(request: NextRequest) {
     try {
       body = (await request.json()) as Record<string, unknown>;
     } catch {
-      return NextResponse.json(
+      return jsonNoStore(
         {
           ok: false,
           error: "Invalid or empty JSON body.",
@@ -38,7 +44,7 @@ export async function POST(request: NextRequest) {
     const refreshToken = asToken(body.refresh_token) || asToken(body.refreshToken);
 
     if (!accessToken || !refreshToken) {
-      return NextResponse.json(
+      return jsonNoStore(
         {
           ok: false,
           error: "Missing access token or refresh token.",
@@ -47,27 +53,27 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const response = NextResponse.json({ ok: true });
-
-    response.cookies.set(ACCESS_COOKIE, accessToken, {
-      httpOnly: true,
-      sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
-      path: "/",
+    const response = jsonNoStore({ ok: true });
+    const cookiesSet = setAuthCookies(response, {
+      accessToken,
+      refreshToken,
     });
 
-    response.cookies.set(REFRESH_COOKIE, refreshToken, {
-      httpOnly: true,
-      sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
-      path: "/",
-    });
+    if (!cookiesSet) {
+      return jsonNoStore(
+        {
+          ok: false,
+          error: "Could not persist auth cookies.",
+        },
+        { status: 500 }
+      );
+    }
 
     return response;
   } catch (error) {
     console.error("/api/auth/session fatal", error);
 
-    return NextResponse.json(
+    return jsonNoStore(
       {
         ok: false,
         error: error instanceof Error ? error.message : "Session route failed",

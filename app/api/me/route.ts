@@ -313,7 +313,25 @@ async function handleGetOrSave(method: "GET" | "POST" | "PATCH", request?: Reque
     return response;
   }
 
-  const body = request ? await request.json().catch(() => null) : null;
+  const body = request ? await request.json().catch(() => Symbol.for("invalid_json")) : null;
+  if (body === Symbol.for("invalid_json")) {
+    const response = jsonNoStore(
+      {
+        ok: false,
+        error: "Invalid JSON body.",
+      },
+      { status: 400 }
+    );
+
+    if (session.refreshedSession?.access_token && session.refreshedSession.refresh_token) {
+      setAuthCookies(response, {
+        accessToken: session.refreshedSession.access_token,
+        refreshToken: session.refreshedSession.refresh_token,
+      });
+    }
+
+    return response;
+  }
   const fullName = asText(body && typeof body === "object" ? (body as { full_name?: unknown }).full_name : "") || null;
   const scheduleMatchName =
     asText(
