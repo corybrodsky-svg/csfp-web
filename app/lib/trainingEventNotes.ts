@@ -5,8 +5,19 @@ export type TrainingEventMetadata = {
   case_name: string;
   case_file_url: string;
   case_file_name: string;
+  case_file_storage_path: string;
+  case_file_uploaded_at: string;
+  case_file_uploaded_by: string;
   doorsign_url: string;
   doorsign_file_name: string;
+  doorsign_storage_path: string;
+  doorsign_uploaded_at: string;
+  doorsign_uploaded_by: string;
+  supplemental_doc_url: string;
+  supplemental_doc_name: string;
+  supplemental_doc_storage_path: string;
+  supplemental_doc_uploaded_at: string;
+  supplemental_doc_uploaded_by: string;
   faculty_names: string;
   sim_contact: string;
   training_notes: string;
@@ -23,8 +34,19 @@ const TRAINING_METADATA_KEYS = [
   "case_name",
   "case_file_url",
   "case_file_name",
+  "case_file_storage_path",
+  "case_file_uploaded_at",
+  "case_file_uploaded_by",
   "doorsign_url",
   "doorsign_file_name",
+  "doorsign_storage_path",
+  "doorsign_uploaded_at",
+  "doorsign_uploaded_by",
+  "supplemental_doc_url",
+  "supplemental_doc_name",
+  "supplemental_doc_storage_path",
+  "supplemental_doc_uploaded_at",
+  "supplemental_doc_uploaded_by",
   "faculty_names",
   "sim_contact",
   "training_notes",
@@ -44,8 +66,19 @@ export function emptyTrainingEventMetadata(): TrainingEventMetadata {
     case_name: "",
     case_file_url: "",
     case_file_name: "",
+    case_file_storage_path: "",
+    case_file_uploaded_at: "",
+    case_file_uploaded_by: "",
     doorsign_url: "",
     doorsign_file_name: "",
+    doorsign_storage_path: "",
+    doorsign_uploaded_at: "",
+    doorsign_uploaded_by: "",
+    supplemental_doc_url: "",
+    supplemental_doc_name: "",
+    supplemental_doc_storage_path: "",
+    supplemental_doc_uploaded_at: "",
+    supplemental_doc_uploaded_by: "",
     faculty_names: "",
     sim_contact: "",
     training_notes: "",
