@@ -62,6 +62,16 @@ type EventRow = {
   notes: string | null;
 };
 
+type PreviewEventRow = {
+  id: string;
+  name: string | null;
+  status: string | null;
+  date_text: string | null;
+  location: string | null;
+  notes?: string | null;
+  exact_course_match?: boolean;
+};
+
 type EventAssignmentRow = {
   id: string;
   event_id: string | null;
@@ -248,6 +258,54 @@ function normalizeCopyOptions(value: unknown) {
     .filter((item): item is CopyOption => COPY_OPTIONS.has(item));
 }
 
+function normalizeTargetEventIds(value: unknown) {
+  if (!Array.isArray(value)) return [] as string[];
+  return Array.from(new Set(value.map((item) => asText(item)).filter(Boolean)));
+}
+
+function tokenizeText(value: string) {
+  return value
+    .toLowerCase()
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+}
+
+function extractCourseToken(value: string) {
+  const text = asText(value).toUpperCase().replace(/\s+/g, " ");
+  const match = text.match(/\b[A-Z]{2,}\s*\d{3,}\b/);
+  return match ? match[0].replace(/\s+/g, " ").trim() : "";
+}
+
+function filterMatchingEvents(
+  events: EventRow[],
+  sourceEvent: EventRow,
+  keyword: string,
+  mustInclude: string,
+  exclude: string
+) {
+  const includeTokens = tokenizeText(mustInclude);
+  const excludeTokens = tokenizeText(exclude);
+  const sourceCourseToken = extractCourseToken(sourceEvent.name || "");
+
+  return events
+    .filter((event) => {
+      const haystack = [event.name, event.status, event.date_text, event.location, event.notes]
+        .map(asText)
+        .join(" ")
+        .toLowerCase();
+
+      if (!haystack.includes(keyword.toLowerCase())) return false;
+      if (includeTokens.some((token) => !haystack.includes(token))) return false;
+      if (excludeTokens.some((token) => haystack.includes(token))) return false;
+      return true;
+    })
+    .map((event) => ({
+      ...event,
+      exact_course_match: Boolean(sourceCourseToken) && extractCourseToken(event.name || "") === sourceCourseToken,
+    }));
+}
+
 function getMetadataSubset(
   metadata: TrainingEventMetadata,
   options: CopyOption[]
@@ -336,11 +394,14 @@ export async function POST(
     const params = await context.params;
     const eventId = getRouteId(params);
     const body = (await request.json().catch(() => null)) as
-      | {
+        | {
           mode?: unknown;
           keyword?: unknown;
           excludeCurrent?: unknown;
           copyOptions?: unknown;
+          mustInclude?: unknown;
+          exclude?: unknown;
+          targetEventIds?: unknown;
         }
       | null;
 
@@ -348,6 +409,9 @@ export async function POST(
     const keyword = asText(body?.keyword);
     const excludeCurrent = asBoolean(body?.excludeCurrent, true);
     const copyOptions = normalizeCopyOptions(body?.copyOptions);
+    const mustInclude = asText(body?.mustInclude);
+    const exclude = asText(body?.exclude);
+    const targetEventIds = normalizeTargetEventIds(body?.targetEventIds);
 
     if (!eventId) {
       return applyAuthCookies(
@@ -408,17 +472,25 @@ export async function POST(
     }
 
     const relatedEvents = sortEvents((matchingEvents || []) as EventRow[]);
+    const filteredRelatedEvents = filterMatchingEvents(
+      relatedEvents,
+      sourceEvent,
+      keyword,
+      mustInclude,
+      exclude
+    ) as PreviewEventRow[];
 
     if (mode === "preview") {
       return applyAuthCookies(
         NextResponse.json({
           ok: true,
-          events: relatedEvents.map((event) => ({
+          events: filteredRelatedEvents.map((event) => ({
             id: event.id,
             name: event.name,
             status: event.status,
             date_text: event.date_text,
             location: event.location,
+            exact_course_match: Boolean(event.exact_course_match),
           })),
         }),
         viewer
@@ -432,6 +504,13 @@ export async function POST(
       );
     }
 
+    if (!targetEventIds.length) {
+      return applyAuthCookies(
+        NextResponse.json({ error: "Select at least one target event before pushing." }, { status: 400 }),
+        viewer
+      );
+    }
+
     const sourceMetadata = parseTrainingEventMetadata(sourceEvent.notes);
     const { partial: metadataSubset, skippedBlankFields } = getMetadataSubset(
       sourceMetadata,
@@ -439,7 +518,8 @@ export async function POST(
     );
     const shouldCopyAssignments = copyOptions.includes("assigned_sps");
 
-    const targetIds = relatedEvents.map((event) => event.id);
+    const selectedRelatedEvents = filteredRelatedEvents.filter((event) => targetEventIds.includes(event.id));
+    const targetIds = selectedRelatedEvents.map((event) => event.id);
 
     let sourceAssignments: EventAssignmentRow[] = [];
     if (shouldCopyAssignments) {
@@ -498,7 +578,7 @@ export async function POST(
     const assignmentRowsToInsert: Array<Record<string, string | boolean | null>> = [];
     let duplicatesSkipped = 0;
 
-    for (const targetEvent of relatedEvents) {
+    for (const targetEvent of selectedRelatedEvents) {
       let changed = false;
 
       if (Object.keys(metadataSubset).length > 0) {
@@ -584,6 +664,7 @@ export async function POST(
           sps_copied: assignmentRowsToInsert.length,
           duplicates_skipped: duplicatesSkipped,
           blank_source_fields: skippedBlankFields,
+          copied_categories: copyOptions,
         },
       }),
       viewer

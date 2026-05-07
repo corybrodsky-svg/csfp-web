@@ -189,6 +189,7 @@ type RelatedEventPreview = {
   status: string | null;
   date_text: string | null;
   location: string | null;
+  exact_course_match?: boolean;
 };
 
 type PushRelatedSummary = {
@@ -197,6 +198,7 @@ type PushRelatedSummary = {
   sps_copied: number;
   duplicates_skipped: number;
   blank_source_fields?: string[];
+  copied_categories?: RelatedCopyOption[];
 };
 
 const emptySpRow: SPRow = {
@@ -1160,6 +1162,8 @@ export default function EventDetailPage() {
   const [trainingImporting, setTrainingImporting] = useState(false);
   const [showPushRelatedPanel, setShowPushRelatedPanel] = useState(false);
   const [relatedKeyword, setRelatedKeyword] = useState("");
+  const [relatedMustInclude, setRelatedMustInclude] = useState("");
+  const [relatedExclude, setRelatedExclude] = useState("");
   const [relatedExcludeCurrent, setRelatedExcludeCurrent] = useState(true);
   const [relatedCopyOptions, setRelatedCopyOptions] = useState<RelatedCopyOption[]>([
     "assigned_sps",
@@ -1168,6 +1172,7 @@ export default function EventDetailPage() {
     "case_doorsign",
   ]);
   const [relatedMatches, setRelatedMatches] = useState<RelatedEventPreview[]>([]);
+  const [selectedRelatedTargetIds, setSelectedRelatedTargetIds] = useState<string[]>([]);
   const [relatedPreviewLoading, setRelatedPreviewLoading] = useState(false);
   const [relatedPushSaving, setRelatedPushSaving] = useState(false);
   const [relatedPushError, setRelatedPushError] = useState("");
@@ -2202,6 +2207,8 @@ export default function EventDetailPage() {
         body: JSON.stringify({
           mode: "preview",
           keyword: relatedKeyword.trim(),
+          mustInclude: relatedMustInclude.trim(),
+          exclude: relatedExclude.trim(),
           excludeCurrent: relatedExcludeCurrent,
         }),
       });
@@ -2217,7 +2224,11 @@ export default function EventDetailPage() {
         throw new Error(body?.error || "Could not preview related events.");
       }
 
-      setRelatedMatches(Array.isArray(body?.events) ? body.events : []);
+      const matches = Array.isArray(body?.events) ? body.events : [];
+      setRelatedMatches(matches);
+      setSelectedRelatedTargetIds(
+        matches.filter((event) => event.exact_course_match).map((event) => event.id)
+      );
     } catch (error) {
       setRelatedPushError(
         error instanceof Error ? error.message : "Could not preview related events."
@@ -2238,6 +2249,16 @@ export default function EventDetailPage() {
     );
   }
 
+  function handleToggleRelatedTarget(eventId: string) {
+    setRelatedPushSummary(null);
+    setRelatedPushError("");
+    setSelectedRelatedTargetIds((current) =>
+      current.includes(eventId)
+        ? current.filter((id) => id !== eventId)
+        : [...current, eventId]
+    );
+  }
+
   async function handlePushToRelatedEvents() {
     if (!id || !relatedKeyword.trim()) {
       setRelatedPushError("Enter a keyword before pushing to related events.");
@@ -2246,6 +2267,11 @@ export default function EventDetailPage() {
 
     if (!relatedMatches.length) {
       setRelatedPushError("Preview matching events before pushing selected info.");
+      return;
+    }
+
+    if (!selectedRelatedTargetIds.length) {
+      setRelatedPushError("Check at least one target event before pushing.");
       return;
     }
 
@@ -2265,7 +2291,10 @@ export default function EventDetailPage() {
         body: JSON.stringify({
           mode: "push",
           keyword: relatedKeyword.trim(),
+          mustInclude: relatedMustInclude.trim(),
+          exclude: relatedExclude.trim(),
           excludeCurrent: relatedExcludeCurrent,
+          targetEventIds: selectedRelatedTargetIds,
           copyOptions: relatedCopyOptions,
         }),
       });
@@ -2282,11 +2311,7 @@ export default function EventDetailPage() {
       }
 
       setRelatedPushSummary(body.summary);
-      setEventSaveMessage(
-        `Pushed selected info to ${body.summary.updated_events.length} related event${
-          body.summary.updated_events.length === 1 ? "" : "s"
-        }.`
-      );
+      setEventSaveMessage("Pushed successfully");
       await handlePreviewRelatedEvents();
     } catch (error) {
       setRelatedPushError(
@@ -2720,6 +2745,9 @@ export default function EventDetailPage() {
                   setShowPushRelatedPanel((current) => !current);
                   setRelatedPushError("");
                   setRelatedPushSummary(null);
+                  if (showPushRelatedPanel) {
+                    setSelectedRelatedTargetIds([]);
+                  }
                 }}
                 style={{
                   ...buttonStyle,
@@ -2753,6 +2781,9 @@ export default function EventDetailPage() {
               <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontWeight: 700, lineHeight: 1.5 }}>
                 This will update multiple events. Existing data will not be deleted.
               </div>
+              <div style={{ marginTop: "6px", color: "var(--cfsp-warning)", fontWeight: 800, lineHeight: 1.5 }}>
+                Only checked events will be updated.
+              </div>
             </div>
 
             <div
@@ -2769,6 +2800,26 @@ export default function EventDetailPage() {
                   value={relatedKeyword}
                   onChange={(event) => setRelatedKeyword(event.target.value)}
                   placeholder={defaultRelatedKeyword || "421"}
+                  style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                />
+              </label>
+
+              <label style={{ display: "grid", gap: "6px" }}>
+                <span style={statLabel}>Must Include</span>
+                <input
+                  value={relatedMustInclude}
+                  onChange={(event) => setRelatedMustInclude(event.target.value)}
+                  placeholder="CTCN"
+                  style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                />
+              </label>
+
+              <label style={{ display: "grid", gap: "6px" }}>
+                <span style={statLabel}>Exclude</span>
+                <input
+                  value={relatedExclude}
+                  onChange={(event) => setRelatedExclude(event.target.value)}
+                  placeholder="VIR"
                   style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
                 />
               </label>
@@ -2829,6 +2880,9 @@ export default function EventDetailPage() {
               <div style={statLabel}>
                 Matching Events {relatedMatches.length ? `(${relatedMatches.length})` : ""}
               </div>
+              <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
+                {relatedMatches.length} matching event{relatedMatches.length === 1 ? "" : "s"} found, {selectedRelatedTargetIds.length} selected
+              </div>
               {relatedMatches.length === 0 ? (
                 <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
                   {relatedPreviewLoading
@@ -2843,13 +2897,45 @@ export default function EventDetailPage() {
                       style={{
                         border: "1px solid var(--cfsp-border)",
                         borderRadius: "12px",
-                        background: "var(--cfsp-surface)",
+                        background: selectedRelatedTargetIds.includes(match.id)
+                          ? "var(--cfsp-surface-muted)"
+                          : "var(--cfsp-surface)",
                         padding: "12px 14px",
                       }}
                     >
-                      <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>
-                        {match.name || "Untitled Event"}
-                      </div>
+                      <label
+                        style={{
+                          display: "grid",
+                          gap: "6px",
+                          cursor: "pointer",
+                        }}
+                      >
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: "10px" }}>
+                          <input
+                            type="checkbox"
+                            checked={selectedRelatedTargetIds.includes(match.id)}
+                            onChange={() => handleToggleRelatedTarget(match.id)}
+                          />
+                          <span style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>
+                            {match.name || "Untitled Event"}
+                          </span>
+                          {match.exact_course_match ? (
+                            <span
+                              style={{
+                                borderRadius: "999px",
+                                padding: "4px 8px",
+                                background: "rgba(44, 211, 173, 0.14)",
+                                border: "1px solid rgba(44, 211, 173, 0.22)",
+                                color: "var(--cfsp-green)",
+                                fontSize: "12px",
+                                fontWeight: 900,
+                              }}
+                            >
+                              Exact course match
+                            </span>
+                          ) : null}
+                        </span>
+                      </label>
                       <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontSize: "13px", fontWeight: 700 }}>
                         {[match.status || "No status", match.date_text || "Date TBD", match.location || "Location TBD"].join(" · ")}
                       </div>
@@ -2871,9 +2957,15 @@ export default function EventDetailPage() {
                 }}
               >
                 <div style={{ color: "var(--cfsp-green)", fontWeight: 900 }}>Push complete</div>
+                <div style={{ color: "var(--cfsp-green)", fontWeight: 900 }}>Pushed successfully</div>
                 <div style={{ color: "var(--cfsp-green)", fontWeight: 700 }}>
                   Updated events: {relatedPushSummary.updated_events.length}
                 </div>
+                {relatedPushSummary.copied_categories?.length ? (
+                  <div style={{ color: "var(--cfsp-green)", fontWeight: 700, lineHeight: 1.5 }}>
+                    {relatedPushSummary.copied_categories.map((category) => relatedCopyOptionLabels[category]).join(", ")} copied
+                  </div>
+                ) : null}
                 <div style={{ color: "var(--cfsp-green)", fontWeight: 700 }}>
                   SPs copied: {relatedPushSummary.sps_copied}
                 </div>
@@ -2899,11 +2991,11 @@ export default function EventDetailPage() {
               <button
                 type="button"
                 onClick={() => void handlePushToRelatedEvents()}
-                disabled={relatedPushSaving || relatedMatches.length === 0 || relatedCopyOptions.length === 0}
+                disabled={relatedPushSaving || relatedMatches.length === 0 || relatedCopyOptions.length === 0 || selectedRelatedTargetIds.length === 0}
                 style={{
                   ...buttonStyle,
                   opacity:
-                    relatedPushSaving || relatedMatches.length === 0 || relatedCopyOptions.length === 0
+                    relatedPushSaving || relatedMatches.length === 0 || relatedCopyOptions.length === 0 || selectedRelatedTargetIds.length === 0
                       ? 0.65
                       : 1,
                 }}

@@ -41,6 +41,29 @@ function getFullName(sp: Partial<SPDuplicateCandidate>) {
   );
 }
 
+function buildSpInsertPayload(payload: Record<string, unknown>) {
+  const firstName = asText(payload.first_name);
+  const lastName = asText(payload.last_name);
+  const fullName = [firstName, lastName].filter(Boolean).join(" ");
+
+  return {
+    ...payload,
+    first_name: firstName || null,
+    last_name: lastName || null,
+    full_name: fullName,
+    working_email: normalizeEmail(payload.working_email) || null,
+    phone: asText(payload.phone) || null,
+    portrayal_age: asText(payload.portrayal_age) || null,
+    race: asText(payload.race) || null,
+    sex: asText(payload.sex) || null,
+    telehealth: asText(payload.telehealth) || null,
+    pt_preferred: asText(payload.pt_preferred) || null,
+    other_roles: asText(payload.other_roles) || null,
+    status: asText(payload.status) || "Active",
+    notes: asText(payload.notes) || null,
+  };
+}
+
 function normalizeName(value: unknown) {
   return asText(value).replace(/\s+/g, " ").toLowerCase();
 }
@@ -75,10 +98,33 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const supabaseServer = createSupabaseServerClient();
-    const payload = await request.json();
-    const workingEmail = normalizeEmail(payload?.working_email);
-    const fullName = normalizeName(getFullName(payload));
-    const phone = normalizePhone(payload?.phone);
+    const rawPayload = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+    if (!rawPayload || typeof rawPayload !== "object") {
+      return NextResponse.json(
+        { error: "Invalid JSON body." },
+        { status: 400 }
+      );
+    }
+
+    const payload = buildSpInsertPayload(rawPayload);
+    const workingEmail = normalizeEmail(payload.working_email);
+    const fullNameText = getFullName(payload);
+    const fullName = normalizeName(fullNameText);
+    const phone = normalizePhone(payload.phone);
+
+    if (!asText(payload.first_name) && !asText(payload.last_name)) {
+      return NextResponse.json(
+        { error: "Enter at least a first or last name before saving an SP." },
+        { status: 400 }
+      );
+    }
+
+    if (!fullNameText) {
+      return NextResponse.json(
+        { error: "SP full name could not be generated. Enter at least one name field." },
+        { status: 400 }
+      );
+    }
 
     if (workingEmail) {
       const { data: emailMatches, error: duplicateError } = await supabaseServer

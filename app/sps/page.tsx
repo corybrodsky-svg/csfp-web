@@ -31,6 +31,7 @@ type SPRow = {
 type NewSPForm = {
   first_name: string;
   last_name: string;
+  full_name: string;
   working_email: string;
   phone: string;
   portrayal_age: string;
@@ -46,6 +47,7 @@ type NewSPForm = {
 const emptyForm: NewSPForm = {
   first_name: "",
   last_name: "",
+  full_name: "",
   working_email: "",
   phone: "",
   portrayal_age: "",
@@ -152,6 +154,10 @@ function toNullable(value: string) {
   return trimmed || null;
 }
 
+function buildFullName(firstName: string, lastName: string) {
+  return [firstName.trim(), lastName.trim()].filter(Boolean).join(" ");
+}
+
 async function parseApiError(response: Response) {
   try {
     const body = await response.json();
@@ -236,7 +242,16 @@ export default function SPPage() {
   }).length;
 
   function updateForm(field: keyof NewSPForm, value: string) {
-    setForm((current) => ({ ...current, [field]: value }));
+    setForm((current) => {
+      const next = { ...current, [field]: value };
+      if (field === "first_name" || field === "last_name") {
+        next.full_name = buildFullName(
+          field === "first_name" ? value : current.first_name,
+          field === "last_name" ? value : current.last_name
+        );
+      }
+      return next;
+    });
   }
 
   function toggleAddForm() {
@@ -258,9 +273,17 @@ export default function SPPage() {
       return;
     }
 
+    const fullName = buildFullName(form.first_name, form.last_name);
+    if (!fullName) {
+      setErrorMessage("Enter at least one name field so CFSP can generate a full name.");
+      setSaving(false);
+      return;
+    }
+
     const payload = {
       first_name: toNullable(form.first_name),
       last_name: toNullable(form.last_name),
+      full_name: fullName,
       working_email: toNullable(form.working_email),
       phone: toNullable(form.phone),
       portrayal_age: toNullable(form.portrayal_age),
@@ -402,13 +425,14 @@ export default function SPPage() {
               <div>
                 <h3 style={{ margin: 0, color: "#173b6c" }}>Add SP</h3>
                 <div style={{ color: "#64748b", fontWeight: 700, marginTop: "4px" }}>
-                  Enter at least a first or last name before saving.
+                  Enter at least a first or last name before saving. CFSP will generate the full name automatically.
                 </div>
               </div>
 
               <div style={gridStyle}>
                 <TextField label="First name" value={form.first_name} onChange={(value) => updateForm("first_name", value)} />
                 <TextField label="Last name" value={form.last_name} onChange={(value) => updateForm("last_name", value)} />
+                <TextField label="Full name" value={form.full_name} onChange={() => undefined} readOnly />
                 <TextField label="Working email" value={form.working_email} onChange={(value) => updateForm("working_email", value)} />
                 <TextField label="Phone" value={form.phone} onChange={(value) => updateForm("phone", value)} />
                 <TextField label="Portrayal age" value={form.portrayal_age} onChange={(value) => updateForm("portrayal_age", value)} />
@@ -457,6 +481,7 @@ function TextField(props: {
   label: string;
   value: string;
   onChange: (value: string) => void;
+  readOnly?: boolean;
 }) {
   return (
     <label style={labelStyle}>
@@ -464,7 +489,12 @@ function TextField(props: {
       <input
         value={props.value}
         onChange={(event) => props.onChange(event.target.value)}
-        style={inputStyle}
+        readOnly={props.readOnly}
+        style={{
+          ...inputStyle,
+          background: props.readOnly ? "#f8fafc" : inputStyle.background,
+          color: props.readOnly ? "#475569" : undefined,
+        }}
       />
     </label>
   );
