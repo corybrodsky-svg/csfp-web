@@ -259,6 +259,28 @@ function getSafeEventUpdates(rawUpdates: unknown) {
   return Object.keys(updates).length ? updates : null;
 }
 
+function getSafeSessionUpdates(rawUpdates: unknown) {
+  if (!rawUpdates || typeof rawUpdates !== "object") return null;
+
+  const source = rawUpdates as Record<string, unknown>;
+  const updates: Record<string, string | null> = {};
+
+  if (typeof source.session_date === "string" || source.session_date === null) {
+    updates.session_date =
+      typeof source.session_date === "string" ? asText(source.session_date) || null : null;
+  }
+  if (typeof source.start_time === "string" || source.start_time === null) {
+    updates.start_time =
+      typeof source.start_time === "string" ? asText(source.start_time) || null : null;
+  }
+  if (typeof source.end_time === "string" || source.end_time === null) {
+    updates.end_time =
+      typeof source.end_time === "string" ? asText(source.end_time) || null : null;
+  }
+
+  return Object.keys(updates).length ? updates : null;
+}
+
 export async function GET(
   _request: Request,
   context: { params: Promise<{ id?: string | string[] }> }
@@ -485,23 +507,93 @@ export async function PATCH(
     const eventId = getRouteId(params);
     const body = await request.json();
     const eventUpdates = getSafeEventUpdates(body?.event_updates);
+    const sessionUpdates = getSafeSessionUpdates(body?.session_updates);
     const assignmentId = typeof body?.assignment_id === "string" ? body.assignment_id : "";
     const updates = getSafeAssignmentUpdates(body?.updates);
 
-    if (eventId && eventUpdates) {
-      const { error } = await supabaseServer
-        .from("events")
-        .update(eventUpdates)
-        .eq("id", eventId);
+    if (eventId && (eventUpdates || sessionUpdates)) {
+      const nextEventUpdates = eventUpdates ? { ...eventUpdates } : {};
 
-      if (error) {
-        return applyAuthCookies(
-          NextResponse.json(
-            { error: error.message || "Could not update event details." },
-            { status: 500 }
-          ),
-          viewer
-        );
+      if (sessionUpdates && "session_date" in sessionUpdates) {
+        nextEventUpdates.date_text = sessionUpdates.session_date;
+      }
+
+      if (Object.keys(nextEventUpdates).length > 0) {
+        const { error } = await supabaseServer
+          .from("events")
+          .update(nextEventUpdates)
+          .eq("id", eventId);
+
+        if (error) {
+          return applyAuthCookies(
+            NextResponse.json(
+              { error: error.message || "Could not update event details." },
+              { status: 500 }
+            ),
+            viewer
+          );
+        }
+      }
+
+      if (sessionUpdates) {
+        const { data: existingSession, error: existingSessionError } = await supabaseServer
+          .from("event_sessions")
+          .select("id")
+          .eq("event_id", eventId)
+          .order("session_date", { ascending: true })
+          .order("start_time", { ascending: true })
+          .limit(1)
+          .maybeSingle();
+
+        if (existingSessionError) {
+          return applyAuthCookies(
+            NextResponse.json(
+              { error: existingSessionError.message || "Could not load event session." },
+              { status: 500 }
+            ),
+            viewer
+          );
+        }
+
+        if (existingSession?.id) {
+          const { error } = await supabaseServer
+            .from("event_sessions")
+            .update(sessionUpdates)
+            .eq("id", existingSession.id)
+            .eq("event_id", eventId);
+
+          if (error) {
+            return applyAuthCookies(
+              NextResponse.json(
+                { error: error.message || "Could not update event session." },
+                { status: 500 }
+              ),
+              viewer
+            );
+          }
+        } else {
+          const hasSessionValue = Object.values(sessionUpdates).some((value) => value !== null);
+          if (hasSessionValue) {
+            const { error } = await supabaseServer
+              .from("event_sessions")
+              .insert({
+                event_id: eventId,
+                session_date: sessionUpdates.session_date ?? null,
+                start_time: sessionUpdates.start_time ?? null,
+                end_time: sessionUpdates.end_time ?? null,
+              });
+
+            if (error) {
+              return applyAuthCookies(
+                NextResponse.json(
+                  { error: error.message || "Could not create event session." },
+                  { status: 500 }
+                ),
+                viewer
+              );
+            }
+          }
+        }
       }
 
       return applyAuthCookies(NextResponse.json({ ok: true }), viewer);

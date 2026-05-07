@@ -150,6 +150,12 @@ type EventEditorState = {
   sp_needed: string;
 };
 
+type SessionEditorState = {
+  session_date: string;
+  start_time: string;
+  end_time: string;
+};
+
 type WorkflowGroupKey =
   | "planning"
   | "staffing"
@@ -902,6 +908,33 @@ function formatSessionLabel(
   ].join(" · ");
 }
 
+function toTimeInputValue(value?: string | null) {
+  const trimmed = asText(value);
+  if (!trimmed) return "";
+  return trimmed.slice(0, 5);
+}
+
+function getSessionEditorState(
+  sessions: EventSessionRow[],
+  eventDateText?: string | null
+): SessionEditorState {
+  const primarySession = sessions[0];
+  return {
+    session_date:
+      asText(primarySession?.session_date) ||
+      normalizeLooseDateToIso(eventDateText) ||
+      "",
+    start_time: toTimeInputValue(primarySession?.start_time),
+    end_time: toTimeInputValue(primarySession?.end_time),
+  };
+}
+
+function toStoredTimeValue(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  return trimmed.length === 5 ? `${trimmed}:00` : trimmed;
+}
+
 function toDatetimeLocalValue(value?: string | null) {
   if (!value) return "";
   const parsed = new Date(value);
@@ -1083,6 +1116,11 @@ export default function EventDetailPage() {
     location: "",
     notes: "",
     sp_needed: "",
+  });
+  const [sessionEditor, setSessionEditor] = useState<SessionEditorState>({
+    session_date: "",
+    start_time: "",
+    end_time: "",
   });
   const [sessions, setSessions] = useState<EventSessionRow[]>([]);
   const [sps, setSps] = useState<SPRow[]>([]);
@@ -1797,6 +1835,7 @@ export default function EventDetailPage() {
           ? ""
           : String(result.event.sp_needed),
     });
+    setSessionEditor(getSessionEditorState(result.sessions, result.event?.date_text));
     setSessions(result.sessions);
     setSps(result.sps);
     setAssignments(result.assignments);
@@ -1856,6 +1895,9 @@ export default function EventDetailPage() {
       eventEditor.sp_needed.trim() === "" || Number.isNaN(nextSpNeeded)
         ? 0
         : Math.max(0, Math.round(nextSpNeeded));
+    const trimmedSessionDate = sessionEditor.session_date.trim();
+    const startTime = toStoredTimeValue(sessionEditor.start_time);
+    const endTime = toStoredTimeValue(sessionEditor.end_time);
 
     setSaving(true);
     setEventSaveMessage("");
@@ -1873,6 +1915,11 @@ export default function EventDetailPage() {
             location: eventEditor.location,
             notes: eventEditor.notes,
             sp_needed: spNeeded,
+          },
+          session_updates: {
+            session_date: trimmedSessionDate || null,
+            start_time: startTime,
+            end_time: endTime,
           },
         }),
       });
@@ -2271,6 +2318,7 @@ export default function EventDetailPage() {
               ? ""
               : String(result.event.sp_needed),
         });
+        setSessionEditor(getSessionEditorState(result.sessions, result.event?.date_text));
         setSessions(result.sessions);
         setSps(result.sps);
         setAssignments(result.assignments);
@@ -3345,6 +3393,48 @@ export default function EventDetailPage() {
                     />
                   </label>
                   <label style={{ display: "grid", gap: "6px" }}>
+                    <span style={statLabel}>Session Date</span>
+                    <input
+                      type="date"
+                      value={sessionEditor.session_date}
+                      onChange={(event) =>
+                        setSessionEditor((current) => ({ ...current, session_date: event.target.value }))
+                      }
+                      disabled={saving}
+                      style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                    />
+                  </label>
+                  <label style={{ display: "grid", gap: "6px" }}>
+                    <span style={statLabel}>Start Time</span>
+                    <input
+                      type="time"
+                      value={sessionEditor.start_time}
+                      onChange={(event) =>
+                        setSessionEditor((current) => ({ ...current, start_time: event.target.value }))
+                      }
+                      disabled={saving}
+                      style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                    />
+                    <span style={compactSectionHintStyle}>
+                      Saves as {sessionEditor.start_time ? formatDisplayTime(toStoredTimeValue(sessionEditor.start_time) || "") : "AM/PM"}
+                    </span>
+                  </label>
+                  <label style={{ display: "grid", gap: "6px" }}>
+                    <span style={statLabel}>End Time</span>
+                    <input
+                      type="time"
+                      value={sessionEditor.end_time}
+                      onChange={(event) =>
+                        setSessionEditor((current) => ({ ...current, end_time: event.target.value }))
+                      }
+                      disabled={saving}
+                      style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                    />
+                    <span style={compactSectionHintStyle}>
+                      Saves as {sessionEditor.end_time ? formatDisplayTime(toStoredTimeValue(sessionEditor.end_time) || "") : "AM/PM"}
+                    </span>
+                  </label>
+                  <label style={{ display: "grid", gap: "6px" }}>
                     <span style={statLabel}>Zoom URL</span>
                     <input
                       value={trainingMetadata.zoom_url}
@@ -4209,6 +4299,51 @@ export default function EventDetailPage() {
                   disabled={saving}
                   style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
                 />
+              </label>
+
+              <label style={{ display: "grid", gap: "6px" }}>
+                <span style={statLabel}>Session Date</span>
+                <input
+                  type="date"
+                  value={sessionEditor.session_date}
+                  onChange={(event) =>
+                    setSessionEditor((current) => ({ ...current, session_date: event.target.value }))
+                  }
+                  disabled={saving}
+                  style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                />
+              </label>
+
+              <label style={{ display: "grid", gap: "6px" }}>
+                <span style={statLabel}>Start Time</span>
+                <input
+                  type="time"
+                  value={sessionEditor.start_time}
+                  onChange={(event) =>
+                    setSessionEditor((current) => ({ ...current, start_time: event.target.value }))
+                  }
+                  disabled={saving}
+                  style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                />
+                <span style={compactSectionHintStyle}>
+                  Saves as {sessionEditor.start_time ? formatDisplayTime(toStoredTimeValue(sessionEditor.start_time) || "") : "AM/PM"}
+                </span>
+              </label>
+
+              <label style={{ display: "grid", gap: "6px" }}>
+                <span style={statLabel}>End Time</span>
+                <input
+                  type="time"
+                  value={sessionEditor.end_time}
+                  onChange={(event) =>
+                    setSessionEditor((current) => ({ ...current, end_time: event.target.value }))
+                  }
+                  disabled={saving}
+                  style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                />
+                <span style={compactSectionHintStyle}>
+                  Saves as {sessionEditor.end_time ? formatDisplayTime(toStoredTimeValue(sessionEditor.end_time) || "") : "AM/PM"}
+                </span>
               </label>
 
               {isTrainingMode ? (
