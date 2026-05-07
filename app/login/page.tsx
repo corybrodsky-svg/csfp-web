@@ -62,24 +62,37 @@ export default function LoginPage() {
         return;
       }
 
-     const sessionResponse = await fetch("/api/auth/session", {
-  method: "POST",
-  headers: {
-    "Content-Type": "application/json",
-  },
-  body: JSON.stringify({
-    access_token: data.session.access_token,
-    refresh_token: data.session.refresh_token,
-  }),
-});
+      const sessionResponse = await fetch("/api/auth/session", {
+        method: "POST",
+        credentials: "same-origin",
+        cache: "no-store",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          access_token: data.session.access_token,
+          refresh_token: data.session.refresh_token,
+        }),
+      });
 
-const sessionJson = await sessionResponse.json().catch(() => null);
+      const sessionJson = await sessionResponse.json().catch(() => null);
 
-if (!sessionResponse.ok || !sessionJson?.ok) {
-  throw new Error(sessionJson?.error || "Could not create CFSP session.");
-}
+      if (!sessionResponse.ok || !sessionJson?.ok) {
+        throw new Error(sessionJson?.error || "Could not create CFSP session.");
+      }
 
-window.location.replace("/dashboard");
+      const meResponse = await fetch("/api/me", {
+        method: "GET",
+        credentials: "same-origin",
+        cache: "no-store",
+      });
+      const meJson = await meResponse.json().catch(() => null);
+
+      if (!meResponse.ok || !meJson?.ok) {
+        throw new Error(meJson?.error || `CFSP session was created, but /api/me returned ${meResponse.status}.`);
+      }
+
+      window.location.replace("/dashboard");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not sign in.";
       setErrorMessage(formatAuthError(message));

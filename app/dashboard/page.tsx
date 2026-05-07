@@ -215,7 +215,7 @@ function getNotesRosterLine(notes: string, labelPattern: RegExp) {
 }
 
 function eventMatchesProfile(event: EventRecord, currentUserId: string, scheduleMatchName: string, firstName: string) {
-  if (eventMatchesOwnership(event, currentUserId, scheduleMatchName)) return true;
+  if (eventMatchesOwnership(event, scheduleMatchName || currentUserId)) return true;
 
   const notes = asText(event.notes);
   const matchCandidates = [scheduleMatchName, firstName].filter(Boolean);

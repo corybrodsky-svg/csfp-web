@@ -285,7 +285,10 @@ export default function EventsPage() {
   ]);
 
   return (
-    <SiteShell>
+    <SiteShell
+      title="Events"
+      subtitle="Review imported events, open command centers, and generate room/round schedules."
+    >
       <main style={{ padding: 24, display: "grid", gap: 24 }}>
         <section>
           <h1 style={{ margin: 0, fontSize: 32 }}>Events</h1>

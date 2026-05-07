@@ -24,19 +24,21 @@ function safeCookieToken(value: string) {
 export function setAuthCookies(
   response: NextResponse,
   tokens: { accessToken: string; refreshToken: string },
-  maxAge = 60 * 60 * 24 * 7
+  maxAge = 60 * 60 * 24 * 7,
+  refreshMaxAge = 60 * 60 * 24 * 30
 ) {
   const accessToken = safeCookieToken(tokens.accessToken);
   const refreshToken = safeCookieToken(tokens.refreshToken);
-  const options = cookieOptions(maxAge);
+  const accessOptions = cookieOptions(maxAge);
+  const refreshOptions = cookieOptions(refreshMaxAge);
 
   if (!accessToken || !refreshToken) {
     return false;
   }
 
   try {
-    response.cookies.set(AUTH_ACCESS_COOKIE, accessToken, options);
-    response.cookies.set(AUTH_REFRESH_COOKIE, refreshToken, options);
+    response.cookies.set(AUTH_ACCESS_COOKIE, accessToken, accessOptions);
+    response.cookies.set(AUTH_REFRESH_COOKIE, refreshToken, refreshOptions);
     return true;
   } catch {
     return false;

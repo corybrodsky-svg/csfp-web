@@ -100,6 +100,7 @@ async function resolveSession() {
   const refreshToken = cookieStore.get(AUTH_REFRESH_COOKIE)?.value?.trim() || "";
 
   if (!accessToken && !refreshToken) {
+    console.error("/api/me resolveSession missing tokens");
     return {
       ok: false as const,
       reason: "missing_tokens",
@@ -121,6 +122,9 @@ async function resolveSession() {
         accessToken,
       };
     }
+    if (error) {
+      console.error("/api/me access token getUser failed", error.message);
+    }
   }
 
   if (refreshToken) {
@@ -128,17 +132,25 @@ async function resolveSession() {
       refresh_token: refreshToken,
     });
 
-    if (!error && data.session?.access_token && data.session.refresh_token && data.user) {
+    const refreshedUser = data.user ?? data.session?.user ?? null;
+    if (!error && data.session?.access_token && data.session.refresh_token && refreshedUser) {
       return {
         ok: true as const,
         supabase,
-        user: data.user,
+        user: refreshedUser,
         refreshedSession: data.session,
         accessToken: data.session.access_token,
       };
     }
+    console.error("/api/me refreshSession failed", {
+      hasError: Boolean(error),
+      error: error?.message || null,
+      hasSession: Boolean(data.session),
+      hasUser: Boolean(refreshedUser),
+    });
   }
 
+  console.error("/api/me resolveSession invalid session");
   return {
     ok: false as const,
     reason: "invalid_session",

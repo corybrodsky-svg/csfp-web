@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
+import {
+  AUTH_ACCESS_COOKIE,
+  AUTH_REFRESH_COOKIE,
+  setAuthCookies,
+} from "../../../lib/authCookies";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-
-const ACCESS_COOKIE = "cfsp-access-token";
-const REFRESH_COOKIE = "cfsp-refresh-token";
 
 function getString(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0
@@ -17,11 +19,13 @@ function getErrorMessage(error: unknown): string {
 }
 
 export async function GET() {
-  return NextResponse.json({
+  const response = NextResponse.json({
     ok: true,
     route: "/api/auth/session",
     methods: ["GET", "POST"],
   });
+  response.headers.set("Cache-Control", "no-store");
+  return response;
 }
 
 export async function POST(request: NextRequest) {
@@ -70,23 +74,27 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const response = NextResponse.json({ ok: true });
-
-    response.cookies.set(ACCESS_COOKIE, accessToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      path: "/",
-      maxAge: 60 * 60 * 24 * 7,
+    const response = NextResponse.json({
+      ok: true,
+      cookies: [AUTH_ACCESS_COOKIE, AUTH_REFRESH_COOKIE],
+    });
+    response.headers.set("Cache-Control", "no-store");
+    const didSet = setAuthCookies(response, {
+      accessToken,
+      refreshToken,
     });
 
-    response.cookies.set(REFRESH_COOKIE, refreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      path: "/",
-      maxAge: 60 * 60 * 24 * 30,
-    });
+    if (!didSet) {
+      console.error("/api/auth/session failed to set auth cookies");
+      return NextResponse.json(
+        {
+          ok: false,
+          step: "set_cookies",
+          error: "Could not set CFSP auth cookies.",
+        },
+        { status: 500 }
+      );
+    }
 
     return response;
   } catch (error: unknown) {
