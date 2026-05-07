@@ -169,6 +169,28 @@ type TrainingImportResult = {
 };
 
 type TrainingMaterialKind = "case_file" | "doorsign" | "supplemental_doc";
+type RelatedCopyOption =
+  | "assigned_sps"
+  | "training_materials"
+  | "faculty"
+  | "zoom_recording"
+  | "sim_contact"
+  | "case_doorsign";
+
+type RelatedEventPreview = {
+  id: string;
+  name: string | null;
+  status: string | null;
+  date_text: string | null;
+  location: string | null;
+};
+
+type PushRelatedSummary = {
+  updated_events: Array<{ id: string; name: string }>;
+  skipped_events: Array<{ id: string; name: string; reason: string }>;
+  sps_copied: number;
+  duplicates_skipped: number;
+};
 
 const emptySpRow: SPRow = {
   id: "",
@@ -337,6 +359,15 @@ const trainingMaterialFieldMap: Record<
     uploadedAtKey: "supplemental_doc_uploaded_at",
     uploadedByKey: "supplemental_doc_uploaded_by",
   },
+};
+
+const relatedCopyOptionLabels: Record<RelatedCopyOption, string> = {
+  assigned_sps: "Assigned SPs",
+  training_materials: "Training metadata/materials",
+  faculty: "Faculty",
+  zoom_recording: "Zoom/recording info",
+  sim_contact: "Sim contact",
+  case_doorsign: "Case/doorsign",
 };
 
 const assignmentStatusLabels: Record<AssignmentStatus, string> = {
@@ -983,6 +1014,24 @@ function normalizeMatchName(value: string) {
     .trim();
 }
 
+function getDefaultRelatedEventKeyword(title?: string | null) {
+  const text = asText(title);
+  if (!text) return "";
+
+  const courseTokenMatch = text.match(/\b[A-Z]{2,}\s*[-]?\s*(\d{3,4}[A-Z]?)\b/i);
+  if (courseTokenMatch?.[1]) return courseTokenMatch[1];
+
+  const numericMatch = text.match(/\b(\d{3,4}[A-Z]?)\b/);
+  if (numericMatch?.[1]) return numericMatch[1];
+
+  const tokens = text
+    .split(/[^A-Za-z0-9]+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 3);
+
+  return tokens[0] || "";
+}
+
 function getSheetCellText(sheet: XLSX.WorkSheet, address: string) {
   return asText(sheet[address]?.v);
 }
@@ -1071,6 +1120,22 @@ export default function EventDetailPage() {
   const [trainingImportResult, setTrainingImportResult] = useState<TrainingImportResult | null>(null);
   const [trainingImportError, setTrainingImportError] = useState("");
   const [trainingImporting, setTrainingImporting] = useState(false);
+  const [showPushRelatedPanel, setShowPushRelatedPanel] = useState(false);
+  const [relatedKeyword, setRelatedKeyword] = useState("");
+  const [relatedExcludeCurrent, setRelatedExcludeCurrent] = useState(true);
+  const [relatedCopyOptions, setRelatedCopyOptions] = useState<RelatedCopyOption[]>([
+    "assigned_sps",
+    "training_materials",
+    "faculty",
+    "zoom_recording",
+    "sim_contact",
+    "case_doorsign",
+  ]);
+  const [relatedMatches, setRelatedMatches] = useState<RelatedEventPreview[]>([]);
+  const [relatedPreviewLoading, setRelatedPreviewLoading] = useState(false);
+  const [relatedPushSaving, setRelatedPushSaving] = useState(false);
+  const [relatedPushError, setRelatedPushError] = useState("");
+  const [relatedPushSummary, setRelatedPushSummary] = useState<PushRelatedSummary | null>(null);
   const [trainingMaterialSaving, setTrainingMaterialSaving] = useState<
     Record<TrainingMaterialKind, boolean>
   >({
@@ -1419,6 +1484,7 @@ export default function EventDetailPage() {
     () => (showAllTrainingRoster ? sortedAssignments : sortedAssignments.slice(0, 8)),
     [showAllTrainingRoster, sortedAssignments]
   );
+  const defaultRelatedKeyword = useMemo(() => getDefaultRelatedEventKeyword(event?.name), [event?.name]);
   const facultyEmails = useMemo(() => {
     const matches = trainingFacultyText.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) || [];
     return Array.from(new Set(matches.map((item) => item.trim())));
@@ -2067,6 +2133,121 @@ export default function EventDetailPage() {
     }
   }
 
+  async function handlePreviewRelatedEvents() {
+    if (!id || !relatedKeyword.trim()) {
+      setRelatedPushError("Enter a keyword to preview related events.");
+      setRelatedMatches([]);
+      return;
+    }
+
+    setRelatedPreviewLoading(true);
+    setRelatedPushError("");
+    setRelatedPushSummary(null);
+
+    try {
+      const response = await fetch(`/api/events/${encodeURIComponent(id)}/push-related`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode: "preview",
+          keyword: relatedKeyword.trim(),
+          excludeCurrent: relatedExcludeCurrent,
+        }),
+      });
+
+      const body = (await response.json().catch(() => null)) as
+        | {
+            error?: string;
+            events?: RelatedEventPreview[];
+          }
+        | null;
+
+      if (!response.ok) {
+        throw new Error(body?.error || "Could not preview related events.");
+      }
+
+      setRelatedMatches(Array.isArray(body?.events) ? body.events : []);
+    } catch (error) {
+      setRelatedPushError(
+        error instanceof Error ? error.message : "Could not preview related events."
+      );
+      setRelatedMatches([]);
+    } finally {
+      setRelatedPreviewLoading(false);
+    }
+  }
+
+  function handleToggleRelatedCopyOption(option: RelatedCopyOption) {
+    setRelatedPushSummary(null);
+    setRelatedPushError("");
+    setRelatedCopyOptions((current) =>
+      current.includes(option)
+        ? current.filter((item) => item !== option)
+        : [...current, option]
+    );
+  }
+
+  async function handlePushToRelatedEvents() {
+    if (!id || !relatedKeyword.trim()) {
+      setRelatedPushError("Enter a keyword before pushing to related events.");
+      return;
+    }
+
+    if (!relatedMatches.length) {
+      setRelatedPushError("Preview matching events before pushing selected info.");
+      return;
+    }
+
+    if (!relatedCopyOptions.length) {
+      setRelatedPushError("Select at least one thing to copy.");
+      return;
+    }
+
+    setRelatedPushSaving(true);
+    setRelatedPushError("");
+    setRelatedPushSummary(null);
+
+    try {
+      const response = await fetch(`/api/events/${encodeURIComponent(id)}/push-related`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode: "push",
+          keyword: relatedKeyword.trim(),
+          excludeCurrent: relatedExcludeCurrent,
+          copyOptions: relatedCopyOptions,
+        }),
+      });
+
+      const body = (await response.json().catch(() => null)) as
+        | {
+            error?: string;
+            summary?: PushRelatedSummary;
+          }
+        | null;
+
+      if (!response.ok || !body?.summary) {
+        throw new Error(body?.error || "Could not push selected info to related events.");
+      }
+
+      setRelatedPushSummary(body.summary);
+      setEventSaveMessage(
+        `Pushed selected info to ${body.summary.updated_events.length} related event${
+          body.summary.updated_events.length === 1 ? "" : "s"
+        }.`
+      );
+      await handlePreviewRelatedEvents();
+    } catch (error) {
+      setRelatedPushError(
+        error instanceof Error
+          ? error.message
+          : "Could not push selected info to related events."
+      );
+    } finally {
+      setRelatedPushSaving(false);
+    }
+  }
+
   useEffect(() => {
     let cancelled = false;
 
@@ -2152,6 +2333,11 @@ export default function EventDetailPage() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!defaultRelatedKeyword) return;
+    setRelatedKeyword((current) => (current ? current : defaultRelatedKeyword));
+  }, [defaultRelatedKeyword]);
 
   async function handleAddAssignment(spId = selectedSpId) {
     if (!id || !spId) return;
@@ -2476,9 +2662,212 @@ export default function EventDetailPage() {
                   ? `Build Rotation Schedule (${rotationScheduleBuilt ? "Built" : "Not built"})`
                   : "Build Rotation Schedule"}
               </Link>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowPushRelatedPanel((current) => !current);
+                  setRelatedPushError("");
+                  setRelatedPushSummary(null);
+                }}
+                style={{
+                  ...buttonStyle,
+                  background: "#ffffff",
+                  color: "#173b6c",
+                  border: "1px solid #cbd5e1",
+                }}
+              >
+                Push to Related Events
+              </button>
             </div>
           </div>
         </div>
+
+        {showPushRelatedPanel ? (
+          <div
+            style={{
+              marginTop: "12px",
+              border: "1px solid #bfdbfe",
+              borderRadius: "18px",
+              padding: "16px",
+              background: "#f8fbff",
+              display: "grid",
+              gap: "14px",
+            }}
+          >
+            <div>
+              <div style={{ color: "#173b6c", fontWeight: 900, fontSize: "20px" }}>
+                Push to Related Events
+              </div>
+              <div style={{ marginTop: "4px", color: "#5e7388", fontWeight: 700, lineHeight: 1.5 }}>
+                This will update multiple events. Existing data will not be deleted.
+              </div>
+            </div>
+
+            <div
+              style={{
+                display: "grid",
+                gap: "12px",
+                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                alignItems: "end",
+              }}
+            >
+              <label style={{ display: "grid", gap: "6px" }}>
+                <span style={statLabel}>Match Keyword</span>
+                <input
+                  value={relatedKeyword}
+                  onChange={(event) => setRelatedKeyword(event.target.value)}
+                  placeholder={defaultRelatedKeyword || "421"}
+                  style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                />
+              </label>
+
+              <label
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  color: "#173b6c",
+                  fontWeight: 800,
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={relatedExcludeCurrent}
+                  onChange={(event) => setRelatedExcludeCurrent(event.target.checked)}
+                />
+                Exclude current event
+              </label>
+
+              <button
+                type="button"
+                onClick={() => void handlePreviewRelatedEvents()}
+                disabled={relatedPreviewLoading}
+                style={{ ...buttonStyle, opacity: relatedPreviewLoading ? 0.65 : 1 }}
+              >
+                {relatedPreviewLoading ? "Finding Matches..." : "Show Matching Events"}
+              </button>
+            </div>
+
+            <div style={{ display: "grid", gap: "10px" }}>
+              <div style={statLabel}>Copy These Items</div>
+              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                {(Object.keys(relatedCopyOptionLabels) as RelatedCopyOption[]).map((option) => {
+                  const selected = relatedCopyOptions.includes(option);
+                  return (
+                    <button
+                      key={option}
+                      type="button"
+                      onClick={() => handleToggleRelatedCopyOption(option)}
+                      style={{
+                        ...buttonStyle,
+                        background: selected ? "#173b6c" : "#ffffff",
+                        color: selected ? "#ffffff" : "#173b6c",
+                        border: selected ? "1px solid #173b6c" : "1px solid #cbd5e1",
+                        padding: "8px 12px",
+                      }}
+                    >
+                      {relatedCopyOptionLabels[option]}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div style={{ display: "grid", gap: "10px" }}>
+              <div style={statLabel}>
+                Matching Events {relatedMatches.length ? `(${relatedMatches.length})` : ""}
+              </div>
+              {relatedMatches.length === 0 ? (
+                <div style={{ color: "#64748b", fontWeight: 700 }}>
+                  {relatedPreviewLoading
+                    ? "Looking for related events..."
+                    : "Preview matches to review which events will be updated."}
+                </div>
+              ) : (
+                <div style={{ display: "grid", gap: "8px" }}>
+                  {relatedMatches.map((match) => (
+                    <div
+                      key={match.id}
+                      style={{
+                        border: "1px solid #dbe4ee",
+                        borderRadius: "12px",
+                        background: "#ffffff",
+                        padding: "12px 14px",
+                      }}
+                    >
+                      <div style={{ color: "#14304f", fontWeight: 900 }}>
+                        {match.name || "Untitled Event"}
+                      </div>
+                      <div style={{ marginTop: "4px", color: "#5e7388", fontSize: "13px", fontWeight: 700 }}>
+                        {[match.status || "No status", match.date_text || "Date TBD", match.location || "Location TBD"].join(" · ")}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {relatedPushSummary ? (
+              <div
+                style={{
+                  border: "1px solid #86efac",
+                  borderRadius: "14px",
+                  padding: "14px",
+                  background: "#ecfdf3",
+                  display: "grid",
+                  gap: "8px",
+                }}
+              >
+                <div style={{ color: "#166534", fontWeight: 900 }}>Push complete</div>
+                <div style={{ color: "#166534", fontWeight: 700 }}>
+                  Updated events: {relatedPushSummary.updated_events.length}
+                </div>
+                <div style={{ color: "#166534", fontWeight: 700 }}>
+                  SPs copied: {relatedPushSummary.sps_copied}
+                </div>
+                <div style={{ color: "#9a3412", fontWeight: 700 }}>
+                  Duplicates skipped: {relatedPushSummary.duplicates_skipped}
+                </div>
+                <div style={{ color: "#475569", fontWeight: 700 }}>
+                  Skipped events: {relatedPushSummary.skipped_events.length}
+                </div>
+              </div>
+            ) : null}
+
+            {relatedPushError ? (
+              <div className="cfsp-alert cfsp-alert-error">{relatedPushError}</div>
+            ) : null}
+
+            <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+              <button
+                type="button"
+                onClick={() => void handlePushToRelatedEvents()}
+                disabled={relatedPushSaving || relatedMatches.length === 0 || relatedCopyOptions.length === 0}
+                style={{
+                  ...buttonStyle,
+                  opacity:
+                    relatedPushSaving || relatedMatches.length === 0 || relatedCopyOptions.length === 0
+                      ? 0.65
+                      : 1,
+                }}
+              >
+                {relatedPushSaving ? "Pushing..." : "Push Selected Info"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowPushRelatedPanel(false)}
+                style={{
+                  ...buttonStyle,
+                  background: "#ffffff",
+                  color: "#173b6c",
+                  border: "1px solid #cbd5e1",
+                }}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        ) : null}
 
         <div
           style={{
