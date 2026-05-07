@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { formatHumanDate, getImportedYearHint } from "../lib/eventDateUtils";
+import { parseTrainingEventMetadata } from "../lib/trainingEventNotes";
 
 type EventRow = {
   id: string;
@@ -70,8 +71,10 @@ type ScheduledRound = Omit<GeneratedRound, "roomSlots"> & {
 
 type ScheduleBuilderDraft = {
   builderMode: "simple" | "advanced";
+  scheduleViewMode: "student" | "operations";
   selectedEventId: string;
   learnerFileName: string;
+  originalUploadedLearners: string[];
   uploadedLearners: string[];
   startTime: string;
   staffArrivalTime: string;
@@ -85,9 +88,10 @@ type ScheduleBuilderDraft = {
   roundCount: string;
   examRoomCount: string;
   flexRoomCount: string;
+  roomCapacity: string;
   maxPairsPerFlexRoom: string;
   encounterMinutes: string;
-  postEncounterBlock: "checklist" | "feedback" | "break";
+  postEncounterBlock: "checklist" | "break" | "other";
   postEncounterMinutes: string;
   manualRoundOverride: boolean;
   checklistMinutes: string;
@@ -108,8 +112,10 @@ type SaveState = "saved" | "saving" | "unsaved" | "error";
 
 const DEFAULT_SCHEDULE_BUILDER_DRAFT: ScheduleBuilderDraft = {
   builderMode: "simple",
+  scheduleViewMode: "student",
   selectedEventId: "",
   learnerFileName: "",
+  originalUploadedLearners: [],
   uploadedLearners: [],
   startTime: "08:10",
   staffArrivalTime: "",
@@ -123,6 +129,7 @@ const DEFAULT_SCHEDULE_BUILDER_DRAFT: ScheduleBuilderDraft = {
   roundCount: "4",
   examRoomCount: "4",
   flexRoomCount: "1",
+  roomCapacity: "1",
   maxPairsPerFlexRoom: "3",
   encounterMinutes: "20",
   postEncounterBlock: "checklist",
@@ -192,11 +199,22 @@ function getToneStyles(tone: TimelineBlock["tone"]) {
   return { background: "#f4f7fb", border: "#d6e0e8", color: "#4f677d" };
 }
 
+function formatRoomName(roomName: string, roomType: "exam" | "flex", roomLabel: string) {
+  if (roomType === "exam") {
+    return roomName.replace(/^Exam\b/i, roomLabel);
+  }
+  if (roomLabel === "Breakout Room") {
+    return roomName.replace(/^Flex\b/i, "Overflow Room");
+  }
+  return roomName;
+}
+
 function buildRounds(args: {
   startMinutes: number;
   rounds: number;
   sessionLengthMinutes: number;
   examRoomCount: number;
+  examRoomCapacity: number;
   flexRoomCount: number;
   maxPairsPerFlexRoom: number;
   encounterMinutes: number;
@@ -207,13 +225,14 @@ function buildRounds(args: {
   includeFeedback: boolean;
   feedbackMinutes: number;
   transitionMinutes: number;
+  transitionLabel: string;
 }) {
   const blockDurations = [
     { label: "Encounter", minutes: args.encounterMinutes, enabled: true },
     { label: "Checklist", minutes: args.checklistMinutes, enabled: args.includeChecklist && args.checklistMinutes > 0 },
     { label: "SOAP Note", minutes: args.soapMinutes, enabled: args.includeSoap && args.soapMinutes > 0 },
     { label: "Feedback", minutes: args.feedbackMinutes, enabled: args.includeFeedback && args.feedbackMinutes > 0 },
-    { label: "Transition", minutes: args.transitionMinutes, enabled: args.transitionMinutes > 0 },
+    { label: args.transitionLabel, minutes: args.transitionMinutes, enabled: args.transitionMinutes > 0 },
   ].filter((item) => item.enabled && item.minutes > 0);
 
   const configuredLength = blockDurations.reduce((sum, item) => sum + item.minutes, 0);
@@ -249,8 +268,8 @@ function buildRounds(args: {
     const examSlots: GeneratedRoomSlot[] = Array.from({ length: args.examRoomCount }, (_, index) => ({
       roomName: `Exam ${index + 1}`,
       roomType: "exam",
-      capacity: 1,
-      capacityLabel: "1 learner",
+      capacity: args.examRoomCapacity,
+      capacityLabel: `${args.examRoomCapacity} learner${args.examRoomCapacity === 1 ? "" : "s"}`,
     }));
 
     const flexSlots: GeneratedRoomSlot[] = Array.from({ length: args.flexRoomCount }, (_, index) => ({
@@ -313,6 +332,15 @@ async function parseLearnerFile(file: File) {
   return parseLearnerNamesFromWorkbook(workbook);
 }
 
+function shuffleRoster(names: string[]) {
+  const next = [...names];
+  for (let index = next.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [next[index], next[swapIndex]] = [next[swapIndex], next[index]];
+  }
+  return next;
+}
+
 function buildLearnerRoster(uploadedLearners: string[], slotCount: number, roundCount: number) {
   if (uploadedLearners.length) return uploadedLearners;
   const fallbackCount = Math.max(slotCount * Math.max(roundCount, 1), slotCount, 1);
@@ -345,6 +373,10 @@ function buildPlaintextPreview(args: {
   event: EventRow | null;
   timeline: TimelineBlock[];
   rounds: ScheduledRound[];
+  roomLabel: string;
+  caseName?: string;
+  assignedSpNames?: string[];
+  viewMode: "student" | "operations";
 }) {
   const lines: string[] = [];
 
@@ -352,7 +384,9 @@ function buildPlaintextPreview(args: {
     lines.push(`Event: ${args.event.name || "Untitled Event"}`);
     lines.push(`Date: ${formatEventDate(args.event)}`);
     lines.push(`Location: ${args.event.location || "TBD"}`);
-    lines.push(`SP Coverage: ${Number(args.event.confirmed_assignments || 0)} / ${Number(args.event.sp_needed || 0)}`);
+    if (args.viewMode === "operations") {
+      lines.push(`SP Coverage: ${Number(args.event.confirmed_assignments || 0)} / ${Number(args.event.sp_needed || 0)}`);
+    }
     lines.push("");
   }
 
@@ -369,9 +403,16 @@ function buildPlaintextPreview(args: {
       lines.push(`  ${subBlock.label}: ${formatRange(subBlock.start, subBlock.end)}`);
     });
     round.roomSlots.forEach((slot) => {
-      lines.push(`  ${slot.roomName}: ${slot.capacityLabel}`);
+      const displayRoomName = formatRoomName(slot.roomName, slot.roomType, args.roomLabel);
+      lines.push(`  ${displayRoomName}: ${slot.capacityLabel}`);
+      if (args.viewMode === "operations") {
+        const slotIndex = round.roomSlots.findIndex((item) => item.roomName === slot.roomName);
+        const spName = args.assignedSpNames?.[slotIndex] || "";
+        if (spName) lines.push(`    SP: ${spName}`);
+        if (args.caseName) lines.push(`    Case: ${args.caseName}`);
+      }
       slot.learnerLabels.forEach((learner) => {
-        lines.push(`    - ${learner}`);
+        lines.push(`    ${args.roomLabel}: ${displayRoomName} · Learner: ${learner}`);
       });
     });
   });
@@ -392,6 +433,10 @@ function parseSavedDraft(raw: string | null): ScheduleBuilderDraft | null {
       ...DEFAULT_SCHEDULE_BUILDER_DRAFT,
       ...parsed,
       builderMode: parsed.builderMode === "advanced" ? "advanced" : "simple",
+      scheduleViewMode: parsed.scheduleViewMode === "operations" ? "operations" : "student",
+      originalUploadedLearners: Array.isArray(parsed.originalUploadedLearners)
+        ? parsed.originalUploadedLearners.map((item) => asText(item)).filter(Boolean)
+        : [],
       uploadedLearners: Array.isArray(parsed.uploadedLearners)
         ? parsed.uploadedLearners.map((item) => asText(item)).filter(Boolean)
         : [],
@@ -460,8 +505,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const [copyMessage, setCopyMessage] = useState("");
   const [learnerFileName, setLearnerFileName] = useState("");
   const [learnerUploadError, setLearnerUploadError] = useState("");
+  const [originalUploadedLearners, setOriginalUploadedLearners] = useState<string[]>([]);
   const [uploadedLearners, setUploadedLearners] = useState<string[]>([]);
   const [builderMode, setBuilderMode] = useState<"simple" | "advanced">(DEFAULT_SCHEDULE_BUILDER_DRAFT.builderMode);
+  const [scheduleViewMode, setScheduleViewMode] = useState<"student" | "operations">(DEFAULT_SCHEDULE_BUILDER_DRAFT.scheduleViewMode);
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [saveErrorMessage, setSaveErrorMessage] = useState("");
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
@@ -480,9 +527,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const [roundCount, setRoundCount] = useState(DEFAULT_SCHEDULE_BUILDER_DRAFT.roundCount);
   const [examRoomCount, setExamRoomCount] = useState(DEFAULT_SCHEDULE_BUILDER_DRAFT.examRoomCount);
   const [flexRoomCount, setFlexRoomCount] = useState(DEFAULT_SCHEDULE_BUILDER_DRAFT.flexRoomCount);
+  const [roomCapacity, setRoomCapacity] = useState(DEFAULT_SCHEDULE_BUILDER_DRAFT.roomCapacity);
   const [maxPairsPerFlexRoom, setMaxPairsPerFlexRoom] = useState(DEFAULT_SCHEDULE_BUILDER_DRAFT.maxPairsPerFlexRoom);
   const [encounterMinutes, setEncounterMinutes] = useState(DEFAULT_SCHEDULE_BUILDER_DRAFT.encounterMinutes);
-  const [postEncounterBlock, setPostEncounterBlock] = useState<"checklist" | "feedback" | "break">(DEFAULT_SCHEDULE_BUILDER_DRAFT.postEncounterBlock);
+  const [postEncounterBlock, setPostEncounterBlock] = useState<"checklist" | "break" | "other">(DEFAULT_SCHEDULE_BUILDER_DRAFT.postEncounterBlock);
   const [postEncounterMinutes, setPostEncounterMinutes] = useState(DEFAULT_SCHEDULE_BUILDER_DRAFT.postEncounterMinutes);
   const [manualRoundOverride, setManualRoundOverride] = useState(DEFAULT_SCHEDULE_BUILDER_DRAFT.manualRoundOverride);
   const [checklistMinutes, setChecklistMinutes] = useState(DEFAULT_SCHEDULE_BUILDER_DRAFT.checklistMinutes);
@@ -504,8 +552,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
 
   const applyDraft = useCallback((draft: ScheduleBuilderDraft) => {
     setBuilderMode(draft.builderMode);
+    setScheduleViewMode(draft.scheduleViewMode);
     setSelectedEventId(props.fixedEventId || draft.selectedEventId || "");
     setLearnerFileName(draft.learnerFileName);
+    setOriginalUploadedLearners(draft.originalUploadedLearners);
     setUploadedLearners(draft.uploadedLearners);
     setStartTime(draft.startTime);
     setStaffArrivalTime(draft.staffArrivalTime);
@@ -519,6 +569,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     setRoundCount(draft.roundCount);
     setExamRoomCount(draft.examRoomCount);
     setFlexRoomCount(draft.flexRoomCount);
+    setRoomCapacity(draft.roomCapacity);
     setMaxPairsPerFlexRoom(draft.maxPairsPerFlexRoom);
     setEncounterMinutes(draft.encounterMinutes);
     setPostEncounterBlock(draft.postEncounterBlock);
@@ -615,8 +666,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const draftSnapshot = useMemo<ScheduleBuilderDraft>(
     () => ({
       builderMode,
+      scheduleViewMode,
       selectedEventId: props.fixedEventId || selectedEventId || "",
       learnerFileName,
+      originalUploadedLearners,
       uploadedLearners,
       startTime,
       staffArrivalTime,
@@ -630,6 +683,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       roundCount,
       examRoomCount,
       flexRoomCount,
+      roomCapacity,
       maxPairsPerFlexRoom,
       encounterMinutes,
       postEncounterBlock,
@@ -650,9 +704,11 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     }),
     [
       builderMode,
+      scheduleViewMode,
       props.fixedEventId,
       selectedEventId,
       learnerFileName,
+      originalUploadedLearners,
       uploadedLearners,
       startTime,
       staffArrivalTime,
@@ -666,6 +722,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       roundCount,
       examRoomCount,
       flexRoomCount,
+      roomCapacity,
       maxPairsPerFlexRoom,
       encounterMinutes,
       postEncounterBlock,
@@ -730,10 +787,31 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     () => events.find((event) => event.id === selectedEventId) || null,
     [events, selectedEventId]
   );
+  const selectedEventMetadata = useMemo(
+    () => parseTrainingEventMetadata(selectedEvent?.notes),
+    [selectedEvent?.notes]
+  );
+  const selectedEventText = [selectedEvent?.name, selectedEvent?.location, selectedEvent?.notes]
+    .map((value) => asText(value))
+    .join(" ")
+    .toLowerCase();
+  const selectedEventModality =
+    asText(selectedEventMetadata.modality).toLowerCase() === "virtual" ||
+    asText(selectedEventMetadata.modality).toLowerCase() === "hybrid"
+      ? asText(selectedEventMetadata.modality).toLowerCase()
+      : /\b(virtual|vir|zoom|breakout)\b/.test(selectedEventText)
+        ? "virtual"
+        : "in_person";
+  const isVirtualEvent = selectedEventModality === "virtual";
+  const roomLabel = isVirtualEvent ? "Breakout Room" : "Exam Room";
+  const roomCountLabel = isVirtualEvent ? "Number of breakout rooms" : "Number of exam rooms";
+  const roomCapacityLabel = isVirtualEvent ? "Students per breakout room" : "Students per room";
+  const postEncounterLabel = postEncounterBlock === "checklist" ? "Checklist" : postEncounterBlock === "break" ? "Break" : "Other";
 
   const parsedStartMinutes = toMinutes(startTime);
   const parsedRounds = parseNumber(roundCount, 4);
   const parsedExamRooms = parseNumber(examRoomCount, 4);
+  const parsedRoomCapacity = Math.max(1, parseNumber(roomCapacity, 1));
   const parsedFlexRooms = parseNumber(flexRoomCount, 1);
   const parsedMaxPairs = Math.max(1, parseNumber(maxPairsPerFlexRoom, 3));
   const parsedSessionLength = parseNumber(sessionLengthMinutes, 0);
@@ -752,8 +830,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const parsedFacultyPrebrief = parseNumber(facultyPrebriefMinutes, 0);
   const parsedDebrief = parseNumber(debriefMinutes, 0);
   const parsedBreakdown = parseNumber(breakdownMinutes, 0);
-  const slotsPerRound = parsedExamRooms + parsedFlexRooms * parsedMaxPairs;
-  const totalRoomCount = parsedExamRooms + parsedFlexRooms;
+  const effectiveFlexRoomCount = isVirtualEvent ? 0 : parsedFlexRooms;
+  const effectiveFlexCapacity = isVirtualEvent ? 0 : parsedMaxPairs;
+  const slotsPerRound = parsedExamRooms * parsedRoomCapacity + effectiveFlexRoomCount * effectiveFlexCapacity;
+  const totalRoomCount = parsedExamRooms + effectiveFlexRoomCount;
   const autoCalculatedRounds =
     uploadedLearners.length && slotsPerRound > 0
       ? Math.max(1, Math.ceil(uploadedLearners.length / slotsPerRound))
@@ -767,11 +847,11 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const effectiveChecklistMinutes =
     builderMode === "simple" && postEncounterBlock === "checklist" ? parsedPostEncounter : parsedChecklist;
   const effectiveIncludeFeedback =
-    builderMode === "simple" ? postEncounterBlock === "feedback" : includeFeedback;
+    builderMode === "simple" ? parsedFeedback > 0 : includeFeedback;
   const effectiveFeedbackMinutes =
-    builderMode === "simple" && postEncounterBlock === "feedback" ? parsedPostEncounter : parsedFeedback;
+    builderMode === "simple" ? parsedFeedback : parsedFeedback;
   const effectiveTransitionMinutes =
-    builderMode === "simple" && postEncounterBlock === "break" ? parsedPostEncounter : parsedTransition;
+    builderMode === "simple" && postEncounterBlock !== "checklist" ? parsedPostEncounter : parsedTransition;
   const effectiveIncludeSoap = builderMode === "simple" ? false : includeSoap;
   const effectiveSoapMinutes = builderMode === "simple" ? 0 : parsedSoap;
 
@@ -794,8 +874,9 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       rounds: effectiveRoundCount,
       sessionLengthMinutes: parsedSessionLength,
       examRoomCount: parsedExamRooms,
-      flexRoomCount: parsedFlexRooms,
-      maxPairsPerFlexRoom: parsedMaxPairs,
+      examRoomCapacity: parsedRoomCapacity,
+      flexRoomCount: effectiveFlexRoomCount,
+      maxPairsPerFlexRoom: effectiveFlexCapacity,
       encounterMinutes: parsedEncounter,
       includeChecklist: effectiveIncludeChecklist,
       checklistMinutes: effectiveChecklistMinutes,
@@ -804,6 +885,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       includeFeedback: effectiveIncludeFeedback,
       feedbackMinutes: effectiveFeedbackMinutes,
       transitionMinutes: effectiveTransitionMinutes,
+      transitionLabel: postEncounterLabel,
     });
 
     const rotationStart = parsedStartMinutes;
@@ -940,8 +1022,9 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     parsedExamRooms,
     parsedFacultyArrival,
     parsedFacultyPrebrief,
-    parsedFlexRooms,
-    parsedMaxPairs,
+    effectiveFlexCapacity,
+    effectiveFlexRoomCount,
+    parsedRoomCapacity,
     parsedRoomSetup,
     parsedSessionLength,
     parsedSpArrival,
@@ -949,6 +1032,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     parsedStaffArrival,
     parsedStartMinutes,
     parsedStudentPrebrief,
+    postEncounterLabel,
   ]);
 
   const learnerRoster = useMemo(
@@ -976,8 +1060,14 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     return generated.timeline[generated.timeline.length - 1].end - generated.timeline[0].start;
   }, [generated.timeline]);
   const roomColumns = useMemo(
-    () => (scheduledRounds[0]?.roomSlots || []).map((slot) => ({ roomName: slot.roomName, roomType: slot.roomType, capacityLabel: slot.capacityLabel })),
-    [scheduledRounds]
+    () =>
+      (scheduledRounds[0]?.roomSlots || []).map((slot) => ({
+        roomName: slot.roomName,
+        displayRoomName: formatRoomName(slot.roomName, slot.roomType, roomLabel),
+        roomType: slot.roomType,
+        capacityLabel: slot.capacityLabel,
+      })),
+    [roomLabel, scheduledRounds]
   );
   const learnerCapacitySummary =
     uploadedLearners.length && slotsPerRound > 0
@@ -992,8 +1082,12 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         event: selectedEvent,
         timeline: generated.timeline,
         rounds: scheduledRounds,
+        roomLabel,
+        caseName: selectedEventMetadata.case_name,
+        assignedSpNames: selectedEvent?.assigned_sp_names || [],
+        viewMode: scheduleViewMode,
       }),
-    [generated.timeline, scheduledRounds, selectedEvent]
+    [generated.timeline, roomLabel, scheduleViewMode, scheduledRounds, selectedEvent, selectedEventMetadata.case_name]
   );
   const saveStateAppearance = getSaveStateAppearance(saveState);
   const lastSavedLabel = formatSavedTimestamp(lastSavedAt);
@@ -1036,11 +1130,28 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       if (!names.length) {
         throw new Error("No learner names were found in the uploaded file.");
       }
+      setOriginalUploadedLearners(names);
       setUploadedLearners(names);
     } catch (error) {
+      setOriginalUploadedLearners([]);
       setUploadedLearners([]);
       setLearnerUploadError(error instanceof Error ? error.message : "Could not read learner upload.");
     }
+  }
+
+  function handleRandomizeLearners() {
+    const source = uploadedLearners.length ? uploadedLearners : learnerRoster;
+    if (!source.length) return;
+    setUploadedLearners(shuffleRoster(source));
+    setCopyMessage("Student order randomized.");
+    window.setTimeout(() => setCopyMessage(""), 2600);
+  }
+
+  function handleResetLearnerOrder() {
+    if (!originalUploadedLearners.length) return;
+    setUploadedLearners(originalUploadedLearners);
+    setCopyMessage("Student order reset to uploaded order.");
+    window.setTimeout(() => setCopyMessage(""), 2600);
   }
 
   return (
@@ -1266,6 +1377,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                   <div className="mt-2 text-base font-black text-[#14304f]">{Math.max(slotsPerRound, 0)}</div>
                 </div>
                 <div className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
+                  <div className="cfsp-label">{roomCapacityLabel}</div>
+                  <div className="mt-2 text-base font-black text-[#14304f]">{parsedRoomCapacity}</div>
+                </div>
+                <div className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
                   <div className="cfsp-label">Configured Block Length</div>
                   <div className="mt-2 text-base font-black text-[#14304f]">{generated.configuredLength} minutes</div>
                 </div>
@@ -1291,7 +1406,8 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
               ) : null}
               {unplacedLearnerCount > 0 ? (
                 <div className="cfsp-alert cfsp-alert-error mt-4">
-                  {unplacedLearnerCount} learner{unplacedLearnerCount === 1 ? "" : "s"} cannot fit in the current manual schedule. Add more rounds, exam rooms, flex rooms, or flex capacity.
+                  {unplacedLearnerCount} learner{unplacedLearnerCount === 1 ? "" : "s"} cannot fit in the current manual schedule. Add more rounds,{" "}
+                  {isVirtualEvent ? "breakout rooms, or students per breakout room" : "exam rooms, flex rooms, or room capacity"}.
                 </div>
               ) : null}
               {parsedSessionLength > 0 && generated.bufferMinutes > 0 ? (
@@ -1319,19 +1435,25 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                   <span className="cfsp-label">Start time</span>
                   <input type="time" value={startTime} onChange={(event) => setStartTime(event.target.value)} className="cfsp-input" />
                 </label>
-                <NumberInput label="Number of exam rooms" value={examRoomCount} onChange={setExamRoomCount} />
-                <NumberInput label="Number of flex rooms" value={flexRoomCount} onChange={setFlexRoomCount} />
-                <NumberInput label="Flex capacity" value={maxPairsPerFlexRoom} onChange={setMaxPairsPerFlexRoom} />
+                <NumberInput label={roomCountLabel} value={examRoomCount} onChange={setExamRoomCount} />
+                <NumberInput label={roomCapacityLabel} value={roomCapacity} onChange={setRoomCapacity} />
+                {!isVirtualEvent ? (
+                  <>
+                    <NumberInput label="Number of flex rooms" value={flexRoomCount} onChange={setFlexRoomCount} />
+                    <NumberInput label="Flex capacity" value={maxPairsPerFlexRoom} onChange={setMaxPairsPerFlexRoom} />
+                  </>
+                ) : null}
                 <NumberInput label="Encounter minutes" value={encounterMinutes} onChange={setEncounterMinutes} />
+                <NumberInput label="Feedback minutes" value={feedbackMinutes} onChange={setFeedbackMinutes} />
                 <SelectInput
                   label="Post-encounter block"
                   value={postEncounterBlock}
                   options={[
                     { value: "checklist", label: "Checklist" },
-                    { value: "feedback", label: "Feedback" },
                     { value: "break", label: "Break" },
+                    { value: "other", label: "Other" },
                   ]}
-                  onChange={(value) => setPostEncounterBlock(value as "checklist" | "feedback" | "break")}
+                  onChange={(value) => setPostEncounterBlock(value as "checklist" | "break" | "other")}
                 />
                 <NumberInput label="Post-encounter minutes" value={postEncounterMinutes} onChange={setPostEncounterMinutes} />
               </div>
@@ -1341,14 +1463,34 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
           {builderMode === "advanced" ? (
             <div className="grid gap-5 xl:grid-cols-2">
               <section className="cfsp-panel px-5 py-5">
-                <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">Advanced Options</h3>
-                <p className="mt-2 mb-0 text-sm leading-6 text-[#5e7388]">
-                  These timing details are optional. They only affect the schedule when enabled or set to a nonzero value.
-                </p>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">Advanced Options</h3>
+                    <p className="mt-2 mb-0 text-sm leading-6 text-[#5e7388]">
+                      These timing details are optional. They only affect the schedule when enabled or set to a nonzero value.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button type="button" onClick={handleRandomizeLearners} className="cfsp-btn cfsp-btn-secondary">
+                      Randomize Student Order
+                    </button>
+                    {originalUploadedLearners.length ? (
+                      <button type="button" onClick={handleResetLearnerOrder} className="cfsp-btn cfsp-btn-secondary">
+                        Reset to Uploaded Order
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
                 <div className="mt-4 grid gap-4 md:grid-cols-2">
                   <TimeInput label="Staff arrival time" value={staffArrivalTime} onChange={setStaffArrivalTime} />
                   <TimeInput label="SP arrival time" value={spArrivalTime} onChange={setSpArrivalTime} />
                   <TimeInput label="Faculty arrival time" value={facultyArrivalTime} onChange={setFacultyArrivalTime} />
+                  {!isVirtualEvent ? (
+                    <>
+                      <NumberInput label="Number of flex rooms" value={flexRoomCount} onChange={setFlexRoomCount} />
+                      <NumberInput label="Flex capacity" value={maxPairsPerFlexRoom} onChange={setMaxPairsPerFlexRoom} />
+                    </>
+                  ) : null}
                   <NumberInput label="Room setup minutes" value={roomSetupMinutes} onChange={setRoomSetupMinutes} />
                   <NumberInput label="Student prebrief minutes" value={studentPrebriefMinutes} onChange={setStudentPrebriefMinutes} />
                   <NumberInput label="SP prebrief minutes" value={spPrebriefMinutes} onChange={setSpPrebriefMinutes} />
@@ -1432,17 +1574,51 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
           </section>
 
           <section className="cfsp-panel px-5 py-5">
-            <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">Session schedule grid</h3>
-            <p className="mt-2 mb-0 text-sm leading-6 text-[#5e7388]">
-              Rows track rounds and time blocks while columns track rooms and sections in a spreadsheet-style layout. Without an upload, fallback learner names are generated automatically.
-            </p>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">Session schedule grid</h3>
+                <p className="mt-2 mb-0 text-sm leading-6 text-[#5e7388]">
+                  Rows track rounds and time blocks while columns track rooms in a spreadsheet-style layout. Without an upload, fallback learner names are generated automatically.
+                </p>
+              </div>
+              <div className="inline-flex rounded-[12px] border border-[var(--cfsp-border)] p-1">
+                <button
+                  type="button"
+                  onClick={() => setScheduleViewMode("student")}
+                  className="rounded-[10px] px-4 py-2 text-sm font-black transition"
+                  style={{
+                    background: scheduleViewMode === "student" ? "var(--cfsp-blue)" : "transparent",
+                    color: scheduleViewMode === "student" ? "#ffffff" : "var(--cfsp-text-muted)",
+                  }}
+                >
+                  Student View
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setScheduleViewMode("operations")}
+                  className="rounded-[10px] px-4 py-2 text-sm font-black transition"
+                  style={{
+                    background: scheduleViewMode === "operations" ? "var(--cfsp-blue)" : "transparent",
+                    color: scheduleViewMode === "operations" ? "#ffffff" : "var(--cfsp-text-muted)",
+                  }}
+                >
+                  Operations View
+                </button>
+              </div>
+            </div>
 
             {parsedStartMinutes === null ? (
               <div className="cfsp-alert cfsp-alert-error mt-5">Enter a valid start time to generate the session schedule grid.</div>
             ) : !scheduledRounds.length ? (
               <div className="cfsp-alert cfsp-alert-info mt-5">Add enough rooms and schedule timing to generate the session schedule grid.</div>
             ) : (
-              <div className="mt-5 overflow-x-auto">
+              <div className="mt-5 overflow-hidden rounded-[16px] border border-[#dce6ee] bg-[#f8fbfd]">
+                <div className="border-b border-[#dce6ee] px-4 py-3 text-sm font-semibold text-[#5e7388]">
+                  {scheduleViewMode === "student"
+                    ? "Student View excludes internal SP and case details."
+                    : "Operations View includes assigned SP and case details when available."}
+                </div>
+                <div className="max-w-full overflow-x-auto">
                 <table className="w-full border-collapse text-left">
                   <thead>
                     <tr className="border-b border-[#dce6ee] text-sm text-[#5e7388]">
@@ -1450,7 +1626,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                       <th className="px-3 py-3 font-black">Time</th>
                       {roomColumns.map((column) => (
                         <th key={column.roomName} className="px-3 py-3 font-black">
-                          {column.roomName}
+                          {column.displayRoomName}
                         </th>
                       ))}
                     </tr>
@@ -1488,8 +1664,14 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                                   textTransform: "uppercase",
                                 }}
                               >
-                                {slot.capacityLabel}
+                                {formatRoomName(slot.roomName, slot.roomType, roomLabel)} · {slot.capacityLabel}
                               </div>
+                              {scheduleViewMode === "operations" ? (
+                                <div style={{ marginTop: "6px", fontSize: "12px", fontWeight: 700, color: "#4f677d", lineHeight: 1.5 }}>
+                                  <div>SP: {selectedEvent?.assigned_sp_names?.[round.roomSlots.findIndex((item) => item.roomName === slot.roomName)] || "Unassigned"}</div>
+                                  {selectedEventMetadata.case_name ? <div>Case: {selectedEventMetadata.case_name}</div> : null}
+                                </div>
+                              ) : null}
                               <div style={{ marginTop: "8px", display: "grid", gap: "6px" }}>
                                 {slot.learnerLabels.map((learner) => (
                                   <div
@@ -1514,6 +1696,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                     ))}
                   </tbody>
                 </table>
+              </div>
               </div>
             )}
           </section>
