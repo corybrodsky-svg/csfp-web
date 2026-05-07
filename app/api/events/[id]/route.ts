@@ -420,6 +420,30 @@ export async function POST(
       );
     }
 
+    const { data: existingAssignment, error: existingAssignmentError } = await supabaseServer
+      .from("event_sps")
+      .select("id")
+      .eq("event_id", eventId)
+      .eq("sp_id", spId)
+      .maybeSingle();
+
+    if (existingAssignmentError) {
+      return applyAuthCookies(
+        NextResponse.json(
+          { error: existingAssignmentError.message || "Could not check existing assignment." },
+          { status: 500 }
+        ),
+        viewer
+      );
+    }
+
+    if (existingAssignment?.id) {
+      return applyAuthCookies(
+        NextResponse.json({ ok: true, already_assigned: true }),
+        viewer
+      );
+    }
+
     const { error } = await supabaseServer.from("event_sps").insert({
       event_id: eventId,
       sp_id: spId,

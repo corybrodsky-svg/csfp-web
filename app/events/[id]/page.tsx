@@ -1,5 +1,6 @@
 "use client";
 
+import * as XLSX from "xlsx";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
@@ -157,6 +158,14 @@ type WorkflowGroupKey =
   | "platform"
   | "day_of"
   | "wrap_up";
+
+type TrainingImportResult = {
+  eventTitle: string;
+  matchedAssigned: string[];
+  alreadyAssigned: string[];
+  notFound: string[];
+  facultyDetected: string[];
+};
 
 const emptySpRow: SPRow = {
   id: "",
@@ -821,12 +830,12 @@ function buildMailtoHref(args: {
   subject: string;
   body: string;
 }) {
-  const params = new URLSearchParams();
-  if (args.cc?.length) params.set("cc", args.cc.join(","));
-  if (args.bcc.length) params.set("bcc", args.bcc.join(","));
-  params.set("subject", args.subject);
-  params.set("body", args.body);
-  return `mailto:${encodeURIComponent(args.to || "")}?${params.toString()}`;
+  const parts: string[] = [];
+  if (args.cc?.length) parts.push(`cc=${encodeURIComponent(args.cc.join(","))}`);
+  if (args.bcc.length) parts.push(`bcc=${encodeURIComponent(args.bcc.join(","))}`);
+  parts.push(`subject=${encodeURIComponent(args.subject)}`);
+  parts.push(`body=${encodeURIComponent(args.body)}`);
+  return `mailto:${encodeURIComponent(args.to || "")}?${parts.join("&")}`;
 }
 
 function hasNotesLine(notes: string | null | undefined, pattern: RegExp) {
@@ -898,6 +907,57 @@ function getRouteId(params: ReturnType<typeof useParams>) {
   return typeof raw === "string" ? raw : "";
 }
 
+function normalizeEmail(value: string) {
+  return asText(value).toLowerCase();
+}
+
+function normalizeMatchName(value: string) {
+  return asText(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function getSheetCellText(sheet: XLSX.WorkSheet, address: string) {
+  return asText(sheet[address]?.v);
+}
+
+function parseTrainingImportWorkbook(file: File) {
+  return file.arrayBuffer().then((buffer) => {
+    const workbook = XLSX.read(buffer, { type: "array" });
+    const firstSheetName = workbook.SheetNames[0];
+    const sheet = firstSheetName ? workbook.Sheets[firstSheetName] : null;
+    if (!sheet) {
+      return {
+        eventTitle: "",
+        entries: [] as { email: string; name: string }[],
+        facultyDetected: [] as string[],
+      };
+    }
+
+    const eventTitle = getSheetCellText(sheet, "B1");
+    const entries: { email: string; name: string }[] = [];
+    const facultyDetected = new Set<string>();
+
+    for (let row = 16; row <= 35; row += 1) {
+      const email = getSheetCellText(sheet, `B${row}`);
+      const name = getSheetCellText(sheet, `C${row}`);
+      const faculty = getSheetCellText(sheet, `G${row}`);
+
+      if (faculty) facultyDetected.add(faculty);
+      if (!email && !name) continue;
+      entries.push({ email, name });
+    }
+
+    return {
+      eventTitle,
+      entries,
+      facultyDetected: Array.from(facultyDetected),
+    };
+  });
+}
+
 export default function EventDetailPage() {
   const params = useParams();
   const id = getRouteId(params);
@@ -943,10 +1003,35 @@ export default function EventDetailPage() {
     scheduleName: string;
   } | null>(null);
   const [showTrainingEmailDraft, setShowTrainingEmailDraft] = useState(false);
+  const [trainingImportResult, setTrainingImportResult] = useState<TrainingImportResult | null>(null);
+  const [trainingImportError, setTrainingImportError] = useState("");
+  const [trainingImporting, setTrainingImporting] = useState(false);
 
   const spsById = useMemo(() => {
     const next = new Map<string, SPRow>();
     sps.forEach((sp) => next.set(String(sp.id), sp));
+    return next;
+  }, [sps]);
+
+  const spByEmail = useMemo(() => {
+    const next = new Map<string, SPRow>();
+    sps.forEach((sp) => {
+      const emails = [sp.working_email, sp.email]
+        .map((email) => normalizeEmail(asText(email)))
+        .filter(Boolean);
+      emails.forEach((email) => {
+        if (!next.has(email)) next.set(email, sp);
+      });
+    });
+    return next;
+  }, [sps]);
+
+  const spByNormalizedName = useMemo(() => {
+    const next = new Map<string, SPRow>();
+    sps.forEach((sp) => {
+      const name = normalizeMatchName(getFullName(sp));
+      if (name && !next.has(name)) next.set(name, sp);
+    });
     return next;
   }, [sps]);
 
@@ -1220,7 +1305,9 @@ export default function EventDetailPage() {
   const hasTrainingScheduled = hasNotesLine(event?.notes, /^Training Date\s*:/im);
   const hasZoomReady = hasNotesLine(event?.notes, /^(Zoom|SimIQ)\s*:/im) || /zoom|simiq|online|virtual/i.test(asText(event?.notes));
   const hasRoomsBuilt = sessions.some((session) => Boolean(asText(session.room) || asText(session.location)));
-  const rotationScheduleBuilt = sessions.length > 0;
+  const rotationScheduleBuilt = ["built", "saved", "complete"].includes(
+    asText(trainingMetadata.rotation_schedule_status).toLowerCase()
+  );
   const trainingFacultyText = trainingMetadata.faculty_names || fallbackFacultyText;
   const trainingFacultyNames = trainingMetadata.faculty_names
     ? trainingMetadata.faculty_names
@@ -1242,11 +1329,12 @@ export default function EventDetailPage() {
     "",
     `In preparation for ${event?.name || "this"} Training, please review the following:`,
     "",
-    `- Date: ${sessionSummaryLabel || "Date TBD"}`,
-    `- Time: ${summaryTimeLabel || "Time TBD"}`,
-    `- Zoom Link: ${trainingMetadata.zoom_url || "INPUT ZOOM LINK"}`,
-    `- Case: ${trainingMetadata.case_name || "Name of CASE"}`,
-    `- Sim Contact: ${trainingSimContact || "Sim Team Assigned"}`,
+    `• Date: ${sessionSummaryLabel || "Date TBD"}`,
+    `• Time: ${summaryTimeLabel || "Time TBD"}`,
+    `• Zoom Link: ${trainingMetadata.zoom_url || "INPUT ZOOM LINK"}`,
+    `• Password: ${trainingMetadata.training_password || "INPUT PASSWORD"}`,
+    `• Case: ${trainingMetadata.case_name || "Name of CASE"}`,
+    `• Sim Contact: ${trainingSimContact || "Sim Team Assigned"}`,
     "",
     "Thank you,",
     "",
@@ -1661,6 +1749,80 @@ export default function EventDetailPage() {
     }));
   }
 
+  async function handleLocalTrainingFilePick(
+    key: "case_file_name" | "doorsign_file_name",
+    file: File | null
+  ) {
+    if (!file) return;
+
+    handleTrainingMetadataChange(key, file.name);
+    setEventSaveMessage("");
+    setEventSaveError("");
+  }
+
+  async function handleTrainingWorkbookImport(file: File | null) {
+    if (!file || !id) return;
+
+    setTrainingImportError("");
+    setTrainingImportResult(null);
+    setTrainingImporting(true);
+    setEventSaveMessage("");
+    setEventSaveError("");
+
+    try {
+      const parsed = await parseTrainingImportWorkbook(file);
+      const matchedAssigned: string[] = [];
+      const alreadyAssigned: string[] = [];
+      const notFound: string[] = [];
+      const matchedSpIds: string[] = [];
+
+      parsed.entries.forEach((entry) => {
+        const byEmail = entry.email ? spByEmail.get(normalizeEmail(entry.email)) : undefined;
+        const byName = entry.name ? spByNormalizedName.get(normalizeMatchName(entry.name)) : undefined;
+        const match = byEmail || byName;
+
+        if (!match) {
+          notFound.push(entry.email || entry.name || "Unknown entry");
+          return;
+        }
+
+        const label = `${getFullName(match)}${getEmail(match) ? ` (${getEmail(match)})` : ""}`;
+        if (assignedSpIds.has(String(match.id)) || matchedSpIds.includes(String(match.id))) {
+          alreadyAssigned.push(label);
+          return;
+        }
+
+        matchedSpIds.push(String(match.id));
+        matchedAssigned.push(label);
+      });
+
+      if (matchedSpIds.length) {
+        await assignMultipleSpIds(
+          matchedSpIds,
+          `Imported ${matchedSpIds.length} SP${matchedSpIds.length === 1 ? "" : "s"} from workbook.`
+        );
+      }
+
+      if (parsed.facultyDetected.length && !trainingMetadata.faculty_names.trim()) {
+        handleTrainingMetadataChange("faculty_names", parsed.facultyDetected.join(", "));
+      }
+
+      setTrainingImportResult({
+        eventTitle: parsed.eventTitle,
+        matchedAssigned,
+        alreadyAssigned,
+        notFound,
+        facultyDetected: parsed.facultyDetected,
+      });
+    } catch (error) {
+      setTrainingImportError(
+        error instanceof Error ? error.message : "Could not import SP Event Info workbook."
+      );
+    } finally {
+      setTrainingImporting(false);
+    }
+  }
+
   useEffect(() => {
     let cancelled = false;
 
@@ -1979,7 +2141,11 @@ export default function EventDetailPage() {
         </div>
       ) : null}
 
-      <div style={cardStyle}>
+      <details open style={cardStyle}>
+        <summary style={{ cursor: "pointer", color: "#14304f", fontWeight: 900, fontSize: "20px" }}>
+          {isTrainingMode ? "Assigned SPs" : "Coverage Actions"}
+        </summary>
+        <div style={{ marginTop: "12px" }}>
         <div
           style={{
             display: "flex",
@@ -2139,11 +2305,15 @@ export default function EventDetailPage() {
             </div>
           )}
         </div>
-      </div>
+        </div>
+      </details>
 
       {isTrainingMode ? (
         <>
-          <div style={{ ...cardStyle, background: "#f8fbfd", borderColor: "#dce6ee" }}>
+          <details open style={{ ...cardStyle, background: "#f8fbfd", borderColor: "#dce6ee" }}>
+            <summary style={{ cursor: "pointer", color: "#14304f", fontWeight: 900, fontSize: "20px" }}>
+              Training Details
+            </summary>
             <div
               style={{
                 display: "flex",
@@ -2151,6 +2321,7 @@ export default function EventDetailPage() {
                 gap: "12px",
                 flexWrap: "wrap",
                 alignItems: "flex-start",
+                marginTop: "12px",
               }}
             >
               <div>
@@ -2200,34 +2371,103 @@ export default function EventDetailPage() {
                 </div>
               </div>
               <div style={statCard}>
+                <div style={statLabel}>Password</div>
+                <div style={{ ...statValue, fontSize: "15px" }}>
+                  {trainingMetadata.training_password || "Not added"}
+                </div>
+              </div>
+              <div style={statCard}>
                 <div style={statLabel}>Recording</div>
                 <div style={{ ...statValue, fontSize: "15px" }}>
                   {trainingMetadata.recording_url || "Not added"}
                 </div>
               </div>
+            </div>
+          </details>
+
+          <details open style={{ ...cardStyle, background: "#ffffff" }}>
+            <summary style={{ cursor: "pointer", color: "#14304f", fontWeight: 900, fontSize: "20px" }}>
+              Training Materials
+            </summary>
+            <div
+              style={{
+                ...detailGridStyle,
+                marginTop: "14px",
+                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+              }}
+            >
               <div style={statCard}>
-                <div style={statLabel}>Case</div>
+                <div style={statLabel}>Case Name</div>
+                <div style={{ ...statValue, fontSize: "15px" }}>{trainingMetadata.case_name || "Needs case info"}</div>
+              </div>
+              <div style={statCard}>
+                <div style={statLabel}>Case Link</div>
                 <div style={{ ...statValue, fontSize: "15px" }}>
-                  {trainingMetadata.case_name || "Needs case info"}
+                  {trainingMetadata.case_file_url || "No link added"}
+                </div>
+              </div>
+              <div style={statCard}>
+                <div style={statLabel}>Case File Selected</div>
+                <div style={{ ...statValue, fontSize: "15px" }}>
+                  {trainingMetadata.case_file_name || "No local file selected"}
+                </div>
+              </div>
+              <div style={statCard}>
+                <div style={statLabel}>Doorsign Link</div>
+                <div style={{ ...statValue, fontSize: "15px" }}>
+                  {trainingMetadata.doorsign_url || "No link added"}
+                </div>
+              </div>
+              <div style={statCard}>
+                <div style={statLabel}>Doorsign File Selected</div>
+                <div style={{ ...statValue, fontSize: "15px" }}>
+                  {trainingMetadata.doorsign_file_name || "No local file selected"}
+                </div>
+              </div>
+              <div style={statCard}>
+                <div style={statLabel}>Training Notes</div>
+                <div style={{ ...statValue, fontSize: "15px" }}>
+                  {trainingMetadata.training_notes || "No training notes added"}
                 </div>
               </div>
             </div>
-          </div>
 
-          <div style={{ ...cardStyle, background: "#ffffff" }}>
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                gap: "12px",
-                flexWrap: "wrap",
-                alignItems: "flex-start",
-              }}
-            >
+            <div style={{ display: "grid", gap: "12px", marginTop: "14px", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))" }}>
+              <label style={{ display: "grid", gap: "6px" }}>
+                <span style={statLabel}>Case File Picker</span>
+                <input
+                  type="file"
+                  onChange={(event) => void handleLocalTrainingFilePick("case_file_name", event.target.files?.[0] || null)}
+                  style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                />
+                <span style={{ color: "#64748b", fontSize: "12px", fontWeight: 700 }}>
+                  Local file selection only. This does not upload the file yet.
+                </span>
+              </label>
+
+              <label style={{ display: "grid", gap: "6px" }}>
+                <span style={statLabel}>Doorsign File Picker</span>
+                <input
+                  type="file"
+                  onChange={(event) => void handleLocalTrainingFilePick("doorsign_file_name", event.target.files?.[0] || null)}
+                  style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                />
+                <span style={{ color: "#64748b", fontSize: "12px", fontWeight: 700 }}>
+                  Local file selection only. This does not upload the file yet.
+                </span>
+              </label>
+            </div>
+          </details>
+
+          <details open={showTrainingEmailDraft} style={{ ...cardStyle, background: "#ffffff" }}>
+            <summary style={{ cursor: "pointer", color: "#14304f", fontWeight: 900, fontSize: "20px" }}>
+              Training Email Preview
+            </summary>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "flex-start", marginTop: "12px" }}>
               <div>
                 <h2 style={compactSectionTitleStyle}>Training Communication</h2>
                 <p style={compactSectionHintStyle}>
-                  Draft prep email, confirm links, and review who is attached to the training.
+                  Review the full draft before opening your email client.
                 </p>
               </div>
               <button
@@ -2235,7 +2475,7 @@ export default function EventDetailPage() {
                 onClick={() => setShowTrainingEmailDraft((current) => !current)}
                 style={{ ...buttonStyle }}
               >
-                {showTrainingEmailDraft ? "Hide SP Training Email" : "Draft SP Training Email"}
+                {showTrainingEmailDraft ? "Collapse Preview" : "Draft SP Training Email"}
               </button>
             </div>
 
@@ -2254,55 +2494,41 @@ export default function EventDetailPage() {
                 <div style={statLabel}>Sim Contact / Team</div>
                 <div style={{ ...statValue, fontSize: "15px" }}>{trainingSimContact || "Not set"}</div>
               </div>
-              <div style={statCard}>
-                <div style={statLabel}>Case Link</div>
-                <div style={{ ...statValue, fontSize: "15px" }}>
-                  {trainingMetadata.case_file_url || trainingMetadata.case_upload_placeholder || "Not added"}
-                </div>
-              </div>
-              <div style={statCard}>
-                <div style={statLabel}>Doorsign</div>
-                <div style={{ ...statValue, fontSize: "15px" }}>
-                  {trainingMetadata.doorsign_url || trainingMetadata.doorsign_upload_placeholder || "Not added"}
-                </div>
-              </div>
             </div>
 
-            {showTrainingEmailDraft ? (
-              <div
-                style={{
-                  marginTop: "14px",
-                  border: "1px solid #dbe4ee",
-                  borderRadius: "16px",
-                  padding: "14px",
-                  background: "#f8fbff",
-                }}
-              >
-                <div style={statLabel}>Email Draft Preview</div>
-                <div style={{ marginTop: "10px", color: "#173b6c", lineHeight: 1.7 }}>
-                  <div><strong>From:</strong> {me?.email || "Current logged-in user"}</div>
-                  <div><strong>To:</strong> {me?.email || "Current logged-in user"}</div>
-                  <div><strong>CC:</strong> {facultyEmails.length ? facultyEmails.join(", ") : trainingFacultyText || "No faculty emails parsed yet"}</div>
-                  <div><strong>BCC:</strong> {assignedBccEmails.length ? assignedBccEmails.join(", ") : "No assigned SP emails found."}</div>
-                  <div style={{ marginTop: "8px" }}><strong>Subject:</strong> {trainingEmailSubject}</div>
-                  <div style={{ marginTop: "8px", whiteSpace: "pre-wrap" }}><strong>Body:</strong>{"\n"}{trainingEmailBody}</div>
-                </div>
-                <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "12px" }}>
-                  <a
-                    href={trainingMailtoHref}
-                    style={{
-                      ...buttonStyle,
-                      display: "inline-flex",
-                      alignItems: "center",
-                      textDecoration: "none",
-                    }}
-                  >
-                    Open Draft in Email
-                  </a>
-                </div>
+            <div
+              style={{
+                marginTop: "14px",
+                border: "1px solid #dbe4ee",
+                borderRadius: "16px",
+                padding: "14px",
+                background: "#f8fbff",
+              }}
+            >
+              <div style={statLabel}>Email Draft Preview</div>
+              <div style={{ marginTop: "10px", color: "#173b6c", lineHeight: 1.7 }}>
+                <div><strong>From:</strong> {me?.email || "Current logged-in user"}</div>
+                <div><strong>To:</strong> {me?.email || "Current logged-in user"}</div>
+                <div><strong>CC:</strong> {facultyEmails.length ? facultyEmails.join(", ") : trainingFacultyText || "No faculty emails parsed yet"}</div>
+                <div><strong>BCC:</strong> {assignedBccEmails.length ? assignedBccEmails.join(", ") : "No assigned SP emails found."}</div>
+                <div style={{ marginTop: "8px" }}><strong>Subject:</strong> {trainingEmailSubject}</div>
+                <div style={{ marginTop: "8px", whiteSpace: "pre-wrap" }}><strong>Body:</strong>{"\n"}{trainingEmailBody}</div>
               </div>
-            ) : null}
-          </div>
+              <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "12px" }}>
+                <a
+                  href={trainingMailtoHref}
+                  style={{
+                    ...buttonStyle,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    textDecoration: "none",
+                  }}
+                >
+                  Open Draft in Email
+                </a>
+              </div>
+            </div>
+          </details>
         </>
       ) : null}
 
@@ -2658,7 +2884,11 @@ export default function EventDetailPage() {
         </div>
       ) : null}
 
-      <div id="coverage-actions" style={cardStyle}>
+      <details id="coverage-actions" open style={cardStyle}>
+        <summary style={{ cursor: "pointer", color: "#14304f", fontWeight: 900, fontSize: "20px" }}>
+          Event Editor
+        </summary>
+        <div style={{ marginTop: "12px" }}>
         <div
           style={{
             display: "flex",
@@ -2814,6 +3044,17 @@ export default function EventDetailPage() {
                   </label>
 
                   <label style={{ display: "grid", gap: "6px" }}>
+                    <span style={statLabel}>Zoom / Recording Password</span>
+                    <input
+                      value={trainingMetadata.training_password}
+                      onChange={(event) => handleTrainingMetadataChange("training_password", event.target.value)}
+                      disabled={saving}
+                      placeholder="Password"
+                      style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                    />
+                  </label>
+
+                  <label style={{ display: "grid", gap: "6px" }}>
                     <span style={statLabel}>Recorded Training URL</span>
                     <input
                       value={trainingMetadata.recording_url}
@@ -2858,13 +3099,12 @@ export default function EventDetailPage() {
                   </label>
 
                   <label style={{ display: "grid", gap: "6px" }}>
-                    <span style={statLabel}>Case Upload Placeholder</span>
+                    <span style={statLabel}>Case File Selected</span>
                     <input
-                      value={trainingMetadata.case_upload_placeholder}
-                      onChange={(event) => handleTrainingMetadataChange("case_upload_placeholder", event.target.value)}
-                      disabled={saving}
-                      placeholder="Upload control placeholder text"
-                      style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                      value={trainingMetadata.case_file_name}
+                      readOnly
+                      placeholder="No local file selected"
+                      style={{ ...inputStyle, width: "100%", boxSizing: "border-box", background: "#f8fafc" }}
                     />
                   </label>
 
@@ -2880,13 +3120,12 @@ export default function EventDetailPage() {
                   </label>
 
                   <label style={{ display: "grid", gap: "6px" }}>
-                    <span style={statLabel}>Doorsign Upload Placeholder</span>
+                    <span style={statLabel}>Doorsign File Selected</span>
                     <input
-                      value={trainingMetadata.doorsign_upload_placeholder}
-                      onChange={(event) => handleTrainingMetadataChange("doorsign_upload_placeholder", event.target.value)}
-                      disabled={saving}
-                      placeholder="Upload control placeholder text"
-                      style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                      value={trainingMetadata.doorsign_file_name}
+                      readOnly
+                      placeholder="No local file selected"
+                      style={{ ...inputStyle, width: "100%", boxSizing: "border-box", background: "#f8fafc" }}
                     />
                   </label>
 
@@ -2898,6 +3137,17 @@ export default function EventDetailPage() {
                       disabled={saving}
                       placeholder={simStaffNames.join(", ") || "Sim team assigned"}
                       style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                    />
+                  </label>
+
+                  <label style={{ display: "grid", gap: "6px", gridColumn: "1 / -1" }}>
+                    <span style={statLabel}>Training Notes</span>
+                    <textarea
+                      value={trainingMetadata.training_notes}
+                      onChange={(event) => handleTrainingMetadataChange("training_notes", event.target.value)}
+                      disabled={saving}
+                      placeholder="Add prep notes, reminders, or follow-up details..."
+                      style={{ ...textareaStyle, minHeight: "88px" }}
                     />
                   </label>
                 </>
@@ -2928,7 +3178,8 @@ export default function EventDetailPage() {
             />
           </details>
         </div>
-      </div>
+        </div>
+      </details>
 
       <div style={cardStyle}>
         <div
@@ -3068,6 +3319,58 @@ export default function EventDetailPage() {
                 gap: "10px",
               }}
             >
+              <div style={{ display: "grid", gap: "10px" }}>
+                <div style={statLabel}>Upload SP Event Info</div>
+                <label style={{ display: "grid", gap: "6px" }}>
+                  <input
+                    type="file"
+                    accept=".xlsx,.xls,.xlsm"
+                    disabled={trainingImporting || saving}
+                    onChange={(event) => void handleTrainingWorkbookImport(event.target.files?.[0] || null)}
+                    style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                  />
+                  <span style={{ color: "#64748b", fontSize: "12px", fontWeight: 700 }}>
+                    Reads title from `B1`, SP emails from `B16:B35`, SP names from `C16:C35`, and faculty from column `G`.
+                  </span>
+                </label>
+                {trainingImporting ? (
+                  <div className="cfsp-alert cfsp-alert-info">Importing SP Event Info workbook...</div>
+                ) : null}
+                {trainingImportError ? (
+                  <div className="cfsp-alert cfsp-alert-error">{trainingImportError}</div>
+                ) : null}
+                {trainingImportResult ? (
+                  <div
+                    style={{
+                      border: "1px solid #dbe4ee",
+                      borderRadius: "12px",
+                      background: "#ffffff",
+                      padding: "12px 14px",
+                      display: "grid",
+                      gap: "8px",
+                    }}
+                  >
+                    <div style={{ color: "#14304f", fontWeight: 900 }}>
+                      Imported workbook event: {trainingImportResult.eventTitle || "Untitled workbook event"}
+                    </div>
+                    <div style={{ color: "#166534", fontWeight: 800 }}>
+                      Matched / assigned: {trainingImportResult.matchedAssigned.length}
+                    </div>
+                    <div style={{ color: "#9a3412", fontWeight: 800 }}>
+                      Already assigned: {trainingImportResult.alreadyAssigned.length}
+                    </div>
+                    <div style={{ color: "#991b1b", fontWeight: 800 }}>
+                      Not found: {trainingImportResult.notFound.length}
+                    </div>
+                    {trainingImportResult.facultyDetected.length ? (
+                      <div style={{ color: "#475569", fontWeight: 700 }}>
+                        Faculty detected: {trainingImportResult.facultyDetected.join(", ")}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+
               <div style={statLabel}>
                 Assigned SPs · {sortedAssignments.length} on roster
               </div>

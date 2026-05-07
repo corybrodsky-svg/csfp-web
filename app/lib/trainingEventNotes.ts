@@ -1,13 +1,16 @@
 export type TrainingEventMetadata = {
   zoom_url: string;
+  training_password: string;
   recording_url: string;
   case_name: string;
   case_file_url: string;
-  case_upload_placeholder: string;
+  case_file_name: string;
   doorsign_url: string;
-  doorsign_upload_placeholder: string;
+  doorsign_file_name: string;
   faculty_names: string;
   sim_contact: string;
+  training_notes: string;
+  rotation_schedule_status: string;
 };
 
 const TRAINING_METADATA_START = "[CFSP_TRAINING_METADATA]";
@@ -15,14 +18,17 @@ const TRAINING_METADATA_END = "[/CFSP_TRAINING_METADATA]";
 
 const TRAINING_METADATA_KEYS = [
   "zoom_url",
+  "training_password",
   "recording_url",
   "case_name",
   "case_file_url",
-  "case_upload_placeholder",
+  "case_file_name",
   "doorsign_url",
-  "doorsign_upload_placeholder",
+  "doorsign_file_name",
   "faculty_names",
   "sim_contact",
+  "training_notes",
+  "rotation_schedule_status",
 ] as const satisfies readonly (keyof TrainingEventMetadata)[];
 
 function asText(value: unknown) {
@@ -33,14 +39,17 @@ function asText(value: unknown) {
 export function emptyTrainingEventMetadata(): TrainingEventMetadata {
   return {
     zoom_url: "",
+    training_password: "",
     recording_url: "",
     case_name: "",
     case_file_url: "",
-    case_upload_placeholder: "",
+    case_file_name: "",
     doorsign_url: "",
-    doorsign_upload_placeholder: "",
+    doorsign_file_name: "",
     faculty_names: "",
     sim_contact: "",
+    training_notes: "",
+    rotation_schedule_status: "",
   };
 }
 
