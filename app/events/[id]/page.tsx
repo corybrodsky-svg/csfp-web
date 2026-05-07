@@ -2,7 +2,7 @@
 
 import * as XLSX from "xlsx";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import EventPlanningTimeline from "../../components/EventPlanningTimeline";
 import SiteShell from "../../components/SiteShell";
@@ -167,6 +167,8 @@ type TrainingImportResult = {
   facultyDetected: string[];
 };
 
+type TrainingMaterialKind = "case_file" | "doorsign" | "supplemental_doc";
+
 const emptySpRow: SPRow = {
   id: "",
   first_name: null,
@@ -282,6 +284,58 @@ const assignmentStatuses: AssignmentStatus[] = [
 ];
 
 const contactMethods: ContactMethod[] = ["call", "text", "email"];
+
+const trainingMaterialFieldMap: Record<
+  TrainingMaterialKind,
+  {
+    label: string;
+    urlKey:
+      | "case_file_url"
+      | "doorsign_url"
+      | "supplemental_doc_url";
+    nameKey:
+      | "case_file_name"
+      | "doorsign_file_name"
+      | "supplemental_doc_name";
+    storagePathKey:
+      | "case_file_storage_path"
+      | "doorsign_storage_path"
+      | "supplemental_doc_storage_path";
+    uploadedAtKey:
+      | "case_file_uploaded_at"
+      | "doorsign_uploaded_at"
+      | "supplemental_doc_uploaded_at";
+    uploadedByKey:
+      | "case_file_uploaded_by"
+      | "doorsign_uploaded_by"
+      | "supplemental_doc_uploaded_by";
+  }
+> = {
+  case_file: {
+    label: "Case File",
+    urlKey: "case_file_url",
+    nameKey: "case_file_name",
+    storagePathKey: "case_file_storage_path",
+    uploadedAtKey: "case_file_uploaded_at",
+    uploadedByKey: "case_file_uploaded_by",
+  },
+  doorsign: {
+    label: "Doorsign",
+    urlKey: "doorsign_url",
+    nameKey: "doorsign_file_name",
+    storagePathKey: "doorsign_storage_path",
+    uploadedAtKey: "doorsign_uploaded_at",
+    uploadedByKey: "doorsign_uploaded_by",
+  },
+  supplemental_doc: {
+    label: "Supplemental Doc",
+    urlKey: "supplemental_doc_url",
+    nameKey: "supplemental_doc_name",
+    storagePathKey: "supplemental_doc_storage_path",
+    uploadedAtKey: "supplemental_doc_uploaded_at",
+    uploadedByKey: "supplemental_doc_uploaded_by",
+  },
+};
 
 const assignmentStatusLabels: Record<AssignmentStatus, string> = {
   invited: "Invited",
@@ -775,6 +829,13 @@ function formatTimestamp(value?: string | null) {
   return parsed.toLocaleString();
 }
 
+function formatUploadedTimestamp(value?: string | null) {
+  if (!value) return "Not uploaded";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleString();
+}
+
 function formatSessionDate(value?: string | null, fallbackYear?: number | null) {
   return formatHumanDate(value, fallbackYear);
 }
@@ -1003,9 +1064,20 @@ export default function EventDetailPage() {
     scheduleName: string;
   } | null>(null);
   const [showTrainingEmailDraft, setShowTrainingEmailDraft] = useState(false);
+  const [showAllTrainingRoster, setShowAllTrainingRoster] = useState(false);
   const [trainingImportResult, setTrainingImportResult] = useState<TrainingImportResult | null>(null);
   const [trainingImportError, setTrainingImportError] = useState("");
   const [trainingImporting, setTrainingImporting] = useState(false);
+  const [trainingMaterialSaving, setTrainingMaterialSaving] = useState<
+    Record<TrainingMaterialKind, boolean>
+  >({
+    case_file: false,
+    doorsign: false,
+    supplemental_doc: false,
+  });
+  const caseFileInputRef = useRef<HTMLInputElement | null>(null);
+  const doorsignInputRef = useRef<HTMLInputElement | null>(null);
+  const supplementalDocInputRef = useRef<HTMLInputElement | null>(null);
 
   const spsById = useMemo(() => {
     const next = new Map<string, SPRow>();
@@ -1319,6 +1391,35 @@ export default function EventDetailPage() {
       ? `${event.location} · Virtual`
       : "Virtual"
     : event?.location || "Location TBD";
+  const trainingMaterialCards = useMemo(
+    () => [
+      {
+        kind: "case_file" as const,
+        title: trainingMetadata.case_name || "Case File",
+        hint: "Case materials for the training.",
+      },
+      {
+        kind: "doorsign" as const,
+        title: "Doorsign",
+        hint: "Doorsign or room-facing asset.",
+      },
+      {
+        kind: "supplemental_doc" as const,
+        title: "Supplemental Doc",
+        hint: "Optional prep doc, guide, or handout.",
+      },
+    ],
+    [trainingMetadata.case_name]
+  );
+  const trainingCaseStatus =
+    trainingMetadata.case_name || trainingMetadata.case_file_url || trainingMetadata.case_file_name
+      ? "Ready"
+      : "Needs case";
+  const trainingRecordingStatus = trainingMetadata.recording_url ? "Ready" : "Not added";
+  const trainingRosterPreview = useMemo(
+    () => (showAllTrainingRoster ? sortedAssignments : sortedAssignments.slice(0, 8)),
+    [showAllTrainingRoster, sortedAssignments]
+  );
   const facultyEmails = useMemo(() => {
     const matches = trainingFacultyText.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) || [];
     return Array.from(new Set(matches.map((item) => item.trim())));
@@ -1749,15 +1850,157 @@ export default function EventDetailPage() {
     }));
   }
 
-  async function handleLocalTrainingFilePick(
-    key: "case_file_name" | "doorsign_file_name",
-    file: File | null
-  ) {
-    if (!file) return;
+  async function persistTrainingNotes(nextNotes: string, successMessage: string) {
+    if (!id) return false;
 
-    handleTrainingMetadataChange(key, file.name);
     setEventSaveMessage("");
     setEventSaveError("");
+
+    const response = await fetch(`/api/events/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        event_updates: {
+          notes: nextNotes,
+        },
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(await parseApiError(response));
+    }
+
+    setEventEditor((current) => ({
+      ...current,
+      notes: nextNotes,
+    }));
+    setEvent((current) => (current ? { ...current, notes: nextNotes } : current));
+    setEventSaveMessage(successMessage);
+    return true;
+  }
+
+  function setTrainingMaterialSavingState(kind: TrainingMaterialKind, savingState: boolean) {
+    setTrainingMaterialSaving((current) => ({
+      ...current,
+      [kind]: savingState,
+    }));
+  }
+
+  function openTrainingMaterialPicker(kind: TrainingMaterialKind) {
+    const inputRef =
+      kind === "case_file"
+        ? caseFileInputRef
+        : kind === "doorsign"
+        ? doorsignInputRef
+        : supplementalDocInputRef;
+
+    inputRef.current?.click();
+  }
+
+  async function handleTrainingMaterialUpload(kind: TrainingMaterialKind, file: File | null) {
+    if (!file || !id) return;
+
+    const fieldConfig = trainingMaterialFieldMap[kind];
+    const replacePath = asText(trainingMetadata[fieldConfig.storagePathKey]);
+    const formData = new FormData();
+    formData.append("eventId", id);
+    formData.append("kind", kind);
+    formData.append("file", file);
+    if (replacePath) {
+      formData.append("replacePath", replacePath);
+    }
+
+    setTrainingMaterialSavingState(kind, true);
+    setEventSaveMessage("");
+    setEventSaveError("");
+
+    try {
+      const response = await fetch("/api/uploads/training-material", {
+        method: "POST",
+        body: formData,
+      });
+
+      const body = (await response.json().catch(() => null)) as
+        | {
+            error?: string;
+            material?: {
+              filename?: string;
+              uploaded_at?: string;
+              uploaded_by?: string;
+              storage_path?: string;
+              url?: string;
+            };
+          }
+        | null;
+
+      if (!response.ok || !body?.material) {
+        throw new Error(body?.error || `Could not upload ${fieldConfig.label.toLowerCase()}.`);
+      }
+
+      const nextNotes = upsertTrainingEventMetadata(eventEditor.notes, {
+        [fieldConfig.urlKey]: asText(body.material.url),
+        [fieldConfig.nameKey]: asText(body.material.filename),
+        [fieldConfig.storagePathKey]: asText(body.material.storage_path),
+        [fieldConfig.uploadedAtKey]: asText(body.material.uploaded_at),
+        [fieldConfig.uploadedByKey]: asText(body.material.uploaded_by),
+      });
+
+      await persistTrainingNotes(nextNotes, `${fieldConfig.label} uploaded.`);
+    } catch (error) {
+      setEventSaveError(
+        error instanceof Error
+          ? error.message
+          : `Could not upload ${fieldConfig.label.toLowerCase()}.`
+      );
+    } finally {
+      setTrainingMaterialSavingState(kind, false);
+    }
+  }
+
+  async function handleRemoveTrainingMaterial(kind: TrainingMaterialKind) {
+    if (!id) return;
+
+    const fieldConfig = trainingMaterialFieldMap[kind];
+    const storagePath = asText(trainingMetadata[fieldConfig.storagePathKey]);
+
+    setTrainingMaterialSavingState(kind, true);
+    setEventSaveMessage("");
+    setEventSaveError("");
+
+    try {
+      if (storagePath) {
+        const response = await fetch("/api/uploads/training-material", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            eventId: id,
+            path: storagePath,
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error(await parseApiError(response));
+        }
+      }
+
+      const nextNotes = upsertTrainingEventMetadata(eventEditor.notes, {
+        [fieldConfig.urlKey]: "",
+        [fieldConfig.nameKey]: "",
+        [fieldConfig.storagePathKey]: "",
+        [fieldConfig.uploadedAtKey]: "",
+        [fieldConfig.uploadedByKey]: "",
+      });
+
+      await persistTrainingNotes(nextNotes, `${fieldConfig.label} removed.`);
+    } catch (error) {
+      setEventSaveError(
+        error instanceof Error
+          ? error.message
+          : `Could not remove ${fieldConfig.label.toLowerCase()}.`
+      );
+    } finally {
+      setTrainingMaterialSavingState(kind, false);
+    }
   }
 
   async function handleTrainingWorkbookImport(file: File | null) {
@@ -2259,20 +2502,24 @@ export default function EventDetailPage() {
               <div style={statLabel}>Location</div>
               <div style={statValue}>{event.location || "Location TBD"}</div>
             </div>
-            <div style={{ ...statCard, background: "#ffffff" }}>
-              <div style={statLabel}>SP Needed</div>
-              <div style={statValue}>{needed}</div>
-            </div>
-            <div style={{ ...statCard, background: "#ffffff" }}>
-              <div style={statLabel}>Assigned</div>
-              <div style={{ ...statValue, color: "#173b6c" }}>{assignedCount}</div>
-            </div>
-            <div style={{ ...statCard, background: "#ffffff" }}>
-              <div style={statLabel}>{isWorkshop ? "Workshop" : "Shortage"}</div>
-              <div style={{ ...statValue, color: isWorkshop ? "#0f766e" : shortage > 0 ? "#9a3412" : "#166534" }}>
-                {isWorkshop ? "Skills Workshop" : shortageCount}
-              </div>
-            </div>
+            {!isTrainingMode ? (
+              <>
+                <div style={{ ...statCard, background: "#ffffff" }}>
+                  <div style={statLabel}>SP Needed</div>
+                  <div style={statValue}>{needed}</div>
+                </div>
+                <div style={{ ...statCard, background: "#ffffff" }}>
+                  <div style={statLabel}>Assigned</div>
+                  <div style={{ ...statValue, color: "#173b6c" }}>{assignedCount}</div>
+                </div>
+                <div style={{ ...statCard, background: "#ffffff" }}>
+                  <div style={statLabel}>{isWorkshop ? "Workshop" : "Shortage"}</div>
+                  <div style={{ ...statValue, color: isWorkshop ? "#0f766e" : shortage > 0 ? "#9a3412" : "#166534" }}>
+                    {isWorkshop ? "Skills Workshop" : shortageCount}
+                  </div>
+                </div>
+              </>
+            ) : null}
             <div style={{ ...statCard, background: "#ffffff" }}>
               <div style={statLabel}>Date</div>
               <div style={statValue}>{sessionSummaryLabel}</div>
@@ -2309,227 +2556,724 @@ export default function EventDetailPage() {
       </details>
 
       {isTrainingMode ? (
-        <>
-          <details open style={{ ...cardStyle, background: "#f8fbfd", borderColor: "#dce6ee" }}>
-            <summary style={{ cursor: "pointer", color: "#14304f", fontWeight: 900, fontSize: "20px" }}>
-              Training Details
-            </summary>
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                gap: "12px",
-                flexWrap: "wrap",
-                alignItems: "flex-start",
-                marginTop: "12px",
-              }}
-            >
-              <div>
-                <h2 style={compactSectionTitleStyle}>SP Training Mode</h2>
-                <p style={compactSectionHintStyle}>
-                  Training events use a simplified command center focused on prep, faculty/sim coordination, and SP communication.
-                </p>
-              </div>
+        <div
+          style={{
+            display: "grid",
+            gap: "16px",
+            alignItems: "start",
+            gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
+          }}
+        >
+          <div style={{ display: "grid", gap: "14px", minWidth: 0 }}>
+            <section style={{ ...cardStyle, background: "#f8fbfd", borderColor: "#dce6ee" }}>
               <div
                 style={{
-                  borderRadius: "999px",
-                  padding: "8px 12px",
-                  background: rotationScheduleBuilt ? "#ecfdf3" : "#fff7ed",
-                  border: rotationScheduleBuilt ? "1px solid #86efac" : "1px solid #fed7aa",
-                  color: rotationScheduleBuilt ? "#166534" : "#9a3412",
-                  fontWeight: 900,
-                  fontSize: "13px",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  gap: "12px",
+                  flexWrap: "wrap",
+                  alignItems: "flex-start",
                 }}
               >
-                Rotation schedule: {rotationScheduleBuilt ? "Built" : "Not built"}
-              </div>
-            </div>
-
-            <div
-              style={{
-                ...detailGridStyle,
-                marginTop: "14px",
-                gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-              }}
-            >
-              <div style={statCard}>
-                <div style={statLabel}>Assigned SPs</div>
-                <div style={statValue}>{assignedCount}</div>
-              </div>
-              <div style={statCard}>
-                <div style={statLabel}>Confirmed</div>
-                <div style={statValue}>{confirmedCount}</div>
-              </div>
-              <div style={statCard}>
-                <div style={statLabel}>Location / Modality</div>
-                <div style={{ ...statValue, fontSize: "15px" }}>{trainingLocationModality}</div>
-              </div>
-              <div style={statCard}>
-                <div style={statLabel}>Zoom</div>
-                <div style={{ ...statValue, fontSize: "15px" }}>
-                  {trainingMetadata.zoom_url ? "Ready" : eventMeta.isVirtualSp ? "Needs link" : "Optional"}
+                <div>
+                  <h2 style={compactSectionTitleStyle}>Training Overview</h2>
+                  <p style={compactSectionHintStyle}>
+                    Keep prep details tight and visible without repeating the same training facts across the page.
+                  </p>
                 </div>
-              </div>
-              <div style={statCard}>
-                <div style={statLabel}>Password</div>
-                <div style={{ ...statValue, fontSize: "15px" }}>
-                  {trainingMetadata.training_password || "Not added"}
-                </div>
-              </div>
-              <div style={statCard}>
-                <div style={statLabel}>Recording</div>
-                <div style={{ ...statValue, fontSize: "15px" }}>
-                  {trainingMetadata.recording_url || "Not added"}
-                </div>
-              </div>
-            </div>
-          </details>
-
-          <details open style={{ ...cardStyle, background: "#ffffff" }}>
-            <summary style={{ cursor: "pointer", color: "#14304f", fontWeight: 900, fontSize: "20px" }}>
-              Training Materials
-            </summary>
-            <div
-              style={{
-                ...detailGridStyle,
-                marginTop: "14px",
-                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-              }}
-            >
-              <div style={statCard}>
-                <div style={statLabel}>Case Name</div>
-                <div style={{ ...statValue, fontSize: "15px" }}>{trainingMetadata.case_name || "Needs case info"}</div>
-              </div>
-              <div style={statCard}>
-                <div style={statLabel}>Case Link</div>
-                <div style={{ ...statValue, fontSize: "15px" }}>
-                  {trainingMetadata.case_file_url || "No link added"}
-                </div>
-              </div>
-              <div style={statCard}>
-                <div style={statLabel}>Case File Selected</div>
-                <div style={{ ...statValue, fontSize: "15px" }}>
-                  {trainingMetadata.case_file_name || "No local file selected"}
-                </div>
-              </div>
-              <div style={statCard}>
-                <div style={statLabel}>Doorsign Link</div>
-                <div style={{ ...statValue, fontSize: "15px" }}>
-                  {trainingMetadata.doorsign_url || "No link added"}
-                </div>
-              </div>
-              <div style={statCard}>
-                <div style={statLabel}>Doorsign File Selected</div>
-                <div style={{ ...statValue, fontSize: "15px" }}>
-                  {trainingMetadata.doorsign_file_name || "No local file selected"}
-                </div>
-              </div>
-              <div style={statCard}>
-                <div style={statLabel}>Training Notes</div>
-                <div style={{ ...statValue, fontSize: "15px" }}>
-                  {trainingMetadata.training_notes || "No training notes added"}
-                </div>
-              </div>
-            </div>
-
-            <div style={{ display: "grid", gap: "12px", marginTop: "14px", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))" }}>
-              <label style={{ display: "grid", gap: "6px" }}>
-                <span style={statLabel}>Case File Picker</span>
-                <input
-                  type="file"
-                  onChange={(event) => void handleLocalTrainingFilePick("case_file_name", event.target.files?.[0] || null)}
-                  style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
-                />
-                <span style={{ color: "#64748b", fontSize: "12px", fontWeight: 700 }}>
-                  Local file selection only. This does not upload the file yet.
-                </span>
-              </label>
-
-              <label style={{ display: "grid", gap: "6px" }}>
-                <span style={statLabel}>Doorsign File Picker</span>
-                <input
-                  type="file"
-                  onChange={(event) => void handleLocalTrainingFilePick("doorsign_file_name", event.target.files?.[0] || null)}
-                  style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
-                />
-                <span style={{ color: "#64748b", fontSize: "12px", fontWeight: 700 }}>
-                  Local file selection only. This does not upload the file yet.
-                </span>
-              </label>
-            </div>
-          </details>
-
-          <details open={showTrainingEmailDraft} style={{ ...cardStyle, background: "#ffffff" }}>
-            <summary style={{ cursor: "pointer", color: "#14304f", fontWeight: 900, fontSize: "20px" }}>
-              Training Email Preview
-            </summary>
-            <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "flex-start", marginTop: "12px" }}>
-              <div>
-                <h2 style={compactSectionTitleStyle}>Training Communication</h2>
-                <p style={compactSectionHintStyle}>
-                  Review the full draft before opening your email client.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowTrainingEmailDraft((current) => !current)}
-                style={{ ...buttonStyle }}
-              >
-                {showTrainingEmailDraft ? "Collapse Preview" : "Draft SP Training Email"}
-              </button>
-            </div>
-
-            <div
-              style={{
-                ...detailGridStyle,
-                marginTop: "14px",
-                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-              }}
-            >
-              <div style={statCard}>
-                <div style={statLabel}>Faculty Assigned</div>
-                <div style={{ ...statValue, fontSize: "15px" }}>{trainingFacultyNames || "Not set"}</div>
-              </div>
-              <div style={statCard}>
-                <div style={statLabel}>Sim Contact / Team</div>
-                <div style={{ ...statValue, fontSize: "15px" }}>{trainingSimContact || "Not set"}</div>
-              </div>
-            </div>
-
-            <div
-              style={{
-                marginTop: "14px",
-                border: "1px solid #dbe4ee",
-                borderRadius: "16px",
-                padding: "14px",
-                background: "#f8fbff",
-              }}
-            >
-              <div style={statLabel}>Email Draft Preview</div>
-              <div style={{ marginTop: "10px", color: "#173b6c", lineHeight: 1.7 }}>
-                <div><strong>From:</strong> {me?.email || "Current logged-in user"}</div>
-                <div><strong>To:</strong> {me?.email || "Current logged-in user"}</div>
-                <div><strong>CC:</strong> {facultyEmails.length ? facultyEmails.join(", ") : trainingFacultyText || "No faculty emails parsed yet"}</div>
-                <div><strong>BCC:</strong> {assignedBccEmails.length ? assignedBccEmails.join(", ") : "No assigned SP emails found."}</div>
-                <div style={{ marginTop: "8px" }}><strong>Subject:</strong> {trainingEmailSubject}</div>
-                <div style={{ marginTop: "8px", whiteSpace: "pre-wrap" }}><strong>Body:</strong>{"\n"}{trainingEmailBody}</div>
-              </div>
-              <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "12px" }}>
-                <a
-                  href={trainingMailtoHref}
+                <div
                   style={{
-                    ...buttonStyle,
-                    display: "inline-flex",
-                    alignItems: "center",
-                    textDecoration: "none",
+                    borderRadius: "999px",
+                    padding: "8px 12px",
+                    background: rotationScheduleBuilt ? "#ecfdf3" : "#fff7ed",
+                    border: rotationScheduleBuilt ? "1px solid #86efac" : "1px solid #fed7aa",
+                    color: rotationScheduleBuilt ? "#166534" : "#9a3412",
+                    fontWeight: 900,
+                    fontSize: "13px",
                   }}
                 >
-                  Open Draft in Email
-                </a>
+                  Rotation schedule: {rotationScheduleBuilt ? "Built" : "Not built"}
+                </div>
               </div>
-            </div>
-          </details>
-        </>
+
+              <div
+                style={{
+                  ...detailGridStyle,
+                  marginTop: "14px",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                }}
+              >
+                <div style={statCard}>
+                  <div style={statLabel}>Date</div>
+                  <div style={{ ...statValue, fontSize: "15px" }}>{sessionSummaryLabel || "Date TBD"}</div>
+                </div>
+                <div style={statCard}>
+                  <div style={statLabel}>Time</div>
+                  <div style={{ ...statValue, fontSize: "15px" }}>{summaryTimeLabel || "Time TBD"}</div>
+                </div>
+                <div style={statCard}>
+                  <div style={statLabel}>Location / Modality</div>
+                  <div style={{ ...statValue, fontSize: "15px" }}>{trainingLocationModality}</div>
+                </div>
+                <div style={statCard}>
+                  <div style={statLabel}>Zoom Status</div>
+                  <div style={{ ...statValue, fontSize: "15px" }}>
+                    {trainingMetadata.zoom_url ? "Ready" : eventMeta.isVirtualSp ? "Needs link" : "Optional"}
+                  </div>
+                </div>
+                <div style={statCard}>
+                  <div style={statLabel}>Recording Status</div>
+                  <div style={{ ...statValue, fontSize: "15px" }}>{trainingRecordingStatus}</div>
+                </div>
+                <div style={statCard}>
+                  <div style={statLabel}>Case Status</div>
+                  <div style={{ ...statValue, fontSize: "15px" }}>{trainingCaseStatus}</div>
+                </div>
+              </div>
+            </section>
+
+            <section style={{ ...cardStyle, background: "#ffffff" }}>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  gap: "12px",
+                  flexWrap: "wrap",
+                  alignItems: "flex-start",
+                }}
+              >
+                <div>
+                  <h2 style={compactSectionTitleStyle}>Training Materials</h2>
+                  <p style={compactSectionHintStyle}>
+                    Keep case docs, doorsigns, and recording details in one compact place.
+                  </p>
+                </div>
+              </div>
+
+              <div
+                style={{
+                  ...detailGridStyle,
+                  marginTop: "14px",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+                }}
+              >
+                {trainingMaterialCards.map((material) => {
+                  const fieldConfig = trainingMaterialFieldMap[material.kind];
+                  const fileUrl = asText(trainingMetadata[fieldConfig.urlKey]);
+                  const fileName = asText(trainingMetadata[fieldConfig.nameKey]);
+                  const storagePath = asText(trainingMetadata[fieldConfig.storagePathKey]);
+                  const uploadedAt = asText(trainingMetadata[fieldConfig.uploadedAtKey]);
+                  const uploadedBy = asText(trainingMetadata[fieldConfig.uploadedByKey]);
+                  const isBusy = trainingMaterialSaving[material.kind];
+
+                  return (
+                    <div
+                      key={material.kind}
+                      style={{
+                        border: "1px solid #dbe4ee",
+                        borderRadius: "16px",
+                        padding: "14px",
+                        background: "#f8fbff",
+                      }}
+                    >
+                      <div style={{ color: "#173b6c", fontWeight: 900, fontSize: "16px" }}>
+                        {material.title}
+                      </div>
+                      <div style={{ marginTop: "4px", color: "#64748b", fontWeight: 700, fontSize: "13px" }}>
+                        {material.kind === "case_file"
+                          ? trainingMetadata.case_name || "Add case name below in the editor."
+                          : fileUrl || fileName || "No file linked yet"}
+                      </div>
+                      <div style={{ marginTop: "10px", color: "#475569", fontSize: "13px", lineHeight: 1.55 }}>
+                        <div><strong>Link:</strong> {fileUrl || "Not added"}</div>
+                        <div><strong>File:</strong> {fileName || "Not uploaded"}</div>
+                        <div><strong>Uploaded:</strong> {formatUploadedTimestamp(uploadedAt)}</div>
+                        <div><strong>By:</strong> {uploadedBy || "Not recorded"}</div>
+                      </div>
+                      {storagePath ? (
+                        <div style={{ marginTop: "6px", color: "#64748b", fontSize: "12px", lineHeight: 1.5 }}>
+                          <strong>Storage:</strong> {storagePath}
+                        </div>
+                      ) : null}
+                      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "12px" }}>
+                        {fileUrl ? (
+                          <a
+                            href={fileUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            style={{
+                              ...buttonStyle,
+                              display: "inline-flex",
+                              alignItems: "center",
+                              textDecoration: "none",
+                              padding: "8px 12px",
+                            }}
+                          >
+                            View
+                          </a>
+                        ) : null}
+                        <button
+                          type="button"
+                          onClick={() => openTrainingMaterialPicker(material.kind)}
+                          disabled={isBusy}
+                          style={{ ...buttonStyle, padding: "8px 12px", opacity: isBusy ? 0.65 : 1 }}
+                        >
+                          {fileUrl ? "Replace" : "Upload"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleRemoveTrainingMaterial(material.kind)}
+                          disabled={isBusy || (!fileUrl && !storagePath && !fileName)}
+                          style={{
+                            ...dangerButtonStyle,
+                            padding: "8px 12px",
+                            opacity: isBusy || (!fileUrl && !storagePath && !fileName) ? 0.65 : 1,
+                          }}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                <div style={{ ...statCard, background: "#f8fbff" }}>
+                  <div style={statLabel}>Recording URL / Password</div>
+                  <div style={{ marginTop: "8px", color: "#173b6c", lineHeight: 1.65 }}>
+                    <div><strong>Recording:</strong> {trainingMetadata.recording_url || "Not added"}</div>
+                    <div><strong>Password:</strong> {trainingMetadata.training_password || "Not added"}</div>
+                  </div>
+                </div>
+
+                <div style={{ ...statCard, background: "#f8fbff" }}>
+                  <div style={statLabel}>Training Notes</div>
+                  <div style={{ ...statValue, fontSize: "15px" }}>
+                    {trainingMetadata.training_notes || "No training notes added"}
+                  </div>
+                </div>
+              </div>
+
+              <input
+                ref={caseFileInputRef}
+                type="file"
+                onChange={(event) => {
+                  void handleTrainingMaterialUpload("case_file", event.target.files?.[0] || null);
+                  event.currentTarget.value = "";
+                }}
+                style={{ display: "none" }}
+              />
+              <input
+                ref={doorsignInputRef}
+                type="file"
+                onChange={(event) => {
+                  void handleTrainingMaterialUpload("doorsign", event.target.files?.[0] || null);
+                  event.currentTarget.value = "";
+                }}
+                style={{ display: "none" }}
+              />
+              <input
+                ref={supplementalDocInputRef}
+                type="file"
+                onChange={(event) => {
+                  void handleTrainingMaterialUpload("supplemental_doc", event.target.files?.[0] || null);
+                  event.currentTarget.value = "";
+                }}
+                style={{ display: "none" }}
+              />
+            </section>
+
+            <details open={showTrainingEmailDraft} style={{ ...cardStyle, background: "#ffffff" }}>
+              <summary style={{ cursor: "pointer", color: "#14304f", fontWeight: 900, fontSize: "20px" }}>
+                Training Communication
+              </summary>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  gap: "12px",
+                  flexWrap: "wrap",
+                  alignItems: "flex-start",
+                  marginTop: "12px",
+                }}
+              >
+                <div>
+                  <h2 style={compactSectionTitleStyle}>Training Communication</h2>
+                  <p style={compactSectionHintStyle}>
+                    Preview the training email only when you need to draft or send it.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowTrainingEmailDraft((current) => !current)}
+                  style={{ ...buttonStyle }}
+                >
+                  {showTrainingEmailDraft
+                    ? "Hide SP Training Email"
+                    : "Preview / Draft SP Training Email"}
+                </button>
+              </div>
+
+              {showTrainingEmailDraft ? (
+                <div
+                  style={{
+                    marginTop: "14px",
+                    border: "1px solid #dbe4ee",
+                    borderRadius: "16px",
+                    padding: "14px",
+                    background: "#f8fbff",
+                  }}
+                >
+                  <div style={statLabel}>Email Draft Preview</div>
+                  <div style={{ marginTop: "10px", color: "#173b6c", lineHeight: 1.7 }}>
+                    <div><strong>From:</strong> {me?.email || "Current logged-in user"}</div>
+                    <div><strong>To:</strong> {me?.email || "Current logged-in user"}</div>
+                    <div><strong>CC:</strong> {facultyEmails.length ? facultyEmails.join(", ") : trainingFacultyText || "No faculty emails parsed yet"}</div>
+                    <div><strong>BCC:</strong> {assignedBccEmails.length ? assignedBccEmails.join(", ") : "No assigned SP emails found."}</div>
+                    <div style={{ marginTop: "8px" }}><strong>Subject:</strong> {trainingEmailSubject}</div>
+                    <div style={{ marginTop: "8px", whiteSpace: "pre-wrap" }}><strong>Body:</strong>{"\n"}{trainingEmailBody}</div>
+                  </div>
+                  <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "12px" }}>
+                    <a
+                      href={trainingMailtoHref}
+                      style={{
+                        ...buttonStyle,
+                        display: "inline-flex",
+                        alignItems: "center",
+                        textDecoration: "none",
+                      }}
+                    >
+                      Open Draft in Email
+                    </a>
+                  </div>
+                </div>
+              ) : null}
+            </details>
+
+            <details id="coverage-actions" style={cardStyle}>
+              <summary style={{ cursor: "pointer", color: "#14304f", fontWeight: 900, fontSize: "20px" }}>
+                Event Editor
+              </summary>
+              <div style={{ marginTop: "12px", display: "grid", gap: "12px" }}>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    gap: "12px",
+                    flexWrap: "wrap",
+                    alignItems: "flex-start",
+                  }}
+                >
+                  <div>
+                    <h2 style={compactSectionTitleStyle}>Event Editor</h2>
+                    <p style={compactSectionHintStyle}>
+                      Update event metadata, faculty, sim contact, and training links without leaving training mode.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void saveEventDetails()}
+                    disabled={saving}
+                    style={{ ...buttonStyle, opacity: saving ? 0.65 : 1, position: "sticky", top: "12px" }}
+                  >
+                    Save Event Details
+                  </button>
+                </div>
+
+                <div style={{ ...detailGridStyle, marginTop: 0, gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
+                  <label style={{ display: "grid", gap: "6px" }}>
+                    <span style={statLabel}>Name</span>
+                    <input
+                      value={eventEditor.name}
+                      onChange={(event) => setEventEditor((current) => ({ ...current, name: event.target.value }))}
+                      disabled={saving}
+                      style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                    />
+                  </label>
+                  <label style={{ display: "grid", gap: "6px" }}>
+                    <span style={statLabel}>Status</span>
+                    <input
+                      value={eventEditor.status}
+                      onChange={(event) => setEventEditor((current) => ({ ...current, status: event.target.value }))}
+                      disabled={saving}
+                      style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                    />
+                  </label>
+                  <label style={{ display: "grid", gap: "6px" }}>
+                    <span style={statLabel}>Visibility</span>
+                    <input
+                      value={eventEditor.visibility}
+                      onChange={(event) => setEventEditor((current) => ({ ...current, visibility: event.target.value }))}
+                      disabled={saving}
+                      style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                    />
+                  </label>
+                  <label style={{ display: "grid", gap: "6px" }}>
+                    <span style={statLabel}>SPs Needed</span>
+                    <input
+                      type="number"
+                      min={0}
+                      value={eventEditor.sp_needed}
+                      onChange={(event) => setEventEditor((current) => ({ ...current, sp_needed: event.target.value }))}
+                      disabled={saving}
+                      style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                    />
+                  </label>
+                  <div style={{ display: "grid", gap: "8px", gridColumn: "1 / -1" }}>
+                    <span style={statLabel}>Event Type / Category</span>
+                    <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                      {(Object.keys(editableEventTypeLabels) as EditableEventType[]).map((type) => (
+                        <button
+                          key={type}
+                          type="button"
+                          onClick={() => handleSelectEventType(type)}
+                          disabled={saving}
+                          style={{ ...getEventTypeButtonStyle(type, editableEventType), cursor: "pointer" }}
+                        >
+                          {editableEventTypeLabels[type]}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <label style={{ display: "grid", gap: "6px", gridColumn: "1 / -1" }}>
+                    <span style={statLabel}>Location</span>
+                    <input
+                      value={eventEditor.location}
+                      onChange={(event) => setEventEditor((current) => ({ ...current, location: event.target.value }))}
+                      disabled={saving}
+                      style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                    />
+                  </label>
+                  <label style={{ display: "grid", gap: "6px" }}>
+                    <span style={statLabel}>Zoom URL</span>
+                    <input
+                      value={trainingMetadata.zoom_url}
+                      onChange={(event) => handleTrainingMetadataChange("zoom_url", event.target.value)}
+                      disabled={saving}
+                      placeholder="https://..."
+                      style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                    />
+                  </label>
+                  <label style={{ display: "grid", gap: "6px" }}>
+                    <span style={statLabel}>Zoom / Recording Password</span>
+                    <input
+                      value={trainingMetadata.training_password}
+                      onChange={(event) => handleTrainingMetadataChange("training_password", event.target.value)}
+                      disabled={saving}
+                      placeholder="Password"
+                      style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                    />
+                  </label>
+                  <label style={{ display: "grid", gap: "6px" }}>
+                    <span style={statLabel}>Recorded Training URL</span>
+                    <input
+                      value={trainingMetadata.recording_url}
+                      onChange={(event) => handleTrainingMetadataChange("recording_url", event.target.value)}
+                      disabled={saving}
+                      placeholder="https://..."
+                      style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                    />
+                  </label>
+                  <label style={{ display: "grid", gap: "6px" }}>
+                    <span style={statLabel}>Case File URL</span>
+                    <input
+                      value={trainingMetadata.case_file_url}
+                      onChange={(event) => handleTrainingMetadataChange("case_file_url", event.target.value)}
+                      disabled={saving}
+                      placeholder="Paste case link"
+                      style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                    />
+                  </label>
+                  <label style={{ display: "grid", gap: "6px" }}>
+                    <span style={statLabel}>Doorsign URL</span>
+                    <input
+                      value={trainingMetadata.doorsign_url}
+                      onChange={(event) => handleTrainingMetadataChange("doorsign_url", event.target.value)}
+                      disabled={saving}
+                      placeholder="Paste doorsign link"
+                      style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                    />
+                  </label>
+                  <label style={{ display: "grid", gap: "6px" }}>
+                    <span style={statLabel}>Case Name</span>
+                    <input
+                      value={trainingMetadata.case_name}
+                      onChange={(event) => handleTrainingMetadataChange("case_name", event.target.value)}
+                      disabled={saving}
+                      placeholder="Case title"
+                      style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                    />
+                  </label>
+                  <label style={{ display: "grid", gap: "6px" }}>
+                    <span style={statLabel}>Supplemental Doc URL</span>
+                    <input
+                      value={trainingMetadata.supplemental_doc_url}
+                      onChange={(event) => handleTrainingMetadataChange("supplemental_doc_url", event.target.value)}
+                      disabled={saving}
+                      placeholder="Paste doc link"
+                      style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                    />
+                  </label>
+                  <label style={{ display: "grid", gap: "6px" }}>
+                    <span style={statLabel}>Faculty Assigned</span>
+                    <input
+                      value={trainingMetadata.faculty_names}
+                      onChange={(event) => handleTrainingMetadataChange("faculty_names", event.target.value)}
+                      disabled={saving}
+                      placeholder={fallbackFacultyText || "Faculty names or emails"}
+                      style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                    />
+                  </label>
+                  <label style={{ display: "grid", gap: "6px" }}>
+                    <span style={statLabel}>Sim Contact / Team</span>
+                    <input
+                      value={trainingMetadata.sim_contact}
+                      onChange={(event) => handleTrainingMetadataChange("sim_contact", event.target.value)}
+                      disabled={saving}
+                      placeholder={simStaffNames.join(", ") || "Sim team assigned"}
+                      style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                    />
+                  </label>
+                  <label style={{ display: "grid", gap: "6px", gridColumn: "1 / -1" }}>
+                    <span style={statLabel}>Training Notes</span>
+                    <textarea
+                      value={trainingMetadata.training_notes}
+                      onChange={(event) => handleTrainingMetadataChange("training_notes", event.target.value)}
+                      disabled={saving}
+                      placeholder="Add prep notes, reminders, or follow-up details..."
+                      style={{ ...textareaStyle, minHeight: "88px" }}
+                    />
+                  </label>
+                  <label style={{ display: "grid", gap: "6px", gridColumn: "1 / -1" }}>
+                    <span style={statLabel}>Notes</span>
+                    <textarea
+                      value={eventEditor.notes}
+                      onChange={(event) => setEventEditor((current) => ({ ...current, notes: event.target.value }))}
+                      disabled={saving}
+                      placeholder="Add operational notes, setup details, reporting instructions..."
+                      style={{ ...textareaStyle, minHeight: "120px" }}
+                    />
+                  </label>
+                </div>
+              </div>
+            </details>
+          </div>
+
+          <aside style={{ display: "grid", gap: "14px", minWidth: 0, position: "sticky", top: "16px" }}>
+            <section style={{ ...cardStyle, background: "#f8fbff", borderColor: "#bfdbfe", marginBottom: 0 }}>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  gap: "12px",
+                  flexWrap: "wrap",
+                  alignItems: "flex-start",
+                }}
+              >
+                <div>
+                  <h2 style={compactSectionTitleStyle}>Assigned SPs</h2>
+                  <p style={compactSectionHintStyle}>
+                    {assignedCount} assigned / {confirmedCount} confirmed
+                  </p>
+                </div>
+                <div
+                  style={{
+                    borderRadius: "999px",
+                    padding: "8px 12px",
+                    background: "#eff6ff",
+                    border: "1px solid #bfdbfe",
+                    color: "#1d4ed8",
+                    fontWeight: 900,
+                    fontSize: "12px",
+                  }}
+                >
+                  {assignedBccEmails.length} email{assignedBccEmails.length === 1 ? "" : "s"} ready
+                </div>
+              </div>
+
+              {assignmentSuccessMessage ? (
+                <div
+                  style={{
+                    marginTop: "12px",
+                    borderRadius: "12px",
+                    padding: "10px 12px",
+                    background: "#ecfdf3",
+                    border: "1px solid #86efac",
+                    color: "#166534",
+                    fontWeight: 800,
+                  }}
+                >
+                  {assignmentSuccessMessage}
+                </div>
+              ) : null}
+
+              <div style={{ display: "grid", gap: "10px", marginTop: "14px" }}>
+                <div style={statLabel}>Quick Select SP</div>
+                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                  <select
+                    value={selectedSpId}
+                    onChange={(e) => setSelectedSpId(e.target.value)}
+                    style={{ ...selectStyle, maxWidth: "100%", flex: "1 1 220px" }}
+                    disabled={saving || availableSps.length === 0}
+                  >
+                    <option value="">
+                      {availableSps.length === 0 ? "No matching unassigned SPs" : "Quick select an SP"}
+                    </option>
+                    {availableSps.map((sp) => (
+                      <option key={sp.id} value={sp.id}>
+                        {getFullName(sp)}
+                        {getEmail(sp) ? ` — ${getEmail(sp)}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => void handleAddAssignment()}
+                    disabled={saving || !selectedSpId}
+                    style={{ ...buttonStyle, padding: "9px 12px", opacity: saving || !selectedSpId ? 0.65 : 1 }}
+                  >
+                    {assigningSpId && assigningSpId === selectedSpId ? "Assigning..." : "Add SP"}
+                  </button>
+                </div>
+              </div>
+
+              <div
+                style={{
+                  marginTop: "14px",
+                  border: "1px solid #dbe4ee",
+                  borderRadius: "14px",
+                  padding: "12px",
+                  background: "#ffffff",
+                  display: "grid",
+                  gap: "8px",
+                }}
+              >
+                <div style={statLabel}>Upload SP Event Info</div>
+                <input
+                  type="file"
+                  accept=".xlsx,.xls,.xlsm"
+                  disabled={trainingImporting || saving}
+                  onChange={(event) => void handleTrainingWorkbookImport(event.target.files?.[0] || null)}
+                  style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                />
+                <div style={{ color: "#64748b", fontSize: "12px", fontWeight: 700 }}>
+                  Reads title from `B1`, SP emails from `B16:B35`, SP names from `C16:C35`, and faculty from column `G`.
+                </div>
+                {trainingImporting ? (
+                  <div className="cfsp-alert cfsp-alert-info">Importing SP Event Info workbook...</div>
+                ) : null}
+                {trainingImportError ? (
+                  <div className="cfsp-alert cfsp-alert-error">{trainingImportError}</div>
+                ) : null}
+                {trainingImportResult ? (
+                  <div
+                    style={{
+                      border: "1px solid #dbe4ee",
+                      borderRadius: "12px",
+                      background: "#f8fbff",
+                      padding: "10px 12px",
+                      display: "grid",
+                      gap: "6px",
+                    }}
+                  >
+                    <div style={{ color: "#14304f", fontWeight: 900 }}>
+                      Imported workbook event: {trainingImportResult.eventTitle || "Untitled workbook event"}
+                    </div>
+                    <div style={{ color: "#166534", fontWeight: 800 }}>
+                      Matched / assigned: {trainingImportResult.matchedAssigned.length}
+                    </div>
+                    <div style={{ color: "#9a3412", fontWeight: 800 }}>
+                      Already assigned: {trainingImportResult.alreadyAssigned.length}
+                    </div>
+                    <div style={{ color: "#991b1b", fontWeight: 800 }}>
+                      Not found: {trainingImportResult.notFound.length}
+                    </div>
+                    {trainingImportResult.facultyDetected.length ? (
+                      <div style={{ color: "#475569", fontWeight: 700 }}>
+                        Faculty detected: {trainingImportResult.facultyDetected.join(", ")}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+
+              <div style={{ display: "grid", gap: "8px", marginTop: "14px" }}>
+                {sortedAssignments.length === 0 ? (
+                  <div style={{ color: "#64748b", fontWeight: 700 }}>
+                    No SPs assigned to this training yet.
+                  </div>
+                ) : (
+                  trainingRosterPreview.map((assignment) => {
+                    const sp = assignment.sp_id ? spsById.get(assignment.sp_id) : undefined;
+                    const status = getAssignmentStatus(assignment);
+
+                    return (
+                      <div
+                        key={`training-sidebar-${assignment.id}`}
+                        style={{
+                          border: "1px solid #dbe4ee",
+                          borderRadius: "12px",
+                          background: "#ffffff",
+                          padding: "10px 12px",
+                          display: "flex",
+                          justifyContent: "space-between",
+                          gap: "10px",
+                          alignItems: "center",
+                          flexWrap: "wrap",
+                        }}
+                      >
+                        <div style={{ minWidth: 0, flex: "1 1 180px" }}>
+                          <div style={{ color: "#14304f", fontWeight: 900 }}>
+                            {sp ? getFullName(sp) : "Unknown SP"}
+                          </div>
+                          <div style={{ marginTop: "4px", color: "#5e7388", fontSize: "13px", fontWeight: 700 }}>
+                            {sp ? getEmail(sp) || sp.phone || "No contact details" : assignment.sp_id || "No SP id"}
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+                          <span
+                            style={{
+                              ...assignmentStatusStyles[status],
+                              borderRadius: "999px",
+                              padding: "5px 8px",
+                              fontSize: "11px",
+                              fontWeight: 900,
+                            }}
+                          >
+                            {assignmentStatusLabels[status]}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => void handleRemoveAssignment(assignment)}
+                            disabled={saving}
+                            style={{ ...dangerButtonStyle, padding: "7px 10px", opacity: saving ? 0.65 : 1 }}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              {sortedAssignments.length > 8 ? (
+                <button
+                  type="button"
+                  onClick={() => setShowAllTrainingRoster((current) => !current)}
+                  style={{
+                    ...buttonStyle,
+                    marginTop: "12px",
+                    background: "#ffffff",
+                    color: "#173b6c",
+                    border: "1px solid #cbd5e1",
+                  }}
+                >
+                  {showAllTrainingRoster ? "Show fewer" : `Show all (${sortedAssignments.length})`}
+                </button>
+              ) : null}
+            </section>
+          </aside>
+        </div>
       ) : null}
 
       {!isTrainingMode ? (
@@ -2884,6 +3628,7 @@ export default function EventDetailPage() {
         </div>
       ) : null}
 
+      {!isTrainingMode ? (
       <details id="coverage-actions" open style={cardStyle}>
         <summary style={{ cursor: "pointer", color: "#14304f", fontWeight: 900, fontSize: "20px" }}>
           Event Editor
@@ -3103,7 +3848,7 @@ export default function EventDetailPage() {
                     <input
                       value={trainingMetadata.case_file_name}
                       readOnly
-                      placeholder="No local file selected"
+                      placeholder="No case file uploaded"
                       style={{ ...inputStyle, width: "100%", boxSizing: "border-box", background: "#f8fafc" }}
                     />
                   </label>
@@ -3124,7 +3869,7 @@ export default function EventDetailPage() {
                     <input
                       value={trainingMetadata.doorsign_file_name}
                       readOnly
-                      placeholder="No local file selected"
+                      placeholder="No doorsign uploaded"
                       style={{ ...inputStyle, width: "100%", boxSizing: "border-box", background: "#f8fafc" }}
                     />
                   </label>
@@ -3180,7 +3925,9 @@ export default function EventDetailPage() {
         </div>
         </div>
       </details>
+      ) : null}
 
+      {!isTrainingMode ? (
       <div style={cardStyle}>
         <div
           style={{
@@ -3856,6 +4603,7 @@ export default function EventDetailPage() {
           </>
         )}
       </div>
+      ) : null}
 
       {!isTrainingMode ? (
       noSpStaffingRequired ? (
