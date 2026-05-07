@@ -5,8 +5,12 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import SiteShell from "../components/SiteShell";
 import { isPastEvent } from "../lib/eventArchive";
-import { getEventCoverageVisualState, getEventCoverageVisualTone } from "../lib/eventCoverageVisual";
-import { classifyEventPresentation } from "../lib/eventClassification";
+import {
+  getEventCoverageVisualState,
+  getEventCoverageVisualTone,
+  getEventCoverageVisualToneWithBase,
+} from "../lib/eventCoverageVisual";
+import { classifyEventPresentation, getEventBadgeAppearance } from "../lib/eventClassification";
 import { getBestEventTeamInfo } from "../lib/eventRoster";
 import { eventMatchesOwnership, ownershipTextMatchesScheduleName } from "../lib/eventOwnership";
 
@@ -68,6 +72,7 @@ type EventsResponse = {
 type AuthState = "loading" | "authed" | "guest";
 type DashboardScope = "my" | "all";
 const MAX_ROSTER_CHIPS = 12;
+const DASHBOARD_SECTION_PAGE_SIZE = 8;
 
 type EventWithMeta = {
   event: EventRecord;
@@ -150,8 +155,8 @@ function formatEventDate(start: Date | null, fallback?: string | null) {
   return start ? start.toLocaleString() : fallback || "Date TBD";
 }
 
-function getEventTypeLabel(event: EventRecord) {
-  return classifyEventPresentation({
+function getEventBadges(event: EventRecord) {
+  const presentation = classifyEventPresentation({
     name: event.name,
     status: event.status,
     notes: event.notes,
@@ -159,7 +164,23 @@ function getEventTypeLabel(event: EventRecord) {
     spNeeded: event.sp_needed,
     assignmentCount: event.total_assignments ?? event.sp_assigned,
     confirmedCount: event.confirmed_assignments ?? event.sp_assigned,
-  }).primaryBadgeLabel;
+  });
+
+  return presentation.activeBadgeKinds.map((kind) => ({
+    key: kind,
+    label: kind === "virtual_sp" && presentation.primaryBadgeKind !== "virtual_sp" ? "Virtual" : getEventBadgeAppearance(kind) && (
+      kind === "training"
+        ? "Training"
+        : kind === "virtual_sp"
+          ? "Virtual SP"
+          : kind === "hifi"
+            ? "HiFi"
+            : kind === "skills_workshop"
+              ? "Skills"
+              : "SP Event"
+    ),
+    ...getEventBadgeAppearance(kind),
+  }));
 }
 
 function renderAssignedPeople(names?: string[] | null) {
@@ -320,21 +341,40 @@ function getGreetingName(me: MeResponse | null) {
 }
 
 function WorkflowSection({
+  sectionKey,
   title,
   description,
   items,
   emptyMessage,
+  visibleCount,
+  onLoadMore,
+  browseHref,
 }: {
+  sectionKey: "needsAttention" | "inProgress" | "ready";
   title: string;
   description: string;
   items: EventWithMeta[];
   emptyMessage: string;
+  visibleCount: number;
+  onLoadMore: (sectionKey: "needsAttention" | "inProgress" | "ready") => void;
+  browseHref: string;
 }) {
+  const visibleItems = items.slice(0, visibleCount);
+  const remainingCount = Math.max(items.length - visibleItems.length, 0);
+
   return (
     <section className="cfsp-panel overflow-hidden">
       <div className="px-5 py-4" style={{ borderBottom: "1px solid var(--cfsp-border)" }}>
         <h2 className="cfsp-section-title text-[1.25rem]">{title}</h2>
         <p className="cfsp-section-copy">{description}</p>
+        <div className="mt-3 flex flex-wrap items-center gap-3 text-sm font-bold">
+          <span style={{ color: "var(--cfsp-text-muted)" }}>
+            Showing {Math.min(visibleItems.length, items.length)} of {items.length}
+          </span>
+          <Link href={browseHref} className="no-underline hover:underline" style={{ color: "var(--cfsp-blue)" }}>
+            View all matching events
+          </Link>
+        </div>
       </div>
 
       <div className="px-5 py-5">
@@ -342,15 +382,26 @@ function WorkflowSection({
           <div className="cfsp-alert cfsp-alert-info">{emptyMessage}</div>
         ) : (
           <div className="grid gap-3">
-            {items.map((item) => {
+            {visibleItems.map((item) => {
               const tone = getEventCoverageTone(item);
-              const visualTone = getEventCoverageVisualTone(
+              const presentation = classifyEventPresentation({
+                name: item.event.name,
+                status: item.event.status,
+                notes: item.event.notes,
+                location: item.event.location,
+                spNeeded: item.event.sp_needed,
+                assignmentCount: item.event.total_assignments ?? item.event.sp_assigned,
+                confirmedCount: item.event.confirmed_assignments ?? item.event.sp_assigned,
+              });
+              const badges = getEventBadges(item.event);
+              const visualTone = getEventCoverageVisualToneWithBase(
                 getEventCoverageVisualState({
                   needed: item.needed,
                   assigned: item.assigned,
                   confirmed: item.confirmed,
                   archived: false,
-                })
+                }),
+                presentation.primaryBadgeKind === "skills_workshop" ? "skills" : "default"
               );
 
               return (
@@ -369,9 +420,22 @@ function WorkflowSection({
                         <span className="cfsp-badge" style={tone}>
                           {tone.label}
                         </span>
+                        {badges.map((badge) => (
+                          <span
+                            key={`${item.event.id}-${badge.key}`}
+                            className="cfsp-badge"
+                            style={{
+                              background: badge.background,
+                              border: `1px solid ${badge.border}`,
+                              color: badge.color,
+                            }}
+                          >
+                            {badge.label}
+                          </span>
+                        ))}
                       </div>
 
-                      <h3 className="m-0 text-[1.12rem] font-black text-[var(--cfsp-text)]">
+                      <h3 className="m-0 text-[1.12rem] font-black" style={{ color: visualTone.titleText }}>
                         {item.event.name?.trim() || "Untitled Event"}
                       </h3>
 
@@ -381,7 +445,6 @@ function WorkflowSection({
                         <span>
                           Coverage {item.assigned}/{item.needed}
                         </span>
-                        <span>{getEventTypeLabel(item.event)}</span>
                       </div>
 
                       <div className="mt-3">
@@ -409,6 +472,16 @@ function WorkflowSection({
                 </article>
               );
             })}
+            {remainingCount > 0 ? (
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+                <div className="text-sm font-semibold text-[var(--cfsp-text-muted)]">
+                  {remainingCount} more event{remainingCount === 1 ? "" : "s"} in this section.
+                </div>
+                <button type="button" onClick={() => onLoadMore(sectionKey)} className="cfsp-btn cfsp-btn-secondary">
+                  Load More
+                </button>
+              </div>
+            ) : null}
           </div>
         )}
       </div>
@@ -424,6 +497,24 @@ export default function DashboardPage() {
   const [events, setEvents] = useState<EventRecord[]>([]);
   const [error, setError] = useState("");
   const [scope, setScope] = useState<DashboardScope>("my");
+  const [sectionVisibleCounts, setSectionVisibleCounts] = useState({
+    needsAttention: DASHBOARD_SECTION_PAGE_SIZE,
+    inProgress: DASHBOARD_SECTION_PAGE_SIZE,
+    ready: DASHBOARD_SECTION_PAGE_SIZE,
+  });
+
+  function resetSectionVisibleCounts() {
+    setSectionVisibleCounts({
+      needsAttention: DASHBOARD_SECTION_PAGE_SIZE,
+      inProgress: DASHBOARD_SECTION_PAGE_SIZE,
+      ready: DASHBOARD_SECTION_PAGE_SIZE,
+    });
+  }
+
+  function handleScopeChange(nextScope: DashboardScope) {
+    setScope(nextScope);
+    resetSectionVisibleCounts();
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -593,27 +684,32 @@ export default function DashboardPage() {
 
   const needsAttention = useMemo(
     () =>
-      selectedEvents
-        .filter((item) => item.shortage > 0 && (isTodayOrTomorrow(item.start, startOfToday) || item.assigned === 0))
-        .slice(0, 8),
+      selectedEvents.filter(
+        (item) => item.shortage > 0 && (isTodayOrTomorrow(item.start, startOfToday) || item.assigned === 0)
+      ),
     [selectedEvents, startOfToday]
   );
 
   const inProgress = useMemo(
     () =>
       selectedEvents
-        .filter((item) => item.needed > 0 && item.assigned > 0 && item.assigned < item.needed)
-        .slice(0, 8),
+        .filter((item) => item.needed > 0 && item.assigned > 0 && item.assigned < item.needed),
     [selectedEvents]
   );
 
   const ready = useMemo(
     () =>
       selectedEvents
-        .filter((item) => item.needed <= 0 || item.assigned >= item.needed)
-        .slice(0, 8),
+        .filter((item) => item.needed <= 0 || item.assigned >= item.needed),
     [selectedEvents]
   );
+
+  function handleLoadMore(sectionKey: "needsAttention" | "inProgress" | "ready") {
+    setSectionVisibleCounts((current) => ({
+      ...current,
+      [sectionKey]: current[sectionKey] + DASHBOARD_SECTION_PAGE_SIZE,
+    }));
+  }
 
   if (authState === "loading") {
     return (
@@ -691,7 +787,7 @@ export default function DashboardPage() {
               <div className="mt-3 inline-flex rounded-[12px] p-1" style={{ border: "1px solid var(--cfsp-border)", background: "var(--cfsp-surface)" }}>
                 <button
                   type="button"
-                  onClick={() => setScope("my")}
+                  onClick={() => handleScopeChange("my")}
                   className="min-w-[120px] rounded-[10px] px-4 py-2 text-sm font-black transition"
                   style={{
                     background: scope === "my" ? "var(--cfsp-blue)" : "transparent",
@@ -702,7 +798,7 @@ export default function DashboardPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setScope("all")}
+                  onClick={() => handleScopeChange("all")}
                   className="min-w-[120px] rounded-[10px] px-4 py-2 text-sm font-black transition"
                   style={{
                     background: scope === "all" ? "var(--cfsp-blue)" : "transparent",
@@ -784,7 +880,7 @@ export default function DashboardPage() {
               <Link href="/me" className="cfsp-btn cfsp-btn-secondary">
                 Edit Profile
               </Link>
-              <button type="button" onClick={() => setScope("all")} className="cfsp-btn cfsp-btn-primary">
+              <button type="button" onClick={() => handleScopeChange("all")} className="cfsp-btn cfsp-btn-primary">
                 View All Events
               </button>
             </div>
@@ -799,9 +895,13 @@ export default function DashboardPage() {
         {!error && !(scope === "my" && selectedEvents.length === 0) ? (
           <div className="grid gap-5 2xl:grid-cols-3">
             <WorkflowSection
+              sectionKey="needsAttention"
               title="Needs Attention"
               description="Shortage events coming up today or tomorrow, plus anything with zero assignments."
               items={needsAttention}
+              visibleCount={sectionVisibleCounts.needsAttention}
+              onLoadMore={handleLoadMore}
+              browseHref={scope === "my" ? "/events" : "/events?view=all"}
               emptyMessage={
                 scope === "my"
                   ? "No high-priority staffing gaps are surfaced in your matched events right now."
@@ -809,9 +909,13 @@ export default function DashboardPage() {
               }
             />
             <WorkflowSection
+              sectionKey="inProgress"
               title="In Progress"
               description="Events with some staffing in place, but still short of full coverage."
               items={inProgress}
+              visibleCount={sectionVisibleCounts.inProgress}
+              onLoadMore={handleLoadMore}
+              browseHref={scope === "my" ? "/events" : "/events?view=all"}
               emptyMessage={
                 scope === "my"
                   ? "No partially staffed events are currently matched to your profile."
@@ -819,9 +923,13 @@ export default function DashboardPage() {
               }
             />
             <WorkflowSection
+              sectionKey="ready"
               title="Ready"
               description="Events with full coverage already in place and ready to run."
               items={ready}
+              visibleCount={sectionVisibleCounts.ready}
+              onLoadMore={handleLoadMore}
+              browseHref={scope === "my" ? "/events" : "/events?view=all"}
               emptyMessage={
                 scope === "my"
                   ? "No fully staffed matched events are ready yet."

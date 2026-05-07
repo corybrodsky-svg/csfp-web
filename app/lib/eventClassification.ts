@@ -1,4 +1,4 @@
-import { getExplicitEventType } from "./eventTypeNotes";
+import { EditableEventType, getExplicitEventTypes } from "./eventTypeNotes";
 
 export type EventDisplayType = "skills" | "sp" | "hifi" | "training" | "virtual";
 
@@ -8,6 +8,14 @@ export type EventBadgeKind =
   | "hifi"
   | "skills_workshop"
   | "sp_event";
+
+const eventTypeToBadgeKind: Record<EditableEventType, EventBadgeKind> = {
+  skills: "skills_workshop",
+  sp: "sp_event",
+  hifi: "hifi",
+  training: "training",
+  virtual: "virtual_sp",
+};
 
 type EventClassificationInput = {
   name?: string | null;
@@ -46,20 +54,22 @@ export function classifyEventPresentation(input: EventClassificationInput) {
   const spNeeded = Number(input.spNeeded || 0);
   const assignmentCount = Number(input.assignmentCount || 0);
   const confirmedCount = Number(input.confirmedCount || 0);
-  const explicitType = getExplicitEventType(input.notes);
+  const explicitTypes = getExplicitEventTypes(input.notes);
+  const explicitTypeSet = new Set(explicitTypes);
+  const hasExplicitTypes = explicitTypeSet.size > 0;
 
   const isTraining =
-    explicitType === "training" ||
-    (!explicitType &&
+    explicitTypeSet.has("training") ||
+    (!hasExplicitTypes &&
       (/\btraining\b/.test(eventText) ||
         eventText.includes("orientation") ||
         eventText.includes("onboarding")));
   const isVirtualSp =
-    explicitType === "virtual" ||
-    (!explicitType && (/\bvir\b/.test(eventText) || eventText.includes("virtual")));
+    explicitTypeSet.has("virtual") ||
+    (!hasExplicitTypes && (/\bvir\b/.test(eventText) || eventText.includes("virtual")));
   const isHiFi =
-    explicitType === "hifi" ||
-    (!explicitType &&
+    explicitTypeSet.has("hifi") ||
+    (!hasExplicitTypes &&
       !isTraining &&
       (eventText.includes("hi-fi") ||
         eventText.includes("hifi") ||
@@ -67,16 +77,16 @@ export function classifyEventPresentation(input: EventClassificationInput) {
 
   const hasStructuredSpNeed = spNeeded > 0;
   const hasAssignments = assignmentCount > 0 || confirmedCount > 0;
-  const isStructuredSpEvent = hasStructuredSpNeed || hasAssignments;
+  const isStructuredSpEvent = explicitTypeSet.has("sp") || hasStructuredSpNeed || hasAssignments;
   const derivedWorkshop =
     input.isWorkshop ?? isSkillsWorkshopEvent(spNeeded, assignmentCount, confirmedCount);
   const isSkillsEvent =
-    explicitType === "skills" ||
-    (!explicitType && !isTraining && !isHiFi && !isVirtualSp && !isStructuredSpEvent && derivedWorkshop);
+    explicitTypeSet.has("skills") ||
+    (!hasExplicitTypes && !isTraining && !isHiFi && !isVirtualSp && !isStructuredSpEvent && derivedWorkshop);
 
   let primaryBadgeKind: EventBadgeKind = "sp_event";
 
-  if (explicitType === "sp") {
+  if (explicitTypeSet.has("sp")) {
     primaryBadgeKind = "sp_event";
   } else if (isTraining) {
     primaryBadgeKind = "training";
@@ -111,14 +121,33 @@ export function classifyEventPresentation(input: EventClassificationInput) {
           ? "skills"
           : "sp";
 
+  const nextActiveEventTypes: EditableEventType[] = [...explicitTypes];
+  if (isSkillsEvent) nextActiveEventTypes.push("skills");
+  if (isStructuredSpEvent) nextActiveEventTypes.push("sp");
+  if (isHiFi) nextActiveEventTypes.push("hifi");
+  if (isTraining) nextActiveEventTypes.push("training");
+  if (isVirtualSp) nextActiveEventTypes.push("virtual");
+
+  const activeEventTypes = Array.from(new Set<EditableEventType>(nextActiveEventTypes));
+
+  const activeBadgeKinds = Array.from(
+    new Set<EventBadgeKind>([
+      ...activeEventTypes.map((type) => eventTypeToBadgeKind[type]),
+      primaryBadgeKind,
+    ])
+  );
+
   return {
     eventType,
+    activeEventTypes,
+    activeBadgeKinds,
     primaryBadgeKind,
     primaryBadgeLabel: labels[primaryBadgeKind],
     isTraining,
     isVirtualSp,
     isHiFi,
     isSkillsWorkshop: primaryBadgeKind === "skills_workshop",
+    hasSpWorkflow: isStructuredSpEvent,
   };
 }
 
