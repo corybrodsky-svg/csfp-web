@@ -1,0 +1,58 @@
+<svg width="1600" height="1200" viewBox="0 0 1600 1200" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1600" height="1200" fill="#07111B"/>
+  <g opacity=".3">
+    <path d="M120 140H1480" stroke="#1E4E73" stroke-width="2"/>
+    <path d="M120 300H1480" stroke="#1E4E73" stroke-width="2"/>
+    <path d="M120 460H1480" stroke="#1E4E73" stroke-width="2"/>
+    <path d="M120 620H1480" stroke="#1E4E73" stroke-width="2"/>
+    <path d="M120 780H1480" stroke="#1E4E73" stroke-width="2"/>
+    <path d="M120 940H1480" stroke="#1E4E73" stroke-width="2"/>
+    <path d="M200 80V1080" stroke="#14324C" stroke-width="2"/>
+    <path d="M440 80V1080" stroke="#14324C" stroke-width="2"/>
+    <path d="M680 80V1080" stroke="#14324C" stroke-width="2"/>
+    <path d="M920 80V1080" stroke="#14324C" stroke-width="2"/>
+    <path d="M1160 80V1080" stroke="#14324C" stroke-width="2"/>
+    <path d="M1400 80V1080" stroke="#14324C" stroke-width="2"/>
+  </g>
+  <g filter="url(#a)">
+    <path d="M214 862C370 862 421 655 548 655C633 655 670 732 773 732C885 732 905 540 1024 540C1137 540 1190 700 1349 700" stroke="url(#b)" stroke-width="20" stroke-linecap="round"/>
+  </g>
+  <g filter="url(#c)">
+    <path d="M245 428C362 428 427 314 520 314C628 314 661 484 770 484C899 484 951 219 1086 219C1189 219 1237 352 1372 352" stroke="url(#d)" stroke-width="18" stroke-linecap="round"/>
+  </g>
+  <g opacity=".92">
+    <rect x="212" y="250" width="206" height="128" rx="26" fill="#0D1D2B" stroke="#214968"/>
+    <rect x="466" y="576" width="274" height="142" rx="26" fill="#0D1D2B" stroke="#214968"/>
+    <rect x="1048" y="448" width="244" height="136" rx="26" fill="#0D1D2B" stroke="#214968"/>
+    <rect x="1096" y="762" width="194" height="106" rx="22" fill="#0D1D2B" stroke="#214968"/>
+  </g>
+  <g opacity=".85">
+    <circle cx="520" cy="314" r="18" fill="#49A8FF"/>
+    <circle cx="770" cy="484" r="18" fill="#23D5B5"/>
+    <circle cx="1086" cy="219" r="18" fill="#49A8FF"/>
+    <circle cx="1024" cy="540" r="18" fill="#23D5B5"/>
+    <circle cx="1349" cy="700" r="18" fill="#74EAB6"/>
+  </g>
+  <defs>
+    <filter id="a" x="174" y="500" width="1215" height="402" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feFlood flood-opacity="0" result="BackgroundImageFix"/>
+      <feBlend mode="normal" in="SourceGraphic" in2="BackgroundImageFix" result="shape"/>
+      <feGaussianBlur stdDeviation="10" result="effect1_foregroundBlur_0_1"/>
+    </filter>
+    <filter id="c" x="205" y="165" width="1207" height="374" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feFlood flood-opacity="0" result="BackgroundImageFix"/>
+      <feBlend mode="normal" in="SourceGraphic" in2="BackgroundImageFix" result="shape"/>
+      <feGaussianBlur stdDeviation="10" result="effect1_foregroundBlur_0_1"/>
+    </filter>
+    <linearGradient id="b" x1="214" y1="747" x2="1349" y2="747" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#49A8FF"/>
+      <stop offset=".58" stop-color="#24C0D8"/>
+      <stop offset="1" stop-color="#23D5B5"/>
+    </linearGradient>
+    <linearGradient id="d" x1="245" y1="352" x2="1372" y2="352" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#183F5F"/>
+      <stop offset=".5" stop-color="#49A8FF"/>
+      <stop offset="1" stop-color="#74EAB6"/>
+    </linearGradient>
+  </defs>
+</svg>

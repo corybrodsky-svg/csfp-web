@@ -2736,8 +2736,8 @@ export default function EventDetailPage() {
                 }}
               >
                 {isTrainingMode
-                  ? `Build Rotation Schedule (${rotationScheduleBuilt ? "Built" : "Not built"})`
-                  : "Build Rotation Schedule"}
+                  ? `Build Schedule (${rotationScheduleBuilt ? "Built" : "Not built"})`
+                  : "Build Schedule"}
               </Link>
               <button
                 type="button"

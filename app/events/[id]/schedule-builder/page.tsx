@@ -15,8 +15,8 @@ export default function EventScopedScheduleBuilderPage() {
 
   return (
     <SiteShell
-      title="Build Rotation Schedule"
-      subtitle="Build a learner rotation schedule for this event without changing the saved event record."
+      title="Build Schedule"
+      subtitle="Build a learner session schedule for this event without changing the saved event record."
     >
       <EventScheduleBuilder
         fixedEventId={eventId}

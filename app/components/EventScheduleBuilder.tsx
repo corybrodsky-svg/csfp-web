@@ -87,6 +87,9 @@ type ScheduleBuilderDraft = {
   flexRoomCount: string;
   maxPairsPerFlexRoom: string;
   encounterMinutes: string;
+  postEncounterBlock: "checklist" | "feedback" | "break";
+  postEncounterMinutes: string;
+  manualRoundOverride: boolean;
   checklistMinutes: string;
   soapMinutes: string;
   feedbackMinutes: string;
@@ -122,6 +125,9 @@ const DEFAULT_SCHEDULE_BUILDER_DRAFT: ScheduleBuilderDraft = {
   flexRoomCount: "1",
   maxPairsPerFlexRoom: "3",
   encounterMinutes: "20",
+  postEncounterBlock: "checklist",
+  postEncounterMinutes: "5",
+  manualRoundOverride: false,
   checklistMinutes: "5",
   soapMinutes: "10",
   feedbackMinutes: "10",
@@ -325,9 +331,9 @@ function attachLearners(rounds: GeneratedRound[], learnerRoster: string[]) {
       ...round,
       roomSlots: round.roomSlots.map((slot) => {
         const learnerLabels = Array.from({ length: slot.capacity }, (_, offset) => {
-          const learnerIndex = (cursor + offset) % learnerRoster.length;
-          return learnerRoster[learnerIndex];
-        });
+          const learnerIndex = cursor + offset;
+          return learnerIndex < learnerRoster.length ? learnerRoster[learnerIndex] : "";
+        }).filter(Boolean);
         cursor += slot.capacity;
         return { ...slot, learnerLabels };
       }),
@@ -355,7 +361,7 @@ function buildPlaintextPreview(args: {
     lines.push(`- ${block.label}: ${formatRange(block.start, block.end)}${block.detail ? ` (${block.detail})` : ""}`);
   });
   lines.push("");
-  lines.push("ROOM ROTATION");
+  lines.push("SESSION SCHEDULE");
 
   args.rounds.forEach((round) => {
     lines.push(`Round ${round.round}: ${formatRange(round.start, round.end)}`);
@@ -476,6 +482,9 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const [flexRoomCount, setFlexRoomCount] = useState(DEFAULT_SCHEDULE_BUILDER_DRAFT.flexRoomCount);
   const [maxPairsPerFlexRoom, setMaxPairsPerFlexRoom] = useState(DEFAULT_SCHEDULE_BUILDER_DRAFT.maxPairsPerFlexRoom);
   const [encounterMinutes, setEncounterMinutes] = useState(DEFAULT_SCHEDULE_BUILDER_DRAFT.encounterMinutes);
+  const [postEncounterBlock, setPostEncounterBlock] = useState<"checklist" | "feedback" | "break">(DEFAULT_SCHEDULE_BUILDER_DRAFT.postEncounterBlock);
+  const [postEncounterMinutes, setPostEncounterMinutes] = useState(DEFAULT_SCHEDULE_BUILDER_DRAFT.postEncounterMinutes);
+  const [manualRoundOverride, setManualRoundOverride] = useState(DEFAULT_SCHEDULE_BUILDER_DRAFT.manualRoundOverride);
   const [checklistMinutes, setChecklistMinutes] = useState(DEFAULT_SCHEDULE_BUILDER_DRAFT.checklistMinutes);
   const [soapMinutes, setSoapMinutes] = useState(DEFAULT_SCHEDULE_BUILDER_DRAFT.soapMinutes);
   const [feedbackMinutes, setFeedbackMinutes] = useState(DEFAULT_SCHEDULE_BUILDER_DRAFT.feedbackMinutes);
@@ -512,6 +521,9 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     setFlexRoomCount(draft.flexRoomCount);
     setMaxPairsPerFlexRoom(draft.maxPairsPerFlexRoom);
     setEncounterMinutes(draft.encounterMinutes);
+    setPostEncounterBlock(draft.postEncounterBlock);
+    setPostEncounterMinutes(draft.postEncounterMinutes);
+    setManualRoundOverride(Boolean(draft.manualRoundOverride));
     setChecklistMinutes(draft.checklistMinutes);
     setSoapMinutes(draft.soapMinutes);
     setFeedbackMinutes(draft.feedbackMinutes);
@@ -620,6 +632,9 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       flexRoomCount,
       maxPairsPerFlexRoom,
       encounterMinutes,
+      postEncounterBlock,
+      postEncounterMinutes,
+      manualRoundOverride,
       checklistMinutes,
       soapMinutes,
       feedbackMinutes,
@@ -653,6 +668,9 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       flexRoomCount,
       maxPairsPerFlexRoom,
       encounterMinutes,
+      postEncounterBlock,
+      postEncounterMinutes,
+      manualRoundOverride,
       checklistMinutes,
       soapMinutes,
       feedbackMinutes,
@@ -720,6 +738,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const parsedMaxPairs = Math.max(1, parseNumber(maxPairsPerFlexRoom, 3));
   const parsedSessionLength = parseNumber(sessionLengthMinutes, 0);
   const parsedEncounter = parseNumber(encounterMinutes, 20);
+  const parsedPostEncounter = parseNumber(postEncounterMinutes, 5);
   const parsedChecklist = parseNumber(checklistMinutes, 5);
   const parsedSoap = parseNumber(soapMinutes, 10);
   const parsedFeedback = parseNumber(feedbackMinutes, 10);
@@ -734,6 +753,27 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const parsedDebrief = parseNumber(debriefMinutes, 0);
   const parsedBreakdown = parseNumber(breakdownMinutes, 0);
   const slotsPerRound = parsedExamRooms + parsedFlexRooms * parsedMaxPairs;
+  const totalRoomCount = parsedExamRooms + parsedFlexRooms;
+  const autoCalculatedRounds =
+    uploadedLearners.length && slotsPerRound > 0
+      ? Math.max(1, Math.ceil(uploadedLearners.length / slotsPerRound))
+      : Math.max(parsedRounds, 1);
+  const effectiveRoundCount =
+    builderMode === "advanced" && manualRoundOverride
+      ? Math.max(parsedRounds, 1)
+      : autoCalculatedRounds;
+  const effectiveIncludeChecklist =
+    builderMode === "simple" ? postEncounterBlock === "checklist" : includeChecklist;
+  const effectiveChecklistMinutes =
+    builderMode === "simple" && postEncounterBlock === "checklist" ? parsedPostEncounter : parsedChecklist;
+  const effectiveIncludeFeedback =
+    builderMode === "simple" ? postEncounterBlock === "feedback" : includeFeedback;
+  const effectiveFeedbackMinutes =
+    builderMode === "simple" && postEncounterBlock === "feedback" ? parsedPostEncounter : parsedFeedback;
+  const effectiveTransitionMinutes =
+    builderMode === "simple" && postEncounterBlock === "break" ? parsedPostEncounter : parsedTransition;
+  const effectiveIncludeSoap = builderMode === "simple" ? false : includeSoap;
+  const effectiveSoapMinutes = builderMode === "simple" ? 0 : parsedSoap;
 
   const generated = useMemo(() => {
     if (parsedStartMinutes === null) {
@@ -751,19 +791,19 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
 
     const { rounds, roundLength, configuredLength, bufferMinutes, overrunMinutes } = buildRounds({
       startMinutes: parsedStartMinutes,
-      rounds: parsedRounds,
+      rounds: effectiveRoundCount,
       sessionLengthMinutes: parsedSessionLength,
       examRoomCount: parsedExamRooms,
       flexRoomCount: parsedFlexRooms,
       maxPairsPerFlexRoom: parsedMaxPairs,
       encounterMinutes: parsedEncounter,
-      includeChecklist,
-      checklistMinutes: parsedChecklist,
-      includeSoap,
-      soapMinutes: parsedSoap,
-      includeFeedback,
-      feedbackMinutes: parsedFeedback,
-      transitionMinutes: parsedTransition,
+      includeChecklist: effectiveIncludeChecklist,
+      checklistMinutes: effectiveChecklistMinutes,
+      includeSoap: effectiveIncludeSoap,
+      soapMinutes: effectiveSoapMinutes,
+      includeFeedback: effectiveIncludeFeedback,
+      feedbackMinutes: effectiveFeedbackMinutes,
+      transitionMinutes: effectiveTransitionMinutes,
     });
 
     const rotationStart = parsedStartMinutes;
@@ -785,7 +825,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         label: "Staff Arrival",
         start: parsedStaffArrival,
         end: rotationStart,
-        detail: "Staff on site before rotation",
+        detail: "Staff on site before session start",
         tone: "setup",
       });
     }
@@ -842,10 +882,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
 
     if (rounds.length) {
       timeline.push({
-        label: "Rotation Block",
+        label: "Session Blocks",
         start: rotationStart,
         end: rotationEnd,
-        detail: `${parsedRounds} round${parsedRounds === 1 ? "" : "s"} · ${roundLength} minutes each`,
+        detail: `${effectiveRoundCount} round${effectiveRoundCount === 1 ? "" : "s"} · ${roundLength} minutes each`,
         tone: "rotation",
       });
     }
@@ -884,31 +924,31 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       timeline,
     };
   }, [
+    effectiveChecklistMinutes,
+    effectiveFeedbackMinutes,
+    effectiveIncludeChecklist,
+    effectiveIncludeFeedback,
+    effectiveIncludeSoap,
+    effectiveRoundCount,
+    effectiveSoapMinutes,
+    effectiveTransitionMinutes,
     includeBreakdown,
-    includeChecklist,
     includeDebrief,
-    includeFeedback,
-    includeSoap,
     parsedBreakdown,
-    parsedChecklist,
     parsedDebrief,
     parsedEncounter,
     parsedExamRooms,
     parsedFacultyArrival,
     parsedFacultyPrebrief,
-    parsedFeedback,
     parsedFlexRooms,
     parsedMaxPairs,
-    parsedRounds,
     parsedRoomSetup,
     parsedSessionLength,
-    parsedSoap,
     parsedSpArrival,
     parsedSpPrebrief,
     parsedStaffArrival,
     parsedStartMinutes,
     parsedStudentPrebrief,
-    parsedTransition,
   ]);
 
   const learnerRoster = useMemo(
@@ -920,6 +960,9 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     () => attachLearners(generated.rounds, learnerRoster),
     [generated.rounds, learnerRoster]
   );
+  const totalScheduleCapacity = Math.max(slotsPerRound, 0) * generated.rounds.length;
+  const unplacedLearnerCount =
+    uploadedLearners.length > 0 ? Math.max(uploadedLearners.length - totalScheduleCapacity, 0) : 0;
 
   const assignedNames = selectedEvent ? getAssignedNames(selectedEvent) : [];
   const rotationEnd = generated.rotationEnd;
@@ -932,6 +975,16 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     if (!generated.timeline.length) return 0;
     return generated.timeline[generated.timeline.length - 1].end - generated.timeline[0].start;
   }, [generated.timeline]);
+  const roomColumns = useMemo(
+    () => (scheduledRounds[0]?.roomSlots || []).map((slot) => ({ roomName: slot.roomName, roomType: slot.roomType, capacityLabel: slot.capacityLabel })),
+    [scheduledRounds]
+  );
+  const learnerCapacitySummary =
+    uploadedLearners.length && slotsPerRound > 0
+      ? `${uploadedLearners.length} learners • ${totalRoomCount} rooms • ${effectiveRoundCount} rounds required`
+      : uploadedLearners.length && slotsPerRound <= 0
+        ? `${uploadedLearners.length} learners uploaded • configure rooms to calculate rounds`
+        : "";
 
   const previewText = useMemo(
     () =>
@@ -953,7 +1006,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     parsedBreakdown > 0 ||
     parsedTransition > 0 ||
     parsedSessionLength > 0 ||
+    effectiveSoapMinutes > 0 ||
     Boolean(parsedStaffArrival !== null || parsedSpArrival !== null || parsedFacultyArrival !== null) ||
+    manualRoundOverride ||
+    includeSoap ||
     includeDebrief ||
     includeBreakdown;
 
@@ -995,9 +1051,9 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <p className="cfsp-kicker">Connected builder</p>
-            <h2 className="mt-3 text-[1.7rem] leading-tight font-black text-[#14304f]">Build rotation schedule</h2>
+            <h2 className="mt-3 text-[1.7rem] leading-tight font-black text-[#14304f]">Build session schedule</h2>
             <p className="mt-3 max-w-3xl text-[0.98rem] leading-6 text-[#5e7388]">
-              Build a full-day operational preview with arrivals, prebriefs, learner rotations, debrief, and breakdown while keeping the event record untouched. Builder changes auto-save locally in this browser for the current event.
+              Build a full-day session schedule preview with arrivals, time blocks, rooms, and learner flow while keeping the event record untouched. Builder changes auto-save locally in this browser for the current event.
             </p>
             <div className="mt-4 inline-flex rounded-[12px] border border-[var(--cfsp-border)] p-1">
               <button
@@ -1036,9 +1092,15 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
             </div>
             <div className="mt-3 text-sm font-semibold text-[#5e7388]">
               {builderMode === "simple"
-                ? "Simple mode shows the core rotation inputs only."
+                ? "Simple mode shows the core scheduling inputs only."
                 : "Advanced mode adds arrival, prebrief, wrap-up, and timing overrides."}
             </div>
+            {uploadedLearners.length > 0 && slotsPerRound > 0 ? (
+              <div className="mt-3 text-sm font-semibold text-[#165a96]">
+                Auto-calculated from learner count and room capacity: {uploadedLearners.length} learners,{" "}
+                {totalRoomCount} rooms, {slotsPerRound} seats per round, {autoCalculatedRounds} rounds required.
+              </div>
+            ) : null}
           </div>
           {props.backHref ? (
             <Link href={props.backHref} className="cfsp-btn cfsp-btn-secondary">
@@ -1173,19 +1235,23 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
 
           <div className="grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
             <section className="cfsp-panel px-5 py-5">
-              <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">Calculated timing</h3>
+              <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">Schedule Summary</h3>
               <div className="mt-4 grid gap-3 md:grid-cols-2">
                 <div className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
-                  <div className="cfsp-label">Rotation Start</div>
+                  <div className="cfsp-label">Start Time</div>
                   <div className="mt-2 text-base font-black text-[#14304f]">
                     {parsedStartMinutes === null ? "Invalid start time" : toDisplayTime(parsedStartMinutes)}
                   </div>
                 </div>
                 <div className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
-                  <div className="cfsp-label">Rotation End</div>
+                  <div className="cfsp-label">End Time</div>
                   <div className="mt-2 text-base font-black text-[#14304f]">
                     {generated.rounds.length ? toDisplayTime(rotationEnd) : "Not generated yet"}
                   </div>
+                </div>
+                <div className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
+                  <div className="cfsp-label">Rounds Needed</div>
+                  <div className="mt-2 text-base font-black text-[#14304f]">{effectiveRoundCount}</div>
                 </div>
                 <div className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
                   <div className="cfsp-label">Total Event Duration</div>
@@ -1196,14 +1262,38 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                   <div className="mt-2 text-base font-black text-[#14304f]">{estimatedStaffDayLength} minutes</div>
                 </div>
                 <div className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
-                  <div className="cfsp-label">Learners per Round</div>
+                  <div className="cfsp-label">Seats per Round</div>
                   <div className="mt-2 text-base font-black text-[#14304f]">{Math.max(slotsPerRound, 0)}</div>
                 </div>
                 <div className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
-                  <div className="cfsp-label">Configured Round Blocks</div>
+                  <div className="cfsp-label">Configured Block Length</div>
                   <div className="mt-2 text-base font-black text-[#14304f]">{generated.configuredLength} minutes</div>
                 </div>
               </div>
+              {learnerCapacitySummary ? (
+                <div className="cfsp-alert cfsp-alert-info mt-4">{learnerCapacitySummary}</div>
+              ) : null}
+              {uploadedLearners.length > 0 && slotsPerRound > 0 ? (
+                <div className="mt-3 text-sm font-semibold text-[#5e7388]">
+                  {slotsPerRound} seats per round across {totalRoomCount} configured room
+                  {totalRoomCount === 1 ? "" : "s"}.
+                </div>
+              ) : null}
+              {uploadedLearners.length > 0 && slotsPerRound <= 0 ? (
+                <div className="cfsp-alert cfsp-alert-error mt-4">
+                  Add at least one usable room or flex seat to calculate the required rounds.
+                </div>
+              ) : null}
+              {builderMode === "advanced" && manualRoundOverride && uploadedLearners.length > 0 && slotsPerRound > 0 ? (
+                <div className="cfsp-alert cfsp-alert-info mt-4">
+                  Manual round override is active. Auto-calculated need is {autoCalculatedRounds} rounds based on learner count and room capacity.
+                </div>
+              ) : null}
+              {unplacedLearnerCount > 0 ? (
+                <div className="cfsp-alert cfsp-alert-error mt-4">
+                  {unplacedLearnerCount} learner{unplacedLearnerCount === 1 ? "" : "s"} cannot fit in the current manual schedule. Add more rounds, exam rooms, flex rooms, or flex capacity.
+                </div>
+              ) : null}
               {parsedSessionLength > 0 && generated.bufferMinutes > 0 ? (
                 <div className="cfsp-alert cfsp-alert-info mt-4">
                   Each round includes {generated.bufferMinutes} minutes of open buffer so the generated timeline matches the {parsedSessionLength}-minute session target.
@@ -1219,24 +1309,31 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
             <section className="cfsp-panel px-5 py-5">
               <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">Simple Builder</h3>
               <p className="mt-2 mb-0 text-sm leading-6 text-[#5e7388]">
-                Use the core rotation inputs below to generate a standard schedule quickly.
+                Use the core scheduling inputs below to generate a standard session schedule quickly.
               </p>
+              <div className="mt-3 text-sm font-semibold text-[#5e7388]">
+                Student roster upload lives in the Learners panel and drives the automatic rounds calculation.
+              </div>
               <div className="mt-4 grid gap-4 md:grid-cols-2">
                 <label className="grid gap-2">
-                  <span className="cfsp-label">Rotation start time</span>
+                  <span className="cfsp-label">Start time</span>
                   <input type="time" value={startTime} onChange={(event) => setStartTime(event.target.value)} className="cfsp-input" />
                 </label>
-                <NumberInput label="Number of rounds" value={roundCount} onChange={setRoundCount} />
                 <NumberInput label="Number of exam rooms" value={examRoomCount} onChange={setExamRoomCount} />
                 <NumberInput label="Number of flex rooms" value={flexRoomCount} onChange={setFlexRoomCount} />
                 <NumberInput label="Flex capacity" value={maxPairsPerFlexRoom} onChange={setMaxPairsPerFlexRoom} />
                 <NumberInput label="Encounter minutes" value={encounterMinutes} onChange={setEncounterMinutes} />
-                <ToggleInput label="Include checklist" checked={includeChecklist} onChange={setIncludeChecklist} />
-                <NumberInput label="Checklist minutes" value={checklistMinutes} onChange={setChecklistMinutes} disabled={!includeChecklist} />
-                <ToggleInput label="Include feedback" checked={includeFeedback} onChange={setIncludeFeedback} />
-                <NumberInput label="Feedback minutes" value={feedbackMinutes} onChange={setFeedbackMinutes} disabled={!includeFeedback} />
-                <ToggleInput label="Include SOAP note" checked={includeSoap} onChange={setIncludeSoap} />
-                <NumberInput label="SOAP note minutes" value={soapMinutes} onChange={setSoapMinutes} disabled={!includeSoap} />
+                <SelectInput
+                  label="Post-encounter block"
+                  value={postEncounterBlock}
+                  options={[
+                    { value: "checklist", label: "Checklist" },
+                    { value: "feedback", label: "Feedback" },
+                    { value: "break", label: "Break" },
+                  ]}
+                  onChange={(value) => setPostEncounterBlock(value as "checklist" | "feedback" | "break")}
+                />
+                <NumberInput label="Post-encounter minutes" value={postEncounterMinutes} onChange={setPostEncounterMinutes} />
               </div>
             </section>
           </div>
@@ -1257,7 +1354,15 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                   <NumberInput label="SP prebrief minutes" value={spPrebriefMinutes} onChange={setSpPrebriefMinutes} />
                   <NumberInput label="Faculty prebrief minutes" value={facultyPrebriefMinutes} onChange={setFacultyPrebriefMinutes} />
                   <NumberInput label="Session length override" value={sessionLengthMinutes} onChange={setSessionLengthMinutes} />
+                  <ToggleInput label="Manual rounds override" checked={manualRoundOverride} onChange={setManualRoundOverride} />
+                  <NumberInput label="Manual round count" value={roundCount} onChange={setRoundCount} disabled={!manualRoundOverride} />
                   <NumberInput label="Transition minutes" value={transitionMinutes} onChange={setTransitionMinutes} />
+                  <ToggleInput label="Include SOAP note" checked={includeSoap} onChange={setIncludeSoap} />
+                  <NumberInput label="SOAP note minutes" value={soapMinutes} onChange={setSoapMinutes} disabled={!includeSoap} />
+                  <ToggleInput label="Include checklist" checked={includeChecklist} onChange={setIncludeChecklist} />
+                  <NumberInput label="Checklist minutes" value={checklistMinutes} onChange={setChecklistMinutes} disabled={!includeChecklist} />
+                  <ToggleInput label="Include feedback" checked={includeFeedback} onChange={setIncludeFeedback} />
+                  <NumberInput label="Feedback minutes" value={feedbackMinutes} onChange={setFeedbackMinutes} disabled={!includeFeedback} />
                   <ToggleInput label="Include debrief" checked={includeDebrief} onChange={setIncludeDebrief} />
                   <NumberInput label="Post-event debrief minutes" value={debriefMinutes} onChange={setDebriefMinutes} disabled={!includeDebrief} />
                   <ToggleInput label="Include breakdown" checked={includeBreakdown} onChange={setIncludeBreakdown} />
@@ -1287,7 +1392,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
               <div>
                 <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">Full day timeline</h3>
                 <p className="mt-2 mb-0 text-sm leading-6 text-[#5e7388]">
-                  Review the operational day from arrival through breakdown before moving into the rotation grid.
+                  Review the operational day from arrival through breakdown before moving into the session grid.
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -1327,15 +1432,15 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
           </section>
 
           <section className="cfsp-panel px-5 py-5">
-            <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">Room-by-room rotation grid</h3>
+            <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">Session schedule grid</h3>
             <p className="mt-2 mb-0 text-sm leading-6 text-[#5e7388]">
-              Each round uses 12-hour time and places uploaded learners into exam and flex rooms. Without an upload, fallback learner names are generated automatically.
+              Rows track rounds and time blocks while columns track rooms and sections in a spreadsheet-style layout. Without an upload, fallback learner names are generated automatically.
             </p>
 
             {parsedStartMinutes === null ? (
-              <div className="cfsp-alert cfsp-alert-error mt-5">Enter a valid start time to generate the room rotation grid.</div>
+              <div className="cfsp-alert cfsp-alert-error mt-5">Enter a valid start time to generate the session schedule grid.</div>
             ) : !scheduledRounds.length ? (
-              <div className="cfsp-alert cfsp-alert-info mt-5">Add at least one round to generate the room rotation grid.</div>
+              <div className="cfsp-alert cfsp-alert-info mt-5">Add enough rooms and schedule timing to generate the session schedule grid.</div>
             ) : (
               <div className="mt-5 overflow-x-auto">
                 <table className="w-full border-collapse text-left">
@@ -1343,65 +1448,70 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                     <tr className="border-b border-[#dce6ee] text-sm text-[#5e7388]">
                       <th className="px-3 py-3 font-black">Round</th>
                       <th className="px-3 py-3 font-black">Time</th>
-                      <th className="px-3 py-3 font-black">Exam Rooms</th>
-                      <th className="px-3 py-3 font-black">Flex Rooms</th>
+                      {roomColumns.map((column) => (
+                        <th key={column.roomName} className="px-3 py-3 font-black">
+                          {column.roomName}
+                        </th>
+                      ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {scheduledRounds.map((round) => {
-                      const examRooms = round.roomSlots.filter((slot) => slot.roomType === "exam");
-                      const flexRooms = round.roomSlots.filter((slot) => slot.roomType === "flex");
-
-                      return (
-                        <tr key={round.round} className="border-b border-[#eef3f7] align-top text-sm text-[#14304f]">
-                          <td className="px-3 py-4 font-black">Round {round.round}</td>
-                          <td className="px-3 py-4">
-                            <div className="font-bold">{formatRange(round.start, round.end)}</div>
-                            <div className="mt-2 grid gap-1 text-xs font-semibold text-[#5e7388]">
-                              {round.subBlocks.map((subBlock) => (
-                                <div key={`${round.round}-${subBlock.label}`}>
-                                  {subBlock.label}: {formatRange(subBlock.start, subBlock.end)}
-                                </div>
-                              ))}
+                    {scheduledRounds.map((round) => (
+                      <tr key={round.round} className="border-b border-[#eef3f7] align-top text-sm text-[#14304f]">
+                        <td className="px-3 py-4 font-black">Round {round.round}</td>
+                        <td className="px-3 py-4">
+                          <div className="font-bold">{formatRange(round.start, round.end)}</div>
+                          <div className="mt-2 grid gap-1 text-xs font-semibold text-[#5e7388]">
+                            {round.subBlocks.map((subBlock) => (
+                              <div key={`${round.round}-${subBlock.label}`}>
+                                {subBlock.label}: {formatRange(subBlock.start, subBlock.end)}
+                              </div>
+                            ))}
+                          </div>
+                        </td>
+                        {round.roomSlots.map((slot) => (
+                          <td key={`${round.round}-${slot.roomName}`} className="px-3 py-4">
+                            <div
+                              style={{
+                                border: `1px solid ${slot.roomType === "exam" ? "#c7dcee" : "#bfe4d6"}`,
+                                borderRadius: "12px",
+                                background: slot.roomType === "exam" ? "#edf5fb" : "#eefbf6",
+                                padding: "10px 12px",
+                                minWidth: "160px",
+                              }}
+                            >
+                              <div
+                                style={{
+                                  fontWeight: 800,
+                                  color: slot.roomType === "exam" ? "#165a96" : "#196b57",
+                                  fontSize: "12px",
+                                  textTransform: "uppercase",
+                                }}
+                              >
+                                {slot.capacityLabel}
+                              </div>
+                              <div style={{ marginTop: "8px", display: "grid", gap: "6px" }}>
+                                {slot.learnerLabels.map((learner) => (
+                                  <div
+                                    key={`${slot.roomName}-${learner}`}
+                                    style={{
+                                      borderRadius: "999px",
+                                      background: "#ffffff",
+                                      border: "1px solid rgba(148,163,184,0.28)",
+                                      padding: "6px 10px",
+                                      fontSize: "12px",
+                                      fontWeight: 700,
+                                    }}
+                                  >
+                                    {learner}
+                                  </div>
+                                ))}
+                              </div>
                             </div>
                           </td>
-                          <td className="px-3 py-4">
-                            <div className="grid gap-2">
-                              {examRooms.length ? (
-                                examRooms.map((slot) => (
-                                  <RoomSlotCard
-                                    key={`${round.round}-${slot.roomName}`}
-                                    slot={slot}
-                                    borderClass="border-[#c7dcee]"
-                                    backgroundClass="bg-[#edf5fb]"
-                                    titleClass="text-[#165a96]"
-                                  />
-                                ))
-                              ) : (
-                                <div className="text-sm font-semibold text-[#6a7e91]">No exam rooms</div>
-                              )}
-                            </div>
-                          </td>
-                          <td className="px-3 py-4">
-                            <div className="grid gap-2">
-                              {flexRooms.length ? (
-                                flexRooms.map((slot) => (
-                                  <RoomSlotCard
-                                    key={`${round.round}-${slot.roomName}`}
-                                    slot={slot}
-                                    borderClass="border-[#bfe4d6]"
-                                    backgroundClass="bg-[#eefbf6]"
-                                    titleClass="text-[#196b57]"
-                                  />
-                                ))
-                              ) : (
-                                <div className="text-sm font-semibold text-[#6a7e91]">No flex rooms</div>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
+                        ))}
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
@@ -1439,30 +1549,6 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   );
 }
 
-function RoomSlotCard(props: {
-  slot: ScheduledRoomSlot;
-  borderClass: string;
-  backgroundClass: string;
-  titleClass: string;
-}) {
-  return (
-    <div className={`rounded-[10px] border px-3 py-2 ${props.borderClass} ${props.backgroundClass}`}>
-      <div className={`font-bold ${props.titleClass}`}>{props.slot.roomName}</div>
-      <div className="text-xs font-semibold text-[#4f677d]">{props.slot.capacityLabel}</div>
-      <div className="mt-2 flex flex-wrap gap-1.5">
-        {props.slot.learnerLabels.map((learner) => (
-          <span
-            key={`${props.slot.roomName}-${learner}`}
-            className="rounded-full border border-white/70 bg-white px-2 py-1 text-[11px] font-bold text-[#14304f]"
-          >
-            {learner}
-          </span>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 function NumberInput(props: {
   label: string;
   value: string;
@@ -1480,6 +1566,26 @@ function NumberInput(props: {
         disabled={props.disabled}
         className="cfsp-input"
       />
+    </label>
+  );
+}
+
+function SelectInput(props: {
+  label: string;
+  value: string;
+  options: Array<{ value: string; label: string }>;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="grid gap-2">
+      <span className="cfsp-label">{props.label}</span>
+      <select value={props.value} onChange={(event) => props.onChange(event.target.value)} className="cfsp-input">
+        {props.options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
     </label>
   );
 }

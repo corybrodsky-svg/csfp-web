@@ -111,18 +111,46 @@ export default function LoginPage() {
         }}
       >
         <section
-          className="hidden px-8 py-8 text-white lg:flex lg:flex-col lg:justify-between"
-          style={{ background: "linear-gradient(180deg, #081b30 0%, #145b96 100%)" }}
+          className="relative hidden overflow-hidden px-8 py-8 text-white lg:flex lg:flex-col lg:justify-between"
+          style={{
+            background:
+              "radial-gradient(circle at 20% 20%, rgba(73,168,255,0.18), transparent 34%), radial-gradient(circle at 82% 18%, rgba(35,213,181,0.12), transparent 28%), linear-gradient(180deg, #060d16 0%, #0b1c2d 52%, #103452 100%)",
+          }}
         >
-          <div>
+          <div
+            aria-hidden="true"
+            style={{
+              position: "absolute",
+              inset: 0,
+              background:
+                "radial-gradient(rgba(255,255,255,0.08) 0.8px, transparent 0.8px)",
+              backgroundSize: "28px 28px",
+              maskImage: "linear-gradient(180deg, rgba(0,0,0,0.95), rgba(0,0,0,0.2))",
+              opacity: 0.28,
+              pointerEvents: "none",
+            }}
+          />
+          <div
+            aria-hidden="true"
+            style={{
+              position: "absolute",
+              inset: 0,
+              backgroundImage:
+                "linear-gradient(rgba(84,149,194,0.12) 1px, transparent 1px), linear-gradient(90deg, rgba(84,149,194,0.12) 1px, transparent 1px)",
+              backgroundSize: "140px 140px",
+              opacity: 0.28,
+              pointerEvents: "none",
+            }}
+          />
+          <div style={{ position: "relative", zIndex: 1 }}>
             <div className="flex items-center gap-4">
-              <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-xl bg-white text-base font-black tracking-[0.14em] text-[#0f4673]">
+              <div className="flex h-18 w-18 items-center justify-center overflow-hidden rounded-2xl bg-white/95 p-2 text-base font-black tracking-[0.14em] text-[#0f4673] shadow-[0_10px_30px_rgba(0,0,0,0.24)]">
                 {logoVisible ? (
                   <Image
-                    src="/branding/cfsp-logo.png"
+                    src="/branding/cfsp-logo.svg"
                     alt="CFSP"
-                    width={60}
-                    height={60}
+                    width={64}
+                    height={64}
                     unoptimized
                     onError={() => setLogoVisible(false)}
                   />
@@ -131,7 +159,7 @@ export default function LoginPage() {
                 )}
               </div>
               <div>
-                <p className="m-0 text-sm font-black uppercase tracking-[0.12em] text-[#d1f0e5]">
+                <p className="m-0 text-sm font-black uppercase tracking-[0.12em] text-[#a6efe0]">
                   CFSP
                 </p>
                 <h1 className="m-0 mt-1 text-[2rem] leading-tight font-black">
@@ -140,21 +168,33 @@ export default function LoginPage() {
               </div>
             </div>
 
-            <p className="mt-6 max-w-xl text-[1.05rem] leading-7 text-white/88">
-              Simulation event coverage, SP assignment, and availability tracking in one place.
+            <p className="mt-8 max-w-xl text-[2rem] leading-tight font-black text-white">
+              Simulation Operations, Organized.
             </p>
+            <p className="mt-5 max-w-xl text-[1.02rem] leading-7 text-[#d6e7f6]">
+              Conflict-free scheduling for simulation teams, SP programs, and complex event days that need operational clarity instead of spreadsheet chaos.
+            </p>
+            <div className="mt-8 overflow-hidden rounded-[24px] border border-white/12 bg-[#091723]/70 shadow-[0_18px_48px_rgba(0,0,0,0.24)] backdrop-blur-sm">
+              <Image
+                src="/branding/cfsp-hero-ops.svg"
+                alt="CFSP operations visualization"
+                width={760}
+                height={560}
+                unoptimized
+                style={{ width: "100%", height: "auto", display: "block" }}
+              />
+            </div>
           </div>
 
-          <div className="grid gap-4">
-            <div className="rounded-[14px] border border-white/16 bg-white/8 px-5 py-4">
-              <p className="text-xs font-black uppercase tracking-[0.12em] text-white/70">
-                Why teams use CFSP
-              </p>
-              <ul className="mt-3 grid gap-2 pl-5 text-sm leading-6 text-white/88">
-                <li>Keep simulation event coverage organized in one workflow.</li>
-                <li>Review assignments, staffing gaps, and coverage status quickly.</li>
-                <li>Reduce manual tracking across spreadsheets and scattered notes.</li>
-              </ul>
+          <div className="relative z-10 grid gap-4">
+            <div className="grid gap-3 rounded-[18px] border border-white/14 bg-white/7 px-5 py-4 backdrop-blur-sm">
+              <div className="text-xs font-black uppercase tracking-[0.12em] text-[#9fe8db]">
+                Mission Control For Simulation Days
+              </div>
+              <div className="grid gap-2 text-sm leading-6 text-[#d6e7f6]">
+                <div>Coordinate SP assignments, learner flow, and day-of timing from one operational workspace.</div>
+                <div>Track rooms, sessions, materials, and staffing without losing the big-picture schedule.</div>
+              </div>
             </div>
           </div>
         </section>
@@ -168,7 +208,7 @@ export default function LoginPage() {
             <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-xl border border-[#d6e6ea] bg-white text-sm font-black tracking-[0.12em] text-[#0f4471]">
               {logoVisible ? (
                 <Image
-                  src="/branding/cfsp-logo.png"
+                  src="/branding/cfsp-logo.svg"
                   alt="CFSP"
                   width={44}
                   height={44}

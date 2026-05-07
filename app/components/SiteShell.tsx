@@ -192,7 +192,7 @@ export default function SiteShell({ title, subtitle, children }: SiteShellProps)
                       >
                         {logoVisible ? (
                           <Image
-                            src="/branding/cfsp-logo.png"
+                            src="/branding/cfsp-logo.svg"
                             alt="CFSP"
                             width={40}
                             height={40}
