@@ -5,11 +5,14 @@ export type EventCoverageVisualState =
   | "shortage"
   | "archived";
 
+export type EventCoverageBaseTone = "default" | "skills";
+
 type CoverageVisualInput = {
   needed?: number | null;
   assigned?: number | null;
   confirmed?: number | null;
   archived?: boolean;
+  baseTone?: EventCoverageBaseTone;
 };
 
 export function getEventCoverageVisualState(input: CoverageVisualInput): EventCoverageVisualState {
@@ -27,6 +30,14 @@ export function getEventCoverageVisualState(input: CoverageVisualInput): EventCo
 }
 
 export function getEventCoverageVisualTone(state: EventCoverageVisualState) {
+  return getEventCoverageVisualToneWithBase(state, "default");
+}
+
+export function getEventCoverageVisualToneWithBase(
+  state: EventCoverageVisualState,
+  baseTone: EventCoverageBaseTone = "default"
+) {
+  const defaultTone = (() => {
   switch (state) {
     case "archived":
       return {
@@ -90,4 +101,16 @@ export function getEventCoverageVisualTone(state: EventCoverageVisualState) {
         label: "Unstaffed",
       };
   }
+  })();
+
+  if (baseTone === "skills" && state !== "archived") {
+    return {
+      ...defaultTone,
+      cardBackground: "var(--cfsp-skills-soft)",
+      cardBorder: "var(--cfsp-skills-border)",
+      titleText: "var(--cfsp-skills-text)",
+    };
+  }
+
+  return defaultTone;
 }

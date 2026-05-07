@@ -44,6 +44,9 @@
   --cfsp-danger-border: #fecaca;
   --cfsp-danger-bg: #fff5f5;
   --cfsp-danger-text: #991b1b;
+  --cfsp-skills-soft: #edf6ff;
+  --cfsp-skills-border: #bfdcf6;
+  --cfsp-skills-text: #145b96;
 }
 
 html[data-theme="dark"] {
@@ -94,6 +97,9 @@ html[data-theme="dark"] {
   --cfsp-danger-border: rgba(255, 143, 134, 0.28);
   --cfsp-danger-bg: rgba(76, 22, 27, 0.72);
   --cfsp-danger-text: #ffb0a9;
+  --cfsp-skills-soft: rgba(73, 168, 255, 0.1);
+  --cfsp-skills-border: rgba(120, 180, 255, 0.28);
+  --cfsp-skills-text: #8fcfff;
 }
 
 @theme inline {

@@ -77,6 +77,9 @@ type EventApiRow = {
   owner_id?: string | null;
   owner_name?: string | null;
   schedule_owner_text?: string | null;
+  assigned_sp_names?: string[] | null;
+  assigned_sp_emails?: string[] | null;
+  session_locations?: string[] | null;
 };
 
 type ViewerContext = {
@@ -241,7 +244,7 @@ export async function GET() {
 
     const { data: sessions, error: sessionError } = await supabaseServer
       .from("event_sessions")
-      .select("event_id,session_date,start_time,end_time")
+      .select("event_id,session_date,start_time,end_time,location,room")
       .order("session_date", { ascending: true });
 
     if (sessionError) {
@@ -287,6 +290,9 @@ export async function GET() {
         return [sp.id, fullName];
       })
     );
+    const spEmailById = new Map(
+      (sps || []).map((sp) => [sp.id, asText(sp.working_email) || asText(sp.email) || ""])
+    );
     const eventsWithCoverage = (data || []).map((event) => {
       const eventAssignments = assignmentRows.filter((assignment) => assignment.event_id === event.id);
       const confirmedAssignments = eventAssignments.filter(isConfirmedAssignment).length;
@@ -304,6 +310,19 @@ export async function GET() {
       const assignedNames = eventAssignments
         .map((assignment) => spNameById.get(asText(assignment.sp_id)) || "")
         .filter(Boolean);
+      const assignedEmails = eventAssignments
+        .map((assignment) => spEmailById.get(asText(assignment.sp_id)) || "")
+        .filter(Boolean);
+      const sessionLocations = Array.from(
+        new Set(
+          eventSessions
+            .flatMap((session) => [
+              asText((session as { room?: string | null }).room),
+              asText((session as { location?: string | null }).location),
+            ])
+            .filter(Boolean)
+        )
+      );
 
       return {
         ...event,
@@ -315,6 +334,8 @@ export async function GET() {
         earliest_session_start: eventSessions[0]?.start_time || null,
         latest_session_end: eventSessions[eventSessions.length - 1]?.end_time || null,
         assigned_sp_names: assignedNames,
+        assigned_sp_emails: assignedEmails,
+        session_locations: sessionLocations,
         total_assignments: eventAssignments.length,
         confirmed_assignments: confirmedAssignments,
         shortage: Math.max(needed - confirmedAssignments, 0),

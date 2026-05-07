@@ -4,7 +4,10 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import SiteShell from "../components/SiteShell";
 import { compareByArchiveDate, isPastEvent } from "../lib/eventArchive";
-import { getEventCoverageVisualState, getEventCoverageVisualTone } from "../lib/eventCoverageVisual";
+import {
+  getEventCoverageVisualState,
+  getEventCoverageVisualToneWithBase,
+} from "../lib/eventCoverageVisual";
 import { formatHumanDate, getImportedYearHint } from "../lib/eventDateUtils";
 import { classifyEventPresentation, getEventBadgeAppearance } from "../lib/eventClassification";
 import { getBestEventTeamInfo } from "../lib/eventRoster";
@@ -24,6 +27,8 @@ type EventRow = {
   earliest_session_start?: string | null;
   latest_session_end?: string | null;
   assigned_sp_names?: string[] | null;
+  assigned_sp_emails?: string[] | null;
+  session_locations?: string[] | null;
   total_assignments?: number | null;
   confirmed_assignments?: number | null;
   shortage?: number | null;
@@ -36,6 +41,12 @@ type EventsResponse = {
 
 type EventView = "current" | "archive" | "all";
 const MAX_ROSTER_CHIPS = 12;
+const EVENTS_PAGE_SIZE = 25;
+
+function asText(value: unknown) {
+  if (value === null || value === undefined) return "";
+  return String(value).trim();
+}
 
 function formatEventDate(event: EventRow) {
   const dateSource = event.earliest_session_date || event.date_text;
@@ -86,6 +97,32 @@ function getEventBadges(event: EventRow) {
   return badges;
 }
 
+function getEventSearchText(event: EventRow) {
+  const badges = getEventBadges(event);
+  const teamInfo = getBestEventTeamInfo(event);
+
+  return [
+    event.name,
+    event.status,
+    event.date_text,
+    formatEventDate(event),
+    formatEventTime(event),
+    event.location,
+    ...(event.session_locations || []),
+    ...badges.map((badge) => badge.label),
+    teamInfo.teamText,
+    ...teamInfo.teamNames,
+    teamInfo.facultyText,
+    ...teamInfo.facultyNames,
+    ...(event.assigned_sp_names || []),
+    ...(event.assigned_sp_emails || []),
+  ]
+    .map(asText)
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
 function renderRosterChips(names?: string[] | null) {
   const roster = (names || []).filter(Boolean);
   if (!roster.length) {
@@ -112,6 +149,8 @@ export default function EventsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [view, setView] = useState<EventView>("current");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [visibleCount, setVisibleCount] = useState(EVENTS_PAGE_SIZE);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -229,8 +268,23 @@ export default function EventsPage() {
     return eventBuckets.upcoming;
   }, [eventBuckets, view]);
 
+  const searchedEvents = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return filteredEvents;
+    return filteredEvents.filter((event) => getEventSearchText(event).includes(query));
+  }, [filteredEvents, searchQuery]);
+
+  const visibleEvents = useMemo(
+    () => searchedEvents.slice(0, visibleCount),
+    [searchedEvents, visibleCount]
+  );
+
+  useEffect(() => {
+    setVisibleCount(EVENTS_PAGE_SIZE);
+  }, [view, searchQuery]);
+
   const totals = useMemo(() => {
-    return filteredEvents.reduce(
+    return searchedEvents.reduce(
       (sum, event) => {
         sum.needed += Number(event.sp_needed || 0);
         sum.assigned += Number(event.total_assignments || 0);
@@ -240,7 +294,7 @@ export default function EventsPage() {
       },
       { needed: 0, assigned: 0, confirmed: 0, shortage: 0 }
     );
-  }, [filteredEvents]);
+  }, [searchedEvents]);
 
   return (
     <SiteShell
@@ -261,6 +315,43 @@ export default function EventsPage() {
           <p style={{ margin: "10px 0 0", color: "var(--cfsp-text-muted)", maxWidth: 780 }}>
             Open any event to jump straight into its command center. Cards below show the date, 12-hour time, location, type, and current SP coverage at a glance.
           </p>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginTop: 16 }}>
+            <input
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Search events by name, course, date, room, team, faculty, or SP..."
+              style={{
+                flex: "1 1 420px",
+                minWidth: 260,
+                border: "1px solid var(--cfsp-border-strong)",
+                borderRadius: 14,
+                padding: "12px 14px",
+                background: "var(--cfsp-surface)",
+                color: "var(--cfsp-text)",
+                fontWeight: 700,
+              }}
+            />
+            {searchQuery.trim() ? (
+              <button
+                type="button"
+                onClick={() => setSearchQuery("")}
+                style={{
+                  border: "1px solid var(--cfsp-button-secondary-border)",
+                  borderRadius: 14,
+                  padding: "12px 14px",
+                  background: "var(--cfsp-button-secondary-bg)",
+                  color: "var(--cfsp-button-secondary-text)",
+                  fontWeight: 800,
+                  cursor: "pointer",
+                }}
+              >
+                Clear
+              </button>
+            ) : null}
+          </div>
+          <div style={{ marginTop: 10, color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
+            Showing {Math.min(visibleEvents.length, searchedEvents.length)} of {searchedEvents.length} events
+          </div>
           <div
             style={{
               display: "grid",
@@ -272,7 +363,7 @@ export default function EventsPage() {
             <SummaryCard label="All Events" value={String(eventBuckets.all.length)} />
             <SummaryCard label="Upcoming" value={String(eventBuckets.upcoming.length)} />
             <SummaryCard label="Archive" value={String(eventBuckets.archive.length)} />
-            <SummaryCard label="Showing" value={String(filteredEvents.length)} />
+            <SummaryCard label="Showing" value={String(visibleEvents.length)} />
             <SummaryCard label="SP Needed" value={String(totals.needed)} />
             <SummaryCard label="Assigned" value={String(totals.assigned)} />
             <SummaryCard label="Shortage" value={String(totals.shortage)} tone={totals.shortage > 0 ? "warning" : "default"} />
@@ -352,9 +443,11 @@ export default function EventsPage() {
 
           {loading ? <p>Loading events...</p> : null}
           {error ? <p style={{ color: "var(--cfsp-danger)" }}>{error}</p> : null}
-          {!loading && !error && filteredEvents.length === 0 ? (
+          {!loading && !error && searchedEvents.length === 0 ? (
             <p style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
-              {view === "archive"
+              {searchQuery.trim()
+                ? "No events match this search in the current view."
+                : view === "archive"
                 ? "No archived events found."
                 : view === "all"
                 ? "No events were returned. Check imports or Supabase data."
@@ -363,7 +456,16 @@ export default function EventsPage() {
           ) : null}
 
           <div style={{ display: "grid", gap: 14, marginTop: 16 }}>
-            {filteredEvents.map((event) => {
+            {visibleEvents.map((event) => {
+              const presentation = classifyEventPresentation({
+                name: event.name,
+                status: event.status,
+                notes: event.notes,
+                location: event.location,
+                spNeeded: Number(event.sp_needed || 0),
+                assignmentCount: Number(event.total_assignments || 0),
+                confirmedCount: Number(event.confirmed_assignments || 0),
+              });
               const badges = getEventBadges(event);
               const needed = Number(event.sp_needed || 0);
               const assigned = Number(event.total_assignments || 0);
@@ -382,7 +484,10 @@ export default function EventsPage() {
                 confirmed,
                 archived,
               });
-              const tone = getEventCoverageVisualTone(visualState);
+              const tone = getEventCoverageVisualToneWithBase(
+                visualState,
+                presentation.primaryBadgeKind === "skills_workshop" ? "skills" : "default"
+              );
 
               return (
                 <Link
@@ -482,6 +587,25 @@ export default function EventsPage() {
               );
             })}
           </div>
+          {searchedEvents.length > visibleEvents.length ? (
+            <div style={{ display: "flex", justifyContent: "center", marginTop: 18 }}>
+              <button
+                type="button"
+                onClick={() => setVisibleCount((current) => current + EVENTS_PAGE_SIZE)}
+                style={{
+                  border: "1px solid var(--cfsp-button-secondary-border)",
+                  borderRadius: 999,
+                  padding: "12px 18px",
+                  background: "var(--cfsp-button-secondary-bg)",
+                  color: "var(--cfsp-button-secondary-text)",
+                  fontWeight: 800,
+                  cursor: "pointer",
+                }}
+              >
+                Load More
+              </button>
+            </div>
+          ) : null}
         </section>
       </main>
     </SiteShell>
