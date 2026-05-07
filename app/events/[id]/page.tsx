@@ -252,9 +252,9 @@ const buttonStyle: React.CSSProperties = {
 
 const dangerButtonStyle: React.CSSProperties = {
   ...buttonStyle,
-  background: "#fff5f5",
-  color: "#991b1b",
-  border: "1px solid #fecaca",
+  background: "var(--cfsp-danger-soft)",
+  color: "var(--cfsp-danger)",
+  border: "1px solid var(--cfsp-danger-border)",
 };
 
 const selectStyle: React.CSSProperties = {
@@ -381,47 +381,47 @@ const assignmentStatusLabels: Record<AssignmentStatus, string> = {
 
 const assignmentStatusStyles: Record<AssignmentStatus, React.CSSProperties> = {
   invited: {
-    background: "#dbeafe",
-    color: "#1d4ed8",
-    border: "1px solid #93c5fd",
+    background: "rgba(73, 168, 255, 0.16)",
+    color: "var(--cfsp-blue)",
+    border: "1px solid rgba(120, 180, 255, 0.26)",
   },
   contacted: {
-    background: "#fef9c3",
-    color: "#854d0e",
-    border: "1px solid #fde68a",
+    background: "var(--cfsp-warning-soft)",
+    color: "var(--cfsp-warning)",
+    border: "1px solid rgba(243, 187, 103, 0.24)",
   },
   confirmed: {
-    background: "#dcfce7",
-    color: "#166534",
-    border: "1px solid #86efac",
+    background: "var(--cfsp-green-soft)",
+    color: "var(--cfsp-green)",
+    border: "1px solid rgba(44, 211, 173, 0.24)",
   },
   declined: {
-    background: "#fee2e2",
-    color: "#991b1b",
-    border: "1px solid #fecaca",
+    background: "var(--cfsp-danger-soft)",
+    color: "var(--cfsp-danger)",
+    border: "1px solid var(--cfsp-danger-border)",
   },
   backup: {
-    background: "#fef9c3",
-    color: "#854d0e",
-    border: "1px solid #fde68a",
+    background: "var(--cfsp-warning-soft)",
+    color: "var(--cfsp-warning)",
+    border: "1px solid rgba(243, 187, 103, 0.24)",
   },
   no_show: {
-    background: "#f1f5f9",
-    color: "#475569",
-    border: "1px solid #cbd5e1",
+    background: "rgba(168, 183, 204, 0.12)",
+    color: "var(--cfsp-text-muted)",
+    border: "1px solid var(--cfsp-border)",
   },
 };
 
 const confirmationStyles = {
   confirmed: {
-    background: "#173b6c",
+    background: "rgba(73, 168, 255, 0.18)",
     color: "#ffffff",
-    border: "1px solid #173b6c",
+    border: "1px solid rgba(120, 180, 255, 0.28)",
   },
   pending: {
-    background: "#fff7ed",
-    color: "#9a3412",
-    border: "1px solid #fed7aa",
+    background: "var(--cfsp-warning-soft)",
+    color: "var(--cfsp-warning)",
+    border: "1px solid rgba(243, 187, 103, 0.24)",
   },
 } satisfies Record<"confirmed" | "pending", React.CSSProperties>;
 
@@ -430,9 +430,9 @@ const skillsWorkshopBadgeStyle: React.CSSProperties = {
   alignItems: "center",
   borderRadius: "999px",
   padding: "6px 10px",
-  background: "#ecfeff",
-  border: "1px solid #99f6e4",
-  color: "#0f766e",
+  background: "rgba(44, 211, 173, 0.14)",
+  border: "1px solid rgba(44, 211, 173, 0.22)",
+  color: "var(--cfsp-green)",
   fontWeight: 900,
   fontSize: "12px",
 };
@@ -446,24 +446,24 @@ const availabilityMatchLabels: Record<AvailabilityMatchStatus, string> = {
 
 const availabilityMatchStyles: Record<AvailabilityMatchStatus, React.CSSProperties> = {
   available: {
-    background: "#ecfdf3",
-    color: "#166534",
-    border: "1px solid #86efac",
+    background: "var(--cfsp-green-soft)",
+    color: "var(--cfsp-green)",
+    border: "1px solid rgba(44, 211, 173, 0.24)",
   },
   partial: {
-    background: "#fef9c3",
-    color: "#854d0e",
-    border: "1px solid #fde68a",
+    background: "var(--cfsp-warning-soft)",
+    color: "var(--cfsp-warning)",
+    border: "1px solid rgba(243, 187, 103, 0.24)",
   },
   none: {
-    background: "#fee2e2",
-    color: "#991b1b",
-    border: "1px solid #fecaca",
+    background: "var(--cfsp-danger-soft)",
+    color: "var(--cfsp-danger)",
+    border: "1px solid var(--cfsp-danger-border)",
   },
   unknown: {
-    background: "#f1f5f9",
-    color: "#475569",
-    border: "1px solid #cbd5e1",
+    background: "rgba(168, 183, 204, 0.12)",
+    color: "var(--cfsp-text-muted)",
+    border: "1px solid var(--cfsp-border)",
   },
 };
 
@@ -573,29 +573,29 @@ function getEventTypeButtonStyle(type: EventDisplayType, activeType: EventDispla
   const active = type === activeType;
   const palettes: Record<EventDisplayType, { background: string; border: string; color: string }> = {
     skills: {
-      background: "#ecfeff",
-      border: "#99f6e4",
-      color: "#0f766e",
+      background: "rgba(44, 211, 173, 0.14)",
+      border: "rgba(44, 211, 173, 0.24)",
+      color: "var(--cfsp-green)",
     },
     sp: {
-      background: "#eff6ff",
-      border: "#93c5fd",
-      color: "#1d4ed8",
+      background: "rgba(73, 168, 255, 0.14)",
+      border: "rgba(120, 180, 255, 0.24)",
+      color: "var(--cfsp-blue)",
     },
     hifi: {
-      background: "#f5f3ff",
-      border: "#c4b5fd",
-      color: "#6d28d9",
+      background: "rgba(141, 121, 255, 0.14)",
+      border: "rgba(141, 121, 255, 0.24)",
+      color: "#b9a7ff",
     },
     training: {
-      background: "#fff7ed",
-      border: "#fdba74",
-      color: "#9a3412",
+      background: "var(--cfsp-warning-soft)",
+      border: "rgba(243, 187, 103, 0.24)",
+      color: "var(--cfsp-warning)",
     },
     virtual: {
-      background: "#eff6ff",
-      border: "#93c5fd",
-      color: "#1d4ed8",
+      background: "rgba(73, 168, 255, 0.14)",
+      border: "rgba(120, 180, 255, 0.24)",
+      color: "var(--cfsp-blue)",
     },
   };
 
@@ -606,9 +606,9 @@ function getEventTypeButtonStyle(type: EventDisplayType, activeType: EventDispla
     padding: "7px 12px",
     fontWeight: 900,
     fontSize: "12px",
-    border: `1px solid ${active ? palette.border : "#e2e8f0"}`,
-    background: active ? palette.background : "#ffffff",
-    color: active ? palette.color : "#64748b",
+    border: `1px solid ${active ? palette.border : "var(--cfsp-border)"}`,
+    background: active ? palette.background : "var(--cfsp-surface)",
+    color: active ? palette.color : "var(--cfsp-text-muted)",
     minWidth: "64px",
     textAlign: "center",
   };
@@ -815,35 +815,35 @@ function getAvailabilityMatchRank(status: AvailabilityMatchStatus) {
 function getCoverageWorkflowTone(needed: number, confirmedCount: number, assignedCount: number) {
   if (needed <= 0) {
     return {
-      background: "#f4f7fb",
-      border: "1px solid #d6e0e8",
-      color: "#4f677d",
+      background: "rgba(168, 183, 204, 0.12)",
+      border: "1px solid var(--cfsp-border)",
+      color: "var(--cfsp-text-muted)",
       label: "No target set",
     };
   }
 
   if (confirmedCount >= needed) {
     return {
-      background: "#eaf7f2",
-      border: "1px solid #bfe4d6",
-      color: "#196b57",
+      background: "var(--cfsp-green-soft)",
+      border: "1px solid rgba(44, 211, 173, 0.24)",
+      color: "var(--cfsp-green)",
       label: "Fully staffed",
     };
   }
 
   if (assignedCount > 0) {
     return {
-      background: "#fff6e8",
-      border: "1px solid #f1d1a7",
-      color: "#a86411",
+      background: "var(--cfsp-warning-soft)",
+      border: "1px solid rgba(243, 187, 103, 0.24)",
+      color: "var(--cfsp-warning)",
       label: "Partially staffed",
     };
   }
 
   return {
-    background: "#fff2f1",
-    border: "1px solid #efc4c0",
-    color: "#af2f26",
+    background: "var(--cfsp-danger-soft)",
+    border: "1px solid var(--cfsp-danger-border)",
+    color: "var(--cfsp-danger)",
     label: "Needs attention",
   };
 }
@@ -1310,16 +1310,16 @@ export default function EventDetailPage() {
     isWorkshop
       ? {
           message: "Skills Workshop",
-          background: "#ecfeff",
-          border: "1px solid #99f6e4",
-          color: "#0f766e",
+          background: "rgba(44, 211, 173, 0.14)",
+          border: "1px solid rgba(44, 211, 173, 0.24)",
+          color: "var(--cfsp-green)",
         }
       : needed <= 0
       ? {
           message: "No SP target set",
-          background: "#f8fafc",
-          border: "1px solid #cbd5e1",
-          color: "#475569",
+          background: "rgba(168, 183, 204, 0.12)",
+          border: "1px solid var(--cfsp-border)",
+          color: "var(--cfsp-text-muted)",
         }
       : shortage === 0
         ? {
@@ -2572,7 +2572,7 @@ export default function EventDetailPage() {
       ) : null}
 
       <details open style={cardStyle}>
-        <summary style={{ cursor: "pointer", color: "#14304f", fontWeight: 900, fontSize: "20px" }}>
+        <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 900, fontSize: "20px" }}>
           {isTrainingMode ? "Training Command Center" : "Coverage Actions"}
         </summary>
         <div style={{ marginTop: "12px" }}>
@@ -2592,7 +2592,7 @@ export default function EventDetailPage() {
                 display: "inline-flex",
                 alignItems: "center",
                 gap: "8px",
-                color: "#1d4ed8",
+                color: "var(--cfsp-blue)",
                 fontWeight: 900,
                 textDecoration: "none",
               }}
@@ -2610,7 +2610,7 @@ export default function EventDetailPage() {
             </div>
 
             <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
-              <h1 style={{ margin: 0, fontSize: "28px", color: "#173b6c", lineHeight: 1.05 }}>
+              <h1 style={{ margin: 0, fontSize: "28px", color: "var(--cfsp-text)", lineHeight: 1.05 }}>
                 {event.name || "Untitled Event"}
               </h1>
               <span
@@ -2671,9 +2671,9 @@ export default function EventDetailPage() {
                 }}
                 style={{
                   ...buttonStyle,
-                  background: "#ffffff",
-                  color: "#173b6c",
-                  border: "1px solid #cbd5e1",
+                  background: "var(--cfsp-button-secondary-bg)",
+                  color: "var(--cfsp-button-secondary-text)",
+                  border: "1px solid var(--cfsp-button-secondary-border)",
                 }}
               >
                 Push to Related Events
@@ -2686,19 +2686,19 @@ export default function EventDetailPage() {
           <div
             style={{
               marginTop: "12px",
-              border: "1px solid #bfdbfe",
+              border: "1px solid var(--cfsp-border-strong)",
               borderRadius: "18px",
               padding: "16px",
-              background: "#f8fbff",
+              background: "var(--cfsp-surface-muted)",
               display: "grid",
               gap: "14px",
             }}
           >
             <div>
-              <div style={{ color: "#173b6c", fontWeight: 900, fontSize: "20px" }}>
+              <div style={{ color: "var(--cfsp-text)", fontWeight: 900, fontSize: "20px" }}>
                 Push to Related Events
               </div>
-              <div style={{ marginTop: "4px", color: "#5e7388", fontWeight: 700, lineHeight: 1.5 }}>
+              <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontWeight: 700, lineHeight: 1.5 }}>
                 This will update multiple events. Existing data will not be deleted.
               </div>
             </div>
@@ -2726,7 +2726,7 @@ export default function EventDetailPage() {
                   display: "inline-flex",
                   alignItems: "center",
                   gap: "8px",
-                  color: "#173b6c",
+                  color: "var(--cfsp-text)",
                   fontWeight: 800,
                 }}
               >
@@ -2760,9 +2760,9 @@ export default function EventDetailPage() {
                       onClick={() => handleToggleRelatedCopyOption(option)}
                       style={{
                         ...buttonStyle,
-                        background: selected ? "#173b6c" : "#ffffff",
-                        color: selected ? "#ffffff" : "#173b6c",
-                        border: selected ? "1px solid #173b6c" : "1px solid #cbd5e1",
+                        background: selected ? "var(--cfsp-blue)" : "var(--cfsp-surface)",
+                        color: selected ? "#ffffff" : "var(--cfsp-text)",
+                        border: selected ? "1px solid var(--cfsp-blue)" : "1px solid var(--cfsp-border)",
                         padding: "8px 12px",
                       }}
                     >
@@ -2778,7 +2778,7 @@ export default function EventDetailPage() {
                 Matching Events {relatedMatches.length ? `(${relatedMatches.length})` : ""}
               </div>
               {relatedMatches.length === 0 ? (
-                <div style={{ color: "#64748b", fontWeight: 700 }}>
+                <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
                   {relatedPreviewLoading
                     ? "Looking for related events..."
                     : "Preview matches to review which events will be updated."}
@@ -2789,16 +2789,16 @@ export default function EventDetailPage() {
                     <div
                       key={match.id}
                       style={{
-                        border: "1px solid #dbe4ee",
+                        border: "1px solid var(--cfsp-border)",
                         borderRadius: "12px",
-                        background: "#ffffff",
+                        background: "var(--cfsp-surface)",
                         padding: "12px 14px",
                       }}
                     >
-                      <div style={{ color: "#14304f", fontWeight: 900 }}>
+                      <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>
                         {match.name || "Untitled Event"}
                       </div>
-                      <div style={{ marginTop: "4px", color: "#5e7388", fontSize: "13px", fontWeight: 700 }}>
+                      <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontSize: "13px", fontWeight: 700 }}>
                         {[match.status || "No status", match.date_text || "Date TBD", match.location || "Location TBD"].join(" · ")}
                       </div>
                     </div>
@@ -2810,25 +2810,25 @@ export default function EventDetailPage() {
             {relatedPushSummary ? (
               <div
                 style={{
-                  border: "1px solid #86efac",
+                  border: "1px solid rgba(44, 211, 173, 0.24)",
                   borderRadius: "14px",
                   padding: "14px",
-                  background: "#ecfdf3",
+                  background: "var(--cfsp-green-soft)",
                   display: "grid",
                   gap: "8px",
                 }}
               >
-                <div style={{ color: "#166534", fontWeight: 900 }}>Push complete</div>
-                <div style={{ color: "#166534", fontWeight: 700 }}>
+                <div style={{ color: "var(--cfsp-green)", fontWeight: 900 }}>Push complete</div>
+                <div style={{ color: "var(--cfsp-green)", fontWeight: 700 }}>
                   Updated events: {relatedPushSummary.updated_events.length}
                 </div>
-                <div style={{ color: "#166534", fontWeight: 700 }}>
+                <div style={{ color: "var(--cfsp-green)", fontWeight: 700 }}>
                   SPs copied: {relatedPushSummary.sps_copied}
                 </div>
-                <div style={{ color: "#9a3412", fontWeight: 700 }}>
+                <div style={{ color: "var(--cfsp-warning)", fontWeight: 700 }}>
                   Duplicates skipped: {relatedPushSummary.duplicates_skipped}
                 </div>
-                <div style={{ color: "#475569", fontWeight: 700 }}>
+                <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
                   Skipped events: {relatedPushSummary.skipped_events.length}
                 </div>
               </div>
@@ -2858,9 +2858,9 @@ export default function EventDetailPage() {
                 onClick={() => setShowPushRelatedPanel(false)}
                 style={{
                   ...buttonStyle,
-                  background: "#ffffff",
-                  color: "#173b6c",
-                  border: "1px solid #cbd5e1",
+                  background: "var(--cfsp-button-secondary-bg)",
+                  color: "var(--cfsp-button-secondary-text)",
+                  border: "1px solid var(--cfsp-button-secondary-border)",
                 }}
               >
                 Close
@@ -2872,49 +2872,58 @@ export default function EventDetailPage() {
         <div
           style={{
             marginTop: "10px",
-            border: "1px solid #bfdbfe",
+            border: "1px solid var(--cfsp-border-strong)",
             borderRadius: "16px",
             padding: "14px",
-            background: "#f8fbff",
+            background: "var(--cfsp-surface-muted)",
           }}
         >
-          <div style={{ ...statLabel, color: "#173b6c" }}>Event Summary</div>
+          <div style={{ ...statLabel, color: "var(--cfsp-text)" }}>Event Summary</div>
           <div style={{ ...detailGridStyle, marginTop: "8px", gap: "8px" }}>
-            <div style={{ ...statCard, background: "#ffffff" }}>
+            <div style={statCard}>
               <div style={statLabel}>Event Name</div>
               <div style={statValue}>{event.name || "Untitled Event"}</div>
             </div>
-            <div style={{ ...statCard, background: "#ffffff" }}>
+            <div style={statCard}>
               <div style={statLabel}>Status</div>
               <div style={statValue}>{event.status || "No status"}</div>
             </div>
-            <div style={{ ...statCard, background: "#ffffff" }}>
+            <div style={statCard}>
               <div style={statLabel}>Location</div>
               <div style={statValue}>{event.location || "Location TBD"}</div>
             </div>
             {!isTrainingMode ? (
               <>
-                <div style={{ ...statCard, background: "#ffffff" }}>
+                <div style={statCard}>
                   <div style={statLabel}>SP Needed</div>
                   <div style={statValue}>{needed}</div>
                 </div>
-                <div style={{ ...statCard, background: "#ffffff" }}>
+                <div style={statCard}>
                   <div style={statLabel}>Assigned</div>
-                  <div style={{ ...statValue, color: "#173b6c" }}>{assignedCount}</div>
+                  <div style={{ ...statValue, color: "var(--cfsp-blue)" }}>{assignedCount}</div>
                 </div>
-                <div style={{ ...statCard, background: "#ffffff" }}>
+                <div style={statCard}>
                   <div style={statLabel}>{isWorkshop ? "Workshop" : "Shortage"}</div>
-                  <div style={{ ...statValue, color: isWorkshop ? "#0f766e" : shortage > 0 ? "#9a3412" : "#166534" }}>
+                  <div
+                    style={{
+                      ...statValue,
+                      color: isWorkshop
+                        ? "var(--cfsp-green)"
+                        : shortage > 0
+                          ? "var(--cfsp-warning)"
+                          : "var(--cfsp-green)",
+                    }}
+                  >
                     {isWorkshop ? "Skills Workshop" : shortageCount}
                   </div>
                 </div>
               </>
             ) : null}
-            <div style={{ ...statCard, background: "#ffffff" }}>
+            <div style={statCard}>
               <div style={statLabel}>Date</div>
               <div style={statValue}>{sessionSummaryLabel}</div>
             </div>
-            <div style={{ ...statCard, background: "#ffffff" }}>
+            <div style={statCard}>
               <div style={statLabel}>Time</div>
               <div style={statValue}>{summaryTimeLabel}</div>
             </div>
@@ -2925,11 +2934,11 @@ export default function EventDetailPage() {
               <div style={statLabel}>Sessions</div>
               <div style={{ display: "grid", gap: "6px", marginTop: "6px" }}>
                 {sessions.map((session) => (
-                  <div key={session.id} style={{ ...statCard, background: "#ffffff" }}>
-                    <div style={{ color: "#173b6c", fontWeight: 900 }}>
+                  <div key={session.id} style={statCard}>
+                    <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>
                       {formatSessionDate(session.session_date, importedYearHint)}
                     </div>
-                    <div style={{ marginTop: "4px", color: "#475569", lineHeight: 1.5, fontSize: "13px" }}>
+                    <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", lineHeight: 1.5, fontSize: "13px" }}>
                       {formatSessionTime(session)} · {formatSessionLocation(session, event.location)}
                     </div>
                   </div>
@@ -2937,7 +2946,7 @@ export default function EventDetailPage() {
               </div>
             </div>
           ) : (
-            <div style={{ marginTop: "10px", color: "#64748b", fontWeight: 700 }}>
+            <div style={{ marginTop: "10px", color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
               No structured sessions yet. Fallback date text: {formatEventDateText(event.date_text, importedYearHint)}
             </div>
           )}
@@ -2955,7 +2964,7 @@ export default function EventDetailPage() {
           }}
         >
           <div style={{ display: "grid", gap: "14px", minWidth: 0 }}>
-            <section style={{ ...cardStyle, background: "#f8fbfd", borderColor: "#dce6ee" }}>
+            <section style={{ ...cardStyle, background: "var(--cfsp-surface-muted)", borderColor: "var(--cfsp-border)" }}>
               <div
                 style={{
                   display: "flex",
@@ -2975,9 +2984,11 @@ export default function EventDetailPage() {
                   style={{
                     borderRadius: "999px",
                     padding: "8px 12px",
-                    background: rotationScheduleBuilt ? "#ecfdf3" : "#fff7ed",
-                    border: rotationScheduleBuilt ? "1px solid #86efac" : "1px solid #fed7aa",
-                    color: rotationScheduleBuilt ? "#166534" : "#9a3412",
+                    background: rotationScheduleBuilt ? "var(--cfsp-green-soft)" : "var(--cfsp-warning-soft)",
+                    border: rotationScheduleBuilt
+                      ? "1px solid rgba(44, 211, 173, 0.24)"
+                      : "1px solid rgba(243, 187, 103, 0.24)",
+                    color: rotationScheduleBuilt ? "var(--cfsp-green)" : "var(--cfsp-warning)",
                     fontWeight: 900,
                     fontSize: "13px",
                   }}
@@ -3022,7 +3033,7 @@ export default function EventDetailPage() {
               </div>
             </section>
 
-            <section style={{ ...cardStyle, background: "#ffffff" }}>
+            <section style={{ ...cardStyle, background: "var(--cfsp-surface)" }}>
               <div
                 style={{
                   display: "flex",
@@ -3060,28 +3071,28 @@ export default function EventDetailPage() {
                     <div
                       key={material.kind}
                       style={{
-                        border: "1px solid #dbe4ee",
+                        border: "1px solid var(--cfsp-border)",
                         borderRadius: "16px",
                         padding: "14px",
-                        background: "#f8fbff",
+                        background: "var(--cfsp-surface-muted)",
                       }}
                     >
-                      <div style={{ color: "#173b6c", fontWeight: 900, fontSize: "16px" }}>
+                      <div style={{ color: "var(--cfsp-text)", fontWeight: 900, fontSize: "16px" }}>
                         {material.title}
                       </div>
-                      <div style={{ marginTop: "4px", color: "#64748b", fontWeight: 700, fontSize: "13px" }}>
+                      <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontWeight: 700, fontSize: "13px" }}>
                         {material.kind === "case_file"
                           ? trainingMetadata.case_name || "Add case name below in the editor."
                           : fileUrl || fileName || "No file linked yet"}
                       </div>
-                      <div style={{ marginTop: "10px", color: "#475569", fontSize: "13px", lineHeight: 1.55 }}>
+                      <div style={{ marginTop: "10px", color: "var(--cfsp-text-muted)", fontSize: "13px", lineHeight: 1.55 }}>
                         <div><strong>Link:</strong> {fileUrl || "Not added"}</div>
                         <div><strong>File:</strong> {fileName || "Not uploaded"}</div>
                         <div><strong>Uploaded:</strong> {formatUploadedTimestamp(uploadedAt)}</div>
                         <div><strong>By:</strong> {uploadedBy || "Not recorded"}</div>
                       </div>
                       {storagePath ? (
-                        <div style={{ marginTop: "6px", color: "#64748b", fontSize: "12px", lineHeight: 1.5 }}>
+                        <div style={{ marginTop: "6px", color: "var(--cfsp-text-muted)", fontSize: "12px", lineHeight: 1.5 }}>
                           <strong>Storage:</strong> {storagePath}
                         </div>
                       ) : null}
@@ -3127,15 +3138,15 @@ export default function EventDetailPage() {
                   );
                 })}
 
-                <div style={{ ...statCard, background: "#f8fbff" }}>
+                <div style={{ ...statCard, background: "var(--cfsp-surface-muted)" }}>
                   <div style={statLabel}>Recording URL / Password</div>
-                  <div style={{ marginTop: "8px", color: "#173b6c", lineHeight: 1.65 }}>
+                  <div style={{ marginTop: "8px", color: "var(--cfsp-text)", lineHeight: 1.65 }}>
                     <div><strong>Recording:</strong> {trainingMetadata.recording_url || "Not added"}</div>
                     <div><strong>Password:</strong> {trainingMetadata.training_password || "Not added"}</div>
                   </div>
                 </div>
 
-                <div style={{ ...statCard, background: "#f8fbff" }}>
+                <div style={{ ...statCard, background: "var(--cfsp-surface-muted)" }}>
                   <div style={statLabel}>Training Notes</div>
                   <div style={{ ...statValue, fontSize: "15px" }}>
                     {trainingMetadata.training_notes || "No training notes added"}
@@ -3172,8 +3183,8 @@ export default function EventDetailPage() {
               />
             </section>
 
-            <details open={showTrainingEmailDraft} style={{ ...cardStyle, background: "#ffffff" }}>
-              <summary style={{ cursor: "pointer", color: "#14304f", fontWeight: 900, fontSize: "20px" }}>
+            <details open={showTrainingEmailDraft} style={{ ...cardStyle, background: "var(--cfsp-surface)" }}>
+              <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 900, fontSize: "20px" }}>
                 Training Communication
               </summary>
               <div
@@ -3207,14 +3218,14 @@ export default function EventDetailPage() {
                 <div
                   style={{
                     marginTop: "14px",
-                    border: "1px solid #dbe4ee",
+                    border: "1px solid var(--cfsp-border)",
                     borderRadius: "16px",
                     padding: "14px",
-                    background: "#f8fbff",
+                    background: "var(--cfsp-surface-muted)",
                   }}
                 >
                   <div style={statLabel}>Email Draft Preview</div>
-                  <div style={{ marginTop: "10px", color: "#173b6c", lineHeight: 1.7 }}>
+                  <div style={{ marginTop: "10px", color: "var(--cfsp-text)", lineHeight: 1.7 }}>
                     <div><strong>From:</strong> {me?.email || "Current logged-in user"}</div>
                     <div><strong>To:</strong> {me?.email || "Current logged-in user"}</div>
                     <div><strong>CC:</strong> {facultyEmails.length ? facultyEmails.join(", ") : trainingFacultyText || "No faculty emails parsed yet"}</div>
@@ -3240,7 +3251,7 @@ export default function EventDetailPage() {
             </details>
 
             <details id="coverage-actions" style={cardStyle}>
-              <summary style={{ cursor: "pointer", color: "#14304f", fontWeight: 900, fontSize: "20px" }}>
+              <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 900, fontSize: "20px" }}>
                 Event Editor
               </summary>
               <div style={{ marginTop: "12px", display: "grid", gap: "12px" }}>
@@ -3447,13 +3458,13 @@ export default function EventDetailPage() {
 
                 <details
                   style={{
-                    border: "1px solid #dbe4ee",
+                    border: "1px solid var(--cfsp-border)",
                     borderRadius: "14px",
                     padding: "12px",
-                    background: "#f8fbff",
+                    background: "var(--cfsp-surface-muted)",
                   }}
                 >
-                  <summary style={{ cursor: "pointer", color: "#173b6c", fontWeight: 800 }}>
+                  <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 800 }}>
                     Roster Import / Advanced Tools
                   </summary>
                   <div style={{ display: "grid", gap: "10px", marginTop: "12px" }}>
@@ -3465,7 +3476,7 @@ export default function EventDetailPage() {
                       onChange={(event) => void handleTrainingWorkbookImport(event.target.files?.[0] || null)}
                       style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
                     />
-                    <div style={{ color: "#64748b", fontSize: "12px", fontWeight: 700 }}>
+                    <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 700 }}>
                       Reads title from `B1`, SP emails from `B16:B35`, SP names from `C16:C35`, and faculty from column `G`.
                     </div>
                     {trainingImporting ? (
@@ -3477,34 +3488,34 @@ export default function EventDetailPage() {
                     {trainingImportResult ? (
                       <div
                         style={{
-                          border: "1px solid #dbe4ee",
+                          border: "1px solid var(--cfsp-border)",
                           borderRadius: "12px",
-                          background: "#ffffff",
+                          background: "var(--cfsp-surface)",
                           padding: "12px 14px",
                           display: "grid",
                           gap: "8px",
                         }}
                       >
-                        <div style={{ color: "#14304f", fontWeight: 900 }}>
+                        <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>
                           SP Event Info imported
                         </div>
-                        <div style={{ color: "#475569", fontWeight: 700 }}>
+                        <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
                           Workbook event: {trainingImportResult.eventTitle || "Untitled workbook event"}
                         </div>
-                        <div style={{ color: "#166534", fontWeight: 800 }}>
+                        <div style={{ color: "var(--cfsp-green)", fontWeight: 800 }}>
                           Imported rows: {trainingImportResult.importedCount} · {formatUploadedTimestamp(trainingImportResult.importedAt)}
                         </div>
-                        <div style={{ color: "#166534", fontWeight: 800 }}>
+                        <div style={{ color: "var(--cfsp-green)", fontWeight: 800 }}>
                           Matched / assigned: {trainingImportResult.matchedAssigned.length}
                         </div>
-                        <div style={{ color: "#9a3412", fontWeight: 800 }}>
+                        <div style={{ color: "var(--cfsp-warning)", fontWeight: 800 }}>
                           Already assigned: {trainingImportResult.alreadyAssigned.length}
                         </div>
-                        <div style={{ color: "#991b1b", fontWeight: 800 }}>
+                        <div style={{ color: "var(--cfsp-danger)", fontWeight: 800 }}>
                           Not found: {trainingImportResult.notFound.length}
                         </div>
                         {trainingImportResult.facultyDetected.length ? (
-                          <div style={{ color: "#475569", fontWeight: 700 }}>
+                          <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
                             Faculty detected: {trainingImportResult.facultyDetected.join(", ")}
                           </div>
                         ) : null}
@@ -3517,7 +3528,7 @@ export default function EventDetailPage() {
           </div>
 
           <aside style={{ display: "grid", gap: "14px", minWidth: 0, position: "sticky", top: "16px" }}>
-            <section style={{ ...cardStyle, background: "#f8fbff", borderColor: "#bfdbfe", marginBottom: 0 }}>
+            <section style={{ ...cardStyle, background: "var(--cfsp-surface-muted)", borderColor: "var(--cfsp-border-strong)", marginBottom: 0 }}>
               <div
                 style={{
                   display: "flex",
@@ -3537,9 +3548,9 @@ export default function EventDetailPage() {
                   style={{
                     borderRadius: "999px",
                     padding: "8px 12px",
-                    background: "#eff6ff",
-                    border: "1px solid #bfdbfe",
-                    color: "#1d4ed8",
+                    background: "rgba(73, 168, 255, 0.12)",
+                    border: "1px solid rgba(120, 180, 255, 0.22)",
+                    color: "var(--cfsp-blue)",
                     fontWeight: 900,
                     fontSize: "12px",
                   }}
@@ -3554,9 +3565,9 @@ export default function EventDetailPage() {
                     marginTop: "12px",
                     borderRadius: "12px",
                     padding: "10px 12px",
-                    background: "#ecfdf3",
-                    border: "1px solid #86efac",
-                    color: "#166534",
+                    background: "var(--cfsp-green-soft)",
+                    border: "1px solid rgba(44, 211, 173, 0.22)",
+                    color: "var(--cfsp-green)",
                     fontWeight: 800,
                   }}
                 >
@@ -3598,18 +3609,18 @@ export default function EventDetailPage() {
                 <div
                   style={{
                     marginTop: "14px",
-                    border: "1px solid #86efac",
+                    border: "1px solid rgba(44, 211, 173, 0.22)",
                     borderRadius: "14px",
                     padding: "12px",
-                    background: "#ecfdf3",
+                    background: "var(--cfsp-green-soft)",
                     display: "grid",
                     gap: "6px",
                   }}
                 >
-                  <div style={{ color: "#166534", fontWeight: 900 }}>
+                  <div style={{ color: "var(--cfsp-green)", fontWeight: 900 }}>
                     SP Event Info imported
                   </div>
-                  <div style={{ color: "#166534", fontWeight: 700, fontSize: "13px" }}>
+                  <div style={{ color: "var(--cfsp-green)", fontWeight: 700, fontSize: "13px" }}>
                     {trainingImportResult.importedCount} roster row{trainingImportResult.importedCount === 1 ? "" : "s"} · {formatUploadedTimestamp(trainingImportResult.importedAt)}
                   </div>
                 </div>
@@ -3617,7 +3628,7 @@ export default function EventDetailPage() {
 
               <div style={{ display: "grid", gap: "8px", marginTop: "14px" }}>
                 {sortedAssignments.length === 0 ? (
-                  <div style={{ color: "#64748b", fontWeight: 700 }}>
+                  <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
                     No SPs assigned to this training yet.
                   </div>
                 ) : (
@@ -3629,9 +3640,9 @@ export default function EventDetailPage() {
                       <div
                         key={`training-sidebar-${assignment.id}`}
                         style={{
-                          border: "1px solid #dbe4ee",
+                          border: "1px solid var(--cfsp-border)",
                           borderRadius: "12px",
-                          background: "#ffffff",
+                          background: "var(--cfsp-surface)",
                           padding: "10px 12px",
                           display: "flex",
                           justifyContent: "space-between",
@@ -3641,10 +3652,10 @@ export default function EventDetailPage() {
                         }}
                       >
                         <div style={{ minWidth: 0, flex: "1 1 180px" }}>
-                          <div style={{ color: "#14304f", fontWeight: 900 }}>
+                          <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>
                             {sp ? getFullName(sp) : "Unknown SP"}
                           </div>
-                          <div style={{ marginTop: "4px", color: "#5e7388", fontSize: "13px", fontWeight: 700 }}>
+                          <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontSize: "13px", fontWeight: 700 }}>
                             {sp ? getEmail(sp) || sp.phone || "No contact details" : assignment.sp_id || "No SP id"}
                           </div>
                         </div>
@@ -3682,9 +3693,9 @@ export default function EventDetailPage() {
                   style={{
                     ...buttonStyle,
                     marginTop: "12px",
-                    background: "#ffffff",
-                    color: "#173b6c",
-                    border: "1px solid #cbd5e1",
+                    background: "var(--cfsp-button-secondary-bg)",
+                    color: "var(--cfsp-button-secondary-text)",
+                    border: "1px solid var(--cfsp-button-secondary-border)",
                   }}
                 >
                   {showAllTrainingRoster ? "Show fewer" : `Show all (${sortedAssignments.length})`}
@@ -3697,7 +3708,7 @@ export default function EventDetailPage() {
 
       {!isTrainingMode ? (
         <>
-      <div style={{ ...cardStyle, background: "#f8fbfd", borderColor: "#dce6ee" }}>
+      <div style={{ ...cardStyle, background: "var(--cfsp-surface-muted)", borderColor: "var(--cfsp-border)" }}>
         <div
           style={{
             display: "flex",
@@ -3735,17 +3746,17 @@ export default function EventDetailPage() {
             gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
           }}
         >
-          <div style={{ ...statCard, background: "#ffffff" }}>
+          <div style={statCard}>
             <div style={statLabel}>{noSpStaffingRequired ? "Coverage" : "Confirmed vs Needed"}</div>
             <div style={statValue}>{noSpStaffingRequired ? "No SPs required" : `${confirmedCount} / ${needed}`}</div>
           </div>
-          <div style={{ ...statCard, background: "#ffffff" }}>
+          <div style={statCard}>
             <div style={statLabel}>{noSpStaffingRequired ? "Event Type" : "Assigned SPs"}</div>
             <div style={statValue}>{noSpStaffingRequired ? "Skills Workshop" : assignedCount}</div>
           </div>
-          <div style={{ ...statCard, background: "#ffffff" }}>
+          <div style={statCard}>
             <div style={statLabel}>{noSpStaffingRequired ? "Staffing" : "Still Open"}</div>
-            <div style={{ ...statValue, color: shortageCount > 0 ? "#af2f26" : "#196b57" }}>
+            <div style={{ ...statValue, color: shortageCount > 0 ? "var(--cfsp-danger)" : "var(--cfsp-green)" }}>
               {noSpStaffingRequired ? "Not required" : shortageCount}
             </div>
           </div>
@@ -3756,10 +3767,10 @@ export default function EventDetailPage() {
           {noSpStaffingRequired ? (
             <div
               style={{
-                border: "1px solid #99f6e4",
+                border: "1px solid rgba(44, 211, 173, 0.24)",
                 borderRadius: "12px",
-                background: "#ecfeff",
-                color: "#0f766e",
+                background: "rgba(44, 211, 173, 0.14)",
+                color: "var(--cfsp-green)",
                 padding: "12px 14px",
                 fontWeight: 800,
               }}
@@ -3767,7 +3778,7 @@ export default function EventDetailPage() {
               No SP staffing required for this skills event.
             </div>
           ) : sortedAssignments.length === 0 ? (
-            <div style={{ color: "#6a7e91", fontWeight: 700 }}>No SPs assigned yet.</div>
+            <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>No SPs assigned yet.</div>
           ) : (
             <div style={{ display: "grid", gap: "10px" }}>
               {sortedAssignments.map((assignment) => {
@@ -3782,17 +3793,17 @@ export default function EventDetailPage() {
                       alignItems: "center",
                       gap: "10px",
                       flexWrap: "wrap",
-                      border: "1px solid #d9e4ec",
+                      border: "1px solid var(--cfsp-border)",
                       borderRadius: "12px",
-                      background: "#ffffff",
+                      background: "var(--cfsp-surface)",
                       padding: "12px 14px",
                     }}
                   >
                     <div style={{ minWidth: 0 }}>
-                      <div style={{ fontWeight: 900, color: "#14304f" }}>
+                      <div style={{ fontWeight: 900, color: "var(--cfsp-text)" }}>
                         {sp ? getFullName(sp) : "Unknown SP"}
                       </div>
-                      <div style={{ marginTop: "4px", color: "#5e7388", fontSize: "13px", fontWeight: 700 }}>
+                      <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontSize: "13px", fontWeight: 700 }}>
                         {sp ? getEmail(sp) || sp.phone || "No contact details" : assignment.sp_id || "No SP id"}
                       </div>
                     </div>
@@ -3840,9 +3851,9 @@ export default function EventDetailPage() {
             style={{
               borderRadius: "999px",
               padding: "8px 12px",
-              background: "#eff6ff",
-              border: "1px solid #93c5fd",
-              color: "#1d4ed8",
+              background: "rgba(73, 168, 255, 0.14)",
+              border: "1px solid rgba(120, 180, 255, 0.24)",
+              color: "var(--cfsp-blue)",
               fontWeight: 900,
               fontSize: "13px",
             }}
@@ -3877,13 +3888,13 @@ export default function EventDetailPage() {
             <section
               key={group.key}
               style={{
-                border: "1px solid #dbe4ee",
+                border: "1px solid var(--cfsp-border)",
                 borderRadius: "14px",
-                background: "#f8fbff",
+                background: "var(--cfsp-surface-muted)",
                 padding: "14px",
               }}
             >
-              <div style={{ color: "#173b6c", fontWeight: 900, fontSize: "16px" }}>{group.title}</div>
+              <div style={{ color: "var(--cfsp-text)", fontWeight: 900, fontSize: "16px" }}>{group.title}</div>
               <div style={{ display: "grid", gap: "10px", marginTop: "10px" }}>
                 {group.items.map((item) => {
                   const complete = item.autoComplete || workflowChecks[item.id];
@@ -3897,15 +3908,15 @@ export default function EventDetailPage() {
                         gap: "12px",
                         alignItems: "center",
                         flexWrap: "wrap",
-                        border: "1px solid #d9e4ec",
+                        border: "1px solid var(--cfsp-border)",
                         borderRadius: "12px",
-                        background: "#ffffff",
+                        background: "var(--cfsp-surface)",
                         padding: "12px 14px",
                       }}
                     >
                       <div>
-                        <div style={{ color: "#14304f", fontWeight: 900 }}>{item.label}</div>
-                        <div style={{ marginTop: "4px", color: "#5e7388", fontSize: "13px", fontWeight: 700 }}>
+                        <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>{item.label}</div>
+                        <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontSize: "13px", fontWeight: 700 }}>
                           {item.detail}
                         </div>
                       </div>
@@ -3917,9 +3928,9 @@ export default function EventDetailPage() {
                               padding: "6px 10px",
                               fontSize: "12px",
                               fontWeight: 900,
-                              background: "#eaf7f2",
-                              border: "1px solid #bfe4d6",
-                              color: "#196b57",
+                              background: "var(--cfsp-green-soft)",
+                              border: "1px solid rgba(44, 211, 173, 0.24)",
+                              color: "var(--cfsp-green)",
                             }}
                           >
                             Auto-complete
@@ -3936,9 +3947,13 @@ export default function EventDetailPage() {
                           }}
                           style={{
                             ...buttonStyle,
-                            background: manualOnly ? (complete ? "#ffffff" : "#173b6c") : "#f8fbff",
-                            color: manualOnly ? (complete ? "#173b6c" : "#ffffff") : "#64748b",
-                            border: manualOnly ? buttonStyle.border : "1px solid #d6e0e8",
+                            background: manualOnly
+                              ? (complete ? "var(--cfsp-surface)" : "var(--cfsp-blue)")
+                              : "var(--cfsp-surface-muted)",
+                            color: manualOnly
+                              ? (complete ? "var(--cfsp-text)" : "#ffffff")
+                              : "var(--cfsp-text-muted)",
+                            border: manualOnly ? buttonStyle.border : "1px solid var(--cfsp-border)",
                             cursor: manualOnly ? "pointer" : "default",
                           }}
                         >
@@ -3957,14 +3972,14 @@ export default function EventDetailPage() {
       <details
         style={{
           ...cardStyle,
-          borderColor: "#dce6ee",
-          background: "#f8fbfd",
+          borderColor: "var(--cfsp-border)",
+          background: "var(--cfsp-surface-muted)",
         }}
       >
         <summary
           style={{
             cursor: "pointer",
-            color: "#14304f",
+            color: "var(--cfsp-text)",
             fontWeight: 900,
             fontSize: "20px",
             listStyle: "none",
@@ -3983,15 +3998,15 @@ export default function EventDetailPage() {
                 gap: "12px",
                 alignItems: "center",
                 flexWrap: "wrap",
-                border: "1px solid #d9e4ec",
+                border: "1px solid var(--cfsp-border)",
                 borderRadius: "12px",
-                background: "#ffffff",
+                background: "var(--cfsp-surface)",
                 padding: "12px 14px",
               }}
             >
               <div>
-                <div style={{ color: "#14304f", fontWeight: 900 }}>{item.label}</div>
-                <div style={{ marginTop: "4px", color: "#5e7388", fontSize: "13px", fontWeight: 700 }}>
+                <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>{item.label}</div>
+                <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontSize: "13px", fontWeight: 700 }}>
                   {item.detail}
                 </div>
               </div>
@@ -4001,9 +4016,11 @@ export default function EventDetailPage() {
                   padding: "6px 10px",
                   fontSize: "12px",
                   fontWeight: 900,
-                  background: item.complete ? "#eaf7f2" : "#f4f7fb",
-                  border: item.complete ? "1px solid #bfe4d6" : "1px solid #d6e0e8",
-                  color: item.complete ? "#196b57" : "#4f677d",
+                  background: item.complete ? "var(--cfsp-green-soft)" : "rgba(168, 183, 204, 0.12)",
+                  border: item.complete
+                    ? "1px solid rgba(44, 211, 173, 0.24)"
+                    : "1px solid var(--cfsp-border)",
+                  color: item.complete ? "var(--cfsp-green)" : "var(--cfsp-text-muted)",
                 }}
               >
                 {item.complete ? "Complete" : "Pending"}
@@ -4020,9 +4037,9 @@ export default function EventDetailPage() {
           style={{
             ...cardStyle,
             borderRadius: "12px",
-            border: "1px solid #bbf7d0",
-            background: "#ecfdf3",
-            color: "#166534",
+            border: "1px solid rgba(44, 211, 173, 0.24)",
+            background: "var(--cfsp-green-soft)",
+            color: "var(--cfsp-green)",
             padding: "10px 12px",
             fontWeight: 800,
           }}
@@ -4036,9 +4053,9 @@ export default function EventDetailPage() {
           style={{
             ...cardStyle,
             borderRadius: "12px",
-            border: "1px solid #fecaca",
-            background: "#fff5f5",
-            color: "#991b1b",
+            border: "1px solid var(--cfsp-danger-border)",
+            background: "var(--cfsp-danger-soft)",
+            color: "var(--cfsp-danger)",
             padding: "10px 12px",
             fontWeight: 800,
           }}
@@ -4049,7 +4066,7 @@ export default function EventDetailPage() {
 
       {!isTrainingMode ? (
       <details id="coverage-actions" open style={cardStyle}>
-        <summary style={{ cursor: "pointer", color: "#14304f", fontWeight: 900, fontSize: "20px" }}>
+        <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 900, fontSize: "20px" }}>
           Event Editor
         </summary>
         <div style={{ marginTop: "12px" }}>
@@ -4095,7 +4112,7 @@ export default function EventDetailPage() {
               <div style={{ ...statValue, color: coverageStatus.color }}>
                 {isTrainingMode ? "Training workflow active" : coverageStatus.message}
               </div>
-              <div style={{ marginTop: "2px", color: "#64748b", fontWeight: 700, fontSize: "12px" }}>
+              <div style={{ marginTop: "2px", color: "var(--cfsp-text-muted)", fontWeight: 700, fontSize: "12px" }}>
                 {isTrainingMode
                   ? `${assignedCount} assigned SP${assignedCount === 1 ? "" : "s"} · Rotation schedule ${
                       rotationScheduleBuilt ? "built" : "not built"
@@ -4177,7 +4194,7 @@ export default function EventDetailPage() {
                     </button>
                   ))}
                 </div>
-                <div style={{ color: "#64748b", fontSize: "12px", fontWeight: 700 }}>
+                <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 700 }}>
                   Select a category here, then save event details to keep the event badge and workflow aligned.
                 </div>
               </div>
@@ -4268,7 +4285,7 @@ export default function EventDetailPage() {
                       value={trainingMetadata.case_file_name}
                       readOnly
                       placeholder="No case file uploaded"
-                      style={{ ...inputStyle, width: "100%", boxSizing: "border-box", background: "#f8fafc" }}
+                      style={{ ...inputStyle, width: "100%", boxSizing: "border-box", background: "var(--cfsp-surface-muted)" }}
                     />
                   </label>
 
@@ -4289,7 +4306,7 @@ export default function EventDetailPage() {
                       value={trainingMetadata.doorsign_file_name}
                       readOnly
                       placeholder="No doorsign uploaded"
-                      style={{ ...inputStyle, width: "100%", boxSizing: "border-box", background: "#f8fafc" }}
+                      style={{ ...inputStyle, width: "100%", boxSizing: "border-box", background: "var(--cfsp-surface-muted)" }}
                     />
                   </label>
 
@@ -4322,13 +4339,13 @@ export default function EventDetailPage() {
           <details
             open
             style={{
-              border: "1px solid #dbe4ee",
+              border: "1px solid var(--cfsp-border)",
               borderRadius: "14px",
               padding: "12px",
-              background: "#f8fbff",
+              background: "var(--cfsp-surface-muted)",
             }}
           >
-            <summary style={{ cursor: "pointer", color: "#173b6c", fontWeight: 800 }}>
+            <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 800 }}>
               Notes
             </summary>
             <textarea
@@ -4378,16 +4395,16 @@ export default function EventDetailPage() {
                   display: "grid",
                   gap: "8px",
                   minWidth: "220px",
-                  border: "1px solid #dbe4ee",
+                  border: "1px solid var(--cfsp-border)",
                   borderRadius: "16px",
                   padding: "12px",
-                  background: "#f8fbff",
+                  background: "var(--cfsp-surface-muted)",
                 }}
               >
-                <div style={{ color: "#173b6c", fontWeight: 900, fontSize: "20px" }}>
+                <div style={{ color: "var(--cfsp-text)", fontWeight: 900, fontSize: "20px" }}>
                   {assignedCount} assigned / {confirmedCount} confirmed
                 </div>
-                <div style={{ color: "#64748b", fontWeight: 800 }}>
+                <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 800 }}>
                   {assignedBccEmails.length} assigned SP email{assignedBccEmails.length === 1 ? "" : "s"} ready
                 </div>
               </div>
@@ -4397,7 +4414,7 @@ export default function EventDetailPage() {
                 onClick={() => void handleOpenAvailabilityRequest()}
                 style={{
                   display: "inline-block",
-                  background: "#16a34a",
+                  background: "var(--cfsp-green)",
                   color: "#fff",
                   padding: "10px 14px",
                   borderRadius: "10px",
@@ -4412,8 +4429,8 @@ export default function EventDetailPage() {
               <span
                 style={{
                   display: "inline-block",
-                  background: "#e5e7eb",
-                  color: "#6b7280",
+                  background: "rgba(168, 183, 204, 0.16)",
+                  color: "var(--cfsp-text-muted)",
                   padding: "10px 14px",
                   borderRadius: "10px",
                   fontWeight: 800,
@@ -4428,16 +4445,16 @@ export default function EventDetailPage() {
                   display: "grid",
                   gap: "8px",
                   minWidth: "200px",
-                  border: "1px solid #dbe4ee",
+                  border: "1px solid var(--cfsp-border)",
                   borderRadius: "16px",
                   padding: "12px",
-                  background: "#f8fbff",
+                  background: "var(--cfsp-surface-muted)",
                 }}
               >
-                <div style={{ color: "#173b6c", fontWeight: 900, fontSize: "20px" }}>
+                <div style={{ color: "var(--cfsp-text)", fontWeight: 900, fontSize: "20px" }}>
                   {needed} SPs needed / {confirmedCount} confirmed
                 </div>
-                <div style={{ color: "#9a3412", fontWeight: 800 }}>
+                <div style={{ color: "var(--cfsp-warning)", fontWeight: 800 }}>
                   {unconfirmedCount} still need attention
                 </div>
               </div>
@@ -4450,9 +4467,9 @@ export default function EventDetailPage() {
             style={{
               ...statCard,
               marginTop: "10px",
-              background: "#faf5ff",
-              border: "1px solid #ddd6fe",
-              color: "#5b21b6",
+              background: "rgba(141, 121, 255, 0.14)",
+              border: "1px solid rgba(141, 121, 255, 0.24)",
+              color: "#c5b8ff",
             }}
           >
             <div style={statLabel}>HiFi Operations</div>
@@ -4466,11 +4483,11 @@ export default function EventDetailPage() {
           <div
             style={{
               marginTop: "14px",
-              border: "1px solid #99f6e4",
+              border: "1px solid rgba(44, 211, 173, 0.24)",
               borderRadius: "16px",
               padding: "16px",
-              background: "#ecfeff",
-              color: "#0f766e",
+              background: "rgba(44, 211, 173, 0.14)",
+              color: "var(--cfsp-green)",
               fontWeight: 800,
             }}
           >
@@ -4479,9 +4496,9 @@ export default function EventDetailPage() {
         ) : (
           <>
         {showEmailDraft ? (
-          <div style={{ ...statCard, marginTop: "12px", background: "#ffffff" }}>
+          <div style={{ ...statCard, marginTop: "12px" }}>
             <div style={statLabel}>Email Draft Preview</div>
-            <div style={{ marginTop: "8px", color: "#173b6c", lineHeight: 1.7 }}>
+            <div style={{ marginTop: "8px", color: "var(--cfsp-text)", lineHeight: 1.7 }}>
               <div><strong>Recipients (BCC):</strong> {assignedBccEmails.length ? assignedBccEmails.join(", ") : "No assigned SP emails found."}</div>
               <div style={{ marginTop: "8px" }}><strong>Subject:</strong> {emailSubject}</div>
               <div style={{ marginTop: "8px", whiteSpace: "pre-wrap" }}><strong>Body:</strong>{"\n"}{emailBody}</div>
@@ -4511,9 +4528,11 @@ export default function EventDetailPage() {
               onClick={() => setAssignmentFilter(filter.value as AssignmentFilterStatus)}
               style={{
                 ...buttonStyle,
-                background: assignmentFilter === filter.value ? "#173b6c" : "#ffffff",
-                color: assignmentFilter === filter.value ? "#ffffff" : "#173b6c",
-                border: assignmentFilter === filter.value ? "1px solid #173b6c" : "1px solid #cbd5e1",
+                background: assignmentFilter === filter.value ? "var(--cfsp-blue)" : "var(--cfsp-surface)",
+                color: assignmentFilter === filter.value ? "#ffffff" : "var(--cfsp-text)",
+                border: assignmentFilter === filter.value
+                  ? "1px solid var(--cfsp-blue)"
+                  : "1px solid var(--cfsp-border)",
                 padding: "8px 12px",
               }}
             >
@@ -4523,18 +4542,18 @@ export default function EventDetailPage() {
         </div>
 
         {assignments.length === 0 ? (
-          <p style={{ color: "#64748b", marginBottom: 0, marginTop: "14px" }}>
+          <p style={{ color: "var(--cfsp-text-muted)", marginBottom: 0, marginTop: "14px" }}>
             No SPs assigned yet.
           </p>
         ) : filteredAssignments.length === 0 ? (
           <div
             style={{
               marginTop: "14px",
-              border: "1px solid #dbe4ee",
+              border: "1px solid var(--cfsp-border)",
               borderRadius: "16px",
               padding: "16px",
-              background: "#f8fafc",
-              color: "#64748b",
+              background: "var(--cfsp-surface-muted)",
+              color: "var(--cfsp-text-muted)",
               fontWeight: 700,
             }}
           >
@@ -4566,13 +4585,13 @@ export default function EventDetailPage() {
                 <div
                   key={assignment.id}
                   style={{
-                    border: confirmed ? "1px solid #173b6c" : confirmationStyles.pending.border,
+                    border: confirmed ? "1px solid var(--cfsp-blue)" : confirmationStyles.pending.border,
                     borderRadius: "18px",
                     padding: "14px",
-                    background: confirmed ? "#f8fbff" : "#fffdfa",
+                    background: confirmed ? "var(--cfsp-surface-muted)" : "var(--cfsp-surface)",
                     boxShadow: isRecentlyAssigned
-                      ? "0 0 0 4px rgba(34, 197, 94, 0.18), 0 12px 28px rgba(15, 23, 42, 0.08)"
-                      : "0 8px 24px rgba(15, 23, 42, 0.05)",
+                      ? "0 0 0 4px rgba(44, 211, 173, 0.18), 0 16px 34px rgba(0, 0, 0, 0.4)"
+                      : "var(--cfsp-shadow)",
                     transform: isRecentlyAssigned ? "translateY(-2px)" : "translateY(0)",
                     transition: "box-shadow 180ms ease, transform 180ms ease",
                   }}
@@ -4587,7 +4606,7 @@ export default function EventDetailPage() {
                           alignItems: "center",
                         }}
                       >
-                        <h3 style={{ margin: 0, color: "#173b6c", fontSize: "20px" }}>
+                        <h3 style={{ margin: 0, color: "var(--cfsp-text)", fontSize: "20px" }}>
                           {sp ? getFullName(sp) : "Unknown SP"}
                         </h3>
                         <span
@@ -4606,9 +4625,11 @@ export default function EventDetailPage() {
                           style={{
                             borderRadius: "999px",
                             padding: "8px 12px",
-                            background: confirmed ? "#173b6c" : "#fff7ed",
-                            color: confirmed ? "#ffffff" : "#9a3412",
-                            border: confirmed ? "1px solid #173b6c" : "1px solid #fed7aa",
+                            background: confirmed ? "rgba(73, 168, 255, 0.16)" : "var(--cfsp-warning-soft)",
+                            color: confirmed ? "#ffffff" : "var(--cfsp-warning)",
+                            border: confirmed
+                              ? "1px solid rgba(120, 180, 255, 0.28)"
+                              : "1px solid rgba(243, 187, 103, 0.24)",
                             fontWeight: 900,
                             fontSize: "12px",
                           }}
@@ -4617,7 +4638,7 @@ export default function EventDetailPage() {
                         </span>
                       </div>
 
-                      <div style={{ marginTop: 6, color: "#64748b", fontWeight: 700, lineHeight: 1.6 }}>
+                      <div style={{ marginTop: 6, color: "var(--cfsp-text-muted)", fontWeight: 700, lineHeight: 1.6 }}>
                         <div>{email || assignment.sp_id || "No SP id"}</div>
                         <div>{sp?.phone || "No phone on file"}</div>
                       </div>
@@ -4666,7 +4687,7 @@ export default function EventDetailPage() {
                     </div>
 
                     <div style={{ ...detailGridStyle, marginTop: 0 }}>
-                      <div style={{ ...statCard, background: "#ffffff" }}>
+                      <div style={statCard}>
                         <div style={statLabel}>Status</div>
                         <select
                           value={status}
@@ -4678,7 +4699,7 @@ export default function EventDetailPage() {
                             ...selectStyle,
                             width: "100%",
                             maxWidth: "100%",
-                            background: "#ffffff",
+                            background: "var(--cfsp-surface)",
                             marginTop: "8px",
                           }}
                         >
@@ -4690,12 +4711,12 @@ export default function EventDetailPage() {
                         </select>
                       </div>
 
-                      <div style={{ ...statCard, background: "#ffffff" }}>
+                      <div style={statCard}>
                         <div style={statLabel}>Contact Method</div>
                         <div style={{ ...statValue, fontSize: "16px" }}>
                           {getContactMethodLabel(assignment)}
                         </div>
-                        <div style={{ marginTop: "4px", color: "#64748b", fontWeight: 700, fontSize: "12px" }}>
+                        <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontWeight: 700, fontSize: "12px" }}>
                           {formatTimestamp(assignment.last_contacted_at)}
                         </div>
                       </div>
@@ -4703,10 +4724,10 @@ export default function EventDetailPage() {
 
                     <div
                       style={{
-                        border: "1px solid #dbe4ee",
+                        border: "1px solid var(--cfsp-border)",
                         borderRadius: "16px",
                         padding: "12px",
-                        background: confirmed ? "#eff6ff" : "#f8fbff",
+                        background: confirmed ? "rgba(73, 168, 255, 0.12)" : "var(--cfsp-surface-muted)",
                       }}
                     >
                       <div style={statLabel}>Notes</div>
@@ -4730,9 +4751,9 @@ export default function EventDetailPage() {
                       style={{
                         borderRadius: "16px",
                         padding: "12px",
-                        background: "#ffffff",
-                        border: "1px solid #dbe4ee",
-                        color: "#334155",
+                        background: "var(--cfsp-surface)",
+                        border: "1px solid var(--cfsp-border)",
+                        color: "var(--cfsp-text)",
                         lineHeight: 1.6,
                       }}
                     >
@@ -4766,9 +4787,9 @@ export default function EventDetailPage() {
                         disabled={saving || status === "contacted"}
                         style={{
                           ...buttonStyle,
-                          background: "#ffffff",
-                          color: "#854d0e",
-                          border: "1px solid #fde68a",
+                          background: "var(--cfsp-surface)",
+                          color: "var(--cfsp-warning)",
+                          border: "1px solid rgba(243, 187, 103, 0.24)",
                           opacity: saving || status === "contacted" ? 0.65 : 1,
                         }}
                       >
@@ -4780,9 +4801,9 @@ export default function EventDetailPage() {
                         disabled={saving || status === "declined"}
                         style={{
                           ...buttonStyle,
-                          background: "#fff5f5",
-                          color: "#991b1b",
-                          border: "1px solid #fecaca",
+                          background: "var(--cfsp-danger-soft)",
+                          color: "var(--cfsp-danger)",
+                          border: "1px solid var(--cfsp-danger-border)",
                           opacity: saving || status === "declined" ? 0.65 : 1,
                         }}
                       >
@@ -4803,7 +4824,7 @@ export default function EventDetailPage() {
                             })
                           }
                           disabled={saving}
-                          style={{ ...selectStyle, maxWidth: "100%", width: "100%", background: "#ffffff" }}
+                          style={{ ...selectStyle, maxWidth: "100%", width: "100%", background: "var(--cfsp-surface)" }}
                         >
                           <option value="">Not set</option>
                           {contactMethods.map((method) => (
@@ -4846,18 +4867,18 @@ export default function EventDetailPage() {
         <div
           style={{
             ...cardStyle,
-            background: "#ecfeff",
-            borderColor: "#99f6e4",
-            color: "#0f766e",
+            background: "rgba(44, 211, 173, 0.14)",
+            borderColor: "rgba(44, 211, 173, 0.24)",
+            color: "var(--cfsp-green)",
           }}
         >
           <h2 style={compactSectionTitleStyle}>SP Staffing</h2>
-          <p style={{ ...compactSectionHintStyle, color: "#0f766e" }}>
+          <p style={{ ...compactSectionHintStyle, color: "var(--cfsp-green)" }}>
             No SP staffing required for this skills event.
           </p>
         </div>
       ) : (
-      <div style={{ ...cardStyle, background: "#f8fbff", borderColor: "#bfdbfe" }}>
+      <div style={{ ...cardStyle, background: "var(--cfsp-surface-muted)", borderColor: "rgba(120, 180, 255, 0.24)" }}>
         <div
           style={{
             display: "flex",
@@ -4897,9 +4918,9 @@ export default function EventDetailPage() {
               disabled={saving || recommendedSps.length === 0}
               style={{
                 ...buttonStyle,
-                background: "#ffffff",
-                color: "#173b6c",
-                border: "1px solid #cbd5e1",
+                background: "var(--cfsp-surface)",
+                color: "var(--cfsp-text)",
+                border: "1px solid var(--cfsp-border)",
                 opacity: saving || recommendedSps.length === 0 ? 0.65 : 1,
               }}
             >
@@ -4911,9 +4932,9 @@ export default function EventDetailPage() {
               disabled={saving}
               style={{
                 ...buttonStyle,
-                background: "#ffffff",
-                color: "#173b6c",
-                border: "1px solid #bfdbfe",
+                background: "var(--cfsp-surface)",
+                color: "var(--cfsp-text)",
+                border: "1px solid rgba(120, 180, 255, 0.24)",
                 opacity: saving ? 0.65 : 1,
               }}
             >
@@ -4924,10 +4945,10 @@ export default function EventDetailPage() {
 
         <div
           style={{
-            border: "1px solid #dbe4ee",
+            border: "1px solid var(--cfsp-border)",
             borderRadius: "16px",
             padding: "14px",
-            background: "#f8fbff",
+            background: "var(--cfsp-surface)",
             display: "grid",
             gap: "10px",
             marginTop: "10px",
@@ -4938,9 +4959,9 @@ export default function EventDetailPage() {
               style={{
                 borderRadius: "14px",
                 padding: "12px 14px",
-                background: "#ecfdf3",
-                border: "1px solid #86efac",
-                color: "#166534",
+                background: "var(--cfsp-green-soft)",
+                border: "1px solid rgba(44, 211, 173, 0.24)",
+                color: "var(--cfsp-green)",
                 fontWeight: 900,
               }}
             >
@@ -4964,11 +4985,11 @@ export default function EventDetailPage() {
           </div>
 
           {staffingRelevant ? (
-          <div style={{ ...statCard, background: "#ffffff" }}>
+          <div style={statCard}>
             <div style={statLabel}>Suggested SPs</div>
 
             {recommendedSps.length === 0 ? (
-              <div style={{ marginTop: "8px", color: "#64748b", fontWeight: 700 }}>
+              <div style={{ marginTop: "8px", color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
                 No suggested SPs yet.
               </div>
             ) : (
@@ -4993,15 +5014,17 @@ export default function EventDetailPage() {
                         borderRadius: "16px",
                         padding: "12px 14px",
                         background:
-                          availabilityMatch.status === "available" ? "#f0fdf4" : "#fffbeb",
+                          availabilityMatch.status === "available"
+                            ? "var(--cfsp-green-soft)"
+                            : "var(--cfsp-warning-soft)",
                         border:
                           availabilityMatch.status === "available"
-                            ? "1px solid #86efac"
-                            : "1px solid #fde68a",
+                            ? "1px solid rgba(44, 211, 173, 0.24)"
+                            : "1px solid rgba(243, 187, 103, 0.24)",
                       }}
                     >
                       <div>
-                        <div style={{ color: "#173b6c", fontWeight: 900 }}>
+                        <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>
                           {getFullName(sp)}
                         </div>
                         <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "6px" }}>
@@ -5011,9 +5034,9 @@ export default function EventDetailPage() {
                               style={{
                                 borderRadius: "999px",
                                 padding: "5px 8px",
-                                background: "#f4f7fb",
-                                border: "1px solid #d9e4ec",
-                                color: "#4f677d",
+                                background: "rgba(168, 183, 204, 0.12)",
+                                border: "1px solid var(--cfsp-border)",
+                                color: "var(--cfsp-text-muted)",
                                 fontSize: "12px",
                                 fontWeight: 800,
                               }}
@@ -5035,7 +5058,7 @@ export default function EventDetailPage() {
                         >
                           {availabilityMatchLabels[availabilityMatch.status]}
                         </div>
-                        <div style={{ marginTop: "6px", color: "#64748b", fontWeight: 700 }}>
+                        <div style={{ marginTop: "6px", color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
                           {availabilityMatch.reason}
                         </div>
                       </div>
@@ -5077,8 +5100,8 @@ export default function EventDetailPage() {
                 onClick={() => filter.setActive((current) => !current)}
                 style={{
                   ...buttonStyle,
-                  background: filter.active ? "#173b6c" : "#ffffff",
-                  color: filter.active ? "#ffffff" : "#173b6c",
+                  background: filter.active ? "var(--cfsp-blue)" : "var(--cfsp-surface)",
+                  color: filter.active ? "#ffffff" : "var(--cfsp-text)",
                   padding: "8px 12px",
                 }}
               >
@@ -5122,7 +5145,7 @@ export default function EventDetailPage() {
           </div>
           <div style={{ display: "grid", gap: "8px", marginTop: "8px" }}>
             {filteredCandidateSps.length === 0 ? (
-              <div style={{ ...statCard, color: "#64748b", fontWeight: 700 }}>
+              <div style={{ ...statCard, color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
                 No SPs match the current search and filters.
               </div>
             ) : (
@@ -5152,18 +5175,18 @@ export default function EventDetailPage() {
                       ...statCard,
                       background:
                         availabilityMatch.status === "available"
-                          ? "#f0fdf4"
+                          ? "var(--cfsp-green-soft)"
                           : availabilityMatch.status === "none"
-                            ? "#fafafa"
-                            : "#ffffff",
+                            ? "rgba(168, 183, 204, 0.08)"
+                            : "var(--cfsp-surface)",
                       border:
                         availabilityMatch.status === "available"
-                          ? "1px solid #86efac"
+                          ? "1px solid rgba(44, 211, 173, 0.24)"
                           : availabilityMatch.status === "partial"
-                            ? "1px solid #fde68a"
+                            ? "1px solid rgba(243, 187, 103, 0.24)"
                             : availabilityMatch.status === "none"
-                              ? "1px solid #fecaca"
-                              : "1px solid #dbe4ee",
+                              ? "1px solid var(--cfsp-danger-border)"
+                              : "1px solid var(--cfsp-border)",
                       opacity: availabilityMatch.status === "none" ? 0.75 : 1,
                     }}
                   >
@@ -5177,7 +5200,7 @@ export default function EventDetailPage() {
                       }}
                     >
                       <div>
-                        <div style={{ color: "#173b6c", fontWeight: 900, fontSize: "18px" }}>
+                        <div style={{ color: "var(--cfsp-text)", fontWeight: 900, fontSize: "18px" }}>
                           {getFullName(sp)}
                         </div>
                         <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "6px" }}>
@@ -5187,9 +5210,9 @@ export default function EventDetailPage() {
                               style={{
                                 borderRadius: "999px",
                                 padding: "5px 8px",
-                                background: "#f4f7fb",
-                                border: "1px solid #d9e4ec",
-                                color: "#4f677d",
+                                background: "rgba(168, 183, 204, 0.12)",
+                                border: "1px solid var(--cfsp-border)",
+                                color: "var(--cfsp-text-muted)",
                                 fontSize: "12px",
                                 fontWeight: 800,
                               }}
@@ -5198,7 +5221,7 @@ export default function EventDetailPage() {
                             </span>
                           ))}
                         </div>
-                        <div style={{ marginTop: "6px", color: "#334155", lineHeight: 1.6 }}>
+                        <div style={{ marginTop: "6px", color: "var(--cfsp-text)", lineHeight: 1.6 }}>
                           <div><strong>Email:</strong> {getEmail(sp) || "—"}</div>
                           <div><strong>Phone:</strong> {sp.phone || "—"}</div>
                           <div><strong>Portrayal / race / sex:</strong> {demographics || "—"}</div>
@@ -5256,17 +5279,17 @@ export default function EventDetailPage() {
                         marginTop: "10px",
                         color:
                           availabilityMatch.status === "none"
-                            ? "#991b1b"
+                            ? "var(--cfsp-danger)"
                             : availabilityMatch.status === "available"
-                              ? "#166534"
-                              : "#64748b",
+                              ? "var(--cfsp-green)"
+                              : "var(--cfsp-text-muted)",
                         fontWeight: 800,
                       }}
                     >
                       Match reason: {availabilityMatch.reason}
                     </div>
 
-                    <div style={{ marginTop: "10px", color: "#64748b", whiteSpace: "pre-wrap" }}>
+                    <div style={{ marginTop: "10px", color: "var(--cfsp-text-muted)", whiteSpace: "pre-wrap" }}>
                       <strong>Availability rows:</strong> {formatAvailabilityRows(rows)}
                     </div>
                   </div>

@@ -126,12 +126,27 @@ function isTodayOrTomorrow(date: Date | null, startOfToday: number) {
 
 function getWorkflowTone(kind: "shortage" | "partial" | "full") {
   if (kind === "shortage") {
-    return { background: "#fff2f1", borderColor: "#efc4c0", color: "#af2f26", label: "Shortage" };
+    return {
+      background: "var(--cfsp-danger-soft)",
+      borderColor: "var(--cfsp-danger-border)",
+      color: "var(--cfsp-danger)",
+      label: "Shortage",
+    };
   }
   if (kind === "partial") {
-    return { background: "#fff6e8", borderColor: "#f1d1a7", color: "#a86411", label: "Partial" };
+    return {
+      background: "var(--cfsp-warning-soft)",
+      borderColor: "rgba(243, 187, 103, 0.24)",
+      color: "var(--cfsp-warning)",
+      label: "Partial",
+    };
   }
-  return { background: "#eaf7f2", borderColor: "#bfe4d6", color: "#196b57", label: "Full" };
+  return {
+    background: "var(--cfsp-green-soft)",
+    borderColor: "rgba(44, 211, 173, 0.22)",
+    color: "var(--cfsp-green)",
+    label: "Full",
+  };
 }
 
 function getEventCoverageTone(event: EventWithMeta) {
@@ -160,7 +175,7 @@ function renderAssignedPeople(names?: string[] | null) {
   const preview = (names || []).filter(Boolean).slice(0, 4);
 
   if (!preview.length) {
-    return <span className="text-sm font-semibold text-[#6a7e91]">No assigned SPs yet</span>;
+    return <span className="text-sm font-semibold text-[var(--cfsp-text-muted)]">No assigned SPs yet</span>;
   }
 
   return (
@@ -178,24 +193,35 @@ function TeamOwnershipBlock({ notes }: { notes?: string | null }) {
   const teamInfo = getEventTeamInfo(notes);
 
   return (
-    <div className="rounded-[12px] border border-[#dce6ee] bg-[linear-gradient(180deg,#f8fbfd_0%,#eef6fb_100%)] px-4 py-3">
+    <div
+      className="rounded-[12px] px-4 py-3"
+      style={{
+        border: "1px solid var(--cfsp-border)",
+        background: "linear-gradient(180deg, var(--cfsp-surface-muted) 0%, var(--cfsp-surface) 100%)",
+      }}
+    >
       <div className="cfsp-label">Team / Staff</div>
       {teamInfo.names.length ? (
         <div className="mt-3 flex flex-wrap gap-2">
           {teamInfo.names.map((name) => (
             <span
               key={name}
-              className="inline-flex min-h-[32px] items-center rounded-full border border-[#bcd8e8] bg-white px-3 py-1 text-sm font-bold text-[#145b96]"
+              className="inline-flex min-h-[32px] items-center rounded-full px-3 py-1 text-sm font-bold"
+              style={{
+                border: "1px solid var(--cfsp-border)",
+                background: "var(--cfsp-surface)",
+                color: "var(--cfsp-blue)",
+              }}
             >
               {name}
             </span>
           ))}
         </div>
       ) : (
-        <div className="mt-3 text-sm font-semibold text-[#9f630e]">Team not assigned</div>
+        <div className="mt-3 text-sm font-semibold" style={{ color: "var(--cfsp-warning)" }}>Team not assigned</div>
       )}
       {process.env.NODE_ENV !== "production" && !teamInfo.names.length ? (
-        <div className="mt-2 text-xs font-semibold text-[#6a7e91]">
+        <div className="mt-2 text-xs font-semibold text-[var(--cfsp-text-muted)]">
           Notes checked: {notes ? "yes" : "no"} · Ownership labels found: none
         </div>
       ) : null}
@@ -285,7 +311,7 @@ function WorkflowSection({
 }) {
   return (
     <section className="cfsp-panel overflow-hidden">
-      <div className="border-b border-[#e5edf3] px-5 py-4">
+      <div className="px-5 py-4" style={{ borderBottom: "1px solid var(--cfsp-border)" }}>
         <h2 className="cfsp-section-title text-[1.25rem]">{title}</h2>
         <p className="cfsp-section-copy">{description}</p>
       </div>
@@ -299,7 +325,15 @@ function WorkflowSection({
               const tone = getEventCoverageTone(item);
 
               return (
-                <article key={item.event.id} className="rounded-[12px] border border-[#d9e4ec] bg-[#f8fbfd] px-4 py-4">
+                <article
+                  key={item.event.id}
+                  className="rounded-[12px] px-4 py-4"
+                  style={{
+                    border: "1px solid var(--cfsp-border)",
+                    background: "var(--cfsp-surface-muted)",
+                    boxShadow: "var(--cfsp-card-glow)",
+                  }}
+                >
                   <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                     <div className="min-w-0 flex-1">
                       <div className="mb-2 flex flex-wrap gap-2">
@@ -308,11 +342,11 @@ function WorkflowSection({
                         </span>
                       </div>
 
-                      <h3 className="m-0 text-[1.12rem] font-black text-[#14304f]">
+                      <h3 className="m-0 text-[1.12rem] font-black text-[var(--cfsp-text)]">
                         {item.event.name?.trim() || "Untitled Event"}
                       </h3>
 
-                      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm font-semibold text-[#5e7388]">
+                      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm font-semibold text-[var(--cfsp-text-muted)]">
                         <span>{formatEventDate(item.start, item.event.date_text)}</span>
                         <span>{eventLocation(item.event)}</span>
                         <span>
@@ -552,8 +586,8 @@ export default function DashboardPage() {
       <main className="cfsp-page">
         <div className="cfsp-container">
           <div className="cfsp-panel px-6 py-8">
-            <h1 className="text-3xl font-black text-[#14304f]">Loading dashboard...</h1>
-            <p className="mt-3 text-[#5e7388]">Checking your session and loading your workspace.</p>
+            <h1 className="text-3xl font-black text-[var(--cfsp-text)]">Loading dashboard...</h1>
+            <p className="mt-3 text-[var(--cfsp-text-muted)]">Checking your session and loading your workspace.</p>
           </div>
         </div>
       </main>
@@ -573,8 +607,8 @@ export default function DashboardPage() {
         {profileIncomplete ? (
           <div className="cfsp-alert cfsp-alert-info flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <div className="font-black text-[#14304f]">Complete your profile so CFSP can match events to you.</div>
-              <div className="mt-1 text-sm text-[#5e7388]">
+              <div className="font-black text-[var(--cfsp-text)]">Complete your profile so CFSP can match events to you.</div>
+              <div className="mt-1 text-sm text-[var(--cfsp-text-muted)]">
                 Add your full name and schedule match name to improve event matching.
               </div>
             </div>
@@ -585,12 +619,19 @@ export default function DashboardPage() {
         ) : null}
 
         <section className="grid gap-5 xl:grid-cols-[1.45fr_0.95fr]">
-          <div className="rounded-[14px] border border-[#dce6ee] bg-[linear-gradient(180deg,#f8fbfd_0%,#eef5fb_100%)] px-5 py-5">
+          <div
+            className="rounded-[14px] px-5 py-5"
+            style={{
+              border: "1px solid var(--cfsp-border)",
+              background: "linear-gradient(180deg, var(--cfsp-surface-muted) 0%, var(--cfsp-surface) 100%)",
+              boxShadow: "var(--cfsp-card-glow)",
+            }}
+          >
             <p className="cfsp-kicker">Home base</p>
-            <h2 className="mt-3 text-[1.8rem] leading-tight font-black text-[#14304f]">
+            <h2 className="mt-3 text-[1.8rem] leading-tight font-black text-[var(--cfsp-text)]">
               Welcome back, {displayName}.
             </h2>
-            <p className="mt-3 max-w-2xl text-[0.98rem] leading-6 text-[#5e7388]">
+            <p className="mt-3 max-w-2xl text-[0.98rem] leading-6 text-[var(--cfsp-text-muted)]">
               Start with events connected to you, then switch to the full event list whenever you need a broader operational view.
             </p>
 
@@ -613,34 +654,38 @@ export default function DashboardPage() {
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
             <div className="cfsp-panel rounded-[14px] px-4 py-4">
               <div className="cfsp-label">Dashboard view</div>
-              <div className="mt-3 inline-flex rounded-[12px] border border-[#d8e4ec] bg-white p-1">
+              <div className="mt-3 inline-flex rounded-[12px] p-1" style={{ border: "1px solid var(--cfsp-border)", background: "var(--cfsp-surface)" }}>
                 <button
                   type="button"
                   onClick={() => setScope("my")}
-                  className={`min-w-[120px] rounded-[10px] px-4 py-2 text-sm font-black transition ${
-                    scope === "my" ? "bg-[#145b96] text-white" : "text-[#4f677d] hover:bg-[#f3f8fb]"
-                  }`}
+                  className="min-w-[120px] rounded-[10px] px-4 py-2 text-sm font-black transition"
+                  style={{
+                    background: scope === "my" ? "var(--cfsp-blue)" : "transparent",
+                    color: scope === "my" ? "#ffffff" : "var(--cfsp-text-muted)",
+                  }}
                 >
                   My Events
                 </button>
                 <button
                   type="button"
                   onClick={() => setScope("all")}
-                  className={`min-w-[120px] rounded-[10px] px-4 py-2 text-sm font-black transition ${
-                    scope === "all" ? "bg-[#145b96] text-white" : "text-[#4f677d] hover:bg-[#f3f8fb]"
-                  }`}
+                  className="min-w-[120px] rounded-[10px] px-4 py-2 text-sm font-black transition"
+                  style={{
+                    background: scope === "all" ? "var(--cfsp-blue)" : "transparent",
+                    color: scope === "all" ? "#ffffff" : "var(--cfsp-text-muted)",
+                  }}
                 >
                   All Events
                 </button>
               </div>
-              <p className="mt-3 text-sm leading-6 text-[#5e7388]">
+              <p className="mt-3 text-sm leading-6 text-[var(--cfsp-text-muted)]">
                 {scope === "my"
                   ? "Showing events matched to your profile, schedule match name, or imported staffing notes."
                   : "Showing the full visible event list across the app."}
               </p>
               {archivedEventCount > 0 ? (
                 <div className="mt-3">
-                  <Link href="/events?view=archive" className="text-sm font-bold text-[#145b96] no-underline hover:underline">
+                  <Link href="/events?view=archive" className="text-sm font-bold no-underline hover:underline" style={{ color: "var(--cfsp-blue)" }}>
                     View Archive ({archivedEventCount})
                   </Link>
                 </div>
@@ -652,8 +697,8 @@ export default function DashboardPage() {
               className="cfsp-panel rounded-[14px] px-4 py-4 no-underline transition-transform hover:-translate-y-0.5"
             >
               <div className="cfsp-label">Quick action</div>
-              <div className="mt-2 text-lg font-black text-[#14304f]">Open admin tools</div>
-              <p className="mt-2 text-sm leading-6 text-[#5e7388]">
+              <div className="mt-2 text-lg font-black text-[var(--cfsp-text)]">Open admin tools</div>
+              <p className="mt-2 text-sm leading-6 text-[var(--cfsp-text-muted)]">
                 Launch imports, people tools, and other workflow shortcuts directly.
               </p>
             </Link>
@@ -684,8 +729,8 @@ export default function DashboardPage() {
         {!error && eventMeta.length === 0 && events.length > 0 ? (
           <div className="cfsp-alert cfsp-alert-info flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <div className="font-black text-[#14304f]">Your events are still in CFSP.</div>
-              <div className="mt-1 text-sm text-[#5e7388]">
+              <div className="font-black text-[var(--cfsp-text)]">Your events are still in CFSP.</div>
+              <div className="mt-1 text-sm text-[var(--cfsp-text-muted)]">
                 There are no upcoming events right now, but {archivedEventCount} imported event{archivedEventCount === 1 ? "" : "s"} are still available in the Events board.
               </div>
             </div>
@@ -697,8 +742,8 @@ export default function DashboardPage() {
 
         {!error && scope === "my" && selectedEvents.length === 0 ? (
           <div className="cfsp-panel px-6 py-6">
-            <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">No events are matched to your profile yet.</h3>
-            <p className="mt-3 text-sm leading-6 text-[#5e7388]">
+            <h3 className="m-0 text-[1.2rem] font-black text-[var(--cfsp-text)]">No events are matched to your profile yet.</h3>
+            <p className="mt-3 text-sm leading-6 text-[var(--cfsp-text-muted)]">
               CFSP is currently using <strong>{matchTerms.length ? matchTerms.join(", ") : "no schedule match name"}</strong> to match your events.
             </p>
             <div className="mt-4 flex flex-wrap gap-2">
@@ -710,7 +755,7 @@ export default function DashboardPage() {
               </button>
             </div>
             {isAdmin ? (
-              <p className="mt-4 text-sm leading-6 text-[#5e7388]">
+              <p className="mt-4 text-sm leading-6 text-[var(--cfsp-text-muted)]">
                 You have admin access, so you can switch to All Events while profile matching is being completed.
               </p>
             ) : null}

@@ -33,41 +33,67 @@
   --cfsp-theme-toggle-bg: #edf4fb;
   --cfsp-theme-toggle-border: #d8e5f1;
   --cfsp-theme-toggle-text: #145b96;
+  --cfsp-stars-opacity: 0;
+  --cfsp-card-glow: 0 10px 28px rgba(24, 52, 78, 0.07);
+  --cfsp-panel-strong: #eef5fb;
+  --cfsp-input-bg: #ffffff;
+  --cfsp-input-border: #bfd0dc;
+  --cfsp-button-secondary-bg: #ffffff;
+  --cfsp-button-secondary-text: #18344e;
+  --cfsp-button-secondary-border: #bfd0dc;
+  --cfsp-danger-border: #fecaca;
+  --cfsp-danger-bg: #fff5f5;
+  --cfsp-danger-text: #991b1b;
 }
 
 html[data-theme="dark"] {
-  --background: #07111d;
-  --foreground: #e6f0fa;
-  --cfsp-app-bg: linear-gradient(180deg, #040b14 0%, #081526 100%);
-  --cfsp-surface: #0f1a29;
-  --cfsp-surface-muted: #132132;
-  --cfsp-sidebar: #081b30;
-  --cfsp-sidebar-strong: #061321;
-  --cfsp-sidebar-border: rgba(126, 181, 255, 0.16);
-  --cfsp-border: #21354b;
-  --cfsp-border-strong: #2e4865;
-  --cfsp-text: #e6f0fa;
-  --cfsp-text-muted: #9db3c8;
-  --cfsp-blue: #4c97d9;
-  --cfsp-blue-dark: #77b3e9;
-  --cfsp-green: #30a989;
-  --cfsp-green-dark: #48c4a2;
-  --cfsp-green-soft: rgba(48, 169, 137, 0.14);
-  --cfsp-warning: #f1b860;
-  --cfsp-warning-soft: rgba(241, 184, 96, 0.12);
-  --cfsp-danger: #f08d84;
-  --cfsp-danger-soft: rgba(240, 141, 132, 0.14);
-  --cfsp-shadow: 0 16px 36px rgba(0, 0, 0, 0.34);
-  --cfsp-header-bg: #0d1725;
-  --cfsp-header-border: #203449;
-  --cfsp-header-muted: #132131;
-  --cfsp-shell-chip-bg: rgba(48, 169, 137, 0.16);
-  --cfsp-shell-chip-border: rgba(72, 196, 162, 0.35);
-  --cfsp-shell-chip-text: #98ebd3;
-  --cfsp-logo-bg: #081524;
-  --cfsp-theme-toggle-bg: #102030;
-  --cfsp-theme-toggle-border: #284461;
+  --background: #05070b;
+  --foreground: #f4f8ff;
+  --cfsp-app-bg:
+    radial-gradient(circle at top, rgba(0, 180, 255, 0.08), transparent 40%),
+    radial-gradient(circle at bottom right, rgba(0, 255, 170, 0.05), transparent 35%),
+    linear-gradient(180deg, rgba(5, 9, 16, 0.98) 0%, rgba(4, 9, 16, 1) 100%),
+    #05070b;
+  --cfsp-surface: #0d1420;
+  --cfsp-surface-muted: #111927;
+  --cfsp-sidebar: #09111b;
+  --cfsp-sidebar-strong: #060c14;
+  --cfsp-sidebar-border: rgba(120, 180, 255, 0.18);
+  --cfsp-border: rgba(120, 180, 255, 0.18);
+  --cfsp-border-strong: rgba(120, 180, 255, 0.26);
+  --cfsp-text: #f4f8ff;
+  --cfsp-text-muted: #a8b7cc;
+  --cfsp-blue: #49a8ff;
+  --cfsp-blue-dark: #79c7ff;
+  --cfsp-green: #2cd3ad;
+  --cfsp-green-dark: #55e5c3;
+  --cfsp-green-soft: rgba(44, 211, 173, 0.12);
+  --cfsp-warning: #f3bb67;
+  --cfsp-warning-soft: rgba(243, 187, 103, 0.11);
+  --cfsp-danger: #ff8f86;
+  --cfsp-danger-soft: rgba(255, 143, 134, 0.12);
+  --cfsp-shadow: 0 8px 30px rgba(0, 0, 0, 0.45);
+  --cfsp-card-glow: 0 0 0 1px rgba(120, 180, 255, 0.08), 0 8px 30px rgba(0, 0, 0, 0.45);
+  --cfsp-header-bg: rgba(13, 20, 32, 0.92);
+  --cfsp-header-border: rgba(120, 180, 255, 0.16);
+  --cfsp-header-muted: #111927;
+  --cfsp-shell-chip-bg: rgba(16, 41, 52, 0.82);
+  --cfsp-shell-chip-border: rgba(74, 205, 179, 0.32);
+  --cfsp-shell-chip-text: #9ce9d6;
+  --cfsp-logo-bg: #08111c;
+  --cfsp-theme-toggle-bg: #111c2a;
+  --cfsp-theme-toggle-border: rgba(120, 180, 255, 0.24);
   --cfsp-theme-toggle-text: #d9ebff;
+  --cfsp-stars-opacity: 0.22;
+  --cfsp-panel-strong: #101827;
+  --cfsp-input-bg: rgba(17, 25, 39, 0.88);
+  --cfsp-input-border: rgba(120, 180, 255, 0.24);
+  --cfsp-button-secondary-bg: #141d2b;
+  --cfsp-button-secondary-text: #dce9f7;
+  --cfsp-button-secondary-border: rgba(120, 180, 255, 0.2);
+  --cfsp-danger-border: rgba(255, 143, 134, 0.28);
+  --cfsp-danger-bg: rgba(76, 22, 27, 0.72);
+  --cfsp-danger-text: #ffb0a9;
 }
 
 @theme inline {
@@ -92,6 +118,40 @@ body {
   color: var(--cfsp-text);
   font-family: Arial, Helvetica, sans-serif;
   transition: background-color 180ms ease, color 180ms ease;
+  position: relative;
+}
+
+html[data-theme="dark"] body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  opacity: var(--cfsp-stars-opacity);
+  background-image:
+    radial-gradient(circle at 12% 18%, rgba(255, 255, 255, 0.95) 0 0.7px, transparent 1px),
+    radial-gradient(circle at 72% 28%, rgba(120, 200, 255, 0.85) 0 0.8px, transparent 1.2px),
+    radial-gradient(circle at 86% 68%, rgba(255, 255, 255, 0.8) 0 0.7px, transparent 1px),
+    radial-gradient(circle at 38% 74%, rgba(111, 128, 151, 0.75) 0 0.7px, transparent 1.1px),
+    radial-gradient(circle at 56% 44%, rgba(125, 243, 221, 0.7) 0 0.7px, transparent 1px),
+    radial-gradient(circle at 22% 88%, rgba(255, 255, 255, 0.7) 0 0.7px, transparent 1px);
+  background-size: 260px 260px, 340px 340px, 420px 420px, 520px 520px, 620px 620px, 720px 720px;
+  z-index: 0;
+}
+
+html[data-theme="dark"] body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 18% 8%, rgba(73, 168, 255, 0.1), transparent 22%),
+    radial-gradient(circle at 82% 88%, rgba(44, 211, 173, 0.07), transparent 24%);
+  z-index: 0;
+}
+
+body > * {
+  position: relative;
+  z-index: 1;
 }
 
 a {
@@ -121,7 +181,8 @@ textarea {
   background: var(--cfsp-surface);
   border: 1px solid var(--cfsp-border);
   border-radius: 14px;
-  box-shadow: var(--cfsp-shadow);
+  box-shadow: var(--cfsp-card-glow);
+  backdrop-filter: blur(14px);
 }
 
 .cfsp-panel-muted {
@@ -171,6 +232,7 @@ textarea {
 
 .cfsp-btn:hover {
   transform: translateY(-1px);
+  box-shadow: 0 0 0 1px rgba(120, 180, 255, 0.08), 0 10px 24px rgba(0, 0, 0, 0.22);
 }
 
 .cfsp-btn:focus-visible,
@@ -192,14 +254,14 @@ textarea {
 }
 
 .cfsp-btn-secondary {
-  background: var(--cfsp-surface);
-  border-color: var(--cfsp-border-strong);
-  color: var(--cfsp-text);
+  background: var(--cfsp-button-secondary-bg);
+  border-color: var(--cfsp-button-secondary-border);
+  color: var(--cfsp-button-secondary-text);
 }
 
 .cfsp-btn-secondary:hover {
   background: var(--cfsp-surface-muted);
-  border-color: #aebdcb;
+  border-color: var(--cfsp-border-strong);
 }
 
 .cfsp-btn-subtle {
@@ -209,7 +271,7 @@ textarea {
 }
 
 .cfsp-btn-subtle:hover {
-  background: #e4eef8;
+  background: var(--cfsp-surface-muted);
 }
 
 .cfsp-btn-success {
@@ -254,10 +316,11 @@ textarea {
   width: 100%;
   min-height: 46px;
   border-radius: 10px;
-  border: 1px solid var(--cfsp-border-strong);
-  background: var(--cfsp-surface);
+  border: 1px solid var(--cfsp-input-border);
+  background: var(--cfsp-input-bg);
   color: var(--cfsp-text);
   padding: 10px 12px;
+  box-shadow: inset 0 0 0 1px rgba(120, 180, 255, 0.02);
 }
 
 .cfsp-textarea {
@@ -269,8 +332,10 @@ textarea {
 .cfsp-select:focus,
 .cfsp-textarea:focus {
   outline: none;
-  border-color: #74a9d8;
-  box-shadow: 0 0 0 3px rgba(116, 169, 216, 0.2);
+  border-color: rgba(120, 180, 255, 0.45);
+  box-shadow:
+    0 0 0 3px rgba(73, 168, 255, 0.16),
+    0 0 18px rgba(73, 168, 255, 0.08);
 }
 
 .cfsp-grid-stats {
@@ -280,10 +345,11 @@ textarea {
 }
 
 .cfsp-stat-card {
-  background: var(--cfsp-surface);
+  background: var(--cfsp-panel-strong);
   border: 1px solid var(--cfsp-border);
   border-radius: 12px;
   padding: 15px;
+  box-shadow: var(--cfsp-card-glow);
 }
 
 .cfsp-stat-value {
@@ -302,8 +368,8 @@ textarea {
 
 .cfsp-alert-error {
   background: var(--cfsp-danger-soft);
-  border-color: #f0c7c3;
-  color: #8d271f;
+  border-color: var(--cfsp-danger-border);
+  color: var(--cfsp-danger);
 }
 
 .cfsp-alert-info {
