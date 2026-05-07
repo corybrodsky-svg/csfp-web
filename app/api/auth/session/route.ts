@@ -20,7 +20,19 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
-    const body = (await request.json()) as Record<string, unknown>;
+    let body: Record<string, unknown> = {};
+
+    try {
+      body = (await request.json()) as Record<string, unknown>;
+    } catch {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Invalid or empty JSON body.",
+        },
+        { status: 400 }
+      );
+    }
 
     const accessToken = asToken(body.access_token) || asToken(body.accessToken);
     const refreshToken = asToken(body.refresh_token) || asToken(body.refreshToken);
@@ -39,28 +51,26 @@ export async function POST(request: NextRequest) {
 
     response.cookies.set(ACCESS_COOKIE, accessToken, {
       httpOnly: true,
-      secure: true,
       sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
       path: "/",
-      maxAge: 60 * 60 * 24 * 7,
     });
 
     response.cookies.set(REFRESH_COOKIE, refreshToken, {
       httpOnly: true,
-      secure: true,
       sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
       path: "/",
-      maxAge: 60 * 60 * 24 * 30,
     });
 
     return response;
   } catch (error) {
-    console.error("/api/auth/session failed", error);
+    console.error("/api/auth/session fatal", error);
 
     return NextResponse.json(
       {
         ok: false,
-        error: error instanceof Error ? error.message : "Could not create CFSP session.",
+        error: error instanceof Error ? error.message : "Session route failed",
       },
       { status: 500 }
     );
