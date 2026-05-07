@@ -20,8 +20,8 @@ import {
 import { formatDisplayTime, parseTimeToMinutes } from "../../lib/timeFormat";
 import {
   editableEventTypeLabels,
-  getExplicitEventType,
-  upsertEventTypeInNotes,
+  getExplicitEventTypes,
+  upsertEventTypesInNotes,
   type EditableEventType,
 } from "../../lib/eventTypeNotes";
 import {
@@ -576,13 +576,12 @@ function getCommandCenterAssignmentTone(assignment: AssignmentRow): "confirmed" 
   return isAssignmentConfirmed(assignment) ? "confirmed" : "pending";
 }
 
-function getEventTypeButtonStyle(type: EventDisplayType, activeType: EventDisplayType): React.CSSProperties {
-  const active = type === activeType;
+function getEventTypeButtonStyle(type: EventDisplayType, active: boolean): React.CSSProperties {
   const palettes: Record<EventDisplayType, { background: string; border: string; color: string }> = {
     skills: {
-      background: "rgba(44, 211, 173, 0.14)",
-      border: "rgba(44, 211, 173, 0.24)",
-      color: "var(--cfsp-green)",
+      background: "var(--cfsp-skills-soft)",
+      border: "var(--cfsp-skills-border)",
+      color: "var(--cfsp-skills-text)",
     },
     sp: {
       background: "rgba(73, 168, 255, 0.14)",
@@ -1343,6 +1342,11 @@ export default function EventDetailPage() {
   });
   const badgeAppearance = getEventBadgeAppearance(eventMeta.primaryBadgeKind);
   const isWorkshop = eventMeta.isSkillsWorkshop;
+  const explicitEventTypes = getExplicitEventTypes(eventEditor.notes);
+  const activeEventTypes = (explicitEventTypes.length
+    ? explicitEventTypes
+    : eventMeta.activeEventTypes) as EditableEventType[];
+  const activeEventTypeSet = new Set(activeEventTypes);
   const coverageStatus =
     isWorkshop
       ? {
@@ -1471,11 +1475,9 @@ export default function EventDetailPage() {
   );
   const assignedCount = assignmentCount;
   const shortageCount = isWorkshop ? 0 : shortage;
-  const eventType = eventMeta.eventType;
-  const editableEventType = (getExplicitEventType(eventEditor.notes) || eventType) as EditableEventType;
-  const isTrainingMode = eventMeta.isTraining || editableEventType === "training";
-  const noSpStaffingRequired = eventType === "skills" || isWorkshop || needed <= 0;
-  const staffingRelevant = !noSpStaffingRequired && (eventType !== "hifi" || needed > 0 || assignmentCount > 0);
+  const isTrainingMode = eventMeta.isTraining || activeEventTypeSet.has("training");
+  const noSpStaffingRequired = activeEventTypeSet.has("skills") && !eventMeta.hasSpWorkflow;
+  const staffingRelevant = eventMeta.hasSpWorkflow;
   const hasFaculty = hasNotesLine(event?.notes, /^(Course Faculty|Faculty)\s*:/im);
   const hasCase = hasNotesLine(event?.notes, /^Case\s*:/im);
   const hasTrainingScheduled = hasNotesLine(event?.notes, /^Training Date\s*:/im);
@@ -1943,9 +1945,12 @@ export default function EventDetailPage() {
   function handleSelectEventType(nextType: EditableEventType) {
     setEventSaveMessage("");
     setEventSaveError("");
+    const nextTypes = activeEventTypes.includes(nextType)
+      ? activeEventTypes.filter((type) => type !== nextType)
+      : [...activeEventTypes, nextType];
     setEventEditor((current) => ({
       ...current,
-      notes: upsertEventTypeInNotes(current.notes, nextType),
+      notes: upsertEventTypesInNotes(current.notes, nextTypes),
     }));
   }
 
@@ -2649,11 +2654,11 @@ export default function EventDetailPage() {
             </Link>
 
             <div style={segmentedGroupStyle} aria-label="Event type">
-              <span style={getEventTypeButtonStyle("skills", eventType)}>Skills</span>
-              <span style={getEventTypeButtonStyle("sp", eventType)}>SP</span>
-              <span style={getEventTypeButtonStyle("hifi", eventType)}>HiFi</span>
-              <span style={getEventTypeButtonStyle("training", eventType)}>Training</span>
-              <span style={getEventTypeButtonStyle("virtual", eventType)}>Virtual</span>
+              <span style={getEventTypeButtonStyle("skills", activeEventTypeSet.has("skills"))}>Skills</span>
+              <span style={getEventTypeButtonStyle("sp", activeEventTypeSet.has("sp"))}>SP</span>
+              <span style={getEventTypeButtonStyle("hifi", activeEventTypeSet.has("hifi"))}>HiFi</span>
+              <span style={getEventTypeButtonStyle("training", activeEventTypeSet.has("training"))}>Training</span>
+              <span style={getEventTypeButtonStyle("virtual", activeEventTypeSet.has("virtual"))}>Virtual</span>
             </div>
 
             <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
@@ -3380,7 +3385,7 @@ export default function EventDetailPage() {
                           type="button"
                           onClick={() => handleSelectEventType(type)}
                           disabled={saving}
-                          style={{ ...getEventTypeButtonStyle(type, editableEventType), cursor: "pointer" }}
+                          style={{ ...getEventTypeButtonStyle(type, activeEventTypeSet.has(type)), cursor: "pointer" }}
                         >
                           {editableEventTypeLabels[type]}
                         </button>
@@ -4280,7 +4285,7 @@ export default function EventDetailPage() {
                       onClick={() => handleSelectEventType(type)}
                       disabled={saving}
                       style={{
-                        ...getEventTypeButtonStyle(type, editableEventType),
+                        ...getEventTypeButtonStyle(type, activeEventTypeSet.has(type)),
                         cursor: "pointer",
                       }}
                     >
@@ -4289,7 +4294,7 @@ export default function EventDetailPage() {
                   ))}
                 </div>
                 <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 700 }}>
-                  Select a category here, then save event details to keep the event badge and workflow aligned.
+                  Toggle one or more categories here, then save event details to keep badges and workflows aligned.
                 </div>
               </div>
 
@@ -5117,9 +5122,9 @@ export default function EventDetailPage() {
               color: coverageStatus.color,
             }}
           >
-            <div style={statLabel}>{eventType === "hifi" ? "Operational Mode" : "Coverage Status"}</div>
+            <div style={statLabel}>{activeEventTypeSet.has("hifi") ? "Operational Mode" : "Coverage Status"}</div>
             <div style={{ marginTop: "4px", fontSize: "18px", fontWeight: 900 }}>
-              {eventType === "hifi" && !staffingRelevant ? "HiFi event with no active SP staffing target" : coverageStatus.message}
+              {activeEventTypeSet.has("hifi") && !staffingRelevant ? "HiFi event with no active SP staffing target" : coverageStatus.message}
             </div>
           </div>
 

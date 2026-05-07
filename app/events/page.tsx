@@ -78,23 +78,22 @@ function getEventBadges(event: EventRow) {
     confirmedCount,
   });
 
-  const badges = [
-    {
-      key: presentation.primaryBadgeKind,
-      label: presentation.primaryBadgeLabel,
-      ...getEventBadgeAppearance(presentation.primaryBadgeKind),
-    },
-  ];
-
-  if (presentation.isVirtualSp && presentation.primaryBadgeKind !== "virtual_sp") {
-    badges.push({
-      key: "virtual_sp",
-      label: "Virtual",
-      ...getEventBadgeAppearance("virtual_sp"),
-    });
-  }
-
-  return badges;
+  return presentation.activeBadgeKinds.map((kind) => ({
+    key: kind,
+    label:
+      kind === "training"
+        ? "Training"
+        : kind === "virtual_sp"
+          ? presentation.primaryBadgeKind === "virtual_sp"
+            ? "Virtual SP"
+            : "Virtual"
+          : kind === "hifi"
+            ? "HiFi"
+            : kind === "skills_workshop"
+              ? "Skills"
+              : "SP Event",
+    ...getEventBadgeAppearance(kind),
+  }));
 }
 
 function getEventSearchText(event: EventRow) {

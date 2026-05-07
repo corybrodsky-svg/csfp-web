@@ -26,32 +26,73 @@ function normalizeExplicitEventType(value: string): EditableEventType | null {
   return null;
 }
 
-export function getExplicitEventType(notes?: string | null): EditableEventType | null {
+function dedupeEventTypes(types: EditableEventType[]) {
+  return Array.from(new Set(types));
+}
+
+export function getExplicitEventTypes(notes?: string | null): EditableEventType[] {
   const text = asText(notes);
-  if (!text) return null;
+  if (!text) return [];
 
   const lines = text.split(/\r?\n/);
+  const found: EditableEventType[] = [];
+
   for (const line of lines) {
     const match = line.match(/^(Event Type|Event Category)\s*:\s*(.+)$/i);
     if (!match) continue;
-    return normalizeExplicitEventType(match[2]);
+    const normalized = normalizeExplicitEventType(match[2]);
+    if (normalized) found.push(normalized);
   }
 
-  return null;
+  for (const line of lines) {
+    const match = line.match(/^Event Types?\s*:\s*(.+)$/i);
+    if (!match) continue;
+
+    const normalizedTypes = match[1]
+      .split(/[,+/|]/)
+      .map((value) => normalizeExplicitEventType(value))
+      .filter((value): value is EditableEventType => Boolean(value));
+
+    found.push(...normalizedTypes);
+  }
+
+  return dedupeEventTypes(found);
+}
+
+export function getExplicitEventType(notes?: string | null): EditableEventType | null {
+  return getExplicitEventTypes(notes)[0] || null;
+}
+
+export function upsertEventTypesInNotes(
+  notes: string | null | undefined,
+  nextTypes: EditableEventType[]
+) {
+  const text = asText(notes);
+  const normalizedTypes = dedupeEventTypes(nextTypes);
+
+  if (!normalizedTypes.length) {
+    return text
+      .replace(/^(Event Types?|Event Category)\s*:.*$/gim, "")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+  }
+
+  const nextLine = `Event Types: ${normalizedTypes
+    .map((type) => editableEventTypeLabels[type])
+    .join(", ")}`;
+
+  if (!text) return nextLine;
+
+  if (/^(Event Types?|Event Category)\s*:/im.test(text)) {
+    return text.replace(/^(Event Types?|Event Category)\s*:.*$/im, nextLine);
+  }
+
+  return `${nextLine}\n${text}`;
 }
 
 export function upsertEventTypeInNotes(
   notes: string | null | undefined,
   nextType: EditableEventType
 ) {
-  const nextLine = `Event Type: ${editableEventTypeLabels[nextType]}`;
-  const text = asText(notes);
-
-  if (!text) return nextLine;
-
-  if (/^(Event Type|Event Category)\s*:/im.test(text)) {
-    return text.replace(/^(Event Type|Event Category)\s*:.*$/im, nextLine);
-  }
-
-  return `${nextLine}\n${text}`;
+  return upsertEventTypesInNotes(notes, [nextType]);
 }
