@@ -1,6 +1,10 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-import { AUTH_ACCESS_COOKIE } from "../../lib/authCookies";
+import {
+  AUTH_ACCESS_COOKIE,
+  AUTH_REFRESH_COOKIE,
+  setAuthCookies,
+} from "../../lib/authCookies";
 import { getDateSortValue, getImportedYearHint, normalizeLooseDateToIso } from "../../lib/eventDateUtils";
 import { getProfileForUser, getProfilesByIds } from "../../lib/profileServer";
 import { createSupabaseServerClient } from "../../lib/supabaseServerClient";
@@ -88,6 +92,10 @@ type ViewerContext = {
   role: string;
   fullName: string;
   scheduleName: string;
+  refreshedSession?: {
+    access_token: string;
+    refresh_token: string;
+  } | null;
 };
 
 type AssignmentApiRow = {
@@ -145,19 +153,50 @@ async function getAuthenticatedUserId() {
 async function getAuthenticatedViewer(): Promise<ViewerContext | null> {
   try {
     const cookieStore = await cookies();
-    const accessToken = cookieStore.get(AUTH_ACCESS_COOKIE)?.value;
+    const accessToken = cookieStore.get(AUTH_ACCESS_COOKIE)?.value?.trim() || "";
+    const refreshToken = cookieStore.get(AUTH_REFRESH_COOKIE)?.value?.trim() || "";
 
-    if (!accessToken) return null;
+    if (!accessToken && !refreshToken) return null;
 
     const supabase = createSupabaseServerClient();
-    const {
-      data: { user },
-      error,
-    } = await supabase.auth.getUser(accessToken);
+    let user = null as Awaited<ReturnType<typeof supabase.auth.getUser>>["data"]["user"] | null;
+    let resolvedAccessToken = accessToken;
+    let refreshedSession: ViewerContext["refreshedSession"] = null;
 
-    if (error || !user) return null;
+    if (accessToken) {
+      const {
+        data: { user: accessUser },
+        error,
+      } = await supabase.auth.getUser(accessToken);
 
-    const profileResult = await getProfileForUser(user.id, accessToken);
+      if (!error && accessUser) {
+        user = accessUser;
+      } else if (process.env.NODE_ENV !== "production") {
+        console.error("/api/events getUser failed", error?.message || "Unknown auth error");
+      }
+    }
+
+    if (!user && refreshToken) {
+      const { data, error } = await supabase.auth.refreshSession({
+        refresh_token: refreshToken,
+      });
+
+      const refreshedUser = data.user ?? data.session?.user ?? null;
+      if (!error && data.session?.access_token && data.session.refresh_token && refreshedUser) {
+        user = refreshedUser;
+        resolvedAccessToken = data.session.access_token;
+        refreshedSession = {
+          access_token: data.session.access_token,
+          refresh_token: data.session.refresh_token,
+        };
+      } else if (process.env.NODE_ENV !== "production") {
+        console.error("/api/events refreshSession failed", error?.message || "Unknown refresh error");
+      }
+    }
+
+    if (!user) return null;
+
+    const profileResult = await getProfileForUser(user.id, resolvedAccessToken);
     const profile = profileResult.profile;
     const email = asText(profile?.email) || asText(user.email);
 
@@ -167,6 +206,7 @@ async function getAuthenticatedViewer(): Promise<ViewerContext | null> {
       role: getEffectiveRole(email, profile?.role || user.user_metadata?.role),
       fullName: asText(profile?.full_name) || asText(user.user_metadata?.full_name),
       scheduleName: asText(profile?.schedule_name) || asText(user.user_metadata?.schedule_name),
+      refreshedSession,
     };
   } catch {
     return null;
@@ -366,7 +406,14 @@ export async function GET() {
     }
 
     console.log("CFSP /api/events returning count:", eventsWithCoverage.length);
-    return NextResponse.json({ events: eventsWithCoverage, assignments: assignmentRows });
+      const response = NextResponse.json({ events: eventsWithCoverage, assignments: assignmentRows });
+      if (viewer.refreshedSession?.access_token && viewer.refreshedSession.refresh_token) {
+        setAuthCookies(response, {
+          accessToken: viewer.refreshedSession.access_token,
+          refreshToken: viewer.refreshedSession.refresh_token,
+        });
+      }
+      return response;
   } catch (error) {
     return NextResponse.json(
       { error: `Supabase request failed: ${getErrorMessage(error)}` },

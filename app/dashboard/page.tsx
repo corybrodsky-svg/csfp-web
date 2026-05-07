@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import SiteShell from "../components/SiteShell";
 import { isPastEvent } from "../lib/eventArchive";
@@ -502,6 +502,7 @@ export default function DashboardPage() {
     inProgress: DASHBOARD_SECTION_PAGE_SIZE,
     ready: DASHBOARD_SECTION_PAGE_SIZE,
   });
+  const hasValidatedSessionRef = useRef(false);
 
   function resetSectionVisibleCounts() {
     setSectionVisibleCounts({
@@ -537,6 +538,15 @@ export default function DashboardPage() {
         if (cancelled) return;
 
         if (meRes.status === 401) {
+          console.error("/api/me returned 401 on dashboard", {
+            hasValidatedSession: hasValidatedSessionRef.current,
+          });
+          if (hasValidatedSessionRef.current) {
+            setAuthState("authed");
+            setError("Your session could not be refreshed for one request. Please retry.");
+            return;
+          }
+          console.error("Dashboard redirecting to /login after /api/me 401");
           setAuthState("guest");
           router.replace("/login");
           return;
@@ -545,6 +555,10 @@ export default function DashboardPage() {
         const meJson = (await meRes.json()) as MeResponse;
 
         if (!meRes.ok || !meJson.ok) {
+          console.error("/api/me failed on dashboard", {
+            status: meRes.status,
+            error: meJson?.error || null,
+          });
           setAuthState("authed");
           setMe(meJson);
           setError(meJson.error || "Could not load current user.");
@@ -553,6 +567,7 @@ export default function DashboardPage() {
 
         setMe(meJson);
         setAuthState("authed");
+        hasValidatedSessionRef.current = true;
 
         const eventsRes = await fetch("/api/events", {
           method: "GET",
@@ -567,14 +582,22 @@ export default function DashboardPage() {
         if (cancelled) return;
 
         if (eventsRes.status === 401) {
-          setAuthState("guest");
-          router.replace("/login");
+          console.error("/api/events returned 401 on dashboard after auth", {
+            hasValidatedSession: hasValidatedSessionRef.current,
+          });
+          setAuthState("authed");
+          setEvents([]);
+          setError("Your dashboard session is active, but events could not be refreshed right now.");
           return;
         }
 
         const eventsJson = (await eventsRes.json()) as EventsResponse;
 
         if (!eventsRes.ok) {
+          console.error("/api/events failed on dashboard", {
+            status: eventsRes.status,
+            error: eventsJson.error || null,
+          });
           setError(eventsJson.error || "Could not load events.");
           setEvents([]);
           return;

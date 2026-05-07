@@ -167,10 +167,21 @@ export default function EventsPage() {
       setError("");
 
       try {
-        const response = await fetch("/api/events", { cache: "no-store" });
+        const response = await fetch("/api/events", {
+          cache: "no-store",
+          credentials: "include",
+          headers: {
+            "Cache-Control": "no-store",
+            Pragma: "no-cache",
+          },
+        });
         const data = (await response.json()) as EventsResponse;
 
         if (!response.ok) {
+          console.error("/api/events failed on /events", {
+            status: response.status,
+            error: data.error || null,
+          });
           throw new Error(data.error || "Could not load events.");
         }
 
@@ -179,6 +190,7 @@ export default function EventsPage() {
         }
       } catch (err) {
         if (!cancelled) {
+          console.error("/events page load failed", err);
           setError(err instanceof Error ? err.message : "Could not load events.");
         }
       } finally {
