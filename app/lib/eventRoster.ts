@@ -27,6 +27,22 @@ function extractRosterLine(notes: string, labelPattern: RegExp) {
   return [];
 }
 
+function extractRosterText(notes: string, labelPattern: RegExp) {
+  const lines = notes
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  for (const line of lines) {
+    const match = line.match(labelPattern);
+    if (match?.[1]) {
+      return match[1].trim();
+    }
+  }
+
+  return "";
+}
+
 const ROSTER_LABEL_PATTERNS = [
   { label: "Sim Staff", pattern: /^Sim Staff\s*:\s*(.+)$/i },
   { label: "Staff Hiring", pattern: /^Staff Hiring\s*:\s*(.+)$/i },
@@ -71,4 +87,24 @@ export function getSimStaffLabel(notes?: string | null) {
   if (!info.names.length) return "No sim staff listed";
   if (info.label === "Sim Staff") return info.names.join(", ");
   return `${info.label}: ${info.names.join(", ")}`;
+}
+
+export function getFacultyNames(notes?: string | null) {
+  const text = asText(notes);
+  if (!text) return [];
+
+  const courseFaculty = extractRosterLine(text, /^Course Faculty\s*:\s*(.+)$/i);
+  if (courseFaculty.length) return Array.from(new Set(courseFaculty));
+
+  const faculty = extractRosterLine(text, /^Faculty\s*:\s*(.+)$/i);
+  return Array.from(new Set(faculty));
+}
+
+export function getFacultyText(notes?: string | null) {
+  const text = asText(notes);
+  if (!text) return "";
+  return (
+    extractRosterText(text, /^Course Faculty\s*:\s*(.+)$/i) ||
+    extractRosterText(text, /^Faculty\s*:\s*(.+)$/i)
+  );
 }
