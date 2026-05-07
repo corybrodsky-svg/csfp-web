@@ -227,7 +227,7 @@ export async function GET() {
 
     const { data: sessions, error: sessionError } = await supabaseServer
       .from("event_sessions")
-      .select("event_id,session_date")
+      .select("event_id,session_date,start_time,end_time")
       .order("session_date", { ascending: true });
 
     if (sessionError) {
@@ -295,6 +295,8 @@ export async function GET() {
         owner_name: ownerNameById.get(asText(event.owner_id)) || null,
         schedule_owner_text: extractScheduleOwnerText(event.notes),
         earliest_session_date: earliestSessionDate,
+        earliest_session_start: eventSessions[0]?.start_time || null,
+        latest_session_end: eventSessions[eventSessions.length - 1]?.end_time || null,
         assigned_sp_names: assignedNames,
         total_assignments: eventAssignments.length,
         confirmed_assignments: confirmedAssignments,

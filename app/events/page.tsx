@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import SiteShell from "../components/SiteShell";
 import { formatHumanDate, getImportedYearHint } from "../lib/eventDateUtils";
+import { classifyEventPresentation, getEventBadgeAppearance } from "../lib/eventClassification";
 
 type EventRow = {
   id: string;
@@ -14,9 +15,12 @@ type EventRow = {
   sp_needed: number | null;
   notes: string | null;
   earliest_session_date?: string | null;
+  earliest_session_start?: string | null;
+  latest_session_end?: string | null;
   assigned_sp_names?: string[] | null;
   total_assignments?: number | null;
   confirmed_assignments?: number | null;
+  shortage?: number | null;
 };
 
 type EventsResponse = {
@@ -24,60 +28,38 @@ type EventsResponse = {
   error?: string;
 };
 
-type RoundSubBlock = {
-  label: string;
-  start: number;
-  end: number;
-};
-
-type GeneratedRoomSlot = {
-  roomName: string;
-  roomType: "exam" | "flex";
-  capacityLabel: string;
-};
-
-type GeneratedRound = {
-  round: number;
-  start: number;
-  end: number;
-  roomSlots: GeneratedRoomSlot[];
-  subBlocks: RoundSubBlock[];
-};
-
 function asText(value: unknown) {
   if (value === null || value === undefined) return "";
   return String(value).trim();
 }
 
-function parseNumber(value: string, fallback: number) {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return fallback;
-  return Math.max(0, Math.floor(parsed));
-}
+function parseTimeToMinutes(value?: string | null) {
+  const raw = asText(value).toLowerCase();
+  if (!raw) return null;
 
-function toMinutes(value: string) {
-  const [hoursText, minutesText] = asText(value).split(":");
-  const hours = Number(hoursText);
-  const minutes = Number(minutesText);
+  const normalized = raw.replace(/\s+/g, "");
+  const match = normalized.match(/^(\d{1,2})(?::(\d{2}))?(am|pm)?$/);
+  if (!match) return null;
 
-  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
-  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
+  let hours = Number(match[1]);
+  const minutes = Number(match[2] || "0");
+  const meridiem = match[3];
 
+  if (meridiem === "pm" && hours < 12) hours += 12;
+  if (meridiem === "am" && hours === 12) hours = 0;
+  if (hours > 23 || minutes > 59) return null;
   return hours * 60 + minutes;
 }
 
-function toDisplayTime(totalMinutes: number) {
-  const normalized = ((totalMinutes % 1440) + 1440) % 1440;
-  const hours = Math.floor(normalized / 60);
-  const minutes = normalized % 60;
+function formatDisplayTime(value?: string | null) {
+  const minutes = parseTimeToMinutes(value);
+  if (minutes === null) return asText(value) || "Time TBD";
+
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  const normalizedHours = hours % 12 || 12;
   const suffix = hours >= 12 ? "PM" : "AM";
-  const twelveHour = hours % 12 || 12;
-
-  return `${twelveHour}:${String(minutes).padStart(2, "0")} ${suffix}`;
-}
-
-function formatRange(start: number, end: number) {
-  return `${toDisplayTime(start)} - ${toDisplayTime(end)}`;
+  return `${normalizedHours}:${String(mins).padStart(2, "0")} ${suffix}`;
 }
 
 function formatEventDate(event: EventRow) {
@@ -86,131 +68,53 @@ function formatEventDate(event: EventRow) {
   return formatHumanDate(dateSource, getImportedYearHint(event.notes)) || dateSource;
 }
 
-function getAssignedNames(event: EventRow) {
-  return (event.assigned_sp_names || []).filter(Boolean);
+function formatEventTime(event: EventRow) {
+  if (event.earliest_session_start && event.latest_session_end) {
+    return `${formatDisplayTime(event.earliest_session_start)} - ${formatDisplayTime(event.latest_session_end)}`;
+  }
+  if (event.earliest_session_start || event.latest_session_end) {
+    return formatDisplayTime(event.earliest_session_start || event.latest_session_end);
+  }
+  return "Time TBD";
 }
 
-function buildRounds(args: {
-  startMinutes: number;
-  rounds: number;
-  sessionLengthMinutes: number;
-  examRoomCount: number;
-  flexRoomCount: number;
-  maxPairsPerFlexRoom: number;
-  encounterMinutes: number;
-  includeChecklist: boolean;
-  checklistMinutes: number;
-  includeSoap: boolean;
-  soapMinutes: number;
-  includeFeedback: boolean;
-  feedbackMinutes: number;
-  transitionMinutes: number;
-}) {
-  const blockDurations = [
-    { label: "Encounter", minutes: args.encounterMinutes, enabled: true },
+function getEventBadges(event: EventRow) {
+  const needed = Number(event.sp_needed || 0);
+  const assignmentCount = Number(event.total_assignments || 0);
+  const confirmedCount = Number(event.confirmed_assignments || 0);
+  const presentation = classifyEventPresentation({
+    name: event.name,
+    status: event.status,
+    notes: event.notes,
+    location: event.location,
+    spNeeded: needed,
+    assignmentCount,
+    confirmedCount,
+  });
+
+  const badges = [
     {
-      label: "Checklist",
-      minutes: args.checklistMinutes,
-      enabled: args.includeChecklist && args.checklistMinutes > 0,
+      key: presentation.primaryBadgeKind,
+      label: presentation.primaryBadgeLabel,
+      ...getEventBadgeAppearance(presentation.primaryBadgeKind),
     },
-    {
-      label: "SOAP Note",
-      minutes: args.soapMinutes,
-      enabled: args.includeSoap && args.soapMinutes > 0,
-    },
-    {
-      label: "Feedback",
-      minutes: args.feedbackMinutes,
-      enabled: args.includeFeedback && args.feedbackMinutes > 0,
-    },
-    {
-      label: "Transition",
-      minutes: args.transitionMinutes,
-      enabled: args.transitionMinutes > 0,
-    },
-  ].filter((item) => item.enabled && item.minutes > 0);
+  ];
 
-  const configuredLength = blockDurations.reduce((sum, item) => sum + item.minutes, 0);
-  const sessionLengthMinutes = Math.max(1, args.sessionLengthMinutes);
-  const bufferMinutes = Math.max(sessionLengthMinutes - configuredLength, 0);
-  const roundLength = Math.max(configuredLength, sessionLengthMinutes);
-
-  const rounds: GeneratedRound[] = [];
-  let roundStart = args.startMinutes;
-
-  for (let roundIndex = 0; roundIndex < args.rounds; roundIndex += 1) {
-    const subBlocks: RoundSubBlock[] = [];
-    let current = roundStart;
-
-    for (const block of blockDurations) {
-      subBlocks.push({
-        label: block.label,
-        start: current,
-        end: current + block.minutes,
-      });
-      current += block.minutes;
-    }
-
-    if (bufferMinutes > 0) {
-      subBlocks.push({
-        label: "Open Buffer",
-        start: current,
-        end: current + bufferMinutes,
-      });
-      current += bufferMinutes;
-    }
-
-    const examSlots: GeneratedRoomSlot[] = Array.from(
-      { length: args.examRoomCount },
-      (_, index) => ({
-        roomName: `Exam ${index + 1}`,
-        roomType: "exam",
-        capacityLabel: "1 pair",
-      })
-    );
-
-    const flexSlots: GeneratedRoomSlot[] = Array.from(
-      { length: args.flexRoomCount },
-      (_, index) => ({
-        roomName: `Flex ${index + 1}`,
-        roomType: "flex",
-        capacityLabel: `up to ${args.maxPairsPerFlexRoom} pairs`,
-      })
-    );
-
-    rounds.push({
-      round: roundIndex + 1,
-      start: roundStart,
-      end: roundStart + roundLength,
-      roomSlots: [...examSlots, ...flexSlots],
-      subBlocks,
+  if (presentation.isVirtualSp && presentation.primaryBadgeKind !== "virtual_sp") {
+    badges.push({
+      key: "virtual_sp",
+      label: "Virtual",
+      ...getEventBadgeAppearance("virtual_sp"),
     });
-
-    roundStart += roundLength;
   }
 
-  return rounds;
+  return badges;
 }
 
 export default function EventsPage() {
   const [events, setEvents] = useState<EventRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-
-  const [startTime, setStartTime] = useState("08:10");
-  const [rounds, setRounds] = useState("6");
-  const [sessionLength, setSessionLength] = useState("50");
-  const [examRooms, setExamRooms] = useState("6");
-  const [flexRooms, setFlexRooms] = useState("2");
-  const [maxPairsPerFlexRoom, setMaxPairsPerFlexRoom] = useState("3");
-  const [encounterMinutes, setEncounterMinutes] = useState("25");
-  const [checklistMinutes, setChecklistMinutes] = useState("5");
-  const [soapMinutes, setSoapMinutes] = useState("10");
-  const [feedbackMinutes, setFeedbackMinutes] = useState("5");
-  const [transitionMinutes, setTransitionMinutes] = useState("5");
-  const [includeChecklist, setIncludeChecklist] = useState(true);
-  const [includeSoap, setIncludeSoap] = useState(true);
-  const [includeFeedback, setIncludeFeedback] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -241,226 +145,56 @@ export default function EventsPage() {
       }
     }
 
-    loadEvents();
+    void loadEvents();
 
     return () => {
       cancelled = true;
     };
   }, []);
 
-  const generatedRounds = useMemo(() => {
-    const parsedStart = toMinutes(startTime) ?? 8 * 60 + 10;
-
-    return buildRounds({
-      startMinutes: parsedStart,
-      rounds: parseNumber(rounds, 6),
-      sessionLengthMinutes: parseNumber(sessionLength, 50),
-      examRoomCount: parseNumber(examRooms, 6),
-      flexRoomCount: parseNumber(flexRooms, 2),
-      maxPairsPerFlexRoom: parseNumber(maxPairsPerFlexRoom, 3),
-      encounterMinutes: parseNumber(encounterMinutes, 25),
-      includeChecklist,
-      checklistMinutes: parseNumber(checklistMinutes, 5),
-      includeSoap,
-      soapMinutes: parseNumber(soapMinutes, 10),
-      includeFeedback,
-      feedbackMinutes: parseNumber(feedbackMinutes, 5),
-      transitionMinutes: parseNumber(transitionMinutes, 5),
-    });
-  }, [
-    startTime,
-    rounds,
-    sessionLength,
-    examRooms,
-    flexRooms,
-    maxPairsPerFlexRoom,
-    encounterMinutes,
-    includeChecklist,
-    checklistMinutes,
-    includeSoap,
-    soapMinutes,
-    includeFeedback,
-    feedbackMinutes,
-    transitionMinutes,
-  ]);
+  const totals = useMemo(() => {
+    return events.reduce(
+      (sum, event) => {
+        sum.needed += Number(event.sp_needed || 0);
+        sum.assigned += Number(event.total_assignments || 0);
+        sum.confirmed += Number(event.confirmed_assignments || 0);
+        sum.shortage += Number(event.shortage || 0);
+        return sum;
+      },
+      { needed: 0, assigned: 0, confirmed: 0, shortage: 0 }
+    );
+  }, [events]);
 
   return (
     <SiteShell
       title="Events"
-      subtitle="Review imported events, open command centers, and generate room/round schedules."
+      subtitle="Browse events, review coverage, and open each event command center."
     >
       <main style={{ padding: 24, display: "grid", gap: 24 }}>
-        <section>
-          <h1 style={{ margin: 0, fontSize: 32 }}>Events</h1>
-          <p style={{ marginTop: 8, color: "#52616b" }}>
-            Review imported events, open command centers, and generate room/round schedules.
-          </p>
-        </section>
-
         <section
           style={{
             border: "1px solid #d9e2ec",
-            borderRadius: 16,
-            padding: 18,
-            background: "white",
+            borderRadius: 18,
+            padding: 20,
+            background: "linear-gradient(180deg, #f8fbfd 0%, #eef5fb 100%)",
           }}
         >
-          <h2 style={{ marginTop: 0 }}>Schedule Builder</h2>
-
+          <h1 style={{ margin: 0, fontSize: 32, color: "#14304f" }}>Event Browser</h1>
+          <p style={{ margin: "10px 0 0", color: "#52616b", maxWidth: 780 }}>
+            Open any event to jump straight into its command center. Cards below show the date, 12-hour time, location, type, and current SP coverage at a glance.
+          </p>
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+              gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
               gap: 12,
+              marginTop: 18,
             }}
           >
-            <label>
-              Start time
-              <input value={startTime} onChange={(e) => setStartTime(e.target.value)} type="time" />
-            </label>
-
-            <label>
-              Rounds
-              <input value={rounds} onChange={(e) => setRounds(e.target.value)} type="number" min="1" />
-            </label>
-
-            <label>
-              Round length
-              <input value={sessionLength} onChange={(e) => setSessionLength(e.target.value)} type="number" min="1" />
-            </label>
-
-            <label>
-              Exam rooms
-              <input value={examRooms} onChange={(e) => setExamRooms(e.target.value)} type="number" min="0" />
-            </label>
-
-            <label>
-              Flex rooms
-              <input value={flexRooms} onChange={(e) => setFlexRooms(e.target.value)} type="number" min="0" />
-            </label>
-
-            <label>
-              Flex capacity
-              <input
-                value={maxPairsPerFlexRoom}
-                onChange={(e) => setMaxPairsPerFlexRoom(e.target.value)}
-                type="number"
-                min="1"
-              />
-            </label>
-
-            <label>
-              Encounter
-              <input
-                value={encounterMinutes}
-                onChange={(e) => setEncounterMinutes(e.target.value)}
-                type="number"
-                min="1"
-              />
-            </label>
-
-            <label>
-              Checklist
-              <input
-                value={checklistMinutes}
-                onChange={(e) => setChecklistMinutes(e.target.value)}
-                type="number"
-                min="0"
-              />
-            </label>
-
-            <label>
-              SOAP
-              <input value={soapMinutes} onChange={(e) => setSoapMinutes(e.target.value)} type="number" min="0" />
-            </label>
-
-            <label>
-              Feedback
-              <input
-                value={feedbackMinutes}
-                onChange={(e) => setFeedbackMinutes(e.target.value)}
-                type="number"
-                min="0"
-              />
-            </label>
-
-            <label>
-              Transition
-              <input
-                value={transitionMinutes}
-                onChange={(e) => setTransitionMinutes(e.target.value)}
-                type="number"
-                min="0"
-              />
-            </label>
-          </div>
-
-          <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginTop: 14 }}>
-            <label>
-              <input
-                checked={includeChecklist}
-                onChange={(e) => setIncludeChecklist(e.target.checked)}
-                type="checkbox"
-              />{" "}
-              Include checklist
-            </label>
-
-            <label>
-              <input checked={includeSoap} onChange={(e) => setIncludeSoap(e.target.checked)} type="checkbox" /> Include
-              SOAP
-            </label>
-
-            <label>
-              <input
-                checked={includeFeedback}
-                onChange={(e) => setIncludeFeedback(e.target.checked)}
-                type="checkbox"
-              />{" "}
-              Include feedback
-            </label>
-          </div>
-
-          <div style={{ display: "grid", gap: 12, marginTop: 18 }}>
-            {generatedRounds.map((round) => (
-              <div key={round.round} style={{ border: "1px solid #d9e2ec", borderRadius: 12, padding: 12 }}>
-                <strong>
-                  Round {round.round}: {formatRange(round.start, round.end)}
-                </strong>
-
-                <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  {round.subBlocks.map((block) => (
-                    <span
-                      key={`${round.round}-${block.label}-${block.start}`}
-                      style={{
-                        border: "1px solid #d9e2ec",
-                        borderRadius: 999,
-                        padding: "4px 8px",
-                        fontSize: 13,
-                        background: "#f8fafc",
-                      }}
-                    >
-                      {block.label}: {formatRange(block.start, block.end)}
-                    </span>
-                  ))}
-                </div>
-
-                <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  {round.roomSlots.map((slot) => (
-                    <span
-                      key={`${round.round}-${slot.roomName}`}
-                      style={{
-                        border: "1px solid #d9e2ec",
-                        borderRadius: 999,
-                        padding: "4px 8px",
-                        fontSize: 13,
-                      }}
-                    >
-                      {slot.roomName} · {slot.capacityLabel}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            ))}
+            <SummaryCard label="Events" value={String(events.length)} />
+            <SummaryCard label="SP Needed" value={String(totals.needed)} />
+            <SummaryCard label="Assigned" value={String(totals.assigned)} />
+            <SummaryCard label="Shortage" value={String(totals.shortage)} tone={totals.shortage > 0 ? "warning" : "default"} />
           </div>
         </section>
 
@@ -472,19 +206,39 @@ export default function EventsPage() {
             background: "white",
           }}
         >
-          <h2 style={{ marginTop: 0 }}>Event List</h2>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+            <div>
+              <h2 style={{ margin: 0 }}>Events</h2>
+              <p style={{ margin: "6px 0 0", color: "#52616b" }}>Click a card to open the event command center.</p>
+            </div>
+            <Link
+              href="/events/new"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                textDecoration: "none",
+                borderRadius: 999,
+                padding: "10px 14px",
+                background: "#173b6c",
+                color: "#ffffff",
+                fontWeight: 800,
+              }}
+            >
+              New Event
+            </Link>
+          </div>
 
           {loading ? <p>Loading events...</p> : null}
           {error ? <p style={{ color: "#b42318" }}>{error}</p> : null}
-
           {!loading && !error && events.length === 0 ? <p>No events found.</p> : null}
 
-          <div style={{ display: "grid", gap: 12 }}>
+          <div style={{ display: "grid", gap: 14, marginTop: 16 }}>
             {events.map((event) => {
-              const assignedNames = getAssignedNames(event);
-              const needed = event.sp_needed ?? 0;
-              const confirmed = event.confirmed_assignments ?? 0;
-              const total = event.total_assignments ?? 0;
+              const badges = getEventBadges(event);
+              const needed = Number(event.sp_needed || 0);
+              const assigned = Number(event.total_assignments || 0);
+              const confirmed = Number(event.confirmed_assignments || 0);
+              const shortage = Math.max(Number(event.shortage || 0), 0);
 
               return (
                 <Link
@@ -495,34 +249,71 @@ export default function EventsPage() {
                     textDecoration: "none",
                     color: "inherit",
                     border: "1px solid #d9e2ec",
-                    borderRadius: 14,
-                    padding: 14,
+                    borderRadius: 16,
+                    padding: 16,
                     background: "#ffffff",
+                    boxShadow: "0 10px 24px rgba(15, 23, 42, 0.05)",
                   }}
                 >
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-                    <div>
-                      <strong style={{ fontSize: 18 }}>{event.name || "Untitled Event"}</strong>
-                      <div style={{ color: "#52616b", marginTop: 4 }}>
-                        {formatEventDate(event)} · {event.location || "Location TBD"}
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                    <div style={{ display: "grid", gap: 8 }}>
+                      <strong style={{ fontSize: 20, color: "#14304f" }}>{event.name || "Untitled Event"}</strong>
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        {badges.map((badge) => (
+                          <span
+                            key={`${event.id}-${badge.key}`}
+                            style={{
+                              borderRadius: 999,
+                              padding: "6px 10px",
+                              background: badge.background,
+                              border: `1px solid ${badge.border}`,
+                              color: badge.color,
+                              fontWeight: 900,
+                              fontSize: 12,
+                            }}
+                          >
+                            {badge.label}
+                          </span>
+                        ))}
+                        <span
+                          style={{
+                            borderRadius: 999,
+                            padding: "6px 10px",
+                            background: "#f8fafc",
+                            border: "1px solid #d9e2ec",
+                            color: "#52616b",
+                            fontWeight: 800,
+                            fontSize: 12,
+                          }}
+                        >
+                          {event.status || "No status"}
+                        </span>
                       </div>
                     </div>
-
-                    <div style={{ textAlign: "right", color: "#52616b" }}>
-                      <div>Status: {event.status || "TBD"}</div>
-                      <div>
-                        Coverage: {confirmed}/{needed || total || 0}
-                      </div>
+                    <div style={{ color: "#52616b", fontWeight: 700, textAlign: "right" }}>
+                      <div>{formatEventDate(event)}</div>
+                      <div style={{ marginTop: 4 }}>{formatEventTime(event)}</div>
                     </div>
                   </div>
 
-                  {assignedNames.length > 0 ? (
-                    <div style={{ marginTop: 10, color: "#334e68" }}>
-                      Assigned SPs: {assignedNames.join(", ")}
-                    </div>
-                  ) : (
-                    <div style={{ marginTop: 10, color: "#829ab1" }}>No assigned SPs yet.</div>
-                  )}
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+                      gap: 10,
+                      marginTop: 14,
+                    }}
+                  >
+                    <MetricBlock label="Location" value={event.location || "Location TBD"} />
+                    <MetricBlock label="SP Needed" value={String(needed)} />
+                    <MetricBlock label="Assigned" value={String(assigned)} />
+                    <MetricBlock label="Confirmed" value={String(confirmed)} />
+                    <MetricBlock
+                      label="Shortage"
+                      value={String(shortage)}
+                      valueColor={shortage > 0 ? "#991b1b" : "#166534"}
+                    />
+                  </div>
                 </Link>
               );
             })}
@@ -530,5 +321,39 @@ export default function EventsPage() {
         </section>
       </main>
     </SiteShell>
+  );
+}
+
+function SummaryCard(props: { label: string; value: string; tone?: "default" | "warning" }) {
+  const warning = props.tone === "warning";
+
+  return (
+    <div
+      style={{
+        border: "1px solid #d9e2ec",
+        borderRadius: 14,
+        padding: 14,
+        background: warning ? "#fff5f5" : "#ffffff",
+      }}
+    >
+      <div style={{ fontSize: 12, fontWeight: 800, textTransform: "uppercase", color: "#64748b" }}>{props.label}</div>
+      <div style={{ marginTop: 6, fontSize: 22, fontWeight: 900, color: warning ? "#991b1b" : "#14304f" }}>{props.value}</div>
+    </div>
+  );
+}
+
+function MetricBlock(props: { label: string; value: string; valueColor?: string }) {
+  return (
+    <div
+      style={{
+        border: "1px solid #e5edf5",
+        borderRadius: 12,
+        padding: 12,
+        background: "#f8fbfd",
+      }}
+    >
+      <div style={{ fontSize: 12, fontWeight: 800, textTransform: "uppercase", color: "#64748b" }}>{props.label}</div>
+      <div style={{ marginTop: 6, fontWeight: 900, color: props.valueColor || "#14304f" }}>{props.value}</div>
+    </div>
   );
 }

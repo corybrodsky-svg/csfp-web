@@ -16,6 +16,12 @@ import {
   isSkillsWorkshopEvent,
   type EventDisplayType,
 } from "../../lib/eventClassification";
+import {
+  editableEventTypeLabels,
+  getExplicitEventType,
+  upsertEventTypeInNotes,
+  type EditableEventType,
+} from "../../lib/eventTypeNotes";
 import { getSimStaffNames } from "../../lib/eventRoster";
 
 type EventDetailRow = {
@@ -479,6 +485,11 @@ function getEventTypeButtonStyle(type: EventDisplayType, activeType: EventDispla
       border: "#fdba74",
       color: "#9a3412",
     },
+    virtual: {
+      background: "#eff6ff",
+      border: "#93c5fd",
+      color: "#1d4ed8",
+    },
   };
 
   const palette = palettes[type];
@@ -564,8 +575,8 @@ function getAvailabilityState(row: AvailabilityRow) {
 function getAvailabilityTime(row: AvailabilityRow) {
   const start = asText(row.start_time);
   const end = asText(row.end_time);
-  if (start && end) return `${start}-${end}`;
-  return start || end || "";
+  if (start && end) return `${formatDisplayTime(start)} - ${formatDisplayTime(end)}`;
+  return start || end ? formatDisplayTime(start || end) : "";
 }
 
 function getAvailabilityForSp(spId: string, availabilityRows: AvailabilityRow[]) {
@@ -1200,6 +1211,7 @@ export default function EventDetailPage() {
   const assignedCount = assignmentCount;
   const shortageCount = isWorkshop ? 0 : shortage;
   const eventType = eventMeta.eventType;
+  const editableEventType = (getExplicitEventType(eventEditor.notes) || eventType) as EditableEventType;
   const noSpStaffingRequired = eventType === "skills" || isWorkshop || needed <= 0;
   const staffingRelevant = !noSpStaffingRequired && (eventType !== "hifi" || needed > 0 || assignmentCount > 0);
   const hasFaculty = hasNotesLine(event?.notes, /^(Course Faculty|Faculty)\s*:/im);
@@ -1588,6 +1600,15 @@ export default function EventDetailPage() {
     setSaving(false);
   }
 
+  function handleSelectEventType(nextType: EditableEventType) {
+    setEventSaveMessage("");
+    setEventSaveError("");
+    setEventEditor((current) => ({
+      ...current,
+      notes: upsertEventTypeInNotes(current.notes, nextType),
+    }));
+  }
+
   useEffect(() => {
     let cancelled = false;
 
@@ -1897,6 +1918,7 @@ export default function EventDetailPage() {
               <span style={getEventTypeButtonStyle("sp", eventType)}>SP</span>
               <span style={getEventTypeButtonStyle("hifi", eventType)}>HiFi</span>
               <span style={getEventTypeButtonStyle("training", eventType)}>Training</span>
+              <span style={getEventTypeButtonStyle("virtual", eventType)}>Virtual</span>
             </div>
 
             <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
@@ -1939,6 +1961,17 @@ export default function EventDetailPage() {
               >
                 {eventMeta.primaryBadgeLabel}
               </span>
+              <Link
+                href={`/events/${encodeURIComponent(id)}/schedule-builder`}
+                style={{
+                  ...buttonStyle,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  textDecoration: "none",
+                }}
+              >
+                Build Rotation Schedule
+              </Link>
             </div>
           </div>
         </div>
@@ -2458,6 +2491,29 @@ export default function EventDetailPage() {
                   style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
                 />
               </label>
+
+              <div style={{ display: "grid", gap: "8px", gridColumn: "1 / -1" }}>
+                <span style={statLabel}>Event Type / Category</span>
+                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                  {(Object.keys(editableEventTypeLabels) as EditableEventType[]).map((type) => (
+                    <button
+                      key={type}
+                      type="button"
+                      onClick={() => handleSelectEventType(type)}
+                      disabled={saving}
+                      style={{
+                        ...getEventTypeButtonStyle(type, editableEventType),
+                        cursor: "pointer",
+                      }}
+                    >
+                      {editableEventTypeLabels[type]}
+                    </button>
+                  ))}
+                </div>
+                <div style={{ color: "#64748b", fontSize: "12px", fontWeight: 700 }}>
+                  Select a category here, then save event details to keep the event badge and workflow aligned.
+                </div>
+              </div>
 
               <label style={{ display: "grid", gap: "6px", gridColumn: "1 / -1" }}>
                 <span style={statLabel}>Location</span>

@@ -1,4 +1,6 @@
-export type EventDisplayType = "skills" | "sp" | "hifi" | "training";
+import { getExplicitEventType } from "./eventTypeNotes";
+
+export type EventDisplayType = "skills" | "sp" | "hifi" | "training" | "virtual";
 
 export type EventBadgeKind =
   | "training"
@@ -44,31 +46,44 @@ export function classifyEventPresentation(input: EventClassificationInput) {
   const spNeeded = Number(input.spNeeded || 0);
   const assignmentCount = Number(input.assignmentCount || 0);
   const confirmedCount = Number(input.confirmedCount || 0);
+  const explicitType = getExplicitEventType(input.notes);
 
   const isTraining =
-    /\btraining\b/.test(eventText) ||
-    eventText.includes("orientation") ||
-    eventText.includes("onboarding");
-  const isVirtualSp = /\bvir\b/.test(eventText) || eventText.includes("virtual");
+    explicitType === "training" ||
+    (!explicitType &&
+      (/\btraining\b/.test(eventText) ||
+        eventText.includes("orientation") ||
+        eventText.includes("onboarding")));
+  const isVirtualSp =
+    explicitType === "virtual" ||
+    (!explicitType && (/\bvir\b/.test(eventText) || eventText.includes("virtual")));
   const isHiFi =
-    !isTraining &&
-    (eventText.includes("hi-fi") ||
-      eventText.includes("hifi") ||
-      eventText.includes("high fidelity"));
+    explicitType === "hifi" ||
+    (!explicitType &&
+      !isTraining &&
+      (eventText.includes("hi-fi") ||
+        eventText.includes("hifi") ||
+        eventText.includes("high fidelity")));
 
   const hasStructuredSpNeed = spNeeded > 0;
   const hasAssignments = assignmentCount > 0 || confirmedCount > 0;
   const isStructuredSpEvent = hasStructuredSpNeed || hasAssignments;
   const derivedWorkshop =
     input.isWorkshop ?? isSkillsWorkshopEvent(spNeeded, assignmentCount, confirmedCount);
-  const isSkillsEvent = !isTraining && !isHiFi && !isStructuredSpEvent && derivedWorkshop;
+  const isSkillsEvent =
+    explicitType === "skills" ||
+    (!explicitType && !isTraining && !isHiFi && !isVirtualSp && !isStructuredSpEvent && derivedWorkshop);
 
   let primaryBadgeKind: EventBadgeKind = "sp_event";
 
-  if (isTraining) {
+  if (explicitType === "sp") {
+    primaryBadgeKind = "sp_event";
+  } else if (isTraining) {
     primaryBadgeKind = "training";
   } else if (isHiFi) {
     primaryBadgeKind = "hifi";
+  } else if (isVirtualSp) {
+    primaryBadgeKind = "virtual_sp";
   } else if (isSkillsEvent) {
     primaryBadgeKind = "skills_workshop";
   } else if (isStructuredSpEvent) {
@@ -90,6 +105,8 @@ export function classifyEventPresentation(input: EventClassificationInput) {
       ? "training"
       : primaryBadgeKind === "hifi"
         ? "hifi"
+        : primaryBadgeKind === "virtual_sp"
+          ? "virtual"
         : primaryBadgeKind === "skills_workshop"
           ? "skills"
           : "sp";
