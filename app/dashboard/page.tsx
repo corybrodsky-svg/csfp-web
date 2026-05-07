@@ -67,6 +67,7 @@ type EventsResponse = {
 
 type AuthState = "loading" | "authed" | "guest";
 type DashboardScope = "my" | "all";
+const MAX_ROSTER_CHIPS = 12;
 
 type EventWithMeta = {
   event: EventRecord;
@@ -162,19 +163,23 @@ function getEventTypeLabel(event: EventRecord) {
 }
 
 function renderAssignedPeople(names?: string[] | null) {
-  const preview = (names || []).filter(Boolean).slice(0, 4);
+  const preview = (names || []).filter(Boolean);
 
   if (!preview.length) {
     return <span className="text-sm font-semibold text-[var(--cfsp-text-muted)]">No assigned SPs yet</span>;
   }
 
+  const visible = preview.slice(0, MAX_ROSTER_CHIPS);
+  const remaining = preview.length - visible.length;
+
   return (
     <>
-      {preview.map((name) => (
+      {visible.map((name) => (
         <span key={name} className="cfsp-chip">
           {name}
         </span>
       ))}
+      {remaining > 0 ? <span className="cfsp-chip">+{remaining} more</span> : null}
     </>
   );
 }

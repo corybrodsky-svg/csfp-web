@@ -303,8 +303,7 @@ export async function GET() {
         normalizedSessionDates[normalizedSessionDates.length - 1] || null;
       const assignedNames = eventAssignments
         .map((assignment) => spNameById.get(asText(assignment.sp_id)) || "")
-        .filter(Boolean)
-        .slice(0, 3);
+        .filter(Boolean);
 
       return {
         ...event,

@@ -35,6 +35,7 @@ type EventsResponse = {
 };
 
 type EventView = "current" | "archive" | "all";
+const MAX_ROSTER_CHIPS = 12;
 
 function formatEventDate(event: EventRow) {
   const dateSource = event.earliest_session_date || event.date_text;
@@ -83,6 +84,27 @@ function getEventBadges(event: EventRow) {
   }
 
   return badges;
+}
+
+function renderRosterChips(names?: string[] | null) {
+  const roster = (names || []).filter(Boolean);
+  if (!roster.length) {
+    return <span style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>No assigned SPs yet.</span>;
+  }
+
+  const visible = roster.slice(0, MAX_ROSTER_CHIPS);
+  const remaining = roster.length - visible.length;
+
+  return (
+    <>
+      {visible.map((name) => (
+        <span key={name} className="cfsp-chip">
+          {name}
+        </span>
+      ))}
+      {remaining > 0 ? <span className="cfsp-chip">+{remaining} more</span> : null}
+    </>
+  );
 }
 
 export default function EventsPage() {
@@ -135,7 +157,7 @@ export default function EventsPage() {
     };
   }, []);
 
-  const filteredEvents = useMemo(() => {
+  const eventBuckets = useMemo(() => {
     const upcoming = events
       .filter((event) =>
         !isPastEvent({
@@ -194,10 +216,18 @@ export default function EventsPage() {
         )
       );
 
-    if (view === "archive") return archive;
-    if (view === "all") return [...upcoming, ...archive];
-    return upcoming;
-  }, [events, view]);
+    return {
+      upcoming,
+      archive,
+      all: [...upcoming, ...archive],
+    };
+  }, [events]);
+
+  const filteredEvents = useMemo(() => {
+    if (view === "archive") return eventBuckets.archive;
+    if (view === "all") return eventBuckets.all;
+    return eventBuckets.upcoming;
+  }, [eventBuckets, view]);
 
   const totals = useMemo(() => {
     return filteredEvents.reduce(
@@ -239,7 +269,9 @@ export default function EventsPage() {
               marginTop: 18,
             }}
           >
-            <SummaryCard label="Events" value={String(events.length)} />
+            <SummaryCard label="All Events" value={String(eventBuckets.all.length)} />
+            <SummaryCard label="Upcoming" value={String(eventBuckets.upcoming.length)} />
+            <SummaryCard label="Archive" value={String(eventBuckets.archive.length)} />
             <SummaryCard label="Showing" value={String(filteredEvents.length)} />
             <SummaryCard label="SP Needed" value={String(totals.needed)} />
             <SummaryCard label="Assigned" value={String(totals.assigned)} />
@@ -263,8 +295,8 @@ export default function EventsPage() {
                 {view === "archive"
                   ? "Past events are shown newest first."
                   : view === "all"
-                  ? "Showing current and archived events."
-                  : "Showing current and upcoming events only."}
+                  ? "Showing every event returned by Supabase, including past, current, future, and unknown-date events."
+                  : "Showing current, upcoming, and unknown-date events only."}
               </p>
             </div>
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
@@ -278,9 +310,9 @@ export default function EventsPage() {
                 }}
               >
                 {[
-                  { key: "current", label: "Upcoming / Current" },
-                  { key: "archive", label: "Archive / Past Events" },
-                  { key: "all", label: "All Events" },
+                  { key: "current", label: `Upcoming / Current (${eventBuckets.upcoming.length})` },
+                  { key: "archive", label: `Archive / Past Events (${eventBuckets.archive.length})` },
+                  { key: "all", label: `All Events (${eventBuckets.all.length})` },
                 ].map((option) => (
                   <button
                     key={option.key}
@@ -321,7 +353,13 @@ export default function EventsPage() {
           {loading ? <p>Loading events...</p> : null}
           {error ? <p style={{ color: "var(--cfsp-danger)" }}>{error}</p> : null}
           {!loading && !error && filteredEvents.length === 0 ? (
-            <p>{view === "archive" ? "No past events found." : "No events found."}</p>
+            <p style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
+              {view === "archive"
+                ? "No archived events found."
+                : view === "all"
+                ? "No events were returned. Check imports or Supabase data."
+                : "No upcoming events found. View All Events or Archive."}
+            </p>
           ) : null}
 
           <div style={{ display: "grid", gap: 14, marginTop: 16 }}>
@@ -431,6 +469,14 @@ export default function EventsPage() {
                       value={String(shortage)}
                       valueColor={shortage > 0 ? "var(--cfsp-warning)" : "var(--cfsp-green)"}
                     />
+                  </div>
+                  <div style={{ marginTop: 14, display: "grid", gap: 8 }}>
+                    <div style={{ fontSize: 12, fontWeight: 800, textTransform: "uppercase", color: "var(--cfsp-text-muted)" }}>
+                      Assigned SPs
+                    </div>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      {renderRosterChips(event.assigned_sp_names)}
+                    </div>
                   </div>
                 </Link>
               );
