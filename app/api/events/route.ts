@@ -279,11 +279,14 @@ export async function GET() {
       const needed = parseNumber(event.sp_needed);
       const eventSessions = sessionRows.filter((session) => session.event_id === event.id);
       const fallbackYear = getImportedYearHint(event.notes);
+      const normalizedSessionDates = eventSessions
+        .map((session) => normalizeLooseDateToIso(session.session_date, fallbackYear))
+        .filter(Boolean)
+        .sort();
       const earliestSessionDate =
-        eventSessions
-          .map((session) => normalizeLooseDateToIso(session.session_date, fallbackYear))
-          .filter(Boolean)
-          .sort()[0] || null;
+        normalizedSessionDates[0] || null;
+      const latestSessionDate =
+        normalizedSessionDates[normalizedSessionDates.length - 1] || null;
       const assignedNames = eventAssignments
         .map((assignment) => spNameById.get(asText(assignment.sp_id)) || "")
         .filter(Boolean)
@@ -295,6 +298,7 @@ export async function GET() {
         owner_name: ownerNameById.get(asText(event.owner_id)) || null,
         schedule_owner_text: extractScheduleOwnerText(event.notes),
         earliest_session_date: earliestSessionDate,
+        latest_session_date: latestSessionDate,
         earliest_session_start: eventSessions[0]?.start_time || null,
         latest_session_end: eventSessions[eventSessions.length - 1]?.end_time || null,
         assigned_sp_names: assignedNames,

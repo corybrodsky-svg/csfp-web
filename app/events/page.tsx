@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import SiteShell from "../components/SiteShell";
+import { compareByArchiveDate, isPastEvent } from "../lib/eventArchive";
 import { formatHumanDate, getImportedYearHint } from "../lib/eventDateUtils";
 import { classifyEventPresentation, getEventBadgeAppearance } from "../lib/eventClassification";
 import { formatDisplayTime } from "../lib/timeFormat";
@@ -16,6 +18,7 @@ type EventRow = {
   sp_needed: number | null;
   notes: string | null;
   earliest_session_date?: string | null;
+  latest_session_date?: string | null;
   earliest_session_start?: string | null;
   latest_session_end?: string | null;
   assigned_sp_names?: string[] | null;
@@ -28,6 +31,8 @@ type EventsResponse = {
   events?: EventRow[];
   error?: string;
 };
+
+type EventView = "current" | "archive" | "all";
 
 function formatEventDate(event: EventRow) {
   const dateSource = event.earliest_session_date || event.date_text;
@@ -79,9 +84,18 @@ function getEventBadges(event: EventRow) {
 }
 
 export default function EventsPage() {
+  const searchParams = useSearchParams();
   const [events, setEvents] = useState<EventRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [view, setView] = useState<EventView>("current");
+
+  useEffect(() => {
+    const requestedView = searchParams.get("view");
+    if (requestedView === "archive" || requestedView === "all" || requestedView === "current") {
+      setView(requestedView);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     let cancelled = false;
@@ -119,8 +133,72 @@ export default function EventsPage() {
     };
   }, []);
 
+  const filteredEvents = useMemo(() => {
+    const upcoming = events
+      .filter((event) =>
+        !isPastEvent({
+          latestSessionDate: event.latest_session_date,
+          earliestSessionDate: event.earliest_session_date,
+          dateText: event.date_text,
+          notes: event.notes,
+        })
+      )
+      .sort((a, b) =>
+        compareByArchiveDate(
+          {
+            latestSessionDate: a.latest_session_date,
+            earliestSessionDate: a.earliest_session_date,
+            dateText: a.date_text,
+            notes: a.notes,
+            name: a.name,
+          },
+          {
+            latestSessionDate: b.latest_session_date,
+            earliestSessionDate: b.earliest_session_date,
+            dateText: b.date_text,
+            notes: b.notes,
+            name: b.name,
+          },
+          "asc"
+        )
+      );
+
+    const archive = events
+      .filter((event) =>
+        isPastEvent({
+          latestSessionDate: event.latest_session_date,
+          earliestSessionDate: event.earliest_session_date,
+          dateText: event.date_text,
+          notes: event.notes,
+        })
+      )
+      .sort((a, b) =>
+        compareByArchiveDate(
+          {
+            latestSessionDate: a.latest_session_date,
+            earliestSessionDate: a.earliest_session_date,
+            dateText: a.date_text,
+            notes: a.notes,
+            name: a.name,
+          },
+          {
+            latestSessionDate: b.latest_session_date,
+            earliestSessionDate: b.earliest_session_date,
+            dateText: b.date_text,
+            notes: b.notes,
+            name: b.name,
+          },
+          "desc"
+        )
+      );
+
+    if (view === "archive") return archive;
+    if (view === "all") return [...upcoming, ...archive];
+    return upcoming;
+  }, [events, view]);
+
   const totals = useMemo(() => {
-    return events.reduce(
+    return filteredEvents.reduce(
       (sum, event) => {
         sum.needed += Number(event.sp_needed || 0);
         sum.assigned += Number(event.total_assignments || 0);
@@ -130,7 +208,7 @@ export default function EventsPage() {
       },
       { needed: 0, assigned: 0, confirmed: 0, shortage: 0 }
     );
-  }, [events]);
+  }, [filteredEvents]);
 
   return (
     <SiteShell
@@ -159,6 +237,7 @@ export default function EventsPage() {
             }}
           >
             <SummaryCard label="Events" value={String(events.length)} />
+            <SummaryCard label="Showing" value={String(filteredEvents.length)} />
             <SummaryCard label="SP Needed" value={String(totals.needed)} />
             <SummaryCard label="Assigned" value={String(totals.assigned)} />
             <SummaryCard label="Shortage" value={String(totals.shortage)} tone={totals.shortage > 0 ? "warning" : "default"} />
@@ -176,31 +255,73 @@ export default function EventsPage() {
           <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
             <div>
               <h2 style={{ margin: 0 }}>Events</h2>
-              <p style={{ margin: "6px 0 0", color: "#52616b" }}>Click a card to open the event command center.</p>
+              <p style={{ margin: "6px 0 0", color: "#52616b" }}>
+                {view === "archive"
+                  ? "Past events are shown newest first."
+                  : view === "all"
+                  ? "Showing current and archived events."
+                  : "Showing current and upcoming events only."}
+              </p>
             </div>
-            <Link
-              href="/events/new"
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                textDecoration: "none",
-                borderRadius: 999,
-                padding: "10px 14px",
-                background: "#173b6c",
-                color: "#ffffff",
-                fontWeight: 800,
-              }}
-            >
-              New Event
-            </Link>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+              <div
+                style={{
+                  display: "inline-flex",
+                  borderRadius: 999,
+                  border: "1px solid #d9e2ec",
+                  padding: 4,
+                  background: "#f8fbfd",
+                }}
+              >
+                {[
+                  { key: "current", label: "Upcoming / Current" },
+                  { key: "archive", label: "Archive / Past Events" },
+                  { key: "all", label: "All Events" },
+                ].map((option) => (
+                  <button
+                    key={option.key}
+                    type="button"
+                    onClick={() => setView(option.key as EventView)}
+                    style={{
+                      border: "none",
+                      borderRadius: 999,
+                      padding: "8px 12px",
+                      background: view === option.key ? "#173b6c" : "transparent",
+                      color: view === option.key ? "#ffffff" : "#52616b",
+                      fontWeight: 800,
+                      cursor: "pointer",
+                    }}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+              <Link
+                href="/events/new"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  textDecoration: "none",
+                  borderRadius: 999,
+                  padding: "10px 14px",
+                  background: "#173b6c",
+                  color: "#ffffff",
+                  fontWeight: 800,
+                }}
+              >
+                New Event
+              </Link>
+            </div>
           </div>
 
           {loading ? <p>Loading events...</p> : null}
           {error ? <p style={{ color: "#b42318" }}>{error}</p> : null}
-          {!loading && !error && events.length === 0 ? <p>No events found.</p> : null}
+          {!loading && !error && filteredEvents.length === 0 ? (
+            <p>{view === "archive" ? "No past events found." : "No events found."}</p>
+          ) : null}
 
           <div style={{ display: "grid", gap: 14, marginTop: 16 }}>
-            {events.map((event) => {
+            {filteredEvents.map((event) => {
               const badges = getEventBadges(event);
               const needed = Number(event.sp_needed || 0);
               const assigned = Number(event.total_assignments || 0);

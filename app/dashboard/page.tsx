@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import SiteShell from "../components/SiteShell";
+import { isPastEvent } from "../lib/eventArchive";
 import { classifyEventPresentation } from "../lib/eventClassification";
 import { getEventTeamInfo } from "../lib/eventRoster";
 import { eventMatchesOwnership, ownershipTextMatchesScheduleName } from "../lib/eventOwnership";
@@ -41,6 +42,10 @@ type EventRecord = {
   notes?: string | null;
   schedule_owner_text?: string | null;
   owner_id?: string | null;
+  earliest_session_date?: string | null;
+  latest_session_date?: string | null;
+  earliest_session_start?: string | null;
+  latest_session_end?: string | null;
   sessions?: Array<{
     session_date?: string | null;
     start_time?: string | null;
@@ -73,6 +78,13 @@ function asText(value: unknown) {
 }
 
 function parseEventStart(event: EventRecord): Date | null {
+  if (event.earliest_session_date) {
+    const datePart = event.earliest_session_date;
+    const timePart = event.earliest_session_start || "00:00:00";
+    const dt = new Date(`${datePart}T${timePart}`);
+    if (!Number.isNaN(dt.getTime())) return dt;
+  }
+
   const firstSession = Array.isArray(event.sessions) && event.sessions.length > 0 ? event.sessions[0] : null;
 
   if (firstSession?.session_date) {
@@ -446,8 +458,6 @@ export default function DashboardPage() {
   }, [matchTerms, me?.user?.email]);
 
   const eventMeta = useMemo(() => {
-    const now = new Date();
-
     return [...events]
       .map((event) => {
         const needed = Number(event.sp_needed || 0);
@@ -460,7 +470,15 @@ export default function DashboardPage() {
           shortage: Math.max(needed - assigned, 0),
         };
       })
-      .filter(({ start }) => !start || start >= now)
+      .filter(
+        ({ event }) =>
+          !isPastEvent({
+            latestSessionDate: event.latest_session_date,
+            earliestSessionDate: event.earliest_session_date,
+            dateText: event.date_text,
+            notes: event.notes,
+          })
+      )
       .sort((a, b) => {
         if (!a.start && !b.start) return 0;
         if (!a.start) return 1;
@@ -469,7 +487,18 @@ export default function DashboardPage() {
       });
   }, [events]);
 
-  const archivedEventCount = Math.max(events.length - eventMeta.length, 0);
+  const archivedEventCount = useMemo(
+    () =>
+      events.filter((event) =>
+        isPastEvent({
+          latestSessionDate: event.latest_session_date,
+          earliestSessionDate: event.earliest_session_date,
+          dateText: event.date_text,
+          notes: event.notes,
+        })
+      ).length,
+    [events]
+  );
 
   const allVisibleEvents = eventMeta;
 
@@ -569,6 +598,9 @@ export default function DashboardPage() {
               <Link href="/events" className="cfsp-btn cfsp-btn-secondary">
                 Open Events Board
               </Link>
+              <Link href="/events?view=archive" className="cfsp-btn cfsp-btn-secondary">
+                View Archive
+              </Link>
               <Link href="/events/new" className="cfsp-btn cfsp-btn-primary">
                 Create New Event
               </Link>
@@ -606,6 +638,13 @@ export default function DashboardPage() {
                   ? "Showing events matched to your profile, schedule match name, or imported staffing notes."
                   : "Showing the full visible event list across the app."}
               </p>
+              {archivedEventCount > 0 ? (
+                <div className="mt-3">
+                  <Link href="/events?view=archive" className="text-sm font-bold text-[#145b96] no-underline hover:underline">
+                    View Archive ({archivedEventCount})
+                  </Link>
+                </div>
+              ) : null}
             </div>
 
             <Link
