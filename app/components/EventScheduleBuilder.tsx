@@ -69,6 +69,7 @@ type ScheduledRound = Omit<GeneratedRound, "roomSlots"> & {
 };
 
 type ScheduleBuilderDraft = {
+  builderMode: "simple" | "advanced";
   selectedEventId: string;
   learnerFileName: string;
   uploadedLearners: string[];
@@ -103,18 +104,19 @@ type ScheduleBuilderDraft = {
 type SaveState = "saved" | "saving" | "unsaved" | "error";
 
 const DEFAULT_SCHEDULE_BUILDER_DRAFT: ScheduleBuilderDraft = {
+  builderMode: "simple",
   selectedEventId: "",
   learnerFileName: "",
   uploadedLearners: [],
   startTime: "08:10",
-  staffArrivalTime: "07:25",
-  spArrivalTime: "07:35",
-  facultyArrivalTime: "07:40",
-  roomSetupMinutes: "20",
-  studentPrebriefMinutes: "20",
-  spPrebriefMinutes: "15",
-  facultyPrebriefMinutes: "10",
-  sessionLengthMinutes: "50",
+  staffArrivalTime: "",
+  spArrivalTime: "",
+  facultyArrivalTime: "",
+  roomSetupMinutes: "0",
+  studentPrebriefMinutes: "0",
+  spPrebriefMinutes: "0",
+  facultyPrebriefMinutes: "0",
+  sessionLengthMinutes: "0",
   roundCount: "4",
   examRoomCount: "4",
   flexRoomCount: "1",
@@ -123,14 +125,14 @@ const DEFAULT_SCHEDULE_BUILDER_DRAFT: ScheduleBuilderDraft = {
   checklistMinutes: "5",
   soapMinutes: "10",
   feedbackMinutes: "10",
-  transitionMinutes: "5",
+  transitionMinutes: "0",
   includeChecklist: true,
   includeSoap: true,
   includeFeedback: true,
-  includeDebrief: true,
-  includeBreakdown: true,
-  debriefMinutes: "20",
-  breakdownMinutes: "20",
+  includeDebrief: false,
+  includeBreakdown: false,
+  debriefMinutes: "0",
+  breakdownMinutes: "0",
   savedAt: null,
 };
 
@@ -209,10 +211,11 @@ function buildRounds(args: {
   ].filter((item) => item.enabled && item.minutes > 0);
 
   const configuredLength = blockDurations.reduce((sum, item) => sum + item.minutes, 0);
-  const sessionLengthMinutes = Math.max(1, args.sessionLengthMinutes);
-  const roundLength = Math.max(configuredLength, sessionLengthMinutes);
-  const bufferMinutes = Math.max(sessionLengthMinutes - configuredLength, 0);
-  const overrunMinutes = Math.max(configuredLength - sessionLengthMinutes, 0);
+  const sessionLengthMinutes = Math.max(0, args.sessionLengthMinutes);
+  const targetLength = sessionLengthMinutes > 0 ? sessionLengthMinutes : configuredLength;
+  const roundLength = Math.max(configuredLength, targetLength, 1);
+  const bufferMinutes = sessionLengthMinutes > 0 ? Math.max(sessionLengthMinutes - configuredLength, 0) : 0;
+  const overrunMinutes = sessionLengthMinutes > 0 ? Math.max(configuredLength - sessionLengthMinutes, 0) : 0;
   const rounds: GeneratedRound[] = [];
   let roundStart = args.startMinutes;
 
@@ -382,6 +385,7 @@ function parseSavedDraft(raw: string | null): ScheduleBuilderDraft | null {
     return {
       ...DEFAULT_SCHEDULE_BUILDER_DRAFT,
       ...parsed,
+      builderMode: parsed.builderMode === "advanced" ? "advanced" : "simple",
       uploadedLearners: Array.isArray(parsed.uploadedLearners)
         ? parsed.uploadedLearners.map((item) => asText(item)).filter(Boolean)
         : [],
@@ -451,6 +455,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const [learnerFileName, setLearnerFileName] = useState("");
   const [learnerUploadError, setLearnerUploadError] = useState("");
   const [uploadedLearners, setUploadedLearners] = useState<string[]>([]);
+  const [builderMode, setBuilderMode] = useState<"simple" | "advanced">(DEFAULT_SCHEDULE_BUILDER_DRAFT.builderMode);
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [saveErrorMessage, setSaveErrorMessage] = useState("");
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
@@ -489,6 +494,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const autosaveTimeoutRef = useRef<number | null>(null);
 
   const applyDraft = useCallback((draft: ScheduleBuilderDraft) => {
+    setBuilderMode(draft.builderMode);
     setSelectedEventId(props.fixedEventId || draft.selectedEventId || "");
     setLearnerFileName(draft.learnerFileName);
     setUploadedLearners(draft.uploadedLearners);
@@ -596,6 +602,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
 
   const draftSnapshot = useMemo<ScheduleBuilderDraft>(
     () => ({
+      builderMode,
       selectedEventId: props.fixedEventId || selectedEventId || "",
       learnerFileName,
       uploadedLearners,
@@ -627,6 +634,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       savedAt: lastSavedAt,
     }),
     [
+      builderMode,
       props.fixedEventId,
       selectedEventId,
       learnerFileName,
@@ -710,21 +718,21 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const parsedExamRooms = parseNumber(examRoomCount, 4);
   const parsedFlexRooms = parseNumber(flexRoomCount, 1);
   const parsedMaxPairs = Math.max(1, parseNumber(maxPairsPerFlexRoom, 3));
-  const parsedSessionLength = Math.max(1, parseNumber(sessionLengthMinutes, 50));
+  const parsedSessionLength = parseNumber(sessionLengthMinutes, 0);
   const parsedEncounter = parseNumber(encounterMinutes, 20);
   const parsedChecklist = parseNumber(checklistMinutes, 5);
   const parsedSoap = parseNumber(soapMinutes, 10);
   const parsedFeedback = parseNumber(feedbackMinutes, 10);
-  const parsedTransition = parseNumber(transitionMinutes, 5);
+  const parsedTransition = parseNumber(transitionMinutes, 0);
   const parsedStaffArrival = toMinutes(staffArrivalTime);
   const parsedSpArrival = toMinutes(spArrivalTime);
   const parsedFacultyArrival = toMinutes(facultyArrivalTime);
-  const parsedRoomSetup = parseNumber(roomSetupMinutes, 20);
-  const parsedStudentPrebrief = parseNumber(studentPrebriefMinutes, 20);
-  const parsedSpPrebrief = parseNumber(spPrebriefMinutes, 15);
-  const parsedFacultyPrebrief = parseNumber(facultyPrebriefMinutes, 10);
-  const parsedDebrief = parseNumber(debriefMinutes, 20);
-  const parsedBreakdown = parseNumber(breakdownMinutes, 20);
+  const parsedRoomSetup = parseNumber(roomSetupMinutes, 0);
+  const parsedStudentPrebrief = parseNumber(studentPrebriefMinutes, 0);
+  const parsedSpPrebrief = parseNumber(spPrebriefMinutes, 0);
+  const parsedFacultyPrebrief = parseNumber(facultyPrebriefMinutes, 0);
+  const parsedDebrief = parseNumber(debriefMinutes, 0);
+  const parsedBreakdown = parseNumber(breakdownMinutes, 0);
   const slotsPerRound = parsedExamRooms + parsedFlexRooms * parsedMaxPairs;
 
   const generated = useMemo(() => {
@@ -936,6 +944,18 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   );
   const saveStateAppearance = getSaveStateAppearance(saveState);
   const lastSavedLabel = formatSavedTimestamp(lastSavedAt);
+  const advancedSettingsActive =
+    parsedRoomSetup > 0 ||
+    parsedStudentPrebrief > 0 ||
+    parsedSpPrebrief > 0 ||
+    parsedFacultyPrebrief > 0 ||
+    parsedDebrief > 0 ||
+    parsedBreakdown > 0 ||
+    parsedTransition > 0 ||
+    parsedSessionLength > 0 ||
+    Boolean(parsedStaffArrival !== null || parsedSpArrival !== null || parsedFacultyArrival !== null) ||
+    includeDebrief ||
+    includeBreakdown;
 
   async function handleCopyPreview() {
     try {
@@ -979,6 +999,30 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
             <p className="mt-3 max-w-3xl text-[0.98rem] leading-6 text-[#5e7388]">
               Build a full-day operational preview with arrivals, prebriefs, learner rotations, debrief, and breakdown while keeping the event record untouched. Builder changes auto-save locally in this browser for the current event.
             </p>
+            <div className="mt-4 inline-flex rounded-[12px] border border-[var(--cfsp-border)] p-1">
+              <button
+                type="button"
+                onClick={() => setBuilderMode("simple")}
+                className="rounded-[10px] px-4 py-2 text-sm font-black transition"
+                style={{
+                  background: builderMode === "simple" ? "var(--cfsp-blue)" : "transparent",
+                  color: builderMode === "simple" ? "#ffffff" : "var(--cfsp-text-muted)",
+                }}
+              >
+                Simple
+              </button>
+              <button
+                type="button"
+                onClick={() => setBuilderMode("advanced")}
+                className="rounded-[10px] px-4 py-2 text-sm font-black transition"
+                style={{
+                  background: builderMode === "advanced" ? "var(--cfsp-blue)" : "transparent",
+                  color: builderMode === "advanced" ? "#ffffff" : "var(--cfsp-text-muted)",
+                }}
+              >
+                Advanced
+              </button>
+            </div>
             <div
               className="mt-4 inline-flex flex-wrap items-center gap-2 rounded-full px-3 py-2 text-sm font-bold"
               style={{
@@ -989,6 +1033,11 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
             >
               <span>{saveStateAppearance.label}</span>
               {lastSavedLabel ? <span style={{ color: "var(--cfsp-text-muted)" }}>Saved {lastSavedLabel}</span> : null}
+            </div>
+            <div className="mt-3 text-sm font-semibold text-[#5e7388]">
+              {builderMode === "simple"
+                ? "Simple mode shows the core rotation inputs only."
+                : "Advanced mode adds arrival, prebrief, wrap-up, and timing overrides."}
             </div>
           </div>
           {props.backHref ? (
@@ -1155,12 +1204,12 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                   <div className="mt-2 text-base font-black text-[#14304f]">{generated.configuredLength} minutes</div>
                 </div>
               </div>
-              {generated.bufferMinutes > 0 ? (
+              {parsedSessionLength > 0 && generated.bufferMinutes > 0 ? (
                 <div className="cfsp-alert cfsp-alert-info mt-4">
                   Each round includes {generated.bufferMinutes} minutes of open buffer so the generated timeline matches the {parsedSessionLength}-minute session target.
                 </div>
               ) : null}
-              {generated.overrunMinutes > 0 ? (
+              {parsedSessionLength > 0 && generated.overrunMinutes > 0 ? (
                 <div className="cfsp-alert cfsp-alert-error mt-4">
                   The configured round blocks exceed the target session length by {generated.overrunMinutes} minutes, so the preview expands each round to fit the real timing.
                 </div>
@@ -1168,61 +1217,70 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
             </section>
 
             <section className="cfsp-panel px-5 py-5">
-              <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">Rooms</h3>
-              <div className="mt-4 grid gap-4 md:grid-cols-2">
-                <NumberInput label="Exam Rooms" value={examRoomCount} onChange={setExamRoomCount} />
-                <NumberInput label="Flex Rooms" value={flexRoomCount} onChange={setFlexRoomCount} />
-                <NumberInput label="Learners per Flex Room" value={maxPairsPerFlexRoom} onChange={setMaxPairsPerFlexRoom} />
-              </div>
-            </section>
-          </div>
-
-          <div className="grid gap-5 xl:grid-cols-2">
-            <section className="cfsp-panel px-5 py-5">
-              <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">Arrival &amp; Prebrief</h3>
-              <div className="mt-4 grid gap-4 md:grid-cols-2">
-                <TimeInput label="Staff arrival time" value={staffArrivalTime} onChange={setStaffArrivalTime} />
-                <TimeInput label="SP arrival time" value={spArrivalTime} onChange={setSpArrivalTime} />
-                <TimeInput label="Faculty arrival time" value={facultyArrivalTime} onChange={setFacultyArrivalTime} />
-                <NumberInput label="Room setup minutes" value={roomSetupMinutes} onChange={setRoomSetupMinutes} />
-                <NumberInput label="Student prebrief minutes" value={studentPrebriefMinutes} onChange={setStudentPrebriefMinutes} />
-                <NumberInput label="SP prebrief minutes" value={spPrebriefMinutes} onChange={setSpPrebriefMinutes} />
-                <NumberInput label="Faculty prebrief minutes" value={facultyPrebriefMinutes} onChange={setFacultyPrebriefMinutes} />
-              </div>
-            </section>
-
-            <section className="cfsp-panel px-5 py-5">
-              <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">Rotation Timing</h3>
+              <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">Simple Builder</h3>
+              <p className="mt-2 mb-0 text-sm leading-6 text-[#5e7388]">
+                Use the core rotation inputs below to generate a standard schedule quickly.
+              </p>
               <div className="mt-4 grid gap-4 md:grid-cols-2">
                 <label className="grid gap-2">
-                  <span className="cfsp-label">Start time</span>
+                  <span className="cfsp-label">Rotation start time</span>
                   <input type="time" value={startTime} onChange={(event) => setStartTime(event.target.value)} className="cfsp-input" />
                 </label>
-                <NumberInput label="Session length minutes" value={sessionLengthMinutes} onChange={setSessionLengthMinutes} />
                 <NumberInput label="Number of rounds" value={roundCount} onChange={setRoundCount} />
+                <NumberInput label="Number of exam rooms" value={examRoomCount} onChange={setExamRoomCount} />
+                <NumberInput label="Number of flex rooms" value={flexRoomCount} onChange={setFlexRoomCount} />
+                <NumberInput label="Flex capacity" value={maxPairsPerFlexRoom} onChange={setMaxPairsPerFlexRoom} />
                 <NumberInput label="Encounter minutes" value={encounterMinutes} onChange={setEncounterMinutes} />
-                <NumberInput label="Transition minutes" value={transitionMinutes} onChange={setTransitionMinutes} />
-                <ToggleInput label="Include checklist time" checked={includeChecklist} onChange={setIncludeChecklist} />
+                <ToggleInput label="Include checklist" checked={includeChecklist} onChange={setIncludeChecklist} />
                 <NumberInput label="Checklist minutes" value={checklistMinutes} onChange={setChecklistMinutes} disabled={!includeChecklist} />
-                <ToggleInput label="Include SOAP note time" checked={includeSoap} onChange={setIncludeSoap} />
-                <NumberInput label="SOAP note minutes" value={soapMinutes} onChange={setSoapMinutes} disabled={!includeSoap} />
-                <ToggleInput label="Include feedback time" checked={includeFeedback} onChange={setIncludeFeedback} />
+                <ToggleInput label="Include feedback" checked={includeFeedback} onChange={setIncludeFeedback} />
                 <NumberInput label="Feedback minutes" value={feedbackMinutes} onChange={setFeedbackMinutes} disabled={!includeFeedback} />
+                <ToggleInput label="Include SOAP note" checked={includeSoap} onChange={setIncludeSoap} />
+                <NumberInput label="SOAP note minutes" value={soapMinutes} onChange={setSoapMinutes} disabled={!includeSoap} />
               </div>
             </section>
           </div>
 
-          <div className="grid gap-5 xl:grid-cols-2">
-            <section className="cfsp-panel px-5 py-5">
-              <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">Wrap-Up</h3>
-              <div className="mt-4 grid gap-4 md:grid-cols-2">
-                <ToggleInput label="Include debrief" checked={includeDebrief} onChange={setIncludeDebrief} />
-                <NumberInput label="Post-event debrief minutes" value={debriefMinutes} onChange={setDebriefMinutes} disabled={!includeDebrief} />
-                <ToggleInput label="Include breakdown" checked={includeBreakdown} onChange={setIncludeBreakdown} />
-                <NumberInput label="Room reset / breakdown minutes" value={breakdownMinutes} onChange={setBreakdownMinutes} disabled={!includeBreakdown} />
-              </div>
-            </section>
-          </div>
+          {builderMode === "advanced" ? (
+            <div className="grid gap-5 xl:grid-cols-2">
+              <section className="cfsp-panel px-5 py-5">
+                <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">Advanced Options</h3>
+                <p className="mt-2 mb-0 text-sm leading-6 text-[#5e7388]">
+                  These timing details are optional. They only affect the schedule when enabled or set to a nonzero value.
+                </p>
+                <div className="mt-4 grid gap-4 md:grid-cols-2">
+                  <TimeInput label="Staff arrival time" value={staffArrivalTime} onChange={setStaffArrivalTime} />
+                  <TimeInput label="SP arrival time" value={spArrivalTime} onChange={setSpArrivalTime} />
+                  <TimeInput label="Faculty arrival time" value={facultyArrivalTime} onChange={setFacultyArrivalTime} />
+                  <NumberInput label="Room setup minutes" value={roomSetupMinutes} onChange={setRoomSetupMinutes} />
+                  <NumberInput label="Student prebrief minutes" value={studentPrebriefMinutes} onChange={setStudentPrebriefMinutes} />
+                  <NumberInput label="SP prebrief minutes" value={spPrebriefMinutes} onChange={setSpPrebriefMinutes} />
+                  <NumberInput label="Faculty prebrief minutes" value={facultyPrebriefMinutes} onChange={setFacultyPrebriefMinutes} />
+                  <NumberInput label="Session length override" value={sessionLengthMinutes} onChange={setSessionLengthMinutes} />
+                  <NumberInput label="Transition minutes" value={transitionMinutes} onChange={setTransitionMinutes} />
+                  <ToggleInput label="Include debrief" checked={includeDebrief} onChange={setIncludeDebrief} />
+                  <NumberInput label="Post-event debrief minutes" value={debriefMinutes} onChange={setDebriefMinutes} disabled={!includeDebrief} />
+                  <ToggleInput label="Include breakdown" checked={includeBreakdown} onChange={setIncludeBreakdown} />
+                  <NumberInput label="Room reset / breakdown minutes" value={breakdownMinutes} onChange={setBreakdownMinutes} disabled={!includeBreakdown} />
+                </div>
+              </section>
+
+              <section className="cfsp-panel px-5 py-5">
+                <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">Advanced Status</h3>
+                <div className="mt-4 grid gap-3">
+                  <div className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
+                    <div className="cfsp-label">Advanced settings</div>
+                    <div className="mt-2 text-base font-black text-[#14304f]">
+                      {advancedSettingsActive ? "Active" : "Inactive"}
+                    </div>
+                    <div className="mt-2 text-sm font-semibold text-[#5e7388]">
+                      Set arrival, prebrief, transition, debrief, or breakdown values only when you want them included in the timeline.
+                    </div>
+                  </div>
+                </div>
+              </section>
+            </div>
+          ) : null}
 
           <section className="cfsp-panel px-5 py-5">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
