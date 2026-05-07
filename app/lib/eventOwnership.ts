@@ -1,62 +1,100 @@
-export type OwnershipEventLike = {
-  owner_id?: string | null;
-  schedule_owner_text?: string | null;
-  notes?: string | null;
+export type GeneratedRoomSlot = {
+  roomName: string;
+  roomType: "exam" | "flex";
+  capacity: number;
 };
 
-function asText(value: unknown) {
-  if (value === null || value === undefined) return "";
-  return String(value).trim();
+export type EventOwnershipResult = {
+  examSlots: GeneratedRoomSlot[];
+  flexSlots: GeneratedRoomSlot[];
+  allSlots: GeneratedRoomSlot[];
+};
+
+type GenerateRoomSlotsArgs = {
+  examRoomCount: number;
+  flexRoomCount?: number;
+  flexCapacity?: number;
+};
+
+function normalizeText(value: unknown) {
+  return String(value ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
 }
 
-function normalizeMatchValue(value: string) {
-  return value.toLowerCase().replace(/\s+/g, " ").trim();
+export function ownershipTextMatchesScheduleName(
+  ownershipText: unknown,
+  scheduleName: unknown
+) {
+  const ownership = normalizeText(ownershipText);
+  const schedule = normalizeText(scheduleName);
+
+  if (!ownership || !schedule) return false;
+
+  return ownership.includes(schedule) || schedule.includes(ownership);
 }
 
-function getScheduleNameVariants(value: string) {
-  const normalized = normalizeMatchValue(value);
-  if (!normalized) return [];
+export function eventMatchesOwnership(event: {
+  name?: string | null;
+  notes?: string | null;
+  location?: string | null;
+  date_text?: string | null;
+}, ownershipText?: string | null) {
+  const target = normalizeText(ownershipText);
 
-  const variants = new Set<string>([normalized]);
-  const parts = normalized.split(" ").filter(Boolean);
-  if (parts.length > 1) {
-    variants.add(parts[0]);
-    variants.add(parts.slice(0, 2).join(" "));
-  }
+  if (!target) return true;
 
-  return Array.from(variants);
-}
+  const combinedEventText = normalizeText(
+    [
+      event.name,
+      event.notes,
+      event.location,
+      event.date_text,
+    ].filter(Boolean).join(" ")
+  );
 
-export function ownershipTextMatchesScheduleName(ownerText: string, scheduleName: string) {
-  const normalizedOwner = normalizeMatchValue(ownerText);
-  const normalizedSchedule = normalizeMatchValue(scheduleName);
-  if (!normalizedOwner || !normalizedSchedule) return false;
+  if (!combinedEventText) return false;
 
-  const ownerSegments = normalizedOwner
-    .split(/\/|,|;|&|\band\b/)
-    .map((segment) => normalizeMatchValue(segment))
-    .filter(Boolean);
-  const ownerCandidates = Array.from(new Set([normalizedOwner, ...ownerSegments]));
-  const scheduleVariants = getScheduleNameVariants(normalizedSchedule);
-
-  return scheduleVariants.some((variant) =>
-    ownerCandidates.some(
-      (candidate) => candidate === variant || candidate.includes(variant) || variant.includes(candidate)
-    )
+  return (
+    combinedEventText.includes(target) ||
+    target.includes(combinedEventText) ||
+    ownershipTextMatchesScheduleName(combinedEventText, target)
   );
 }
 
-export function getOwnershipTextFromNotes(notes: string) {
-  const match = notes.match(/Event Lead\/Team:\s*(.+)/i);
-  return match ? asText(match[1]) : "";
+export function generateRoomSlots(
+  args: GenerateRoomSlotsArgs
+): EventOwnershipResult {
+  const examSlots: GeneratedRoomSlot[] = Array.from(
+    { length: args.examRoomCount },
+    (_, index) => ({
+      roomName: `Exam ${index + 1}`,
+      roomType: "exam",
+      capacity: 2,
+    })
+  );
+
+  const flexSlots: GeneratedRoomSlot[] = Array.from(
+    { length: args.flexRoomCount ?? 0 },
+    (_, index) => ({
+      roomName: `Flex ${index + 1}`,
+      roomType: "flex",
+      capacity: args.flexCapacity ?? 3,
+    })
+  );
+
+  return {
+    examSlots,
+    flexSlots,
+    allSlots: [...examSlots, ...flexSlots],
+  };
 }
 
-export function eventMatchesOwnership(
-  event: OwnershipEventLike,
-  currentUserId: string,
-  scheduleName: string
+export function calculateRoomCapacity(
+  examRoomCount: number,
+  flexRoomCount = 0,
+  flexCapacity = 3
 ) {
-  if (asText(event.owner_id) === currentUserId) return true;
-  if (ownershipTextMatchesScheduleName(asText(event.schedule_owner_text), scheduleName)) return true;
-  return ownershipTextMatchesScheduleName(getOwnershipTextFromNotes(asText(event.notes)), scheduleName);
+  return examRoomCount * 2 + flexRoomCount * flexCapacity;
 }

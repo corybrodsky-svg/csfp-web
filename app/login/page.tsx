@@ -62,7 +62,24 @@ export default function LoginPage() {
         return;
       }
 
-      window.location.replace("/dashboard");
+     const sessionResponse = await fetch("/api/auth/session", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    access_token: data.session.access_token,
+    refresh_token: data.session.refresh_token,
+  }),
+});
+
+const sessionJson = await sessionResponse.json().catch(() => null);
+
+if (!sessionResponse.ok || !sessionJson?.ok) {
+  throw new Error(sessionJson?.error || "Could not create CFSP session.");
+}
+
+window.location.replace("/dashboard");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not sign in.";
       setErrorMessage(formatAuthError(message));
