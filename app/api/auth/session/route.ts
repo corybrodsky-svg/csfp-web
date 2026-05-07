@@ -3,9 +3,6 @@ import { NextRequest, NextResponse } from "next/server";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-const ACCESS_COOKIE = "cfsp-access-token";
-const REFRESH_COOKIE = "cfsp-refresh-token";
-
 function asToken(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : "";
 }
@@ -47,23 +44,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const response = NextResponse.json({ ok: true });
-
-    response.cookies.set(ACCESS_COOKIE, accessToken, {
-      httpOnly: true,
-      sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
-      path: "/",
+    return NextResponse.json({
+      ok: true,
+      receivedAccessToken: Boolean(accessToken),
+      receivedRefreshToken: Boolean(refreshToken),
     });
-
-    response.cookies.set(REFRESH_COOKIE, refreshToken, {
-      httpOnly: true,
-      sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
-      path: "/",
-    });
-
-    return response;
   } catch (error) {
     console.error("/api/auth/session fatal", error);
 
