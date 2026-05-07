@@ -2,7 +2,7 @@
 
 import * as XLSX from "xlsx";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { formatHumanDate, getImportedYearHint } from "../lib/eventDateUtils";
 
@@ -66,6 +66,72 @@ type ScheduledRoomSlot = GeneratedRoomSlot & {
 
 type ScheduledRound = Omit<GeneratedRound, "roomSlots"> & {
   roomSlots: ScheduledRoomSlot[];
+};
+
+type ScheduleBuilderDraft = {
+  selectedEventId: string;
+  learnerFileName: string;
+  uploadedLearners: string[];
+  startTime: string;
+  staffArrivalTime: string;
+  spArrivalTime: string;
+  facultyArrivalTime: string;
+  roomSetupMinutes: string;
+  studentPrebriefMinutes: string;
+  spPrebriefMinutes: string;
+  facultyPrebriefMinutes: string;
+  sessionLengthMinutes: string;
+  roundCount: string;
+  examRoomCount: string;
+  flexRoomCount: string;
+  maxPairsPerFlexRoom: string;
+  encounterMinutes: string;
+  checklistMinutes: string;
+  soapMinutes: string;
+  feedbackMinutes: string;
+  transitionMinutes: string;
+  includeChecklist: boolean;
+  includeSoap: boolean;
+  includeFeedback: boolean;
+  includeDebrief: boolean;
+  includeBreakdown: boolean;
+  debriefMinutes: string;
+  breakdownMinutes: string;
+  savedAt?: string | null;
+};
+
+type SaveState = "saved" | "saving" | "unsaved" | "error";
+
+const DEFAULT_SCHEDULE_BUILDER_DRAFT: ScheduleBuilderDraft = {
+  selectedEventId: "",
+  learnerFileName: "",
+  uploadedLearners: [],
+  startTime: "08:10",
+  staffArrivalTime: "07:25",
+  spArrivalTime: "07:35",
+  facultyArrivalTime: "07:40",
+  roomSetupMinutes: "20",
+  studentPrebriefMinutes: "20",
+  spPrebriefMinutes: "15",
+  facultyPrebriefMinutes: "10",
+  sessionLengthMinutes: "50",
+  roundCount: "4",
+  examRoomCount: "4",
+  flexRoomCount: "1",
+  maxPairsPerFlexRoom: "3",
+  encounterMinutes: "20",
+  checklistMinutes: "5",
+  soapMinutes: "10",
+  feedbackMinutes: "10",
+  transitionMinutes: "5",
+  includeChecklist: true,
+  includeSoap: true,
+  includeFeedback: true,
+  includeDebrief: true,
+  includeBreakdown: true,
+  debriefMinutes: "20",
+  breakdownMinutes: "20",
+  savedAt: null,
 };
 
 function asText(value: unknown) {
@@ -304,6 +370,77 @@ function buildPlaintextPreview(args: {
   return lines.join("\n");
 }
 
+function getStorageKey(eventId?: string) {
+  return `cfsp:schedule-builder:${eventId || "global"}`;
+}
+
+function parseSavedDraft(raw: string | null): ScheduleBuilderDraft | null {
+  if (!raw) return null;
+
+  try {
+    const parsed = JSON.parse(raw) as Partial<ScheduleBuilderDraft>;
+    return {
+      ...DEFAULT_SCHEDULE_BUILDER_DRAFT,
+      ...parsed,
+      uploadedLearners: Array.isArray(parsed.uploadedLearners)
+        ? parsed.uploadedLearners.map((item) => asText(item)).filter(Boolean)
+        : [],
+      selectedEventId: asText(parsed.selectedEventId),
+      learnerFileName: asText(parsed.learnerFileName),
+      savedAt: asText(parsed.savedAt) || null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function formatSavedTimestamp(value: string | null) {
+  if (!value) return "";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return parsed.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
+function getSaveStateAppearance(state: SaveState) {
+  if (state === "saving") {
+    return {
+      label: "Saving...",
+      detail: "Auto-saving schedule builder changes to this browser.",
+      background: "rgba(243, 187, 103, 0.16)",
+      border: "rgba(243, 187, 103, 0.34)",
+      color: "var(--cfsp-warning)",
+    };
+  }
+
+  if (state === "unsaved") {
+    return {
+      label: "Unsaved changes",
+      detail: "Changes are waiting to auto-save.",
+      background: "rgba(243, 187, 103, 0.14)",
+      border: "rgba(243, 187, 103, 0.28)",
+      color: "var(--cfsp-warning)",
+    };
+  }
+
+  if (state === "error") {
+    return {
+      label: "Save failed",
+      detail: "This browser could not save the current builder draft.",
+      background: "rgba(214, 69, 69, 0.14)",
+      border: "rgba(214, 69, 69, 0.28)",
+      color: "#c23b3b",
+    };
+  }
+
+  return {
+    label: "Saved",
+    detail: "Builder changes are auto-saved locally for this event.",
+    background: "rgba(44, 211, 173, 0.14)",
+    border: "rgba(44, 211, 173, 0.28)",
+    color: "var(--cfsp-green)",
+  };
+}
+
 export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const router = useRouter();
   const [events, setEvents] = useState<EventRow[]>([]);
@@ -314,36 +451,76 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const [learnerFileName, setLearnerFileName] = useState("");
   const [learnerUploadError, setLearnerUploadError] = useState("");
   const [uploadedLearners, setUploadedLearners] = useState<string[]>([]);
+  const [saveState, setSaveState] = useState<SaveState>("saved");
+  const [saveErrorMessage, setSaveErrorMessage] = useState("");
+  const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
 
-  const [startTime, setStartTime] = useState("08:10");
-  const [staffArrivalTime, setStaffArrivalTime] = useState("07:25");
-  const [spArrivalTime, setSpArrivalTime] = useState("07:35");
-  const [facultyArrivalTime, setFacultyArrivalTime] = useState("07:40");
-  const [roomSetupMinutes, setRoomSetupMinutes] = useState("20");
+  const [startTime, setStartTime] = useState(DEFAULT_SCHEDULE_BUILDER_DRAFT.startTime);
+  const [staffArrivalTime, setStaffArrivalTime] = useState(DEFAULT_SCHEDULE_BUILDER_DRAFT.staffArrivalTime);
+  const [spArrivalTime, setSpArrivalTime] = useState(DEFAULT_SCHEDULE_BUILDER_DRAFT.spArrivalTime);
+  const [facultyArrivalTime, setFacultyArrivalTime] = useState(DEFAULT_SCHEDULE_BUILDER_DRAFT.facultyArrivalTime);
+  const [roomSetupMinutes, setRoomSetupMinutes] = useState(DEFAULT_SCHEDULE_BUILDER_DRAFT.roomSetupMinutes);
 
-  const [studentPrebriefMinutes, setStudentPrebriefMinutes] = useState("20");
-  const [spPrebriefMinutes, setSpPrebriefMinutes] = useState("15");
-  const [facultyPrebriefMinutes, setFacultyPrebriefMinutes] = useState("10");
+  const [studentPrebriefMinutes, setStudentPrebriefMinutes] = useState(DEFAULT_SCHEDULE_BUILDER_DRAFT.studentPrebriefMinutes);
+  const [spPrebriefMinutes, setSpPrebriefMinutes] = useState(DEFAULT_SCHEDULE_BUILDER_DRAFT.spPrebriefMinutes);
+  const [facultyPrebriefMinutes, setFacultyPrebriefMinutes] = useState(DEFAULT_SCHEDULE_BUILDER_DRAFT.facultyPrebriefMinutes);
 
-  const [sessionLengthMinutes, setSessionLengthMinutes] = useState("50");
-  const [roundCount, setRoundCount] = useState("4");
-  const [examRoomCount, setExamRoomCount] = useState("4");
-  const [flexRoomCount, setFlexRoomCount] = useState("1");
-  const [maxPairsPerFlexRoom, setMaxPairsPerFlexRoom] = useState("3");
-  const [encounterMinutes, setEncounterMinutes] = useState("20");
-  const [checklistMinutes, setChecklistMinutes] = useState("5");
-  const [soapMinutes, setSoapMinutes] = useState("10");
-  const [feedbackMinutes, setFeedbackMinutes] = useState("10");
-  const [transitionMinutes, setTransitionMinutes] = useState("5");
+  const [sessionLengthMinutes, setSessionLengthMinutes] = useState(DEFAULT_SCHEDULE_BUILDER_DRAFT.sessionLengthMinutes);
+  const [roundCount, setRoundCount] = useState(DEFAULT_SCHEDULE_BUILDER_DRAFT.roundCount);
+  const [examRoomCount, setExamRoomCount] = useState(DEFAULT_SCHEDULE_BUILDER_DRAFT.examRoomCount);
+  const [flexRoomCount, setFlexRoomCount] = useState(DEFAULT_SCHEDULE_BUILDER_DRAFT.flexRoomCount);
+  const [maxPairsPerFlexRoom, setMaxPairsPerFlexRoom] = useState(DEFAULT_SCHEDULE_BUILDER_DRAFT.maxPairsPerFlexRoom);
+  const [encounterMinutes, setEncounterMinutes] = useState(DEFAULT_SCHEDULE_BUILDER_DRAFT.encounterMinutes);
+  const [checklistMinutes, setChecklistMinutes] = useState(DEFAULT_SCHEDULE_BUILDER_DRAFT.checklistMinutes);
+  const [soapMinutes, setSoapMinutes] = useState(DEFAULT_SCHEDULE_BUILDER_DRAFT.soapMinutes);
+  const [feedbackMinutes, setFeedbackMinutes] = useState(DEFAULT_SCHEDULE_BUILDER_DRAFT.feedbackMinutes);
+  const [transitionMinutes, setTransitionMinutes] = useState(DEFAULT_SCHEDULE_BUILDER_DRAFT.transitionMinutes);
 
-  const [includeChecklist, setIncludeChecklist] = useState(true);
-  const [includeSoap, setIncludeSoap] = useState(true);
-  const [includeFeedback, setIncludeFeedback] = useState(true);
-  const [includeDebrief, setIncludeDebrief] = useState(true);
-  const [includeBreakdown, setIncludeBreakdown] = useState(true);
+  const [includeChecklist, setIncludeChecklist] = useState(DEFAULT_SCHEDULE_BUILDER_DRAFT.includeChecklist);
+  const [includeSoap, setIncludeSoap] = useState(DEFAULT_SCHEDULE_BUILDER_DRAFT.includeSoap);
+  const [includeFeedback, setIncludeFeedback] = useState(DEFAULT_SCHEDULE_BUILDER_DRAFT.includeFeedback);
+  const [includeDebrief, setIncludeDebrief] = useState(DEFAULT_SCHEDULE_BUILDER_DRAFT.includeDebrief);
+  const [includeBreakdown, setIncludeBreakdown] = useState(DEFAULT_SCHEDULE_BUILDER_DRAFT.includeBreakdown);
 
-  const [debriefMinutes, setDebriefMinutes] = useState("20");
-  const [breakdownMinutes, setBreakdownMinutes] = useState("20");
+  const [debriefMinutes, setDebriefMinutes] = useState(DEFAULT_SCHEDULE_BUILDER_DRAFT.debriefMinutes);
+  const [breakdownMinutes, setBreakdownMinutes] = useState(DEFAULT_SCHEDULE_BUILDER_DRAFT.breakdownMinutes);
+  const hydratedDraftKeyRef = useRef<string>("");
+  const skipNextAutosaveRef = useRef(false);
+  const autosaveTimeoutRef = useRef<number | null>(null);
+
+  const applyDraft = useCallback((draft: ScheduleBuilderDraft) => {
+    setSelectedEventId(props.fixedEventId || draft.selectedEventId || "");
+    setLearnerFileName(draft.learnerFileName);
+    setUploadedLearners(draft.uploadedLearners);
+    setStartTime(draft.startTime);
+    setStaffArrivalTime(draft.staffArrivalTime);
+    setSpArrivalTime(draft.spArrivalTime);
+    setFacultyArrivalTime(draft.facultyArrivalTime);
+    setRoomSetupMinutes(draft.roomSetupMinutes);
+    setStudentPrebriefMinutes(draft.studentPrebriefMinutes);
+    setSpPrebriefMinutes(draft.spPrebriefMinutes);
+    setFacultyPrebriefMinutes(draft.facultyPrebriefMinutes);
+    setSessionLengthMinutes(draft.sessionLengthMinutes);
+    setRoundCount(draft.roundCount);
+    setExamRoomCount(draft.examRoomCount);
+    setFlexRoomCount(draft.flexRoomCount);
+    setMaxPairsPerFlexRoom(draft.maxPairsPerFlexRoom);
+    setEncounterMinutes(draft.encounterMinutes);
+    setChecklistMinutes(draft.checklistMinutes);
+    setSoapMinutes(draft.soapMinutes);
+    setFeedbackMinutes(draft.feedbackMinutes);
+    setTransitionMinutes(draft.transitionMinutes);
+    setIncludeChecklist(draft.includeChecklist);
+    setIncludeSoap(draft.includeSoap);
+    setIncludeFeedback(draft.includeFeedback);
+    setIncludeDebrief(draft.includeDebrief);
+    setIncludeBreakdown(draft.includeBreakdown);
+    setDebriefMinutes(draft.debriefMinutes);
+    setBreakdownMinutes(draft.breakdownMinutes);
+    setLastSavedAt(draft.savedAt || null);
+    setSaveState(draft.savedAt ? "saved" : "saved");
+    setSaveErrorMessage("");
+  }, [props.fixedEventId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -393,6 +570,135 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       cancelled = true;
     };
   }, [props.fixedEventId, router]);
+
+  const storageKey = useMemo(
+    () => getStorageKey(props.fixedEventId || selectedEventId || ""),
+    [props.fixedEventId, selectedEventId]
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!storageKey || hydratedDraftKeyRef.current === storageKey) return;
+
+    const savedDraft = parseSavedDraft(window.localStorage.getItem(storageKey));
+    skipNextAutosaveRef.current = true;
+    hydratedDraftKeyRef.current = storageKey;
+
+    if (savedDraft) {
+      applyDraft(savedDraft);
+    } else {
+      applyDraft({
+        ...DEFAULT_SCHEDULE_BUILDER_DRAFT,
+        selectedEventId: props.fixedEventId || selectedEventId || "",
+      });
+    }
+  }, [applyDraft, props.fixedEventId, selectedEventId, storageKey]);
+
+  const draftSnapshot = useMemo<ScheduleBuilderDraft>(
+    () => ({
+      selectedEventId: props.fixedEventId || selectedEventId || "",
+      learnerFileName,
+      uploadedLearners,
+      startTime,
+      staffArrivalTime,
+      spArrivalTime,
+      facultyArrivalTime,
+      roomSetupMinutes,
+      studentPrebriefMinutes,
+      spPrebriefMinutes,
+      facultyPrebriefMinutes,
+      sessionLengthMinutes,
+      roundCount,
+      examRoomCount,
+      flexRoomCount,
+      maxPairsPerFlexRoom,
+      encounterMinutes,
+      checklistMinutes,
+      soapMinutes,
+      feedbackMinutes,
+      transitionMinutes,
+      includeChecklist,
+      includeSoap,
+      includeFeedback,
+      includeDebrief,
+      includeBreakdown,
+      debriefMinutes,
+      breakdownMinutes,
+      savedAt: lastSavedAt,
+    }),
+    [
+      props.fixedEventId,
+      selectedEventId,
+      learnerFileName,
+      uploadedLearners,
+      startTime,
+      staffArrivalTime,
+      spArrivalTime,
+      facultyArrivalTime,
+      roomSetupMinutes,
+      studentPrebriefMinutes,
+      spPrebriefMinutes,
+      facultyPrebriefMinutes,
+      sessionLengthMinutes,
+      roundCount,
+      examRoomCount,
+      flexRoomCount,
+      maxPairsPerFlexRoom,
+      encounterMinutes,
+      checklistMinutes,
+      soapMinutes,
+      feedbackMinutes,
+      transitionMinutes,
+      includeChecklist,
+      includeSoap,
+      includeFeedback,
+      includeDebrief,
+      includeBreakdown,
+      debriefMinutes,
+      breakdownMinutes,
+      lastSavedAt,
+    ]
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!storageKey) return;
+
+    if (skipNextAutosaveRef.current) {
+      skipNextAutosaveRef.current = false;
+      return;
+    }
+
+    setSaveState("unsaved");
+    setSaveErrorMessage("");
+
+    if (autosaveTimeoutRef.current) {
+      window.clearTimeout(autosaveTimeoutRef.current);
+    }
+
+    autosaveTimeoutRef.current = window.setTimeout(() => {
+      try {
+        setSaveState("saving");
+        const savedAt = new Date().toISOString();
+        const payload = {
+          ...draftSnapshot,
+          savedAt,
+        };
+        window.localStorage.setItem(storageKey, JSON.stringify(payload));
+        setLastSavedAt(savedAt);
+        setSaveState("saved");
+      } catch (error) {
+        setSaveState("error");
+        setSaveErrorMessage(error instanceof Error ? error.message : "Could not save this builder draft.");
+      }
+    }, 700);
+
+    return () => {
+      if (autosaveTimeoutRef.current) {
+        window.clearTimeout(autosaveTimeoutRef.current);
+      }
+    };
+  }, [draftSnapshot, storageKey]);
 
   const selectedEvent = useMemo(
     () => events.find((event) => event.id === selectedEventId) || null,
@@ -628,6 +934,8 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       }),
     [generated.timeline, scheduledRounds, selectedEvent]
   );
+  const saveStateAppearance = getSaveStateAppearance(saveState);
+  const lastSavedLabel = formatSavedTimestamp(lastSavedAt);
 
   async function handleCopyPreview() {
     try {
@@ -645,6 +953,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
 
     setLearnerUploadError("");
     setLearnerFileName(file.name);
+    setSaveState("unsaved");
 
     try {
       const names = await parseLearnerFile(file);
@@ -668,8 +977,19 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
             <p className="cfsp-kicker">Connected builder</p>
             <h2 className="mt-3 text-[1.7rem] leading-tight font-black text-[#14304f]">Build rotation schedule</h2>
             <p className="mt-3 max-w-3xl text-[0.98rem] leading-6 text-[#5e7388]">
-              Build a full-day operational preview with arrivals, prebriefs, learner rotations, debrief, and breakdown while keeping all saved event data untouched.
+              Build a full-day operational preview with arrivals, prebriefs, learner rotations, debrief, and breakdown while keeping the event record untouched. Builder changes auto-save locally in this browser for the current event.
             </p>
+            <div
+              className="mt-4 inline-flex flex-wrap items-center gap-2 rounded-full px-3 py-2 text-sm font-bold"
+              style={{
+                border: `1px solid ${saveStateAppearance.border}`,
+                background: saveStateAppearance.background,
+                color: saveStateAppearance.color,
+              }}
+            >
+              <span>{saveStateAppearance.label}</span>
+              {lastSavedLabel ? <span style={{ color: "var(--cfsp-text-muted)" }}>Saved {lastSavedLabel}</span> : null}
+            </div>
           </div>
           {props.backHref ? (
             <Link href={props.backHref} className="cfsp-btn cfsp-btn-secondary">
@@ -1031,6 +1351,32 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
           </section>
         </>
       )}
+
+      <div
+        style={{
+          position: "fixed",
+          right: 20,
+          bottom: 20,
+          zIndex: 40,
+          maxWidth: 360,
+          borderRadius: 16,
+          padding: "12px 14px",
+          border: `1px solid ${saveStateAppearance.border}`,
+          background: saveStateAppearance.background,
+          boxShadow: "0 12px 30px rgba(0, 0, 0, 0.18)",
+          color: saveStateAppearance.color,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+          <div style={{ fontSize: 14, fontWeight: 900 }}>{saveStateAppearance.label}</div>
+          {lastSavedLabel ? (
+            <div style={{ fontSize: 12, fontWeight: 800, color: "var(--cfsp-text-muted)" }}>Saved {lastSavedLabel}</div>
+          ) : null}
+        </div>
+        <div style={{ marginTop: 4, fontSize: 12, fontWeight: 700, color: "var(--cfsp-text-muted)", lineHeight: 1.5 }}>
+          {saveState === "error" && saveErrorMessage ? saveErrorMessage : saveStateAppearance.detail}
+        </div>
+      </div>
     </div>
   );
 }
