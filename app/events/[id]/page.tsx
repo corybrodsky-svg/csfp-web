@@ -1033,6 +1033,14 @@ function parseIntegerNoteValue(notes: string | null | undefined, label: string) 
   return Math.max(0, Math.floor(parsed));
 }
 
+function parseNoteValue(notes: string | null | undefined, label: string) {
+  const text = asText(notes);
+  if (!text) return "";
+  const escapedLabel = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = text.match(new RegExp(`^${escapedLabel}\\s*:\\s*(.+)$`, "im"));
+  return match ? match[1].trim() : "";
+}
+
 const POLL_METADATA_START = "[CFSP_POLL_METADATA]";
 const POLL_METADATA_END = "[/CFSP_POLL_METADATA]";
 const POLL_METADATA_KEYS: Array<keyof PollMetadata> = [
@@ -1490,6 +1498,13 @@ export default function EventDetailPage() {
   const [telehealthOnly, setTelehealthOnly] = useState(false);
   const [ptPreferredOnly, setPtPreferredOnly] = useState(false);
   const [availableForEventOnly, setAvailableForEventOnly] = useState(false);
+  const [staffingCoverageOpen, setStaffingCoverageOpen] = useState(true);
+  const [staffingPollFinderOpen, setStaffingPollFinderOpen] = useState(false);
+  const [staffingPollOpen, setStaffingPollOpen] = useState(false);
+  const [staffingMatchMakerOpen, setStaffingMatchMakerOpen] = useState(false);
+  const [staffingAssignedOpen, setStaffingAssignedOpen] = useState(true);
+  const [showMatchMakerResults, setShowMatchMakerResults] = useState(false);
+  const [matchMakerMode, setMatchMakerMode] = useState<"poll" | "responders">("poll");
   const [showEmailDraft, setShowEmailDraft] = useState(false);
   const [assignmentFilter, setAssignmentFilter] = useState<AssignmentFilterStatus>("all");
   const [suggestedAssignmentFilter, setSuggestedAssignmentFilter] = useState<SuggestedAssignmentFilter>("all");
@@ -1921,6 +1936,14 @@ export default function EventDetailPage() {
   );
   const metadataGeneratedRotationRounds = useMemo(
     () => parseIntegerNoteValue(event?.notes, "Generated Rotation Rounds"),
+    [event?.notes]
+  );
+  const relatedTrainingEventId = useMemo(
+    () => parseNoteValue(event?.notes, "Related Training Event ID"),
+    [event?.notes]
+  );
+  const relatedTrainingEventName = useMemo(
+    () => parseNoteValue(event?.notes, "Related Training Event"),
     [event?.notes]
   );
   const allRotationRounds = useMemo(() => buildRotationRounds(sessions), [sessions]);
@@ -2472,6 +2495,15 @@ const summaryTimeLabel = useMemo(() => {
   const noResponsePollResponders = useMemo(
     () => pollResponderEntries.filter((entry) => entry.pollResponseStatus === "no_response"),
     [pollResponderEntries]
+  );
+  const pollSelectedEntries = useMemo(
+    () =>
+      pollSelectedSps.map((sp) => ({
+        sp,
+        pollResponseStatus:
+          pollResponderEntries.find((entry) => entry.sp.id === sp.id)?.pollResponseStatus || "no_response",
+      })),
+    [pollResponderEntries, pollSelectedSps]
   );
   const pollResponseRate = pollResponderEntries.length
     ? Math.round(((availablePollResponders.length + maybePollResponders.length + unavailablePollResponders.length) / pollResponderEntries.length) * 100)
@@ -4868,6 +4900,1080 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
             </section>
           </div>
         </div>
+      </section>
+    ) : null;
+
+  const normalEventStaffingCommandCenter =
+    !isTrainingMode ? (
+      <section
+        style={{
+          ...cardStyle,
+          background: "var(--cfsp-surface-muted)",
+          borderColor: "rgba(120, 180, 255, 0.24)",
+          display: "grid",
+          gap: "12px",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            gap: "12px",
+            flexWrap: "wrap",
+            alignItems: "flex-start",
+          }}
+        >
+          <div>
+            <h2 style={compactSectionTitleStyle}>Staffing Command Center</h2>
+            <p style={compactSectionHintStyle}>
+              Run coverage, polling, responder ranking, and assigned-SP operations from one compact workflow.
+            </p>
+          </div>
+          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+            <span style={commandChipStyle}>{needed} needed</span>
+            <span style={{ ...commandChipStyle, background: "var(--cfsp-green-soft)", color: "var(--cfsp-green)" }}>
+              {confirmedCount} confirmed
+            </span>
+            <span
+              style={{
+                ...commandChipStyle,
+                background:
+                  coverageRiskTone === "green"
+                    ? "var(--cfsp-green-soft)"
+                    : coverageRiskTone === "yellow"
+                      ? "var(--cfsp-warning-soft)"
+                      : "var(--cfsp-danger-soft)",
+                color:
+                  coverageRiskTone === "green"
+                    ? "var(--cfsp-green)"
+                    : coverageRiskTone === "yellow"
+                      ? "var(--cfsp-warning)"
+                      : "var(--cfsp-danger)",
+              }}
+            >
+              {staffingHealthLabel}
+            </span>
+          </div>
+        </div>
+
+        {!staffingRelevant ? (
+          <div
+            style={{
+              ...statCard,
+              background: "rgba(141, 121, 255, 0.14)",
+              border: "1px solid rgba(141, 121, 255, 0.24)",
+              color: "#c5b8ff",
+            }}
+          >
+            <div style={statLabel}>HiFi Operations</div>
+            <div style={{ marginTop: "4px", fontWeight: 800 }}>
+              This event is currently classified as HiFi. SP staffing stays available if needed, but no active SP coverage target is driving the workflow.
+            </div>
+          </div>
+        ) : null}
+
+        {noSpStaffingRequired ? (
+          <div
+            style={{
+              border: "1px solid rgba(44, 211, 173, 0.24)",
+              borderRadius: "16px",
+              padding: "14px 16px",
+              background: "rgba(44, 211, 173, 0.14)",
+              color: "var(--cfsp-green)",
+              fontWeight: 800,
+            }}
+          >
+            No SP staffing required for this skills event.
+          </div>
+        ) : (
+          <>
+            {relatedTrainingEventId ? (
+              <div
+                style={{
+                  borderRadius: "14px",
+                  border: "1px solid rgba(73, 168, 255, 0.2)",
+                  background: "rgba(73, 168, 255, 0.08)",
+                  padding: "12px 14px",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  gap: "10px",
+                  flexWrap: "wrap",
+                  alignItems: "center",
+                }}
+              >
+                <div>
+                  <div style={{ ...statLabel, color: "var(--cfsp-blue)" }}>Related Training Event</div>
+                  <div style={{ marginTop: "4px", color: "var(--cfsp-text)", fontWeight: 900 }}>
+                    {relatedTrainingEventName || "Open linked SP training event"}
+                  </div>
+                </div>
+                <Link
+                  href={`/events/${encodeURIComponent(relatedTrainingEventId)}`}
+                  style={{ ...buttonStyle, display: "inline-flex", alignItems: "center", textDecoration: "none" }}
+                >
+                  Open Training Event
+                </Link>
+              </div>
+            ) : null}
+
+            <details
+              open={staffingCoverageOpen}
+              onToggle={(event) => setStaffingCoverageOpen(event.currentTarget.open)}
+              style={{
+                border: "1px solid var(--cfsp-border)",
+                borderRadius: "16px",
+                background: "var(--cfsp-surface)",
+                padding: "12px 14px",
+              }}
+            >
+              <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 900 }}>
+                Coverage
+              </summary>
+              <div style={{ display: "grid", gap: "12px", marginTop: "12px" }}>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))",
+                    gap: "10px",
+                  }}
+                >
+                  {[
+                    { label: "Needed", value: needed, tone: "var(--cfsp-text)" },
+                    { label: "Confirmed", value: confirmedCount, tone: "var(--cfsp-green)" },
+                    { label: "Available", value: availablePollResponders.length, tone: "var(--cfsp-green)" },
+                    { label: "Maybe", value: maybePollResponders.length, tone: "var(--cfsp-warning)" },
+                    { label: "No Response", value: noResponsePollResponders.length, tone: "var(--cfsp-text-muted)" },
+                    { label: "Unavailable", value: unavailablePollResponders.length, tone: "var(--cfsp-danger)" },
+                  ].map((item) => (
+                    <div key={item.label} style={{ ...statCard, padding: "10px 12px", background: "var(--cfsp-surface-muted)" }}>
+                      <div style={statLabel}>{item.label}</div>
+                      <div style={{ ...statValue, color: item.tone }}>{item.value}</div>
+                    </div>
+                  ))}
+                </div>
+
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                    gap: "10px",
+                  }}
+                >
+                  <div
+                    style={{
+                      borderRadius: "14px",
+                      padding: "12px 14px",
+                      background:
+                        coverageRiskTone === "green"
+                          ? "var(--cfsp-green-soft)"
+                          : coverageRiskTone === "yellow"
+                            ? "var(--cfsp-warning-soft)"
+                            : "var(--cfsp-danger-soft)",
+                      border:
+                        coverageRiskTone === "green"
+                          ? "1px solid rgba(44, 211, 173, 0.24)"
+                          : coverageRiskTone === "yellow"
+                            ? "1px solid rgba(243, 187, 103, 0.24)"
+                            : "1px solid var(--cfsp-danger-border)",
+                      color:
+                        coverageRiskTone === "green"
+                          ? "var(--cfsp-green)"
+                          : coverageRiskTone === "yellow"
+                            ? "var(--cfsp-warning)"
+                            : "var(--cfsp-danger)",
+                    }}
+                  >
+                    <div style={statLabel}>Coverage Health</div>
+                    <div style={{ marginTop: "4px", fontSize: "18px", fontWeight: 900 }}>
+                      {coverageRiskTone === "green" ? "Covered" : coverageRiskTone === "yellow" ? "At risk" : "Understaffed"}
+                    </div>
+                    <div style={{ marginTop: "4px", fontWeight: 700 }}>{staffingHealthLabel}</div>
+                  </div>
+                  <div style={{ ...statCard, padding: "12px 14px", background: "var(--cfsp-surface-muted)" }}>
+                    <div style={statLabel}>Operational Summary</div>
+                    <div style={{ marginTop: "4px", color: "var(--cfsp-text)", fontWeight: 800 }}>
+                      {confirmedCount >= needed ? "Coverage met" : `Short by ${Math.max(needed - confirmedCount, 0)}`}
+                    </div>
+                    <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
+                      {maybePollResponders.length
+                        ? `Backup coverage available from ${maybePollResponders.length} maybe responder${maybePollResponders.length === 1 ? "" : "s"}.`
+                        : "No backup responses yet."}
+                    </div>
+                    <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
+                      Poll response rate: {pollResponseRate}%
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    onClick={() => void handleConfirmAllAssignments()}
+                    disabled={saving || sortedAssignments.length === 0}
+                    style={{ ...buttonStyle, opacity: saving || sortedAssignments.length === 0 ? 0.65 : 1 }}
+                  >
+                    Confirm All Assigned SPs
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStaffingAssignedOpen(true)}
+                    style={{
+                      ...buttonStyle,
+                      background: "var(--cfsp-surface)",
+                      color: "var(--cfsp-text)",
+                      border: "1px solid var(--cfsp-border)",
+                    }}
+                  >
+                    Jump to Assigned SPs
+                  </button>
+                </div>
+              </div>
+            </details>
+
+            <details
+              open={staffingAssignedOpen && sortedAssignments.length > 0}
+              onToggle={(event) => setStaffingAssignedOpen(event.currentTarget.open)}
+              style={{
+                border: "1px solid var(--cfsp-border)",
+                borderRadius: "16px",
+                background: "var(--cfsp-surface)",
+                padding: "12px 14px",
+              }}
+            >
+              <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 900 }}>
+                Assigned SPs {sortedAssignments.length ? `(${sortedAssignments.length})` : ""}
+              </summary>
+              <div style={{ display: "grid", gap: "12px", marginTop: "12px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+                  <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
+                    {assignedCount} assigned / {confirmedCount} confirmed · {assignedBccEmails.length} email{assignedBccEmails.length === 1 ? "" : "s"} ready
+                  </div>
+                  <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                    <button
+                      type="button"
+                      onClick={() => void handleOpenAvailabilityRequest()}
+                      disabled={assignedBccEmails.length === 0}
+                      style={{ ...buttonStyle, opacity: assignedBccEmails.length === 0 ? 0.65 : 1 }}
+                    >
+                      Draft Hiring Email
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowEmailDraft((current) => !current)}
+                      style={{
+                        ...buttonStyle,
+                        background: "var(--cfsp-surface)",
+                        color: "var(--cfsp-text)",
+                        border: "1px solid rgba(120, 180, 255, 0.24)",
+                      }}
+                    >
+                      {showEmailDraft ? "Hide Email Preview" : "Show Email Preview"}
+                    </button>
+                  </div>
+                </div>
+
+                {showEmailDraft ? (
+                  <div style={{ ...statCard, background: "var(--cfsp-surface-muted)" }}>
+                    <div style={statLabel}>Email Draft Preview</div>
+                    <div style={{ marginTop: "8px", color: "var(--cfsp-text)", lineHeight: 1.7 }}>
+                      <div><strong>Recipients (BCC):</strong> {assignedBccEmails.length ? assignedBccEmails.join(", ") : "No assigned SP emails found."}</div>
+                      <div style={{ marginTop: "8px" }}><strong>Subject:</strong> {emailSubject}</div>
+                      <div style={{ marginTop: "8px", whiteSpace: "pre-wrap" }}><strong>Body:</strong>{"\n"}{emailBody}</div>
+                    </div>
+                  </div>
+                ) : null}
+
+                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                  {[
+                    { value: "all", label: `All (${sortedAssignments.length})` },
+                    {
+                      value: "invited",
+                      label: `Invited (${sortedAssignments.filter((item) => getAssignmentStatus(item) === "invited").length})`,
+                    },
+                    {
+                      value: "confirmed",
+                      label: `Confirmed (${sortedAssignments.filter((item) => getAssignmentStatus(item) === "confirmed").length})`,
+                    },
+                    {
+                      value: "declined",
+                      label: `Declined (${sortedAssignments.filter((item) => getAssignmentStatus(item) === "declined").length})`,
+                    },
+                  ].map((filter) => (
+                    <button
+                      key={filter.value}
+                      type="button"
+                      onClick={() => setAssignmentFilter(filter.value as AssignmentFilterStatus)}
+                      style={{
+                        ...buttonStyle,
+                        background: assignmentFilter === filter.value ? "var(--cfsp-blue)" : "var(--cfsp-surface)",
+                        color: assignmentFilter === filter.value ? "#ffffff" : "var(--cfsp-text)",
+                        border: assignmentFilter === filter.value ? "1px solid var(--cfsp-blue)" : "1px solid var(--cfsp-border)",
+                        padding: "8px 12px",
+                      }}
+                    >
+                      {filter.label}
+                    </button>
+                  ))}
+                </div>
+
+                {assignments.length === 0 ? (
+                  <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>No SPs assigned yet.</div>
+                ) : filteredAssignments.length === 0 ? (
+                  <div
+                    style={{
+                      border: "1px solid var(--cfsp-border)",
+                      borderRadius: "16px",
+                      padding: "16px",
+                      background: "var(--cfsp-surface-muted)",
+                      color: "var(--cfsp-text-muted)",
+                      fontWeight: 700,
+                    }}
+                  >
+                    No assigned SPs match the current filter.
+                  </div>
+                ) : (
+                  <div style={{ display: "grid", gap: "8px" }}>
+                    {filteredAssignments.map((assignment) => {
+                      const sp = assignment.sp_id ? spsById.get(assignment.sp_id) : undefined;
+                      const status = getAssignmentStatus(assignment);
+                      const email = sp ? getEmail(sp) : "";
+                      return (
+                        <div
+                          key={assignment.id}
+                          style={{
+                            border: "1px solid var(--cfsp-border)",
+                            borderRadius: "14px",
+                            padding: "10px 12px",
+                            background: "var(--cfsp-surface-muted)",
+                            display: "grid",
+                            gap: "8px",
+                          }}
+                        >
+                          <div
+                            style={{
+                              display: "grid",
+                              gridTemplateColumns: "minmax(0, 1.3fr) minmax(140px, 200px) auto",
+                              gap: "10px",
+                              alignItems: "center",
+                            }}
+                          >
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>
+                                {sp ? getFullName(sp) : "Unknown SP"}
+                              </div>
+                              <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontWeight: 700, fontSize: "13px" }}>
+                                {[email || assignment.sp_id || "No SP id", sp?.phone || ""].filter(Boolean).join(" · ")}
+                              </div>
+                            </div>
+                            <label style={{ display: "grid", gap: "6px", minWidth: 0 }}>
+                              <span style={statLabel}>Status</span>
+                              <select
+                                value={status}
+                                onChange={(e) => handleStatusChange(assignment, e.target.value as AssignmentStatus)}
+                                disabled={saving}
+                                style={{ ...selectStyle, width: "100%", background: "var(--cfsp-surface)" }}
+                              >
+                                {assignmentStatuses.map((option) => (
+                                  <option key={option} value={option}>
+                                    {assignmentStatusLabels[option]}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => void handleRemoveAssignment(assignment)}
+                              disabled={saving}
+                              style={{ ...dangerButtonStyle, opacity: saving ? 0.65 : 1, minWidth: "88px" }}
+                            >
+                              Remove
+                            </button>
+                          </div>
+                          <details
+                            style={{
+                              border: "1px solid var(--cfsp-border)",
+                              borderRadius: "12px",
+                              background: "var(--cfsp-surface)",
+                              padding: "8px 10px",
+                            }}
+                          >
+                            <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 800 }}>
+                              Notes
+                            </summary>
+                            <div style={{ marginTop: "10px" }}>
+                              <textarea
+                                key={`${assignment.id}-${assignment.notes || ""}`}
+                                defaultValue={assignment.notes || ""}
+                                onBlur={(e) =>
+                                  handleAssignmentDetailsChange(assignment, {
+                                    notes: e.target.value.trim() || null,
+                                  })
+                                }
+                                placeholder="Add optional notes..."
+                                disabled={saving}
+                                style={{ ...textareaStyle, minHeight: "76px" }}
+                              />
+                            </div>
+                          </details>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                <div
+                  style={{
+                    border: "1px solid rgba(120, 180, 255, 0.24)",
+                    borderRadius: "14px",
+                    padding: "12px 14px",
+                    background: "rgba(120, 180, 255, 0.08)",
+                    display: "grid",
+                    gap: "10px",
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
+                    <div>
+                      <div style={{ ...statLabel, color: "var(--cfsp-text)" }}>Candidate SP Pool</div>
+                      <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
+                        Browse unassigned candidates only when you need more coverage.
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowCandidatePool((current) => !current)}
+                      style={{ ...buttonStyle, opacity: saving ? 0.65 : 1 }}
+                    >
+                      {showCandidatePool ? "Hide Candidate SPs" : "Browse Candidate SPs"}
+                    </button>
+                  </div>
+
+                  {showCandidatePool ? (
+                    <div style={{ display: "grid", gap: "12px" }}>
+                      <input
+                        value={candidateQuery}
+                        onChange={(event) => setCandidateQuery(event.target.value)}
+                        placeholder="Search by name, email, phone, notes, roles, or preferences..."
+                        style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                      />
+                      <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                        {[
+                          { label: "Active only", active: activeOnly, setActive: setActiveOnly },
+                          { label: "Spanish-speaking", active: spanishOnly, setActive: setSpanishOnly },
+                          { label: "Telehealth", active: telehealthOnly, setActive: setTelehealthOnly },
+                          { label: "PT preferred", active: ptPreferredOnly, setActive: setPtPreferredOnly },
+                          { label: "Available for event", active: availableForEventOnly, setActive: setAvailableForEventOnly },
+                        ].map((filter) => (
+                          <button
+                            key={filter.label}
+                            type="button"
+                            onClick={() => filter.setActive((current) => !current)}
+                            style={{
+                              ...buttonStyle,
+                              background: filter.active ? "var(--cfsp-blue)" : "var(--cfsp-surface)",
+                              color: filter.active ? "#ffffff" : "var(--cfsp-text)",
+                              padding: "8px 12px",
+                            }}
+                          >
+                            {filter.label}
+                          </button>
+                        ))}
+                      </div>
+                      <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
+                        <select
+                          value={selectedSpId}
+                          onChange={(e) => setSelectedSpId(e.target.value)}
+                          style={selectStyle}
+                          disabled={saving || availableSps.length === 0}
+                        >
+                          <option value="">
+                            {availableSps.length === 0 ? "No matching unassigned SPs" : "Quick select an SP"}
+                          </option>
+                          {availableSps.map((sp) => (
+                            <option key={sp.id} value={sp.id}>
+                              {getFullName(sp)}
+                              {getEmail(sp) ? ` — ${getEmail(sp)}` : ""}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => void handleAddAssignment()}
+                          disabled={saving || !selectedSpId}
+                          style={{ ...buttonStyle, opacity: saving || !selectedSpId ? 0.65 : 1 }}
+                        >
+                          {assigningSpId && assigningSpId === selectedSpId ? "Assigning..." : "Add Selected SP"}
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            </details>
+
+            <details
+              open={staffingPollFinderOpen}
+              onToggle={(event) => setStaffingPollFinderOpen(event.currentTarget.open)}
+              style={{
+                border: "1px solid var(--cfsp-border)",
+                borderRadius: "16px",
+                background: "var(--cfsp-surface)",
+                padding: "12px 14px",
+              }}
+            >
+              <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 900 }}>
+                Find SPs to Poll
+              </summary>
+              <div style={{ display: "grid", gap: "12px", marginTop: "12px" }}>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
+                    gap: "10px",
+                  }}
+                >
+                  <label style={{ display: "grid", gap: "6px" }}>
+                    <span style={statLabel}>Campus/location fit</span>
+                    <select
+                      value={pollMatchLocationFilter}
+                      onChange={(event) => setPollMatchLocationFilter(event.target.value as PollLocationFilter)}
+                      style={{ ...selectStyle, width: "100%" }}
+                    >
+                      <option value="any">Any location</option>
+                      <option value="elkins_park">Elkins Park only</option>
+                      <option value="center_city">Center City only</option>
+                      <option value="virtual">Virtual/Telehealth only</option>
+                    </select>
+                  </label>
+                  <label style={{ display: "grid", gap: "6px" }}>
+                    <span style={statLabel}>Keyword search</span>
+                    <input
+                      value={pollMatchKeyword}
+                      onChange={(event) => setPollMatchKeyword(event.target.value)}
+                      placeholder="Notes, skills, roles..."
+                      style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                    />
+                  </label>
+                </div>
+
+                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "end" }}>
+                  {[
+                    { label: "Active only", active: pollMatchActiveOnly, toggle: () => setPollMatchActiveOnly((current) => !current) },
+                    { label: "Email ready only", active: pollMatchEmailReadyOnly, toggle: () => setPollMatchEmailReadyOnly((current) => !current) },
+                    { label: "Available responders only", active: pollMatchAvailableRespondersOnly, toggle: () => setPollMatchAvailableRespondersOnly((current) => !current) },
+                    { label: "Spanish", active: pollMatchSpanishOnly, toggle: () => setPollMatchSpanishOnly((current) => !current) },
+                    { label: "Virtual ready", active: pollMatchTelehealthOnly, toggle: () => setPollMatchTelehealthOnly((current) => !current) },
+                  ].map((filter) => (
+                    <button
+                      key={filter.label}
+                      type="button"
+                      onClick={filter.toggle}
+                      style={{
+                        ...buttonStyle,
+                        padding: "8px 12px",
+                        background: filter.active ? "var(--cfsp-blue)" : "var(--cfsp-surface)",
+                        color: filter.active ? "#ffffff" : "var(--cfsp-text)",
+                        border: filter.active ? "1px solid var(--cfsp-blue)" : "1px solid var(--cfsp-border)",
+                      }}
+                    >
+                      {filter.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    onClick={handleAddRecommendedToPoll}
+                    disabled={recommendedPollMatches.filter((entry) => entry.emailReady).length === 0}
+                    style={{ ...buttonStyle, opacity: recommendedPollMatches.filter((entry) => entry.emailReady).length === 0 ? 0.65 : 1 }}
+                  >
+                    Add Recommended to Poll
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleAddAllFilteredToPoll}
+                    disabled={pollMatchEntries.filter((entry) => entry.emailReady).length === 0}
+                    style={{
+                      ...buttonStyle,
+                      background: "var(--cfsp-surface)",
+                      color: "var(--cfsp-text)",
+                      border: "1px solid var(--cfsp-border)",
+                      opacity: pollMatchEntries.filter((entry) => entry.emailReady).length === 0 ? 0.65 : 1,
+                    }}
+                  >
+                    Add All Filtered to Poll
+                  </button>
+                </div>
+
+                <div style={{ display: "grid", gap: "8px" }}>
+                  {recommendedPollMatches.length ? (
+                    recommendedPollMatches.slice(0, 8).map((entry) => (
+                      <div
+                        key={`poll-match-${entry.sp.id}`}
+                        style={{
+                          borderRadius: "12px",
+                          border: "1px solid var(--cfsp-border)",
+                          background: "var(--cfsp-surface-muted)",
+                          padding: "10px 12px",
+                          display: "grid",
+                          gap: "6px",
+                        }}
+                      >
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+                          <div>
+                            <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>{getFullName(entry.sp)}</div>
+                            <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontWeight: 700, fontSize: "12px" }}>
+                              {entry.email || "No email on file"}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => addPollSelection([entry.sp.id], `${getFullName(entry.sp)} added to poll.`)}
+                            disabled={!entry.emailReady}
+                            style={{ ...buttonStyle, opacity: entry.emailReady ? 1 : 0.65 }}
+                          >
+                            {entry.selected ? "Selected" : "Add to Poll"}
+                          </button>
+                        </div>
+                        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                          {entry.chips.map((chip) => (
+                            <span
+                              key={`${entry.sp.id}-${chip}`}
+                              style={{
+                                borderRadius: "999px",
+                                padding: "4px 8px",
+                                fontSize: "11px",
+                                fontWeight: 900,
+                                background: "rgba(73, 168, 255, 0.12)",
+                                border: "1px solid rgba(73, 168, 255, 0.22)",
+                                color: "var(--cfsp-blue)",
+                              }}
+                            >
+                              {chip}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
+                      No SPs match the current pre-poll filters.
+                    </div>
+                  )}
+                </div>
+              </div>
+            </details>
+
+            <details
+              open={staffingPollOpen}
+              onToggle={(event) => setStaffingPollOpen(event.currentTarget.open)}
+              style={{
+                border: "1px solid var(--cfsp-border)",
+                borderRadius: "16px",
+                background: "var(--cfsp-surface)",
+                padding: "12px 14px",
+              }}
+            >
+              <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 900 }}>
+                Poll
+              </summary>
+              <div style={{ display: "grid", gap: "12px", marginTop: "12px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
+                  <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
+                    {pollSelectedCount} selected · {pollReadyEmailCount} email ready · {pollStatusDisplayLabel}
+                  </div>
+                  <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                    <button type="button" onClick={() => void handleCreatePoll()} disabled={pollSaving} style={{ ...buttonStyle, opacity: pollSaving ? 0.7 : 1 }}>
+                      Create Poll
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleDraftPollingEmail()}
+                      disabled={pollSaving || pollSelectedCount === 0}
+                      style={{
+                        ...buttonStyle,
+                        background: "var(--cfsp-surface)",
+                        color: "var(--cfsp-text)",
+                        border: "1px solid var(--cfsp-border)",
+                        opacity: pollSaving || pollSelectedCount === 0 ? 0.7 : 1,
+                      }}
+                    >
+                      Draft Polling Email
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleMarkPollSent()}
+                      disabled={pollSaving || pollSelectedCount === 0}
+                      style={{
+                        ...buttonStyle,
+                        background: "rgba(44, 211, 173, 0.12)",
+                        color: "var(--cfsp-green)",
+                        border: "1px solid rgba(44, 211, 173, 0.22)",
+                        opacity: pollSaving || pollSelectedCount === 0 ? 0.7 : 1,
+                      }}
+                    >
+                      Mark Poll Sent
+                    </button>
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+                    gap: "10px",
+                  }}
+                >
+                  <div style={statCard}>
+                    <div style={statLabel}>Available</div>
+                    <div style={statValue}>{pollResponseSummary.availableCount}</div>
+                  </div>
+                  <div style={statCard}>
+                    <div style={statLabel}>Maybe</div>
+                    <div style={statValue}>{pollResponseSummary.maybeCount}</div>
+                  </div>
+                  <div style={statCard}>
+                    <div style={statLabel}>Not Available</div>
+                    <div style={statValue}>{pollResponseSummary.notAvailableCount}</div>
+                  </div>
+                  <div style={statCard}>
+                    <div style={statLabel}>No Response</div>
+                    <div style={statValue}>{pollResponseSummary.noResponseCount}</div>
+                  </div>
+                </div>
+
+                <div style={{ display: "grid", gap: "8px" }}>
+                  {pollSelectedEntries.length ? (
+                    pollSelectedEntries.slice(0, 8).map((entry) => (
+                      <div
+                        key={`poll-selected-${entry.sp.id}`}
+                        style={{
+                          borderRadius: "12px",
+                          border: "1px solid var(--cfsp-border)",
+                          background: "var(--cfsp-surface-muted)",
+                          padding: "10px 12px",
+                          display: "flex",
+                          justifyContent: "space-between",
+                          gap: "10px",
+                          flexWrap: "wrap",
+                          alignItems: "center",
+                        }}
+                      >
+                        <div>
+                          <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>{getFullName(entry.sp)}</div>
+                          <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 700 }}>
+                            {entry.sp.working_email || entry.sp.email || "No email on file"}
+                          </div>
+                        </div>
+                        <span style={{ ...commandChipStyle, background: "rgba(73, 168, 255, 0.12)", color: "var(--cfsp-blue)" }}>
+                          {entry.pollResponseStatus === "no_response"
+                            ? "No response"
+                            : entry.pollResponseStatus === "not_available"
+                              ? "Not available"
+                              : entry.pollResponseStatus === "available"
+                                ? "Available"
+                                : "Maybe"}
+                        </span>
+                      </div>
+                    ))
+                  ) : (
+                    <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
+                      Select candidate SPs to start an in-app availability poll.
+                    </div>
+                  )}
+                </div>
+              </div>
+            </details>
+
+            <details
+              open={staffingMatchMakerOpen}
+              onToggle={(event) => setStaffingMatchMakerOpen(event.currentTarget.open)}
+              style={{
+                border: "1px solid var(--cfsp-border)",
+                borderRadius: "16px",
+                background: "var(--cfsp-surface)",
+                padding: "12px 14px",
+              }}
+            >
+              <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 900 }}>
+                Match Maker
+              </summary>
+              <div style={{ display: "grid", gap: "12px", marginTop: "12px" }}>
+                {!showMatchMakerResults ? (
+                  <div
+                    style={{
+                      borderRadius: "14px",
+                      border: "1px dashed rgba(61, 201, 184, 0.28)",
+                      background: "rgba(61, 201, 184, 0.08)",
+                      padding: "14px",
+                      display: "flex",
+                      justifyContent: "space-between",
+                      gap: "12px",
+                      flexWrap: "wrap",
+                      alignItems: "center",
+                    }}
+                  >
+                    <div>
+                      <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>
+                        Use Match Maker to find SPs to poll or rank poll responders.
+                      </div>
+                      <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontWeight: 700, fontSize: "13px" }}>
+                        Keep it optional until you want deterministic staffing suggestions.
+                      </div>
+                    </div>
+                    <button type="button" onClick={() => setShowMatchMakerResults(true)} style={buttonStyle}>
+                      Run Match Maker
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                      <button
+                        type="button"
+                        onClick={() => setMatchMakerMode("poll")}
+                        style={{
+                          ...buttonStyle,
+                          background: matchMakerMode === "poll" ? "var(--cfsp-blue)" : "var(--cfsp-surface)",
+                          color: matchMakerMode === "poll" ? "#ffffff" : "var(--cfsp-text)",
+                          border: matchMakerMode === "poll" ? "1px solid var(--cfsp-blue)" : "1px solid var(--cfsp-border)",
+                        }}
+                      >
+                        Find SPs to Poll
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setMatchMakerMode("responders")}
+                        style={{
+                          ...buttonStyle,
+                          background: matchMakerMode === "responders" ? "var(--cfsp-blue)" : "var(--cfsp-surface)",
+                          color: matchMakerMode === "responders" ? "#ffffff" : "var(--cfsp-text)",
+                          border: matchMakerMode === "responders" ? "1px solid var(--cfsp-blue)" : "1px solid var(--cfsp-border)",
+                        }}
+                      >
+                        Rank Responders
+                      </button>
+                    </div>
+
+                    {matchMakerMode === "poll" ? (
+                      <div style={{ display: "grid", gap: "8px" }}>
+                        <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
+                          Top SPs to poll first based on fit, contact readiness, and response signals.
+                        </div>
+                        {recommendedPollMatches.length ? (
+                          recommendedPollMatches.slice(0, Math.max(needed, 4)).map((entry) => (
+                            <div
+                              key={`mm-poll-${entry.sp.id}`}
+                              style={{
+                                display: "grid",
+                                gridTemplateColumns: "minmax(0, 1fr) auto",
+                                gap: "10px",
+                                alignItems: "center",
+                                borderRadius: "14px",
+                                padding: "10px 12px",
+                                background: "var(--cfsp-surface-muted)",
+                                border: "1px solid var(--cfsp-border)",
+                              }}
+                            >
+                              <div>
+                                <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>{getFullName(entry.sp)}</div>
+                                <div style={{ marginTop: "4px", display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                                  {entry.chips.map((chip) => (
+                                    <span
+                                      key={`${entry.sp.id}-mm-${chip}`}
+                                      style={{
+                                        borderRadius: "999px",
+                                        padding: "4px 8px",
+                                        fontSize: "11px",
+                                        fontWeight: 900,
+                                        background: "rgba(73, 168, 255, 0.12)",
+                                        border: "1px solid rgba(73, 168, 255, 0.22)",
+                                        color: "var(--cfsp-blue)",
+                                      }}
+                                    >
+                                      {chip}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => addPollSelection([entry.sp.id], `${getFullName(entry.sp)} added to poll.`)}
+                                disabled={!entry.emailReady}
+                                style={{ ...buttonStyle, opacity: entry.emailReady ? 1 : 0.65 }}
+                              >
+                                {entry.selected ? "Selected" : "Add to Poll"}
+                              </button>
+                            </div>
+                          ))
+                        ) : (
+                          <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
+                            No pre-poll matches available with the current filters.
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <>
+                        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                          <button
+                            type="button"
+                            onClick={() => void handleAssignTopPollMatches()}
+                            disabled={saving || topMatchAssignmentCount === 0}
+                            style={{ ...buttonStyle, opacity: saving || topMatchAssignmentCount === 0 ? 0.65 : 1 }}
+                          >
+                            Assign Top Matches
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void handleConvertAvailableToConfirmed()}
+                            disabled={saving || availablePollResponders.filter((entry) => entry.assignment && !entry.isConfirmed).length === 0}
+                            style={{ ...buttonStyle, opacity: saving || availablePollResponders.filter((entry) => entry.assignment && !entry.isConfirmed).length === 0 ? 0.65 : 1 }}
+                          >
+                            Convert Available → Confirmed
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void handleMoveMaybeToBackup()}
+                            disabled={saving || maybePollResponders.filter((entry) => entry.assignment).length === 0}
+                            style={{ ...buttonStyle, opacity: saving || maybePollResponders.filter((entry) => entry.assignment).length === 0 ? 0.65 : 1 }}
+                          >
+                            Move Maybe → Backup
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleClearSuggestedAssignments}
+                            style={{
+                              ...buttonStyle,
+                              background: "var(--cfsp-surface)",
+                              color: "var(--cfsp-text)",
+                              border: "1px solid var(--cfsp-border)",
+                            }}
+                          >
+                            Clear Suggested Assignments
+                          </button>
+                        </div>
+
+                        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                          {[
+                            { value: "all", label: `All (${pollResponderEntries.length})` },
+                            { value: "available", label: `Available only (${availablePollResponders.length})` },
+                            { value: "confirmed", label: `Confirmed only (${availablePollResponders.filter((entry) => entry.isConfirmed).length})` },
+                            { value: "needs_outreach", label: `Needs outreach (${needsOutreachCount})` },
+                            { value: "backup", label: `Backup candidates (${maybePollResponders.length})` },
+                          ].map((filter) => (
+                            <button
+                              key={filter.value}
+                              type="button"
+                              onClick={() => setSuggestedAssignmentFilter(filter.value as SuggestedAssignmentFilter)}
+                              style={{
+                                ...buttonStyle,
+                                padding: "8px 12px",
+                                background: suggestedAssignmentFilter === filter.value ? "var(--cfsp-blue)" : "var(--cfsp-surface)",
+                                color: suggestedAssignmentFilter === filter.value ? "#ffffff" : "var(--cfsp-text)",
+                                border:
+                                  suggestedAssignmentFilter === filter.value
+                                    ? "1px solid var(--cfsp-blue)"
+                                    : "1px solid var(--cfsp-border)",
+                              }}
+                            >
+                              {filter.label}
+                            </button>
+                          ))}
+                        </div>
+
+                        <div style={{ display: "grid", gap: "8px" }}>
+                          {suggestedAssignmentRows.length === 0 ? (
+                            <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
+                              No responders match this staffing filter yet.
+                            </div>
+                          ) : (
+                            suggestedAssignmentRows.slice(0, 10).map((entry) => {
+                              const responseTone =
+                                entry.pollResponseStatus === "available"
+                                  ? assignmentStatusStyles.confirmed
+                                  : entry.pollResponseStatus === "maybe"
+                                    ? assignmentStatusStyles.backup
+                                    : entry.pollResponseStatus === "not_available"
+                                      ? assignmentStatusStyles.declined
+                                      : assignmentStatusStyles.invited;
+                              return (
+                                <div
+                                  key={entry.sp.id}
+                                  style={{
+                                    display: "grid",
+                                    gridTemplateColumns: "minmax(0, 1.5fr) auto",
+                                    gap: "10px",
+                                    alignItems: "center",
+                                    borderRadius: "14px",
+                                    padding: "10px 12px",
+                                    background: "var(--cfsp-surface-muted)",
+                                    border: "1px solid var(--cfsp-border)",
+                                  }}
+                                >
+                                  <div style={{ minWidth: 0 }}>
+                                    <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>{getFullName(entry.sp)}</div>
+                                    <div style={{ marginTop: "4px", display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                                      <span style={{ ...responseTone, borderRadius: "999px", padding: "5px 8px", fontSize: "11px", fontWeight: 900 }}>
+                                        {entry.pollResponseStatus === "not_available"
+                                          ? "Not Available"
+                                          : entry.pollResponseStatus === "no_response"
+                                            ? "No Response"
+                                            : entry.pollResponseStatus === "available"
+                                              ? "Available"
+                                              : "Maybe"}
+                                      </span>
+                                      <span
+                                        style={{
+                                          ...availabilityMatchStyles[entry.availabilityMatch],
+                                          borderRadius: "999px",
+                                          padding: "5px 8px",
+                                          fontSize: "11px",
+                                          fontWeight: 900,
+                                        }}
+                                      >
+                                        {availabilityMatchLabels[entry.availabilityMatch]}
+                                      </span>
+                                      {entry.assignmentStatus ? (
+                                        <span
+                                          style={{
+                                            ...assignmentStatusStyles[entry.assignmentStatus],
+                                            borderRadius: "999px",
+                                            padding: "5px 8px",
+                                            fontSize: "11px",
+                                            fontWeight: 900,
+                                          }}
+                                        >
+                                          {assignmentStatusLabels[entry.assignmentStatus]}
+                                        </span>
+                                      ) : null}
+                                    </div>
+                                  </div>
+                                  {!entry.isAssigned && entry.pollResponseStatus !== "not_available" ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => void handleAddAssignment(entry.sp.id)}
+                                      disabled={saving}
+                                      style={{ ...buttonStyle, opacity: saving ? 0.65 : 1 }}
+                                    >
+                                      {assigningSpId === entry.sp.id ? "Assigning..." : "Assign"}
+                                    </button>
+                                  ) : (
+                                    <span style={{ color: "var(--cfsp-text-muted)", fontWeight: 800, fontSize: "12px" }}>
+                                      {entry.isAssigned ? "Assigned" : "Do not assign"}
+                                    </span>
+                                  )}
+                                </div>
+                              );
+                            })
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </>
+                )}
+              </div>
+            </details>
+          </>
+        )}
       </section>
     ) : null;
 
@@ -7560,7 +8666,9 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
       </details>
       ) : null}
 
-      {!isTrainingMode ? (
+      {normalEventStaffingCommandCenter}
+
+      {false && !isTrainingMode ? (
       <div style={cardStyle}>
         <div
           style={{
@@ -7933,7 +9041,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
       </div>
       ) : null}
 
-      {!isTrainingMode ? (
+      {false && !isTrainingMode ? (
       noSpStaffingRequired ? (
         <div
           style={{
@@ -9008,7 +10116,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
       </div>
       )
       ) : null}
-{canManageAvailabilityPoll ? (
+{false && canManageAvailabilityPoll ? (
   <div style={cardStyle}>
     <div
       style={{
