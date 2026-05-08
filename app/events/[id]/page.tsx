@@ -7113,7 +7113,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
             marginTop: "10px",
             display: "grid",
             gap: "12px",
-            gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
+            gridTemplateColumns: "minmax(0, 1fr)",
             alignItems: "start",
           }}
         >
@@ -7181,7 +7181,46 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
 
             {sessions.length ? (
               <div style={{ marginTop: "10px" }}>
-                <div style={statLabel}>Rotation Rounds</div>
+                <div
+                  style={{
+                    position: "sticky",
+                    top: "10px",
+                    zIndex: 2,
+                    marginBottom: "10px",
+                    borderRadius: "16px",
+                    border: "1px solid rgba(126, 231, 219, 0.18)",
+                    background: "rgba(6, 17, 29, 0.9)",
+                    backdropFilter: "blur(10px)",
+                    padding: "12px 14px",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    gap: "12px",
+                    flexWrap: "wrap",
+                    alignItems: "center",
+                  }}
+                >
+                  <div>
+                    <div style={{ ...statLabel, color: "#7ee7db" }}>Rotation Command Surface</div>
+                    <div style={{ marginTop: "4px", color: "#f8fafc", fontWeight: 900, fontSize: "16px" }}>
+                      {event.name || "Untitled Event"}
+                    </div>
+                    <div style={{ marginTop: "4px", color: "#9cc7d3", fontWeight: 700, fontSize: "12px" }}>
+                      {[sessionSummaryLabel, summaryTimeLabel].filter(Boolean).join(" · ")}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                    <span style={{ ...commandChipStyle, background: "rgba(73, 168, 255, 0.12)", color: "#7dd3fc" }}>
+                      {selectedRotationRound ? `Selected Round ${activeSelectedRotationRoundIndex + 1}` : "No round selected"}
+                    </span>
+                    <span style={{ ...commandChipStyle, background: "rgba(126, 231, 219, 0.14)", color: "#7ee7db" }}>
+                      {roundCompanionView === "student"
+                        ? "Student Schedule"
+                        : roundCompanionView === "sp"
+                          ? "SP Schedule"
+                          : "Operations View"}
+                    </span>
+                  </div>
+                </div>
                 {hiddenExtraBackendRounds > 0 ? (
                   <div style={{ marginTop: "6px", color: "var(--cfsp-warning)", fontSize: "12px", fontWeight: 800 }}>
                     Extra backend room slots are hidden because learner capacity only requires {rotationRounds.length} rotation round{rotationRounds.length === 1 ? "" : "s"}.
@@ -7192,8 +7231,9 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                     display: "grid",
                     gap: "12px",
                     marginTop: "8px",
-                    gridTemplateColumns: "minmax(0, 1.15fr) minmax(280px, 0.85fr)",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))",
                     alignItems: "start",
+                    width: "100%",
                   }}
                 >
                   <div style={{ display: "grid", gap: "6px" }}>
@@ -7281,11 +7321,12 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                       borderRadius: "18px",
                       border: "1px solid rgba(126, 231, 219, 0.24)",
                       background: "linear-gradient(180deg, rgba(9, 26, 39, 0.98) 0%, rgba(12, 27, 41, 0.94) 100%)",
-                      padding: "16px",
+                      padding: "18px",
                       display: "grid",
-                      gap: "12px",
+                      gap: "14px",
                       position: "sticky",
-                      top: "14px",
+                      top: "74px",
+                      minHeight: "100%",
                     }}
                   >
                     <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
@@ -7406,7 +7447,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                           ) : roundCompanionView === "sp" ? (
                             <div style={{ display: "grid", gap: "8px" }}>
                               {selectedRoundAssignments.length ? selectedRoundAssignments.map((entry, index) => (
-                                <div key={`${selectedRotationRound.key}-sp-${index}`} style={{ borderRadius: "12px", border: "1px solid rgba(148, 163, 184, 0.18)", background: "rgba(255,255,255,0.04)", padding: "10px 12px", display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+                                <div key={`${selectedRotationRound.key}-sp-${index}`} style={{ borderRadius: "12px", border: "1px solid rgba(148, 163, 184, 0.18)", background: "rgba(255,255,255,0.04)", padding: "12px 14px", display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
                                   <div>
                                     <div style={{ color: "#f8fafc", fontWeight: 800 }}>{entry.roomName || `Room ${index + 1}`}</div>
                                     <div style={{ marginTop: "4px", color: "#9cc7d3", fontSize: "12px", fontWeight: 700 }}>
@@ -7448,7 +7489,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                                 )}
                               </div>
                               {selectedRoundAssignments.length ? selectedRoundAssignments.map((entry, index) => (
-                                <div key={`${selectedRotationRound.key}-ops-${index}`} style={{ borderRadius: "12px", border: "1px solid rgba(148, 163, 184, 0.18)", background: "rgba(255,255,255,0.04)", padding: "10px 12px", display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+                                <div key={`${selectedRotationRound.key}-ops-${index}`} style={{ borderRadius: "12px", border: "1px solid rgba(148, 163, 184, 0.18)", background: "rgba(255,255,255,0.04)", padding: "12px 14px", display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
                                   <div>
                                     <div style={{ color: "#f8fafc", fontWeight: 800 }}>{entry.roomName || `Room ${index + 1}`}</div>
                                     <div style={{ marginTop: "4px", color: "#9cc7d3", fontSize: "12px", fontWeight: 700 }}>
