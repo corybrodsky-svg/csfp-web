@@ -604,6 +604,7 @@ export async function GET(
 
     return applyAuthCookies(
       NextResponse.json({
+        viewerRole: viewer.role,
         event,
         sessions: sessions || [],
         sps: [...(sps || [])],
