@@ -29,6 +29,29 @@ type ViewerContext = {
   shouldClearCookies?: boolean;
 };
 
+type PollAccessResult = {
+  event: {
+    id: string;
+    name: string | null;
+    status: string | null;
+    date_text: string | null;
+    location: string | null;
+    notes: string | null;
+  } | null;
+  pollMetadata: PollMetadata;
+  trainingMetadata: ReturnType<typeof parseTrainingEventMetadata> | null;
+  sessions: Array<{
+    id: string;
+    event_id: string | null;
+    session_date: string | null;
+    start_time: string | null;
+    end_time: string | null;
+    location: string | null;
+    room: string | null;
+    created_at: string | null;
+  }>;
+};
+
 type AuthenticatedUserResult = {
   accessToken: string;
   refreshToken: string;
@@ -408,20 +431,41 @@ async function getEventAndViewerAccess(
   };
 }
 
+async function getPublicPollAccess(
+  supabaseServer: ReturnType<typeof createSupabaseServerClient>,
+  eventId: string
+): Promise<PollAccessResult> {
+  const { data: event, error: eventError } = await supabaseServer
+    .from("events")
+    .select("id,name,status,date_text,location,notes")
+    .eq("id", eventId)
+    .maybeSingle();
+
+  if (eventError) throw new Error(eventError.message || "Could not load event.");
+
+  const { data: sessions, error: sessionsError } = await supabaseServer
+    .from("event_sessions")
+    .select("id,event_id,session_date,start_time,end_time,location,room,created_at")
+    .eq("event_id", eventId)
+    .order("session_date", { ascending: true })
+    .order("start_time", { ascending: true });
+
+  if (sessionsError) throw new Error(sessionsError.message || "Could not load event sessions.");
+
+  return {
+    event: event || null,
+    pollMetadata: parsePollMetadata(event?.notes),
+    trainingMetadata: event ? parseTrainingEventMetadata(event.notes) : null,
+    sessions: sessions || [],
+  };
+}
+
 export async function GET(
   _request: Request,
   context: { params: Promise<{ id?: string | string[] }> }
 ) {
   try {
     const viewer = await getAuthenticatedViewer();
-    if (!viewer) return unauthorizedResponse();
-    if (viewer.role !== "sp") {
-      return applyAuthCookies(
-        NextResponse.json({ error: "This poll response page is only available to SP accounts." }, { status: 403 }),
-        viewer
-      );
-    }
-
     const params = await context.params;
     const eventId = getRouteId(params);
     if (!eventId) {
@@ -429,69 +473,83 @@ export async function GET(
     }
 
     const supabaseServer = createSupabaseServerClient();
-    const access = await getEventAndViewerAccess(supabaseServer, eventId, viewer);
-    if (!access.event) {
+    const publicAccess = await getPublicPollAccess(supabaseServer, eventId);
+    if (!publicAccess.event) {
       return applyAuthCookies(NextResponse.json({ error: "Event not found." }, { status: 404 }), viewer);
     }
-    if (!access.selected) {
-      return applyAuthCookies(
-        NextResponse.json({ error: "You are not included in this availability poll." }, { status: 403 }),
-        viewer
-      );
+    const isLoggedIn = Boolean(viewer);
+    const viewerRole = viewer?.role === "sp" || viewer?.role === "sim_op" || viewer?.role === "admin" || viewer?.role === "super_admin"
+      ? viewer.role
+      : "unknown";
+    let responseMetadata = emptyPollResponseMetadata();
+    let assignmentStatus: string | null = null;
+    let assignmentId: string | null = null;
+    let canRespond = false;
+    let responseAccessMessage = "";
+    let sp = {
+      id: "",
+      name: "",
+      email: "",
+    };
+
+    if (!viewer) {
+      responseAccessMessage = "Log in or create an SP account to submit your availability.";
+    } else if (viewer.role !== "sp") {
+      responseAccessMessage =
+        "This poll is for SP availability responses. Please create or switch to an SP account to respond.";
+    } else {
+      const access = await getEventAndViewerAccess(supabaseServer, eventId, viewer);
+      if (!access.viewerSp) {
+        responseAccessMessage = "Your SP account is awaiting directory matching before you can submit this poll.";
+      } else if (!access.selected) {
+        responseAccessMessage = "Your SP account is not included in this availability poll.";
+      } else {
+        canRespond = true;
+        responseMetadata = parsePollResponseMetadata(access.assignment?.notes);
+        assignmentStatus = access.assignment?.status || null;
+        assignmentId = access.assignment?.id || null;
+        sp = {
+          id: access.viewerSp.id || "",
+          name:
+            asText(access.viewerSp.full_name) ||
+            [asText(access.viewerSp.first_name), asText(access.viewerSp.last_name)].filter(Boolean).join(" ") ||
+            "SP account",
+          email: asText(access.viewerSp.working_email) || asText(access.viewerSp.email),
+        };
+      }
     }
-
-    const { data: sessions, error: sessionsError } = await supabaseServer
-      .from("event_sessions")
-      .select("id,event_id,session_date,start_time,end_time,location,room,created_at")
-      .eq("event_id", eventId)
-      .order("session_date", { ascending: true })
-      .order("start_time", { ascending: true });
-
-    if (sessionsError) {
-      return applyAuthCookies(
-        NextResponse.json({ error: sessionsError.message || "Could not load event sessions." }, { status: 500 }),
-        viewer
-      );
-    }
-
-    const responseMetadata = parsePollResponseMetadata(access.assignment?.notes);
 
     return applyAuthCookies(
       NextResponse.json({
-        viewerRole: viewer.role,
+        viewerRole,
+        isLoggedIn,
         event: {
-          id: access.event.id,
-          name: access.event.name,
-          status: access.event.status,
-          date_text: access.event.date_text,
-          location: access.event.location,
+          id: publicAccess.event.id,
+          name: publicAccess.event.name,
+          status: publicAccess.event.status,
+          date_text: publicAccess.event.date_text,
+          location: publicAccess.event.location,
         },
-        sessions: sessions || [],
-        sp: {
-          id: access.viewerSp?.id || "",
-          name:
-            asText(access.viewerSp?.full_name) ||
-            [asText(access.viewerSp?.first_name), asText(access.viewerSp?.last_name)].filter(Boolean).join(" ") ||
-            "SP account",
-          email: asText(access.viewerSp?.working_email) || asText(access.viewerSp?.email),
-        },
+        sessions: publicAccess.sessions,
+        sp,
         poll: {
-          status: access.pollMetadata.pollStatus || "not_created",
-          createdAt: access.pollMetadata.pollCreatedAt || null,
-          sentAt: access.pollMetadata.pollSentAt || null,
+          status: publicAccess.pollMetadata.pollStatus || "not_created",
+          createdAt: publicAccess.pollMetadata.pollCreatedAt || null,
+          sentAt: publicAccess.pollMetadata.pollSentAt || null,
         },
         response: {
-          assignmentId: access.assignment?.id || null,
+          assignmentId,
           current: responseMetadata.responseStatus || null,
           note: responseMetadata.responseNote || "",
           submittedAt: responseMetadata.responseSubmittedAt || null,
-          assignmentStatus: access.assignment?.status || null,
+          assignmentStatus,
         },
         access: {
-          zoomUrl: access.trainingMetadata?.zoom_url || null,
-          trainingPassword: access.trainingMetadata?.training_password || null,
-          simContact: access.trainingMetadata?.sim_contact || null,
+          zoomUrl: publicAccess.trainingMetadata?.zoom_url || null,
+          trainingPassword: publicAccess.trainingMetadata?.training_password || null,
         },
+        canRespond,
+        responseAccessMessage,
       }),
       viewer
     );

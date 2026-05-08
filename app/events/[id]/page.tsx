@@ -2121,6 +2121,8 @@ Please submit your availability in CFSP using the link below:
 
 ${eventPollLink}
 
+Use this link to view the poll. You'll be asked to log in or create an SP account before submitting your response.
+
 Submitting availability does not guarantee assignment. We will follow up once staffing is finalized.
 
 Thank you,

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import SiteShell from "../../../components/SiteShell";
+import { signOutUserAndRedirect } from "../../../lib/clientAuth";
 import { formatHumanDate } from "../../../lib/eventDateUtils";
 import { formatDisplayTime } from "../../../lib/timeFormat";
 
@@ -36,6 +37,7 @@ type PollResponseData = {
 
 type PollPayload = {
   viewerRole: "sp" | "sim_op" | "admin" | "super_admin" | "unknown";
+  isLoggedIn: boolean;
   event: PollEvent;
   sessions: PollSession[];
   sp: {
@@ -52,8 +54,9 @@ type PollPayload = {
   access: {
     zoomUrl: string | null;
     trainingPassword: string | null;
-    simContact: string | null;
   };
+  canRespond: boolean;
+  responseAccessMessage: string;
 };
 
 const cardStyle: React.CSSProperties = {
@@ -147,6 +150,7 @@ export default function EventPollResponsePage() {
   const [payload, setPayload] = useState<PollPayload | null>(null);
   const [selectedResponse, setSelectedResponse] = useState<PollResponseData["current"]>(null);
   const [note, setNote] = useState("");
+  const [signingOut, setSigningOut] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -247,8 +251,6 @@ export default function EventPollResponsePage() {
         </section>
       ) : !payload ? (
         <section style={cardStyle}>This poll could not be loaded.</section>
-      ) : payload.viewerRole !== "sp" ? (
-        <section style={cardStyle}>This poll response page is only available to SP accounts.</section>
       ) : (
         <>
           <section style={cardStyle}>
@@ -327,93 +329,144 @@ export default function EventPollResponsePage() {
             <div style={statCardStyle}>
               <div style={labelStyle}>Instructions</div>
               <div style={{ marginTop: "8px", color: "var(--cfsp-text-muted)", fontWeight: 700, lineHeight: 1.6 }}>
-                Choose the response that best matches your availability for this event. Add a note if timing, conflicts,
-                or follow-up details would help the simulation team.
+                Use this link to view the poll. You’ll be asked to log in or create an SP account before submitting your
+                response. Once signed in as an SP, choose the option that best matches your availability and add a note if
+                timing or follow-up details would help the simulation team.
               </div>
             </div>
           </section>
 
           <section style={{ ...cardStyle, marginTop: "14px" }}>
-            <div style={labelStyle}>Your availability</div>
-            <div style={{ marginTop: "12px", display: "grid", gap: "10px" }}>
-              {(
-                [
-                  { key: "available", label: "Available" },
-                  { key: "maybe", label: "Maybe / Need to discuss" },
-                  { key: "not_available", label: "Not Available" },
-                ] as const
-              ).map((option) => {
-                const active = selectedResponse === option.key;
-                return (
+            {!payload.isLoggedIn ? (
+              <>
+                <div style={labelStyle}>Respond</div>
+                <div style={{ marginTop: "8px", color: "var(--cfsp-text-muted)", fontWeight: 700, lineHeight: 1.6 }}>
+                  {payload.responseAccessMessage}
+                </div>
+                <div style={{ marginTop: "16px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                  <Link
+                    href="/login"
+                    className="cfsp-btn cfsp-btn-primary"
+                    style={{ textDecoration: "none" }}
+                  >
+                    Log in to respond
+                  </Link>
+                  <Link
+                    href="/signup"
+                    className="cfsp-btn cfsp-btn-secondary"
+                    style={{ textDecoration: "none" }}
+                  >
+                    Create SP account to respond
+                  </Link>
+                </div>
+              </>
+            ) : !payload.canRespond ? (
+              <>
+                <div style={labelStyle}>Respond</div>
+                <div style={{ marginTop: "8px", color: "var(--cfsp-text-muted)", fontWeight: 700, lineHeight: 1.6 }}>
+                  {payload.responseAccessMessage}
+                </div>
+                <div style={{ marginTop: "16px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                  {payload.viewerRole !== "sp" ? (
+                    <Link
+                      href="/signup"
+                      className="cfsp-btn cfsp-btn-secondary"
+                      style={{ textDecoration: "none" }}
+                    >
+                      Create SP account
+                    </Link>
+                  ) : null}
                   <button
-                    key={option.key}
                     type="button"
-                    onClick={() => setSelectedResponse(option.key)}
+                    onClick={() => {
+                      setSigningOut(true);
+                      void signOutUserAndRedirect().catch(() => setSigningOut(false));
+                    }}
+                    disabled={signingOut}
+                    className="cfsp-btn cfsp-btn-secondary"
+                  >
+                    {signingOut ? "Signing out..." : "Sign out"}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div style={labelStyle}>Your availability</div>
+                <div style={{ marginTop: "12px", display: "grid", gap: "10px" }}>
+                  {(
+                    [
+                      { key: "available", label: "Available" },
+                      { key: "maybe", label: "Maybe / Need to discuss" },
+                      { key: "not_available", label: "Not Available" },
+                    ] as const
+                  ).map((option) => {
+                    const active = selectedResponse === option.key;
+                    return (
+                      <button
+                        key={option.key}
+                        type="button"
+                        onClick={() => setSelectedResponse(option.key)}
+                        style={{
+                          ...optionStyles[option.key],
+                          borderRadius: "14px",
+                          padding: "12px 14px",
+                          textAlign: "left",
+                          fontWeight: 900,
+                          cursor: "pointer",
+                          opacity: active ? 1 : 0.82,
+                          boxShadow: active ? "0 0 0 2px rgba(61, 201, 184, 0.2) inset" : "none",
+                        }}
+                      >
+                        {option.label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div style={{ marginTop: "14px" }}>
+                  <label style={labelStyle} htmlFor="poll-note">
+                    Optional note
+                  </label>
+                  <textarea
+                    id="poll-note"
+                    value={note}
+                    onChange={(event) => setNote(event.target.value)}
+                    placeholder="Add timing conflicts, partial availability, or anything the sim team should know."
+                    style={{ ...inputStyle, marginTop: "8px" }}
+                  />
+                </div>
+
+                {payload.response.submittedAt ? (
+                  <div style={{ marginTop: "12px", color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
+                    Last submitted {formatSubmittedAt(payload.response.submittedAt)}
+                  </div>
+                ) : null}
+
+                {successMessage ? (
+                  <div style={{ marginTop: "12px", color: "var(--cfsp-green)", fontWeight: 800 }}>{successMessage}</div>
+                ) : null}
+
+                <div style={{ marginTop: "16px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    onClick={() => void handleSubmit()}
+                    disabled={saving || !selectedResponse}
                     style={{
-                      ...optionStyles[option.key],
-                      borderRadius: "14px",
-                      padding: "12px 14px",
-                      textAlign: "left",
+                      border: "1px solid var(--cfsp-blue)",
+                      borderRadius: "12px",
+                      background: "var(--cfsp-blue)",
+                      color: "#ffffff",
+                      cursor: saving || !selectedResponse ? "not-allowed" : "pointer",
                       fontWeight: 900,
-                      cursor: "pointer",
-                      opacity: active ? 1 : 0.82,
-                      boxShadow: active ? "0 0 0 2px rgba(61, 201, 184, 0.2) inset" : "none",
+                      padding: "10px 14px",
+                      opacity: saving || !selectedResponse ? 0.7 : 1,
                     }}
                   >
-                    {option.label}
+                    {saving ? "Saving..." : "Submit Availability"}
                   </button>
-                );
-              })}
-            </div>
-
-            <div style={{ marginTop: "14px" }}>
-              <label style={labelStyle} htmlFor="poll-note">
-                Optional note
-              </label>
-              <textarea
-                id="poll-note"
-                value={note}
-                onChange={(event) => setNote(event.target.value)}
-                placeholder="Add timing conflicts, partial availability, or anything the sim team should know."
-                style={{ ...inputStyle, marginTop: "8px" }}
-              />
-            </div>
-
-            {payload.response.submittedAt ? (
-              <div style={{ marginTop: "12px", color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
-                Last submitted {formatSubmittedAt(payload.response.submittedAt)}
-              </div>
-            ) : null}
-
-            {successMessage ? (
-              <div style={{ marginTop: "12px", color: "var(--cfsp-green)", fontWeight: 800 }}>{successMessage}</div>
-            ) : null}
-
-            {payload.access.simContact ? (
-              <div style={{ marginTop: "12px", color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
-                Sim team contact: {payload.access.simContact}
-              </div>
-            ) : null}
-
-            <div style={{ marginTop: "16px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
-              <button
-                type="button"
-                onClick={() => void handleSubmit()}
-                disabled={saving || !selectedResponse}
-                style={{
-                  border: "1px solid var(--cfsp-blue)",
-                  borderRadius: "12px",
-                  background: "var(--cfsp-blue)",
-                  color: "#ffffff",
-                  cursor: saving || !selectedResponse ? "not-allowed" : "pointer",
-                  fontWeight: 900,
-                  padding: "10px 14px",
-                  opacity: saving || !selectedResponse ? 0.7 : 1,
-                }}
-              >
-                {saving ? "Saving..." : "Submit Availability"}
-              </button>
-            </div>
+                </div>
+              </>
+            )}
           </section>
         </>
       )}
