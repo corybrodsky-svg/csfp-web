@@ -56,7 +56,13 @@ type EventSessionRow = {
   room: string | null;
   created_at: string | null;
 };
-
+type RotationRound = {
+  key: string;
+  session_date: string | null;
+  start_time: string | null;
+  end_time: string | null;
+  rooms: string[];
+};
 type SPRow = {
   id: string;
   first_name: string | null;
@@ -1001,7 +1007,52 @@ function formatSessionLabel(
     formatSessionLocation(session, eventLocation),
   ].join(" · ");
 }
+function buildRotationRounds(sessions: EventSessionRow[]): RotationRound[] {
+  const rounds = new Map<string, RotationRound>();
 
+  sessions.forEach((session) => {
+    const key = [
+      asText(session.session_date) || "date-tbd",
+      asText(session.start_time) || "start-tbd",
+      asText(session.end_time) || "end-tbd",
+    ].join("|");
+
+    const existing = rounds.get(key);
+    const room = asText(session.room);
+
+    if (existing) {
+      if (room && !existing.rooms.includes(room)) existing.rooms.push(room);
+      return;
+    }
+
+    rounds.set(key, {
+      key,
+      session_date: session.session_date,
+      start_time: session.start_time,
+      end_time: session.end_time,
+      rooms: room ? [room] : [],
+    });
+  });
+
+  return Array.from(rounds.values()).sort((a, b) => {
+    const dateCompare = asText(a.session_date).localeCompare(asText(b.session_date));
+    if (dateCompare !== 0) return dateCompare;
+    return asText(a.start_time).localeCompare(asText(b.start_time));
+  });
+}
+
+function formatRotationRoundLabel(round: RotationRound, fallbackYear?: number | null) {
+  const date = formatSessionDate(round.session_date, fallbackYear);
+  const time =
+    round.start_time && round.end_time
+      ? `${formatDisplayTime(round.start_time)} - ${formatDisplayTime(round.end_time)}`
+      : formatDisplayTime(round.start_time || round.end_time);
+
+  const roomCount = round.rooms.length;
+  const roomText = roomCount ? `${roomCount} room${roomCount === 1 ? "" : "s"}` : "Rooms TBD";
+
+  return [date, time, roomText].filter(Boolean).join(" · ");
+}
 function toTimeInputValue(value?: string | null) {
   const trimmed = asText(value);
   if (!trimmed) return "";
@@ -1562,6 +1613,7 @@ const [selectedHiringSpIds, setSelectedHiringSpIds] = useState<string[]>([]);
   const coveragePercent =
     needed > 0 ? Math.min(100, Math.round((confirmedCount / needed) * 100)) : 0;
   const importedYearHint = getImportedYearHint(event?.notes);
+  const rotationRounds = useMemo(() => buildRotationRounds(sessions), [sessions]);
   const simStaffNames = useMemo(() => getSimStaffNames(event?.notes), [event?.notes]);
   const trainingMetadata = useMemo(
     () => parseTrainingEventMetadata(eventEditor.notes),
@@ -1589,24 +1641,33 @@ const [selectedHiringSpIds, setSelectedHiringSpIds] = useState<string[]>([]);
       ),
     [importedYearHint, sessions]
   );
-  const sessionSummaryLabel = useMemo(() => {
-    if (!sessions.length) return formatEventDateText(event?.date_text, importedYearHint);
-    if (sessions.length === 1) return formatSessionDate(sessions[0]?.session_date, importedYearHint);
-    if (uniqueSessionDates.length === 1) {
-      return `${sessions.length} sessions on ${uniqueSessionDates[0]}`;
-    }
-    return `${sessions.length} sessions across ${uniqueSessionDates.join(", ")}`;
-  }, [event?.date_text, importedYearHint, sessions, uniqueSessionDates]);
-  const summaryTimeLabel = useMemo(() => {
-    if (!sessions.length) return "Time TBD";
-    if (sessions.length === 1) return formatSessionTime(sessions[0]);
-    const firstStart = sessions[0]?.start_time;
-    const lastEnd = sessions[sessions.length - 1]?.end_time;
-    if (firstStart && lastEnd) {
-      return `${formatDisplayTime(firstStart)} - ${formatDisplayTime(lastEnd)}`;
-    }
-    return "See sessions below";
-  }, [sessions]);
+const sessionSummaryLabel = useMemo(() => {
+  if (!rotationRounds.length) return formatEventDateText(event?.date_text, importedYearHint);
+  if (rotationRounds.length === 1) return formatSessionDate(rotationRounds[0]?.session_date, importedYearHint);
+  if (uniqueSessionDates.length === 1) {
+    return `${rotationRounds.length} rotation rounds on ${uniqueSessionDates[0]}`;
+  }
+  return `${rotationRounds.length} rotation rounds across ${uniqueSessionDates.join(", ")}`;
+}, [event?.date_text, importedYearHint, rotationRounds, uniqueSessionDates]);
+
+const summaryTimeLabel = useMemo(() => {
+  if (!rotationRounds.length) return "Time TBD";
+  if (rotationRounds.length === 1) {
+    const round = rotationRounds[0];
+    return round.start_time && round.end_time
+      ? `${formatDisplayTime(round.start_time)} - ${formatDisplayTime(round.end_time)}`
+      : formatDisplayTime(round.start_time || round.end_time);
+  }
+
+  const firstStart = rotationRounds[0]?.start_time;
+  const lastEnd = rotationRounds[rotationRounds.length - 1]?.end_time;
+
+  if (firstStart && lastEnd) {
+    return `${formatDisplayTime(firstStart)} - ${formatDisplayTime(lastEnd)}`;
+  }
+
+  return "See rotation rounds below";
+}, [rotationRounds]);
   const assignedEmailSources = useMemo(() => {
     return assignments
       .map((assignment) => {
