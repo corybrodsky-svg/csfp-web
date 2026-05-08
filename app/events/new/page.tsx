@@ -16,6 +16,16 @@ type GeneratedSession = {
   location: string | null;
 };
 
+type RotationRound = {
+  roundNumber: number;
+  session_date: string;
+  start_time: string;
+  end_time: string;
+  roomCount: number;
+  learnerStart: number | null;
+  learnerEnd: number | null;
+};
+
 const EVENT_TYPE_OPTIONS: Array<{ value: EventType; label: string }> = [
   { value: "sp", label: "SP Event" },
   { value: "skills", label: "Skills" },
@@ -59,6 +69,10 @@ function toDisplayTime(totalMinutes: number) {
   return `${normalizedHours}:${String(minutes).padStart(2, "0")} ${suffix}`;
 }
 
+function displayStoredTime(value: string) {
+  return toDisplayTime(toMinutes(value) || 0);
+}
+
 function parseDateList(value: string) {
   return Array.from(
     new Set(
@@ -77,68 +91,95 @@ function parseRoomNames(roomNames: string, roomCount: number) {
     .filter(Boolean);
 
   if (!parsed.length) {
-    return Array.from({ length: Math.max(roomCount, 1) }, (_, index) => `Room ${index + 1}`);
+    return Array.from({ length: Math.max(roomCount, 1) }, (_, index) => `Exam Room ${index + 1}`);
   }
 
   const next = [...parsed];
   while (next.length < roomCount) {
-    next.push(`Room ${next.length + 1}`);
+    next.push(`Exam Room ${next.length + 1}`);
   }
   return next.slice(0, Math.max(roomCount, 1));
 }
 
-function buildGeneratedSessions(args: {
+function buildRotationRounds(args: {
   dates: string[];
   startTime: string;
   endTime: string;
   sessionLengthMinutes: number;
   feedbackLengthMinutes: number;
-  breakLengthMinutes: number;
-  roomNames: string[];
-  location: string;
-  learnerRoundCount: number;
+  roomCount: number;
+  studentCount: number;
 }) {
   const startMinutes = toMinutes(args.startTime);
   const endMinutes = toMinutes(args.endTime);
   if (startMinutes === null || endMinutes === null) return [];
   if (endMinutes <= startMinutes) return [];
   if (args.sessionLengthMinutes <= 0) return [];
-  if (args.learnerRoundCount <= 0) return [];
+  if (args.roomCount <= 0) return [];
 
-  const blockLength = args.sessionLengthMinutes + Math.max(args.feedbackLengthMinutes, 0);
-  if (blockLength <= 0) return [];
-
-  const sessions: GeneratedSession[] = [];
-  let remainingRounds = args.learnerRoundCount;
+  const roundsNeeded = args.studentCount > 0 ? Math.ceil(args.studentCount / args.roomCount) : 0;
+  const rounds: RotationRound[] = [];
 
   args.dates.forEach((date) => {
-    if (remainingRounds <= 0) return;
-
     let currentStart = startMinutes;
-    while (remainingRounds > 0 && currentStart + blockLength <= endMinutes) {
-      const currentEnd = currentStart + blockLength;
-      args.roomNames.forEach((room) => {
-        sessions.push({
-          session_date: date,
-          start_time: toTimeString(currentStart),
-          end_time: toTimeString(currentEnd),
-          room,
-          location: asText(args.location) || null,
-        });
+
+    while (currentStart + args.sessionLengthMinutes <= endMinutes) {
+      if (roundsNeeded > 0 && rounds.length >= roundsNeeded) break;
+
+      const currentEnd = currentStart + args.sessionLengthMinutes;
+      const roundNumber = rounds.length + 1;
+      const learnerStart = args.studentCount > 0 ? (roundNumber - 1) * args.roomCount + 1 : null;
+      const learnerEnd =
+        args.studentCount > 0 && learnerStart !== null
+          ? Math.min(roundNumber * args.roomCount, args.studentCount)
+          : null;
+
+      rounds.push({
+        roundNumber,
+        session_date: date,
+        start_time: toTimeString(currentStart),
+        end_time: toTimeString(currentEnd),
+        roomCount: args.roomCount,
+        learnerStart,
+        learnerEnd,
       });
 
-      remainingRounds -= 1;
-      currentStart = currentEnd + args.breakLengthMinutes;
+      currentStart = currentEnd + args.feedbackLengthMinutes;
     }
+  });
+
+  return rounds;
+}
+
+function buildGeneratedSessions(args: {
+  rounds: RotationRound[];
+  roomNames: string[];
+  location: string;
+}) {
+  const sessions: GeneratedSession[] = [];
+
+  args.rounds.forEach((round) => {
+    args.roomNames.forEach((room) => {
+      sessions.push({
+        session_date: round.session_date,
+        start_time: round.start_time,
+        end_time: round.end_time,
+        room,
+        location: asText(args.location) || null,
+      });
+    });
   });
 
   return sessions;
 }
 
-function formatSessionPreview(session: GeneratedSession) {
-  return `${session.session_date} · ${toDisplayTime(toMinutes(session.start_time) || 0)} - ${toDisplayTime(
-    toMinutes(session.end_time) || 0
-  )}${session.room ? ` · ${session.room}` : ""}`;
+function formatRoundPreview(round: RotationRound) {
+  const learnerLabel =
+    round.learnerStart && round.learnerEnd
+      ? ` · Learners ${round.learnerStart}-${round.learnerEnd}`
+      : "";
+
+  return `Round ${round.roundNumber} · ${round.session_date} · ${displayStoredTime(round.start_time)} - ${displayStoredTime(round.end_time)} · ${round.roomCount} room${round.roomCount === 1 ? "" : "s"}${learnerLabel}`;
 }
 
 function buildNotes(args: {
@@ -147,12 +188,11 @@ function buildNotes(args: {
   simStaff: string;
   courseFaculty: string;
   studentCount: string;
-  calculatedLearnerRounds: number;
   notes: string;
   sessionLength: string;
   feedbackLength: string;
-  breakLength: string;
   roomNames: string[];
+  rotationRoundCount: number;
 }) {
   const lines = [
     `Event Type: ${EVENT_TYPE_OPTIONS.find((option) => option.value === args.eventType)?.label || "SP Event"}`,
@@ -160,10 +200,9 @@ function buildNotes(args: {
     args.simStaff ? `Sim Staff: ${args.simStaff}` : "",
     args.courseFaculty ? `Course Faculty: ${args.courseFaculty}` : "",
     args.studentCount ? `Student Count: ${args.studentCount}` : "",
-    args.calculatedLearnerRounds ? `Calculated Learner Rounds: ${args.calculatedLearnerRounds}` : "",
+    args.rotationRoundCount ? `Rotation Rounds: ${args.rotationRoundCount}` : "",
     args.sessionLength ? `Encounter Length: ${args.sessionLength} minutes` : "",
-    args.feedbackLength ? `Feedback Length: ${args.feedbackLength} minutes` : "",
-    args.breakLength ? `Break Between Rounds: ${args.breakLength} minutes` : "",
+    args.feedbackLength ? `Feedback/Transition Length: ${args.feedbackLength} minutes` : "",
     args.roomNames.length ? `Rooms: ${args.roomNames.join(", ")}` : "",
     args.notes,
   ]
@@ -196,14 +235,12 @@ export default function NewEventPage() {
   const [dateList, setDateList] = useState("");
   const [startTime, setStartTime] = useState("08:00");
   const [endTime, setEndTime] = useState("12:00");
-  const [sessionLength, setSessionLength] = useState("20");
+  const [sessionLength, setSessionLength] = useState("25");
   const [feedbackLength, setFeedbackLength] = useState("10");
-  const [breakLength, setBreakLength] = useState("0");
   const [roomCount, setRoomCount] = useState("1");
   const [roomNames, setRoomNames] = useState("");
-
-  const [spNeededOverride, setSpNeededOverride] = useState("");
   const [studentCount, setStudentCount] = useState("");
+  const [spNeededOverride, setSpNeededOverride] = useState("");
 
   const parsedDates = useMemo(() => parseDateList(dateList), [dateList]);
   const parsedRoomCount = parseNumber(roomCount) || 1;
@@ -214,47 +251,40 @@ export default function NewEventPage() {
   );
   const sessionLengthMinutes = parseNumber(sessionLength);
   const feedbackLengthMinutes = parseNumber(feedbackLength);
-  const breakLengthMinutes = parseNumber(breakLength);
-  const learnerRoundCount = parsedStudentCount > 0 ? Math.ceil(parsedStudentCount / normalizedRoomNames.length) : 0;
-  const calculatedSpNeeded = eventType === "skills" ? 0 : normalizedRoomNames.length;
-  const parsedSpNeeded = eventType === "skills" ? 0 : parseNumber(spNeededOverride) || calculatedSpNeeded;
-  const generatedSessions = useMemo(
+  const calculatedSpNeeded = eventType === "skills" ? 0 : parsedRoomCount;
+  const parsedSpNeeded =
+    eventType === "skills"
+      ? 0
+      : asText(spNeededOverride)
+        ? parseNumber(spNeededOverride)
+        : calculatedSpNeeded;
+
+  const rotationRounds = useMemo(
     () =>
-      buildGeneratedSessions({
+      buildRotationRounds({
         dates: parsedDates,
         startTime,
         endTime,
         sessionLengthMinutes,
         feedbackLengthMinutes,
-        breakLengthMinutes,
-        roomNames: normalizedRoomNames,
-        location,
-        learnerRoundCount,
+        roomCount: parsedRoomCount,
+        studentCount: parsedStudentCount,
       }),
-    [
-      breakLengthMinutes,
-      endTime,
-      feedbackLengthMinutes,
-      learnerRoundCount,
-      location,
-      normalizedRoomNames,
-      parsedDates,
-      sessionLengthMinutes,
-      startTime,
-    ]
+    [endTime, feedbackLengthMinutes, parsedDates, parsedRoomCount, parsedStudentCount, sessionLengthMinutes, startTime]
   );
 
-  const uniqueTimeBlocks = useMemo(
+  const generatedSessions = useMemo(
     () =>
-      Array.from(
-        new Set(generatedSessions.map((session) => `${session.session_date}|${session.start_time}|${session.end_time}`))
-      ),
-    [generatedSessions]
+      buildGeneratedSessions({
+        rounds: rotationRounds,
+        roomNames: normalizedRoomNames,
+        location,
+      }),
+    [location, normalizedRoomNames, rotationRounds]
   );
-  const generatedRoomSlots = generatedSessions.length;
-  const learnerCapacity = generatedRoomSlots;
-  const unusedRoomSlots = Math.max(learnerCapacity - parsedStudentCount, 0);
-  const totalSpCoverageNeeded = eventType === "skills" || parsedSpNeeded <= 0 ? 0 : uniqueTimeBlocks.length * parsedSpNeeded;
+
+  const availableRoundCapacity = rotationRounds.length * parsedRoomCount;
+  const totalSpCoverageNeeded = eventType === "skills" || parsedSpNeeded <= 0 ? 0 : rotationRounds.length * parsedSpNeeded;
   const dateText = parsedDates.join(", ");
   const compiledNotes = buildNotes({
     eventType,
@@ -262,12 +292,11 @@ export default function NewEventPage() {
     simStaff,
     courseFaculty,
     studentCount,
-    calculatedLearnerRounds: learnerRoundCount,
     notes,
     sessionLength,
     feedbackLength,
-    breakLength,
     roomNames: normalizedRoomNames,
+    rotationRoundCount: rotationRounds.length,
   });
 
   const warnings = useMemo(() => {
@@ -275,32 +304,15 @@ export default function NewEventPage() {
     if (!asText(name)) next.push("Event name is required.");
     if (!parsedDates.length) next.push("At least one event date is required.");
     if (!startTime || !endTime) next.push("Start and end times are required.");
-    if (parsedStudentCount <= 0) next.push("Student count is required.");
-    if (!generatedSessions.length) next.push("Schedule builder could not generate enough room slots from the current timing rules.");
-    if (generatedRoomSlots > 0 && parsedStudentCount > generatedRoomSlots) {
-      next.push(`Only ${generatedRoomSlots} learner slots fit in the current schedule, but ${parsedStudentCount} students were entered.`);
+    if (parsedStudentCount <= 0) next.push("Student count is required so CFSP can calculate rotation rounds.");
+    if (!rotationRounds.length) next.push("Schedule builder could not generate any rotation rounds.");
+    if (parsedStudentCount > 0 && availableRoundCapacity < parsedStudentCount) {
+      next.push(`Only ${availableRoundCapacity} learner slots fit in the current schedule. Increase time, reduce feedback, or add rooms.`);
     }
     if (eventType !== "skills" && parsedSpNeeded <= 0) next.push("SP staffing is set to 0. This event will behave as no-SP-required.");
     if (!asText(simStaff) && !asText(eventLeadTeam)) next.push("Add sim staff or event lead/team so ownership is visible.");
     return next;
-  }, [
-    endTime,
-    eventLeadTeam,
-    eventType,
-    generatedRoomSlots,
-    generatedSessions.length,
-    name,
-    parsedDates.length,
-    parsedSpNeeded,
-    parsedStudentCount,
-    simStaff,
-    startTime,
-  ]);
-
-  function goNext() {
-    setErrorMessage("");
-    setStep((current) => Math.min(3, current + 1) as WizardStep);
-  }
+  }, [availableRoundCapacity, endTime, eventLeadTeam, eventType, name, parsedDates.length, parsedSpNeeded, parsedStudentCount, rotationRounds.length, simStaff, startTime]);
 
   async function handleCreate(event: React.FormEvent) {
     event.preventDefault();
@@ -355,7 +367,7 @@ export default function NewEventPage() {
   return (
     <SiteShell
       title="New Event"
-      subtitle="Use the guided intake flow to build sessions, set staffing needs, and create a ready-to-run event."
+      subtitle="Use the guided intake flow to build rotation rounds, set staffing needs, and create a ready-to-run event."
     >
       <div className="grid gap-5">
         {errorMessage ? <div className="cfsp-alert cfsp-alert-error">{errorMessage}</div> : null}
@@ -441,7 +453,7 @@ export default function NewEventPage() {
               <div>
                 <h2 className="m-0 text-[1.35rem] font-black text-[#14304f]">Schedule Builder</h2>
                 <p className="mt-2 mb-0 text-sm leading-6 text-[#5e7388]">
-                  Enter dates, timing, feedback, student count, and rooms. CFSP will calculate the needed learner rotations.
+                  Enter the student count, rooms, and timing rules. CFSP calculates learner rotation rounds automatically.
                 </p>
               </div>
 
@@ -457,14 +469,6 @@ export default function NewEventPage() {
                   />
                 </label>
                 <label className="grid gap-2">
-                  <span className="cfsp-label">Start Time</span>
-                  <input className="cfsp-input" type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} />
-                </label>
-                <label className="grid gap-2">
-                  <span className="cfsp-label">End Time</span>
-                  <input className="cfsp-input" type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} />
-                </label>
-                <label className="grid gap-2">
                   <span className="cfsp-label">Student Count</span>
                   <input className="cfsp-input" type="number" min={1} value={studentCount} onChange={(e) => setStudentCount(e.target.value)} />
                 </label>
@@ -473,16 +477,20 @@ export default function NewEventPage() {
                   <input className="cfsp-input" type="number" min={1} value={roomCount} onChange={(e) => setRoomCount(e.target.value)} />
                 </label>
                 <label className="grid gap-2">
+                  <span className="cfsp-label">Start Time</span>
+                  <input className="cfsp-input" type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} />
+                </label>
+                <label className="grid gap-2">
+                  <span className="cfsp-label">End Time</span>
+                  <input className="cfsp-input" type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} />
+                </label>
+                <label className="grid gap-2">
                   <span className="cfsp-label">Encounter Length (minutes)</span>
                   <input className="cfsp-input" type="number" min={5} step={5} value={sessionLength} onChange={(e) => setSessionLength(e.target.value)} />
                 </label>
                 <label className="grid gap-2">
-                  <span className="cfsp-label">Feedback Length (minutes)</span>
+                  <span className="cfsp-label">Feedback / Transition Length (minutes)</span>
                   <input className="cfsp-input" type="number" min={0} step={5} value={feedbackLength} onChange={(e) => setFeedbackLength(e.target.value)} />
-                </label>
-                <label className="grid gap-2">
-                  <span className="cfsp-label">Break Between Rounds (minutes)</span>
-                  <input className="cfsp-input" type="number" min={0} step={5} value={breakLength} onChange={(e) => setBreakLength(e.target.value)} />
                 </label>
                 <label className="grid gap-2 md:col-span-2">
                   <span className="cfsp-label">Room Names</span>
@@ -491,15 +499,13 @@ export default function NewEventPage() {
                     style={{ minHeight: 88, resize: "vertical" }}
                     value={roomNames}
                     onChange={(e) => setRoomNames(e.target.value)}
-                    placeholder={"Room 101\nRoom 102"}
+                    placeholder={"Exam Room 1\nExam Room 2"}
                   />
                 </label>
               </div>
 
               <div className="cfsp-alert cfsp-alert-info">
-                {parsedStudentCount > 0 && normalizedRoomNames.length > 0
-                  ? `${parsedStudentCount} students across ${normalizedRoomNames.length} rooms = ${learnerRoundCount} calculated learner round${learnerRoundCount === 1 ? "" : "s"}.`
-                  : "Enter student count and rooms to calculate learner rounds."}
+                CFSP estimates {rotationRounds.length || 0} learner rotation round{rotationRounds.length === 1 ? "" : "s"} and {generatedSessions.length || 0} stored room-slot record{generatedSessions.length === 1 ? "" : "s"}.
               </div>
             </section>
           ) : null}
@@ -509,17 +515,17 @@ export default function NewEventPage() {
               <div>
                 <h2 className="m-0 text-[1.35rem] font-black text-[#14304f]">Staffing Needs</h2>
                 <p className="mt-2 mb-0 text-sm leading-6 text-[#5e7388]">
-                  CFSP estimates SP staffing from the number of rooms. Override only if this event needs a different staffing pattern.
+                  CFSP estimates SP staffing from the number of rooms. Adjust only if this event needs a different staffing pattern.
                 </p>
               </div>
 
               <div className="grid gap-4 md:grid-cols-2">
                 <label className="grid gap-2">
                   <span className="cfsp-label">Calculated SPs Needed</span>
-                  <input className="cfsp-input" value={eventType === "skills" ? "0" : String(calculatedSpNeeded)} disabled />
+                  <input className="cfsp-input" value={calculatedSpNeeded} disabled />
                 </label>
                 <label className="grid gap-2">
-                  <span className="cfsp-label">SPs Needed Override</span>
+                  <span className="cfsp-label">Adjust SP Count (Optional)</span>
                   <input
                     className="cfsp-input"
                     type="number"
@@ -535,7 +541,7 @@ export default function NewEventPage() {
               <div className={`cfsp-alert ${eventType === "skills" || parsedSpNeeded <= 0 ? "cfsp-alert-info" : "cfsp-alert-success"}`}>
                 {eventType === "skills" || parsedSpNeeded <= 0
                   ? "No SP staffing required. This event will suppress SP assignment workflow after creation."
-                  : `Projected total SP coverage needed: ${totalSpCoverageNeeded} SP room-block${totalSpCoverageNeeded === 1 ? "" : "s"}.`}
+                  : `Projected total SP coverage needed: ${totalSpCoverageNeeded} SP round-blocks.`}
               </div>
             </section>
           ) : null}
@@ -545,7 +551,7 @@ export default function NewEventPage() {
               <div>
                 <h2 className="m-0 text-[1.35rem] font-black text-[#14304f]">Review & Create</h2>
                 <p className="mt-2 mb-0 text-sm leading-6 text-[#5e7388]">
-                  Review the generated room slots, learner rounds, staffing need, and team details before saving.
+                  Review the learner rounds, room usage, staffing need, and team details before saving.
                 </p>
               </div>
 
@@ -562,12 +568,12 @@ export default function NewEventPage() {
 
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                 <div className="cfsp-stat-card">
-                  <div className="cfsp-label">Learner Rounds</div>
-                  <div className="cfsp-stat-value">{learnerRoundCount}</div>
+                  <div className="cfsp-label">Rotation Rounds</div>
+                  <div className="cfsp-stat-value">{rotationRounds.length}</div>
                 </div>
                 <div className="cfsp-stat-card">
-                  <div className="cfsp-label">Generated Room Slots</div>
-                  <div className="cfsp-stat-value">{generatedRoomSlots}</div>
+                  <div className="cfsp-label">Stored Room Slots</div>
+                  <div className="cfsp-stat-value">{generatedSessions.length}</div>
                 </div>
                 <div className="cfsp-stat-card">
                   <div className="cfsp-label">Rooms</div>
@@ -579,28 +585,22 @@ export default function NewEventPage() {
                 </div>
               </div>
 
-              <div className="cfsp-alert cfsp-alert-info">
-                {parsedStudentCount > 0
-                  ? `${parsedStudentCount} students scheduled into ${generatedRoomSlots} room slots. ${unusedRoomSlots} empty room slot${unusedRoomSlots === 1 ? "" : "s"} expected because rooms rarely divide evenly into student count.`
-                  : "Student count has not been entered."}
-              </div>
-
               <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
                 <div className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-4">
-                  <div className="cfsp-label">Generated Room Slots</div>
+                  <div className="cfsp-label">Rotation Rounds</div>
                   <div className="mt-3 grid gap-2">
-                    {generatedSessions.length ? (
-                      generatedSessions.slice(0, 18).map((session, index) => (
-                        <div key={`${session.session_date}-${session.start_time}-${session.room}-${index}`} className="rounded-[10px] border border-[#dce6ee] bg-white px-3 py-3 text-sm font-semibold text-[#14304f]">
-                          {formatSessionPreview(session)}
+                    {rotationRounds.length ? (
+                      rotationRounds.slice(0, 18).map((round) => (
+                        <div key={`${round.session_date}-${round.start_time}-${round.roundNumber}`} className="rounded-[10px] border border-[#dce6ee] bg-white px-3 py-3 text-sm font-semibold text-[#14304f]">
+                          {formatRoundPreview(round)}
                         </div>
                       ))
                     ) : (
-                      <div className="text-sm font-semibold text-[#6a7e91]">No room slots generated yet.</div>
+                      <div className="text-sm font-semibold text-[#6a7e91]">No rotation rounds generated yet.</div>
                     )}
-                    {generatedSessions.length > 18 ? (
+                    {rotationRounds.length > 18 ? (
                       <div className="text-sm font-semibold text-[#6a7e91]">
-                        Showing first 18 of {generatedSessions.length} generated room slots.
+                        Showing first 18 of {rotationRounds.length} learner rotation rounds.
                       </div>
                     ) : null}
                   </div>
@@ -615,11 +615,10 @@ export default function NewEventPage() {
                     <div><strong>Team:</strong> {eventLeadTeam || "Not set"}</div>
                     <div><strong>Sim Staff:</strong> {simStaff || "Not set"}</div>
                     <div><strong>Course Faculty:</strong> {courseFaculty || "Not set"}</div>
-                    <div><strong>Students:</strong> {parsedStudentCount || "Not set"}</div>
-                    <div><strong>Learner Rounds:</strong> {learnerRoundCount || "Not calculated"}</div>
+                    <div><strong>Student Count:</strong> {parsedStudentCount || "Not set"}</div>
+                    <div><strong>Rotation Rounds:</strong> {rotationRounds.length}</div>
                     <div><strong>SPs Needed:</strong> {eventType === "skills" ? "No SPs required" : parsedSpNeeded}</div>
                     <div><strong>Rooms:</strong> {normalizedRoomNames.join(", ")}</div>
-                    <div><strong>Timing:</strong> {sessionLength || 0} min encounter + {feedbackLength || 0} min feedback{breakLengthMinutes ? ` + ${breakLengthMinutes} min break` : ""}</div>
                   </div>
                 </div>
               </div>
@@ -636,14 +635,19 @@ export default function NewEventPage() {
               >
                 Back
               </button>
-              <button
-                type="button"
-                onClick={goNext}
-                className="cfsp-btn cfsp-btn-secondary"
-                disabled={step === 3}
-              >
-                Next
-              </button>
+              {step < 3 ? (
+                <button
+                  type="button"
+                  onClick={() => setStep((current) => Math.min(3, current + 1) as WizardStep)}
+                  className="cfsp-btn cfsp-btn-secondary"
+                >
+                  Next
+                </button>
+              ) : (
+                <button type="button" className="cfsp-btn cfsp-btn-secondary" disabled>
+                  Ready to Create
+                </button>
+              )}
             </div>
 
             <div className="flex gap-2">
