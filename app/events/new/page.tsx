@@ -223,6 +223,17 @@ function buildNotes(args: {
   generatedRotationRounds: number;
   generatedRoomSlots: number;
 }) {
+  const trainingMetadataLines = [
+    "[CFSP_TRAINING_METADATA]",
+    args.courseFaculty ? `faculty_names: ${args.courseFaculty}` : "",
+    (args.eventLeadTeam || args.simStaff)
+      ? `sim_contact: ${args.eventLeadTeam || args.simStaff}`
+      : "",
+    "[/CFSP_TRAINING_METADATA]",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
   const lines = [
     `Event Type: ${EVENT_TYPE_OPTIONS.find((option) => option.value === args.eventType)?.label || "SP Event"}`,
     args.eventLeadTeam ? `Event Lead/Team: ${args.eventLeadTeam}` : "",
@@ -237,6 +248,7 @@ function buildNotes(args: {
     `Rooms: ${args.roomCount}`,
     args.roomNames.length ? `Rooms: ${args.roomNames.join(", ")}` : "",
     args.notes,
+    trainingMetadataLines,
   ]
     .map((line) => asText(line))
     .filter(Boolean);

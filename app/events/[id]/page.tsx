@@ -4,7 +4,7 @@ import * as XLSX from "xlsx";
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import SiteShell from "../../components/SiteShell";
 import {
   formatHumanDate,
@@ -1409,6 +1409,7 @@ function parseTrainingImportWorkbook(file: File) {
 }
 
 export default function EventDetailPage() {
+  const router = useRouter();
   const params = useParams();
   const id = getRouteId(params);
 
@@ -1489,6 +1490,7 @@ export default function EventDetailPage() {
   ]);
   const [selectedPollSpIds, setSelectedPollSpIds] = useState<string[]>([]);
   const [pollSaving, setPollSaving] = useState(false);
+  const [deletingEvent, setDeletingEvent] = useState(false);
 
   const [relatedMatches, setRelatedMatches] = useState<RelatedEventPreview[]>([]);
   const [selectedRelatedTargetIds, setSelectedRelatedTargetIds] = useState<string[]>([]);
@@ -1579,6 +1581,7 @@ export default function EventDetailPage() {
   const canManageTrainingAttendance =
     viewerRole === "admin" || viewerRole === "sim_op" || viewerRole === "super_admin";
   const canManageAvailabilityPoll = canManageTrainingAttendance;
+  const canDeleteEvent = viewerRole === "admin" || viewerRole === "super_admin";
 
   const assignmentsBySpId = useMemo(() => {
     const next = new Map<string, AssignmentRow>();
@@ -2715,6 +2718,37 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
     }
 
     setSaving(false);
+  }
+
+  async function handleDeleteEvent() {
+    if (!id || !event) return;
+
+    const eventTitle = event.name || "this event";
+    const confirmed = window.confirm(
+      `Delete "${eventTitle}"?\n\nThis will remove the event and its related sessions and SP assignments.`
+    );
+    if (!confirmed) return;
+
+    setDeletingEvent(true);
+    setEventSaveMessage("");
+    setEventSaveError("");
+
+    try {
+      const response = await fetch(`/api/events/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+      });
+
+      if (!response.ok) {
+        throw new Error(await parseApiError(response));
+      }
+
+      router.push("/events");
+      router.refresh();
+    } catch (error) {
+      setEventSaveError(error instanceof Error ? error.message : "Could not delete event.");
+      setDeletingEvent(false);
+    }
   }
 
   function handleSelectEventType(nextType: EditableEventType) {
@@ -7320,6 +7354,38 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
     </div>
   </div>
 ) : null}
+      {canDeleteEvent ? (
+        <section
+          style={{
+            ...cardStyle,
+            border: "1px solid var(--cfsp-danger-border)",
+            background: "var(--cfsp-danger-soft)",
+          }}
+        >
+          <div style={{ display: "grid", gap: "10px" }}>
+            <div>
+              <div style={{ ...statLabel, color: "var(--cfsp-danger)" }}>Danger Zone</div>
+              <h2 style={{ ...compactSectionTitleStyle, marginTop: "6px" }}>Delete Event</h2>
+              <p style={{ ...compactSectionHintStyle, color: "var(--cfsp-text-muted)" }}>
+                Permanently remove this event and its related sessions and SP assignments.
+              </p>
+            </div>
+            <div style={{ color: "var(--cfsp-text)", fontWeight: 700 }}>
+              Event: {event?.name || "Untitled event"}
+            </div>
+            <div>
+              <button
+                type="button"
+                onClick={() => void handleDeleteEvent()}
+                disabled={deletingEvent}
+                style={{ ...dangerButtonStyle, opacity: deletingEvent ? 0.7 : 1 }}
+              >
+                {deletingEvent ? "Deleting..." : "Delete Event"}
+              </button>
+            </div>
+          </div>
+        </section>
+      ) : null}
       {materialPreview ? (
         <div
           role="dialog"

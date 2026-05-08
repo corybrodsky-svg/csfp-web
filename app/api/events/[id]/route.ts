@@ -72,6 +72,40 @@ function normalizeMatchValue(value: unknown) {
   return asText(value).toLowerCase().replace(/\s+/g, " ").trim();
 }
 
+const CFSP_METADATA_BLOCK_PATTERN = /\[(CFSP_[A-Z0-9_]+)\][\s\S]*?\[\/\1\]/g;
+
+function extractCfspMetadataBlocks(notes?: string | null) {
+  const blocks = new Map<string, string>();
+  const text = asText(notes);
+  for (const match of text.matchAll(CFSP_METADATA_BLOCK_PATTERN)) {
+    const blockKey = match[1];
+    const blockText = match[0];
+    if (blockKey && blockText) blocks.set(blockKey, blockText.trim());
+  }
+  return blocks;
+}
+
+function stripCfspMetadataBlocks(notes?: string | null) {
+  return asText(notes).replace(CFSP_METADATA_BLOCK_PATTERN, "\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function mergeEventNotesPreservingMetadata(currentNotes?: string | null, incomingNotes?: string | null) {
+  if (incomingNotes === null) return null;
+
+  const currentBlocks = extractCfspMetadataBlocks(currentNotes);
+  const incomingBlocks = extractCfspMetadataBlocks(incomingNotes);
+  const mergedBlocks = new Map(currentBlocks);
+  for (const [key, value] of incomingBlocks.entries()) mergedBlocks.set(key, value);
+
+  const currentVisibleNotes = stripCfspMetadataBlocks(currentNotes);
+  const incomingVisibleNotes = stripCfspMetadataBlocks(incomingNotes);
+  const mergedVisibleNotes =
+    incomingVisibleNotes || (incomingBlocks.size > 0 ? currentVisibleNotes : incomingVisibleNotes);
+
+  const mergedSections = [...mergedBlocks.values(), mergedVisibleNotes].filter(Boolean);
+  return mergedSections.length ? mergedSections.join("\n") : null;
+}
+
 type ViewerContext = {
   id: string;
   accessToken: string;
@@ -738,6 +772,32 @@ export async function PATCH(
 
     if (eventId && (eventUpdates || sessionUpdates)) {
       const nextEventUpdates = eventUpdates ? { ...eventUpdates } : {};
+      if (eventUpdates && Object.prototype.hasOwnProperty.call(eventUpdates, "notes")) {
+        const requestedNotes =
+          typeof eventUpdates.notes === "string" || eventUpdates.notes === null
+            ? eventUpdates.notes
+            : null;
+        const { data: existingEvent, error: existingEventError } = await supabaseServer
+          .from("events")
+          .select("notes")
+          .eq("id", eventId)
+          .maybeSingle();
+
+        if (existingEventError) {
+          return applyAuthCookies(
+            NextResponse.json(
+              { error: existingEventError.message || "Could not load existing event notes." },
+              { status: 500 }
+            ),
+            viewer
+          );
+        }
+
+        nextEventUpdates.notes = mergeEventNotesPreservingMetadata(
+          existingEvent?.notes ?? null,
+          requestedNotes
+        );
+      }
 
       if (sessionUpdates && "session_date" in sessionUpdates) {
         nextEventUpdates.date_text = sessionUpdates.session_date;
@@ -932,14 +992,58 @@ export async function DELETE(
     const supabaseServer = createSupabaseServerClient();
     const params = await context.params;
     const eventId = getRouteId(params);
-    const body = await request.json();
+    const body = await request.json().catch(() => ({}));
     const assignmentId = typeof body?.assignment_id === "string" ? body.assignment_id : "";
 
-    if (!eventId || !assignmentId) {
+    if (!eventId) {
       return applyAuthCookies(
-        NextResponse.json({ error: "Missing event id or assignment id." }, { status: 400 }),
+        NextResponse.json({ error: "Missing event id." }, { status: 400 }),
         viewer
       );
+    }
+
+    if (!assignmentId) {
+      if (viewer.role !== "admin" && viewer.role !== "super_admin") {
+        return applyAuthCookies(
+          NextResponse.json({ error: "Only admin users can delete events." }, { status: 403 }),
+          viewer
+        );
+      }
+
+      const deleteAssignments = await supabaseServer.from("event_sps").delete().eq("event_id", eventId);
+      if (deleteAssignments.error) {
+        return applyAuthCookies(
+          NextResponse.json(
+            { error: deleteAssignments.error.message || "Could not delete event assignments." },
+            { status: 500 }
+          ),
+          viewer
+        );
+      }
+
+      const deleteSessions = await supabaseServer.from("event_sessions").delete().eq("event_id", eventId);
+      if (deleteSessions.error) {
+        return applyAuthCookies(
+          NextResponse.json(
+            { error: deleteSessions.error.message || "Could not delete event sessions." },
+            { status: 500 }
+          ),
+          viewer
+        );
+      }
+
+      const deleteEvent = await supabaseServer.from("events").delete().eq("id", eventId);
+      if (deleteEvent.error) {
+        return applyAuthCookies(
+          NextResponse.json(
+            { error: deleteEvent.error.message || "Could not delete event." },
+            { status: 500 }
+          ),
+          viewer
+        );
+      }
+
+      return applyAuthCookies(NextResponse.json({ ok: true, deleted: true }), viewer);
     }
 
     const { error } = await supabaseServer

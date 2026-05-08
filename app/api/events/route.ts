@@ -69,6 +69,40 @@ function normalizeMatchValue(value: unknown) {
   return asText(value).toLowerCase().replace(/\s+/g, " ").trim();
 }
 
+const CFSP_METADATA_BLOCK_PATTERN = /\[(CFSP_[A-Z0-9_]+)\][\s\S]*?\[\/\1\]/g;
+
+function extractCfspMetadataBlocks(notes?: string | null) {
+  const blocks = new Map<string, string>();
+  const text = asText(notes);
+  for (const match of text.matchAll(CFSP_METADATA_BLOCK_PATTERN)) {
+    const blockKey = match[1];
+    const blockText = match[0];
+    if (blockKey && blockText) blocks.set(blockKey, blockText.trim());
+  }
+  return blocks;
+}
+
+function stripCfspMetadataBlocks(notes?: string | null) {
+  return asText(notes).replace(CFSP_METADATA_BLOCK_PATTERN, "\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function mergeEventNotesPreservingMetadata(currentNotes?: string | null, incomingNotes?: string | null) {
+  if (incomingNotes === null) return null;
+
+  const currentBlocks = extractCfspMetadataBlocks(currentNotes);
+  const incomingBlocks = extractCfspMetadataBlocks(incomingNotes);
+  const mergedBlocks = new Map(currentBlocks);
+  for (const [key, value] of incomingBlocks.entries()) mergedBlocks.set(key, value);
+
+  const currentVisibleNotes = stripCfspMetadataBlocks(currentNotes);
+  const incomingVisibleNotes = stripCfspMetadataBlocks(incomingNotes);
+  const mergedVisibleNotes =
+    incomingVisibleNotes || (incomingBlocks.size > 0 ? currentVisibleNotes : incomingVisibleNotes);
+
+  const mergedSections = [...mergedBlocks.values(), mergedVisibleNotes].filter(Boolean);
+  return mergedSections.length ? mergedSections.join("\n") : null;
+}
+
 type EventApiRow = {
   id: string;
   name: string | null;
@@ -488,7 +522,7 @@ export async function POST(request: Request) {
       sp_needed: parseNumber(body?.sp_needed),
       visibility: asText(body?.visibility) || "team",
       location: parseNullableText(body?.location),
-      notes: parseNullableText(body?.notes),
+      notes: mergeEventNotesPreservingMetadata(null, parseNullableText(body?.notes)),
     };
     if (ownerId) payload.owner_id = ownerId;
 
@@ -506,7 +540,7 @@ export async function POST(request: Request) {
         sp_needed: parseNumber(body?.sp_needed),
         visibility: asText(body?.visibility) || "team",
         location: parseNullableText(body?.location),
-        notes: parseNullableText(body?.notes),
+        notes: mergeEventNotesPreservingMetadata(null, parseNullableText(body?.notes)),
       };
       insertResult = await supabaseServer
         .from("events")
