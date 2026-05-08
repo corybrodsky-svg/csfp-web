@@ -212,6 +212,13 @@ type MaterialPreviewState = {
   fileName: string;
   kind: MaterialPreviewKind;
 };
+type PollMetadata = {
+  pollCreatedAt: string;
+  pollSentAt: string;
+  pollSelectedSpIds: string;
+  pollSelectedSpEmails: string;
+  pollStatus: string;
+};
 type RelatedCopyOption =
   | "assigned_sps"
   | "training_materials"
@@ -984,14 +991,6 @@ function formatEventDateText(value?: string | null, fallbackYear?: number | null
   return formatHumanDate(value, fallbackYear);
 }
 
-function formatSessionTime(session: EventSessionRow) {
-  if (session.start_time && session.end_time) {
-    return `${formatDisplayTime(session.start_time)} - ${formatDisplayTime(session.end_time)}`;
-  }
-
-  return formatDisplayTime(session.start_time || session.end_time);
-}
-
 function parseIntegerNoteValue(notes: string | null | undefined, label: string) {
   const text = asText(notes);
   if (!text) return 0;
@@ -1001,6 +1000,76 @@ function parseIntegerNoteValue(notes: string | null | undefined, label: string) 
   const parsed = Number(match[1]);
   if (!Number.isFinite(parsed)) return 0;
   return Math.max(0, Math.floor(parsed));
+}
+
+const POLL_METADATA_START = "[CFSP_POLL_METADATA]";
+const POLL_METADATA_END = "[/CFSP_POLL_METADATA]";
+const POLL_METADATA_KEYS: Array<keyof PollMetadata> = [
+  "pollCreatedAt",
+  "pollSentAt",
+  "pollSelectedSpIds",
+  "pollSelectedSpEmails",
+  "pollStatus",
+];
+
+function emptyPollMetadata(): PollMetadata {
+  return {
+    pollCreatedAt: "",
+    pollSentAt: "",
+    pollSelectedSpIds: "",
+    pollSelectedSpEmails: "",
+    pollStatus: "",
+  };
+}
+
+function getPollMetadataBlock(notes?: string | null) {
+  const text = asText(notes);
+  if (!text) return "";
+  const startIndex = text.indexOf(POLL_METADATA_START);
+  const endIndex = text.indexOf(POLL_METADATA_END);
+  if (startIndex === -1 || endIndex === -1 || endIndex < startIndex) return "";
+  return text.slice(startIndex + POLL_METADATA_START.length, endIndex).trim();
+}
+
+function parsePollMetadata(notes?: string | null) {
+  const metadata = emptyPollMetadata();
+  const block = getPollMetadataBlock(notes);
+  if (!block) return metadata;
+
+  block.split(/\r?\n/).forEach((line) => {
+    const match = line.match(/^([A-Za-z]+)\s*:\s*(.*)$/);
+    if (!match) return;
+    const key = match[1] as keyof PollMetadata;
+    if (!POLL_METADATA_KEYS.includes(key)) return;
+    metadata[key] = match[2].trim();
+  });
+
+  return metadata;
+}
+
+function upsertPollMetadata(notes: string | null | undefined, partial: Partial<PollMetadata>) {
+  const current = parsePollMetadata(notes);
+  const next = {
+    ...current,
+    ...Object.fromEntries(
+      Object.entries(partial).map(([key, value]) => [key, asText(value)])
+    ),
+  } as PollMetadata;
+
+  const lines = POLL_METADATA_KEYS
+    .map((key) => (next[key] ? `${key}: ${next[key]}` : ""))
+    .filter(Boolean);
+
+  const text = asText(notes);
+  const withoutExisting = text.replace(
+    new RegExp(`\\n?${POLL_METADATA_START}[\\s\\S]*?${POLL_METADATA_END}\\n?`, "g"),
+    "\n"
+  ).trim();
+
+  if (!lines.length) return withoutExisting;
+
+  const block = [POLL_METADATA_START, ...lines, POLL_METADATA_END].join("\n");
+  return withoutExisting ? `${block}\n${withoutExisting}` : block;
 }
 
 function buildRotationRounds(sessions: EventSessionRow[]): RotationRound[] {
@@ -1379,9 +1448,8 @@ export default function EventDetailPage() {
     "zoom_recording",
     "case_doorsign",
   ]);
-  const [hiringFormLink, setHiringFormLink] = useState("");
-const [hiringDeadline, setHiringDeadline] = useState("");
-const [selectedHiringSpIds, setSelectedHiringSpIds] = useState<string[]>([]);
+  const [selectedPollSpIds, setSelectedPollSpIds] = useState<string[]>([]);
+  const [pollSaving, setPollSaving] = useState(false);
 
   const [relatedMatches, setRelatedMatches] = useState<RelatedEventPreview[]>([]);
   const [selectedRelatedTargetIds, setSelectedRelatedTargetIds] = useState<string[]>([]);
@@ -1471,6 +1539,7 @@ const [selectedHiringSpIds, setSelectedHiringSpIds] = useState<string[]>([]);
   );
   const canManageTrainingAttendance =
     viewerRole === "admin" || viewerRole === "sim_op" || viewerRole === "super_admin";
+  const canManageAvailabilityPoll = canManageTrainingAttendance;
 
   const assignmentsBySpId = useMemo(() => {
     const next = new Map<string, AssignmentRow>();
@@ -1846,6 +1915,51 @@ const summaryTimeLabel = useMemo(() => {
     () => (showAllTrainingRoster ? sortedAssignments : sortedAssignments.slice(0, 8)),
     [showAllTrainingRoster, sortedAssignments]
   );
+  const pollMetadata = useMemo(() => parsePollMetadata(eventEditor.notes), [eventEditor.notes]);
+  const pollSelectedSpIdsFromMetadata = useMemo(
+    () =>
+      pollMetadata.pollSelectedSpIds
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean),
+    [pollMetadata.pollSelectedSpIds]
+  );
+  const pollSelectedSpEmailsFromMetadata = useMemo(
+    () =>
+      pollMetadata.pollSelectedSpEmails
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean),
+    [pollMetadata.pollSelectedSpEmails]
+  );
+  const pollSelectedSps = useMemo(
+    () => availableSps.filter((sp) => selectedPollSpIds.includes(String(sp.id))),
+    [availableSps, selectedPollSpIds]
+  );
+  const pollSelectedEmails = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          pollSelectedSps
+            .map((sp) => getEmail(sp))
+            .filter(Boolean)
+        )
+      ),
+    [pollSelectedSps]
+  );
+  const pollStatusLabel = pollMetadata.pollStatus || "not_created";
+  const pollStatusDisplayLabel =
+    pollStatusLabel === "sent"
+      ? "Sent"
+      : pollStatusLabel === "draft_ready"
+        ? "Draft ready"
+        : "Not created";
+  const eventDetailLink =
+    typeof window !== "undefined" && id
+      ? `${window.location.origin}/events/${encodeURIComponent(id)}`
+      : id
+        ? `/events/${encodeURIComponent(id)}`
+        : "/events";
   const defaultRelatedKeyword = useMemo(() => getDefaultRelatedEventKeyword(event?.name), [event?.name]);
   const facultyEmails = useMemo(() => {
     const matches = [trainingFacultyText, facultyEmailText]
@@ -1853,6 +1967,9 @@ const summaryTimeLabel = useMemo(() => {
       .match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) || [];
     return Array.from(new Set(matches.map((item) => item.trim())));
   }, [facultyEmailText, trainingFacultyText]);
+  useEffect(() => {
+    setSelectedPollSpIds(pollSelectedSpIdsFromMetadata);
+  }, [pollSelectedSpIdsFromMetadata]);
   const trainingEmailSubject = `${event?.name || "Event"}: SP Training - ${eventDateLabel || "Date TBD"}`;
   const trainingEmailBody = [
     "SPs,",
@@ -1877,70 +1994,132 @@ const summaryTimeLabel = useMemo(() => {
     subject: trainingEmailSubject,
     body: trainingEmailBody,
   });
-  function toggleHiringSp(spId: string) {
-  setSelectedHiringSpIds((current) =>
-    current.includes(spId)
-      ? current.filter((id) => id !== spId)
-      : [...current, spId]
-  );
-}
+  function togglePollSp(spId: string) {
+    setSelectedPollSpIds((current) =>
+      current.includes(spId)
+        ? current.filter((id) => id !== spId)
+        : [...current, spId]
+    );
+  }
 
-function selectAllVisibleCandidates(candidateIds: string[]) {
-  setSelectedHiringSpIds(candidateIds);
-}
+  function selectAllVisiblePollCandidates(candidateIds: string[]) {
+    setSelectedPollSpIds(candidateIds);
+  }
 
-function clearHiringSelection() {
-  setSelectedHiringSpIds([]);
-}
-const selectedHiringSps = filteredCandidateSps.filter((sp) =>
-  selectedHiringSpIds.includes(String(sp.id))
-);
+  function clearPollSelection() {
+    setSelectedPollSpIds([]);
+  }
 
-const hiringBccEmails = Array.from(
-  new Set(
-    selectedHiringSps
-      .map((sp) => getEmail(sp))
-      .filter(Boolean)
-  )
-);
+  async function persistPollMetadata(partial: Partial<PollMetadata>, successMessage: string) {
+    const nextNotes = upsertPollMetadata(eventEditor.notes, partial);
+    return persistTrainingNotes(nextNotes, successMessage);
+  }
 
+  async function handleCreatePoll() {
+    if (!selectedPollSpIds.length || !pollSelectedEmails.length) {
+      setEventSaveError("Select at least one candidate SP with an email address to create a poll.");
+      return;
+    }
 
+    setPollSaving(true);
+    try {
+      await persistPollMetadata(
+        {
+          pollCreatedAt: new Date().toISOString(),
+          pollSentAt: pollMetadata.pollSentAt,
+          pollSelectedSpIds: selectedPollSpIds.join(","),
+          pollSelectedSpEmails: pollSelectedEmails.join(","),
+          pollStatus: "draft_ready",
+        },
+        "Availability poll created."
+      );
+    } finally {
+      setPollSaving(false);
+    }
+  }
 
-const hiringEmailSubject = `${event?.name || "Event"}: Standardized Patient Availability Request`;
+  const pollEmailSubject = `${event?.name || "Event"}: CFSP Availability Poll`;
+  const pollEmailBody = `SPs,
 
-const hiringEmailBody = `Hello SPs,
+We are checking availability for the following event:
 
-We are currently staffing standardized patient roles for the following event:
+Event:
+${event?.name || "TBD"}
 
-Event: ${event?.name || "TBD"}
-Date(s): ${event?.date_text || "TBD"}
-Time(s): ${
-  sessions.length
-    ? sessions
-        .map((session) => formatSessionTime(session))
-        .join(", ")
-    : "TBD"
-}
-Location/Zoom: ${event?.location || "TBD"}
+Date/Time:
+${eventDateLabel || "TBD"}${summaryTimeLabel ? ` · ${summaryTimeLabel}` : ""}
 
-If you are interested and available, please complete the availability form below:
+Please log into CFSP and review this event:
+${eventDetailLink}
 
-${hiringFormLink || "[Microsoft Forms Link]"}
+Reply only if you are available or unavailable for this event. A dedicated in-app response screen will be added next.
 
-Please respond by ${hiringDeadline || "the requested deadline"}.
-
-Additional details regarding roles, training, and assignments will be sent after staffing is finalized.
+Completing this poll does not guarantee assignment. We will follow up once staffing is finalized.
 
 Thank you,
 Cory`;
 
-const hiringMailtoHref = buildMailtoHref({
-  to: me?.email || "",
-  cc: facultyEmails,
-  bcc: hiringBccEmails,
-  subject: hiringEmailSubject,
-  body: hiringEmailBody,
-});
+  const pollMailtoHref = buildMailtoHref({
+    to: me?.email || "",
+    cc: facultyEmails,
+    bcc: pollSelectedEmails.length ? pollSelectedEmails : pollSelectedSpEmailsFromMetadata,
+    subject: pollEmailSubject,
+    body: pollEmailBody,
+  });
+
+  async function handleDraftPollingEmail() {
+    if (!pollSelectedEmails.length && !pollSelectedSpEmailsFromMetadata.length) {
+      setEventSaveError("Create a poll with selected SP emails before drafting the polling email.");
+      return;
+    }
+
+    window.location.href = pollMailtoHref;
+
+    if (selectedPollSpIds.length || pollSelectedEmails.length) {
+      setPollSaving(true);
+      try {
+        await persistPollMetadata(
+          {
+            pollCreatedAt: pollMetadata.pollCreatedAt || new Date().toISOString(),
+            pollSentAt: pollMetadata.pollSentAt,
+            pollSelectedSpIds: (selectedPollSpIds.length ? selectedPollSpIds : pollSelectedSpIdsFromMetadata).join(","),
+            pollSelectedSpEmails: (pollSelectedEmails.length ? pollSelectedEmails : pollSelectedSpEmailsFromMetadata).join(","),
+            pollStatus: "draft_ready",
+          },
+          "Polling email draft opened."
+        );
+      } finally {
+        setPollSaving(false);
+      }
+    }
+  }
+
+  async function handleMarkPollSent() {
+    if (!pollMetadata.pollCreatedAt && !selectedPollSpIds.length) {
+      setEventSaveError("Create a poll before marking it sent.");
+      return;
+    }
+
+    setPollSaving(true);
+    try {
+      await persistPollMetadata(
+        {
+          pollCreatedAt: pollMetadata.pollCreatedAt || new Date().toISOString(),
+          pollSentAt: new Date().toISOString(),
+          pollSelectedSpIds: (selectedPollSpIds.length ? selectedPollSpIds : pollSelectedSpIdsFromMetadata).join(","),
+          pollSelectedSpEmails: (pollSelectedEmails.length ? pollSelectedEmails : pollSelectedSpEmailsFromMetadata).join(","),
+          pollStatus: "sent",
+        },
+        "Availability poll marked sent."
+      );
+    } finally {
+      setPollSaving(false);
+    }
+  }
+  const pollSelectedCount = selectedPollSpIds.length || pollSelectedSpIdsFromMetadata.length;
+  const pollReadyEmailCount = pollSelectedEmails.length || pollSelectedSpEmailsFromMetadata.length;
+  const pollCreatedLabel = formatUploadedTimestamp(pollMetadata.pollCreatedAt);
+  const pollSentLabel = formatUploadedTimestamp(pollMetadata.pollSentAt);
   const workflowGroups = useMemo(
     () => [
       {
@@ -6728,146 +6907,248 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
       </div>
       )
       ) : null}
-<div style={cardStyle}>
-  <div
-    style={{
-      display: "flex",
-      justifyContent: "space-between",
-      alignItems: "center",
-      marginBottom: "12px",
-    }}
-  >
-    <div>
-      <h2 style={compactSectionTitleStyle}>Hiring Email</h2>
+{canManageAvailabilityPoll ? (
+  <div style={cardStyle}>
+    <div
+      style={{
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "flex-start",
+        gap: "12px",
+        marginBottom: "12px",
+        flexWrap: "wrap",
+      }}
+    >
+      <div>
+        <h2 style={compactSectionTitleStyle}>SP Availability Poll</h2>
+        <p style={compactSectionHintStyle}>
+          Select candidate SPs, draft the CFSP polling email, and track the poll without leaving the event.
+        </p>
+      </div>
+      <div
+        style={{
+          borderRadius: "999px",
+          padding: "7px 12px",
+          fontSize: "12px",
+          fontWeight: 900,
+          letterSpacing: "0.04em",
+          textTransform: "uppercase",
+          background:
+            pollStatusLabel === "sent"
+              ? "rgba(44, 211, 173, 0.16)"
+              : pollStatusLabel === "draft_ready"
+                ? "rgba(47, 109, 229, 0.12)"
+                : "rgba(168, 183, 204, 0.12)",
+          color:
+            pollStatusLabel === "sent"
+              ? "var(--cfsp-green)"
+              : pollStatusLabel === "draft_ready"
+                ? "var(--cfsp-blue)"
+                : "var(--cfsp-text-muted)",
+          border:
+            pollStatusLabel === "sent"
+              ? "1px solid rgba(44, 211, 173, 0.28)"
+              : pollStatusLabel === "draft_ready"
+                ? "1px solid rgba(47, 109, 229, 0.2)"
+                : "1px solid var(--cfsp-border)",
+        }}
+      >
+        {pollStatusDisplayLabel}
+      </div>
+    </div>
 
-      <p style={compactSectionHintStyle}>
-        Draft SP availability outreach emails with Microsoft Forms polling.
-      </p>
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+        gap: "10px",
+        marginBottom: "14px",
+      }}
+    >
+      <div style={statCard}>
+        <div style={statLabel}>Selected SPs</div>
+        <div style={statValue}>{pollSelectedCount}</div>
+      </div>
+      <div style={statCard}>
+        <div style={statLabel}>Email Ready</div>
+        <div style={statValue}>{pollReadyEmailCount}</div>
+      </div>
+      <div style={statCard}>
+        <div style={statLabel}>Created</div>
+        <div style={{ ...statValue, fontSize: "14px" }}>{pollMetadata.pollCreatedAt ? pollCreatedLabel : "Not created"}</div>
+      </div>
+      <div style={statCard}>
+        <div style={statLabel}>Sent</div>
+        <div style={{ ...statValue, fontSize: "14px" }}>{pollMetadata.pollSentAt ? pollSentLabel : "Not sent"}</div>
+      </div>
+    </div>
+
+    <div
+      style={{
+        display: "flex",
+        gap: "8px",
+        flexWrap: "wrap",
+        marginBottom: "14px",
+      }}
+    >
+      <button
+        type="button"
+        style={buttonStyle}
+        onClick={() =>
+          selectAllVisiblePollCandidates(
+            filteredCandidateSps
+              .filter((sp) => Boolean(getEmail(sp)))
+              .map((sp) => String(sp.id))
+          )
+        }
+        disabled={pollSaving || filteredCandidateSps.length === 0}
+      >
+        Select Visible SPs
+      </button>
+      <button
+        type="button"
+        style={{
+          ...buttonStyle,
+          background: "var(--cfsp-surface-muted)",
+          color: "var(--cfsp-text)",
+          border: "1px solid var(--cfsp-border)",
+        }}
+        onClick={clearPollSelection}
+        disabled={pollSaving || pollSelectedCount === 0}
+      >
+        Clear Selection
+      </button>
+      <button
+        type="button"
+        style={{ ...buttonStyle, opacity: pollSaving ? 0.7 : 1 }}
+        onClick={() => void handleCreatePoll()}
+        disabled={pollSaving || !selectedPollSpIds.length || !pollSelectedEmails.length}
+      >
+        {pollSaving && pollStatusLabel !== "sent" ? "Saving..." : "Create Poll"}
+      </button>
+      <button
+        type="button"
+        style={{
+          ...buttonStyle,
+          background: "rgba(47, 109, 229, 0.12)",
+          color: "var(--cfsp-blue)",
+          border: "1px solid rgba(47, 109, 229, 0.22)",
+        }}
+        onClick={() => void handleDraftPollingEmail()}
+        disabled={pollSaving || (!pollSelectedEmails.length && !pollSelectedSpEmailsFromMetadata.length)}
+      >
+        Draft Polling Email
+      </button>
+      <button
+        type="button"
+        style={{
+          ...buttonStyle,
+          background: "rgba(44, 211, 173, 0.14)",
+          color: "var(--cfsp-green)",
+          border: "1px solid rgba(44, 211, 173, 0.22)",
+        }}
+        onClick={() => void handleMarkPollSent()}
+        disabled={
+          pollSaving ||
+          (!pollMetadata.pollCreatedAt && !selectedPollSpIds.length && !pollSelectedSpIdsFromMetadata.length)
+        }
+      >
+        Mark Poll Sent
+      </button>
+    </div>
+
+    <div
+      style={{
+        borderRadius: "14px",
+        border: "1px solid var(--cfsp-border)",
+        background: "var(--cfsp-surface-muted)",
+        padding: "12px",
+        marginBottom: "12px",
+      }}
+    >
+      <div style={{ color: "var(--cfsp-text)", fontWeight: 800, marginBottom: "4px" }}>
+        Draft email will BCC {pollReadyEmailCount} SP{pollReadyEmailCount === 1 ? "" : "s"}
+      </div>
+      <div style={{ color: "var(--cfsp-text-muted)", fontSize: "13px", lineHeight: 1.5 }}>
+        Event link:{" "}
+        <a href={eventDetailLink} style={{ color: "var(--cfsp-blue)" }}>
+          {eventDetailLink}
+        </a>
+      </div>
+    </div>
+
+    <div style={statLabel}>
+      Candidate SPs · {filteredCandidateSps.length} visible / {pollSelectedCount} selected
+    </div>
+    <div
+      style={{
+        maxHeight: "320px",
+        overflowY: "auto",
+        border: "1px solid var(--cfsp-border)",
+        borderRadius: "14px",
+        padding: "10px",
+        background: "var(--cfsp-surface-muted)",
+        marginTop: "8px",
+      }}
+    >
+      {filteredCandidateSps.length === 0 ? (
+        <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700, padding: "6px 4px" }}>
+          No candidate SPs match the current search and filters.
+        </div>
+      ) : (
+        filteredCandidateSps.map((sp) => {
+          const spId = String(sp.id);
+          const checked = selectedPollSpIds.includes(spId);
+          const email = getEmail(sp);
+
+          return (
+            <label
+              key={spId}
+              style={{
+                display: "flex",
+                alignItems: "flex-start",
+                justifyContent: "space-between",
+                gap: "12px",
+                padding: "10px 6px",
+                cursor: "pointer",
+                borderBottom: "1px solid rgba(168, 183, 204, 0.16)",
+              }}
+            >
+              <div style={{ display: "flex", gap: "10px", alignItems: "flex-start" }}>
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={() => togglePollSp(spId)}
+                  disabled={!email}
+                  style={{ marginTop: "2px" }}
+                />
+                <div>
+                  <div style={{ fontWeight: 800, color: "var(--cfsp-text)" }}>{getFullName(sp)}</div>
+                  <div style={{ fontSize: "12px", color: "var(--cfsp-text-muted)" }}>{email || "No email on file"}</div>
+                </div>
+              </div>
+              {!email ? (
+                <span
+                  style={{
+                    borderRadius: "999px",
+                    padding: "5px 8px",
+                    fontSize: "11px",
+                    fontWeight: 800,
+                    color: "var(--cfsp-warning)",
+                    background: "rgba(243, 187, 103, 0.14)",
+                    border: "1px solid rgba(243, 187, 103, 0.22)",
+                  }}
+                >
+                  Email needed
+                </span>
+              ) : null}
+            </label>
+          );
+        })
+      )}
     </div>
   </div>
-
-  <div
-    style={{
-      display: "grid",
-      gap: "10px",
-      marginBottom: "14px",
-    }}
-  >
-    <input
-      style={inputStyle}
-      placeholder="Microsoft Forms Link"
-      value={hiringFormLink}
-      onChange={(event) => setHiringFormLink(event.target.value)}
-    />
-
-    <input
-      style={inputStyle}
-      placeholder="Response Deadline"
-      value={hiringDeadline}
-      onChange={(event) => setHiringDeadline(event.target.value)}
-    />
-  </div>
-
-  <div
-    style={{
-      display: "flex",
-      gap: "8px",
-      flexWrap: "wrap",
-      marginBottom: "14px",
-    }}
-  >
-    <button
-      type="button"
-      style={buttonStyle}
-      onClick={() =>
-        selectAllVisibleCandidates(
-          filteredCandidateSps.map((sp) => String(sp.id))
-        )
-      }
-    >
-      Select All Visible
-    </button>
-
-    <button
-      type="button"
-      style={{
-        ...buttonStyle,
-        background: "var(--cfsp-surface-muted)",
-        color: "var(--cfsp-text)",
-      }}
-      onClick={clearHiringSelection}
-    >
-      Clear Selected
-    </button>
-
-    <a
-      href={hiringMailtoHref}
-      style={{
-        ...buttonStyle,
-        textDecoration: "none",
-        display: "inline-flex",
-        alignItems: "center",
-      }}
-    >
-      Draft Hiring Email
-    </a>
-  </div>
-
-  <div
-    style={{
-      maxHeight: "320px",
-      overflowY: "auto",
-      border: "1px solid var(--cfsp-border)",
-      borderRadius: "14px",
-      padding: "10px",
-      background: "var(--cfsp-surface-muted)",
-    }}
-  >
-    {filteredCandidateSps.map((sp) => {
-      const spId = String(sp.id);
-      const checked = selectedHiringSpIds.includes(spId);
-
-      return (
-        <label
-          key={spId}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "10px",
-            padding: "8px 4px",
-            cursor: "pointer",
-          }}
-        >
-          <input
-            type="checkbox"
-            checked={checked}
-            onChange={() => toggleHiringSp(spId)}
-          />
-
-          <div>
-            <div
-              style={{
-                fontWeight: 800,
-                color: "var(--cfsp-text)",
-              }}
-            >
-              {getFullName(sp)}
-            </div>
-
-            <div
-              style={{
-                fontSize: "12px",
-                color: "var(--cfsp-text-muted)",
-              }}
-            >
-              {getEmail(sp)}
-            </div>
-          </div>
-        </label>
-      );
-    })}
-  </div>
-</div>
+) : null}
       {materialPreview ? (
         <div
           role="dialog"
