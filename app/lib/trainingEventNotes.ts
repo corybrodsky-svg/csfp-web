@@ -19,7 +19,11 @@ export type TrainingEventMetadata = {
   supplemental_doc_uploaded_at: string;
   supplemental_doc_uploaded_by: string;
   faculty_names: string;
+  faculty_program: string;
+  faculty_email: string;
+  faculty_phone: string;
   sim_contact: string;
+  contact_internal_notes: string;
   training_notes: string;
   rotation_schedule_status: string;
   modality: string;
@@ -59,7 +63,11 @@ const TRAINING_METADATA_KEYS = [
   "supplemental_doc_uploaded_at",
   "supplemental_doc_uploaded_by",
   "faculty_names",
+  "faculty_program",
+  "faculty_email",
+  "faculty_phone",
   "sim_contact",
+  "contact_internal_notes",
   "training_notes",
   "rotation_schedule_status",
   "modality",
@@ -108,7 +116,11 @@ export function emptyTrainingEventMetadata(): TrainingEventMetadata {
     supplemental_doc_uploaded_at: "",
     supplemental_doc_uploaded_by: "",
     faculty_names: "",
+    faculty_program: "",
+    faculty_email: "",
+    faculty_phone: "",
     sim_contact: "",
+    contact_internal_notes: "",
     training_notes: "",
     rotation_schedule_status: "",
     modality: "",

@@ -179,6 +179,10 @@ type TrainingImportResult = {
 };
 
 type TrainingMaterialKind = "case_file" | "doorsign" | "supplemental_doc";
+type MaterialPreviewState = {
+  title: string;
+  url: string;
+};
 type RelatedCopyOption =
   | "assigned_sps"
   | "training_materials"
@@ -309,6 +313,18 @@ const segmentedGroupStyle: React.CSSProperties = {
   borderRadius: "999px",
   border: "1px solid var(--cfsp-border)",
   background: "var(--cfsp-surface-muted)",
+};
+
+const commandChipStyle: React.CSSProperties = {
+  borderRadius: "999px",
+  padding: "5px 10px",
+  border: "1px solid rgba(61, 201, 184, 0.28)",
+  background: "rgba(24, 48, 67, 0.72)",
+  color: "#7ee7db",
+  fontSize: "11px",
+  fontWeight: 900,
+  letterSpacing: "0.04em",
+  textTransform: "uppercase",
 };
 
 const assignmentStatuses: AssignmentStatus[] = [
@@ -634,6 +650,17 @@ function getContactMethod(assignment: AssignmentRow) {
 function getContactMethodLabel(assignment: AssignmentRow) {
   const raw = getContactMethod(assignment);
   return raw || "Not set";
+}
+
+function getFilenameFromUrl(value: string) {
+  const text = asText(value);
+  if (!text) return "";
+  try {
+    const pathname = new URL(text).pathname;
+    return decodeURIComponent(pathname.split("/").filter(Boolean).pop() || "");
+  } catch {
+    return text.split("/").filter(Boolean).pop() || text;
+  }
 }
 
 function getAssignmentStatusRank(status: AssignmentStatus) {
@@ -1230,6 +1257,10 @@ export default function EventDetailPage() {
   const [trainingImportError, setTrainingImportError] = useState("");
   const [trainingImporting, setTrainingImporting] = useState(false);
   const [showWorkflowAdvanced, setShowWorkflowAdvanced] = useState(false);
+  const [materialPreview, setMaterialPreview] = useState<MaterialPreviewState | null>(null);
+  const [showRecordingGuideEditor, setShowRecordingGuideEditor] = useState(false);
+  const [contactPanelSaving, setContactPanelSaving] = useState(false);
+  const [contactPanelSavedAt, setContactPanelSavedAt] = useState("");
   const [showPushRelatedPanel, setShowPushRelatedPanel] = useState(false);
   const [relatedKeyword, setRelatedKeyword] = useState("");
   const [relatedMustInclude, setRelatedMustInclude] = useState("");
@@ -1567,8 +1598,31 @@ export default function EventDetailPage() {
     asText(trainingMetadata.rotation_schedule_status).toLowerCase()
   );
   const trainingFacultyText = trainingMetadata.faculty_names || fallbackFacultyText;
+  const facultyProgramText = trainingMetadata.faculty_program;
+  const facultyEmailText = trainingMetadata.faculty_email;
+  const facultyPhoneText = trainingMetadata.faculty_phone;
   const trainingSimContact =
     trainingMetadata.sim_contact || simStaffNames.join(", ") || "Sim Team Assigned";
+  const materialsStatusLabel = getMaterialStatusLabel(trainingMetadata);
+  const emailStatusLabel = getEmailStatusLabel(trainingMetadata);
+  const facultyReadinessComplete = Boolean(
+    trainingFacultyText || facultyEmailText || facultyPhoneText || trainingMetadata.sim_contact || hasFaculty
+  );
+  const facultyReadinessLabel = facultyReadinessComplete
+    ? [trainingFacultyText || "Faculty recorded", facultyEmailText || facultyPhoneText || trainingMetadata.sim_contact]
+        .filter(Boolean)
+        .join(" · ")
+    : "Needs contact";
+  const outreachProgressLabel = assignments.some(
+    (assignment) =>
+      Boolean(assignment.last_contacted_at) || ["contacted", "confirmed", "declined"].includes(getAssignmentStatus(assignment))
+  )
+    ? "In progress"
+    : emailStatusLabel === "Sent"
+      ? "Sent"
+      : emailStatusLabel === "Draft opened"
+        ? "Draft opened"
+        : "Not started";
   const selectedModalityLabel = inferEventModalityLabel(activeEventTypeSet, trainingMetadata, event);
   const trainingLocationModality =
     selectedModalityLabel === "Hybrid"
@@ -1604,18 +1658,17 @@ export default function EventDetailPage() {
     trainingMetadata.case_name || trainingMetadata.case_file_url || trainingMetadata.case_file_name
       ? "Ready"
       : "Needs case";
-  const trainingRecordingStatus = trainingMetadata.recording_url ? "Ready" : "Not added";
-  const materialsStatusLabel = getMaterialStatusLabel(trainingMetadata);
-  const emailStatusLabel = getEmailStatusLabel(trainingMetadata);
   const trainingRosterPreview = useMemo(
     () => (showAllTrainingRoster ? sortedAssignments : sortedAssignments.slice(0, 8)),
     [showAllTrainingRoster, sortedAssignments]
   );
   const defaultRelatedKeyword = useMemo(() => getDefaultRelatedEventKeyword(event?.name), [event?.name]);
   const facultyEmails = useMemo(() => {
-    const matches = trainingFacultyText.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) || [];
+    const matches = [trainingFacultyText, facultyEmailText]
+      .join(" ")
+      .match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) || [];
     return Array.from(new Set(matches.map((item) => item.trim())));
-  }, [trainingFacultyText]);
+  }, [facultyEmailText, trainingFacultyText]);
   const trainingEmailSubject = `${event?.name || "Event"}: SP Training - ${eventDateLabel || "Date TBD"}`;
   const trainingEmailBody = [
     "SPs,",
@@ -1836,7 +1889,7 @@ export default function EventDetailPage() {
     () => [
       {
         id: "staffing",
-        label: "SP staffing",
+        label: "SP coverage",
         value: noSpStaffingRequired
           ? "Not required"
           : `${confirmedCount} confirmed / ${assignmentCount} assigned`,
@@ -1850,62 +1903,54 @@ export default function EventDetailPage() {
               : "No roster yet",
       },
       {
-        id: "session",
-        label: "Session details",
-        value: sessions.length ? `${sessions.length} session${sessions.length === 1 ? "" : "s"}` : "Not built",
-        complete: Boolean((asText(event?.date_text) || sessions.length) && summaryTimeLabel !== "Time TBD"),
-        detail: sessions.length ? summaryTimeLabel : "Date/time still incomplete",
-      },
-      {
         id: "faculty",
-        label: "Faculty / contact",
-        value: trainingFacultyText || (hasFaculty ? "Recorded" : "Needs contact"),
-        complete: Boolean(trainingFacultyText || hasFaculty || trainingSimContact),
-        detail: trainingSimContact || "No sim contact recorded",
+        label: "Faculty readiness",
+        value: facultyReadinessLabel,
+        complete: facultyReadinessComplete,
+        detail: facultyProgramText || trainingMetadata.sim_contact || "Add lead, faculty, or contact details",
       },
       {
         id: "materials",
-        label: "Materials",
+        label: "Materials readiness",
         value: materialsStatusLabel,
         complete: materialsStatusLabel === "Ready",
         detail: trainingCaseStatus,
       },
       {
-        id: "email",
-        label: "Email",
-        value: emailStatusLabel,
-        complete: emailStatusLabel === "Sent",
-        detail:
-          emailStatusLabel === "Draft opened"
-            ? "Draft was opened from CFSP."
-            : emailStatusLabel === "Sent"
-              ? "Marked sent."
-              : "No email action recorded yet.",
+        id: "schedule",
+        label: "Schedule readiness",
+        value: sessions.length ? `${sessions.length} session${sessions.length === 1 ? "" : "s"} ready` : "Needs schedule",
+        complete: Boolean((asText(event?.date_text) || sessions.length) && summaryTimeLabel !== "Time TBD"),
+        detail: sessions.length ? summaryTimeLabel : "Date/time still incomplete",
       },
       {
-        id: "schedule",
-        label: "Schedule",
-        value: rotationScheduleBuilt ? "Built" : "Not built",
-        complete: rotationScheduleBuilt,
-        detail: hasRoomsBuilt ? "Session structure exists." : "No structured schedule saved.",
+        id: "email",
+        label: "Email / contact",
+        value: outreachProgressLabel,
+        complete: outreachProgressLabel === "Sent" || outreachProgressLabel === "In progress",
+        detail:
+          outreachProgressLabel === "In progress"
+            ? "Contact activity is already logged."
+            : outreachProgressLabel === "Sent"
+              ? "Email action marked complete."
+              : "No contact activity recorded yet.",
       },
     ],
     [
       assignmentCount,
       confirmedCount,
-      emailStatusLabel,
       event?.date_text,
-      hasFaculty,
-      hasRoomsBuilt,
+      facultyProgramText,
+      facultyReadinessComplete,
+      facultyReadinessLabel,
       materialsStatusLabel,
       needed,
       noSpStaffingRequired,
-      rotationScheduleBuilt,
+      outreachProgressLabel,
       sessions.length,
       summaryTimeLabel,
       trainingCaseStatus,
-      trainingFacultyText,
-      trainingSimContact,
+      trainingMetadata.sim_contact,
     ]
   );
   const workflowPercent =
@@ -2156,6 +2201,36 @@ export default function EventDetailPage() {
   ) {
     const nextNotes = upsertTrainingEventMetadata(eventEditor.notes, partial);
     return persistTrainingNotes(nextNotes, successMessage);
+  }
+
+  async function saveFacultyContactFields(
+    partial: Partial<TrainingEventMetadata>,
+    successMessage = "Faculty/contact saved."
+  ) {
+    setContactPanelSaving(true);
+    try {
+      const persisted = await persistTrainingMetadataFields(partial, successMessage);
+      if (persisted) {
+        setContactPanelSavedAt(new Date().toISOString());
+      }
+      return persisted;
+    } finally {
+      setContactPanelSaving(false);
+    }
+  }
+
+  async function saveFacultyContactField(
+    key: keyof TrainingEventMetadata,
+    value: string,
+    successMessage = "Faculty/contact saved."
+  ) {
+    return saveFacultyContactFields({ [key]: value } as Partial<TrainingEventMetadata>, successMessage);
+  }
+
+  function openMaterialPreview(title: string, url: string) {
+    const safeUrl = asText(url);
+    if (!safeUrl) return;
+    setMaterialPreview({ title, url: safeUrl });
   }
 
   function setTrainingMaterialSavingState(kind: TrainingMaterialKind, savingState: boolean) {
@@ -2966,19 +3041,19 @@ export default function EventDetailPage() {
               >
                 {eventMeta.primaryBadgeLabel}
               </span>
-              <Link
-                href={`/events/${encodeURIComponent(id)}/schedule-builder`}
-                style={{
-                  ...buttonStyle,
-                  display: "inline-flex",
-                  alignItems: "center",
-                  textDecoration: "none",
-                }}
-              >
-                {isTrainingMode
-                  ? `Build Schedule (${rotationScheduleBuilt ? "Built" : "Not built"})`
-                  : "Build Schedule"}
-              </Link>
+              {!isTrainingMode ? (
+                <Link
+                  href={`/events/${encodeURIComponent(id)}/schedule-builder`}
+                  style={{
+                    ...buttonStyle,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    textDecoration: "none",
+                  }}
+                >
+                  Build Schedule
+                </Link>
+              ) : null}
               <button
                 type="button"
                 onClick={() => {
@@ -3261,84 +3336,215 @@ export default function EventDetailPage() {
         <div
           style={{
             marginTop: "10px",
-            border: "1px solid var(--cfsp-border-strong)",
-            borderRadius: "16px",
-            padding: "14px",
-            background: "var(--cfsp-surface-muted)",
+            display: "grid",
+            gap: "12px",
+            gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
+            alignItems: "start",
           }}
         >
-          <div style={{ ...statLabel, color: "var(--cfsp-text)" }}>Event Summary</div>
-          <div style={{ ...detailGridStyle, marginTop: "8px", gap: "8px" }}>
-            <div style={statCard}>
-              <div style={statLabel}>Event Name</div>
-              <div style={statValue}>{event.name || "Untitled Event"}</div>
-            </div>
-            <div style={statCard}>
-              <div style={statLabel}>Status</div>
-              <div style={statValue}>{event.status || "No status"}</div>
-            </div>
-            <div style={statCard}>
-              <div style={statLabel}>Location</div>
-              <div style={statValue}>{event.location || "Location TBD"}</div>
-            </div>
-            {!isTrainingMode ? (
-              <>
-                <div style={statCard}>
-                  <div style={statLabel}>SP Needed</div>
-                  <div style={statValue}>{needed}</div>
-                </div>
-                <div style={statCard}>
-                  <div style={statLabel}>Assigned</div>
-                  <div style={{ ...statValue, color: "var(--cfsp-blue)" }}>{assignedCount}</div>
-                </div>
-                <div style={statCard}>
-                  <div style={statLabel}>{isWorkshop ? "Workshop" : "Shortage"}</div>
-                  <div
-                    style={{
-                      ...statValue,
-                      color: isWorkshop
-                        ? "var(--cfsp-green)"
-                        : shortage > 0
-                          ? "var(--cfsp-warning)"
-                          : "var(--cfsp-green)",
-                    }}
-                  >
-                    {isWorkshop ? "Skills Workshop" : shortageCount}
+          <div
+            style={{
+              border: "1px solid rgba(73, 168, 255, 0.24)",
+              borderRadius: "18px",
+              padding: "14px",
+              background: "linear-gradient(180deg, rgba(17, 31, 48, 0.94) 0%, rgba(20, 43, 62, 0.9) 100%)",
+            }}
+          >
+            <div style={{ ...statLabel, color: "#7ee7db" }}>Event Summary</div>
+            <div style={{ ...detailGridStyle, marginTop: "8px", gap: "8px" }}>
+              <div style={statCard}>
+                <div style={statLabel}>Event Name</div>
+                <div style={statValue}>{event.name || "Untitled Event"}</div>
+              </div>
+              <div style={statCard}>
+                <div style={statLabel}>Status</div>
+                <div style={statValue}>{event.status || "No status"}</div>
+              </div>
+              <div style={statCard}>
+                <div style={statLabel}>Location</div>
+                <div style={statValue}>{event.location || "Location TBD"}</div>
+              </div>
+              {!isTrainingMode ? (
+                <>
+                  <div style={statCard}>
+                    <div style={statLabel}>SP Needed</div>
+                    <div style={statValue}>{needed}</div>
                   </div>
-                </div>
-              </>
-            ) : null}
-            <div style={statCard}>
-              <div style={statLabel}>Date</div>
-              <div style={statValue}>{sessionSummaryLabel}</div>
-            </div>
-            <div style={statCard}>
-              <div style={statLabel}>Time</div>
-              <div style={statValue}>{summaryTimeLabel}</div>
-            </div>
-          </div>
-
-          {sessions.length ? (
-            <div style={{ marginTop: "10px" }}>
-              <div style={statLabel}>Sessions</div>
-              <div style={{ display: "grid", gap: "6px", marginTop: "6px" }}>
-                {sessions.map((session) => (
-                  <div key={session.id} style={statCard}>
-                    <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>
-                      {formatSessionDate(session.session_date, importedYearHint)}
-                    </div>
-                    <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", lineHeight: 1.5, fontSize: "13px" }}>
-                      {formatSessionTime(session)} · {formatSessionLocation(session, event.location)}
+                  <div style={statCard}>
+                    <div style={statLabel}>Assigned</div>
+                    <div style={{ ...statValue, color: "var(--cfsp-blue)" }}>{assignedCount}</div>
+                  </div>
+                  <div style={statCard}>
+                    <div style={statLabel}>{isWorkshop ? "Workshop" : "Shortage"}</div>
+                    <div
+                      style={{
+                        ...statValue,
+                        color: isWorkshop ? "var(--cfsp-green)" : shortage > 0 ? "var(--cfsp-warning)" : "var(--cfsp-green)",
+                      }}
+                    >
+                      {isWorkshop ? "Skills Workshop" : shortageCount}
                     </div>
                   </div>
-                ))}
+                </>
+              ) : (
+                <div style={statCard}>
+                  <div style={statLabel}>Assigned SPs</div>
+                  <div style={statValue}>
+                    {assignedCount} assigned / {confirmedCount} confirmed
+                  </div>
+                </div>
+              )}
+              <div style={statCard}>
+                <div style={statLabel}>Date</div>
+                <div style={statValue}>{sessionSummaryLabel}</div>
+              </div>
+              <div style={statCard}>
+                <div style={statLabel}>Time</div>
+                <div style={statValue}>{summaryTimeLabel}</div>
               </div>
             </div>
-          ) : (
-            <div style={{ marginTop: "10px", color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
-              No structured sessions yet. Fallback date text: {formatEventDateText(event.date_text, importedYearHint)}
+
+            {sessions.length ? (
+              <div style={{ marginTop: "10px" }}>
+                <div style={statLabel}>Sessions</div>
+                <div style={{ display: "grid", gap: "6px", marginTop: "6px" }}>
+                  {sessions.map((session) => (
+                    <div key={session.id} style={{ ...statCard, padding: "10px 12px" }}>
+                      <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>
+                        {formatSessionDate(session.session_date, importedYearHint)}
+                      </div>
+                      <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", lineHeight: 1.5, fontSize: "13px" }}>
+                        {formatSessionTime(session)} · {formatSessionLocation(session, event.location)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div style={{ marginTop: "10px", color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
+                No structured sessions yet. Fallback date text: {formatEventDateText(event.date_text, importedYearHint)}
+              </div>
+            )}
+          </div>
+
+          <section
+            style={{
+              border: "1px solid rgba(61, 201, 184, 0.26)",
+              borderRadius: "18px",
+              padding: "14px",
+              background: "linear-gradient(180deg, rgba(13, 37, 46, 0.96) 0%, rgba(12, 27, 41, 0.94) 100%)",
+              boxShadow: "0 16px 32px rgba(8, 20, 34, 0.28)",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
+              <div>
+                <div style={{ ...statLabel, color: "#7ee7db" }}>Faculty / Contact</div>
+                <div style={{ marginTop: "4px", color: "#d6f6f2", fontSize: "18px", fontWeight: 900 }}>
+                  {trainingFacultyText || "Add faculty contact"}
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+                <span style={commandChipStyle}>
+                  {contactPanelSaving
+                    ? "Saving"
+                    : contactPanelSavedAt
+                      ? `Saved ${formatUploadedTimestamp(contactPanelSavedAt)}`
+                      : facultyReadinessComplete
+                        ? "Ready"
+                        : "Needs setup"}
+                </span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    void saveFacultyContactFields(
+                      {
+                        faculty_names: trainingMetadata.faculty_names,
+                        faculty_program: trainingMetadata.faculty_program,
+                        faculty_email: trainingMetadata.faculty_email,
+                        faculty_phone: trainingMetadata.faculty_phone,
+                        sim_contact: trainingMetadata.sim_contact,
+                        contact_internal_notes: trainingMetadata.contact_internal_notes,
+                      },
+                      "Faculty/contact saved."
+                    )
+                  }
+                  disabled={contactPanelSaving}
+                  style={{ ...buttonStyle, padding: "8px 12px", opacity: contactPanelSaving ? 0.65 : 1 }}
+                >
+                  Save Contact Panel
+                </button>
+              </div>
             </div>
-          )}
+
+            <div style={{ display: "grid", gap: "10px", marginTop: "12px", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))" }}>
+              <label style={{ display: "grid", gap: "6px" }}>
+                <span style={{ ...statLabel, color: "#93dbd3" }}>Faculty name</span>
+                <input
+                  value={trainingMetadata.faculty_names}
+                  onChange={(event) => handleTrainingMetadataChange("faculty_names", event.target.value)}
+                  onBlur={(event) => void saveFacultyContactField("faculty_names", event.target.value)}
+                  disabled={contactPanelSaving}
+                  placeholder={fallbackFacultyText || "Faculty name"}
+                  style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                />
+              </label>
+              <label style={{ display: "grid", gap: "6px" }}>
+                <span style={{ ...statLabel, color: "#93dbd3" }}>Program / course</span>
+                <input
+                  value={trainingMetadata.faculty_program}
+                  onChange={(event) => handleTrainingMetadataChange("faculty_program", event.target.value)}
+                  onBlur={(event) => void saveFacultyContactField("faculty_program", event.target.value)}
+                  disabled={contactPanelSaving}
+                  placeholder="Program or course"
+                  style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                />
+              </label>
+              <label style={{ display: "grid", gap: "6px" }}>
+                <span style={{ ...statLabel, color: "#93dbd3" }}>Email</span>
+                <input
+                  value={trainingMetadata.faculty_email}
+                  onChange={(event) => handleTrainingMetadataChange("faculty_email", event.target.value)}
+                  onBlur={(event) => void saveFacultyContactField("faculty_email", event.target.value)}
+                  disabled={contactPanelSaving}
+                  placeholder="name@school.edu"
+                  style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                />
+              </label>
+              <label style={{ display: "grid", gap: "6px" }}>
+                <span style={{ ...statLabel, color: "#93dbd3" }}>Phone</span>
+                <input
+                  value={trainingMetadata.faculty_phone}
+                  onChange={(event) => handleTrainingMetadataChange("faculty_phone", event.target.value)}
+                  onBlur={(event) => void saveFacultyContactField("faculty_phone", event.target.value)}
+                  disabled={contactPanelSaving}
+                  placeholder="Phone"
+                  style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                />
+              </label>
+              <label style={{ display: "grid", gap: "6px", gridColumn: "1 / -1" }}>
+                <span style={{ ...statLabel, color: "#93dbd3" }}>Sim team / event lead</span>
+                <input
+                  value={trainingMetadata.sim_contact}
+                  onChange={(event) => handleTrainingMetadataChange("sim_contact", event.target.value)}
+                  onBlur={(event) => void saveFacultyContactField("sim_contact", event.target.value)}
+                  disabled={contactPanelSaving}
+                  placeholder={simStaffNames.join(", ") || "Sim lead or event lead"}
+                  style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                />
+              </label>
+              <label style={{ display: "grid", gap: "6px", gridColumn: "1 / -1" }}>
+                <span style={{ ...statLabel, color: "#93dbd3" }}>Internal notes</span>
+                <textarea
+                  value={trainingMetadata.contact_internal_notes}
+                  onChange={(event) => handleTrainingMetadataChange("contact_internal_notes", event.target.value)}
+                  onBlur={(event) => void saveFacultyContactField("contact_internal_notes", event.target.value, "Faculty notes saved.")}
+                  disabled={contactPanelSaving}
+                  placeholder="Internal context, escalation notes, or faculty preferences..."
+                  style={{ ...textareaStyle, minHeight: "84px" }}
+                />
+              </label>
+            </div>
+          </section>
         </div>
         </div>
       </details>
@@ -3366,24 +3572,10 @@ export default function EventDetailPage() {
                 <div>
                   <h2 style={compactSectionTitleStyle}>Training Overview</h2>
                   <p style={compactSectionHintStyle}>
-                    Keep prep details tight and visible without repeating the same training facts across the page.
+                    Keep prep details visible without scheduling detours or editor-heavy clutter.
                   </p>
                 </div>
-                <div
-                  style={{
-                    borderRadius: "999px",
-                    padding: "8px 12px",
-                    background: rotationScheduleBuilt ? "var(--cfsp-green-soft)" : "var(--cfsp-warning-soft)",
-                    border: rotationScheduleBuilt
-                      ? "1px solid rgba(44, 211, 173, 0.24)"
-                      : "1px solid rgba(243, 187, 103, 0.24)",
-                    color: rotationScheduleBuilt ? "var(--cfsp-green)" : "var(--cfsp-warning)",
-                    fontWeight: 900,
-                    fontSize: "13px",
-                  }}
-                >
-                  Rotation schedule: {rotationScheduleBuilt ? "Built" : "Not built"}
-                </div>
+                <span style={commandChipStyle}>{facultyReadinessComplete ? "Prep ready" : "Prep in progress"}</span>
               </div>
 
               <div
@@ -3412,12 +3604,16 @@ export default function EventDetailPage() {
                   </div>
                 </div>
                 <div style={statCard}>
-                  <div style={statLabel}>Recording Status</div>
-                  <div style={{ ...statValue, fontSize: "15px" }}>{trainingRecordingStatus}</div>
+                  <div style={statLabel}>Faculty readiness</div>
+                  <div style={{ ...statValue, fontSize: "15px" }}>{facultyReadinessComplete ? "Ready" : "Needs contact"}</div>
                 </div>
                 <div style={statCard}>
-                  <div style={statLabel}>Case Status</div>
-                  <div style={{ ...statValue, fontSize: "15px" }}>{trainingCaseStatus}</div>
+                  <div style={statLabel}>Materials</div>
+                  <div style={{ ...statValue, fontSize: "15px" }}>{materialsStatusLabel}</div>
+                </div>
+                <div style={statCard}>
+                  <div style={statLabel}>Contact progress</div>
+                  <div style={{ ...statValue, fontSize: "15px" }}>{outreachProgressLabel}</div>
                 </div>
               </div>
             </section>
@@ -3444,7 +3640,7 @@ export default function EventDetailPage() {
                 style={{
                   ...detailGridStyle,
                   marginTop: "14px",
-                  gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
                 }}
               >
                 {trainingMaterialCards.map((material) => {
@@ -3452,40 +3648,40 @@ export default function EventDetailPage() {
                   const fileUrl = asText(trainingMetadata[fieldConfig.urlKey]);
                   const fileName = asText(trainingMetadata[fieldConfig.nameKey]);
                   const storagePath = asText(trainingMetadata[fieldConfig.storagePathKey]);
-                  const uploadedAt = asText(trainingMetadata[fieldConfig.uploadedAtKey]);
-                  const uploadedBy = asText(trainingMetadata[fieldConfig.uploadedByKey]);
                   const isBusy = trainingMaterialSaving[material.kind];
+                  const displayName =
+                    material.kind === "case_file"
+                      ? trainingMetadata.case_name || fileName || getFilenameFromUrl(fileUrl) || "No case attached"
+                      : fileName || getFilenameFromUrl(fileUrl) || "No document attached";
 
                   return (
                     <div
                       key={material.kind}
                       style={{
-                        border: "1px solid var(--cfsp-border)",
-                        borderRadius: "16px",
+                        border: "1px solid rgba(61, 201, 184, 0.16)",
+                        borderRadius: "18px",
                         padding: "14px",
-                        background: "var(--cfsp-surface-muted)",
+                        background: "linear-gradient(180deg, rgba(248, 251, 253, 0.98) 0%, rgba(238, 245, 251, 0.94) 100%)",
                       }}
                     >
-                      <div style={{ color: "var(--cfsp-text)", fontWeight: 900, fontSize: "16px" }}>
-                        {material.title}
-                      </div>
-                      <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontWeight: 700, fontSize: "13px" }}>
-                        {material.kind === "case_file"
-                          ? trainingMetadata.case_name || "Add case name below in the editor."
-                          : fileUrl || fileName || "No file linked yet"}
-                      </div>
-                      <div style={{ marginTop: "10px", color: "var(--cfsp-text-muted)", fontSize: "13px", lineHeight: 1.55 }}>
-                        <div><strong>Link:</strong> {fileUrl || "Not added"}</div>
-                        <div><strong>File:</strong> {fileName || "Not uploaded"}</div>
-                        <div><strong>Uploaded:</strong> {formatUploadedTimestamp(uploadedAt)}</div>
-                        <div><strong>By:</strong> {uploadedBy || "Not recorded"}</div>
-                      </div>
-                      {storagePath ? (
-                        <div style={{ marginTop: "6px", color: "var(--cfsp-text-muted)", fontSize: "12px", lineHeight: 1.5 }}>
-                          <strong>Storage:</strong> {storagePath}
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "flex-start" }}>
+                        <div>
+                          <div style={{ color: "var(--cfsp-text)", fontWeight: 900, fontSize: "16px" }}>{material.title}</div>
+                          <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontWeight: 700, fontSize: "13px", lineHeight: 1.45 }}>
+                            {displayName}
+                          </div>
                         </div>
-                      ) : null}
+                        <span style={commandChipStyle}>{fileUrl ? "Ready" : "Missing"}</span>
+                      </div>
                       <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "12px" }}>
+                        <button
+                          type="button"
+                          onClick={() => openMaterialPreview(material.title, fileUrl)}
+                          disabled={!fileUrl}
+                          style={{ ...buttonStyle, padding: "8px 12px", opacity: fileUrl ? 1 : 0.55 }}
+                        >
+                          Preview
+                        </button>
                         {fileUrl ? (
                           <a
                             href={fileUrl}
@@ -3493,11 +3689,11 @@ export default function EventDetailPage() {
                             rel="noreferrer"
                             style={{
                               ...buttonStyle,
-                              display: "inline-flex",
-                              alignItems: "center",
-                              textDecoration: "none",
-                              padding: "8px 12px",
-                            }}
+                            display: "inline-flex",
+                            alignItems: "center",
+                            textDecoration: "none",
+                            padding: "8px 12px",
+                          }}
                           >
                             Download
                           </a>
@@ -3508,7 +3704,7 @@ export default function EventDetailPage() {
                           disabled={isBusy}
                           style={{ ...buttonStyle, padding: "8px 12px", opacity: isBusy ? 0.65 : 1 }}
                         >
-                          {fileUrl ? "Replace" : "Upload"}
+                          {fileUrl ? "Replace" : "Add"}
                         </button>
                         <button
                           type="button"
@@ -3527,19 +3723,109 @@ export default function EventDetailPage() {
                   );
                 })}
 
-                <div style={{ ...statCard, background: "var(--cfsp-surface-muted)" }}>
-                  <div style={statLabel}>Recording URL / Password</div>
-                  <div style={{ marginTop: "8px", color: "var(--cfsp-text)", lineHeight: 1.65 }}>
-                    <div><strong>Recording:</strong> {trainingMetadata.recording_url || "Not added"}</div>
-                    <div><strong>Password:</strong> {trainingMetadata.training_password || "Not added"}</div>
+                <div
+                  style={{
+                    border: "1px solid rgba(61, 201, 184, 0.16)",
+                    borderRadius: "18px",
+                    padding: "14px",
+                    background: "linear-gradient(180deg, rgba(248, 251, 253, 0.98) 0%, rgba(238, 245, 251, 0.94) 100%)",
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "flex-start" }}>
+                    <div>
+                      <div style={{ color: "var(--cfsp-text)", fontWeight: 900, fontSize: "16px" }}>Recording Guide</div>
+                      <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontWeight: 700, fontSize: "13px", lineHeight: 1.45 }}>
+                        {trainingMetadata.recording_url ? getFilenameFromUrl(trainingMetadata.recording_url) || "Recording link ready" : "No recording guide linked"}
+                      </div>
+                    </div>
+                    <span style={commandChipStyle}>{trainingMetadata.recording_url ? "Ready" : "Missing"}</span>
                   </div>
+                  <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "12px" }}>
+                    <button
+                      type="button"
+                      onClick={() => openMaterialPreview("Recording Guide", trainingMetadata.recording_url)}
+                      disabled={!trainingMetadata.recording_url}
+                      style={{ ...buttonStyle, padding: "8px 12px", opacity: trainingMetadata.recording_url ? 1 : 0.55 }}
+                    >
+                      Preview
+                    </button>
+                    {trainingMetadata.recording_url ? (
+                      <a
+                        href={trainingMetadata.recording_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{
+                          ...buttonStyle,
+                          display: "inline-flex",
+                          alignItems: "center",
+                          textDecoration: "none",
+                          padding: "8px 12px",
+                        }}
+                      >
+                        Download
+                      </a>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() => setShowRecordingGuideEditor((current) => !current)}
+                      style={{ ...buttonStyle, padding: "8px 12px" }}
+                    >
+                      {showRecordingGuideEditor ? "Hide Replace" : "Replace"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void persistTrainingMetadataFields(
+                          { recording_url: "", training_password: "" },
+                          "Recording guide removed."
+                        )
+                      }
+                      disabled={!trainingMetadata.recording_url && !trainingMetadata.training_password}
+                      style={{
+                        ...dangerButtonStyle,
+                        padding: "8px 12px",
+                        opacity: !trainingMetadata.recording_url && !trainingMetadata.training_password ? 0.55 : 1,
+                      }}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                  {showRecordingGuideEditor ? (
+                    <div style={{ display: "grid", gap: "8px", marginTop: "12px" }}>
+                      <input
+                        value={trainingMetadata.recording_url}
+                        onChange={(event) => handleTrainingMetadataChange("recording_url", event.target.value)}
+                        placeholder="Recording or guide URL"
+                        style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                      />
+                      <input
+                        value={trainingMetadata.training_password}
+                        onChange={(event) => handleTrainingMetadataChange("training_password", event.target.value)}
+                        placeholder="Password or access note"
+                        style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() =>
+                          void persistTrainingMetadataFields(
+                            {
+                              recording_url: trainingMetadata.recording_url,
+                              training_password: trainingMetadata.training_password,
+                            },
+                            "Recording guide updated."
+                          )
+                        }
+                        style={{ ...buttonStyle, padding: "8px 12px", justifySelf: "start" }}
+                      >
+                        Save Recording Guide
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
 
                 <div style={{ ...statCard, background: "var(--cfsp-surface-muted)" }}>
                   <div style={statLabel}>Training Notes</div>
-                  <div style={{ ...statValue, fontSize: "15px" }}>
-                    {trainingMetadata.training_notes || "No training notes added"}
-                  </div>
+                  <div style={{ ...statValue, fontSize: "15px" }}>{trainingMetadata.training_notes || "No training notes added"}</div>
                 </div>
               </div>
 
@@ -3641,7 +3927,7 @@ export default function EventDetailPage() {
 
             <details id="coverage-actions" style={cardStyle}>
               <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 900, fontSize: "20px" }}>
-                Event Editor
+                Advanced Event Details
               </summary>
               <div style={{ marginTop: "12px", display: "grid", gap: "12px" }}>
                 <div
@@ -3654,9 +3940,9 @@ export default function EventDetailPage() {
                   }}
                 >
                   <div>
-                    <h2 style={compactSectionTitleStyle}>Event Editor</h2>
+                    <h2 style={compactSectionTitleStyle}>Advanced Event Details</h2>
                     <p style={compactSectionHintStyle}>
-                      Update event metadata, faculty, sim contact, and training links without leaving training mode.
+                      Keep this for deeper record edits and import tools after the primary prep panels are set.
                     </p>
                   </div>
                   <button
@@ -4180,13 +4466,36 @@ export default function EventDetailPage() {
               </div>
             </div>
 
-            <div style={{ ...detailGridStyle, marginTop: "12px", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))" }}>
+            <div style={{ display: "grid", gap: "8px", marginTop: "12px" }}>
               {workflowReportItems.map((item) => (
-                <div key={item.id} style={statCard}>
-                  <div style={statLabel}>{item.label}</div>
-                  <div style={{ ...statValue, fontSize: "15px", color: item.complete ? "var(--cfsp-green)" : "var(--cfsp-text)" }}>
-                    {item.value}
+                <div
+                  key={item.id}
+                  style={{
+                    display: "grid",
+                    gap: "2px",
+                    borderRadius: "14px",
+                    padding: "10px 12px",
+                    border: "1px solid rgba(120, 180, 255, 0.18)",
+                    background: item.complete ? "rgba(44, 211, 173, 0.08)" : "rgba(255,255,255,0.66)",
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "center" }}>
+                    <div style={statLabel}>{item.label}</div>
+                    <span
+                      style={{
+                        borderRadius: "999px",
+                        padding: "4px 8px",
+                        background: item.complete ? "var(--cfsp-green-soft)" : "var(--cfsp-warning-soft)",
+                        color: item.complete ? "var(--cfsp-green)" : "var(--cfsp-warning)",
+                        fontSize: "11px",
+                        fontWeight: 900,
+                      }}
+                    >
+                      {item.complete ? "Ready" : "Pending"}
+                    </span>
                   </div>
+                  <div style={{ color: "var(--cfsp-text)", fontWeight: 900, fontSize: "14px" }}>{item.value}</div>
+                  <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 700 }}>{item.detail}</div>
                 </div>
               ))}
             </div>
@@ -4323,11 +4632,34 @@ export default function EventDetailPage() {
 
             <div style={{ display: "grid", gap: "8px", marginTop: "12px" }}>
               {workflowReportItems.map((item) => (
-                <div key={item.id} style={{ ...statCard, padding: "10px 12px" }}>
-                  <div style={statLabel}>{item.label}</div>
-                  <div style={{ ...statValue, fontSize: "15px", color: item.complete ? "var(--cfsp-green)" : "var(--cfsp-text)" }}>
-                    {item.value}
+                <div
+                  key={item.id}
+                  style={{
+                    display: "grid",
+                    gap: "2px",
+                    borderRadius: "14px",
+                    padding: "10px 12px",
+                    border: "1px solid rgba(120, 180, 255, 0.18)",
+                    background: item.complete ? "rgba(44, 211, 173, 0.08)" : "rgba(255,255,255,0.7)",
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "center" }}>
+                    <div style={statLabel}>{item.label}</div>
+                    <span
+                      style={{
+                        borderRadius: "999px",
+                        padding: "4px 8px",
+                        background: item.complete ? "var(--cfsp-green-soft)" : "var(--cfsp-warning-soft)",
+                        color: item.complete ? "var(--cfsp-green)" : "var(--cfsp-warning)",
+                        fontSize: "11px",
+                        fontWeight: 900,
+                      }}
+                    >
+                      {item.complete ? "Ready" : "Pending"}
+                    </span>
                   </div>
+                  <div style={{ color: "var(--cfsp-text)", fontWeight: 900, fontSize: "14px" }}>{item.value}</div>
+                  <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 700 }}>{item.detail}</div>
                 </div>
               ))}
             </div>
@@ -4462,9 +4794,9 @@ export default function EventDetailPage() {
       ) : null}
 
       {!isTrainingMode ? (
-      <details id="coverage-actions" open style={cardStyle}>
+      <details id="coverage-actions" style={cardStyle}>
         <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 900, fontSize: "20px" }}>
-          Event Editor
+          Advanced Event Details
         </summary>
         <div style={{ marginTop: "12px" }}>
         <div
@@ -4477,11 +4809,11 @@ export default function EventDetailPage() {
           }}
         >
           <div>
-            <h2 style={compactSectionTitleStyle}>Event Editor</h2>
+            <h2 style={compactSectionTitleStyle}>Advanced Event Details</h2>
             <p style={compactSectionHintStyle}>
               {isTrainingMode
                 ? "Update core event details and training-specific prep metadata."
-                : "Update the core event record."}
+                : "Use this only for deeper record maintenance after the command-center panels are set."}
             </p>
           </div>
 
@@ -5628,7 +5960,15 @@ export default function EventDetailPage() {
           </div>
           <div style={{ display: "grid", gap: "8px", marginTop: "8px" }}>
             {filteredCandidateSps.length === 0 ? (
-              <div style={{ ...statCard, color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
+              <div
+                style={{
+                  borderRadius: "12px",
+                  padding: "12px 14px",
+                  background: "rgba(255,255,255,0.72)",
+                  color: "var(--cfsp-text-muted)",
+                  fontWeight: 700,
+                }}
+              >
                 No SPs match the current search and filters.
               </div>
             ) : (
@@ -5784,6 +6124,88 @@ export default function EventDetailPage() {
         ) : null}
       </div>
       )
+      ) : null}
+
+      {materialPreview ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 70,
+            background: "rgba(3, 9, 17, 0.78)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "24px",
+          }}
+        >
+          <div
+            style={{
+              width: "min(960px, 100%)",
+              maxHeight: "calc(100vh - 48px)",
+              borderRadius: "20px",
+              overflow: "hidden",
+              border: "1px solid rgba(61, 201, 184, 0.28)",
+              background: "#0f2335",
+              boxShadow: "0 24px 60px rgba(0, 0, 0, 0.42)",
+              display: "grid",
+              gridTemplateRows: "auto 1fr",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                gap: "12px",
+                alignItems: "center",
+                padding: "14px 16px",
+                borderBottom: "1px solid rgba(120, 180, 255, 0.16)",
+                background: "rgba(8, 20, 34, 0.88)",
+              }}
+            >
+              <div>
+                <div style={{ ...statLabel, color: "#7ee7db" }}>Preview</div>
+                <div style={{ color: "#ffffff", fontWeight: 900, fontSize: "18px" }}>{materialPreview.title}</div>
+              </div>
+              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                <a
+                  href={materialPreview.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{
+                    ...buttonStyle,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    textDecoration: "none",
+                    padding: "8px 12px",
+                  }}
+                >
+                  Open in New Tab
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setMaterialPreview(null)}
+                  style={{
+                    ...buttonStyle,
+                    padding: "8px 12px",
+                    background: "var(--cfsp-button-secondary-bg)",
+                    color: "var(--cfsp-button-secondary-text)",
+                    border: "1px solid var(--cfsp-button-secondary-border)",
+                  }}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+            <iframe
+              title={materialPreview.title}
+              src={materialPreview.url}
+              style={{ width: "100%", height: "min(72vh, 880px)", border: "none", background: "#ffffff" }}
+            />
+          </div>
+        </div>
       ) : null}
     </SiteShell>
   );
