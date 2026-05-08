@@ -1452,10 +1452,6 @@ export default function EventDetailPage() {
   const canManageTrainingAttendance =
     viewerRole === "admin" || viewerRole === "sim_op" || viewerRole === "super_admin";
 
-  if (canManageTrainingAttendance && typeof window !== "undefined") {
-    console.log("ATTENDANCE PANEL RENDERED");
-  }
-
   const assignmentsBySpId = useMemo(() => {
     const next = new Map<string, AssignmentRow>();
     assignments.forEach((assignment) => {
@@ -3188,18 +3184,6 @@ export default function EventDetailPage() {
         </div>
 
         <div style={{ padding: "12px 16px 16px", display: "grid", gap: "12px" }}>
-          <div
-            style={{
-              border: "2px solid #ef4444",
-              borderRadius: "12px",
-              padding: "10px 12px",
-              background: "rgba(127, 29, 29, 0.12)",
-              color: "#fecaca",
-              fontWeight: 900,
-            }}
-          >
-            TRAINING ATTENDANCE TEST BLOCK
-          </div>
           <div
             style={{
               color: "var(--cfsp-warning)",
