@@ -1,6 +1,7 @@
 "use client";
 
 import * as XLSX from "xlsx";
+import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
@@ -196,9 +197,14 @@ type TrainingImportResult = {
 };
 
 type TrainingMaterialKind = "case_file" | "doorsign" | "supplemental_doc";
+type MaterialPreviewKind = "pdf" | "image" | "text" | "iframe" | "unsupported";
 type MaterialPreviewState = {
   title: string;
-  url: string;
+  previewUrl: string;
+  downloadUrl: string;
+  openInNewTabUrl: string;
+  fileName: string;
+  kind: MaterialPreviewKind;
 };
 type RelatedCopyOption =
   | "assigned_sps"
@@ -678,6 +684,54 @@ function getFilenameFromUrl(value: string) {
   } catch {
     return text.split("/").filter(Boolean).pop() || text;
   }
+}
+
+function getFileExtension(value: string) {
+  const fileName = getFilenameFromUrl(value).toLowerCase();
+  const dotIndex = fileName.lastIndexOf(".");
+  return dotIndex >= 0 ? fileName.slice(dotIndex + 1) : "";
+}
+
+function getMaterialPreviewKind(fileName: string, url: string): MaterialPreviewKind {
+  const extension = (getFileExtension(fileName) || getFileExtension(url)).toLowerCase();
+  if (extension === "pdf") return "pdf";
+  if (["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp"].includes(extension)) return "image";
+  if (["txt", "csv", "log", "json"].includes(extension)) return "text";
+  if (["doc", "docx"].includes(extension)) return "unsupported";
+  return "iframe";
+}
+
+function buildTrainingMaterialAssetUrls(args: {
+  eventId: string;
+  rawUrl: string;
+  storagePath: string;
+  fileName: string;
+}) {
+  const rawUrl = asText(args.rawUrl);
+  const storagePath = asText(args.storagePath);
+  const fileName = asText(args.fileName) || getFilenameFromUrl(rawUrl) || "training-material";
+
+  if (!storagePath || !args.eventId) {
+    return {
+      previewUrl: rawUrl,
+      downloadUrl: rawUrl,
+      openInNewTabUrl: rawUrl,
+      fileName,
+    };
+  }
+
+  const baseParams = new URLSearchParams({
+    eventId: args.eventId,
+    path: storagePath,
+    filename: fileName,
+  });
+
+  return {
+    previewUrl: `/api/uploads/training-material?${baseParams.toString()}&mode=preview`,
+    downloadUrl: `/api/uploads/training-material?${baseParams.toString()}&mode=download`,
+    openInNewTabUrl: `/api/uploads/training-material?${baseParams.toString()}&mode=preview`,
+    fileName,
+  };
 }
 
 function getAssignmentStatusRank(status: AssignmentStatus) {
@@ -1293,6 +1347,9 @@ export default function EventDetailPage() {
   const [trainingImporting, setTrainingImporting] = useState(false);
   const [showWorkflowAdvanced, setShowWorkflowAdvanced] = useState(false);
   const [materialPreview, setMaterialPreview] = useState<MaterialPreviewState | null>(null);
+  const [materialPreviewLoading, setMaterialPreviewLoading] = useState(false);
+  const [materialPreviewError, setMaterialPreviewError] = useState("");
+  const [materialPreviewText, setMaterialPreviewText] = useState("");
   const [showRecordingGuideEditor, setShowRecordingGuideEditor] = useState(false);
   const [contactPanelSaving, setContactPanelSaving] = useState(false);
   const [contactPanelSavedAt, setContactPanelSavedAt] = useState("");
@@ -2272,10 +2329,31 @@ export default function EventDetailPage() {
     return saveFacultyContactFields({ [key]: value } as Partial<TrainingEventMetadata>, successMessage);
   }
 
-  function openMaterialPreview(title: string, url: string) {
-    const safeUrl = asText(url);
+  function openMaterialPreview(args: {
+    title: string;
+    rawUrl: string;
+    storagePath?: string | null;
+    fileName?: string | null;
+  }) {
+    const safeUrl = asText(args.rawUrl);
     if (!safeUrl) return;
-    setMaterialPreview({ title, url: safeUrl });
+    const assetUrls = buildTrainingMaterialAssetUrls({
+      eventId: id,
+      rawUrl: safeUrl,
+      storagePath: asText(args.storagePath),
+      fileName: asText(args.fileName) || getFilenameFromUrl(safeUrl),
+    });
+    setMaterialPreviewLoading(true);
+    setMaterialPreviewError("");
+    setMaterialPreviewText("");
+    setMaterialPreview({
+      title: args.title,
+      previewUrl: assetUrls.previewUrl,
+      downloadUrl: assetUrls.downloadUrl,
+      openInNewTabUrl: assetUrls.openInNewTabUrl,
+      fileName: assetUrls.fileName,
+      kind: getMaterialPreviewKind(assetUrls.fileName, safeUrl),
+    });
   }
 
   function setTrainingMaterialSavingState(kind: TrainingMaterialKind, savingState: boolean) {
@@ -2355,6 +2433,64 @@ export default function EventDetailPage() {
       setTrainingMaterialSavingState(kind, false);
     }
   }
+
+  useEffect(() => {
+    if (!materialPreview) return;
+    const preview = materialPreview;
+
+    if (preview.kind === "unsupported") {
+      setMaterialPreviewLoading(false);
+      setMaterialPreviewError("");
+      setMaterialPreviewText("");
+      return;
+    }
+
+    if (preview.kind !== "text") {
+      setMaterialPreviewText("");
+      return;
+    }
+
+    let cancelled = false;
+    setMaterialPreviewLoading(true);
+    setMaterialPreviewError("");
+    setMaterialPreviewText("");
+
+    async function loadTextPreview() {
+      try {
+        const response = await fetch(preview.previewUrl, { cache: "no-store" });
+        if (!response.ok) {
+          throw new Error(await parseApiError(response));
+        }
+        const text = await response.text();
+        if (cancelled) return;
+        setMaterialPreviewText(text);
+        setMaterialPreviewLoading(false);
+      } catch (error) {
+        if (cancelled) return;
+        setMaterialPreviewError(error instanceof Error ? error.message : "Could not preview this document.");
+        setMaterialPreviewLoading(false);
+      }
+    }
+
+    void loadTextPreview();
+    return () => {
+      cancelled = true;
+    };
+  }, [materialPreview]);
+
+  useEffect(() => {
+    if (!materialPreviewLoading || !materialPreview) return;
+    if (!["pdf", "iframe"].includes(materialPreview.kind)) return;
+
+    const timeout = window.setTimeout(() => {
+      setMaterialPreviewLoading(false);
+      setMaterialPreviewError(
+        "This document did not render inline. The browser may be blocking embedded preview for this file."
+      );
+    }, 4500);
+
+    return () => window.clearTimeout(timeout);
+  }, [materialPreview, materialPreviewLoading]);
 
   async function handleRemoveTrainingMaterial(kind: TrainingMaterialKind) {
     if (!id) return;
@@ -3919,27 +4055,45 @@ export default function EventDetailPage() {
                       <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "12px" }}>
                         <button
                           type="button"
-                          onClick={() => openMaterialPreview(material.title, fileUrl)}
+                          onClick={() =>
+                            openMaterialPreview({
+                              title: material.title,
+                              rawUrl: fileUrl,
+                              storagePath,
+                              fileName: displayName,
+                            })
+                          }
                           disabled={!fileUrl}
                           style={{ ...buttonStyle, padding: "8px 12px", opacity: fileUrl ? 1 : 0.55 }}
                         >
                           Preview
                         </button>
                         {fileUrl ? (
-                          <a
-                            href={fileUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            style={{
-                              ...buttonStyle,
-                            display: "inline-flex",
-                            alignItems: "center",
-                            textDecoration: "none",
-                            padding: "8px 12px",
-                          }}
-                          >
-                            Download
-                          </a>
+                          (() => {
+                            const assetUrls = buildTrainingMaterialAssetUrls({
+                              eventId: id,
+                              rawUrl: fileUrl,
+                              storagePath,
+                              fileName: displayName,
+                            });
+                            return (
+                              <a
+                                href={assetUrls.downloadUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                download={assetUrls.fileName}
+                                style={{
+                                  ...buttonStyle,
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  textDecoration: "none",
+                                  padding: "8px 12px",
+                                }}
+                              >
+                                Download
+                              </a>
+                            );
+                          })()
                         ) : null}
                         <button
                           type="button"
@@ -3986,7 +4140,13 @@ export default function EventDetailPage() {
                   <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "12px" }}>
                     <button
                       type="button"
-                      onClick={() => openMaterialPreview("Recording Guide", trainingMetadata.recording_url)}
+                      onClick={() =>
+                        openMaterialPreview({
+                          title: "Recording Guide",
+                          rawUrl: trainingMetadata.recording_url,
+                          fileName: getFilenameFromUrl(trainingMetadata.recording_url) || "recording-guide",
+                        })
+                      }
                       disabled={!trainingMetadata.recording_url}
                       style={{ ...buttonStyle, padding: "8px 12px", opacity: trainingMetadata.recording_url ? 1 : 0.55 }}
                     >
@@ -3994,7 +4154,12 @@ export default function EventDetailPage() {
                     </button>
                     {trainingMetadata.recording_url ? (
                       <a
-                        href={trainingMetadata.recording_url}
+                        href={buildTrainingMaterialAssetUrls({
+                          eventId: id,
+                          rawUrl: trainingMetadata.recording_url,
+                          storagePath: "",
+                          fileName: getFilenameFromUrl(trainingMetadata.recording_url) || "recording-guide",
+                        }).downloadUrl}
                         target="_blank"
                         rel="noreferrer"
                         style={{
@@ -6564,10 +6729,13 @@ export default function EventDetailPage() {
               <div>
                 <div style={{ ...statLabel, color: "#7ee7db" }}>Preview</div>
                 <div style={{ color: "#ffffff", fontWeight: 900, fontSize: "18px" }}>{materialPreview.title}</div>
+                <div style={{ marginTop: "4px", color: "rgba(220, 239, 255, 0.68)", fontSize: "12px", fontWeight: 700 }}>
+                  {materialPreview.fileName}
+                </div>
               </div>
               <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                 <a
-                  href={materialPreview.url}
+                  href={materialPreview.openInNewTabUrl}
                   target="_blank"
                   rel="noreferrer"
                   style={{
@@ -6580,9 +6748,29 @@ export default function EventDetailPage() {
                 >
                   Open in New Tab
                 </a>
+                <a
+                  href={materialPreview.downloadUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  download={materialPreview.fileName}
+                  style={{
+                    ...buttonStyle,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    textDecoration: "none",
+                    padding: "8px 12px",
+                  }}
+                >
+                  Download
+                </a>
                 <button
                   type="button"
-                  onClick={() => setMaterialPreview(null)}
+                  onClick={() => {
+                    setMaterialPreview(null);
+                    setMaterialPreviewLoading(false);
+                    setMaterialPreviewError("");
+                    setMaterialPreviewText("");
+                  }}
                   style={{
                     ...buttonStyle,
                     padding: "8px 12px",
@@ -6595,11 +6783,143 @@ export default function EventDetailPage() {
                 </button>
               </div>
             </div>
-            <iframe
-              title={materialPreview.title}
-              src={materialPreview.url}
-              style={{ width: "100%", height: "min(72vh, 880px)", border: "none", background: "#ffffff" }}
-            />
+            <div
+              style={{
+                minHeight: "min(72vh, 880px)",
+                background: "#ffffff",
+                position: "relative",
+                display: "grid",
+              }}
+            >
+              {materialPreview.kind === "unsupported" ? (
+                <div
+                  style={{
+                    display: "grid",
+                    gap: "12px",
+                    alignContent: "center",
+                    justifyItems: "start",
+                    padding: "24px",
+                    color: "#12314b",
+                  }}
+                >
+                  <div style={{ fontSize: "18px", fontWeight: 900 }}>Inline preview is not supported for this document type.</div>
+                  <div style={{ fontSize: "14px", fontWeight: 700, color: "#50667c", lineHeight: 1.6 }}>
+                    `.doc` and `.docx` files usually require a desktop app or browser plugin. Use `Open in New Tab` or `Download` instead.
+                  </div>
+                </div>
+              ) : null}
+
+              {materialPreview.kind === "text" ? (
+                materialPreviewError ? (
+                  <div
+                    style={{
+                      display: "grid",
+                      gap: "10px",
+                      alignContent: "center",
+                      padding: "24px",
+                      color: "#12314b",
+                    }}
+                  >
+                    <div style={{ fontWeight: 900 }}>Preview unavailable</div>
+                    <div style={{ color: "#6a7d91", fontWeight: 700 }}>{materialPreviewError}</div>
+                  </div>
+                ) : materialPreviewLoading ? (
+                  <div style={{ display: "grid", placeItems: "center", color: "#12314b", fontWeight: 800 }}>Loading preview...</div>
+                ) : (
+                  <pre
+                    style={{
+                      margin: 0,
+                      padding: "20px",
+                      whiteSpace: "pre-wrap",
+                      overflow: "auto",
+                      fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+                      color: "#12314b",
+                      background: "#ffffff",
+                    }}
+                  >
+                    {materialPreviewText || "This text file is empty."}
+                  </pre>
+                )
+              ) : null}
+
+              {materialPreview.kind === "image" ? (
+                <>
+                  {materialPreviewLoading ? (
+                    <div style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", background: "rgba(255,255,255,0.84)", color: "#12314b", fontWeight: 800 }}>
+                      Loading preview...
+                    </div>
+                  ) : null}
+                  {materialPreviewError ? (
+                    <div
+                      style={{
+                        display: "grid",
+                        gap: "10px",
+                        alignContent: "center",
+                        padding: "24px",
+                        color: "#12314b",
+                      }}
+                    >
+                      <div style={{ fontWeight: 900 }}>Preview unavailable</div>
+                      <div style={{ color: "#6a7d91", fontWeight: 700 }}>{materialPreviewError}</div>
+                    </div>
+                  ) : (
+                    <Image
+                      alt={materialPreview.title}
+                      src={materialPreview.previewUrl}
+                      width={1600}
+                      height={1200}
+                      unoptimized
+                      onLoad={() => setMaterialPreviewLoading(false)}
+                      onError={() => {
+                        setMaterialPreviewLoading(false);
+                        setMaterialPreviewError("The browser could not render this image preview.");
+                      }}
+                      style={{ width: "100%", height: "auto", maxHeight: "min(72vh, 880px)", objectFit: "contain", background: "#ffffff" }}
+                    />
+                  )}
+                </>
+              ) : null}
+
+              {(materialPreview.kind === "pdf" || materialPreview.kind === "iframe") ? (
+                <>
+                  {materialPreviewLoading ? (
+                    <div style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", background: "rgba(255,255,255,0.84)", color: "#12314b", fontWeight: 800, zIndex: 1 }}>
+                      Loading preview...
+                    </div>
+                  ) : null}
+                  {materialPreviewError ? (
+                    <div
+                      style={{
+                        display: "grid",
+                        gap: "10px",
+                        alignContent: "center",
+                        padding: "24px",
+                        color: "#12314b",
+                      }}
+                    >
+                      <div style={{ fontWeight: 900 }}>Inline preview unavailable</div>
+                      <div style={{ color: "#6a7d91", fontWeight: 700, lineHeight: 1.6 }}>
+                        {materialPreviewError}
+                      </div>
+                      <div style={{ color: "#6a7d91", fontWeight: 700, lineHeight: 1.6 }}>
+                        If your browser blocks this preview, use `Open in New Tab` or `Download`.
+                      </div>
+                    </div>
+                  ) : (
+                    <iframe
+                      title={materialPreview.title}
+                      src={materialPreview.previewUrl}
+                      onLoad={() => setMaterialPreviewLoading(false)}
+                      onError={() => {
+                        setMaterialPreviewLoading(false);
+                        setMaterialPreviewError("The browser could not render this document inline.");
+                      }}
+                      style={{ width: "100%", height: "min(72vh, 880px)", border: "none", background: "#ffffff" }}
+                    />
+                  )}
+                </>
+              ) : null}
+            </div>
           </div>
         </div>
       ) : null}
