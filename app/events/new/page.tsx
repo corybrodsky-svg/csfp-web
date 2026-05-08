@@ -101,6 +101,32 @@ function parseRoomNames(roomNames: string, roomCount: number) {
   return next.slice(0, Math.max(roomCount, 1));
 }
 
+function countRoundsThatFit(args: {
+  dates: string[];
+  startTime: string;
+  endTime: string;
+  sessionLengthMinutes: number;
+  feedbackLengthMinutes: number;
+}) {
+  const startMinutes = toMinutes(args.startTime);
+  const endMinutes = toMinutes(args.endTime);
+  if (startMinutes === null || endMinutes === null) return 0;
+  if (endMinutes <= startMinutes) return 0;
+  if (args.sessionLengthMinutes <= 0) return 0;
+
+  let total = 0;
+
+  args.dates.forEach(() => {
+    let currentStart = startMinutes;
+    while (currentStart + args.sessionLengthMinutes <= endMinutes) {
+      total += 1;
+      currentStart = currentStart + args.sessionLengthMinutes + args.feedbackLengthMinutes;
+    }
+  });
+
+  return total;
+}
+
 function buildRotationRounds(args: {
   dates: string[];
   startTime: string;
@@ -192,17 +218,23 @@ function buildNotes(args: {
   sessionLength: string;
   feedbackLength: string;
   roomNames: string[];
-  rotationRoundCount: number;
+  roomCount: number;
+  rotationsNeeded: number;
+  generatedRotationRounds: number;
+  generatedRoomSlots: number;
 }) {
   const lines = [
     `Event Type: ${EVENT_TYPE_OPTIONS.find((option) => option.value === args.eventType)?.label || "SP Event"}`,
     args.eventLeadTeam ? `Event Lead/Team: ${args.eventLeadTeam}` : "",
     args.simStaff ? `Sim Staff: ${args.simStaff}` : "",
     args.courseFaculty ? `Course Faculty: ${args.courseFaculty}` : "",
-    args.studentCount ? `Student Count: ${args.studentCount}` : "",
-    args.rotationRoundCount ? `Rotation Rounds: ${args.rotationRoundCount}` : "",
-    args.sessionLength ? `Encounter Length: ${args.sessionLength} minutes` : "",
-    args.feedbackLength ? `Feedback/Transition Length: ${args.feedbackLength} minutes` : "",
+    `Student Count: ${args.studentCount || "Uncapped preview"}`,
+    `Rotation Rounds Needed: ${args.studentCount ? String(args.rotationsNeeded) : "Uncapped preview"}`,
+    `Generated Rotation Rounds: ${args.generatedRotationRounds}`,
+    `Room Slots Generated: ${args.generatedRoomSlots}`,
+    args.sessionLength ? `Session Length: ${args.sessionLength} minutes` : "",
+    args.feedbackLength ? `Feedback / Break Length: ${args.feedbackLength} minutes` : "",
+    `Rooms: ${args.roomCount}`,
     args.roomNames.length ? `Rooms: ${args.roomNames.join(", ")}` : "",
     args.notes,
   ]
@@ -251,6 +283,21 @@ export default function NewEventPage() {
   );
   const sessionLengthMinutes = parseNumber(sessionLength);
   const feedbackLengthMinutes = parseNumber(feedbackLength);
+  const rotationsNeeded =
+    parsedStudentCount > 0 && parsedRoomCount > 0
+      ? Math.ceil(parsedStudentCount / parsedRoomCount)
+      : 0;
+  const maxRoundsThatFit = useMemo(
+    () =>
+      countRoundsThatFit({
+        dates: parsedDates,
+        startTime,
+        endTime,
+        sessionLengthMinutes,
+        feedbackLengthMinutes,
+      }),
+    [endTime, feedbackLengthMinutes, parsedDates, sessionLengthMinutes, startTime]
+  );
   const calculatedSpNeeded = eventType === "skills" ? 0 : parsedRoomCount;
   const parsedSpNeeded =
     eventType === "skills"
@@ -284,6 +331,11 @@ export default function NewEventPage() {
   );
 
   const availableRoundCapacity = rotationRounds.length * parsedRoomCount;
+  const servedStudents = parsedStudentCount > 0 ? Math.min(parsedStudentCount, availableRoundCapacity) : 0;
+  const emptyRoomSlotsInFinalRound =
+    parsedStudentCount > 0 && rotationRounds.length > 0
+      ? Math.max(0, availableRoundCapacity - servedStudents)
+      : 0;
   const totalSpCoverageNeeded = eventType === "skills" || parsedSpNeeded <= 0 ? 0 : rotationRounds.length * parsedSpNeeded;
   const dateText = parsedDates.join(", ");
   const compiledNotes = buildNotes({
@@ -295,8 +347,11 @@ export default function NewEventPage() {
     notes,
     sessionLength,
     feedbackLength,
+    roomCount: parsedRoomCount,
     roomNames: normalizedRoomNames,
-    rotationRoundCount: rotationRounds.length,
+    rotationsNeeded,
+    generatedRotationRounds: rotationRounds.length,
+    generatedRoomSlots: generatedSessions.length,
   });
 
   const warnings = useMemo(() => {
@@ -304,15 +359,20 @@ export default function NewEventPage() {
     if (!asText(name)) next.push("Event name is required.");
     if (!parsedDates.length) next.push("At least one event date is required.");
     if (!startTime || !endTime) next.push("Start and end times are required.");
-    if (parsedStudentCount <= 0) next.push("Student count is required so CFSP can calculate rotation rounds.");
     if (!rotationRounds.length) next.push("Schedule builder could not generate any rotation rounds.");
+    if (parsedStudentCount <= 0) {
+      next.push("Student count is blank, so this schedule is shown as an uncapped preview based on the time window.");
+    }
+    if (rotationsNeeded > 0 && rotationRounds.length < rotationsNeeded) {
+      next.push(`Time window only fits ${rotationRounds.length} of ${rotationsNeeded} needed rotations.`);
+    }
     if (parsedStudentCount > 0 && availableRoundCapacity < parsedStudentCount) {
       next.push(`Only ${availableRoundCapacity} learner slots fit in the current schedule. Increase time, reduce feedback, or add rooms.`);
     }
     if (eventType !== "skills" && parsedSpNeeded <= 0) next.push("SP staffing is set to 0. This event will behave as no-SP-required.");
     if (!asText(simStaff) && !asText(eventLeadTeam)) next.push("Add sim staff or event lead/team so ownership is visible.");
     return next;
-  }, [availableRoundCapacity, endTime, eventLeadTeam, eventType, name, parsedDates.length, parsedSpNeeded, parsedStudentCount, rotationRounds.length, simStaff, startTime]);
+  }, [availableRoundCapacity, eventLeadTeam, eventType, name, parsedDates.length, parsedSpNeeded, parsedStudentCount, rotationRounds.length, rotationsNeeded, simStaff, startTime, endTime]);
 
   async function handleCreate(event: React.FormEvent) {
     event.preventDefault();
@@ -505,7 +565,9 @@ export default function NewEventPage() {
               </div>
 
               <div className="cfsp-alert cfsp-alert-info">
-                CFSP estimates {rotationRounds.length || 0} learner rotation round{rotationRounds.length === 1 ? "" : "s"} and {generatedSessions.length || 0} stored room-slot record{generatedSessions.length === 1 ? "" : "s"}.
+                {parsedStudentCount > 0
+                  ? `CFSP needs ${rotationsNeeded || 0} learner rotation round${rotationsNeeded === 1 ? "" : "s"} for ${parsedStudentCount} students, generated ${rotationRounds.length || 0}, and will store ${generatedSessions.length || 0} room-slot record${generatedSessions.length === 1 ? "" : "s"}.`
+                  : `Student count is blank, so CFSP is showing an uncapped time-window preview with ${rotationRounds.length || 0} learner rotation round${rotationRounds.length === 1 ? "" : "s"} and ${generatedSessions.length || 0} stored room-slot record${generatedSessions.length === 1 ? "" : "s"}.`}
               </div>
             </section>
           ) : null}
@@ -542,6 +604,7 @@ export default function NewEventPage() {
                 {eventType === "skills" || parsedSpNeeded <= 0
                   ? "No SP staffing required. This event will suppress SP assignment workflow after creation."
                   : `Projected total SP coverage needed: ${totalSpCoverageNeeded} SP round-blocks.`}
+                {eventType !== "skills" ? " SP count is per concurrent rotation, not total room-slot coverage." : ""}
               </div>
             </section>
           ) : null}
@@ -568,16 +631,31 @@ export default function NewEventPage() {
 
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                 <div className="cfsp-stat-card">
-                  <div className="cfsp-label">Rotation Rounds</div>
-                  <div className="cfsp-stat-value">{rotationRounds.length}</div>
-                </div>
-                <div className="cfsp-stat-card">
-                  <div className="cfsp-label">Stored Room Slots</div>
-                  <div className="cfsp-stat-value">{generatedSessions.length}</div>
+                  <div className="cfsp-label">Student Count</div>
+                  <div className="cfsp-stat-value">{parsedStudentCount || "—"}</div>
                 </div>
                 <div className="cfsp-stat-card">
                   <div className="cfsp-label">Rooms</div>
                   <div className="cfsp-stat-value">{normalizedRoomNames.length}</div>
+                </div>
+                <div className="cfsp-stat-card">
+                  <div className="cfsp-label">Rotations Needed</div>
+                  <div className="cfsp-stat-value">{parsedStudentCount > 0 ? rotationsNeeded : "Uncapped"}</div>
+                </div>
+                <div className="cfsp-stat-card">
+                  <div className="cfsp-label">Generated Rotations</div>
+                  <div className="cfsp-stat-value">{rotationRounds.length}</div>
+                </div>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                <div className="cfsp-stat-card">
+                  <div className="cfsp-label">Generated Room Slots</div>
+                  <div className="cfsp-stat-value">{generatedSessions.length}</div>
+                </div>
+                <div className="cfsp-stat-card">
+                  <div className="cfsp-label">Empty Room Slots In Final Round</div>
+                  <div className="cfsp-stat-value">{parsedStudentCount > 0 ? emptyRoomSlotsInFinalRound : "—"}</div>
                 </div>
                 <div className="cfsp-stat-card">
                   <div className="cfsp-label">SP Coverage</div>
@@ -616,9 +694,13 @@ export default function NewEventPage() {
                     <div><strong>Sim Staff:</strong> {simStaff || "Not set"}</div>
                     <div><strong>Course Faculty:</strong> {courseFaculty || "Not set"}</div>
                     <div><strong>Student Count:</strong> {parsedStudentCount || "Not set"}</div>
-                    <div><strong>Rotation Rounds:</strong> {rotationRounds.length}</div>
+                    <div><strong>Rooms:</strong> {normalizedRoomNames.length}</div>
+                    <div><strong>Rotations Needed:</strong> {parsedStudentCount > 0 ? rotationsNeeded : `Uncapped preview (${maxRoundsThatFit})`}</div>
+                    <div><strong>Generated Rotations:</strong> {rotationRounds.length}</div>
+                    <div><strong>Generated Room Slots:</strong> {generatedSessions.length}</div>
+                    <div><strong>Empty Room Slots In Final Round:</strong> {parsedStudentCount > 0 ? emptyRoomSlotsInFinalRound : "—"}</div>
                     <div><strong>SPs Needed:</strong> {eventType === "skills" ? "No SPs required" : parsedSpNeeded}</div>
-                    <div><strong>Rooms:</strong> {normalizedRoomNames.join(", ")}</div>
+                    <div><strong>Room Names:</strong> {normalizedRoomNames.join(", ")}</div>
                   </div>
                 </div>
               </div>
