@@ -219,6 +219,11 @@ type PollMetadata = {
   pollSelectedSpEmails: string;
   pollStatus: string;
 };
+type PollResponseMetadata = {
+  responseStatus: string;
+  responseNote: string;
+  responseSubmittedAt: string;
+};
 type RelatedCopyOption =
   | "assigned_sps"
   | "training_materials"
@@ -1011,6 +1016,13 @@ const POLL_METADATA_KEYS: Array<keyof PollMetadata> = [
   "pollSelectedSpEmails",
   "pollStatus",
 ];
+const POLL_RESPONSE_START = "[CFSP_POLL_RESPONSE]";
+const POLL_RESPONSE_END = "[/CFSP_POLL_RESPONSE]";
+const POLL_RESPONSE_KEYS: Array<keyof PollResponseMetadata> = [
+  "responseStatus",
+  "responseNote",
+  "responseSubmittedAt",
+];
 
 function emptyPollMetadata(): PollMetadata {
   return {
@@ -1070,6 +1082,33 @@ function upsertPollMetadata(notes: string | null | undefined, partial: Partial<P
 
   const block = [POLL_METADATA_START, ...lines, POLL_METADATA_END].join("\n");
   return withoutExisting ? `${block}\n${withoutExisting}` : block;
+}
+
+function emptyPollResponseMetadata(): PollResponseMetadata {
+  return {
+    responseStatus: "",
+    responseNote: "",
+    responseSubmittedAt: "",
+  };
+}
+
+function parsePollResponseMetadata(notes?: string | null) {
+  const metadata = emptyPollResponseMetadata();
+  const text = asText(notes);
+  const match = text.match(
+    new RegExp(`${POLL_RESPONSE_START}\\n?([\\s\\S]*?)\\n?${POLL_RESPONSE_END}`)
+  );
+  if (!match) return metadata;
+
+  match[1].split(/\r?\n/).forEach((line) => {
+    const lineMatch = line.match(/^([A-Za-z]+)\s*:\s*(.*)$/);
+    if (!lineMatch) return;
+    const key = lineMatch[1] as keyof PollResponseMetadata;
+    if (!POLL_RESPONSE_KEYS.includes(key)) return;
+    metadata[key] = lineMatch[2].trim();
+  });
+
+  return metadata;
 }
 
 function buildRotationRounds(sessions: EventSessionRow[]): RotationRound[] {
@@ -1954,12 +1993,41 @@ const summaryTimeLabel = useMemo(() => {
       : pollStatusLabel === "draft_ready"
         ? "Draft ready"
         : "Not created";
-  const eventDetailLink =
+  const eventPollLink =
     typeof window !== "undefined" && id
-      ? `${window.location.origin}/events/${encodeURIComponent(id)}`
+      ? `${window.location.origin}/events/${encodeURIComponent(id)}/poll`
       : id
-        ? `/events/${encodeURIComponent(id)}`
+        ? `/events/${encodeURIComponent(id)}/poll`
         : "/events";
+  const activePollSelectedSpIds = selectedPollSpIds.length
+    ? selectedPollSpIds
+    : pollSelectedSpIdsFromMetadata;
+  const pollResponseSummary = useMemo(() => {
+    const selectedIds = Array.from(new Set(activePollSelectedSpIds.map((item) => item.trim()).filter(Boolean)));
+    let availableCount = 0;
+    let maybeCount = 0;
+    let notAvailableCount = 0;
+    let respondedCount = 0;
+
+    selectedIds.forEach((spId) => {
+      const assignment = assignmentsBySpId.get(spId);
+      const response = parsePollResponseMetadata(assignment?.notes);
+      const status = asText(response.responseStatus).toLowerCase();
+      if (!status) return;
+      respondedCount += 1;
+      if (status === "available") availableCount += 1;
+      else if (status === "maybe") maybeCount += 1;
+      else if (status === "not_available") notAvailableCount += 1;
+    });
+
+    return {
+      totalSelected: selectedIds.length,
+      availableCount,
+      maybeCount,
+      notAvailableCount,
+      noResponseCount: Math.max(0, selectedIds.length - respondedCount),
+    };
+  }, [activePollSelectedSpIds, assignmentsBySpId]);
   const defaultRelatedKeyword = useMemo(() => getDefaultRelatedEventKeyword(event?.name), [event?.name]);
   const facultyEmails = useMemo(() => {
     const matches = [trainingFacultyText, facultyEmailText]
@@ -2049,12 +2117,11 @@ ${event?.name || "TBD"}
 Date/Time:
 ${eventDateLabel || "TBD"}${summaryTimeLabel ? ` · ${summaryTimeLabel}` : ""}
 
-Please log into CFSP and review this event:
-${eventDetailLink}
+Please submit your availability in CFSP using the link below:
 
-Reply only if you are available or unavailable for this event. A dedicated in-app response screen will be added next.
+${eventPollLink}
 
-Completing this poll does not guarantee assignment. We will follow up once staffing is finalized.
+Submitting availability does not guarantee assignment. We will follow up once staffing is finalized.
 
 Thank you,
 Cory`;
@@ -6974,6 +7041,22 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
         <div style={statValue}>{pollReadyEmailCount}</div>
       </div>
       <div style={statCard}>
+        <div style={statLabel}>Available</div>
+        <div style={statValue}>{pollResponseSummary.availableCount}</div>
+      </div>
+      <div style={statCard}>
+        <div style={statLabel}>Maybe</div>
+        <div style={statValue}>{pollResponseSummary.maybeCount}</div>
+      </div>
+      <div style={statCard}>
+        <div style={statLabel}>Not available</div>
+        <div style={statValue}>{pollResponseSummary.notAvailableCount}</div>
+      </div>
+      <div style={statCard}>
+        <div style={statLabel}>No response</div>
+        <div style={statValue}>{pollResponseSummary.noResponseCount}</div>
+      </div>
+      <div style={statCard}>
         <div style={statLabel}>Created</div>
         <div style={{ ...statValue, fontSize: "14px" }}>{pollMetadata.pollCreatedAt ? pollCreatedLabel : "Not created"}</div>
       </div>
@@ -7070,9 +7153,9 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
         Draft email will BCC {pollReadyEmailCount} SP{pollReadyEmailCount === 1 ? "" : "s"}
       </div>
       <div style={{ color: "var(--cfsp-text-muted)", fontSize: "13px", lineHeight: 1.5 }}>
-        Event link:{" "}
-        <a href={eventDetailLink} style={{ color: "var(--cfsp-blue)" }}>
-          {eventDetailLink}
+        Poll response link:{" "}
+        <a href={eventPollLink} style={{ color: "var(--cfsp-blue)" }}>
+          {eventPollLink}
         </a>
       </div>
     </div>
