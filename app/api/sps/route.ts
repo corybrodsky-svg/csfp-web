@@ -1,4 +1,7 @@
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
+import { AUTH_ACCESS_COOKIE, AUTH_REFRESH_COOKIE } from "../../lib/authCookies";
+import { getProfileForUser } from "../../lib/profileServer";
 import { createSupabaseServerClient } from "../../lib/supabaseServerClient";
 
 export const dynamic = "force-dynamic";
@@ -68,12 +71,54 @@ function normalizeName(value: unknown) {
   return asText(value).replace(/\s+/g, " ").toLowerCase();
 }
 
+function normalizeRole(value: unknown) {
+  const role = asText(value).toLowerCase().replace(/[\s-]+/g, "_");
+  if (role === "super_admin" || role === "admin" || role === "sim_op" || role === "sp") return role;
+  return "sp";
+}
+
+async function getViewerRole() {
+  const cookieStore = await cookies();
+  const accessToken = cookieStore.get(AUTH_ACCESS_COOKIE)?.value?.trim() || "";
+  const refreshToken = cookieStore.get(AUTH_REFRESH_COOKIE)?.value?.trim() || "";
+  if (!accessToken && !refreshToken) return "";
+
+  const supabase = createSupabaseServerClient();
+  let user = null as Awaited<ReturnType<typeof supabase.auth.getUser>>["data"]["user"] | null;
+  let resolvedAccessToken = accessToken;
+
+  if (accessToken) {
+    const { data, error } = await supabase.auth.getUser(accessToken);
+    if (!error && data.user) user = data.user;
+  }
+
+  if (!user && refreshToken) {
+    const { data, error } = await supabase.auth.refreshSession({ refresh_token: refreshToken });
+    if (!error && data.session?.access_token && (data.user || data.session.user)) {
+      user = data.user || data.session.user;
+      resolvedAccessToken = data.session.access_token;
+    }
+  }
+
+  if (!user) return "";
+  const profileResult = await getProfileForUser(user.id, resolvedAccessToken);
+  return normalizeRole(profileResult.profile?.role || user.user_metadata?.role);
+}
+
 function duplicateResponse() {
   return NextResponse.json({ error: "SP already exists" }, { status: 409 });
 }
 
 export async function GET() {
   try {
+    const role = await getViewerRole();
+    if (!role) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    if (role === "sp") {
+      return NextResponse.json({ error: "SP accounts cannot open the SP database." }, { status: 403 });
+    }
+
     const supabaseServer = createSupabaseServerClient();
     const { data, error } = await supabaseServer
       .from("sps")
@@ -97,6 +142,14 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    const role = await getViewerRole();
+    if (!role) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    if (role === "sp") {
+      return NextResponse.json({ error: "SP accounts cannot manage the SP database." }, { status: 403 });
+    }
+
     const supabaseServer = createSupabaseServerClient();
     const rawPayload = (await request.json().catch(() => null)) as Record<string, unknown> | null;
     if (!rawPayload || typeof rawPayload !== "object") {

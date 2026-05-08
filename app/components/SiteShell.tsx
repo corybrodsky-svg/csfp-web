@@ -31,17 +31,18 @@ type NavItem = {
   label: string;
   match?: "exact" | "prefix";
   tone?: "primary" | "default";
+  roles?: Array<"sp" | "sim_op" | "admin" | "super_admin">;
 };
 
 const navItems: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", match: "exact" },
   { href: "/events", label: "Events", match: "prefix" },
-  { href: "/events/new", label: "New Event", match: "exact", tone: "primary" },
-  { href: "/schedule-builder", label: "Schedule Builder", match: "exact" },
-  { href: "/events/upload", label: "Upload", match: "exact" },
-  { href: "/sps", label: "SP Database", match: "prefix" },
-  { href: "/staff", label: "Staff", match: "prefix" },
-  { href: "/admin", label: "Admin", match: "prefix" },
+  { href: "/events/new", label: "New Event", match: "exact", tone: "primary", roles: ["sim_op", "admin", "super_admin"] },
+  { href: "/schedule-builder", label: "Schedule Builder", match: "exact", roles: ["sim_op", "admin", "super_admin"] },
+  { href: "/events/upload", label: "Upload", match: "exact", roles: ["sim_op", "admin", "super_admin"] },
+  { href: "/sps", label: "SP Database", match: "prefix", roles: ["sim_op", "admin", "super_admin"] },
+  { href: "/staff", label: "Staff", match: "prefix", roles: ["admin", "super_admin"] },
+  { href: "/admin", label: "Admin", match: "prefix", roles: ["admin", "super_admin"] },
   { href: "/me", label: "Profile", match: "prefix" },
 ];
 
@@ -68,6 +69,12 @@ function getEmailUsername(email: string) {
 
 function normalizeRole(value: unknown) {
   const role = asText(value).toLowerCase().replace(/[\s-]+/g, "_");
+  if (role === "super_admin" || role === "admin" || role === "sim_op" || role === "sp") return role;
+  return "sp";
+}
+
+function formatRoleLabel(value: unknown) {
+  const role = normalizeRole(value);
   if (role === "super_admin") return "Super Admin";
   if (role === "admin") return "Admin";
   if (role === "sim_op") return "Sim Op";
@@ -101,11 +108,17 @@ export default function SiteShell({ title, subtitle, children }: SiteShellProps)
     }
   });
 
+  const accountRole = normalizeRole(me?.profile?.role);
+  const visibleNavItems = useMemo(
+    () => navItems.filter((item) => !item.roles || item.roles.includes(accountRole)),
+    [accountRole]
+  );
+
   const activeMap = useMemo(() => {
     const next = new Map<string, boolean>();
-    navItems.forEach((item) => next.set(item.href, isNavActive(pathname, item)));
+    visibleNavItems.forEach((item) => next.set(item.href, isNavActive(pathname, item)));
     return next;
-  }, [pathname]);
+  }, [pathname, visibleNavItems]);
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", nightMode ? "dark" : "light");
@@ -166,7 +179,6 @@ export default function SiteShell({ title, subtitle, children }: SiteShellProps)
   }
 
   const accountDisplayName = getDisplayName(me);
-  const accountRole = normalizeRole(me?.profile?.role);
   const profileImageUrl = asText(me?.profile?.profile_image_url);
 
   return (
@@ -270,7 +282,7 @@ export default function SiteShell({ title, subtitle, children }: SiteShellProps)
                       </span>
                       <span className="min-w-0">
                         <span className="block max-w-[120px] truncate text-sm font-black">{accountDisplayName}</span>
-                        <span className="block text-xs font-semibold text-[var(--cfsp-text-muted)]">{accountRole}</span>
+                        <span className="block text-xs font-semibold text-[var(--cfsp-text-muted)]">{formatRoleLabel(accountRole)}</span>
                       </span>
                       <span className="text-xs text-[var(--cfsp-text-muted)]">▾</span>
                     </summary>
@@ -285,7 +297,7 @@ export default function SiteShell({ title, subtitle, children }: SiteShellProps)
                       <div className="px-4 py-3" style={{ borderBottom: "1px solid var(--cfsp-border)" }}>
                         <div className="text-xs font-black uppercase tracking-[0.08em] text-[var(--cfsp-text-muted)]">Account</div>
                         <div className="mt-1 text-sm font-bold text-[var(--cfsp-text)]">{accountDisplayName}</div>
-                        <div className="mt-1 text-xs font-semibold text-[var(--cfsp-text-muted)]">{accountRole}</div>
+                        <div className="mt-1 text-xs font-semibold text-[var(--cfsp-text-muted)]">{formatRoleLabel(accountRole)}</div>
                       </div>
                       <div className="grid">
                         <Link
@@ -314,7 +326,7 @@ export default function SiteShell({ title, subtitle, children }: SiteShellProps)
               </div>
 
               <nav className="flex flex-wrap gap-2 pt-4" aria-label="Primary navigation" style={{ borderTop: "1px solid var(--cfsp-border)" }}>
-                {navItems.map((item) => {
+                {visibleNavItems.map((item) => {
                   const active = activeMap.get(item.href);
                   const isPrimary = item.tone === "primary";
 

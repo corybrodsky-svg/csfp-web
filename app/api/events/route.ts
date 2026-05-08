@@ -7,6 +7,7 @@ import {
 } from "../../lib/authCookies";
 import { getDateSortValue, getImportedYearHint, normalizeLooseDateToIso } from "../../lib/eventDateUtils";
 import { getProfileForUser, getProfilesByIds } from "../../lib/profileServer";
+import { resolveSpAccountLink } from "../../lib/spAccountLinking";
 import { createSupabaseServerClient } from "../../lib/supabaseServerClient";
 
 export const dynamic = "force-dynamic";
@@ -92,6 +93,7 @@ type ViewerContext = {
   role: string;
   fullName: string;
   scheduleName: string;
+  linkedSpId: string;
   refreshedSession?: {
     access_token: string;
     refresh_token: string;
@@ -199,6 +201,11 @@ async function getAuthenticatedViewer(): Promise<ViewerContext | null> {
     const profileResult = await getProfileForUser(user.id, resolvedAccessToken);
     const profile = profileResult.profile;
     const email = asText(profile?.email) || asText(user.email);
+    const spLink = await resolveSpAccountLink({
+      user,
+      profile: profile || null,
+      accessToken: resolvedAccessToken,
+    });
 
     return {
       id: user.id,
@@ -206,6 +213,7 @@ async function getAuthenticatedViewer(): Promise<ViewerContext | null> {
       role: getEffectiveRole(email, profile?.role || user.user_metadata?.role),
       fullName: asText(profile?.full_name) || asText(user.user_metadata?.full_name),
       scheduleName: asText(profile?.schedule_name) || asText(user.user_metadata?.schedule_name),
+      linkedSpId: asText(spLink.sp_id),
       refreshedSession,
     };
   } catch {
@@ -388,7 +396,9 @@ export async function GET() {
     });
 
     if (viewer.role === "sp") {
-      const matchedSpIds = new Set(getViewerMatchedSpIds((sps || []) as AssignedSpApiRow[], viewer));
+      const matchedSpIds = new Set(
+        [viewer.linkedSpId, ...getViewerMatchedSpIds((sps || []) as AssignedSpApiRow[], viewer)].filter(Boolean)
+      );
       const allowedEventIds = new Set(
         assignmentRows
           .filter((assignment) => matchedSpIds.has(asText(assignment.sp_id)))
@@ -396,13 +406,34 @@ export async function GET() {
           .filter(Boolean)
       );
 
-      const filteredEvents = eventsWithCoverage.filter((event) => allowedEventIds.has(event.id));
+      const filteredEvents = eventsWithCoverage
+        .filter((event) => allowedEventIds.has(event.id))
+        .map((event) => ({
+          ...event,
+          notes: null,
+          schedule_owner_text: null,
+          owner_id: null,
+          owner_name: null,
+          assigned_sp_names: [],
+          assigned_sp_emails: [],
+        }));
       console.log("CFSP /api/events returning count:", filteredEvents.length);
 
-      return NextResponse.json({
+      const response = NextResponse.json({
         events: filteredEvents,
-        assignments: assignmentRows.filter((assignment) => allowedEventIds.has(asText(assignment.event_id))),
+        assignments: assignmentRows.filter(
+          (assignment) =>
+            allowedEventIds.has(asText(assignment.event_id)) &&
+            matchedSpIds.has(asText(assignment.sp_id))
+        ),
       });
+      if (viewer.refreshedSession?.access_token && viewer.refreshedSession.refresh_token) {
+        setAuthCookies(response, {
+          accessToken: viewer.refreshedSession.access_token,
+          refreshToken: viewer.refreshedSession.refresh_token,
+        });
+      }
+      return response;
     }
 
     console.log("CFSP /api/events returning count:", eventsWithCoverage.length);
@@ -424,6 +455,14 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    const viewer = await getAuthenticatedViewer();
+    if (!viewer) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    if (viewer.role === "sp") {
+      return NextResponse.json({ error: "SP accounts cannot create events." }, { status: 403 });
+    }
+
     const supabaseServer = createSupabaseServerClient();
     const body = await request.json();
     const name = asText(body?.name);

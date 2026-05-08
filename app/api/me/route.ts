@@ -11,6 +11,11 @@ import {
   getProfileForUser,
   updateProfileForUser,
 } from "../../lib/profileServer";
+import {
+  persistSpAccountLink,
+  resolveSpAccountLink,
+  type SpAccountLink,
+} from "../../lib/spAccountLinking";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -26,6 +31,10 @@ type ProfileRow = {
   is_active?: boolean | null;
   email?: string | null;
   profile_image_url?: string | null;
+};
+
+type ResponseSpLink = SpAccountLink & {
+  onboarding_message?: string;
 };
 
 function asText(value: unknown) {
@@ -56,6 +65,12 @@ function getForcedRole(email: string | null | undefined, currentRole: unknown) {
     return "admin";
   }
   return normalizedCurrentRole;
+}
+
+function canSelfManageRole(email: string | null | undefined, currentRole: unknown) {
+  const normalizedCurrentRole = normalizeRole(currentRole);
+  if (isSuperAdminEmail(email) || isAdminFallbackEmail(email)) return true;
+  return normalizedCurrentRole === "super_admin" || normalizedCurrentRole === "admin" || normalizedCurrentRole === "sim_op";
 }
 
 function getCoryFallbackProfile(user: { id: string; email?: string | null }) {
@@ -261,6 +276,17 @@ function buildResponseProfile(
       };
 }
 
+function buildResponseSpLink(link: SpAccountLink): ResponseSpLink {
+  return {
+    ...link,
+    ...(link.status === "pending"
+      ? {
+          onboarding_message: "Your SP account is awaiting directory matching.",
+        }
+      : {}),
+  };
+}
+
 async function handleGetOrSave(method: "GET" | "POST" | "PATCH", request?: Request) {
   const session = await resolveSession();
 
@@ -280,10 +306,22 @@ async function handleGetOrSave(method: "GET" | "POST" | "PATCH", request?: Reque
   const accessToken = session.accessToken || session.refreshedSession?.access_token || undefined;
 
   await ensurePreferredRole(user, accessToken);
+  const existingProfileResult = await getProfileForUser(user.id, accessToken);
+  const existingProfile = existingProfileResult.profile || (await ensureProfileForUser(user, accessToken)).profile;
+  const spLink = await resolveSpAccountLink({
+    user,
+    profile: existingProfile || null,
+    accessToken,
+  });
+  const spLinkPersistError = await persistSpAccountLink({
+    user,
+    link: spLink,
+    accessToken,
+  });
 
   if (method === "GET") {
-    const profileResult = await getProfileForUser(user.id, accessToken);
-    const ensuredProfile = profileResult.profile || (await ensureProfileForUser(user, accessToken)).profile;
+    const profileResult = existingProfileResult;
+    const ensuredProfile = existingProfile;
 
     const response = jsonNoStore({
       ok: true,
@@ -293,7 +331,8 @@ async function handleGetOrSave(method: "GET" | "POST" | "PATCH", request?: Reque
       },
       profile: buildResponseProfile(ensuredProfile as ProfileRow | null, user),
       profile_available: profileResult.available,
-      ...(profileResult.error ? { warning: profileResult.error } : {}),
+      sp_link: buildResponseSpLink(spLink),
+      ...(profileResult.error || spLinkPersistError ? { warning: profileResult.error || spLinkPersistError } : {}),
     });
 
     if (process.env.NODE_ENV !== "production") {
@@ -344,7 +383,10 @@ async function handleGetOrSave(method: "GET" | "POST" | "PATCH", request?: Reque
     body && typeof body === "object" ? (body as { role?: unknown }).role : "";
   const profileImageUrl =
     asText(body && typeof body === "object" ? (body as { profile_image_url?: unknown }).profile_image_url : "") || null;
-  const finalRole = getForcedRole(user.email, requestedRole);
+  const currentRole = existingProfile?.role || user.user_metadata?.role;
+  const finalRole = canSelfManageRole(user.email, currentRole)
+    ? getForcedRole(user.email, requestedRole || currentRole)
+    : "sp";
 
   const saveResult = await updateProfileForUser(
     user,
@@ -376,16 +418,35 @@ async function handleGetOrSave(method: "GET" | "POST" | "PATCH", request?: Reque
     return response;
   }
 
+  const nextSpLink = await resolveSpAccountLink({
+    user: {
+      ...user,
+      user_metadata: {
+        ...user.user_metadata,
+        full_name: fullName,
+        role: finalRole,
+      },
+    },
+    profile: saveResult.profile,
+    accessToken,
+  });
+  const spLinkSaveError = await persistSpAccountLink({
+    user,
+    link: nextSpLink,
+    accessToken,
+  });
+
   const response = jsonNoStore({
     ok: true,
     message: "Profile saved.",
-    ...(saveResult.error ? { warning: saveResult.error } : {}),
+    ...(saveResult.error || spLinkSaveError ? { warning: saveResult.error || spLinkSaveError } : {}),
     user: {
       id: user.id,
       email: user.email || null,
     },
     profile: buildResponseProfile(saveResult.profile as ProfileRow, user),
     profile_available: saveResult.available,
+    sp_link: buildResponseSpLink(nextSpLink),
   });
 
   if (process.env.NODE_ENV !== "production") {

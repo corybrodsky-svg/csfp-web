@@ -1,4 +1,7 @@
+"use client";
+
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import SiteShell from "../components/SiteShell";
 
 type AdminAction = {
@@ -55,7 +58,46 @@ function buttonClass(tone: AdminAction["tone"]) {
   return "cfsp-btn cfsp-btn-secondary";
 }
 
+function asText(value: unknown) {
+  if (value === null || value === undefined) return "";
+  return String(value).trim();
+}
+
 export default function AdminPage() {
+  const [role, setRole] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadRole() {
+      try {
+        const response = await fetch("/api/me", { cache: "no-store", credentials: "include" });
+        const body = (await response.json().catch(() => null)) as { profile?: { role?: string | null } } | null;
+        if (!cancelled) setRole(asText(body?.profile?.role).toLowerCase());
+      } catch {
+        return;
+      }
+    }
+
+    void loadRole();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (role === "sp") {
+    return (
+      <SiteShell
+        title="Admin"
+        subtitle="Administrative tools are reserved for simulation operations and admin roles."
+      >
+        <div className="cfsp-alert cfsp-alert-info">
+          SP accounts use the event portal for assignments, trainings, materials, and communications.
+        </div>
+      </SiteShell>
+    );
+  }
+
   return (
     <SiteShell
       title="Admin"

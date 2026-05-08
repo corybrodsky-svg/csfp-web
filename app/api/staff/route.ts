@@ -26,6 +26,8 @@ type StaffMember = {
   email: string;
   role: string;
   schedule_match_name: string;
+  sp_link_status?: string;
+  sp_link_sp_id?: string;
   status: string;
   is_active: boolean;
   created_at: string | null;
@@ -137,6 +139,11 @@ function buildMember(user: User, profile: AppProfile | null): StaffMember {
     email: asText(profile?.email) || asText(user.email) || "",
     role,
     schedule_match_name: scheduleName || "",
+    sp_link_status:
+      role === "sp"
+        ? asText(user.user_metadata?.sp_link_status || (user.user_metadata?.sp_id ? "linked" : "pending")) || "pending"
+        : "",
+    sp_link_sp_id: role === "sp" ? asText(user.user_metadata?.sp_id) || "" : "",
     status: isActive === false ? "inactive" : "active",
     is_active: isActive !== false,
     created_at: user.created_at || null,

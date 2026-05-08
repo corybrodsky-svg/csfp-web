@@ -31,6 +31,12 @@ type MeResponse = {
     profile_picture_url: string;
     notes: string;
   };
+  sp_link?: {
+    status?: string | null;
+    sp_id?: string | null;
+    sp_name?: string | null;
+    onboarding_message?: string | null;
+  };
   error?: string;
 };
 
@@ -66,6 +72,13 @@ type EventRecord = {
 type EventsResponse = {
   ok?: boolean;
   events?: EventRecord[];
+  assignments?: Array<{
+    id?: string | null;
+    event_id?: string | null;
+    sp_id?: string | null;
+    status?: string | null;
+    confirmed?: boolean | null;
+  }>;
   error?: string;
 };
 
@@ -495,6 +508,7 @@ export default function DashboardPage() {
   const [authState, setAuthState] = useState<AuthState>("loading");
   const [me, setMe] = useState<MeResponse | null>(null);
   const [events, setEvents] = useState<EventRecord[]>([]);
+  const [assignments, setAssignments] = useState<EventsResponse["assignments"]>([]);
   const [error, setError] = useState("");
   const [scope, setScope] = useState<DashboardScope>("my");
   const [sectionVisibleCounts, setSectionVisibleCounts] = useState({
@@ -604,6 +618,7 @@ export default function DashboardPage() {
         }
 
         setEvents(Array.isArray(eventsJson.events) ? eventsJson.events : []);
+        setAssignments(Array.isArray(eventsJson.assignments) ? eventsJson.assignments : []);
       } catch (err) {
         if (cancelled) return;
         console.error("Dashboard load failed", err);
@@ -624,8 +639,11 @@ export default function DashboardPage() {
   const firstName = getFirstName(asText(me?.profile?.full_name));
   const emailUsername = getEmailUsername(asText(me?.user?.email));
   const displayName = getGreetingName(me);
-  const isAdmin = asText(me?.profile?.role).toLowerCase().includes("admin");
-  const profileIncomplete = !asText(me?.profile?.full_name) || !scheduleMatchName;
+  const role = asText(me?.profile?.role).toLowerCase();
+  const isAdmin = role.includes("admin");
+  const isSp = role === "sp";
+  const profileIncomplete = !asText(me?.profile?.full_name) || (!isSp && !scheduleMatchName);
+  const spLinkPending = isSp && asText(me?.sp_link?.status).toLowerCase() !== "linked";
   const matchTerms = Array.from(new Set([scheduleMatchName, legacyScheduleName, firstName, emailUsername].filter(Boolean)));
 
   useEffect(() => {
@@ -697,7 +715,16 @@ export default function DashboardPage() {
     [currentUserId, emailUsername, eventMeta, firstName, legacyScheduleName, scheduleMatchName]
   );
 
-  const selectedEvents = scope === "my" ? myMatchedEvents : allVisibleEvents;
+  const selectedEvents = isSp ? allVisibleEvents : scope === "my" ? myMatchedEvents : allVisibleEvents;
+  const myAssignmentByEventId = useMemo(() => {
+    const next = new Map<string, string>();
+    (assignments || []).forEach((assignment) => {
+      const eventId = asText(assignment?.event_id);
+      if (!eventId || next.has(eventId)) return;
+      next.set(eventId, asText(assignment?.status) || (assignment?.confirmed ? "confirmed" : "assigned"));
+    });
+    return next;
+  }, [assignments]);
   const openShortageCount = useMemo(
     () => selectedEvents.reduce((sum, event) => sum + event.shortage, 0),
     [selectedEvents]
@@ -724,6 +751,18 @@ export default function DashboardPage() {
     () =>
       selectedEvents
         .filter((item) => item.needed <= 0 || item.assigned >= item.needed),
+    [selectedEvents]
+  );
+  const spConfirmedEvents = useMemo(
+    () => selectedEvents.filter((item) => ["confirmed", "hired"].includes((myAssignmentByEventId.get(item.event.id) || "").toLowerCase())),
+    [myAssignmentByEventId, selectedEvents]
+  );
+  const spTrainingEvents = useMemo(
+    () =>
+      selectedEvents.filter((item) => {
+        const text = [item.event.name, item.event.status].map(asText).join(" ").toLowerCase();
+        return text.includes("training");
+      }),
     [selectedEvents]
   );
 
@@ -754,15 +793,33 @@ export default function DashboardPage() {
   return (
     <SiteShell
       title="Dashboard"
-      subtitle="Use your dashboard as a personal home base for matched events, staffing work, and profile setup."
+      subtitle={
+        isSp
+          ? "Use your SP portal to review assigned events, trainings, communications, and upcoming access details."
+          : "Use your dashboard as a personal home base for matched events, staffing work, and profile setup."
+      }
     >
       <div className="grid gap-5">
+        {spLinkPending ? (
+          <div className="cfsp-alert cfsp-alert-info flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="font-black text-[var(--cfsp-text)]">Your SP account is awaiting directory matching.</div>
+              <div className="mt-1 text-sm text-[var(--cfsp-text-muted)]">
+                {asText(me?.sp_link?.onboarding_message) || "Assigned events will appear automatically once your account is matched to the SP directory."}
+              </div>
+            </div>
+            <Link href="/me" className="cfsp-btn cfsp-btn-secondary">
+              Review Profile
+            </Link>
+          </div>
+        ) : null}
+
         {profileIncomplete ? (
           <div className="cfsp-alert cfsp-alert-info flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <div className="font-black text-[var(--cfsp-text)]">Complete your profile so CFSP can match events to you.</div>
               <div className="mt-1 text-sm text-[var(--cfsp-text-muted)]">
-                Add your full name and schedule match name to improve event matching.
+                {isSp ? "Add your full name so CFSP can keep your SP account linked correctly." : "Add your full name and schedule match name to improve event matching."}
               </div>
             </div>
             <Link href="/me" className="cfsp-btn cfsp-btn-secondary">
@@ -785,21 +842,27 @@ export default function DashboardPage() {
               Welcome back, {displayName}.
             </h2>
             <p className="mt-3 max-w-2xl text-[0.98rem] leading-6 text-[var(--cfsp-text-muted)]">
-              Start with events connected to you, then switch to the full event list whenever you need a broader operational view.
+              {isSp
+                ? "Start with your assigned events, confirmed work, and training access so you can prep quickly without digging through operations screens."
+                : "Start with events connected to you, then switch to the full event list whenever you need a broader operational view."}
             </p>
 
             <div className="mt-5 flex flex-wrap gap-2">
               <Link href="/events" className="cfsp-btn cfsp-btn-secondary">
-                Open Events Board
+                {isSp ? "Open My Event Portal" : "Open Events Board"}
               </Link>
-              <Link href="/events?view=archive" className="cfsp-btn cfsp-btn-secondary">
-                View Archive
-              </Link>
-              <Link href="/events/new" className="cfsp-btn cfsp-btn-primary">
-                Create New Event
-              </Link>
+              {!isSp ? (
+                <Link href="/events?view=archive" className="cfsp-btn cfsp-btn-secondary">
+                  View Archive
+                </Link>
+              ) : null}
+              {!isSp ? (
+                <Link href="/events/new" className="cfsp-btn cfsp-btn-primary">
+                  Create New Event
+                </Link>
+              ) : null}
               <Link href="/me" className="cfsp-btn cfsp-btn-success">
-                Edit Profile
+                {isSp ? "Update Account" : "Edit Profile"}
               </Link>
             </div>
           </div>
@@ -807,32 +870,40 @@ export default function DashboardPage() {
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
             <div className="cfsp-panel rounded-[14px] px-4 py-4">
               <div className="cfsp-label">Dashboard view</div>
-              <div className="mt-3 inline-flex rounded-[12px] p-1" style={{ border: "1px solid var(--cfsp-border)", background: "var(--cfsp-surface)" }}>
-                <button
-                  type="button"
-                  onClick={() => handleScopeChange("my")}
-                  className="min-w-[120px] rounded-[10px] px-4 py-2 text-sm font-black transition"
-                  style={{
-                    background: scope === "my" ? "var(--cfsp-blue)" : "transparent",
-                    color: scope === "my" ? "#ffffff" : "var(--cfsp-text-muted)",
-                  }}
-                >
-                  My Events
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleScopeChange("all")}
-                  className="min-w-[120px] rounded-[10px] px-4 py-2 text-sm font-black transition"
-                  style={{
-                    background: scope === "all" ? "var(--cfsp-blue)" : "transparent",
-                    color: scope === "all" ? "#ffffff" : "var(--cfsp-text-muted)",
-                  }}
-                >
-                  All Events
-                </button>
-              </div>
+              {isSp ? (
+                <div className="mt-3 rounded-[12px] border border-[var(--cfsp-border)] bg-[var(--cfsp-surface)] px-4 py-3 text-sm font-bold text-[var(--cfsp-text)]">
+                  SP accounts stay focused on assigned events and upcoming trainings.
+                </div>
+              ) : (
+                <div className="mt-3 inline-flex rounded-[12px] p-1" style={{ border: "1px solid var(--cfsp-border)", background: "var(--cfsp-surface)" }}>
+                  <button
+                    type="button"
+                    onClick={() => handleScopeChange("my")}
+                    className="min-w-[120px] rounded-[10px] px-4 py-2 text-sm font-black transition"
+                    style={{
+                      background: scope === "my" ? "var(--cfsp-blue)" : "transparent",
+                      color: scope === "my" ? "#ffffff" : "var(--cfsp-text-muted)",
+                    }}
+                  >
+                    My Events
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleScopeChange("all")}
+                    className="min-w-[120px] rounded-[10px] px-4 py-2 text-sm font-black transition"
+                    style={{
+                      background: scope === "all" ? "var(--cfsp-blue)" : "transparent",
+                      color: scope === "all" ? "#ffffff" : "var(--cfsp-text-muted)",
+                    }}
+                  >
+                    All Events
+                  </button>
+                </div>
+              )}
               <p className="mt-3 text-sm leading-6 text-[var(--cfsp-text-muted)]">
-                {scope === "my"
+                {isSp
+                  ? "Open an assigned event to view your materials, Zoom access, training details, and communications."
+                  : scope === "my"
                   ? "Showing events matched to your profile, schedule match name, or imported staffing notes."
                   : "Showing the full visible event list across the app."}
               </p>
@@ -845,35 +916,45 @@ export default function DashboardPage() {
               ) : null}
             </div>
 
-            <Link
-              href="/admin"
-              className="cfsp-panel rounded-[14px] px-4 py-4 no-underline transition-transform hover:-translate-y-0.5"
-            >
-              <div className="cfsp-label">Quick action</div>
-              <div className="mt-2 text-lg font-black text-[var(--cfsp-text)]">Open admin tools</div>
-              <p className="mt-2 text-sm leading-6 text-[var(--cfsp-text-muted)]">
-                Launch imports, people tools, and other workflow shortcuts directly.
-              </p>
-            </Link>
+            {!isSp ? (
+              <Link
+                href="/admin"
+                className="cfsp-panel rounded-[14px] px-4 py-4 no-underline transition-transform hover:-translate-y-0.5"
+              >
+                <div className="cfsp-label">Quick action</div>
+                <div className="mt-2 text-lg font-black text-[var(--cfsp-text)]">Open admin tools</div>
+                <p className="mt-2 text-sm leading-6 text-[var(--cfsp-text-muted)]">
+                  Launch imports, people tools, and other workflow shortcuts directly.
+                </p>
+              </Link>
+            ) : (
+              <div className="cfsp-panel rounded-[14px] px-4 py-4">
+                <div className="cfsp-label">SP portal</div>
+                <div className="mt-2 text-lg font-black text-[var(--cfsp-text)]">Assignments, trainings, and access</div>
+                <p className="mt-2 text-sm leading-6 text-[var(--cfsp-text-muted)]">
+                  Your event pages are filtered to show only your dates, communications, and training resources.
+                </p>
+              </div>
+            )}
           </div>
         </section>
 
         <section className="cfsp-grid-stats">
           <div className="cfsp-stat-card">
-            <div className="cfsp-label">{scope === "my" ? "My Events" : "All Events"}</div>
+            <div className="cfsp-label">{isSp ? "Assigned Events" : scope === "my" ? "My Events" : "All Events"}</div>
             <div className="cfsp-stat-value">{selectedEvents.length}</div>
           </div>
           <div className="cfsp-stat-card">
-            <div className="cfsp-label">Needs Attention</div>
-            <div className="cfsp-stat-value">{needsAttention.length}</div>
+            <div className="cfsp-label">{isSp ? "Confirmed / Hired" : "Needs Attention"}</div>
+            <div className="cfsp-stat-value">{isSp ? spConfirmedEvents.length : needsAttention.length}</div>
           </div>
           <div className="cfsp-stat-card">
-            <div className="cfsp-label">In Progress</div>
-            <div className="cfsp-stat-value">{inProgress.length}</div>
+            <div className="cfsp-label">{isSp ? "Trainings" : "In Progress"}</div>
+            <div className="cfsp-stat-value">{isSp ? spTrainingEvents.length : inProgress.length}</div>
           </div>
           <div className="cfsp-stat-card">
-            <div className="cfsp-label">Open SP Shortage</div>
-            <div className="cfsp-stat-value">{openShortageCount}</div>
+            <div className="cfsp-label">{isSp ? "Upcoming Access" : "Open SP Shortage"}</div>
+            <div className="cfsp-stat-value">{isSp ? selectedEvents.length : openShortageCount}</div>
           </div>
         </section>
 

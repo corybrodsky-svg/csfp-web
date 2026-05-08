@@ -111,7 +111,7 @@ export async function POST(request: Request) {
         options: {
           data: {
             full_name: fullName || null,
-            role: "viewer",
+            role: "sp",
           },
         },
       });

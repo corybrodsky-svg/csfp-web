@@ -144,6 +144,13 @@ type MeResponse = {
     profile_image_url?: string | null;
   } | null;
   profile_available?: boolean;
+  sp_link?: {
+    status?: string | null;
+    sp_id?: string | null;
+    sp_name?: string | null;
+    matched_by?: string | null;
+    onboarding_message?: string | null;
+  };
   message?: string;
   warning?: string;
   error?: string;
@@ -348,6 +355,10 @@ export default function MePage() {
   const email = data?.profile?.email || data?.user?.email || "";
   const profileId = data?.profile?.id || "Unavailable";
   const userId = data?.user?.id || "Unavailable";
+  const isSpRole = role === "sp";
+  const currentAccountRole = normalizeRole(data?.profile?.role);
+  const canEditRole =
+    currentAccountRole === "admin" || currentAccountRole === "super_admin" || currentAccountRole === "sim_op";
   const profileImagePreview = asText(profileImageUrl);
   const avatarFallback = (asText(fullName) || asText(email) || "CF")
     .split(/\s+/)
@@ -537,7 +548,9 @@ export default function MePage() {
           <div style={{ marginBottom: "16px" }}>
             <h2 style={{ margin: "18px 0 0", color: "#173b6c" }}>Editable Profile</h2>
             <p style={{ margin: "8px 0 0", color: "#64748b", lineHeight: 1.6 }}>
-              Update the internal member details used by scheduling and operations tools.
+              {isSpRole
+                ? "Update the account details your SP portal uses for assignments, training access, and directory matching."
+                : "Update the internal member details used by scheduling and operations tools."}
             </p>
           </div>
 
@@ -560,7 +573,7 @@ export default function MePage() {
               </label>
 
               <label style={labelStyle}>
-                Schedule Match Name
+                {isSpRole ? "Schedule Match Name (optional)" : "Schedule Match Name"}
                 <input
                   type="text"
                   value={scheduleName}
@@ -574,7 +587,9 @@ export default function MePage() {
               </label>
 
               <div style={{ color: "#64748b", fontSize: "13px", lineHeight: 1.6, marginTop: "-2px" }}>
-                Use the name that appears in imported schedule lead/team text, such as `Cory` or `Cory Brodsky`.
+                {isSpRole
+                  ? "Optional for SP accounts. Add it only if operations asked you to match imported schedule text."
+                  : "Use the name that appears in imported schedule lead/team text, such as `Cory` or `Cory Brodsky`."}
               </div>
 
               <label style={labelStyle}>
@@ -613,23 +628,25 @@ export default function MePage() {
                 </span>
               </div>
 
-              <label style={labelStyle}>
-                Role
-                <select
-                  value={role}
-                  onChange={(event) => {
-                    clearSaveFeedback();
-                    setRole(normalizeRole(event.target.value));
-                  }}
-                  style={selectStyle}
-                >
-                  {ROLE_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              {canEditRole ? (
+                <label style={labelStyle}>
+                  Role
+                  <select
+                    value={role}
+                    onChange={(event) => {
+                      clearSaveFeedback();
+                      setRole(normalizeRole(event.target.value));
+                    }}
+                    style={selectStyle}
+                  >
+                    {ROLE_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
 
               <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "4px" }}>
                 <button
@@ -691,9 +708,9 @@ export default function MePage() {
             ) : (
               <div style={{ ...metadataGridStyle, marginTop: "14px" }}>
                 <div style={metadataCardStyle}>
-                  <div style={statLabel}>Schedule Match Name</div>
+                  <div style={statLabel}>{isSpRole ? "Schedule Match Name" : "Schedule Match Name"}</div>
                   <div style={{ marginTop: "4px", color: "#173b6c", fontWeight: 800 }}>
-                    {scheduleName || "Not set"}
+                    {scheduleName || (isSpRole ? "Optional" : "Not set")}
                   </div>
                 </div>
                 <div style={metadataCardStyle}>
@@ -701,6 +718,21 @@ export default function MePage() {
                   <div style={{ marginTop: "4px", color: "#173b6c", fontWeight: 800 }}>
                     {formatRoleLabel(role)}
                   </div>
+                </div>
+                <div style={metadataCardStyle}>
+                  <div style={statLabel}>SP Directory Link</div>
+                  <div style={{ marginTop: "4px", color: "#173b6c", fontWeight: 800 }}>
+                    {isSpRole
+                      ? asText(data?.sp_link?.status).toLowerCase() === "linked"
+                        ? `Linked${asText(data?.sp_link?.sp_name) ? ` to ${asText(data?.sp_link?.sp_name)}` : ""}`
+                        : "Pending SP link"
+                      : "Not applicable"}
+                  </div>
+                  {isSpRole && asText(data?.sp_link?.onboarding_message) ? (
+                    <div style={{ marginTop: "6px", color: "#64748b", fontSize: "12px", lineHeight: 1.5 }}>
+                      {data?.sp_link?.onboarding_message}
+                    </div>
+                  ) : null}
                 </div>
                 <div style={metadataCardStyle}>
                   <div style={statLabel}>Account State</div>

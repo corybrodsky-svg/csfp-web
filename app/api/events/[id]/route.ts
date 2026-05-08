@@ -6,8 +6,11 @@ import {
   clearAuthCookies,
   setAuthCookies,
 } from "../../../lib/authCookies";
+import { getImportedYearHint, normalizeLooseDateToIso } from "../../../lib/eventDateUtils";
 import { createSupabaseServerClient } from "../../../lib/supabaseServerClient";
 import { getProfileForUser } from "../../../lib/profileServer";
+import { resolveSpAccountLink } from "../../../lib/spAccountLinking";
+import { parseTrainingEventMetadata } from "../../../lib/trainingEventNotes";
 
 export const dynamic = "force-dynamic";
 
@@ -77,6 +80,7 @@ type ViewerContext = {
   role: string;
   fullName: string;
   scheduleName: string;
+  linkedSpId: string;
   refreshedTokens?: {
     accessToken: string;
     refreshToken: string;
@@ -172,6 +176,11 @@ async function getAuthenticatedViewer(): Promise<ViewerContext | null> {
     const profileResult = await getProfileForUser(auth.user.id, auth.accessToken);
     const profile = profileResult.profile;
     const email = asText(profile?.email) || asText(auth.user.email);
+    const spLink = await resolveSpAccountLink({
+      user: auth.user,
+      profile: profile || null,
+      accessToken: auth.accessToken,
+    });
 
     return {
       id: auth.user.id,
@@ -181,6 +190,7 @@ async function getAuthenticatedViewer(): Promise<ViewerContext | null> {
       role: getEffectiveRole(email, profile?.role || auth.user.user_metadata?.role),
       fullName: asText(profile?.full_name) || asText(auth.user.user_metadata?.full_name),
       scheduleName: asText(profile?.schedule_name) || asText(auth.user.user_metadata?.schedule_name),
+      linkedSpId: asText(spLink.sp_id),
       refreshedTokens: auth.refreshedTokens,
       shouldClearCookies: auth.shouldClearCookies,
     };
@@ -281,6 +291,22 @@ function getSafeSessionUpdates(rawUpdates: unknown) {
   return Object.keys(updates).length ? updates : null;
 }
 
+function sanitizeEventForSp(event: {
+  id: string;
+  name: string | null;
+  status: string | null;
+  date_text: string | null;
+  location: string | null;
+  created_at: string | null;
+}) {
+  return {
+    ...event,
+    sp_needed: null,
+    visibility: null,
+    notes: null,
+  };
+}
+
 export async function GET(
   _request: Request,
   context: { params: Promise<{ id?: string | string[] }> }
@@ -373,13 +399,22 @@ export async function GET(
       );
     }
 
+    const { data: availabilityRows, error: availabilityError } = await supabaseServer
+      .from("sp_availability")
+      .select("*")
+      .limit(1000);
+
     if (viewer.role === "sp") {
+      const viewerMatchedSpId = viewer.linkedSpId;
       const eventSpIds = new Set(
         (assignments || []).map((assignment) => asText((assignment as { sp_id?: unknown }).sp_id))
       );
-      const matched = (sps || []).some(
-        (sp) => eventSpIds.has(asText(sp.id)) && viewerMatchesAssignedSp(sp as AssignedSpApiRow, viewer)
-      );
+      const matched = (sps || []).some((sp) => {
+        const spId = asText(sp.id);
+        if (!eventSpIds.has(spId)) return false;
+        if (viewerMatchedSpId && spId === viewerMatchedSpId) return true;
+        return viewerMatchesAssignedSp(sp as AssignedSpApiRow, viewer);
+      });
 
       if (!matched) {
         return applyAuthCookies(
@@ -387,12 +422,110 @@ export async function GET(
           viewer
         );
       }
-    }
 
-    const { data: availabilityRows, error: availabilityError } = await supabaseServer
-      .from("sp_availability")
-      .select("*")
-      .limit(1000);
+      const matchingSp =
+        (sps || []).find((sp) => {
+          const spId = asText(sp.id);
+          if (viewerMatchedSpId && spId === viewerMatchedSpId) return true;
+          return viewerMatchesAssignedSp(sp as AssignedSpApiRow, viewer);
+        }) || null;
+      const viewerSpId = asText(matchingSp?.id);
+      const viewerAssignments = ((assignments || []) as Array<Record<string, unknown>>).filter(
+        (assignment) => asText(assignment.sp_id) === viewerSpId
+      );
+      const metadata = parseTrainingEventMetadata(event.notes);
+      const sessionDates = (sessions || [])
+        .map((session) => normalizeLooseDateToIso(session.session_date, getImportedYearHint(event.notes)))
+        .filter(Boolean);
+
+      return applyAuthCookies(
+        NextResponse.json({
+          viewerRole: "sp",
+          event: sanitizeEventForSp(event),
+          sessions: (sessions || []).map((session) => ({
+            id: session.id,
+            event_id: session.event_id,
+            session_date: session.session_date,
+            start_time: session.start_time,
+            end_time: session.end_time,
+            location: session.location,
+            room: session.room,
+            created_at: session.created_at,
+          })),
+          sps: matchingSp
+            ? [
+                {
+                  id: matchingSp.id,
+                  first_name: matchingSp.first_name,
+                  last_name: matchingSp.last_name,
+                  full_name: matchingSp.full_name,
+                  working_email: matchingSp.working_email,
+                  email: matchingSp.email,
+                  phone: matchingSp.phone,
+                  portrayal_age: null,
+                  race: null,
+                  sex: null,
+                  telehealth: null,
+                  pt_preferred: null,
+                  other_roles: null,
+                  speaks_spanish: null,
+                  notes: null,
+                  status: matchingSp.status,
+                },
+              ]
+            : [],
+          assignments: viewerAssignments,
+          availabilityRows: (availabilityRows || []).filter((row) => asText((row as { sp_id?: unknown }).sp_id) === viewerSpId),
+          errorMessage: "",
+          sessionErrorMessage: sessionError
+            ? sessionError.message || "Could not load event sessions from Supabase."
+            : "",
+          availabilityErrorMessage: availabilityError
+            ? availabilityError.message || "Could not load SP availability from Supabase."
+            : "",
+          spPortal: {
+            sp_link_status: viewer.linkedSpId ? "linked" : "pending",
+            assigned_sp_name: asText(matchingSp?.full_name) || null,
+            faculty_name: metadata.faculty_names || null,
+            faculty_email: metadata.faculty_email || null,
+            faculty_phone: metadata.faculty_phone || null,
+            program: metadata.faculty_program || null,
+            sim_contact: metadata.sim_contact || null,
+            zoom_url: metadata.zoom_url || null,
+            training_password: metadata.training_password || null,
+            recording_url: metadata.recording_url || null,
+            materials: [
+              {
+                key: "case",
+                label: "Case",
+                url: metadata.case_file_url || null,
+                name: metadata.case_file_name || metadata.case_name || null,
+              },
+              {
+                key: "doorsign",
+                label: "Doorsign",
+                url: metadata.doorsign_url || null,
+                name: metadata.doorsign_file_name || null,
+              },
+              {
+                key: "supplemental",
+                label: "Supplemental docs",
+                url: metadata.supplemental_doc_url || null,
+                name: metadata.supplemental_doc_name || null,
+              },
+              {
+                key: "recording",
+                label: "Recording guide",
+                url: metadata.recording_url || null,
+                name: metadata.recording_url ? "Recording guide" : null,
+              },
+            ].filter((item) => item.url),
+            session_dates: sessionDates,
+          },
+        }),
+        viewer
+      );
+    }
 
     return applyAuthCookies(
       NextResponse.json({
@@ -427,6 +560,12 @@ export async function POST(
     const viewer = await getAuthenticatedViewer();
     if (!viewer) {
       return unauthorizedResponse();
+    }
+    if (viewer.role === "sp") {
+      return applyAuthCookies(
+        NextResponse.json({ error: "SP accounts cannot manage event staffing." }, { status: 403 }),
+        viewer
+      );
     }
 
     const supabaseServer = createSupabaseServerClient();
@@ -502,6 +641,12 @@ export async function PATCH(
     const viewer = await getAuthenticatedViewer();
     if (!viewer) {
       return unauthorizedResponse();
+    }
+    if (viewer.role === "sp") {
+      return applyAuthCookies(
+        NextResponse.json({ error: "SP accounts cannot edit event operations." }, { status: 403 }),
+        viewer
+      );
     }
 
     const supabaseServer = createSupabaseServerClient();
@@ -644,6 +789,12 @@ export async function DELETE(
     const viewer = await getAuthenticatedViewer();
     if (!viewer) {
       return unauthorizedResponse();
+    }
+    if (viewer.role === "sp") {
+      return applyAuthCookies(
+        NextResponse.json({ error: "SP accounts cannot remove event assignments." }, { status: 403 }),
+        viewer
+      );
     }
 
     const supabaseServer = createSupabaseServerClient();

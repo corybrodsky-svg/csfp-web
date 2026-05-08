@@ -133,6 +133,21 @@ type CommandCenterData = {
   sps: SPRow[];
   assignments: AssignmentRow[];
   availabilityRows: AvailabilityRow[];
+  viewerRole?: "sp" | "sim_op" | "admin" | "super_admin" | "unknown";
+  spPortal?: {
+    sp_link_status?: string | null;
+    assigned_sp_name?: string | null;
+    faculty_name?: string | null;
+    faculty_email?: string | null;
+    faculty_phone?: string | null;
+    program?: string | null;
+    sim_contact?: string | null;
+    zoom_url?: string | null;
+    training_password?: string | null;
+    recording_url?: string | null;
+    session_dates?: string[] | null;
+    materials?: Array<{ key: string; label: string; url: string; name?: string | null }>;
+  } | null;
   errorMessage: string;
   sessionErrorMessage: string;
   availabilityErrorMessage: string;
@@ -1040,6 +1055,8 @@ async function fetchCommandCenterData(eventId: string): Promise<CommandCenterDat
       sps: Array.isArray(body?.sps) ? [...body.sps].sort(sortSPs) : [],
       assignments: Array.isArray(body?.assignments) ? body.assignments : [],
       availabilityRows: Array.isArray(body?.availabilityRows) ? body.availabilityRows : [],
+      viewerRole: body?.viewerRole || "unknown",
+      spPortal: body?.spPortal || null,
       errorMessage: body?.errorMessage || "",
       sessionErrorMessage: body?.sessionErrorMessage || "",
       availabilityErrorMessage: body?.availabilityErrorMessage || "",
@@ -1245,6 +1262,8 @@ export default function EventDetailPage() {
   const [availabilityErrorMessage, setAvailabilityErrorMessage] = useState("");
   const [accessDenied, setAccessDenied] = useState(false);
   const [notFound, setNotFound] = useState(false);
+  const [viewerRole, setViewerRole] = useState<CommandCenterData["viewerRole"]>("unknown");
+  const [spPortal, setSpPortal] = useState<NonNullable<CommandCenterData["spPortal"]> | null>(null);
   const [workflowChecks, setWorkflowChecks] = useState<Record<string, boolean>>({});
   const [me, setMe] = useState<{
     email: string;
@@ -2022,6 +2041,8 @@ export default function EventDetailPage() {
     setSps(result.sps);
     setAssignments(result.assignments);
     setAvailabilityRows(result.availabilityRows);
+    setViewerRole(result.viewerRole || "unknown");
+    setSpPortal(result.spPortal || null);
     setErrorMessage(result.errorMessage);
     setSessionErrorMessage(result.sessionErrorMessage);
     setAvailabilityErrorMessage(result.availabilityErrorMessage);
@@ -2602,6 +2623,8 @@ export default function EventDetailPage() {
         setSps(result.sps);
         setAssignments(result.assignments);
         setAvailabilityRows(result.availabilityRows);
+        setViewerRole(result.viewerRole || "unknown");
+        setSpPortal(result.spPortal || null);
         setErrorMessage(result.errorMessage);
         setSessionErrorMessage(result.sessionErrorMessage);
         setAvailabilityErrorMessage(result.availabilityErrorMessage);
@@ -2912,6 +2935,148 @@ export default function EventDetailPage() {
             Back to Events
           </Link>
         </div>
+      </SiteShell>
+    );
+  }
+
+  if (viewerRole === "sp") {
+    const assignment = assignments[0] || null;
+    const assignmentStatus = assignment ? getAssignmentStatus(assignment) : null;
+    const sessionSummary = sessions.map((session) => {
+      const dateLabel = session.session_date
+        ? formatHumanDate(session.session_date, getImportedYearHint(event.date_text)) || session.session_date
+        : "Date TBD";
+      const timeLabel =
+        session.start_time || session.end_time
+          ? `${formatDisplayTime(session.start_time)}${session.end_time ? ` - ${formatDisplayTime(session.end_time)}` : ""}`
+          : "Time TBD";
+      return {
+        key: session.id || `${session.session_date}-${session.start_time}`,
+        dateLabel,
+        timeLabel,
+        location: session.room || session.location || event.location || "Location TBD",
+      };
+    });
+
+    return (
+      <SiteShell
+        title="My Event Portal"
+        subtitle="Review your assignment details, training access, materials, and communications without operational admin controls."
+      >
+        {errorMessage ? (
+          <div className="cfsp-alert cfsp-alert-info">{errorMessage}</div>
+        ) : null}
+
+        {asText(spPortal?.sp_link_status).toLowerCase() !== "linked" ? (
+          <div className="cfsp-alert cfsp-alert-info">
+            Your SP account is awaiting directory matching. If anything looks missing, contact the simulation team.
+          </div>
+        ) : null}
+
+        <section style={cardStyle}>
+          <Link
+            href="/events"
+            style={{ display: "inline-flex", alignItems: "center", gap: "8px", color: "var(--cfsp-blue)", fontWeight: 900, textDecoration: "none" }}
+          >
+            <span aria-hidden="true">←</span>
+            <span>Back to My Events</span>
+          </Link>
+
+          <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "center", marginTop: "14px" }}>
+            <div>
+              <h1 style={{ margin: 0, fontSize: "28px", color: "var(--cfsp-text)" }}>{event.name || "Assigned Event"}</h1>
+              <div style={{ marginTop: "8px", display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                <span className="cfsp-chip">{event.status || "Status pending"}</span>
+                {assignmentStatus ? (
+                  <span style={{ ...assignmentStatusStyles[assignmentStatus], borderRadius: "999px", padding: "6px 10px", fontSize: "12px", fontWeight: 900 }}>
+                    {assignmentStatusLabels[assignmentStatus]}
+                  </span>
+                ) : null}
+              </div>
+            </div>
+            <div style={{ display: "grid", gap: "6px", minWidth: "220px" }}>
+              <div style={statLabel}>Assigned SP</div>
+              <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>
+                {spPortal?.assigned_sp_name || sps[0]?.full_name || me?.fullName || "SP account"}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section style={{ ...detailGridStyle, gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
+          <div style={statCard}>
+            <div style={statLabel}>Event dates</div>
+            <div style={{ marginTop: "8px", display: "grid", gap: "8px" }}>
+              {sessionSummary.length === 0 ? (
+                <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>Date and time will appear here once published.</div>
+              ) : (
+                sessionSummary.map((entry) => (
+                  <div key={entry.key} style={{ border: "1px solid var(--cfsp-border)", borderRadius: "12px", padding: "10px 12px", background: "var(--cfsp-surface)" }}>
+                    <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>{entry.dateLabel}</div>
+                    <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontWeight: 700 }}>{entry.timeLabel}</div>
+                    <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontWeight: 700 }}>{entry.location}</div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          <div style={statCard}>
+            <div style={statLabel}>Training access</div>
+            <div style={{ marginTop: "8px", display: "grid", gap: "10px" }}>
+              {spPortal?.zoom_url ? (
+                <a href={spPortal.zoom_url} target="_blank" rel="noreferrer" className="cfsp-btn cfsp-btn-primary" style={{ textDecoration: "none", width: "fit-content" }}>
+                  Open Zoom / Training Link
+                </a>
+              ) : (
+                <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>Zoom or virtual access has not been posted yet.</div>
+              )}
+              <div>
+                <div style={statLabel}>Training password</div>
+                <div style={{ marginTop: "4px", color: "var(--cfsp-text)", fontWeight: 900 }}>
+                  {spPortal?.training_password || "Not posted"}
+                </div>
+              </div>
+              {spPortal?.recording_url ? (
+                <a href={spPortal.recording_url} target="_blank" rel="noreferrer" className="cfsp-btn cfsp-btn-secondary" style={{ textDecoration: "none", width: "fit-content" }}>
+                  Open Recording Guide
+                </a>
+              ) : null}
+            </div>
+          </div>
+
+          <div style={statCard}>
+            <div style={statLabel}>Faculty / contacts</div>
+            <div style={{ marginTop: "8px", display: "grid", gap: "8px", color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
+              <div><strong style={{ color: "var(--cfsp-text)" }}>Faculty:</strong> {spPortal?.faculty_name || "Not posted"}</div>
+              <div><strong style={{ color: "var(--cfsp-text)" }}>Program:</strong> {spPortal?.program || "Not posted"}</div>
+              <div><strong style={{ color: "var(--cfsp-text)" }}>Email:</strong> {spPortal?.faculty_email || "Not posted"}</div>
+              <div><strong style={{ color: "var(--cfsp-text)" }}>Phone:</strong> {spPortal?.faculty_phone || "Not posted"}</div>
+              <div><strong style={{ color: "var(--cfsp-text)" }}>Sim team:</strong> {spPortal?.sim_contact || "Not posted"}</div>
+            </div>
+          </div>
+        </section>
+
+        <section style={cardStyle}>
+          <div style={statLabel}>Training materials</div>
+          <div style={{ marginTop: "10px", display: "grid", gap: "10px" }}>
+            {(spPortal?.materials || []).length === 0 ? (
+              <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>Materials will appear here when they are shared with you.</div>
+            ) : (
+              (spPortal?.materials || []).map((material) => (
+                <div key={material.key} style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "center", border: "1px solid var(--cfsp-border)", borderRadius: "14px", padding: "12px 14px", background: "var(--cfsp-surface)" }}>
+                  <div>
+                    <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>{material.label}</div>
+                    <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontWeight: 700 }}>{material.name || "Open file"}</div>
+                  </div>
+                  <a href={material.url} target="_blank" rel="noreferrer" className="cfsp-btn cfsp-btn-secondary" style={{ textDecoration: "none" }}>
+                    Open
+                  </a>
+                </div>
+              ))
+            )}
+          </div>
+        </section>
       </SiteShell>
     );
   }

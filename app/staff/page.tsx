@@ -10,6 +10,8 @@ type StaffMember = {
   email: string;
   role: string;
   schedule_match_name: string;
+  sp_link_status?: string;
+  sp_link_sp_id?: string;
   status: string;
   is_active: boolean;
   created_at: string | null;
@@ -242,6 +244,16 @@ export default function StaffPage() {
                     <div className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
                       <div className="cfsp-label">Role</div>
                       <div className="mt-2 text-sm font-bold text-[#14304f]">{formatRole(member.role)}</div>
+                    </div>
+                    <div className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
+                      <div className="cfsp-label">SP Link</div>
+                      <div className="mt-2 text-sm font-bold text-[#14304f]">
+                        {asText(member.role).toLowerCase() === "sp"
+                          ? asText(member.sp_link_status).toLowerCase() === "linked"
+                            ? "Linked to SP directory"
+                            : "Pending SP link"
+                          : "Not applicable"}
+                      </div>
                     </div>
                     <div className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
                       <div className="cfsp-label">Created</div>
