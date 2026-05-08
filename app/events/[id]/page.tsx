@@ -2122,9 +2122,11 @@ const hiringMailtoHref = buildMailtoHref({
       {
         id: "schedule",
         label: "Schedule readiness",
-        value: sessions.length ? `${sessions.length} session${sessions.length === 1 ? "" : "s"} ready` : "Needs schedule",
-        complete: Boolean((asText(event?.date_text) || sessions.length) && summaryTimeLabel !== "Time TBD"),
-        detail: sessions.length ? summaryTimeLabel : "Date/time still incomplete",
+       value: rotationRounds.length
+  ? `${rotationRounds.length} rotation round${rotationRounds.length === 1 ? "" : "s"} ready`
+  : "Needs schedule",
+       complete: Boolean((asText(event?.date_text) || rotationRounds.length) && summaryTimeLabel !== "Time TBD"),
+detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
       },
       {
         id: "email",
@@ -3371,20 +3373,24 @@ const hiringMailtoHref = buildMailtoHref({
   if (viewerRole === "sp") {
     const assignment = assignments[0] || null;
     const assignmentStatus = assignment ? getAssignmentStatus(assignment) : null;
-    const sessionSummary = sessions.map((session) => {
-      const dateLabel = session.session_date
-        ? formatHumanDate(session.session_date, getImportedYearHint(event.date_text)) || session.session_date
-        : "Date TBD";
-      const timeLabel =
-        session.start_time || session.end_time
-          ? `${formatDisplayTime(session.start_time)}${session.end_time ? ` - ${formatDisplayTime(session.end_time)}` : ""}`
-          : "Time TBD";
-      return {
-        key: session.id || `${session.session_date}-${session.start_time}`,
-        dateLabel,
-        timeLabel,
-        location: session.room || session.location || event.location || "Location TBD",
-      };
+    const sessionSummary = rotationRounds.map((round, index) => {
+  const dateLabel = round.session_date
+    ? formatHumanDate(round.session_date, getImportedYearHint(event.date_text)) || round.session_date
+    : "Date TBD";
+
+  const timeLabel =
+    round.start_time || round.end_time
+      ? `${formatDisplayTime(round.start_time)}${round.end_time ? ` - ${formatDisplayTime(round.end_time)}` : ""}`
+      : "Time TBD";
+
+  return {
+    key: round.key,
+    dateLabel: `Round ${index + 1} · ${dateLabel}`,
+    timeLabel,
+    location: round.rooms.length
+      ? `${round.rooms.length} room${round.rooms.length === 1 ? "" : "s"}`
+      : event.location || "Rooms TBD",
+  };
     });
 
     return (
