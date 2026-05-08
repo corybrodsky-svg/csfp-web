@@ -4008,16 +4008,48 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
               <div style={{ marginTop: "10px" }}>
                 <div style={statLabel}>Sessions</div>
                 <div style={{ display: "grid", gap: "6px", marginTop: "6px" }}>
-                  {sessions.map((session) => (
-                    <div key={session.id} style={{ ...statCard, padding: "10px 12px" }}>
-                      <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>
-                        {formatSessionDate(session.session_date, importedYearHint)}
-                      </div>
-                      <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", lineHeight: 1.5, fontSize: "13px" }}>
-                        {formatSessionTime(session)} · {formatSessionLocation(session, event.location)}
-                      </div>
-                    </div>
-                  ))}
+                 {rotationRounds.map((round, index) => (
+  <div
+    key={round.key}
+    style={{
+      borderRadius: "18px",
+      border: "1px solid rgba(148, 163, 184, 0.22)",
+      background: "rgba(15, 23, 42, 0.92)",
+      padding: "18px",
+      display: "grid",
+      gap: "8px",
+    }}
+  >
+    <div
+      style={{
+        fontSize: "1.35rem",
+        fontWeight: 800,
+        color: "#f8fafc",
+      }}
+    >
+      Round {index + 1}
+    </div>
+
+    <div
+      style={{
+        color: "#cbd5e1",
+        fontSize: "1rem",
+        fontWeight: 600,
+      }}
+    >
+      {formatRotationRoundLabel(round, importedYearHint)}
+    </div>
+
+    <div
+      style={{
+        color: "#94a3b8",
+        fontSize: "0.95rem",
+      }}
+    >
+      {round.rooms.length} rooms
+    </div>
+  </div>
+))}
                 </div>
               </div>
             ) : (
