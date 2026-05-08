@@ -992,21 +992,17 @@ function formatSessionTime(session: EventSessionRow) {
   return formatDisplayTime(session.start_time || session.end_time);
 }
 
-function formatSessionLocation(session: EventSessionRow, eventLocation?: string | null) {
-  return session.room || session.location || eventLocation || "Location TBD";
+function parseIntegerNoteValue(notes: string | null | undefined, label: string) {
+  const text = asText(notes);
+  if (!text) return 0;
+  const escapedLabel = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = text.match(new RegExp(`^${escapedLabel}\\s*:\\s*(\\d+)\\b`, "im"));
+  if (!match) return 0;
+  const parsed = Number(match[1]);
+  if (!Number.isFinite(parsed)) return 0;
+  return Math.max(0, Math.floor(parsed));
 }
 
-function formatSessionLabel(
-  session: EventSessionRow,
-  eventLocation?: string | null,
-  fallbackYear?: number | null
-) {
-  return [
-    formatSessionDate(session.session_date, fallbackYear),
-    formatSessionTime(session),
-    formatSessionLocation(session, eventLocation),
-  ].join(" · ");
-}
 function buildRotationRounds(sessions: EventSessionRow[]): RotationRound[] {
   const rounds = new Map<string, RotationRound>();
 
@@ -1039,6 +1035,11 @@ function buildRotationRounds(sessions: EventSessionRow[]): RotationRound[] {
     if (dateCompare !== 0) return dateCompare;
     return asText(a.start_time).localeCompare(asText(b.start_time));
   });
+}
+
+function capRotationRounds(rounds: RotationRound[], maxRounds: number) {
+  if (maxRounds <= 0 || rounds.length <= maxRounds) return rounds;
+  return rounds.slice(0, maxRounds);
 }
 
 function formatRotationRoundLabel(round: RotationRound, fallbackYear?: number | null) {
@@ -1613,7 +1614,40 @@ const [selectedHiringSpIds, setSelectedHiringSpIds] = useState<string[]>([]);
   const coveragePercent =
     needed > 0 ? Math.min(100, Math.round((confirmedCount / needed) * 100)) : 0;
   const importedYearHint = getImportedYearHint(event?.notes);
-  const rotationRounds = useMemo(() => buildRotationRounds(sessions), [sessions]);
+  const metadataStudentCount = useMemo(
+    () => parseIntegerNoteValue(event?.notes, "Student Count"),
+    [event?.notes]
+  );
+  const metadataRoomCount = useMemo(
+    () => parseIntegerNoteValue(event?.notes, "Rooms"),
+    [event?.notes]
+  );
+  const metadataRotationRoundsNeeded = useMemo(
+    () => parseIntegerNoteValue(event?.notes, "Rotation Rounds Needed"),
+    [event?.notes]
+  );
+  const metadataGeneratedRotationRounds = useMemo(
+    () => parseIntegerNoteValue(event?.notes, "Generated Rotation Rounds"),
+    [event?.notes]
+  );
+  const allRotationRounds = useMemo(() => buildRotationRounds(sessions), [sessions]);
+  const learnerCapacityRotationLimit =
+    metadataStudentCount > 0 && metadataRoomCount > 0
+      ? Math.ceil(metadataStudentCount / metadataRoomCount)
+      : 0;
+  const operationalRotationLimit =
+    learnerCapacityRotationLimit ||
+    metadataRotationRoundsNeeded ||
+    metadataGeneratedRotationRounds ||
+    0;
+  const rotationRounds = useMemo(
+    () => capRotationRounds(allRotationRounds, operationalRotationLimit),
+    [allRotationRounds, operationalRotationLimit]
+  );
+  const hiddenExtraBackendRounds =
+    operationalRotationLimit > 0 && allRotationRounds.length > rotationRounds.length
+      ? allRotationRounds.length - rotationRounds.length
+      : 0;
   const simStaffNames = useMemo(() => getSimStaffNames(event?.notes), [event?.notes]);
   const trainingMetadata = useMemo(
     () => parseTrainingEventMetadata(eventEditor.notes),
@@ -1625,8 +1659,20 @@ const [selectedHiringSpIds, setSelectedHiringSpIds] = useState<string[]>([]);
   );
   const fallbackFacultyText = useMemo(() => getFacultyText(eventEditor.notes), [eventEditor.notes]);
   const structuredDateLabel = sessions.length
-    ? sessions
-        .map((session) => formatSessionLabel(session, event?.location, importedYearHint))
+    ? rotationRounds
+        .map((round) =>
+          [
+            formatSessionDate(round.session_date, importedYearHint),
+            round.start_time && round.end_time
+              ? `${formatDisplayTime(round.start_time)} - ${formatDisplayTime(round.end_time)}`
+              : formatDisplayTime(round.start_time || round.end_time),
+            round.rooms.length
+              ? `${round.rooms.length} room${round.rooms.length === 1 ? "" : "s"}`
+              : event?.location || "Location TBD",
+          ]
+            .filter(Boolean)
+            .join(" · ")
+        )
         .join("; ")
     : "";
   const eventDateLabel = structuredDateLabel || formatEventDateText(event?.date_text, importedYearHint);
@@ -1634,12 +1680,12 @@ const [selectedHiringSpIds, setSelectedHiringSpIds] = useState<string[]>([]);
     () =>
       Array.from(
         new Set(
-          sessions
-            .map((session) => formatSessionDate(session.session_date, importedYearHint))
+          rotationRounds
+            .map((round) => formatSessionDate(round.session_date, importedYearHint))
             .filter(Boolean)
         )
       ),
-    [importedYearHint, sessions]
+    [importedYearHint, rotationRounds]
   );
 const sessionSummaryLabel = useMemo(() => {
   if (!rotationRounds.length) return formatEventDateText(event?.date_text, importedYearHint);
@@ -2152,7 +2198,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
       needed,
       noSpStaffingRequired,
       outreachProgressLabel,
-      sessions.length,
+      rotationRounds.length,
       summaryTimeLabel,
       trainingCaseStatus,
       trainingMetadata.sim_contact,
@@ -3374,23 +3420,23 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
     const assignment = assignments[0] || null;
     const assignmentStatus = assignment ? getAssignmentStatus(assignment) : null;
     const sessionSummary = rotationRounds.map((round, index) => {
-  const dateLabel = round.session_date
-    ? formatHumanDate(round.session_date, getImportedYearHint(event.date_text)) || round.session_date
-    : "Date TBD";
+      const dateLabel = round.session_date
+        ? formatHumanDate(round.session_date, getImportedYearHint(event.date_text)) || round.session_date
+        : "Date TBD";
 
-  const timeLabel =
-    round.start_time || round.end_time
-      ? `${formatDisplayTime(round.start_time)}${round.end_time ? ` - ${formatDisplayTime(round.end_time)}` : ""}`
-      : "Time TBD";
+      const timeLabel =
+        round.start_time || round.end_time
+          ? `${formatDisplayTime(round.start_time)}${round.end_time ? ` - ${formatDisplayTime(round.end_time)}` : ""}`
+          : "Time TBD";
 
-  return {
-    key: round.key,
-    dateLabel: `Round ${index + 1} · ${dateLabel}`,
-    timeLabel,
-    location: round.rooms.length
-      ? `${round.rooms.length} room${round.rooms.length === 1 ? "" : "s"}`
-      : event.location || "Rooms TBD",
-  };
+      return {
+        key: round.key,
+        dateLabel: `Round ${index + 1} · ${dateLabel}`,
+        timeLabel,
+        location: round.rooms.length
+          ? `${round.rooms.length} room${round.rooms.length === 1 ? "" : "s"}`
+          : event.location || "Rooms TBD",
+      };
     });
 
     return (
@@ -4005,53 +4051,58 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
             </div>
 
             {sessions.length ? (
-              <div style={{ marginTop: "10px" }}>
-                <div style={statLabel}>Sessions</div>
-                <div style={{ display: "grid", gap: "6px", marginTop: "6px" }}>
-                 {rotationRounds.map((round, index) => (
-  <div
-    key={round.key}
-    style={{
-      borderRadius: "18px",
-      border: "1px solid rgba(148, 163, 184, 0.22)",
-      background: "rgba(15, 23, 42, 0.92)",
-      padding: "18px",
-      display: "grid",
-      gap: "8px",
-    }}
-  >
-    <div
-      style={{
-        fontSize: "1.35rem",
-        fontWeight: 800,
-        color: "#f8fafc",
-      }}
-    >
-      Round {index + 1}
-    </div>
-
-    <div
-      style={{
-        color: "#cbd5e1",
-        fontSize: "1rem",
-        fontWeight: 600,
-      }}
-    >
-      {formatRotationRoundLabel(round, importedYearHint)}
-    </div>
-
-    <div
-      style={{
-        color: "#94a3b8",
-        fontSize: "0.95rem",
-      }}
-    >
-      {round.rooms.length} rooms
-    </div>
-  </div>
-))}
+            <div style={{ marginTop: "10px" }}>
+              <div style={statLabel}>Sessions</div>
+              {hiddenExtraBackendRounds > 0 ? (
+                <div style={{ marginTop: "6px", color: "var(--cfsp-warning)", fontSize: "12px", fontWeight: 800 }}>
+                  Extra backend room slots are hidden because learner capacity only requires {rotationRounds.length} rotation round{rotationRounds.length === 1 ? "" : "s"}.
                 </div>
+              ) : null}
+              <div style={{ display: "grid", gap: "6px", marginTop: "6px" }}>
+                {rotationRounds.map((round, index) => (
+                  <div
+                    key={round.key}
+                    style={{
+                      borderRadius: "18px",
+                      border: "1px solid rgba(148, 163, 184, 0.22)",
+                      background: "rgba(15, 23, 42, 0.92)",
+                      padding: "18px",
+                      display: "grid",
+                      gap: "8px",
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: "1.35rem",
+                        fontWeight: 800,
+                        color: "#f8fafc",
+                      }}
+                    >
+                      Round {index + 1}
+                    </div>
+
+                    <div
+                      style={{
+                        color: "#cbd5e1",
+                        fontSize: "1rem",
+                        fontWeight: 600,
+                      }}
+                    >
+                      {formatRotationRoundLabel(round, importedYearHint)}
+                    </div>
+
+                    <div
+                      style={{
+                        color: "#94a3b8",
+                        fontSize: "0.95rem",
+                      }}
+                    >
+                      {round.rooms.length} rooms
+                    </div>
+                  </div>
+                ))}
               </div>
+            </div>
             ) : (
               <div style={{ marginTop: "10px", color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
                 No structured sessions yet. Fallback date text: {formatEventDateText(event.date_text, importedYearHint)}
