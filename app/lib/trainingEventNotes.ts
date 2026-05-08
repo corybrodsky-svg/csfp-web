@@ -31,6 +31,7 @@ export type TrainingEventMetadata = {
   imported_event_info_count: string;
   imported_training_date: string;
   imported_training_time: string;
+  imported_event_times: string;
   imported_event_dates_count: string;
 };
 
@@ -70,6 +71,7 @@ const TRAINING_METADATA_KEYS = [
   "imported_event_info_count",
   "imported_training_date",
   "imported_training_time",
+  "imported_event_times",
   "imported_event_dates_count",
 ] as const satisfies readonly (keyof TrainingEventMetadata)[];
 
@@ -118,6 +120,7 @@ export function emptyTrainingEventMetadata(): TrainingEventMetadata {
     imported_event_info_count: "",
     imported_training_date: "",
     imported_training_time: "",
+    imported_event_times: "",
     imported_event_dates_count: "",
   };
 }

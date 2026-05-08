@@ -16,6 +16,8 @@ type EventRow = {
   sp_needed: number | null;
   notes: string | null;
   earliest_session_date?: string | null;
+  earliest_session_start?: string | null;
+  latest_session_end?: string | null;
   assigned_sp_names?: string[] | null;
   total_assignments?: number | null;
   confirmed_assignments?: number | null;
@@ -110,6 +112,22 @@ type ScheduleBuilderDraft = {
 
 type SaveState = "saved" | "saving" | "unsaved" | "error";
 
+type BuilderTimeSource =
+  | "event_session"
+  | "imported_event_info"
+  | "training_metadata"
+  | "saved_draft"
+  | "default"
+  | "edited";
+
+type BuilderTimePrefill = {
+  source: BuilderTimeSource;
+  label: string;
+  startTime: string;
+  endTime: string;
+  sessionLengthMinutes: string;
+};
+
 const DEFAULT_SCHEDULE_BUILDER_DRAFT: ScheduleBuilderDraft = {
   builderMode: "simple",
   scheduleViewMode: "student",
@@ -167,6 +185,151 @@ function toMinutes(value: string) {
   if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
   if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
   return hours * 60 + minutes;
+}
+
+function parseClockTextToMinutes(value: string) {
+  const text = asText(value);
+  if (!text) return null;
+
+  const normalized = text.replace(/\./g, "").trim();
+  const twelveHourMatch = normalized.match(/^(\d{1,2})(?::(\d{2}))?(?::\d{2})?\s*([ap]m)$/i);
+  if (twelveHourMatch) {
+    const hours = Number(twelveHourMatch[1]);
+    const minutes = Number(twelveHourMatch[2] || "0");
+    const meridiem = twelveHourMatch[3].toLowerCase();
+    if (!Number.isFinite(hours) || !Number.isFinite(minutes) || hours < 1 || hours > 12 || minutes < 0 || minutes > 59) {
+      return null;
+    }
+    const normalizedHours = hours % 12 + (meridiem === "pm" ? 12 : 0);
+    return normalizedHours * 60 + minutes;
+  }
+
+  const twentyFourHourMatch = normalized.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+  if (twentyFourHourMatch) {
+    const hours = Number(twentyFourHourMatch[1]);
+    const minutes = Number(twentyFourHourMatch[2]);
+    if (!Number.isFinite(hours) || !Number.isFinite(minutes) || hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
+      return null;
+    }
+    return hours * 60 + minutes;
+  }
+
+  return null;
+}
+
+function minutesToInputTime(totalMinutes: number) {
+  const normalized = ((totalMinutes % (24 * 60)) + 24 * 60) % (24 * 60);
+  const hours = Math.floor(normalized / 60);
+  const minutes = normalized % 60;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
+
+function extractTimeRange(value: string) {
+  const matches =
+    value.match(/\b(?:\d{1,2}:\d{2}(?::\d{2})?\s*(?:AM|PM)?|\d{1,2}\s*(?:AM|PM))\b/gi) || [];
+  const parsed = matches
+    .map((match) => parseClockTextToMinutes(match))
+    .filter((item): item is number => item !== null);
+
+  if (!parsed.length) return { startMinutes: null, endMinutes: null };
+
+  return {
+    startMinutes: parsed[0] ?? null,
+    endMinutes: parsed[1] ?? null,
+  };
+}
+
+function getNotesLineValue(notes: string | null | undefined, label: "Training Time" | "Event Time") {
+  const match = asText(notes).match(new RegExp(`(?:^|\\n)${label}\\s*:\\s*(.+?)(?:\\n|$)`, "i"));
+  return asText(match?.[1]);
+}
+
+function buildTimePrefill(event: EventRow | null, savedDraft: ScheduleBuilderDraft | null): BuilderTimePrefill {
+  const defaultPrefill: BuilderTimePrefill = {
+    source: "default",
+    label: "Using default time",
+    startTime: DEFAULT_SCHEDULE_BUILDER_DRAFT.startTime,
+    endTime: "",
+    sessionLengthMinutes: "0",
+  };
+
+  if (!event) {
+    if (savedDraft?.startTime) {
+      return {
+        source: "saved_draft",
+        label: "Using saved builder draft",
+        startTime: savedDraft.startTime,
+        endTime: "",
+        sessionLengthMinutes: savedDraft.sessionLengthMinutes || "0",
+      };
+    }
+    return defaultPrefill;
+  }
+
+  const eventStartMinutes = parseClockTextToMinutes(asText(event.earliest_session_start));
+  const eventEndMinutes = parseClockTextToMinutes(asText(event.latest_session_end));
+  if (eventStartMinutes !== null) {
+    const derivedLength =
+      eventEndMinutes !== null && eventEndMinutes > eventStartMinutes
+        ? String(eventEndMinutes - eventStartMinutes)
+        : "0";
+    return {
+      source: "event_session",
+      label: "Using event session time",
+      startTime: minutesToInputTime(eventStartMinutes),
+      endTime: eventEndMinutes !== null ? minutesToInputTime(eventEndMinutes) : "",
+      sessionLengthMinutes: derivedLength,
+    };
+  }
+
+  const metadata = parseTrainingEventMetadata(event.notes);
+  const importedEventTimeText =
+    asText(metadata.imported_event_times).split(/\s*\|\s*/).find(Boolean) || "";
+  const importedEventRange = extractTimeRange(importedEventTimeText);
+  if (importedEventRange.startMinutes !== null) {
+    return {
+      source: "imported_event_info",
+      label: "Using imported SP Event Info time",
+      startTime: minutesToInputTime(importedEventRange.startMinutes),
+      endTime:
+        importedEventRange.endMinutes !== null ? minutesToInputTime(importedEventRange.endMinutes) : "",
+      sessionLengthMinutes:
+        importedEventRange.endMinutes !== null && importedEventRange.endMinutes > importedEventRange.startMinutes
+          ? String(importedEventRange.endMinutes - importedEventRange.startMinutes)
+          : "0",
+    };
+  }
+
+  const trainingMetadataRange = extractTimeRange(
+    asText(metadata.imported_training_time) ||
+      getNotesLineValue(event.notes, "Training Time") ||
+      getNotesLineValue(event.notes, "Event Time")
+  );
+  if (trainingMetadataRange.startMinutes !== null) {
+    return {
+      source: "training_metadata",
+      label: "Using training/session metadata",
+      startTime: minutesToInputTime(trainingMetadataRange.startMinutes),
+      endTime:
+        trainingMetadataRange.endMinutes !== null ? minutesToInputTime(trainingMetadataRange.endMinutes) : "",
+      sessionLengthMinutes:
+        trainingMetadataRange.endMinutes !== null && trainingMetadataRange.endMinutes > trainingMetadataRange.startMinutes
+          ? String(trainingMetadataRange.endMinutes - trainingMetadataRange.startMinutes)
+          : "0",
+    };
+  }
+
+  if (savedDraft?.startTime) {
+    return {
+      source: "saved_draft",
+      label: "Using saved builder draft",
+      startTime: savedDraft.startTime,
+      endTime: "",
+      sessionLengthMinutes: savedDraft.sessionLengthMinutes || "0",
+    };
+  }
+
+  return defaultPrefill;
 }
 
 function toDisplayTime(totalMinutes: number) {
@@ -301,11 +464,42 @@ function getFirstNonEmptyCell(row: unknown[]) {
   return "";
 }
 
+function normalizeHeader(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
 function parseLearnerNamesFromWorkbook(workbook: XLSX.WorkBook) {
   const firstSheetName = workbook.SheetNames[0];
   if (!firstSheetName) return [];
 
   const sheet = workbook.Sheets[firstSheetName];
+  const objectRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
+    defval: "",
+  });
+  const preferredHeaders = [
+    "student name",
+    "name",
+    "learner",
+    "learner name",
+    "student",
+    "full name",
+  ];
+
+  if (objectRows.length) {
+    const sourceKey =
+      preferredHeaders
+        .map((header) =>
+          Object.keys(objectRows[0] || {}).find((key) => normalizeHeader(key) === header)
+        )
+        .find(Boolean) || "";
+
+    if (sourceKey) {
+      return objectRows
+        .map((row) => asText(row[sourceKey]))
+        .filter(Boolean);
+    }
+  }
+
   const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, {
     header: 1,
     blankrows: false,
@@ -330,6 +524,17 @@ async function parseLearnerFile(file: File) {
   const buffer = await file.arrayBuffer();
   const workbook = XLSX.read(buffer, { type: "array" });
   return parseLearnerNamesFromWorkbook(workbook);
+}
+
+function downloadStudentRosterTemplate() {
+  const csv = ["Student Name,Group,Notes", "Jordan Smith,A,", "Taylor Chen,B,Requires front-row seat"].join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = "student-roster-template.csv";
+  anchor.click();
+  URL.revokeObjectURL(url);
 }
 
 function shuffleRoster(names: string[]) {
@@ -512,6 +717,13 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [saveErrorMessage, setSaveErrorMessage] = useState("");
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
+  const [timeSource, setTimeSource] = useState<BuilderTimePrefill>({
+    source: "default",
+    label: "Using default time",
+    startTime: DEFAULT_SCHEDULE_BUILDER_DRAFT.startTime,
+    endTime: "",
+    sessionLengthMinutes: "0",
+  });
 
   const [startTime, setStartTime] = useState(DEFAULT_SCHEDULE_BUILDER_DRAFT.startTime);
   const [staffArrivalTime, setStaffArrivalTime] = useState(DEFAULT_SCHEDULE_BUILDER_DRAFT.staffArrivalTime);
@@ -547,6 +759,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const [debriefMinutes, setDebriefMinutes] = useState(DEFAULT_SCHEDULE_BUILDER_DRAFT.debriefMinutes);
   const [breakdownMinutes, setBreakdownMinutes] = useState(DEFAULT_SCHEDULE_BUILDER_DRAFT.breakdownMinutes);
   const hydratedDraftKeyRef = useRef<string>("");
+  const hydratedTimePrefillKeyRef = useRef<string>("");
   const skipNextAutosaveRef = useRef(false);
   const autosaveTimeoutRef = useRef<number | null>(null);
 
@@ -787,6 +1000,26 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     () => events.find((event) => event.id === selectedEventId) || null,
     [events, selectedEventId]
   );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!storageKey || !selectedEventId) return;
+
+    const hydrationKey = `${storageKey}:${selectedEvent?.id || "none"}`;
+    if (hydratedTimePrefillKeyRef.current === hydrationKey) return;
+
+    const savedDraft = parseSavedDraft(window.localStorage.getItem(storageKey));
+    const nextTimeSource = buildTimePrefill(selectedEvent, savedDraft);
+
+    hydratedTimePrefillKeyRef.current = hydrationKey;
+    skipNextAutosaveRef.current = true;
+    setTimeSource(nextTimeSource);
+    setStartTime(nextTimeSource.startTime);
+    if (nextTimeSource.sessionLengthMinutes !== "0") {
+      setSessionLengthMinutes(nextTimeSource.sessionLengthMinutes);
+    }
+  }, [selectedEvent, selectedEventId, storageKey]);
+
   const selectedEventMetadata = useMemo(
     () => parseTrainingEventMetadata(selectedEvent?.notes),
     [selectedEvent?.notes]
@@ -1106,6 +1339,15 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     includeSoap ||
     includeDebrief ||
     includeBreakdown;
+  const currentTimeSourceLabel = startTime === timeSource.startTime ? timeSource.label : "Edited in builder";
+  const referenceEndTimeLabel = timeSource.endTime ? toDisplayTime(toMinutes(timeSource.endTime) || 0) : "";
+
+  function handleStartTimeChange(value: string) {
+    setStartTime(value);
+    if (value !== timeSource.startTime) {
+      setTimeSource((current) => ({ ...current, source: "edited" }));
+    }
+  }
 
   async function handleCopyPreview() {
     try {
@@ -1244,8 +1486,8 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
             <div className="cfsp-alert cfsp-alert-error">This event could not be found for schedule building.</div>
           ) : null}
 
-          <div className="grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
-            <section className="cfsp-panel px-5 py-5">
+          <div className="grid gap-4 xl:grid-cols-[1fr_0.95fr]">
+            <section className="cfsp-panel px-4 py-4">
               <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">Event</h3>
               <div className="mt-4 grid gap-4">
                 {!props.fixedEventId ? (
@@ -1305,7 +1547,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
               </div>
             </section>
 
-            <section className="cfsp-panel px-5 py-5">
+            <section className="cfsp-panel px-4 py-4">
               <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">Learners</h3>
               <p className="mt-2 mb-0 text-sm leading-6 text-[#5e7388]">
                 Upload a CSV or Excel roster to populate real learner names. If you skip the upload, the builder will use Learner 1, Learner 2, and so on.
@@ -1320,6 +1562,14 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                     className="cfsp-input"
                   />
                 </label>
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" onClick={downloadStudentRosterTemplate} className="cfsp-btn cfsp-btn-secondary">
+                    Download Student Roster Template
+                  </button>
+                </div>
+                <div className="text-sm font-semibold text-[#5e7388]">
+                  Use the Student Name column for learner names. Group and Notes are optional.
+                </div>
                 {learnerUploadError ? <div className="cfsp-alert cfsp-alert-error">{learnerUploadError}</div> : null}
                 <div className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
                   <div className="cfsp-label">Active learner roster</div>
@@ -1344,8 +1594,8 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
             </section>
           </div>
 
-          <div className="grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
-            <section className="cfsp-panel px-5 py-5">
+          <div className="grid gap-4 xl:grid-cols-[1.02fr_0.98fr]">
+            <section className="cfsp-panel px-4 py-4">
               <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">Schedule Summary</h3>
               <div className="mt-4 grid gap-3 md:grid-cols-2">
                 <div className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
@@ -1353,11 +1603,15 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                   <div className="mt-2 text-base font-black text-[#14304f]">
                     {parsedStartMinutes === null ? "Invalid start time" : toDisplayTime(parsedStartMinutes)}
                   </div>
+                  <div className="mt-2 text-xs font-semibold text-[#5e7388]">{currentTimeSourceLabel}</div>
                 </div>
                 <div className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
                   <div className="cfsp-label">End Time</div>
                   <div className="mt-2 text-base font-black text-[#14304f]">
                     {generated.rounds.length ? toDisplayTime(rotationEnd) : "Not generated yet"}
+                  </div>
+                  <div className="mt-2 text-xs font-semibold text-[#5e7388]">
+                    {referenceEndTimeLabel ? `Reference event end: ${referenceEndTimeLabel}` : "Calculated from the builder settings"}
                   </div>
                 </div>
                 <div className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
@@ -1422,7 +1676,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
               ) : null}
             </section>
 
-            <section className="cfsp-panel px-5 py-5">
+            <section className="cfsp-panel px-4 py-4">
               <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">Simple Builder</h3>
               <p className="mt-2 mb-0 text-sm leading-6 text-[#5e7388]">
                 Use the core scheduling inputs below to generate a standard session schedule quickly.
@@ -1430,11 +1684,25 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
               <div className="mt-3 text-sm font-semibold text-[#5e7388]">
                 Student roster upload lives in the Learners panel and drives the automatic rounds calculation.
               </div>
-              <div className="mt-4 grid gap-4 md:grid-cols-2">
-                <label className="grid gap-2">
-                  <span className="cfsp-label">Start time</span>
-                  <input type="time" value={startTime} onChange={(event) => setStartTime(event.target.value)} className="cfsp-input" />
-                </label>
+              <div className="mt-4 rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
+                <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                  <label className="grid gap-2">
+                    <span className="cfsp-label">Start time</span>
+                    <input type="time" value={startTime} onChange={(event) => handleStartTimeChange(event.target.value)} className="cfsp-input" />
+                    <span className="text-xs font-semibold text-[#5e7388]">{currentTimeSourceLabel}</span>
+                  </label>
+                  <div className="grid gap-2">
+                    <span className="cfsp-label">End time</span>
+                    <div className="cfsp-input flex items-center bg-[#eef5fb] font-black text-[#14304f]">
+                      {generated.rounds.length ? toDisplayTime(rotationEnd) : "Not generated yet"}
+                    </div>
+                    <span className="text-xs font-semibold text-[#5e7388]">
+                      {referenceEndTimeLabel ? `Reference event end: ${referenceEndTimeLabel}` : "Calculated from rounds and block settings"}
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                 <NumberInput label={roomCountLabel} value={examRoomCount} onChange={setExamRoomCount} />
                 <NumberInput label={roomCapacityLabel} value={roomCapacity} onChange={setRoomCapacity} />
                 {!isVirtualEvent ? (
@@ -1461,8 +1729,8 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
           </div>
 
           {builderMode === "advanced" ? (
-            <div className="grid gap-5 xl:grid-cols-2">
-              <section className="cfsp-panel px-5 py-5">
+            <div className="grid gap-4 xl:grid-cols-2">
+              <section className="cfsp-panel px-4 py-4">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>
                     <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">Advanced Options</h3>
@@ -1512,7 +1780,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                 </div>
               </section>
 
-              <section className="cfsp-panel px-5 py-5">
+              <section className="cfsp-panel px-4 py-4">
                 <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">Advanced Status</h3>
                 <div className="mt-4 grid gap-3">
                   <div className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
@@ -1529,7 +1797,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
             </div>
           ) : null}
 
-          <section className="cfsp-panel px-5 py-5">
+          <section className="cfsp-panel px-4 py-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">Full day timeline</h3>
@@ -1573,7 +1841,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
             )}
           </section>
 
-          <section className="cfsp-panel px-5 py-5">
+          <section className="cfsp-panel px-4 py-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">Session schedule grid</h3>

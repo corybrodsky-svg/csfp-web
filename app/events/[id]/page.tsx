@@ -1198,6 +1198,7 @@ export default function EventDetailPage() {
   const [availabilityRows, setAvailabilityRows] = useState<AvailabilityRow[]>([]);
   const [selectedSpId, setSelectedSpId] = useState("");
   const [candidateQuery, setCandidateQuery] = useState("");
+  const [showCandidatePool, setShowCandidatePool] = useState(false);
   const [activeOnly, setActiveOnly] = useState(false);
   const [spanishOnly, setSpanishOnly] = useState(false);
   const [telehealthOnly, setTelehealthOnly] = useState(false);
@@ -1639,51 +1640,6 @@ export default function EventDetailPage() {
     subject: trainingEmailSubject,
     body: trainingEmailBody,
   });
-  const progressItems = useMemo(
-    () => [
-      {
-        label: "Intake complete",
-        complete: Boolean(asText(event?.name) && (asText(event?.date_text) || sessions.length)),
-        detail: "Event has a name and date information on file.",
-      },
-      {
-        label: "Sessions scheduled",
-        complete: sessions.length > 0,
-        detail: sessions.length > 0 ? `${sessions.length} session${sessions.length === 1 ? "" : "s"} on file.` : "No structured sessions yet.",
-      },
-      {
-        label: "Sim staff assigned",
-        complete: simStaffNames.length > 0,
-        detail: simStaffNames.length ? simStaffNames.join(", ") : "No sim staff listed yet.",
-      },
-      {
-        label: "SPs assigned",
-        complete: assignmentCount > 0,
-        detail: assignmentCount > 0 ? `${assignmentCount} assigned.` : "No SP assignments yet.",
-      },
-      {
-        label: "SPs confirmed",
-        complete: confirmedCount > 0,
-        detail: confirmedCount > 0 ? `${confirmedCount} confirmed.` : "No confirmed SPs yet.",
-      },
-      {
-        label: "Emails sent",
-        complete: assignments.some(
-          (assignment) =>
-            Boolean(assignment.last_contacted_at) ||
-            ["contacted", "confirmed", "declined"].includes(getAssignmentStatus(assignment))
-        ),
-        detail: assignments.some(
-          (assignment) =>
-            Boolean(assignment.last_contacted_at) ||
-            ["contacted", "confirmed", "declined"].includes(getAssignmentStatus(assignment))
-        )
-          ? "At least one assignment has contact activity recorded."
-          : "No contact activity recorded yet.",
-      },
-    ],
-    [assignmentCount, assignments, confirmedCount, event?.date_text, event?.name, sessions, simStaffNames]
-  );
   const workflowGroups = useMemo(
     () => [
       {
@@ -2375,6 +2331,7 @@ export default function EventDetailPage() {
         imported_event_info_count: String(parsed.entries.length),
         imported_training_date: parsed.trainingDate,
         imported_training_time: parsed.trainingTime,
+        imported_event_times: parsed.eventTimesDetected.join(" | "),
         imported_event_dates_count: String(parsed.eventDatesDetected.length),
       };
 
@@ -2775,16 +2732,6 @@ export default function EventDetailPage() {
     window.location.href = mailtoHref;
     showSuccessMessage(
       `Draft opened for ${assignedBccEmails.length} assigned SP${assignedBccEmails.length === 1 ? "" : "s"}.`
-    );
-  }
-
-  async function handleMarkEmailSent() {
-    await persistTrainingMetadataFields(
-      {
-        email_status: "sent",
-        email_sent_at: new Date().toISOString(),
-      },
-      "Email marked sent."
     );
   }
 
@@ -4204,255 +4151,282 @@ export default function EventDetailPage() {
       ) : null}
 
       {!isTrainingMode ? (
-        <section
-          style={{
-            ...cardStyle,
-            background: "var(--cfsp-surface-muted)",
-            borderColor: "rgba(120, 180, 255, 0.24)",
-            position: "sticky",
-            top: "16px",
-          }}
-        >
-          <div
+        <>
+          <section
+            className="xl:hidden"
             style={{
-              display: "flex",
-              justifyContent: "space-between",
-              gap: "12px",
-              flexWrap: "wrap",
-              alignItems: "flex-start",
+              ...cardStyle,
+              background: "var(--cfsp-surface-muted)",
+              borderColor: "rgba(120, 180, 255, 0.24)",
             }}
           >
-            <div>
-              <h2 style={compactSectionTitleStyle}>Workflow Report</h2>
-              <p style={compactSectionHintStyle}>
-                Compact progress view with saved workflow checks and operational status.
-              </p>
-            </div>
-            <div
-              style={{
-                borderRadius: "999px",
-                padding: "8px 12px",
-                background: workflowTone.background,
-                border: workflowTone.border,
-                color: workflowTone.color,
-                fontWeight: 900,
-                fontSize: "13px",
-              }}
-            >
-              {workflowPercent}% complete
-            </div>
-          </div>
-
-          <div
-            style={{
-              ...detailGridStyle,
-              marginTop: "12px",
-              gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
-            }}
-          >
-            {workflowReportItems.map((item) => (
-              <div key={item.id} style={statCard}>
-                <div style={statLabel}>{item.label}</div>
-                <div
-                  style={{
-                    ...statValue,
-                    fontSize: "15px",
-                    color: item.complete ? "var(--cfsp-green)" : "var(--cfsp-text)",
-                  }}
-                >
-                  {item.value}
-                </div>
-                <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 700 }}>
-                  {item.detail}
-                </div>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
+              <div>
+                <h2 style={compactSectionTitleStyle}>Workflow Report</h2>
+                <p style={compactSectionHintStyle}>Compact workflow status for this event.</p>
               </div>
-            ))}
-          </div>
-
-          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "12px" }}>
-            {!noSpStaffingRequired ? (
-              <button
-                type="button"
-                onClick={() => void handleConfirmAllAssignments()}
-                disabled={saving || sortedAssignments.length === 0}
-                style={{ ...buttonStyle, opacity: saving || sortedAssignments.length === 0 ? 0.65 : 1 }}
-              >
-                Confirm All
-              </button>
-            ) : null}
-            <button
-              type="button"
-              onClick={() => void handleOpenAvailabilityRequest()}
-              disabled={saving || !assignedBccEmails.length}
-              style={{
-                ...buttonStyle,
-                background: "var(--cfsp-surface)",
-                color: "var(--cfsp-text)",
-                border: "1px solid rgba(120, 180, 255, 0.24)",
-                opacity: saving || !assignedBccEmails.length ? 0.65 : 1,
-              }}
-            >
-              Draft Email
-            </button>
-            <button
-              type="button"
-              onClick={() => void handleMarkEmailSent()}
-              disabled={saving}
-              style={{
-                ...buttonStyle,
-                background: "var(--cfsp-surface)",
-                color: "var(--cfsp-green)",
-                border: "1px solid rgba(44, 211, 173, 0.24)",
-                opacity: saving ? 0.65 : 1,
-              }}
-            >
-              Mark Email Sent
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowWorkflowAdvanced((current) => !current)}
-              style={{
-                ...buttonStyle,
-                background: "var(--cfsp-surface)",
-                color: "var(--cfsp-text)",
-                border: "1px solid var(--cfsp-border)",
-              }}
-            >
-              {showWorkflowAdvanced ? "Hide Advanced Workflow" : "Advanced Workflow / Expand"}
-            </button>
-          </div>
-
-          {showWorkflowAdvanced ? (
-            <div style={{ display: "grid", gap: "14px", marginTop: "16px" }}>
-              {workflowGroups.map((group) => (
-                <section
-                  key={group.key}
-                  style={{
-                    border: "1px solid var(--cfsp-border)",
-                    borderRadius: "14px",
-                    background: "var(--cfsp-surface)",
-                    padding: "14px",
-                  }}
-                >
-                  <div style={{ color: "var(--cfsp-text)", fontWeight: 900, fontSize: "16px" }}>{group.title}</div>
-                  <div style={{ display: "grid", gap: "10px", marginTop: "10px" }}>
-                    {group.items.map((item) => {
-                      const complete = item.autoComplete || workflowChecks[item.id];
-                      const manualOnly = !item.autoComplete;
-                      return (
-                        <div
-                          key={item.id}
-                          style={{
-                            display: "flex",
-                            justifyContent: "space-between",
-                            gap: "12px",
-                            alignItems: "center",
-                            flexWrap: "wrap",
-                            border: "1px solid var(--cfsp-border)",
-                            borderRadius: "12px",
-                            background: "var(--cfsp-surface-muted)",
-                            padding: "12px 14px",
-                          }}
-                        >
-                          <div>
-                            <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>{item.label}</div>
-                            <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontSize: "13px", fontWeight: 700 }}>
-                              {item.detail}
-                            </div>
-                          </div>
-                          <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-                            <span
-                              style={{
-                                borderRadius: "999px",
-                                padding: "6px 10px",
-                                fontSize: "12px",
-                                fontWeight: 900,
-                                background: complete ? "var(--cfsp-green-soft)" : "rgba(168, 183, 204, 0.12)",
-                                border: complete
-                                  ? "1px solid rgba(44, 211, 173, 0.24)"
-                                  : "1px solid var(--cfsp-border)",
-                                color: complete ? "var(--cfsp-green)" : "var(--cfsp-text-muted)",
-                              }}
-                            >
-                              {complete ? "Complete" : item.autoComplete ? "Auto check pending" : "Manual check"}
-                            </span>
-                            {manualOnly ? (
-                              <button
-                                type="button"
-                                onClick={() => void handleToggleWorkflowCheck(item.id, complete)}
-                                disabled={saving}
-                                style={{
-                                  ...buttonStyle,
-                                  background: complete ? "var(--cfsp-surface)" : "var(--cfsp-blue)",
-                                  color: complete ? "var(--cfsp-text)" : "#ffffff",
-                                  border: complete ? "1px solid var(--cfsp-border)" : buttonStyle.border,
-                                  opacity: saving ? 0.65 : 1,
-                                }}
-                              >
-                                {complete ? "Mark Pending" : "Mark Complete"}
-                              </button>
-                            ) : null}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </section>
-              ))}
-
-              <section
+              <div
                 style={{
-                  border: "1px solid var(--cfsp-border)",
-                  borderRadius: "14px",
-                  background: "var(--cfsp-surface)",
-                  padding: "14px",
+                  borderRadius: "999px",
+                  padding: "8px 12px",
+                  background: workflowTone.background,
+                  border: workflowTone.border,
+                  color: workflowTone.color,
+                  fontWeight: 900,
+                  fontSize: "13px",
                 }}
               >
-                <div style={{ color: "var(--cfsp-text)", fontWeight: 900, fontSize: "16px" }}>Progress Milestones</div>
-                <div style={{ display: "grid", gap: "10px", marginTop: "10px" }}>
-                  {progressItems.map((item) => (
-                    <div
-                      key={item.label}
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        gap: "12px",
-                        alignItems: "center",
-                        flexWrap: "wrap",
-                        border: "1px solid var(--cfsp-border)",
-                        borderRadius: "12px",
-                        background: "var(--cfsp-surface-muted)",
-                        padding: "12px 14px",
-                      }}
-                    >
-                      <div>
-                        <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>{item.label}</div>
-                        <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontSize: "13px", fontWeight: 700 }}>
-                          {item.detail}
-                        </div>
-                      </div>
-                      <span
-                        style={{
-                          borderRadius: "999px",
-                          padding: "6px 10px",
-                          fontSize: "12px",
-                          fontWeight: 900,
-                          background: item.complete ? "var(--cfsp-green-soft)" : "rgba(168, 183, 204, 0.12)",
-                          border: item.complete
-                            ? "1px solid rgba(44, 211, 173, 0.24)"
-                            : "1px solid var(--cfsp-border)",
-                          color: item.complete ? "var(--cfsp-green)" : "var(--cfsp-text-muted)",
-                        }}
-                      >
-                        {item.complete ? "Complete" : "Pending"}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </section>
+                {workflowPercent}% complete
+              </div>
             </div>
-          ) : null}
-        </section>
+
+            <div style={{ ...detailGridStyle, marginTop: "12px", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))" }}>
+              {workflowReportItems.map((item) => (
+                <div key={item.id} style={statCard}>
+                  <div style={statLabel}>{item.label}</div>
+                  <div style={{ ...statValue, fontSize: "15px", color: item.complete ? "var(--cfsp-green)" : "var(--cfsp-text)" }}>
+                    {item.value}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "12px" }}>
+              <button
+                type="button"
+                onClick={() => setShowWorkflowAdvanced((current) => !current)}
+                style={{
+                  ...buttonStyle,
+                  background: "var(--cfsp-surface)",
+                  color: "var(--cfsp-text)",
+                  border: "1px solid var(--cfsp-border)",
+                }}
+              >
+                {showWorkflowAdvanced ? "Hide Advanced Workflow" : "Advanced Workflow / Expand"}
+              </button>
+            </div>
+
+            {showWorkflowAdvanced ? (
+              <div style={{ display: "grid", gap: "14px", marginTop: "16px" }}>
+                {workflowGroups.map((group) => (
+                  <section
+                    key={group.key}
+                    style={{
+                      border: "1px solid var(--cfsp-border)",
+                      borderRadius: "14px",
+                      background: "var(--cfsp-surface)",
+                      padding: "14px",
+                    }}
+                  >
+                    <div style={{ color: "var(--cfsp-text)", fontWeight: 900, fontSize: "16px" }}>{group.title}</div>
+                    <div style={{ display: "grid", gap: "10px", marginTop: "10px" }}>
+                      {group.items.map((item) => {
+                        const complete = item.autoComplete || workflowChecks[item.id];
+                        const manualOnly = !item.autoComplete;
+                        return (
+                          <div
+                            key={item.id}
+                            style={{
+                              display: "flex",
+                              justifyContent: "space-between",
+                              gap: "12px",
+                              alignItems: "center",
+                              flexWrap: "wrap",
+                              border: "1px solid var(--cfsp-border)",
+                              borderRadius: "12px",
+                              background: "var(--cfsp-surface-muted)",
+                              padding: "12px 14px",
+                            }}
+                          >
+                            <div>
+                              <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>{item.label}</div>
+                              <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontSize: "13px", fontWeight: 700 }}>
+                                {item.detail}
+                              </div>
+                            </div>
+                            <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                              <span
+                                style={{
+                                  borderRadius: "999px",
+                                  padding: "6px 10px",
+                                  fontSize: "12px",
+                                  fontWeight: 900,
+                                  background: complete ? "var(--cfsp-green-soft)" : "rgba(168, 183, 204, 0.12)",
+                                  border: complete ? "1px solid rgba(44, 211, 173, 0.24)" : "1px solid var(--cfsp-border)",
+                                  color: complete ? "var(--cfsp-green)" : "var(--cfsp-text-muted)",
+                                }}
+                              >
+                                {complete ? "Complete" : item.autoComplete ? "Auto check pending" : "Manual check"}
+                              </span>
+                              {manualOnly ? (
+                                <button
+                                  type="button"
+                                  onClick={() => void handleToggleWorkflowCheck(item.id, complete)}
+                                  disabled={saving}
+                                  style={{
+                                    ...buttonStyle,
+                                    background: complete ? "var(--cfsp-surface)" : "var(--cfsp-blue)",
+                                    color: complete ? "var(--cfsp-text)" : "#ffffff",
+                                    border: complete ? "1px solid var(--cfsp-border)" : buttonStyle.border,
+                                    opacity: saving ? 0.65 : 1,
+                                  }}
+                                >
+                                  {complete ? "Mark Pending" : "Mark Complete"}
+                                </button>
+                              ) : null}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </section>
+                ))}
+              </div>
+            ) : null}
+          </section>
+
+          <aside
+            className="hidden xl:block"
+            style={{
+              position: "fixed",
+              right: "20px",
+              top: "96px",
+              width: "320px",
+              maxHeight: "calc(100vh - 120px)",
+              overflowY: "auto",
+              zIndex: 30,
+              ...cardStyle,
+              background: "var(--cfsp-surface-muted)",
+              borderColor: "rgba(120, 180, 255, 0.24)",
+              boxShadow: "0 20px 48px rgba(15, 23, 42, 0.18)",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
+              <div>
+                <h2 style={compactSectionTitleStyle}>Workflow Report</h2>
+                <p style={compactSectionHintStyle}>Compact workflow status for this event.</p>
+              </div>
+              <div
+                style={{
+                  borderRadius: "999px",
+                  padding: "8px 12px",
+                  background: workflowTone.background,
+                  border: workflowTone.border,
+                  color: workflowTone.color,
+                  fontWeight: 900,
+                  fontSize: "13px",
+                }}
+              >
+                {workflowPercent}% complete
+              </div>
+            </div>
+
+            <div style={{ display: "grid", gap: "8px", marginTop: "12px" }}>
+              {workflowReportItems.map((item) => (
+                <div key={item.id} style={{ ...statCard, padding: "10px 12px" }}>
+                  <div style={statLabel}>{item.label}</div>
+                  <div style={{ ...statValue, fontSize: "15px", color: item.complete ? "var(--cfsp-green)" : "var(--cfsp-text)" }}>
+                    {item.value}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "12px" }}>
+              <button
+                type="button"
+                onClick={() => setShowWorkflowAdvanced((current) => !current)}
+                style={{
+                  ...buttonStyle,
+                  width: "100%",
+                  background: "var(--cfsp-surface)",
+                  color: "var(--cfsp-text)",
+                  border: "1px solid var(--cfsp-border)",
+                }}
+              >
+                {showWorkflowAdvanced ? "Hide Advanced Workflow" : "Advanced Workflow / Expand"}
+              </button>
+            </div>
+
+            {showWorkflowAdvanced ? (
+              <div style={{ display: "grid", gap: "14px", marginTop: "16px" }}>
+                {workflowGroups.map((group) => (
+                  <section
+                    key={group.key}
+                    style={{
+                      border: "1px solid var(--cfsp-border)",
+                      borderRadius: "14px",
+                      background: "var(--cfsp-surface)",
+                      padding: "14px",
+                    }}
+                  >
+                    <div style={{ color: "var(--cfsp-text)", fontWeight: 900, fontSize: "16px" }}>{group.title}</div>
+                    <div style={{ display: "grid", gap: "10px", marginTop: "10px" }}>
+                      {group.items.map((item) => {
+                        const complete = item.autoComplete || workflowChecks[item.id];
+                        const manualOnly = !item.autoComplete;
+                        return (
+                          <div
+                            key={item.id}
+                            style={{
+                              display: "flex",
+                              justifyContent: "space-between",
+                              gap: "12px",
+                              alignItems: "center",
+                              flexWrap: "wrap",
+                              border: "1px solid var(--cfsp-border)",
+                              borderRadius: "12px",
+                              background: "var(--cfsp-surface-muted)",
+                              padding: "12px 14px",
+                            }}
+                          >
+                            <div>
+                              <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>{item.label}</div>
+                              <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontSize: "13px", fontWeight: 700 }}>
+                                {item.detail}
+                              </div>
+                            </div>
+                            <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                              <span
+                                style={{
+                                  borderRadius: "999px",
+                                  padding: "6px 10px",
+                                  fontSize: "12px",
+                                  fontWeight: 900,
+                                  background: complete ? "var(--cfsp-green-soft)" : "rgba(168, 183, 204, 0.12)",
+                                  border: complete ? "1px solid rgba(44, 211, 173, 0.24)" : "1px solid var(--cfsp-border)",
+                                  color: complete ? "var(--cfsp-green)" : "var(--cfsp-text-muted)",
+                                }}
+                              >
+                                {complete ? "Complete" : item.autoComplete ? "Auto check pending" : "Manual check"}
+                              </span>
+                              {manualOnly ? (
+                                <button
+                                  type="button"
+                                  onClick={() => void handleToggleWorkflowCheck(item.id, complete)}
+                                  disabled={saving}
+                                  style={{
+                                    ...buttonStyle,
+                                    background: complete ? "var(--cfsp-surface)" : "var(--cfsp-blue)",
+                                    color: complete ? "var(--cfsp-text)" : "#ffffff",
+                                    border: complete ? "1px solid var(--cfsp-border)" : buttonStyle.border,
+                                    opacity: saving ? 0.65 : 1,
+                                  }}
+                                >
+                                  {complete ? "Mark Pending" : "Mark Complete"}
+                                </button>
+                              ) : null}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </section>
+                ))}
+              </div>
+            ) : null}
+          </aside>
+        </>
       ) : null}
 
       {eventSaveMessage ? (
@@ -4906,6 +4880,16 @@ export default function EventDetailPage() {
               >
                 No Assigned SP Emails
               </span>
+            ) : null}
+            {!isTrainingMode && !noSpStaffingRequired ? (
+              <button
+                type="button"
+                onClick={() => void handleConfirmAllAssignments()}
+                disabled={saving || sortedAssignments.length === 0}
+                style={{ ...buttonStyle, opacity: saving || sortedAssignments.length === 0 ? 0.65 : 1 }}
+              >
+                Confirm All Assigned SPs
+              </button>
             ) : null}
             {!isTrainingMode && !noSpStaffingRequired ? (
               <div
@@ -5547,66 +5531,97 @@ export default function EventDetailPage() {
           </div>
           ) : null}
 
-          <input
-            value={candidateQuery}
-            onChange={(event) => setCandidateQuery(event.target.value)}
-            placeholder="Search by name, email, phone, notes, roles, or preferences..."
-            style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
-          />
-
-          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-            {[
-              { label: "Active only", active: activeOnly, setActive: setActiveOnly },
-              { label: "Spanish-speaking", active: spanishOnly, setActive: setSpanishOnly },
-              { label: "Telehealth", active: telehealthOnly, setActive: setTelehealthOnly },
-              { label: "PT preferred", active: ptPreferredOnly, setActive: setPtPreferredOnly },
-              { label: "Available for event", active: availableForEventOnly, setActive: setAvailableForEventOnly },
-            ].map((filter) => (
+          <div
+            style={{
+              marginTop: "12px",
+              border: "1px solid rgba(120, 180, 255, 0.24)",
+              borderRadius: "16px",
+              padding: "14px",
+              background: "rgba(120, 180, 255, 0.08)",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
+              <div>
+                <div style={{ ...statLabel, color: "var(--cfsp-text)" }}>Candidate SP Pool</div>
+                <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
+                  These SPs are not assigned yet. Browse the pool only when you need to add coverage.
+                </div>
+              </div>
               <button
-                key={filter.label}
                 type="button"
-                onClick={() => filter.setActive((current) => !current)}
-                style={{
-                  ...buttonStyle,
-                  background: filter.active ? "var(--cfsp-blue)" : "var(--cfsp-surface)",
-                  color: filter.active ? "#ffffff" : "var(--cfsp-text)",
-                  padding: "8px 12px",
-                }}
+                onClick={() => setShowCandidatePool((current) => !current)}
+                style={{ ...buttonStyle, opacity: saving ? 0.65 : 1 }}
               >
-                {filter.label}
+                {showCandidatePool ? "Hide Candidate SPs" : "Browse Candidate SPs"}
               </button>
-            ))}
-          </div>
+            </div>
 
-          <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
-            <select
-              value={selectedSpId}
-              onChange={(e) => setSelectedSpId(e.target.value)}
-              style={selectStyle}
-              disabled={saving || availableSps.length === 0}
-            >
-              <option value="">
-                {availableSps.length === 0 ? "No matching unassigned SPs" : "Quick select an SP"}
-              </option>
-              {availableSps.map((sp) => (
-                <option key={sp.id} value={sp.id}>
-                  {getFullName(sp)}
-                  {getEmail(sp) ? ` — ${getEmail(sp)}` : ""}
-                </option>
-              ))}
-            </select>
+            {showCandidatePool ? (
+              <div style={{ display: "grid", gap: "12px", marginTop: "14px" }}>
+                <input
+                  value={candidateQuery}
+                  onChange={(event) => setCandidateQuery(event.target.value)}
+                  placeholder="Search by name, email, phone, notes, roles, or preferences..."
+                  style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                />
 
-            <button
-              type="button"
-              onClick={() => void handleAddAssignment()}
-              disabled={saving || !selectedSpId}
-              style={{ ...buttonStyle, opacity: saving || !selectedSpId ? 0.65 : 1 }}
-            >
-              {assigningSpId && assigningSpId === selectedSpId ? "Assigning..." : "Add Selected SP"}
-            </button>
+                <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                  {[
+                    { label: "Active only", active: activeOnly, setActive: setActiveOnly },
+                    { label: "Spanish-speaking", active: spanishOnly, setActive: setSpanishOnly },
+                    { label: "Telehealth", active: telehealthOnly, setActive: setTelehealthOnly },
+                    { label: "PT preferred", active: ptPreferredOnly, setActive: setPtPreferredOnly },
+                    { label: "Available for event", active: availableForEventOnly, setActive: setAvailableForEventOnly },
+                  ].map((filter) => (
+                    <button
+                      key={filter.label}
+                      type="button"
+                      onClick={() => filter.setActive((current) => !current)}
+                      style={{
+                        ...buttonStyle,
+                        background: filter.active ? "var(--cfsp-blue)" : "var(--cfsp-surface)",
+                        color: filter.active ? "#ffffff" : "var(--cfsp-text)",
+                        padding: "8px 12px",
+                      }}
+                    >
+                      {filter.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
+                  <select
+                    value={selectedSpId}
+                    onChange={(e) => setSelectedSpId(e.target.value)}
+                    style={selectStyle}
+                    disabled={saving || availableSps.length === 0}
+                  >
+                    <option value="">
+                      {availableSps.length === 0 ? "No matching unassigned SPs" : "Quick select an SP"}
+                    </option>
+                    {availableSps.map((sp) => (
+                      <option key={sp.id} value={sp.id}>
+                        {getFullName(sp)}
+                        {getEmail(sp) ? ` — ${getEmail(sp)}` : ""}
+                      </option>
+                    ))}
+                  </select>
+
+                  <button
+                    type="button"
+                    onClick={() => void handleAddAssignment()}
+                    disabled={saving || !selectedSpId}
+                    style={{ ...buttonStyle, opacity: saving || !selectedSpId ? 0.65 : 1 }}
+                  >
+                    {assigningSpId && assigningSpId === selectedSpId ? "Assigning..." : "Add Selected SP"}
+                  </button>
+                </div>
+              </div>
+            ) : null}
           </div>
         </div>
 
+          {showCandidatePool ? (
           <div style={{ marginTop: "12px" }}>
           <div style={statLabel}>
             Available SP list · {availableSps.length} addable / {filteredCandidateSps.length} shown
@@ -5766,6 +5781,7 @@ export default function EventDetailPage() {
             )}
           </div>
         </div>
+        ) : null}
       </div>
       )
       ) : null}
