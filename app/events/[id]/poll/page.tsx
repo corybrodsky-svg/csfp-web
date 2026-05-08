@@ -117,15 +117,40 @@ function asText(value: unknown) {
   return String(value).trim();
 }
 
-function formatSessionSummary(session: PollSession) {
-  const dateLabel = session.session_date ? formatHumanDate(session.session_date) || session.session_date : "Date TBD";
-  const timeLabel =
-    session.start_time || session.end_time
-      ? `${formatDisplayTime(session.start_time)}${session.end_time ? ` - ${formatDisplayTime(session.end_time)}` : ""}`
-      : "Time TBD";
-  const locationLabel = asText(session.location) || asText(session.room) || "";
+function summarizeEventDateTimes(eventDateText: string | null, sessions: PollSession[]) {
+  if (!sessions.length) {
+    return [asText(eventDateText) || "Date/time TBD"];
+  }
 
-  return [dateLabel, timeLabel, locationLabel].filter(Boolean).join(" · ");
+  const grouped = new Map<string, { dateLabel: string; start: string; end: string }>();
+
+  sessions.forEach((session) => {
+    const key = asText(session.session_date) || "date-tbd";
+    const dateLabel = session.session_date ? formatHumanDate(session.session_date) || session.session_date : asText(eventDateText) || "Date TBD";
+    const start = asText(session.start_time);
+    const end = asText(session.end_time);
+    const existing = grouped.get(key);
+
+    if (!existing) {
+      grouped.set(key, { dateLabel, start, end });
+      return;
+    }
+
+    if (start && (!existing.start || start < existing.start)) {
+      existing.start = start;
+    }
+    if (end && (!existing.end || end > existing.end)) {
+      existing.end = end;
+    }
+  });
+
+  return Array.from(grouped.values()).map((entry) => {
+    const timeLabel =
+      entry.start && entry.end
+        ? `${formatDisplayTime(entry.start)} - ${formatDisplayTime(entry.end)}`
+        : formatDisplayTime(entry.start || entry.end) || "Time TBD";
+    return `${entry.dateLabel} · ${timeLabel}`;
+  });
 }
 
 function formatSubmittedAt(value?: string | null) {
@@ -185,10 +210,18 @@ export default function EventPollResponsePage() {
     };
   }, [id]);
 
-  const sessionSummaries = useMemo(
-    () => (payload?.sessions || []).map((session) => ({ id: session.id, summary: formatSessionSummary(session) })),
+  const eventDateTimeSummaries = useMemo(
+    () => summarizeEventDateTimes(payload?.event?.date_text || null, payload?.sessions || []),
     [payload]
   );
+  const locationSummary = useMemo(() => {
+    if (!payload) return "Location TBD";
+    if (payload.access.zoomUrl || /zoom|virtual|telehealth|online/i.test(asText(payload.event.location))) {
+      return "Online via Zoom";
+    }
+    return asText(payload.event.location) || "Location TBD";
+  }, [payload]);
+  const trainingSummary = "Training details will be shared separately.";
 
   async function handleSubmit() {
     if (!id || !selectedResponse) {
@@ -294,44 +327,48 @@ export default function EventPollResponsePage() {
             }}
           >
             <div style={statCardStyle}>
-              <div style={labelStyle}>Date / time</div>
-              <div style={{ marginTop: "8px", display: "grid", gap: "8px", color: "var(--cfsp-text)", fontWeight: 800 }}>
-                {sessionSummaries.length === 0 ? (
-                  <div>{payload.event.date_text || "Date/time will be posted soon."}</div>
-                ) : (
-                  sessionSummaries.map((entry) => <div key={entry.id}>{entry.summary}</div>)
-                )}
+                <div style={labelStyle}>Date / time</div>
+                <div style={{ marginTop: "8px", display: "grid", gap: "8px", color: "var(--cfsp-text)", fontWeight: 800 }}>
+                {eventDateTimeSummaries.map((entry) => (
+                  <div key={entry}>{entry}</div>
+                ))}
+                </div>
               </div>
-            </div>
+
+              <div style={statCardStyle}>
+              <div style={labelStyle}>Training</div>
+              <div style={{ marginTop: "8px", display: "grid", gap: "8px", color: "var(--cfsp-text)", fontWeight: 800 }}>
+                <div>{trainingSummary}</div>
+              </div>
+              </div>
+
+              <div style={statCardStyle}>
+                <div style={labelStyle}>Location</div>
+                <div style={{ marginTop: "8px", display: "grid", gap: "8px", color: "var(--cfsp-text)", fontWeight: 800 }}>
+                  <div>{locationSummary}</div>
+                  {payload.access.zoomUrl ? (
+                    <a
+                      href={payload.access.zoomUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{ color: "var(--cfsp-blue)", textDecoration: "none" }}
+                    >
+                      Open Zoom / virtual access
+                    </a>
+                  ) : null}
+                  {payload.access.trainingPassword ? (
+                    <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
+                      Password: {payload.access.trainingPassword}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
 
             <div style={statCardStyle}>
-              <div style={labelStyle}>Location / access</div>
-              <div style={{ marginTop: "8px", display: "grid", gap: "8px", color: "var(--cfsp-text)", fontWeight: 800 }}>
-                <div>{payload.event.location || "Location will be posted soon."}</div>
-                {payload.access.zoomUrl ? (
-                  <a
-                    href={payload.access.zoomUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    style={{ color: "var(--cfsp-blue)", textDecoration: "none" }}
-                  >
-                    Open Zoom / virtual access
-                  </a>
-                ) : null}
-                {payload.access.trainingPassword ? (
-                  <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
-                    Password: {payload.access.trainingPassword}
-                  </div>
-                ) : null}
-              </div>
-            </div>
-
-            <div style={statCardStyle}>
-              <div style={labelStyle}>Instructions</div>
+              <div style={labelStyle}>Availability question</div>
               <div style={{ marginTop: "8px", color: "var(--cfsp-text-muted)", fontWeight: 700, lineHeight: 1.6 }}>
-                Use this link to view the poll. You’ll be asked to log in or create an SP account before submitting your
-                response. Once signed in as an SP, choose the option that best matches your availability and add a note if
-                timing or follow-up details would help the simulation team.
+                Are you available for this event and required training? Use this link to view the poll. You’ll be asked
+                to log in or create an SP account before submitting your response.
               </div>
             </div>
           </section>

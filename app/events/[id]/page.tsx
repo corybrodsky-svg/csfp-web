@@ -1993,6 +1993,70 @@ const summaryTimeLabel = useMemo(() => {
       : pollStatusLabel === "draft_ready"
         ? "Draft ready"
         : "Not created";
+  const pollEventDateTimeSummary = useMemo(() => {
+    if (!rotationRounds.length) {
+      const dateLabel = formatEventDateText(event?.date_text, importedYearHint);
+      return dateLabel ? `${dateLabel} · Time TBD` : "Date/time TBD";
+    }
+
+    const grouped = new Map<string, { dateLabel: string; start: string; end: string }>();
+    rotationRounds.forEach((round) => {
+      const key = asText(round.session_date) || "date-tbd";
+      const existing = grouped.get(key);
+      const dateLabel = formatSessionDate(round.session_date, importedYearHint) || "Date TBD";
+      const start = asText(round.start_time);
+      const end = asText(round.end_time);
+      const startMinutes = start ? parseTimeToMinutes(start) : null;
+      const endMinutes = end ? parseTimeToMinutes(end) : null;
+
+      if (!existing) {
+        grouped.set(key, { dateLabel, start, end });
+        return;
+      }
+
+      const existingStartMinutes = existing.start ? parseTimeToMinutes(existing.start) : null;
+      const existingEndMinutes = existing.end ? parseTimeToMinutes(existing.end) : null;
+
+      if (
+        start &&
+        (!existing.start ||
+          typeof existingStartMinutes !== "number" ||
+          (typeof startMinutes === "number" && startMinutes < existingStartMinutes))
+      ) {
+        existing.start = start;
+      }
+      if (
+        end &&
+        (!existing.end ||
+          typeof existingEndMinutes !== "number" ||
+          (typeof endMinutes === "number" && endMinutes > existingEndMinutes))
+      ) {
+        existing.end = end;
+      }
+    });
+
+    return Array.from(grouped.values())
+      .map((entry) => {
+        const timeLabel =
+          entry.start && entry.end
+            ? `${formatDisplayTime(entry.start)} - ${formatDisplayTime(entry.end)}`
+            : formatDisplayTime(entry.start || entry.end) || "Time TBD";
+        return `${entry.dateLabel} · ${timeLabel}`;
+      })
+      .join("; ");
+  }, [event?.date_text, importedYearHint, rotationRounds]);
+  const pollTrainingSummary = useMemo(() => {
+    const dateText = asText(trainingMetadata.imported_training_date);
+    const timeText = asText(trainingMetadata.imported_training_time);
+    if (!dateText && !timeText) return "Training details will be shared separately.";
+    return [dateText, timeText].filter(Boolean).join(" · ");
+  }, [trainingMetadata.imported_training_date, trainingMetadata.imported_training_time]);
+  const pollLocationSummary = useMemo(() => {
+    if (trainingMetadata.zoom_url || /zoom|virtual|telehealth|online/i.test(asText(event?.location))) {
+      return "Online via Zoom";
+    }
+    return asText(event?.location) || "Location TBD";
+  }, [event?.location, trainingMetadata.zoom_url]);
   const eventPollLink =
     typeof window !== "undefined" && id
       ? `${window.location.origin}/events/${encodeURIComponent(id)}/poll`
@@ -2115,7 +2179,13 @@ Event:
 ${event?.name || "TBD"}
 
 Date/Time:
-${eventDateLabel || "TBD"}${summaryTimeLabel ? ` · ${summaryTimeLabel}` : ""}
+${pollEventDateTimeSummary}
+
+Training:
+${pollTrainingSummary}
+
+Location:
+${pollLocationSummary}
 
 Please submit your availability in CFSP using the link below:
 
