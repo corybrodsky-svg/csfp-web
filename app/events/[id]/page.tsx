@@ -126,6 +126,7 @@ type SuggestedAssignmentFilter = "all" | "available" | "confirmed" | "needs_outr
 type PollLocationFilter = "any" | "elkins_park" | "center_city" | "virtual";
 type CommandCenterMode = "planning" | "live";
 type RotationCompanionView = "student" | "sp" | "operations";
+type LiveRoomStatusValue = "ready" | "in_session" | "delayed" | "empty" | "sp_missing" | "complete";
 
 type AvailabilityMatchStatus =
   | "available"
@@ -138,6 +139,12 @@ type AvailabilityMatchDetails = {
   matchedSessions: number;
   totalSessions: number;
   reason: string;
+};
+
+type LiveRoomLocalState = {
+  status?: LiveRoomStatusValue;
+  delayMinutes?: number;
+  issueNote?: string;
 };
 
 type CommandCenterData = {
@@ -539,6 +546,48 @@ const availabilityMatchStyles: Record<AvailabilityMatchStatus, React.CSSProperti
     background: "rgba(168, 183, 204, 0.12)",
     color: "var(--cfsp-text-muted)",
     border: "1px solid var(--cfsp-border)",
+  },
+};
+
+const liveRoomStatusAppearance: Record<
+  LiveRoomStatusValue,
+  { label: string; background: string; color: string; border: string }
+> = {
+  ready: {
+    label: "Ready",
+    background: "rgba(59, 130, 246, 0.14)",
+    color: "#93c5fd",
+    border: "1px solid rgba(96, 165, 250, 0.28)",
+  },
+  in_session: {
+    label: "In Session",
+    background: "rgba(44, 211, 173, 0.14)",
+    color: "#86efac",
+    border: "1px solid rgba(44, 211, 173, 0.24)",
+  },
+  delayed: {
+    label: "Delayed",
+    background: "rgba(243, 187, 103, 0.14)",
+    color: "#fde68a",
+    border: "1px solid rgba(243, 187, 103, 0.24)",
+  },
+  empty: {
+    label: "Empty",
+    background: "rgba(168, 183, 204, 0.12)",
+    color: "#cbd5e1",
+    border: "1px solid rgba(168, 183, 204, 0.22)",
+  },
+  sp_missing: {
+    label: "SP Missing",
+    background: "rgba(248, 113, 113, 0.14)",
+    color: "#fecaca",
+    border: "1px solid rgba(248, 113, 113, 0.24)",
+  },
+  complete: {
+    label: "Complete",
+    background: "rgba(45, 212, 191, 0.14)",
+    color: "#99f6e4",
+    border: "1px solid rgba(45, 212, 191, 0.24)",
   },
 };
 
@@ -1530,6 +1579,7 @@ export default function EventDetailPage() {
   const [selectedRotationRoundKey, setSelectedRotationRoundKey] = useState("");
   const [roundCompanionView, setRoundCompanionView] = useState<RotationCompanionView>("operations");
   const [hasTouchedRoundCompanion, setHasTouchedRoundCompanion] = useState(false);
+  const [liveRoomStates, setLiveRoomStates] = useState<Record<string, LiveRoomLocalState>>({});
   const [liveDelayMinutes, setLiveDelayMinutes] = useState(0);
   const [livePausedAtMs, setLivePausedAtMs] = useState<number | null>(null);
   const [liveNowMs, setLiveNowMs] = useState(() => Date.now());
@@ -2351,6 +2401,79 @@ const summaryTimeLabel = useMemo(() => {
       })
       .filter(Boolean) as Array<{ assignment: AssignmentRow; sp: SPRow; roomName: string }>;
   }, [currentLiveBlock, sortedAssignments, spsById]);
+  const currentLiveRoomBoardRows = useMemo(() => {
+    if (!currentLiveBlock?.rooms.length) {
+      return [] as Array<{
+        key: string;
+        roomName: string;
+        assignment: AssignmentRow | null;
+        sp: SPRow | null;
+        learnerLabel: string;
+        defaultStatus: LiveRoomStatusValue;
+        status: LiveRoomStatusValue;
+        delayMinutes: number;
+        issueNote: string;
+        timeRemainingLabel: string;
+        checkedAt: string;
+      }>;
+    }
+
+    const remainingLabel = currentLiveBlock
+      ? formatRemainingMinutes(Math.max(currentLiveBlock.endMinutes - simulatedLiveMinutes, 0))
+      : "Timeline TBD";
+
+    return currentLiveBlock.rooms.map((roomName, index) => {
+      const assignment = sortedAssignments[index] || null;
+      const sp = assignment?.sp_id ? spsById.get(assignment.sp_id) || null : null;
+      const checkedAt = assignment ? formatAttendanceTimestamp(assignment.training_checked_in_at) : "";
+      const liveKey = `${currentLiveBlock.key}|${roomName || `room-${index}`}`;
+      const localState = liveRoomStates[liveKey] || {};
+      const assignmentStatus = assignment ? getAssignmentStatus(assignment) : null;
+      const missingSp =
+        Boolean(assignment) &&
+        assignment?.training_attended !== true &&
+        assignmentStatus !== "declined" &&
+        assignmentStatus !== "no_show";
+      const defaultStatus: LiveRoomStatusValue = !assignment
+        ? "empty"
+        : assignmentStatus === "no_show" || missingSp
+          ? "sp_missing"
+          : livePausedAtMs !== null
+            ? "ready"
+            : "in_session";
+      const learnerLabel =
+        metadataStudentCount > 0 && metadataRoomCount > 0
+          ? `Learner ${Math.min(metadataStudentCount, currentRotationRoundNumber ? (currentRotationRoundNumber - 1) * metadataRoomCount + index + 1 : index + 1)}`
+          : "Learner TBD";
+
+      return {
+        key: liveKey,
+        roomName: roomName || `Room ${index + 1}`,
+        assignment,
+        sp,
+        learnerLabel,
+        defaultStatus,
+        status: localState.status || defaultStatus,
+        delayMinutes: localState.delayMinutes || 0,
+        issueNote: localState.issueNote || "",
+        timeRemainingLabel: remainingLabel,
+        checkedAt,
+      };
+    });
+  }, [
+    currentLiveBlock,
+    currentRotationRoundNumber,
+    livePausedAtMs,
+    liveRoomStates,
+    metadataRoomCount,
+    metadataStudentCount,
+    simulatedLiveMinutes,
+    sortedAssignments,
+    spsById,
+  ]);
+  const liveRoomDelayedCount = currentLiveRoomBoardRows.filter((row) => row.status === "delayed" || row.delayMinutes > 0).length;
+  const liveRoomMissingCount = currentLiveRoomBoardRows.filter((row) => row.status === "sp_missing").length;
+  const liveRoomActiveCount = currentLiveRoomBoardRows.filter((row) => row.status === "in_session" || row.status === "ready").length;
   useEffect(() => {
     if (!rotationRounds.length) {
       setSelectedRotationRoundKey("");
@@ -4697,6 +4820,46 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
     showSuccessMessage("Suggested assignments reset.");
   }
 
+  function updateLiveRoomState(
+    roomKey: string,
+    updates: Partial<LiveRoomLocalState> | ((current: LiveRoomLocalState) => LiveRoomLocalState)
+  ) {
+    setLiveRoomStates((current) => {
+      const nextValue =
+        typeof updates === "function" ? updates(current[roomKey] || {}) : { ...(current[roomKey] || {}), ...updates };
+      return {
+        ...current,
+        [roomKey]: nextValue,
+      };
+    });
+  }
+
+  function handleSetLiveRoomStatus(roomKey: string, status: LiveRoomStatusValue) {
+    updateLiveRoomState(roomKey, { status });
+  }
+
+  function handleAddLiveRoomDelay(roomKey: string, minutes = 5) {
+    updateLiveRoomState(roomKey, (current) => ({
+      ...current,
+      status: "delayed",
+      delayMinutes: (current.delayMinutes || 0) + minutes,
+    }));
+  }
+
+  function handleFlagLiveRoomIssue(roomKey: string) {
+    updateLiveRoomState(roomKey, (current) => ({
+      ...current,
+      issueNote: current.issueNote || "Issue flagged",
+    }));
+  }
+
+  function handleClearLiveRoomIssue(roomKey: string) {
+    updateLiveRoomState(roomKey, (current) => ({
+      ...current,
+      issueNote: "",
+    }));
+  }
+
   const liveCommandCenterPanel =
     canRunLiveEventMode && commandCenterMode === "live" ? (
       <section
@@ -4774,11 +4937,11 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
             </div>
           </div>
 
-          <div
-            style={{
-              display: "grid",
-              gap: "10px",
-              gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+	          <div
+	            style={{
+	              display: "grid",
+	              gap: "10px",
+	              gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
             }}
           >
             {[
@@ -4840,11 +5003,225 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                 <div style={{ ...statLabel, color: "#89b7c4" }}>{item.label}</div>
                 <div style={{ color: item.tone, fontSize: "20px", fontWeight: 900 }}>{item.value}</div>
               </div>
-            ))}
-          </div>
+	            ))}
+	          </div>
 
-          <div
-            style={{
+	          <section
+	            style={{
+	              borderRadius: "18px",
+	              border: "1px solid rgba(73, 168, 255, 0.22)",
+	              background: "rgba(9, 20, 33, 0.94)",
+	              padding: "14px",
+	              display: "grid",
+	              gap: "12px",
+	            }}
+	          >
+	            <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
+	              <div>
+	                <div style={{ ...statLabel, color: "#7ee7db" }}>Live Room Status Board</div>
+	                <div style={{ marginTop: "4px", color: "#f4fbff", fontSize: "20px", fontWeight: 900 }}>
+	                  {currentRotationRoundNumber !== null ? `Round ${currentRotationRoundNumber}` : currentLiveBlock?.label || "Stand by"}
+	                </div>
+	                <div style={{ marginTop: "4px", color: "#9ed9d1", fontSize: "13px", fontWeight: 700 }}>
+	                  Room-by-room simulation status for the active rotation.
+	                </div>
+	              </div>
+	              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+	                <span style={{ ...commandChipStyle, background: "rgba(44, 211, 173, 0.14)", color: "#86efac" }}>
+	                  {event?.name || "Untitled Event"}
+	                </span>
+	                <span
+	                  style={{
+	                    ...commandChipStyle,
+	                    background: livePausedAtMs !== null ? "rgba(243, 187, 103, 0.14)" : "rgba(44, 211, 173, 0.14)",
+	                    color: livePausedAtMs !== null ? "var(--cfsp-warning)" : "var(--cfsp-green)",
+	                  }}
+	                >
+	                  {livePausedAtMs !== null ? "Paused" : "Live"}
+	                </span>
+	                <span style={{ ...commandChipStyle, background: "rgba(73, 168, 255, 0.12)", color: "#7dd3fc" }}>
+	                  {liveRoomActiveCount} active
+	                </span>
+	                <span style={{ ...commandChipStyle, background: "rgba(243, 187, 103, 0.14)", color: "#fde68a" }}>
+	                  {liveRoomDelayedCount} delayed
+	                </span>
+	                <span style={{ ...commandChipStyle, background: "rgba(248, 113, 113, 0.14)", color: "#fecaca" }}>
+	                  {liveRoomMissingCount} missing SPs
+	                </span>
+	                {nextLiveBlock ? (
+	                  <span style={{ ...commandChipStyle, background: "rgba(126, 231, 219, 0.14)", color: "#7ee7db" }}>
+	                    Next: {nextLiveBlock.label}
+	                  </span>
+	                ) : null}
+	              </div>
+	            </div>
+
+	            {currentLiveRoomBoardRows.length === 0 ? (
+	              <div style={{ color: "#9bb4c0", fontWeight: 700 }}>
+	                No live rooms are active yet. Build the schedule and assign SPs to populate the room wall.
+	              </div>
+	            ) : (
+	              <div
+	                style={{
+	                  display: "grid",
+	                  gap: "10px",
+	                  gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+	                }}
+	              >
+	                {currentLiveRoomBoardRows.map((row) => {
+	                  const statusAppearance = liveRoomStatusAppearance[row.status];
+	                  const hasIssue = Boolean(row.issueNote);
+	                  return (
+	                    <div
+	                      key={row.key}
+	                      style={{
+	                        borderRadius: "16px",
+	                        border: statusAppearance.border,
+	                        background: "rgba(13, 27, 42, 0.92)",
+	                        padding: "12px 14px",
+	                        display: "grid",
+	                        gap: "10px",
+	                        boxShadow: hasIssue ? "0 10px 24px rgba(248, 113, 113, 0.12)" : "none",
+	                      }}
+	                    >
+	                      <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+	                        <div>
+	                          <div style={{ color: "#f4fbff", fontWeight: 900, fontSize: "17px" }}>{row.roomName}</div>
+	                          <div style={{ marginTop: "4px", color: "#9ed9d1", fontSize: "12px", fontWeight: 700 }}>
+	                            {row.sp ? getFullName(row.sp) : "SP TBD"}
+	                          </div>
+	                        </div>
+	                        <span
+	                          style={{
+	                            borderRadius: "999px",
+	                            padding: "5px 9px",
+	                            background: statusAppearance.background,
+	                            color: statusAppearance.color,
+	                            border: statusAppearance.border,
+	                            fontSize: "11px",
+	                            fontWeight: 900,
+	                          }}
+	                        >
+	                          {statusAppearance.label}
+	                        </span>
+	                      </div>
+
+	                      <div
+	                        style={{
+	                          display: "grid",
+	                          gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))",
+	                          gap: "8px",
+	                        }}
+	                      >
+	                        <div style={{ ...statCard, background: "rgba(255,255,255,0.04)" }}>
+	                          <div style={{ ...statLabel, color: "#89b7c4" }}>Learner</div>
+	                          <div style={{ color: "#f4fbff", fontWeight: 800, fontSize: "14px" }}>{row.learnerLabel}</div>
+	                        </div>
+	                        <div style={{ ...statCard, background: "rgba(255,255,255,0.04)" }}>
+	                          <div style={{ ...statLabel, color: "#89b7c4" }}>Time Remaining</div>
+	                          <div style={{ color: "#f4fbff", fontWeight: 800, fontSize: "14px" }}>{row.timeRemainingLabel}</div>
+	                        </div>
+	                        <div style={{ ...statCard, background: "rgba(255,255,255,0.04)" }}>
+	                          <div style={{ ...statLabel, color: "#89b7c4" }}>Issue</div>
+	                          <div style={{ color: hasIssue ? "#fecaca" : "#cbd5e1", fontWeight: 800, fontSize: "14px" }}>
+	                            {hasIssue ? "Flagged" : "Clear"}
+	                          </div>
+	                        </div>
+	                      </div>
+
+	                      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+	                        {row.checkedAt ? (
+	                          <span style={{ ...commandChipStyle, background: "var(--cfsp-green-soft)", color: "var(--cfsp-green)" }}>
+	                            Arrived {row.checkedAt}
+	                          </span>
+	                        ) : null}
+	                        {row.delayMinutes > 0 ? (
+	                          <span style={{ ...commandChipStyle, background: "rgba(243, 187, 103, 0.14)", color: "#fde68a" }}>
+	                            Delay +{row.delayMinutes}m
+	                          </span>
+	                        ) : null}
+	                        {hasIssue ? (
+	                          <span style={{ ...commandChipStyle, background: "rgba(248, 113, 113, 0.14)", color: "#fecaca" }}>
+	                            {row.issueNote}
+	                          </span>
+	                        ) : null}
+	                      </div>
+
+	                      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+	                        <button type="button" onClick={() => handleSetLiveRoomStatus(row.key, "ready")} style={{ ...buttonStyle, padding: "7px 10px" }}>
+	                          Mark Ready
+	                        </button>
+	                        <button
+	                          type="button"
+	                          onClick={() => handleSetLiveRoomStatus(row.key, "in_session")}
+	                          style={{
+	                            ...buttonStyle,
+	                            padding: "7px 10px",
+	                            background: "rgba(44, 211, 173, 0.14)",
+	                            color: "#86efac",
+	                            border: "1px solid rgba(44, 211, 173, 0.22)",
+	                          }}
+	                        >
+	                          Start
+	                        </button>
+	                        <button
+	                          type="button"
+	                          onClick={() => handleSetLiveRoomStatus(row.key, "complete")}
+	                          style={{
+	                            ...buttonStyle,
+	                            padding: "7px 10px",
+	                            background: "rgba(45, 212, 191, 0.14)",
+	                            color: "#99f6e4",
+	                            border: "1px solid rgba(45, 212, 191, 0.22)",
+	                          }}
+	                        >
+	                          Mark Complete
+	                        </button>
+	                        <button
+	                          type="button"
+	                          onClick={() => handleAddLiveRoomDelay(row.key)}
+	                          style={{
+	                            ...buttonStyle,
+	                            padding: "7px 10px",
+	                            background: "var(--cfsp-button-secondary-bg)",
+	                            color: "var(--cfsp-button-secondary-text)",
+	                            border: "1px solid var(--cfsp-button-secondary-border)",
+	                          }}
+	                        >
+	                          Add Delay
+	                        </button>
+	                        <button
+	                          type="button"
+	                          onClick={() => handleFlagLiveRoomIssue(row.key)}
+	                          style={{ ...dangerButtonStyle, padding: "7px 10px" }}
+	                        >
+	                          Flag Issue
+	                        </button>
+	                        {hasIssue ? (
+	                          <button
+	                            type="button"
+	                            onClick={() => handleClearLiveRoomIssue(row.key)}
+	                            style={{
+	                              ...buttonStyle,
+	                              padding: "7px 10px",
+	                              background: "rgba(73, 168, 255, 0.12)",
+	                              color: "#7dd3fc",
+	                              border: "1px solid rgba(73, 168, 255, 0.24)",
+	                            }}
+	                          >
+	                            Clear Issue
+	                          </button>
+	                        ) : null}
+	                      </div>
+	                    </div>
+	                  );
+	                })}
+	              </div>
+	            )}
+	          </section>
+
+	          <div
+	            style={{
               display: "grid",
               gap: "14px",
               gridTemplateColumns: "minmax(0, 1.5fr) minmax(280px, 1fr)",
