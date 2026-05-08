@@ -123,6 +123,7 @@ type AssignmentStatus =
 type ContactMethod = "call" | "text" | "email";
 type AssignmentFilterStatus = "all" | "invited" | "confirmed" | "declined";
 type SuggestedAssignmentFilter = "all" | "available" | "confirmed" | "needs_outreach" | "backup";
+type PollLocationFilter = "any" | "elkins_park" | "center_city" | "virtual";
 
 type AvailabilityMatchStatus =
   | "available"
@@ -1289,6 +1290,23 @@ function normalizeEmail(value: string) {
   return asText(value).toLowerCase();
 }
 
+function normalizeLocationSignal(value: string) {
+  return asText(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function detectLocationFitFromText(value: string): PollLocationFilter | "unknown" {
+  const normalized = normalizeLocationSignal(value);
+  if (!normalized) return "unknown";
+  if (/\b(zoom|virtual|telehealth|online|remote|breakout)\b/.test(normalized)) return "virtual";
+  if (/\b(elkins park|drexel elkins park|elkins|ep)\b/.test(normalized)) return "elkins_park";
+  if (/\b(center city|centercity|cc)\b/.test(normalized)) return "center_city";
+  return "unknown";
+}
+
 function normalizeMatchName(value: string) {
   return asText(value)
     .toLowerCase()
@@ -1452,6 +1470,13 @@ export default function EventDetailPage() {
   const [showEmailDraft, setShowEmailDraft] = useState(false);
   const [assignmentFilter, setAssignmentFilter] = useState<AssignmentFilterStatus>("all");
   const [suggestedAssignmentFilter, setSuggestedAssignmentFilter] = useState<SuggestedAssignmentFilter>("all");
+  const [pollMatchLocationFilter, setPollMatchLocationFilter] = useState<PollLocationFilter>("any");
+  const [pollMatchActiveOnly, setPollMatchActiveOnly] = useState(true);
+  const [pollMatchEmailReadyOnly, setPollMatchEmailReadyOnly] = useState(true);
+  const [pollMatchAvailableRespondersOnly, setPollMatchAvailableRespondersOnly] = useState(false);
+  const [pollMatchKeyword, setPollMatchKeyword] = useState("");
+  const [pollMatchSpanishOnly, setPollMatchSpanishOnly] = useState(false);
+  const [pollMatchTelehealthOnly, setPollMatchTelehealthOnly] = useState(false);
   const [loading, setLoading] = useState(Boolean(id));
   const [saving, setSaving] = useState(false);
   const [assigningSpId, setAssigningSpId] = useState("");
@@ -1678,6 +1703,123 @@ export default function EventDetailPage() {
         })
         .slice(0, 5),
     [availabilityMatchBySpId, availableSps]
+  );
+  const eventLocationFit = useMemo(() => {
+    const detected = detectLocationFitFromText([event?.location, event?.notes].map(asText).join(" "));
+    return detected === "unknown" ? "any" : detected;
+  }, [event?.location, event?.notes]);
+  const effectivePollLocationFilter =
+    pollMatchLocationFilter === "any" && eventLocationFit !== "any"
+      ? eventLocationFit
+      : pollMatchLocationFilter;
+  const pollMatchEntries = useMemo(() => {
+    const keyword = pollMatchKeyword.trim().toLowerCase();
+    const selectedIds = new Set(selectedPollSpIds.map((item) => String(item)));
+
+    return availableSps
+      .map((sp) => {
+        const locationText = [
+          sp.notes,
+          sp.other_roles,
+          sp.telehealth,
+          event?.location,
+        ]
+          .map(asText)
+          .join(" ");
+        const detectedLocation = detectLocationFitFromText(locationText);
+        const email = getEmail(sp);
+        const assignment = assignmentsBySpId.get(sp.id) || null;
+        const pollResponseStatus = assignment
+          ? getPollResponseStatus(assignment.notes)
+          : "no_response";
+        const hasPriorResponse = pollResponseStatus !== "no_response";
+        const locationMatched =
+          effectivePollLocationFilter === "any"
+            ? true
+            : effectivePollLocationFilter === "virtual"
+              ? hasTelehealth(sp) || detectedLocation === "virtual"
+              : detectedLocation === effectivePollLocationFilter;
+        const keywordMatched = !keyword || getCandidateSearchText(sp).includes(keyword);
+        const emailReady = Boolean(email);
+        const active = isActiveSp(sp);
+        const roleMatch =
+          Boolean(keyword) &&
+          [sp.other_roles, sp.notes, sp.telehealth]
+            .map(asText)
+            .join(" ")
+            .toLowerCase()
+            .includes(keyword);
+        const chips = [
+          effectivePollLocationFilter === "elkins_park" && locationMatched ? "Elkins Park fit" : "",
+          effectivePollLocationFilter === "center_city" && locationMatched ? "Center City fit" : "",
+          effectivePollLocationFilter === "virtual" && locationMatched ? "Virtual ready" : "",
+          emailReady ? "Email ready" : "",
+          active ? "Active" : "",
+          hasPriorResponse ? "Prior respondent" : "",
+          roleMatch ? "Skill/role match" : "",
+        ].filter(Boolean);
+
+        return {
+          sp,
+          email,
+          assignment,
+          pollResponseStatus,
+          hasPriorResponse,
+          locationMatched,
+          keywordMatched,
+          emailReady,
+          active,
+          roleMatch,
+          chips,
+          availabilityMatch: availabilityMatchBySpId.get(sp.id)?.status || "unknown",
+          selected: selectedIds.has(String(sp.id)),
+        };
+      })
+      .filter((entry) => {
+        if (pollMatchActiveOnly && !entry.active) return false;
+        if (pollMatchEmailReadyOnly && !entry.emailReady) return false;
+        if (pollMatchAvailableRespondersOnly && entry.pollResponseStatus !== "available") return false;
+        if (pollMatchSpanishOnly && !speaksSpanish(entry.sp)) return false;
+        if (pollMatchTelehealthOnly && !hasTelehealth(entry.sp)) return false;
+        if (effectivePollLocationFilter !== "any" && !entry.locationMatched) return false;
+        if (!entry.keywordMatched) return false;
+        return true;
+      })
+      .sort((a, b) => {
+        const score = (entry: (typeof a)) => {
+          let total = 0;
+          if (entry.locationMatched) total += 30;
+          if (entry.emailReady) total += 18;
+          if (entry.active) total += 16;
+          if (entry.hasPriorResponse) total += 14;
+          if (entry.pollResponseStatus === "available") total += 20;
+          else if (entry.pollResponseStatus === "maybe") total += 10;
+          if (entry.roleMatch) total += 8;
+          if (hasTelehealth(entry.sp) && effectivePollLocationFilter === "virtual") total += 12;
+          total += Math.max(0, 6 - getAvailabilityMatchRank(entry.availabilityMatch));
+          return total;
+        };
+        const scoreDiff = score(b) - score(a);
+        if (scoreDiff !== 0) return scoreDiff;
+        return getFullName(a.sp).localeCompare(getFullName(b.sp));
+      });
+  }, [
+    assignmentsBySpId,
+    availabilityMatchBySpId,
+    availableSps,
+    effectivePollLocationFilter,
+    event?.location,
+    pollMatchActiveOnly,
+    pollMatchAvailableRespondersOnly,
+    pollMatchEmailReadyOnly,
+    pollMatchKeyword,
+    pollMatchSpanishOnly,
+    pollMatchTelehealthOnly,
+    selectedPollSpIds,
+  ]);
+  const recommendedPollMatches = useMemo(
+    () => pollMatchEntries.slice(0, Math.max(Number(event?.sp_needed || 0), 6)),
+    [event?.sp_needed, pollMatchEntries]
   );
 
   const confirmedCount = assignments.filter(
@@ -2356,6 +2498,33 @@ const summaryTimeLabel = useMemo(() => {
 
   function clearPollSelection() {
     setSelectedPollSpIds([]);
+  }
+
+  function addPollSelection(spIds: string[], successMessage: string) {
+    const normalized = Array.from(new Set(spIds.map((item) => String(item)).filter(Boolean)));
+    if (!normalized.length) {
+      setEventSaveError("No matching SPs are ready to add to this poll.");
+      return;
+    }
+    setSelectedPollSpIds((current) => Array.from(new Set([...current, ...normalized])));
+    showSuccessMessage(successMessage);
+  }
+
+  function handleAddRecommendedToPoll() {
+    addPollSelection(
+      recommendedPollMatches
+        .filter((entry) => entry.emailReady)
+        .slice(0, Math.max(needed || 0, 1))
+        .map((entry) => entry.sp.id),
+      "Recommended SPs added to poll."
+    );
+  }
+
+  function handleAddAllFilteredToPoll() {
+    addPollSelection(
+      pollMatchEntries.filter((entry) => entry.emailReady).map((entry) => entry.sp.id),
+      "Filtered SPs added to poll."
+    );
   }
 
   async function persistPollMetadata(partial: Partial<PollMetadata>, successMessage: string) {
@@ -7122,6 +7291,247 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                 </div>
               </div>
 
+              {canManageAvailabilityPoll ? (
+                <div
+                  style={{
+                    borderRadius: "14px",
+                    padding: "12px 14px",
+                    background: "var(--cfsp-surface)",
+                    border: "1px solid rgba(73, 168, 255, 0.2)",
+                    display: "grid",
+                    gap: "12px",
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      gap: "10px",
+                      alignItems: "center",
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    <div>
+                      <div style={{ ...statLabel, color: "var(--cfsp-blue)" }}>Find SPs to Poll</div>
+                      <div style={{ marginTop: "4px", color: "var(--cfsp-text)", fontSize: "16px", fontWeight: 900 }}>
+                        Recommended SPs to poll before staffing
+                      </div>
+                      <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontWeight: 700, fontSize: "12px" }}>
+                        Match candidates by location fit, contact readiness, activity, and existing response signals before sending the poll.
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                      <button
+                        type="button"
+                        onClick={handleAddRecommendedToPoll}
+                        disabled={recommendedPollMatches.filter((entry) => entry.emailReady).length === 0}
+                        style={{
+                          ...buttonStyle,
+                          opacity: recommendedPollMatches.filter((entry) => entry.emailReady).length === 0 ? 0.65 : 1,
+                        }}
+                      >
+                        Add Recommended to Poll
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleAddAllFilteredToPoll}
+                        disabled={pollMatchEntries.filter((entry) => entry.emailReady).length === 0}
+                        style={{
+                          ...buttonStyle,
+                          background: "var(--cfsp-surface)",
+                          color: "var(--cfsp-text)",
+                          border: "1px solid var(--cfsp-border)",
+                          opacity: pollMatchEntries.filter((entry) => entry.emailReady).length === 0 ? 0.65 : 1,
+                        }}
+                      >
+                        Add All Filtered to Poll
+                      </button>
+                    </div>
+                  </div>
+
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
+                      gap: "10px",
+                    }}
+                  >
+                    <label style={{ display: "grid", gap: "6px" }}>
+                      <span style={statLabel}>Campus/location fit</span>
+                      <select
+                        value={pollMatchLocationFilter}
+                        onChange={(event) => setPollMatchLocationFilter(event.target.value as PollLocationFilter)}
+                        style={{ ...selectStyle, width: "100%" }}
+                      >
+                        <option value="any">Any location</option>
+                        <option value="elkins_park">Elkins Park only</option>
+                        <option value="center_city">Center City only</option>
+                        <option value="virtual">Virtual/Telehealth only</option>
+                      </select>
+                    </label>
+                    <label style={{ display: "grid", gap: "6px" }}>
+                      <span style={statLabel}>Keyword search</span>
+                      <input
+                        value={pollMatchKeyword}
+                        onChange={(event) => setPollMatchKeyword(event.target.value)}
+                        placeholder="Notes, skills, roles..."
+                        style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                      />
+                    </label>
+                    <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "end" }}>
+                      {[
+                        { label: "Active only", active: pollMatchActiveOnly, toggle: () => setPollMatchActiveOnly((current) => !current) },
+                        { label: "Email ready only", active: pollMatchEmailReadyOnly, toggle: () => setPollMatchEmailReadyOnly((current) => !current) },
+                        { label: "Available responders only", active: pollMatchAvailableRespondersOnly, toggle: () => setPollMatchAvailableRespondersOnly((current) => !current) },
+                        { label: "Spanish", active: pollMatchSpanishOnly, toggle: () => setPollMatchSpanishOnly((current) => !current) },
+                        { label: "Virtual ready", active: pollMatchTelehealthOnly, toggle: () => setPollMatchTelehealthOnly((current) => !current) },
+                      ].map((filter) => (
+                        <button
+                          key={filter.label}
+                          type="button"
+                          onClick={filter.toggle}
+                          style={{
+                            ...buttonStyle,
+                            padding: "8px 12px",
+                            background: filter.active ? "var(--cfsp-blue)" : "var(--cfsp-surface)",
+                            color: filter.active ? "#ffffff" : "var(--cfsp-text)",
+                            border: filter.active ? "1px solid var(--cfsp-blue)" : "1px solid var(--cfsp-border)",
+                          }}
+                        >
+                          {filter.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                      gap: "10px",
+                    }}
+                  >
+                    <div
+                      style={{
+                        borderRadius: "12px",
+                        border: "1px solid rgba(73, 168, 255, 0.18)",
+                        background: "rgba(73, 168, 255, 0.06)",
+                        padding: "12px",
+                        display: "grid",
+                        gap: "8px",
+                      }}
+                    >
+                      <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>
+                        Recommended SPs to Poll ({recommendedPollMatches.length})
+                      </div>
+                      {recommendedPollMatches.length ? (
+                        recommendedPollMatches.map((entry) => (
+                          <div
+                            key={`poll-match-${entry.sp.id}`}
+                            style={{
+                              borderRadius: "12px",
+                              border: "1px solid var(--cfsp-border)",
+                              background: "var(--cfsp-surface)",
+                              padding: "10px 12px",
+                              display: "grid",
+                              gap: "6px",
+                            }}
+                          >
+                            <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>
+                              {getFullName(entry.sp)}
+                            </div>
+                            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                              {entry.chips.length
+                                ? entry.chips.map((chip) => (
+                                    <span
+                                      key={`${entry.sp.id}-${chip}`}
+                                      style={{
+                                        borderRadius: "999px",
+                                        padding: "4px 8px",
+                                        fontSize: "11px",
+                                        fontWeight: 900,
+                                        background: "rgba(73, 168, 255, 0.12)",
+                                        border: "1px solid rgba(73, 168, 255, 0.22)",
+                                        color: "var(--cfsp-blue)",
+                                      }}
+                                    >
+                                      {chip}
+                                    </span>
+                                  ))
+                                : (
+                                  <span style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 700 }}>
+                                    General candidate match
+                                  </span>
+                                )}
+                            </div>
+                            <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700, fontSize: "12px" }}>
+                              {entry.email || "No email on file"}
+                              {entry.selected ? " · In current poll selection" : ""}
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700, fontSize: "12px" }}>
+                          No SPs match the current pre-poll filters.
+                        </div>
+                      )}
+                    </div>
+
+                    <div
+                      style={{
+                        borderRadius: "12px",
+                        border: "1px solid var(--cfsp-border)",
+                        background: "var(--cfsp-surface)",
+                        padding: "12px",
+                        display: "grid",
+                        gap: "8px",
+                      }}
+                    >
+                      <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>
+                        Filtered Candidate Pool ({pollMatchEntries.length})
+                      </div>
+                      <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700, fontSize: "12px" }}>
+                        Candidates update instantly from the filters above and feed directly into the poll selection.
+                      </div>
+                      <div style={{ display: "grid", gap: "8px" }}>
+                        {pollMatchEntries.slice(0, 8).map((entry) => (
+                          <div
+                            key={`poll-filter-${entry.sp.id}`}
+                            style={{
+                              display: "grid",
+                              gridTemplateColumns: "minmax(0, 1fr) auto",
+                              gap: "8px",
+                              alignItems: "center",
+                              borderRadius: "12px",
+                              border: "1px solid var(--cfsp-border)",
+                              background: "var(--cfsp-surface-muted)",
+                              padding: "10px 12px",
+                            }}
+                          >
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>
+                                {getFullName(entry.sp)}
+                              </div>
+                              <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontWeight: 700, fontSize: "12px" }}>
+                                {entry.email || "No email on file"}
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => addPollSelection([entry.sp.id], `${getFullName(entry.sp)} added to poll.`)}
+                              disabled={!entry.emailReady}
+                              style={{ ...buttonStyle, opacity: entry.emailReady ? 1 : 0.65 }}
+                            >
+                              {entry.selected ? "Selected" : "Add to Poll"}
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
               {canManageSpMatchMaker ? (
                 <div
                   style={{
@@ -7167,6 +7577,14 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                         style={{ ...buttonStyle, opacity: saving || maybePollResponders.filter((entry) => entry.assignment).length === 0 ? 0.65 : 1 }}
                       >
                         Move Maybes to Backup
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleConvertAvailableToConfirmed()}
+                        disabled={saving || availablePollResponders.filter((entry) => entry.assignment && !entry.isConfirmed).length === 0}
+                        style={{ ...buttonStyle, opacity: saving || availablePollResponders.filter((entry) => entry.assignment && !entry.isConfirmed).length === 0 ? 0.65 : 1 }}
+                      >
+                        Convert Available → Confirmed
                       </button>
                     </div>
                   </div>
