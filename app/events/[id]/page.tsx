@@ -125,6 +125,7 @@ type AssignmentFilterStatus = "all" | "invited" | "confirmed" | "declined";
 type SuggestedAssignmentFilter = "all" | "available" | "confirmed" | "needs_outreach" | "backup";
 type PollLocationFilter = "any" | "elkins_park" | "center_city" | "virtual";
 type CommandCenterMode = "planning" | "live";
+type RotationCompanionView = "student" | "sp" | "operations";
 
 type AvailabilityMatchStatus =
   | "available"
@@ -1211,6 +1212,17 @@ function formatRotationRoundLabel(round: RotationRound, fallbackYear?: number | 
 
   return [date, time, roomText].filter(Boolean).join(" · ");
 }
+
+function getRoundCompanionAudience(label: string): RotationCompanionView[] {
+  const normalized = asText(label).toLowerCase();
+  if (normalized.includes("soap")) return ["student", "operations"];
+  if (normalized.includes("checklist")) return ["sp", "operations"];
+  if (normalized.includes("feedback") || normalized.includes("debrief")) return ["student", "sp", "operations"];
+  if (normalized.includes("break") || normalized.includes("lunch") || normalized.includes("transition")) {
+    return ["student", "sp", "operations"];
+  }
+  return ["operations"];
+}
 function toTimeInputValue(value?: string | null) {
   const trimmed = asText(value);
   if (!trimmed) return "";
@@ -1515,6 +1527,9 @@ export default function EventDetailPage() {
   const [assignmentFilter, setAssignmentFilter] = useState<AssignmentFilterStatus>("all");
   const [suggestedAssignmentFilter, setSuggestedAssignmentFilter] = useState<SuggestedAssignmentFilter>("all");
   const [commandCenterMode, setCommandCenterMode] = useState<CommandCenterMode>("planning");
+  const [selectedRotationRoundKey, setSelectedRotationRoundKey] = useState("");
+  const [roundCompanionView, setRoundCompanionView] = useState<RotationCompanionView>("operations");
+  const [hasTouchedRoundCompanion, setHasTouchedRoundCompanion] = useState(false);
   const [liveDelayMinutes, setLiveDelayMinutes] = useState(0);
   const [livePausedAtMs, setLivePausedAtMs] = useState<number | null>(null);
   const [liveNowMs, setLiveNowMs] = useState(() => Date.now());
@@ -2310,6 +2325,17 @@ const summaryTimeLabel = useMemo(() => {
       : liveFlowBlocks.find((block) => block.startMinutes > simulatedLiveMinutes) || null;
   const currentRotationRoundNumber =
     currentLiveBlock?.tone === "rotation" ? currentLiveBlock.roundNumber : null;
+  const defaultSelectedRotationRoundKey = useMemo(() => {
+    if (!rotationRounds.length) return "";
+    if (
+      currentRotationRoundNumber &&
+      currentRotationRoundNumber > 0 &&
+      currentRotationRoundNumber <= rotationRounds.length
+    ) {
+      return rotationRounds[currentRotationRoundNumber - 1]?.key || rotationRounds[0]?.key || "";
+    }
+    return rotationRounds[0]?.key || "";
+  }, [currentRotationRoundNumber, rotationRounds]);
   const currentLiveAssignmentRows = useMemo(() => {
     if (!currentLiveBlock?.rooms.length) return [] as Array<{
       assignment: AssignmentRow;
@@ -2325,6 +2351,16 @@ const summaryTimeLabel = useMemo(() => {
       })
       .filter(Boolean) as Array<{ assignment: AssignmentRow; sp: SPRow; roomName: string }>;
   }, [currentLiveBlock, sortedAssignments, spsById]);
+  useEffect(() => {
+    if (!rotationRounds.length) {
+      setSelectedRotationRoundKey("");
+      setHasTouchedRoundCompanion(false);
+      return;
+    }
+    setSelectedRotationRoundKey((current) =>
+      current && rotationRounds.some((round) => round.key === current) ? current : defaultSelectedRotationRoundKey
+    );
+  }, [defaultSelectedRotationRoundKey, rotationRounds]);
   const assignedEmailSources = useMemo(() => {
     return assignments
       .map((assignment) => {
@@ -2528,6 +2564,65 @@ const summaryTimeLabel = useMemo(() => {
     }
     return asText(event?.location) || "Location TBD";
   }, [event?.location, trainingMetadata.zoom_url]);
+  const selectedRotationRoundIndex = useMemo(
+    () => rotationRounds.findIndex((round) => round.key === selectedRotationRoundKey),
+    [rotationRounds, selectedRotationRoundKey]
+  );
+  const activeSelectedRotationRoundIndex = selectedRotationRoundIndex >= 0 ? selectedRotationRoundIndex : 0;
+  const selectedRotationRound =
+    selectedRotationRoundIndex >= 0 ? rotationRounds[selectedRotationRoundIndex] : rotationRounds[0] || null;
+  const selectedRoundAssignments = useMemo(() => {
+    if (!selectedRotationRound) return [] as Array<{ roomName: string; assignment: AssignmentRow | null; sp: SPRow | null }>;
+    const roomNames = selectedRotationRound.rooms.length ? selectedRotationRound.rooms : ["Room TBD"];
+    return roomNames.map((roomName, index) => {
+      const assignment = sortedAssignments[index] || null;
+      const sp = assignment?.sp_id ? spsById.get(assignment.sp_id) || null : null;
+      return { roomName, assignment, sp };
+    });
+  }, [selectedRotationRound, sortedAssignments, spsById]);
+  const selectedRoundLearnerCount = useMemo(() => {
+    if (!selectedRotationRound) return null;
+    if (metadataStudentCount <= 0) return null;
+    const roomCapacity = selectedRotationRound.rooms.length || metadataRoomCount || 0;
+    if (roomCapacity <= 0) return null;
+    const remaining = metadataStudentCount - activeSelectedRotationRoundIndex * roomCapacity;
+    if (remaining <= 0) return 0;
+    return Math.min(roomCapacity, remaining);
+  }, [activeSelectedRotationRoundIndex, metadataRoomCount, metadataStudentCount, selectedRotationRound]);
+  const selectedRoundEmptySlots = useMemo(() => {
+    if (!selectedRotationRound) return null;
+    if (selectedRoundLearnerCount === null) return null;
+    const roomSlots = selectedRotationRound.rooms.length || metadataRoomCount || 0;
+    if (roomSlots <= 0) return null;
+    return Math.max(roomSlots - selectedRoundLearnerCount, 0);
+  }, [metadataRoomCount, selectedRoundLearnerCount, selectedRotationRound]);
+  const selectedRoundDayBlocks = useMemo(() => {
+    if (!selectedRotationRound) return [] as Array<{ label: string; detail: string; audience: RotationCompanionView[] }>;
+    return liveFlowBlocks
+      .filter((block) => block.key.startsWith(`${selectedRotationRound.key}-`) && block.tone !== "rotation")
+      .map((block) => ({
+        label: block.label,
+        detail: block.detail,
+        audience: getRoundCompanionAudience(block.label),
+      }));
+  }, [liveFlowBlocks, selectedRotationRound]);
+  const visibleSelectedRoundDayBlocks = useMemo(
+    () =>
+      selectedRoundDayBlocks.filter(
+        (block) => roundCompanionView === "operations" || block.audience.includes(roundCompanionView)
+      ),
+    [roundCompanionView, selectedRoundDayBlocks]
+  );
+  const selectedRoundOperationsNotes = useMemo(
+    () =>
+      [
+        asText(trainingMetadata.training_notes),
+        asText(trainingMetadata.contact_internal_notes),
+        asText(parseNoteValue(event?.notes, "Operations Notes")),
+        asText(parseNoteValue(event?.notes, "Operations Reminder")),
+      ].filter(Boolean),
+    [event?.notes, trainingMetadata.contact_internal_notes, trainingMetadata.training_notes]
+  );
   const eventPollLink =
     typeof window !== "undefined" && id
       ? `${window.location.origin}/events/${encodeURIComponent(id)}/poll`
@@ -7085,58 +7180,333 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
             </div>
 
             {sessions.length ? (
-            <div style={{ marginTop: "10px" }}>
-              <div style={statLabel}>Sessions</div>
-              {hiddenExtraBackendRounds > 0 ? (
-                <div style={{ marginTop: "6px", color: "var(--cfsp-warning)", fontSize: "12px", fontWeight: 800 }}>
-                  Extra backend room slots are hidden because learner capacity only requires {rotationRounds.length} rotation round{rotationRounds.length === 1 ? "" : "s"}.
-                </div>
-              ) : null}
-              <div style={{ display: "grid", gap: "6px", marginTop: "6px" }}>
-                {rotationRounds.map((round, index) => (
-                  <div
-                    key={round.key}
+              <div style={{ marginTop: "10px" }}>
+                <div style={statLabel}>Rotation Rounds</div>
+                {hiddenExtraBackendRounds > 0 ? (
+                  <div style={{ marginTop: "6px", color: "var(--cfsp-warning)", fontSize: "12px", fontWeight: 800 }}>
+                    Extra backend room slots are hidden because learner capacity only requires {rotationRounds.length} rotation round{rotationRounds.length === 1 ? "" : "s"}.
+                  </div>
+                ) : null}
+                <div
+                  style={{
+                    display: "grid",
+                    gap: "12px",
+                    marginTop: "8px",
+                    gridTemplateColumns: "minmax(0, 1.15fr) minmax(280px, 0.85fr)",
+                    alignItems: "start",
+                  }}
+                >
+                  <div style={{ display: "grid", gap: "6px" }}>
+                    {rotationRounds.map((round, index) => {
+                      const selected = selectedRotationRound?.key === round.key;
+                      const roundLearnerCount =
+                        metadataStudentCount > 0
+                          ? Math.max(
+                              0,
+                              Math.min(round.rooms.length || metadataRoomCount || 0, metadataStudentCount - index * (round.rooms.length || metadataRoomCount || 0))
+                            )
+                          : null;
+                      return (
+                        <button
+                          key={round.key}
+                          type="button"
+                          onClick={() => {
+                            setSelectedRotationRoundKey(round.key);
+                            setHasTouchedRoundCompanion(true);
+                          }}
+                          onMouseEnter={() => {
+                            setSelectedRotationRoundKey(round.key);
+                            setHasTouchedRoundCompanion(true);
+                          }}
+                          onFocus={() => {
+                            setSelectedRotationRoundKey(round.key);
+                            setHasTouchedRoundCompanion(true);
+                          }}
+                          style={{
+                            borderRadius: "18px",
+                            border: selected ? "1px solid rgba(126, 231, 219, 0.42)" : "1px solid rgba(148, 163, 184, 0.22)",
+                            background: selected ? "rgba(12, 45, 60, 0.96)" : "rgba(15, 23, 42, 0.92)",
+                            boxShadow: selected ? "0 12px 28px rgba(16, 185, 129, 0.14)" : "none",
+                            padding: "16px 18px",
+                            display: "grid",
+                            gap: "8px",
+                            textAlign: "left",
+                            cursor: "pointer",
+                          }}
+                        >
+                          <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
+                            <div
+                              style={{
+                                fontSize: "1.2rem",
+                                fontWeight: 800,
+                                color: "#f8fafc",
+                              }}
+                            >
+                              Round {index + 1}
+                            </div>
+                            {selected ? (
+                              <span style={{ ...commandChipStyle, background: "rgba(126, 231, 219, 0.16)", color: "#7ee7db" }}>
+                                Active detail view
+                              </span>
+                            ) : null}
+                          </div>
+
+                          <div
+                            style={{
+                              color: "#cbd5e1",
+                              fontSize: "0.98rem",
+                              fontWeight: 600,
+                            }}
+                          >
+                            {formatRotationRoundLabel(round, importedYearHint)}
+                          </div>
+
+                          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                            <span style={{ ...commandChipStyle, background: "rgba(73, 168, 255, 0.12)", color: "#7dd3fc" }}>
+                              {round.rooms.length} rooms
+                            </span>
+                            {roundLearnerCount !== null ? (
+                              <span style={{ ...commandChipStyle, background: "rgba(44, 211, 173, 0.14)", color: "#86efac" }}>
+                                {roundLearnerCount} learners
+                              </span>
+                            ) : null}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <aside
                     style={{
                       borderRadius: "18px",
-                      border: "1px solid rgba(148, 163, 184, 0.22)",
-                      background: "rgba(15, 23, 42, 0.92)",
-                      padding: "18px",
+                      border: "1px solid rgba(126, 231, 219, 0.24)",
+                      background: "linear-gradient(180deg, rgba(9, 26, 39, 0.98) 0%, rgba(12, 27, 41, 0.94) 100%)",
+                      padding: "16px",
                       display: "grid",
-                      gap: "8px",
+                      gap: "12px",
+                      position: "sticky",
+                      top: "14px",
                     }}
                   >
-                    <div
-                      style={{
-                        fontSize: "1.35rem",
-                        fontWeight: 800,
-                        color: "#f8fafc",
-                      }}
-                    >
-                      Round {index + 1}
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
+                      <div>
+                        <div style={{ ...statLabel, color: "#7ee7db" }}>Round Operations</div>
+                        <div style={{ marginTop: "4px", color: "#d6f6f2", fontSize: "18px", fontWeight: 900 }}>
+                          {selectedRotationRound ? `Round ${activeSelectedRotationRoundIndex + 1}` : "No round selected"}
+                        </div>
+                      </div>
+                      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                        {[
+                          { value: "student", label: "Student Schedule" },
+                          { value: "sp", label: "SP Schedule" },
+                          { value: "operations", label: "Operations View" },
+                        ].map((view) => (
+                          <button
+                            key={view.value}
+                            type="button"
+                            onClick={() => setRoundCompanionView(view.value as RotationCompanionView)}
+                            style={{
+                              ...buttonStyle,
+                              padding: "7px 10px",
+                              background: roundCompanionView === view.value ? "rgba(126, 231, 219, 0.18)" : "rgba(15, 23, 42, 0.62)",
+                              color: roundCompanionView === view.value ? "#d6f6f2" : "#c7e8f2",
+                              border:
+                                roundCompanionView === view.value
+                                  ? "1px solid rgba(126, 231, 219, 0.32)"
+                                  : "1px solid rgba(148, 163, 184, 0.18)",
+                            }}
+                          >
+                            {view.label}
+                          </button>
+                        ))}
+                      </div>
                     </div>
 
-                    <div
-                      style={{
-                        color: "#cbd5e1",
-                        fontSize: "1rem",
-                        fontWeight: 600,
-                      }}
-                    >
-                      {formatRotationRoundLabel(round, importedYearHint)}
-                    </div>
+                    {!hasTouchedRoundCompanion ? (
+                      <div style={{ color: "#8bc8d7", fontWeight: 700, fontSize: "13px" }}>
+                        Select a rotation round to view operational details.
+                      </div>
+                    ) : null}
 
-                    <div
-                      style={{
-                        color: "#94a3b8",
-                        fontSize: "0.95rem",
-                      }}
-                    >
-                      {round.rooms.length} rooms
-                    </div>
-                  </div>
-                ))}
+                    {selectedRotationRound ? (
+                      <>
+                        <div
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))",
+                            gap: "10px",
+                          }}
+                        >
+                          <div style={{ ...statCard, background: "rgba(255,255,255,0.04)" }}>
+                            <div style={{ ...statLabel, color: "#8bc8d7" }}>Time Range</div>
+                            <div style={{ ...statValue, color: "#f8fafc", fontSize: "16px" }}>
+                              {selectedRotationRound.start_time && selectedRotationRound.end_time
+                                ? `${formatDisplayTime(selectedRotationRound.start_time)} - ${formatDisplayTime(selectedRotationRound.end_time)}`
+                                : formatDisplayTime(selectedRotationRound.start_time || selectedRotationRound.end_time) || "Time TBD"}
+                            </div>
+                          </div>
+                          <div style={{ ...statCard, background: "rgba(255,255,255,0.04)" }}>
+                            <div style={{ ...statLabel, color: "#8bc8d7" }}>Rooms in Use</div>
+                            <div style={{ ...statValue, color: "#f8fafc", fontSize: "16px" }}>
+                              {selectedRotationRound.rooms.length || metadataRoomCount || 0}
+                            </div>
+                          </div>
+                          {roundCompanionView !== "sp" && selectedRoundLearnerCount !== null ? (
+                            <div style={{ ...statCard, background: "rgba(255,255,255,0.04)" }}>
+                              <div style={{ ...statLabel, color: "#8bc8d7" }}>Learners</div>
+                              <div style={{ ...statValue, color: "#f8fafc", fontSize: "16px" }}>
+                                {selectedRoundLearnerCount}
+                              </div>
+                            </div>
+                          ) : null}
+                          {roundCompanionView === "operations" && selectedRoundEmptySlots !== null ? (
+                            <div style={{ ...statCard, background: "rgba(255,255,255,0.04)" }}>
+                              <div style={{ ...statLabel, color: "#8bc8d7" }}>Empty Slots</div>
+                              <div style={{ ...statValue, color: "#f8fafc", fontSize: "16px" }}>
+                                {selectedRoundEmptySlots}
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
+
+                        <div style={{ display: "grid", gap: "8px" }}>
+                          <div style={{ ...statLabel, color: "#8bc8d7" }}>
+                            {roundCompanionView === "student"
+                              ? "Student Schedule"
+                              : roundCompanionView === "sp"
+                                ? "SP Schedule"
+                                : "Operations View"}
+                          </div>
+                          <div style={{ color: "#c7e8f2", fontSize: "13px", fontWeight: 700 }}>
+                            {roundCompanionView === "student"
+                              ? "Learner-facing timing and follow-up blocks for this rotation."
+                              : roundCompanionView === "sp"
+                                ? "SP-facing rooms, staffing, and attached support blocks for this rotation."
+                                : "Operational room, staffing, and schedule support details for this rotation."}
+                          </div>
+                        </div>
+
+                        <div style={{ display: "grid", gap: "8px" }}>
+                          <div style={{ ...statLabel, color: "#8bc8d7" }}>
+                            {roundCompanionView === "student" ? "Learner Blocks" : roundCompanionView === "sp" ? "SP Assignments" : "Round Operations"}
+                          </div>
+                          {roundCompanionView === "student" ? (
+                            visibleSelectedRoundDayBlocks.length ? (
+                              visibleSelectedRoundDayBlocks.map((block) => (
+                                <div key={`${selectedRotationRound.key}-${block.label}`} style={{ borderRadius: "12px", border: "1px solid rgba(148, 163, 184, 0.18)", background: "rgba(255,255,255,0.04)", padding: "10px 12px" }}>
+                                  <div style={{ color: "#f8fafc", fontWeight: 800 }}>{block.label}</div>
+                                  <div style={{ marginTop: "4px", color: "#9cc7d3", fontSize: "12px", fontWeight: 700 }}>{block.detail}</div>
+                                </div>
+                              ))
+                            ) : (
+                              <div style={{ color: "#9cc7d3", fontWeight: 700, fontSize: "13px" }}>
+                                No learner-facing schedule blocks recorded for this round.
+                              </div>
+                            )
+                          ) : roundCompanionView === "sp" ? (
+                            <div style={{ display: "grid", gap: "8px" }}>
+                              {selectedRoundAssignments.length ? selectedRoundAssignments.map((entry, index) => (
+                                <div key={`${selectedRotationRound.key}-sp-${index}`} style={{ borderRadius: "12px", border: "1px solid rgba(148, 163, 184, 0.18)", background: "rgba(255,255,255,0.04)", padding: "10px 12px", display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+                                  <div>
+                                    <div style={{ color: "#f8fafc", fontWeight: 800 }}>{entry.roomName || `Room ${index + 1}`}</div>
+                                    <div style={{ marginTop: "4px", color: "#9cc7d3", fontSize: "12px", fontWeight: 700 }}>
+                                      {entry.sp ? getFullName(entry.sp) : "SP TBD"}
+                                    </div>
+                                  </div>
+                                  {entry.assignment ? (
+                                    <span style={{ ...commandChipStyle, background: "rgba(73, 168, 255, 0.12)", color: "#7dd3fc" }}>
+                                      {assignmentStatusLabels[getAssignmentStatus(entry.assignment)]}
+                                    </span>
+                                  ) : null}
+                                </div>
+                              )) : (
+                                <div style={{ color: "#9cc7d3", fontWeight: 700, fontSize: "13px" }}>
+                                  No SP roster is attached to this round yet.
+                                </div>
+                              )}
+                              {visibleSelectedRoundDayBlocks.length ? (
+                                <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                                  {visibleSelectedRoundDayBlocks.map((block) => (
+                                    <span key={`${selectedRotationRound.key}-sp-chip-${block.label}`} style={{ ...commandChipStyle, background: "rgba(126, 231, 219, 0.14)", color: "#7ee7db" }}>
+                                      {block.label}
+                                    </span>
+                                  ))}
+                                </div>
+                              ) : null}
+                            </div>
+                          ) : (
+                            <div style={{ display: "grid", gap: "8px" }}>
+                              <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                                {selectedRotationRound.rooms.length ? selectedRotationRound.rooms.map((roomName) => (
+                                  <span key={`${selectedRotationRound.key}-${roomName}`} style={{ ...commandChipStyle, background: "rgba(73, 168, 255, 0.12)", color: "#7dd3fc" }}>
+                                    {roomName}
+                                  </span>
+                                )) : (
+                                  <span style={{ ...commandChipStyle, background: "rgba(148, 163, 184, 0.16)", color: "#cbd5e1" }}>
+                                    Rooms TBD
+                                  </span>
+                                )}
+                              </div>
+                              {selectedRoundAssignments.length ? selectedRoundAssignments.map((entry, index) => (
+                                <div key={`${selectedRotationRound.key}-ops-${index}`} style={{ borderRadius: "12px", border: "1px solid rgba(148, 163, 184, 0.18)", background: "rgba(255,255,255,0.04)", padding: "10px 12px", display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+                                  <div>
+                                    <div style={{ color: "#f8fafc", fontWeight: 800 }}>{entry.roomName || `Room ${index + 1}`}</div>
+                                    <div style={{ marginTop: "4px", color: "#9cc7d3", fontSize: "12px", fontWeight: 700 }}>
+                                      {entry.sp ? getFullName(entry.sp) : "SP TBD"}
+                                    </div>
+                                  </div>
+                                  <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                                    {entry.assignment ? (
+                                      <span style={{ ...commandChipStyle, background: "rgba(73, 168, 255, 0.12)", color: "#7dd3fc" }}>
+                                        {assignmentStatusLabels[getAssignmentStatus(entry.assignment)]}
+                                      </span>
+                                    ) : null}
+                                    {entry.sp && getEmail(entry.sp) ? (
+                                      <span style={{ ...commandChipStyle, background: "rgba(44, 211, 173, 0.14)", color: "#86efac" }}>
+                                        Email ready
+                                      </span>
+                                    ) : null}
+                                  </div>
+                                </div>
+                              )) : null}
+                              {visibleSelectedRoundDayBlocks.length ? (
+                                <div style={{ display: "grid", gap: "8px" }}>
+                                  {visibleSelectedRoundDayBlocks.map((block) => (
+                                    <div key={`${selectedRotationRound.key}-ops-block-${block.label}`} style={{ borderRadius: "12px", border: "1px solid rgba(148, 163, 184, 0.18)", background: "rgba(255,255,255,0.04)", padding: "10px 12px" }}>
+                                      <div style={{ color: "#f8fafc", fontWeight: 800 }}>{block.label}</div>
+                                      <div style={{ marginTop: "4px", color: "#9cc7d3", fontSize: "12px", fontWeight: 700 }}>{block.detail}</div>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <div style={{ color: "#9cc7d3", fontWeight: 700, fontSize: "13px" }}>
+                                  No attached day blocks for this round.
+                                </div>
+                              )}
+                              {selectedRoundOperationsNotes.length ? (
+                                <div style={{ borderRadius: "12px", border: "1px solid rgba(243, 187, 103, 0.22)", background: "rgba(243, 187, 103, 0.08)", padding: "10px 12px" }}>
+                                  <div style={{ color: "#f8fafc", fontWeight: 800 }}>Operations reminders</div>
+                                  <div style={{ marginTop: "6px", display: "grid", gap: "6px" }}>
+                                    {selectedRoundOperationsNotes.slice(0, 3).map((note, index) => (
+                                      <div key={`${selectedRotationRound.key}-ops-note-${index}`} style={{ color: "#f7d9a2", fontSize: "12px", fontWeight: 700 }}>
+                                        {note}
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              ) : null}
+                            </div>
+                          )}
+                        </div>
+                      </>
+                    ) : (
+                      <div style={{ color: "#9cc7d3", fontWeight: 700, fontSize: "13px" }}>
+                        Select a rotation round to view operational details.
+                      </div>
+                    )}
+                  </aside>
+                </div>
               </div>
-            </div>
             ) : (
               <div style={{ marginTop: "10px", color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
                 No structured sessions yet. Fallback date text: {formatEventDateText(event.date_text, importedYearHint)}
