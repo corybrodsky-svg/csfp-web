@@ -1592,6 +1592,7 @@ export default function EventDetailPage() {
   const canManageTrainingAttendance =
     viewerRole === "admin" || viewerRole === "sim_op" || viewerRole === "super_admin";
   const canManageAvailabilityPoll = canManageTrainingAttendance;
+  const canManageSpMatchMaker = canManageTrainingAttendance;
   const canDeleteEvent = viewerRole === "admin" || viewerRole === "super_admin";
 
   const assignmentsBySpId = useMemo(() => {
@@ -2216,15 +2217,71 @@ const summaryTimeLabel = useMemo(() => {
       return true;
     });
   }, [pollResponderEntries, suggestedAssignmentFilter]);
+  const matchMakerRankedEntries = useMemo(() => {
+    const rankByResponse = {
+      available: 1,
+      maybe: 2,
+      no_response: 3,
+      not_available: 4,
+    } satisfies Record<PollResponseStatus, number>;
+
+    return [...pollResponderEntries].sort((a, b) => {
+      const priorityA = a.isConfirmed ? 0 : rankByResponse[a.pollResponseStatus];
+      const priorityB = b.isConfirmed ? 0 : rankByResponse[b.pollResponseStatus];
+      if (priorityA !== priorityB) return priorityA - priorityB;
+
+      if (a.isAssigned !== b.isAssigned) return a.isAssigned ? -1 : 1;
+
+      const availabilityCompare =
+        getAvailabilityMatchRank(a.availabilityMatch) -
+        getAvailabilityMatchRank(b.availabilityMatch);
+      if (availabilityCompare !== 0) return availabilityCompare;
+
+      if (a.isActive !== b.isActive) return a.isActive ? -1 : 1;
+
+      return getFullName(a.sp).localeCompare(getFullName(b.sp));
+    });
+  }, [pollResponderEntries]);
+  const matchMakerTopMatches = useMemo(
+    () =>
+      matchMakerRankedEntries
+        .filter(
+          (entry) =>
+            entry.assignmentStatus !== "declined" &&
+            entry.pollResponseStatus !== "not_available"
+        )
+        .slice(0, Math.max(needed, 1)),
+    [matchMakerRankedEntries, needed]
+  );
+  const matchMakerBackupMatches = useMemo(
+    () =>
+      matchMakerRankedEntries.filter(
+        (entry) =>
+          (entry.pollResponseStatus === "maybe" ||
+            entry.pollResponseStatus === "no_response") &&
+          entry.assignmentStatus !== "declined"
+      ),
+    [matchMakerRankedEntries]
+  );
+  const matchMakerAvoidList = useMemo(
+    () =>
+      matchMakerRankedEntries.filter(
+        (entry) =>
+          entry.pollResponseStatus === "not_available" ||
+          entry.assignmentStatus === "declined"
+      ),
+    [matchMakerRankedEntries]
+  );
   const topMatchAssignmentCount = useMemo(() => {
     if (coverageGap <= 0) return 0;
-    return suggestedAssignmentRows.filter(
+    return matchMakerTopMatches.filter(
       (entry) =>
         !entry.isAssigned &&
-        entry.pollResponseStatus === "available" &&
+        entry.pollResponseStatus !== "not_available" &&
+        entry.assignmentStatus !== "declined" &&
         entry.isActive
     ).length;
-  }, [coverageGap, suggestedAssignmentRows]);
+  }, [coverageGap, matchMakerTopMatches]);
   const pollResponseSummary = useMemo(() => {
     const selectedIds = Array.from(new Set(activePollSelectedSpIds.map((item) => item.trim()).filter(Boolean)));
     let availableCount = 0;
@@ -3799,8 +3856,14 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
   }
 
   async function handleAssignTopPollMatches() {
-    const ids = suggestedAssignmentRows
-      .filter((entry) => !entry.isAssigned && entry.pollResponseStatus === "available" && entry.isActive)
+    const ids = matchMakerTopMatches
+      .filter(
+        (entry) =>
+          !entry.isAssigned &&
+          entry.isActive &&
+          entry.pollResponseStatus !== "not_available" &&
+          entry.assignmentStatus !== "declined"
+      )
       .slice(0, coverageGap)
       .map((entry) => entry.sp.id);
 
@@ -7058,6 +7121,194 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                   </div>
                 </div>
               </div>
+
+              {canManageSpMatchMaker ? (
+                <div
+                  style={{
+                    borderRadius: "14px",
+                    padding: "12px 14px",
+                    background: "var(--cfsp-surface)",
+                    border: "1px solid rgba(61, 201, 184, 0.24)",
+                    display: "grid",
+                    gap: "12px",
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      gap: "10px",
+                      alignItems: "center",
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    <div>
+                      <div style={{ ...statLabel, color: "#7ee7db" }}>SP Match Maker</div>
+                      <div style={{ marginTop: "4px", color: "var(--cfsp-text)", fontSize: "16px", fontWeight: 900 }}>
+                        Ranked staffing recommendations
+                      </div>
+                      <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontWeight: 700, fontSize: "12px" }}>
+                        Confirmed responders rank first, followed by Available, Maybe, No response, and Avoid.
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                      <button
+                        type="button"
+                        onClick={() => void handleAssignTopPollMatches()}
+                        disabled={saving || topMatchAssignmentCount === 0}
+                        style={{ ...buttonStyle, opacity: saving || topMatchAssignmentCount === 0 ? 0.65 : 1 }}
+                      >
+                        Assign Top Matches
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleMoveMaybeToBackup()}
+                        disabled={saving || maybePollResponders.filter((entry) => entry.assignment).length === 0}
+                        style={{ ...buttonStyle, opacity: saving || maybePollResponders.filter((entry) => entry.assignment).length === 0 ? 0.65 : 1 }}
+                      >
+                        Move Maybes to Backup
+                      </button>
+                    </div>
+                  </div>
+
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                      gap: "10px",
+                    }}
+                  >
+                    {[
+                      {
+                        title: `Top Matches (${matchMakerTopMatches.length})`,
+                        tone: "rgba(44, 211, 173, 0.14)",
+                        border: "1px solid rgba(44, 211, 173, 0.24)",
+                        rows: matchMakerTopMatches,
+                        empty: "No top matches yet.",
+                      },
+                      {
+                        title: `Backup Matches (${matchMakerBackupMatches.length})`,
+                        tone: "rgba(243, 187, 103, 0.12)",
+                        border: "1px solid rgba(243, 187, 103, 0.24)",
+                        rows: matchMakerBackupMatches.slice(0, Math.max(needed, 4)),
+                        empty: "No backup matches yet.",
+                      },
+                      {
+                        title: `Avoid (${matchMakerAvoidList.length})`,
+                        tone: "rgba(214, 69, 69, 0.08)",
+                        border: "1px solid rgba(214, 69, 69, 0.2)",
+                        rows: matchMakerAvoidList.slice(0, 6),
+                        empty: "No avoid list entries.",
+                      },
+                    ].map((section) => (
+                      <div
+                        key={section.title}
+                        style={{
+                          borderRadius: "12px",
+                          padding: "12px",
+                          background: section.tone,
+                          border: section.border,
+                          display: "grid",
+                          gap: "8px",
+                        }}
+                      >
+                        <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>{section.title}</div>
+                        {section.rows.length ? (
+                          section.rows.map((entry) => (
+                            <div
+                              key={`${section.title}-${entry.sp.id}`}
+                              style={{
+                                borderRadius: "12px",
+                                border: "1px solid var(--cfsp-border)",
+                                background: "var(--cfsp-surface)",
+                                padding: "10px 12px",
+                                display: "grid",
+                                gap: "6px",
+                              }}
+                            >
+                              <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>
+                                {getFullName(entry.sp)}
+                              </div>
+                              <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                                {entry.isConfirmed ? (
+                                  <span
+                                    style={{
+                                      ...assignmentStatusStyles.confirmed,
+                                      borderRadius: "999px",
+                                      padding: "4px 8px",
+                                      fontSize: "11px",
+                                      fontWeight: 900,
+                                    }}
+                                  >
+                                    Already confirmed
+                                  </span>
+                                ) : null}
+                                <span
+                                  style={{
+                                    ...(entry.pollResponseStatus === "available"
+                                      ? assignmentStatusStyles.confirmed
+                                      : entry.pollResponseStatus === "maybe"
+                                        ? assignmentStatusStyles.backup
+                                        : entry.pollResponseStatus === "no_response"
+                                          ? assignmentStatusStyles.invited
+                                          : assignmentStatusStyles.declined),
+                                    borderRadius: "999px",
+                                    padding: "4px 8px",
+                                    fontSize: "11px",
+                                    fontWeight: 900,
+                                  }}
+                                >
+                                  {entry.pollResponseStatus === "available"
+                                    ? "Available"
+                                    : entry.pollResponseStatus === "maybe"
+                                      ? "Maybe"
+                                      : entry.pollResponseStatus === "no_response"
+                                        ? "No response"
+                                        : "Not available"}
+                                </span>
+                                {getEmail(entry.sp) ? (
+                                  <span
+                                    style={{
+                                      borderRadius: "999px",
+                                      padding: "4px 8px",
+                                      fontSize: "11px",
+                                      fontWeight: 900,
+                                      background: "rgba(73, 168, 255, 0.12)",
+                                      border: "1px solid rgba(73, 168, 255, 0.24)",
+                                      color: "var(--cfsp-blue)",
+                                    }}
+                                  >
+                                    Email ready
+                                  </span>
+                                ) : null}
+                                {entry.isAssigned ? (
+                                  <span
+                                    style={{
+                                      borderRadius: "999px",
+                                      padding: "4px 8px",
+                                      fontSize: "11px",
+                                      fontWeight: 900,
+                                      background: "rgba(168, 183, 204, 0.12)",
+                                      border: "1px solid var(--cfsp-border)",
+                                      color: "var(--cfsp-text-muted)",
+                                    }}
+                                  >
+                                    Already assigned
+                                  </span>
+                                ) : null}
+                              </div>
+                            </div>
+                          ))
+                        ) : (
+                          <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700, fontSize: "12px" }}>
+                            {section.empty}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
 
               <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                 <button
