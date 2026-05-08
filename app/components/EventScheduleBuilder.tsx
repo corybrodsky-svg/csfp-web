@@ -185,28 +185,7 @@ const DEFAULT_SCHEDULE_BUILDER_DRAFT: ScheduleBuilderDraft = {
   encounterMinutes: "20",
   postEncounterBlock: "checklist",
   postEncounterMinutes: "5",
-  dayBlocks: [
-    {
-      id: "default-checklist",
-      type: "checklist",
-      label: "Checklist",
-      durationMinutes: "5",
-      placement: "after_each_rotation",
-      placementInterval: "2",
-      specificTime: "",
-      visibleTo: "both",
-    },
-    {
-      id: "default-feedback",
-      type: "feedback",
-      label: "Feedback",
-      durationMinutes: "10",
-      placement: "after_each_rotation",
-      placementInterval: "2",
-      specificTime: "",
-      visibleTo: "both",
-    },
-  ],
+  dayBlocks: [],
   manualRoundOverride: false,
   checklistMinutes: "5",
   soapMinutes: "10",
@@ -1694,6 +1673,14 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     }
   }
 
+  function handleRoomCapacityChange(value: string) {
+    if (!asText(value)) {
+      setRoomCapacity("");
+      return;
+    }
+    setRoomCapacity(String(Math.max(1, parseNumber(value, 1))));
+  }
+
   async function handleCopyPreview() {
     try {
       await navigator.clipboard.writeText(previewText);
@@ -2105,7 +2092,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
               </div>
               <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                 <NumberInput label={roomCountLabel} value={examRoomCount} onChange={setExamRoomCount} />
-                <NumberInput label={roomCapacityLabel} value={roomCapacity} onChange={setRoomCapacity} />
+                <NumberInput label={roomCapacityLabel} value={roomCapacity} onChange={handleRoomCapacityChange} />
                 {!isVirtualEvent ? (
                   <>
                     <NumberInput label="Number of flex rooms" value={flexRoomCount} onChange={setFlexRoomCount} />
@@ -2118,13 +2105,13 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
               <div className="mt-4 rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>
-                    <div className="cfsp-label">Day Blocks</div>
-                    <div className="mt-2 text-sm font-semibold leading-6 text-[#5e7388]">
-                      Add reusable breaks, checklists, SOAP notes, feedback, debriefs, lunch, transitions, or custom blocks around rotation rounds.
-                    </div>
+                  <div className="cfsp-label">Reusable Schedule Blocks</div>
+                  <div className="mt-2 text-sm font-semibold leading-6 text-[#5e7388]">
+                      Add optional schedule items such as breaks, checklist time, SOAP notes, feedback, lunch, transitions, or custom blocks around rotation rounds.
                   </div>
+                </div>
                   <button type="button" onClick={handleAddDayBlock} className="cfsp-btn cfsp-btn-secondary">
-                    Add Day Block
+                    Add Schedule Block
                   </button>
                 </div>
                 <div className="mt-4 grid gap-3">
@@ -2132,7 +2119,12 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                     dayBlocks.map((block, index) => (
                       <div key={block.id} className="rounded-[12px] border border-[#dce6ee] bg-white px-3 py-3">
                         <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div className="text-sm font-black text-[#14304f]">Day Block {index + 1}</div>
+                          <div className="text-sm font-black text-[#14304f]">
+                            {asText(block.label) || getDefaultDayBlockLabel(block.type)}{" "}
+                            <span style={{ color: "#5e7388", fontWeight: 700 }}>
+                              · Schedule Block {index + 1}
+                            </span>
+                          </div>
                           <div className="flex flex-wrap gap-2">
                             <button
                               type="button"
@@ -2239,7 +2231,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                     ))
                   ) : (
                     <div className="rounded-[12px] border border-dashed border-[#c9d7e3] bg-white px-4 py-4 text-sm font-semibold text-[#5e7388]">
-                      No day blocks yet. Add a break, checklist, SOAP notes, feedback, debrief, lunch, transition, or custom block.
+                      No schedule blocks yet. Add a break, checklist, SOAP notes, feedback, lunch, transition, debrief, or custom block when you need it.
                     </div>
                   )}
                 </div>
@@ -2296,7 +2288,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                       {advancedSettingsActive ? "Active" : "Inactive"}
                     </div>
                     <div className="mt-2 text-sm font-semibold text-[#5e7388]">
-                      Set arrival, prebrief, manual round overrides, or session targets only when you want them included in the builder. Use Day Blocks for reusable breaks, checklist steps, SOAP notes, feedback, and debrief timing.
+                      Set arrival, prebrief, manual round overrides, or session targets only when you want them included in the builder. Use reusable schedule blocks for breaks, checklist steps, SOAP notes, feedback, and debrief timing.
                     </div>
                   </div>
                 </div>
