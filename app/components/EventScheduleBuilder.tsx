@@ -515,7 +515,7 @@ function parseLearnerNamesFromWorkbook(workbook: XLSX.WorkBook) {
   const [firstName, ...rest] = names;
   const skipHeader =
     rest.length > 0 &&
-    /\b(name|learner|student|group|participant)\b/i.test(firstName);
+    /\b(name|learner|student|group|participant|email|email address|notes)\b/i.test(firstName);
 
   return (skipHeader ? rest : names).filter(Boolean);
 }
@@ -527,7 +527,11 @@ async function parseLearnerFile(file: File) {
 }
 
 function downloadStudentRosterTemplate() {
-  const csv = ["Student Name,Group,Notes", "Jordan Smith,A,", "Taylor Chen,B,Requires front-row seat"].join("\n");
+  const csv = [
+    "Student Name,Email Address,Notes",
+    "Jordan Smith,jsmith@email.com,Needs front-row seat",
+    "Taylor Chen,tchen@email.com,",
+  ].join("\n");
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
@@ -1568,7 +1572,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                   </button>
                 </div>
                 <div className="text-sm font-semibold text-[#5e7388]">
-                  Use the Student Name column for learner names. Group and Notes are optional.
+                  Use the Student Name column for learner names. Email Address and Notes are optional.
                 </div>
                 {learnerUploadError ? <div className="cfsp-alert cfsp-alert-error">{learnerUploadError}</div> : null}
                 <div className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
