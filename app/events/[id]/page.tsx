@@ -122,6 +122,7 @@ type AssignmentStatus =
 
 type ContactMethod = "call" | "text" | "email";
 type AssignmentFilterStatus = "all" | "invited" | "confirmed" | "declined";
+type SuggestedAssignmentFilter = "all" | "available" | "confirmed" | "needs_outreach" | "backup";
 
 type AvailabilityMatchStatus =
   | "available"
@@ -224,6 +225,7 @@ type PollResponseMetadata = {
   responseNote: string;
   responseSubmittedAt: string;
 };
+type PollResponseStatus = "available" | "maybe" | "not_available" | "no_response";
 type RelatedCopyOption =
   | "assigned_sps"
   | "training_materials"
@@ -1111,6 +1113,14 @@ function parsePollResponseMetadata(notes?: string | null) {
   return metadata;
 }
 
+function getPollResponseStatus(notes?: string | null): PollResponseStatus {
+  const status = asText(parsePollResponseMetadata(notes).responseStatus).toLowerCase();
+  if (status === "available") return "available";
+  if (status === "maybe") return "maybe";
+  if (status === "not_available") return "not_available";
+  return "no_response";
+}
+
 function buildRotationRounds(sessions: EventSessionRow[]): RotationRound[] {
   const rounds = new Map<string, RotationRound>();
 
@@ -1441,6 +1451,7 @@ export default function EventDetailPage() {
   const [availableForEventOnly, setAvailableForEventOnly] = useState(false);
   const [showEmailDraft, setShowEmailDraft] = useState(false);
   const [assignmentFilter, setAssignmentFilter] = useState<AssignmentFilterStatus>("all");
+  const [suggestedAssignmentFilter, setSuggestedAssignmentFilter] = useState<SuggestedAssignmentFilter>("all");
   const [loading, setLoading] = useState(Boolean(id));
   const [saving, setSaving] = useState(false);
   const [assigningSpId, setAssigningSpId] = useState("");
@@ -2077,6 +2088,143 @@ const summaryTimeLabel = useMemo(() => {
   const activePollSelectedSpIds = selectedPollSpIds.length
     ? selectedPollSpIds
     : pollSelectedSpIdsFromMetadata;
+  const activePollSelectedSpEmails = pollSelectedEmails.length
+    ? pollSelectedEmails
+    : pollSelectedSpEmailsFromMetadata;
+  const pollResponderEntries = useMemo(() => {
+    const byId = new Map<string, {
+      sp: SPRow;
+      assignment: AssignmentRow | null;
+      assignmentStatus: AssignmentStatus | null;
+      pollResponseStatus: PollResponseStatus;
+      availabilityMatch: AvailabilityMatchStatus;
+      isAssigned: boolean;
+      isConfirmed: boolean;
+      isActive: boolean;
+      isTelehealthReady: boolean;
+      hasPtPreferred: boolean;
+    }>();
+
+    activePollSelectedSpIds.forEach((spId) => {
+      const sp = spsById.get(String(spId));
+      if (!sp) return;
+      const assignment = assignmentsBySpId.get(String(sp.id)) || null;
+      const assignmentStatus = assignment ? getAssignmentStatus(assignment) : null;
+      byId.set(String(sp.id), {
+        sp,
+        assignment,
+        assignmentStatus,
+        pollResponseStatus: getPollResponseStatus(assignment?.notes),
+        availabilityMatch: availabilityMatchBySpId.get(sp.id)?.status || "unknown",
+        isAssigned: Boolean(assignment),
+        isConfirmed: assignment ? isAssignmentConfirmed(assignment) : false,
+        isActive: isActiveSp(sp),
+        isTelehealthReady: hasTelehealth(sp),
+        hasPtPreferred: hasPtPreferred(sp),
+      });
+    });
+
+    activePollSelectedSpEmails.forEach((email) => {
+      const sp = spByEmail.get(normalizeEmail(email));
+      if (!sp) return;
+      if (byId.has(String(sp.id))) return;
+      const assignment = assignmentsBySpId.get(String(sp.id)) || null;
+      const assignmentStatus = assignment ? getAssignmentStatus(assignment) : null;
+      byId.set(String(sp.id), {
+        sp,
+        assignment,
+        assignmentStatus,
+        pollResponseStatus: getPollResponseStatus(assignment?.notes),
+        availabilityMatch: availabilityMatchBySpId.get(sp.id)?.status || "unknown",
+        isAssigned: Boolean(assignment),
+        isConfirmed: assignment ? isAssignmentConfirmed(assignment) : false,
+        isActive: isActiveSp(sp),
+        isTelehealthReady: hasTelehealth(sp),
+        hasPtPreferred: hasPtPreferred(sp),
+      });
+    });
+
+    return Array.from(byId.values()).sort((a, b) => {
+      const responseRank = { available: 0, maybe: 1, no_response: 2, not_available: 3 } satisfies Record<PollResponseStatus, number>;
+      const assignmentRank = a.isConfirmed === b.isConfirmed ? 0 : a.isConfirmed ? -1 : 1;
+      const responseCompare = responseRank[a.pollResponseStatus] - responseRank[b.pollResponseStatus];
+      if (responseCompare !== 0) return responseCompare;
+      if (assignmentRank !== 0) return assignmentRank;
+      const availabilityCompare =
+        getAvailabilityMatchRank(a.availabilityMatch) - getAvailabilityMatchRank(b.availabilityMatch);
+      if (availabilityCompare !== 0) return availabilityCompare;
+      return getFullName(a.sp).localeCompare(getFullName(b.sp));
+    });
+  }, [
+    activePollSelectedSpEmails,
+    activePollSelectedSpIds,
+    assignmentsBySpId,
+    availabilityMatchBySpId,
+    spByEmail,
+    spsById,
+  ]);
+  const availablePollResponders = useMemo(
+    () => pollResponderEntries.filter((entry) => entry.pollResponseStatus === "available"),
+    [pollResponderEntries]
+  );
+  const maybePollResponders = useMemo(
+    () => pollResponderEntries.filter((entry) => entry.pollResponseStatus === "maybe"),
+    [pollResponderEntries]
+  );
+  const unavailablePollResponders = useMemo(
+    () => pollResponderEntries.filter((entry) => entry.pollResponseStatus === "not_available"),
+    [pollResponderEntries]
+  );
+  const noResponsePollResponders = useMemo(
+    () => pollResponderEntries.filter((entry) => entry.pollResponseStatus === "no_response"),
+    [pollResponderEntries]
+  );
+  const pollResponseRate = pollResponderEntries.length
+    ? Math.round(((availablePollResponders.length + maybePollResponders.length + unavailablePollResponders.length) / pollResponderEntries.length) * 100)
+    : 0;
+  const coverageGap = Math.max(needed - confirmedCount, 0);
+  const availableCoverageCount = availablePollResponders.filter(
+    (entry) => entry.isActive && entry.pollResponseStatus === "available" && entry.assignmentStatus !== "declined"
+  ).length;
+  const coverageRiskTone =
+    confirmedCount >= needed
+      ? "green"
+      : confirmedCount + availableCoverageCount >= needed
+        ? "yellow"
+        : "red";
+  const staffingHealthLabel =
+    coverageRiskTone === "green"
+      ? "Coverage met"
+      : coverageRiskTone === "yellow"
+        ? `Short by ${coverageGap}`
+        : `Understaffed by ${coverageGap}`;
+  const needsOutreachCount = useMemo(
+    () =>
+      pollResponderEntries.filter(
+        (entry) => !entry.isAssigned || entry.pollResponseStatus === "no_response"
+      ).length,
+    [pollResponderEntries]
+  );
+  const suggestedAssignmentRows = useMemo(() => {
+    const rows = pollResponderEntries.filter((entry) => entry.pollResponseStatus !== "not_available");
+    return rows.filter((entry) => {
+      if (suggestedAssignmentFilter === "all") return true;
+      if (suggestedAssignmentFilter === "available") return entry.pollResponseStatus === "available";
+      if (suggestedAssignmentFilter === "confirmed") return entry.isConfirmed;
+      if (suggestedAssignmentFilter === "needs_outreach") return !entry.isAssigned || entry.pollResponseStatus === "no_response";
+      if (suggestedAssignmentFilter === "backup") return entry.pollResponseStatus === "maybe" || entry.assignmentStatus === "backup";
+      return true;
+    });
+  }, [pollResponderEntries, suggestedAssignmentFilter]);
+  const topMatchAssignmentCount = useMemo(() => {
+    if (coverageGap <= 0) return 0;
+    return suggestedAssignmentRows.filter(
+      (entry) =>
+        !entry.isAssigned &&
+        entry.pollResponseStatus === "available" &&
+        entry.isActive
+    ).length;
+  }, [coverageGap, suggestedAssignmentRows]);
   const pollResponseSummary = useMemo(() => {
     const selectedIds = Array.from(new Set(activePollSelectedSpIds.map((item) => item.trim()).filter(Boolean)));
     let availableCount = 0;
@@ -3637,6 +3785,99 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
       topIds,
       `Added ${topIds.length} top match${topIds.length === 1 ? "" : "es"}.`
     );
+  }
+
+  async function handleAssignAvailablePollResponders() {
+    const ids = availablePollResponders
+      .filter((entry) => !entry.isAssigned && entry.isActive)
+      .map((entry) => entry.sp.id);
+
+    await assignMultipleSpIds(
+      ids,
+      `Assigned ${ids.length} available responder${ids.length === 1 ? "" : "s"}.`
+    );
+  }
+
+  async function handleAssignTopPollMatches() {
+    const ids = suggestedAssignmentRows
+      .filter((entry) => !entry.isAssigned && entry.pollResponseStatus === "available" && entry.isActive)
+      .slice(0, coverageGap)
+      .map((entry) => entry.sp.id);
+
+    await assignMultipleSpIds(
+      ids,
+      `Assigned ${ids.length} top match${ids.length === 1 ? "" : "es"}.`
+    );
+  }
+
+  async function handleBulkAssignmentStatusUpdate(
+    assignmentsToUpdate: AssignmentRow[],
+    status: AssignmentStatus,
+    successMessage: string
+  ) {
+    if (!assignmentsToUpdate.length) {
+      showSuccessMessage(successMessage);
+      return;
+    }
+
+    setSaving(true);
+    setAssignmentSuccessMessage("");
+    setErrorMessage("");
+    setEventSaveError("");
+    setEventSaveMessage("");
+
+    try {
+      for (const assignment of assignmentsToUpdate) {
+        await saveAssignmentRequest("PATCH", {
+          assignment_id: assignment.id,
+          updates: {
+            status,
+            confirmed: status === "confirmed",
+          },
+        });
+      }
+      await refreshData();
+      showSuccessMessage(successMessage);
+    } catch (error) {
+      setEventSaveError(error instanceof Error ? error.message : "Could not update suggested assignments.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleConvertAvailableToConfirmed() {
+    const assignmentsToUpdate = availablePollResponders
+      .filter((entry) => entry.assignment && !entry.isConfirmed && entry.assignmentStatus !== "declined")
+      .map((entry) => entry.assignment)
+      .filter((assignment): assignment is AssignmentRow => Boolean(assignment));
+
+    await handleBulkAssignmentStatusUpdate(
+      assignmentsToUpdate,
+      "confirmed",
+      assignmentsToUpdate.length
+        ? `Confirmed ${assignmentsToUpdate.length} available responder${assignmentsToUpdate.length === 1 ? "" : "s"}.`
+        : "No available assigned responders needed confirmation."
+    );
+  }
+
+  async function handleMoveMaybeToBackup() {
+    const assignmentsToUpdate = maybePollResponders
+      .filter((entry) => entry.assignment && entry.assignmentStatus !== "backup" && entry.assignmentStatus !== "declined")
+      .map((entry) => entry.assignment)
+      .filter((assignment): assignment is AssignmentRow => Boolean(assignment));
+
+    await handleBulkAssignmentStatusUpdate(
+      assignmentsToUpdate,
+      "backup",
+      assignmentsToUpdate.length
+        ? `Moved ${assignmentsToUpdate.length} maybe responder${assignmentsToUpdate.length === 1 ? "" : "s"} to backup.`
+        : "No maybe responders needed a backup update."
+    );
+  }
+
+  function handleClearSuggestedAssignments() {
+    setSuggestedAssignmentFilter("all");
+    showSuccessMessage("Suggested assignments reset.");
   }
 
   const trainingAttendancePanel =
@@ -6740,98 +6981,257 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
           </div>
 
           {staffingRelevant ? (
-          <div style={statCard}>
-            <div style={statLabel}>Suggested SPs</div>
-
-            {recommendedSps.length === 0 ? (
-              <div style={{ marginTop: "8px", color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
-                No suggested SPs yet.
+            <div style={{ ...statCard, display: "grid", gap: "12px" }}>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))",
+                  gap: "10px",
+                }}
+              >
+                {[
+                  { label: "Needed", value: needed, tone: "var(--cfsp-text)" },
+                  { label: "Confirmed", value: confirmedCount, tone: "var(--cfsp-green)" },
+                  { label: "Available Responses", value: availablePollResponders.length, tone: "var(--cfsp-green)" },
+                  { label: "Maybe", value: maybePollResponders.length, tone: "var(--cfsp-warning)" },
+                  { label: "Unavailable", value: unavailablePollResponders.length, tone: "var(--cfsp-danger)" },
+                  { label: "No Response", value: noResponsePollResponders.length, tone: "var(--cfsp-text-muted)" },
+                ].map((item) => (
+                  <div key={item.label} style={{ ...statCard, padding: "10px 12px", background: "var(--cfsp-surface)" }}>
+                    <div style={statLabel}>{item.label}</div>
+                    <div style={{ ...statValue, color: item.tone }}>{item.value}</div>
+                  </div>
+                ))}
               </div>
-            ) : (
-              <div style={{ display: "grid", gap: "8px", marginTop: "8px" }}>
-                {recommendedSps.map((sp) => {
-                  const availabilityMatch = availabilityMatchBySpId.get(sp.id) || {
-                    status: "unknown" as AvailabilityMatchStatus,
-                    matchedSessions: 0,
-                    totalSessions: sessions.length,
-                    reason: "No structured availability match data",
-                  };
 
-                  return (
-                    <div
-                      key={sp.id}
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        gap: "12px",
-                        flexWrap: "wrap",
-                        alignItems: "center",
-                        borderRadius: "16px",
-                        padding: "12px 14px",
-                        background:
-                          availabilityMatch.status === "available"
-                            ? "var(--cfsp-green-soft)"
-                            : "var(--cfsp-warning-soft)",
-                        border:
-                          availabilityMatch.status === "available"
-                            ? "1px solid rgba(44, 211, 173, 0.24)"
-                            : "1px solid rgba(243, 187, 103, 0.24)",
-                      }}
-                    >
-                      <div>
-                        <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>
-                          {getFullName(sp)}
-                        </div>
-                        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "6px" }}>
-                          {getSpTagLabels(sp).map((tag) => (
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                  gap: "10px",
+                }}
+              >
+                <div
+                  style={{
+                    borderRadius: "14px",
+                    padding: "12px 14px",
+                    background:
+                      coverageRiskTone === "green"
+                        ? "var(--cfsp-green-soft)"
+                        : coverageRiskTone === "yellow"
+                          ? "var(--cfsp-warning-soft)"
+                          : "var(--cfsp-danger-soft)",
+                    border:
+                      coverageRiskTone === "green"
+                        ? "1px solid rgba(44, 211, 173, 0.24)"
+                        : coverageRiskTone === "yellow"
+                          ? "1px solid rgba(243, 187, 103, 0.24)"
+                          : "1px solid var(--cfsp-danger-border)",
+                    color:
+                      coverageRiskTone === "green"
+                        ? "var(--cfsp-green)"
+                        : coverageRiskTone === "yellow"
+                          ? "var(--cfsp-warning)"
+                          : "var(--cfsp-danger)",
+                  }}
+                >
+                  <div style={statLabel}>Coverage Risk</div>
+                  <div style={{ marginTop: "4px", fontSize: "18px", fontWeight: 900 }}>
+                    {coverageRiskTone === "green" ? "Low" : coverageRiskTone === "yellow" ? "Medium" : "High"}
+                  </div>
+                  <div style={{ marginTop: "4px", fontWeight: 700 }}>{staffingHealthLabel}</div>
+                </div>
+                <div style={{ ...statCard, padding: "12px 14px", background: "var(--cfsp-surface)" }}>
+                  <div style={statLabel}>Operational Staffing</div>
+                  <div style={{ marginTop: "4px", color: "var(--cfsp-text)", fontWeight: 800 }}>
+                    {confirmedCount >= needed
+                      ? "Coverage met"
+                      : `Short by ${Math.max(needed - confirmedCount, 0)}`}
+                  </div>
+                  <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
+                    {maybePollResponders.length
+                      ? `Backup coverage available from ${maybePollResponders.length} maybe responder${maybePollResponders.length === 1 ? "" : "s"}.`
+                      : "No backup responses yet."}
+                  </div>
+                  <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
+                    Poll response rate: {pollResponseRate}%
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                <button
+                  type="button"
+                  onClick={() => void handleAssignAvailablePollResponders()}
+                  disabled={saving || availablePollResponders.filter((entry) => !entry.isAssigned && entry.isActive).length === 0}
+                  style={{ ...buttonStyle, opacity: saving || availablePollResponders.filter((entry) => !entry.isAssigned && entry.isActive).length === 0 ? 0.65 : 1 }}
+                >
+                  Assign Available SPs
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleAssignTopPollMatches()}
+                  disabled={saving || topMatchAssignmentCount === 0}
+                  style={{ ...buttonStyle, opacity: saving || topMatchAssignmentCount === 0 ? 0.65 : 1 }}
+                >
+                  Assign Top Matches
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleConvertAvailableToConfirmed()}
+                  disabled={saving || availablePollResponders.filter((entry) => entry.assignment && !entry.isConfirmed).length === 0}
+                  style={{ ...buttonStyle, opacity: saving || availablePollResponders.filter((entry) => entry.assignment && !entry.isConfirmed).length === 0 ? 0.65 : 1 }}
+                >
+                  Convert Available → Confirmed
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleMoveMaybeToBackup()}
+                  disabled={saving || maybePollResponders.filter((entry) => entry.assignment).length === 0}
+                  style={{ ...buttonStyle, opacity: saving || maybePollResponders.filter((entry) => entry.assignment).length === 0 ? 0.65 : 1 }}
+                >
+                  Move Maybe → Backup
+                </button>
+                <button
+                  type="button"
+                  onClick={handleClearSuggestedAssignments}
+                  style={{
+                    ...buttonStyle,
+                    background: "var(--cfsp-surface)",
+                    color: "var(--cfsp-text)",
+                    border: "1px solid var(--cfsp-border)",
+                  }}
+                >
+                  Clear Suggested Assignments
+                </button>
+              </div>
+
+              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                {[
+                  { value: "all", label: `All (${pollResponderEntries.length})` },
+                  { value: "available", label: `Available only (${availablePollResponders.length})` },
+                  { value: "confirmed", label: `Confirmed only (${availablePollResponders.filter((entry) => entry.isConfirmed).length})` },
+                  { value: "needs_outreach", label: `Needs outreach (${needsOutreachCount})` },
+                  { value: "backup", label: `Backup candidates (${maybePollResponders.length})` },
+                ].map((filter) => (
+                  <button
+                    key={filter.value}
+                    type="button"
+                    onClick={() => setSuggestedAssignmentFilter(filter.value as SuggestedAssignmentFilter)}
+                    style={{
+                      ...buttonStyle,
+                      padding: "8px 12px",
+                      background: suggestedAssignmentFilter === filter.value ? "var(--cfsp-blue)" : "var(--cfsp-surface)",
+                      color: suggestedAssignmentFilter === filter.value ? "#ffffff" : "var(--cfsp-text)",
+                      border:
+                        suggestedAssignmentFilter === filter.value
+                          ? "1px solid var(--cfsp-blue)"
+                          : "1px solid var(--cfsp-border)",
+                    }}
+                  >
+                    {filter.label}
+                  </button>
+                ))}
+              </div>
+
+              <div style={{ display: "grid", gap: "8px" }}>
+                {suggestedAssignmentRows.length === 0 ? (
+                  <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
+                    No responders match this staffing filter yet.
+                  </div>
+                ) : (
+                  suggestedAssignmentRows.slice(0, 10).map((entry) => {
+                    const responseTone =
+                      entry.pollResponseStatus === "available"
+                        ? assignmentStatusStyles.confirmed
+                        : entry.pollResponseStatus === "maybe"
+                          ? assignmentStatusStyles.backup
+                          : entry.pollResponseStatus === "not_available"
+                            ? assignmentStatusStyles.declined
+                            : assignmentStatusStyles.invited;
+                    return (
+                      <div
+                        key={entry.sp.id}
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "minmax(0, 1.5fr) auto",
+                          gap: "10px",
+                          alignItems: "center",
+                          borderRadius: "14px",
+                          padding: "10px 12px",
+                          background: "var(--cfsp-surface)",
+                          border: "1px solid var(--cfsp-border)",
+                        }}
+                      >
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>{getFullName(entry.sp)}</div>
+                          <div style={{ marginTop: "4px", display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                            <span style={{ ...responseTone, borderRadius: "999px", padding: "5px 8px", fontSize: "11px", fontWeight: 900 }}>
+                              {entry.pollResponseStatus === "not_available"
+                                ? "Not Available"
+                                : entry.pollResponseStatus === "no_response"
+                                  ? "No Response"
+                                  : entry.pollResponseStatus === "available"
+                                    ? "Available"
+                                    : "Maybe"}
+                            </span>
                             <span
-                              key={`${sp.id}-${tag}`}
                               style={{
+                                ...availabilityMatchStyles[entry.availabilityMatch],
                                 borderRadius: "999px",
                                 padding: "5px 8px",
-                                background: "rgba(168, 183, 204, 0.12)",
-                                border: "1px solid var(--cfsp-border)",
-                                color: "var(--cfsp-text-muted)",
-                                fontSize: "12px",
-                                fontWeight: 800,
+                                fontSize: "11px",
+                                fontWeight: 900,
                               }}
                             >
-                              {tag}
+                              {availabilityMatchLabels[entry.availabilityMatch]}
                             </span>
-                          ))}
+                            {entry.assignmentStatus ? (
+                              <span
+                                style={{
+                                  ...assignmentStatusStyles[entry.assignmentStatus],
+                                  borderRadius: "999px",
+                                  padding: "5px 8px",
+                                  fontSize: "11px",
+                                  fontWeight: 900,
+                                }}
+                              >
+                                {assignmentStatusLabels[entry.assignmentStatus]}
+                              </span>
+                            ) : null}
+                          </div>
+                          <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontWeight: 700, fontSize: "12px" }}>
+                            {entry.isAssigned
+                              ? entry.isConfirmed
+                                ? "Already confirmed for this event."
+                                : "Already assigned."
+                              : entry.pollResponseStatus === "available"
+                                ? "Ready to assign."
+                                : entry.pollResponseStatus === "maybe"
+                                  ? "Use as backup coverage."
+                                  : "Needs outreach."}
+                          </div>
                         </div>
-                        <div
-                          style={{
-                            marginTop: "4px",
-                            display: "inline-flex",
-                            borderRadius: "999px",
-                            padding: "6px 10px",
-                            fontSize: "12px",
-                            fontWeight: 900,
-                            ...availabilityMatchStyles[availabilityMatch.status],
-                          }}
-                        >
-                          {availabilityMatchLabels[availabilityMatch.status]}
-                        </div>
-                        <div style={{ marginTop: "6px", color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
-                          {availabilityMatch.reason}
-                        </div>
+                        {!entry.isAssigned && entry.pollResponseStatus !== "not_available" ? (
+                          <button
+                            type="button"
+                            onClick={() => void handleAddAssignment(entry.sp.id)}
+                            disabled={saving}
+                            style={{ ...buttonStyle, opacity: saving ? 0.65 : 1 }}
+                          >
+                            {assigningSpId === entry.sp.id ? "Assigning..." : "Assign"}
+                          </button>
+                        ) : (
+                          <span style={{ color: "var(--cfsp-text-muted)", fontWeight: 800, fontSize: "12px" }}>
+                            {entry.isAssigned ? "Assigned" : "Do not assign"}
+                          </span>
+                        )}
                       </div>
-
-                      <button
-                        type="button"
-                        onClick={() => void handleAddAssignment(sp.id)}
-                        disabled={saving}
-                        style={{ ...buttonStyle, opacity: saving ? 0.65 : 1 }}
-                      >
-                        {assigningSpId === sp.id ? "Assigning..." : "Assign"}
-                      </button>
-                    </div>
-                  );
-                })}
+                    );
+                  })
+                )}
               </div>
-            )}
-          </div>
+            </div>
           ) : null}
 
           <div
