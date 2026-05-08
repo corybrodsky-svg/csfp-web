@@ -5555,15 +5555,77 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
       </section>
     ) : null;
 
+  const staffingCommandSurfaceStyle: React.CSSProperties = {
+    ...cardStyle,
+    background:
+      "linear-gradient(180deg, rgba(15, 27, 42, 0.98) 0%, rgba(17, 31, 47, 0.96) 55%, rgba(14, 26, 39, 0.98) 100%)",
+    border: "1px solid rgba(126, 231, 219, 0.16)",
+    boxShadow: "0 18px 36px rgba(6, 12, 24, 0.18)",
+    display: "grid",
+    gap: "12px",
+    overflow: "hidden",
+  };
+  const staffingPanelStyle: React.CSSProperties = {
+    border: "1px solid rgba(148, 163, 184, 0.16)",
+    borderRadius: "18px",
+    background: "linear-gradient(180deg, rgba(20, 36, 54, 0.94) 0%, rgba(15, 28, 43, 0.96) 100%)",
+    boxShadow: "inset 0 1px 0 rgba(255,255,255,0.03)",
+    padding: "12px 14px",
+  };
+  const staffingSummaryStyle: React.CSSProperties = {
+    cursor: "pointer",
+    color: "#e7fbff",
+    fontWeight: 900,
+    letterSpacing: "0.01em",
+  };
+  const staffingMetricCardStyle: React.CSSProperties = {
+    ...statCard,
+    padding: "10px 12px",
+    background: "linear-gradient(180deg, rgba(30, 47, 67, 0.9) 0%, rgba(22, 37, 54, 0.92) 100%)",
+    border: "1px solid rgba(126, 231, 219, 0.12)",
+    boxShadow: "0 10px 18px rgba(4, 12, 24, 0.12)",
+  };
+  const staffingRowCardStyle: React.CSSProperties = {
+    border: "1px solid rgba(126, 231, 219, 0.1)",
+    borderRadius: "14px",
+    padding: "10px 12px",
+    background: "linear-gradient(180deg, rgba(22, 37, 54, 0.92) 0%, rgba(17, 30, 45, 0.94) 100%)",
+    display: "grid",
+    gap: "8px",
+    boxShadow: "0 10px 18px rgba(4, 12, 24, 0.1)",
+  };
+  const staffingEmptyStateStyle: React.CSSProperties = {
+    border: "1px dashed rgba(148, 163, 184, 0.24)",
+    borderRadius: "12px",
+    padding: "10px 12px",
+    background: "rgba(148, 163, 184, 0.08)",
+    color: "#bdd4df",
+    fontWeight: 700,
+    fontSize: "13px",
+  };
+  const staffingSecondaryButtonStyle: React.CSSProperties = {
+    ...buttonStyle,
+    background: "rgba(148, 163, 184, 0.08)",
+    color: "#d8eef5",
+    border: "1px solid rgba(148, 163, 184, 0.18)",
+  };
+  const staffingSelectedChipStyle: React.CSSProperties = {
+    ...commandChipStyle,
+    background: "rgba(126, 231, 219, 0.12)",
+    color: "#99f6e4",
+    border: "1px solid rgba(126, 231, 219, 0.18)",
+  };
+  const staffingMutedTextStyle: React.CSSProperties = {
+    color: "#9cc7d3",
+    fontWeight: 700,
+    fontSize: "13px",
+  };
+
   const normalEventStaffingCommandCenter =
     !isTrainingMode ? (
       <section
         style={{
-          ...cardStyle,
-          background: "var(--cfsp-surface-muted)",
-          borderColor: "rgba(120, 180, 255, 0.24)",
-          display: "grid",
-          gap: "12px",
+          ...staffingCommandSurfaceStyle,
         }}
       >
         <div
@@ -5576,31 +5638,37 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
           }}
         >
           <div>
-            <h2 style={compactSectionTitleStyle}>Staffing Command Center</h2>
-            <p style={compactSectionHintStyle}>
+            <h2 style={{ ...compactSectionTitleStyle, color: "#f4fbff", letterSpacing: "0.01em" }}>Staffing Command Center</h2>
+            <p style={{ ...compactSectionHintStyle, color: "#9cc7d3" }}>
               Run coverage, polling, responder ranking, and assigned-SP operations from one compact workflow.
             </p>
           </div>
           <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-            <span style={commandChipStyle}>{needed} needed</span>
-            <span style={{ ...commandChipStyle, background: "var(--cfsp-green-soft)", color: "var(--cfsp-green)" }}>
+            <span style={{ ...staffingSelectedChipStyle, background: "rgba(125, 211, 252, 0.12)", color: "#bae6fd" }}>{needed} needed</span>
+            <span style={{ ...staffingSelectedChipStyle, background: "rgba(167, 243, 208, 0.12)", color: "#a7f3d0" }}>
               {confirmedCount} confirmed
             </span>
             <span
               style={{
-                ...commandChipStyle,
+                ...staffingSelectedChipStyle,
                 background:
                   coverageRiskTone === "green"
-                    ? "var(--cfsp-green-soft)"
+                    ? "rgba(167, 243, 208, 0.12)"
                     : coverageRiskTone === "yellow"
-                      ? "var(--cfsp-warning-soft)"
-                      : "var(--cfsp-danger-soft)",
+                      ? "rgba(253, 230, 138, 0.14)"
+                      : "rgba(252, 165, 165, 0.14)",
                 color:
                   coverageRiskTone === "green"
-                    ? "var(--cfsp-green)"
+                    ? "#a7f3d0"
                     : coverageRiskTone === "yellow"
-                      ? "var(--cfsp-warning)"
-                      : "var(--cfsp-danger)",
+                      ? "#fde68a"
+                      : "#fecaca",
+                border:
+                  coverageRiskTone === "green"
+                    ? "1px solid rgba(167, 243, 208, 0.18)"
+                    : coverageRiskTone === "yellow"
+                      ? "1px solid rgba(253, 230, 138, 0.2)"
+                      : "1px solid rgba(252, 165, 165, 0.2)",
               }}
             >
               {staffingHealthLabel}
@@ -5612,12 +5680,12 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
           <div
             style={{
               ...statCard,
-              background: "rgba(141, 121, 255, 0.14)",
-              border: "1px solid rgba(141, 121, 255, 0.24)",
-              color: "#c5b8ff",
+              background: "rgba(196, 181, 253, 0.12)",
+              border: "1px solid rgba(196, 181, 253, 0.18)",
+              color: "#ddd6fe",
             }}
           >
-            <div style={statLabel}>HiFi Operations</div>
+            <div style={{ ...statLabel, color: "#d8b4fe" }}>HiFi Operations</div>
             <div style={{ marginTop: "4px", fontWeight: 800 }}>
               This event is currently classified as HiFi. SP staffing stays available if needed, but no active SP coverage target is driving the workflow.
             </div>
@@ -5627,11 +5695,11 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
         {noSpStaffingRequired ? (
           <div
             style={{
-              border: "1px solid rgba(44, 211, 173, 0.24)",
+              border: "1px solid rgba(167, 243, 208, 0.18)",
               borderRadius: "16px",
               padding: "14px 16px",
-              background: "rgba(44, 211, 173, 0.14)",
-              color: "var(--cfsp-green)",
+              background: "rgba(167, 243, 208, 0.12)",
+              color: "#a7f3d0",
               fontWeight: 800,
             }}
           >
@@ -5643,8 +5711,8 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
               <div
                 style={{
                   borderRadius: "14px",
-                  border: "1px solid rgba(73, 168, 255, 0.2)",
-                  background: "rgba(73, 168, 255, 0.08)",
+                  border: "1px solid rgba(125, 211, 252, 0.16)",
+                  background: "rgba(125, 211, 252, 0.08)",
                   padding: "12px 14px",
                   display: "flex",
                   justifyContent: "space-between",
@@ -5654,14 +5722,14 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                 }}
               >
                 <div>
-                  <div style={{ ...statLabel, color: "var(--cfsp-blue)" }}>Related Training Event</div>
-                  <div style={{ marginTop: "4px", color: "var(--cfsp-text)", fontWeight: 900 }}>
+                  <div style={{ ...statLabel, color: "#7dd3fc" }}>Related Training Event</div>
+                  <div style={{ marginTop: "4px", color: "#f4fbff", fontWeight: 900 }}>
                     {relatedTrainingEventName || "Open linked SP training event"}
                   </div>
                 </div>
                 <Link
                   href={`/events/${encodeURIComponent(relatedTrainingEventId)}`}
-                  style={{ ...buttonStyle, display: "inline-flex", alignItems: "center", textDecoration: "none" }}
+                  style={{ ...staffingSecondaryButtonStyle, display: "inline-flex", alignItems: "center", textDecoration: "none" }}
                 >
                   Open Training Event
                 </Link>
@@ -5671,14 +5739,9 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
             <details
               open={staffingOverviewOpen}
               onToggle={(event) => setStaffingOverviewOpen(event.currentTarget.open)}
-              style={{
-                border: "1px solid var(--cfsp-border)",
-                borderRadius: "16px",
-                background: "var(--cfsp-surface)",
-                padding: "12px 14px",
-              }}
+              style={staffingPanelStyle}
             >
-              <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 900 }}>
+              <summary style={staffingSummaryStyle}>
                 Staffing Overview
               </summary>
               <div style={{ display: "grid", gap: "12px", marginTop: "12px" }}>
@@ -5697,8 +5760,8 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                     { label: "No Response", value: noResponsePollResponders.length, tone: "var(--cfsp-text-muted)" },
                     { label: "Unavailable", value: unavailablePollResponders.length, tone: "var(--cfsp-danger)" },
                   ].map((item) => (
-                    <div key={item.label} style={{ ...statCard, padding: "9px 11px", background: "var(--cfsp-surface-muted)" }}>
-                      <div style={statLabel}>{item.label}</div>
+                    <div key={item.label} style={staffingMetricCardStyle}>
+                      <div style={{ ...statLabel, color: "#89b7c4" }}>{item.label}</div>
                       <div style={{ ...statValue, color: item.tone }}>{item.value}</div>
                     </div>
                   ))}
@@ -5717,48 +5780,48 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                       padding: "10px 12px",
                       background:
                         coverageRiskTone === "green"
-                          ? "var(--cfsp-green-soft)"
+                          ? "rgba(167, 243, 208, 0.12)"
                           : coverageRiskTone === "yellow"
-                            ? "var(--cfsp-warning-soft)"
-                            : "var(--cfsp-danger-soft)",
+                            ? "rgba(253, 230, 138, 0.14)"
+                            : "rgba(252, 165, 165, 0.14)",
                       border:
                         coverageRiskTone === "green"
-                          ? "1px solid rgba(44, 211, 173, 0.24)"
+                          ? "1px solid rgba(167, 243, 208, 0.18)"
                           : coverageRiskTone === "yellow"
-                            ? "1px solid rgba(243, 187, 103, 0.24)"
-                            : "1px solid var(--cfsp-danger-border)",
+                            ? "1px solid rgba(253, 230, 138, 0.2)"
+                            : "1px solid rgba(252, 165, 165, 0.2)",
                       color:
                         coverageRiskTone === "green"
-                          ? "var(--cfsp-green)"
+                          ? "#a7f3d0"
                           : coverageRiskTone === "yellow"
-                            ? "var(--cfsp-warning)"
-                            : "var(--cfsp-danger)",
+                            ? "#fde68a"
+                            : "#fecaca",
                     }}
                   >
-                    <div style={statLabel}>Coverage Health</div>
+                    <div style={{ ...statLabel, color: "inherit" }}>Coverage Health</div>
                     <div style={{ marginTop: "4px", fontSize: "17px", fontWeight: 900 }}>
                       {coverageRiskTone === "green" ? "Covered" : coverageRiskTone === "yellow" ? "At risk" : "Understaffed"}
                     </div>
                     <div style={{ marginTop: "4px", fontWeight: 700, fontSize: "13px" }}>{staffingHealthLabel}</div>
                   </div>
-                  <div style={{ ...statCard, padding: "10px 12px", background: "var(--cfsp-surface-muted)" }}>
-                    <div style={statLabel}>Operational Summary</div>
-                    <div style={{ marginTop: "4px", color: "var(--cfsp-text)", fontWeight: 800, fontSize: "13px" }}>
+                  <div style={staffingMetricCardStyle}>
+                    <div style={{ ...statLabel, color: "#89b7c4" }}>Operational Summary</div>
+                    <div style={{ marginTop: "4px", color: "#f4fbff", fontWeight: 800, fontSize: "13px" }}>
                       {confirmedCount >= needed ? "Coverage met" : `Short by ${Math.max(needed - confirmedCount, 0)}`}
                     </div>
-                    <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontWeight: 700, fontSize: "12px" }}>
+                    <div style={{ marginTop: "4px", color: "#9cc7d3", fontWeight: 700, fontSize: "12px" }}>
                       {maybePollResponders.length
                         ? `Backup coverage available from ${maybePollResponders.length} maybe responder${maybePollResponders.length === 1 ? "" : "s"}.`
                         : "No backup responses yet."}
                     </div>
-                    <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontWeight: 700, fontSize: "12px" }}>
+                    <div style={{ marginTop: "4px", color: "#9cc7d3", fontWeight: 700, fontSize: "12px" }}>
                       Poll response rate: {pollResponseRate}%
                     </div>
                   </div>
                 </div>
 
                 <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
-                  <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700, fontSize: "13px" }}>
+                  <div style={staffingMutedTextStyle}>
                     {assignedCount} assigned / {confirmedCount} confirmed · {assignedBccEmails.length} email{assignedBccEmails.length === 1 ? "" : "s"} ready
                   </div>
                   <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
@@ -5766,7 +5829,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                       type="button"
                       onClick={() => void handleConfirmAllAssignments()}
                       disabled={saving || sortedAssignments.length === 0}
-                      style={{ ...buttonStyle, padding: "8px 11px", opacity: saving || sortedAssignments.length === 0 ? 0.65 : 1 }}
+                      style={{ ...buttonStyle, padding: "8px 11px", boxShadow: "0 8px 16px rgba(14, 165, 233, 0.16)", opacity: saving || sortedAssignments.length === 0 ? 0.65 : 1 }}
                     >
                       Confirm All Assigned SPs
                     </button>
@@ -5774,7 +5837,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                       type="button"
                       onClick={() => void handleOpenAvailabilityRequest()}
                       disabled={assignedBccEmails.length === 0}
-                      style={{ ...buttonStyle, padding: "8px 11px", opacity: assignedBccEmails.length === 0 ? 0.65 : 1 }}
+                      style={{ ...buttonStyle, padding: "8px 11px", boxShadow: "0 8px 16px rgba(14, 165, 233, 0.16)", opacity: assignedBccEmails.length === 0 ? 0.65 : 1 }}
                     >
                       Draft Hiring Email
                     </button>
@@ -5782,11 +5845,8 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                       type="button"
                       onClick={() => setShowEmailDraft((current) => !current)}
                       style={{
-                        ...buttonStyle,
+                        ...staffingSecondaryButtonStyle,
                         padding: "8px 11px",
-                        background: "var(--cfsp-surface)",
-                        color: "var(--cfsp-text)",
-                        border: "1px solid rgba(120, 180, 255, 0.24)",
                       }}
                     >
                       {showEmailDraft ? "Hide Email Preview" : "Show Email Preview"}
@@ -5794,7 +5854,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                     <button
                       type="button"
                       onClick={() => setShowCandidatePool((current) => !current)}
-                      style={{ ...buttonStyle, padding: "8px 11px", opacity: saving ? 0.65 : 1 }}
+                      style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px", opacity: saving ? 0.65 : 1 }}
                     >
                       {showCandidatePool ? "Hide Candidate SPs" : "Browse Candidate SPs"}
                     </button>
@@ -5802,9 +5862,9 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                 </div>
 
                 {showEmailDraft ? (
-                  <div style={{ ...statCard, background: "var(--cfsp-surface-muted)", padding: "12px 14px" }}>
-                    <div style={statLabel}>Email Draft Preview</div>
-                    <div style={{ marginTop: "8px", color: "var(--cfsp-text)", lineHeight: 1.7 }}>
+                  <div style={{ ...staffingMetricCardStyle, padding: "12px 14px" }}>
+                    <div style={{ ...statLabel, color: "#89b7c4" }}>Email Draft Preview</div>
+                    <div style={{ marginTop: "8px", color: "#e7fbff", lineHeight: 1.7 }}>
                       <div><strong>Recipients (BCC):</strong> {assignedBccEmails.length ? assignedBccEmails.join(", ") : "No assigned SP emails found."}</div>
                       <div style={{ marginTop: "8px" }}><strong>Subject:</strong> {emailSubject}</div>
                       <div style={{ marginTop: "8px", whiteSpace: "pre-wrap" }}><strong>Body:</strong>{"\n"}{emailBody}</div>
@@ -5834,9 +5894,9 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                       onClick={() => setAssignmentFilter(filter.value as AssignmentFilterStatus)}
                       style={{
                         ...buttonStyle,
-                        background: assignmentFilter === filter.value ? "var(--cfsp-blue)" : "var(--cfsp-surface)",
-                        color: assignmentFilter === filter.value ? "#ffffff" : "var(--cfsp-text)",
-                        border: assignmentFilter === filter.value ? "1px solid var(--cfsp-blue)" : "1px solid var(--cfsp-border)",
+                        background: assignmentFilter === filter.value ? "rgba(125, 211, 252, 0.24)" : "rgba(148, 163, 184, 0.08)",
+                        color: assignmentFilter === filter.value ? "#f4fbff" : "#d8eef5",
+                        border: assignmentFilter === filter.value ? "1px solid rgba(125, 211, 252, 0.3)" : "1px solid rgba(148, 163, 184, 0.18)",
                         padding: "8px 12px",
                       }}
                     >
@@ -5847,30 +5907,12 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
 
                 {assignments.length === 0 ? (
                   <div
-                    style={{
-                      border: "1px dashed var(--cfsp-border)",
-                      borderRadius: "12px",
-                      padding: "10px 12px",
-                      background: "var(--cfsp-surface-muted)",
-                      color: "var(--cfsp-text-muted)",
-                      fontWeight: 700,
-                      fontSize: "13px",
-                    }}
+                    style={staffingEmptyStateStyle}
                   >
                     No SPs assigned yet.
                   </div>
                 ) : filteredAssignments.length === 0 ? (
-                  <div
-                    style={{
-                      border: "1px dashed var(--cfsp-border)",
-                      borderRadius: "12px",
-                      padding: "10px 12px",
-                      background: "var(--cfsp-surface-muted)",
-                      color: "var(--cfsp-text-muted)",
-                      fontWeight: 700,
-                      fontSize: "13px",
-                    }}
-                  >
+                  <div style={staffingEmptyStateStyle}>
                     No assigned SPs match the current filter.
                   </div>
                 ) : (
@@ -5883,14 +5925,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                       return (
                         <div
                           key={assignment.id}
-                          style={{
-                            border: "1px solid var(--cfsp-border)",
-                            borderRadius: "14px",
-                            padding: "10px 12px",
-                            background: "var(--cfsp-surface-muted)",
-                            display: "grid",
-                            gap: "8px",
-                          }}
+                          style={staffingRowCardStyle}
                         >
                           <div
                             style={{
@@ -5901,10 +5936,10 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                             }}
                           >
                             <div style={{ minWidth: 0 }}>
-                              <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>
+                              <div style={{ color: "#f4fbff", fontWeight: 900 }}>
                                 {sp ? getFullName(sp) : "Unknown SP"}
                               </div>
-                              <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontWeight: 700, fontSize: "13px" }}>
+                              <div style={{ marginTop: "4px", color: "#9cc7d3", fontWeight: 700, fontSize: "13px" }}>
                                 {[email || assignment.sp_id || "No SP id", sp?.phone || ""].filter(Boolean).join(" · ")}
                               </div>
                               <div style={{ marginTop: "6px", display: "flex", gap: "6px", flexWrap: "wrap" }}>
@@ -5912,7 +5947,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                                   style={{
                                     ...commandChipStyle,
                                     background: email ? "rgba(44, 211, 173, 0.12)" : "rgba(248, 113, 113, 0.12)",
-                                    color: email ? "var(--cfsp-green)" : "var(--cfsp-danger)",
+                                    color: email ? "#a7f3d0" : "#fecaca",
                                   }}
                                 >
                                   {email ? "Email ready" : "No email"}
@@ -5921,7 +5956,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                                   style={{
                                     ...commandChipStyle,
                                     background: isConfirmed ? "rgba(44, 211, 173, 0.12)" : "rgba(73, 168, 255, 0.12)",
-                                    color: isConfirmed ? "var(--cfsp-green)" : "var(--cfsp-blue)",
+                                    color: isConfirmed ? "#a7f3d0" : "#bae6fd",
                                   }}
                                 >
                                   {isConfirmed ? "Confirmed" : assignmentStatusLabels[status]}
@@ -5934,7 +5969,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                                 value={status}
                                 onChange={(e) => handleStatusChange(assignment, e.target.value as AssignmentStatus)}
                                 disabled={saving}
-                                style={{ ...selectStyle, width: "100%", background: "var(--cfsp-surface)" }}
+                                style={{ ...selectStyle, width: "100%", background: "rgba(10, 20, 32, 0.92)", color: "#f4fbff", border: "1px solid rgba(148, 163, 184, 0.2)" }}
                               >
                                 {assignmentStatuses.map((option) => (
                                   <option key={option} value={option}>
@@ -5956,13 +5991,13 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                           </div>
                           <details
                             style={{
-                              border: "1px solid var(--cfsp-border)",
+                              border: "1px solid rgba(148, 163, 184, 0.14)",
                               borderRadius: "12px",
-                              background: "var(--cfsp-surface)",
+                              background: "rgba(10, 20, 32, 0.86)",
                               padding: "8px 10px",
                             }}
                           >
-                            <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 800 }}>
+                            <summary style={{ cursor: "pointer", color: "#d8eef5", fontWeight: 800 }}>
                               Notes
                             </summary>
                             <div style={{ marginTop: "10px" }}>
@@ -5988,18 +6023,18 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
 
                 <div
                   style={{
-                    border: "1px solid rgba(120, 180, 255, 0.24)",
+                    border: "1px solid rgba(125, 211, 252, 0.16)",
                     borderRadius: "14px",
                     padding: "10px 12px",
-                    background: "rgba(120, 180, 255, 0.08)",
+                    background: "rgba(125, 211, 252, 0.06)",
                     display: "grid",
                     gap: "10px",
                   }}
                 >
                   <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
                     <div>
-                      <div style={{ ...statLabel, color: "var(--cfsp-text)" }}>Candidate SP Pool</div>
-                      <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontWeight: 700, fontSize: "13px" }}>
+                      <div style={{ ...statLabel, color: "#e7fbff" }}>Candidate SP Pool</div>
+                      <div style={{ marginTop: "4px", color: "#9cc7d3", fontWeight: 700, fontSize: "13px" }}>
                         Browse unassigned candidates only when you need more coverage.
                       </div>
                     </div>
@@ -6026,9 +6061,9 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                             type="button"
                             onClick={() => filter.setActive((current) => !current)}
                             style={{
-                              ...buttonStyle,
-                              background: filter.active ? "var(--cfsp-blue)" : "var(--cfsp-surface)",
-                              color: filter.active ? "#ffffff" : "var(--cfsp-text)",
+                              ...staffingSecondaryButtonStyle,
+                              background: filter.active ? "rgba(125, 211, 252, 0.24)" : "rgba(148, 163, 184, 0.08)",
+                              color: filter.active ? "#f4fbff" : "#d8eef5",
                               padding: "8px 12px",
                             }}
                           >
@@ -6040,7 +6075,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                         <select
                           value={selectedSpId}
                           onChange={(e) => setSelectedSpId(e.target.value)}
-                          style={selectStyle}
+                          style={{ ...selectStyle, background: "rgba(10, 20, 32, 0.92)", color: "#f4fbff", border: "1px solid rgba(148, 163, 184, 0.2)" }}
                           disabled={saving || availableSps.length === 0}
                         >
                           <option value="">
@@ -6057,7 +6092,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                           type="button"
                           onClick={() => void handleAddAssignment()}
                           disabled={saving || !selectedSpId}
-                          style={{ ...buttonStyle, opacity: saving || !selectedSpId ? 0.65 : 1 }}
+                          style={{ ...buttonStyle, boxShadow: "0 8px 16px rgba(14, 165, 233, 0.16)", opacity: saving || !selectedSpId ? 0.65 : 1 }}
                         >
                           {assigningSpId && assigningSpId === selectedSpId ? "Assigning..." : "Add Selected SP"}
                         </button>
@@ -6071,18 +6106,13 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
             <details
               open={spFinderMatchMakerOpen}
               onToggle={(event) => setSpFinderMatchMakerOpen(event.currentTarget.open)}
-              style={{
-                border: "1px solid var(--cfsp-border)",
-                borderRadius: "16px",
-                background: "var(--cfsp-surface)",
-                padding: "12px 14px",
-              }}
+              style={staffingPanelStyle}
             >
-              <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 900 }}>
+              <summary style={staffingSummaryStyle}>
                 SP Finder & Match Maker
               </summary>
               <div style={{ display: "grid", gap: "12px", marginTop: "12px" }}>
-                <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700, fontSize: "13px" }}>
+                <div style={staffingMutedTextStyle}>
                   Match Maker helps narrow who to poll. It does not assign SPs until you choose to assign them.
                 </div>
 
@@ -6100,10 +6130,10 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                         if (mode.key === "responders") setShowMatchMakerResults(true);
                       }}
                       style={{
-                        ...buttonStyle,
-                        background: matchMakerMode === mode.key ? "var(--cfsp-blue)" : "var(--cfsp-surface)",
-                        color: matchMakerMode === mode.key ? "#ffffff" : "var(--cfsp-text)",
-                        border: matchMakerMode === mode.key ? "1px solid var(--cfsp-blue)" : "1px solid var(--cfsp-border)",
+                        ...staffingSecondaryButtonStyle,
+                        background: matchMakerMode === mode.key ? "rgba(125, 211, 252, 0.24)" : "rgba(148, 163, 184, 0.08)",
+                        color: matchMakerMode === mode.key ? "#f4fbff" : "#d8eef5",
+                        border: matchMakerMode === mode.key ? "1px solid rgba(125, 211, 252, 0.3)" : "1px solid rgba(148, 163, 184, 0.18)",
                       }}
                     >
                       {mode.label}
@@ -6121,20 +6151,20 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                       }}
                     >
                       <label style={{ display: "grid", gap: "6px", gridColumn: "1 / -1" }}>
-                        <span style={statLabel}>Search</span>
+                        <span style={{ ...statLabel, color: "#89b7c4" }}>Search</span>
                         <input
                           value={pollMatchKeyword}
                           onChange={(event) => setPollMatchKeyword(event.target.value)}
                           placeholder="Search SPs by name, email, notes, skills, role, campus..."
-                          style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                          style={{ ...inputStyle, width: "100%", boxSizing: "border-box", background: "rgba(10, 20, 32, 0.9)", color: "#f4fbff", border: "1px solid rgba(148, 163, 184, 0.18)" }}
                         />
                       </label>
                       <label style={{ display: "grid", gap: "6px" }}>
-                        <span style={statLabel}>Campus/location fit</span>
+                        <span style={{ ...statLabel, color: "#89b7c4" }}>Campus/location fit</span>
                         <select
                           value={pollMatchLocationFilter}
                           onChange={(event) => setPollMatchLocationFilter(event.target.value as PollLocationFilter)}
-                          style={{ ...selectStyle, width: "100%" }}
+                          style={{ ...selectStyle, width: "100%", background: "rgba(10, 20, 32, 0.9)", color: "#f4fbff", border: "1px solid rgba(148, 163, 184, 0.18)" }}
                         >
                           <option value="any">Any location</option>
                           <option value="elkins_park">Elkins Park only</option>
@@ -6143,29 +6173,29 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                         </select>
                       </label>
                       <label style={{ display: "grid", gap: "6px" }}>
-                        <span style={statLabel}>Role / patient fit</span>
+                        <span style={{ ...statLabel, color: "#89b7c4" }}>Role / patient fit</span>
                         <input
                           value={pollMatchRoleKeyword}
                           onChange={(event) => setPollMatchRoleKeyword(event.target.value)}
                           placeholder="Patient profile or role fit"
-                          style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                          style={{ ...inputStyle, width: "100%", boxSizing: "border-box", background: "rgba(10, 20, 32, 0.9)", color: "#f4fbff", border: "1px solid rgba(148, 163, 184, 0.18)" }}
                         />
                       </label>
                       <label style={{ display: "grid", gap: "6px" }}>
-                        <span style={statLabel}>Age range fit</span>
+                        <span style={{ ...statLabel, color: "#89b7c4" }}>Age range fit</span>
                         <input
                           value={pollMatchAgeKeyword}
                           onChange={(event) => setPollMatchAgeKeyword(event.target.value)}
                           placeholder="Adult, 40-50, teen..."
-                          style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                          style={{ ...inputStyle, width: "100%", boxSizing: "border-box", background: "rgba(10, 20, 32, 0.9)", color: "#f4fbff", border: "1px solid rgba(148, 163, 184, 0.18)" }}
                         />
                       </label>
                       <label style={{ display: "grid", gap: "6px" }}>
-                        <span style={statLabel}>Gender fit</span>
+                        <span style={{ ...statLabel, color: "#89b7c4" }}>Gender fit</span>
                         <select
                           value={pollMatchGenderFilter}
                           onChange={(event) => setPollMatchGenderFilter(event.target.value)}
-                          style={{ ...selectStyle, width: "100%" }}
+                          style={{ ...selectStyle, width: "100%", background: "rgba(10, 20, 32, 0.9)", color: "#f4fbff", border: "1px solid rgba(148, 163, 184, 0.18)" }}
                         >
                           <option value="any">Any</option>
                           {uniquePollGenderOptions.map((option) => (
@@ -6176,11 +6206,11 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                         </select>
                       </label>
                       <label style={{ display: "grid", gap: "6px" }}>
-                        <span style={statLabel}>Race / ethnicity fit</span>
+                        <span style={{ ...statLabel, color: "#89b7c4" }}>Race / ethnicity fit</span>
                         <select
                           value={pollMatchRaceFilter}
                           onChange={(event) => setPollMatchRaceFilter(event.target.value)}
-                          style={{ ...selectStyle, width: "100%" }}
+                          style={{ ...selectStyle, width: "100%", background: "rgba(10, 20, 32, 0.9)", color: "#f4fbff", border: "1px solid rgba(148, 163, 184, 0.18)" }}
                         >
                           <option value="any">Any</option>
                           {uniquePollRaceOptions.map((option) => (
@@ -6191,11 +6221,11 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                         </select>
                       </label>
                       <label style={{ display: "grid", gap: "6px" }}>
-                        <span style={statLabel}>Sort</span>
+                        <span style={{ ...statLabel, color: "#89b7c4" }}>Sort</span>
                         <select
                           value={pollMatchSort}
                           onChange={(event) => setPollMatchSort(event.target.value as PollMatchSort)}
-                          style={{ ...selectStyle, width: "100%" }}
+                          style={{ ...selectStyle, width: "100%", background: "rgba(10, 20, 32, 0.9)", color: "#f4fbff", border: "1px solid rgba(148, 163, 184, 0.18)" }}
                         >
                           <option value="best_match">Best match</option>
                           <option value="name">Name A-Z</option>
@@ -6222,11 +6252,11 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                           type="button"
                           onClick={filter.toggle}
                           style={{
-                            ...buttonStyle,
+                            ...staffingSecondaryButtonStyle,
                             padding: "8px 12px",
-                            background: filter.active ? "var(--cfsp-blue)" : "var(--cfsp-surface)",
-                            color: filter.active ? "#ffffff" : "var(--cfsp-text)",
-                            border: filter.active ? "1px solid var(--cfsp-blue)" : "1px solid var(--cfsp-border)",
+                            background: filter.active ? "rgba(125, 211, 252, 0.24)" : "rgba(148, 163, 184, 0.08)",
+                            color: filter.active ? "#f4fbff" : "#d8eef5",
+                            border: filter.active ? "1px solid rgba(125, 211, 252, 0.3)" : "1px solid rgba(148, 163, 184, 0.18)",
                           }}
                         >
                           {filter.label}
@@ -6239,7 +6269,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                         type="button"
                         onClick={handleAddRecommendedToPoll}
                         disabled={recommendedPollMatches.filter((entry) => entry.emailReady).length === 0}
-                        style={{ ...buttonStyle, opacity: recommendedPollMatches.filter((entry) => entry.emailReady).length === 0 ? 0.65 : 1 }}
+                        style={{ ...buttonStyle, boxShadow: "0 8px 16px rgba(14, 165, 233, 0.16)", opacity: recommendedPollMatches.filter((entry) => entry.emailReady).length === 0 ? 0.65 : 1 }}
                       >
                         Add Recommended to Poll
                       </button>
@@ -6247,7 +6277,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                         type="button"
                         onClick={() => handleSelectTopPollCandidates(Math.max(needed, 1))}
                         disabled={pollMatchEntries.filter((entry) => entry.emailReady && !entry.selected && !entry.excluded).length === 0}
-                        style={{ ...buttonStyle, background: "var(--cfsp-surface)", color: "var(--cfsp-text)", border: "1px solid var(--cfsp-border)" }}
+                        style={{ ...staffingSecondaryButtonStyle }}
                       >
                         Select Top Needed
                       </button>
@@ -6255,7 +6285,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                         type="button"
                         onClick={() => handleSelectTopPollCandidates(7)}
                         disabled={pollMatchEntries.filter((entry) => entry.emailReady && !entry.selected && !entry.excluded).length === 0}
-                        style={{ ...buttonStyle, background: "var(--cfsp-surface)", color: "var(--cfsp-text)", border: "1px solid var(--cfsp-border)" }}
+                        style={{ ...staffingSecondaryButtonStyle }}
                       >
                         Select Top 7
                       </button>
@@ -6263,14 +6293,14 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                         type="button"
                         onClick={handleAddAllFilteredToPoll}
                         disabled={pollMatchEntries.filter((entry) => entry.emailReady).length === 0}
-                        style={{ ...buttonStyle, background: "var(--cfsp-surface)", color: "var(--cfsp-text)", border: "1px solid var(--cfsp-border)", opacity: pollMatchEntries.filter((entry) => entry.emailReady).length === 0 ? 0.65 : 1 }}
+                        style={{ ...staffingSecondaryButtonStyle, opacity: pollMatchEntries.filter((entry) => entry.emailReady).length === 0 ? 0.65 : 1 }}
                       >
                         Select All Filtered
                       </button>
                       <button
                         type="button"
                         onClick={clearPollSelection}
-                        style={{ ...buttonStyle, background: "var(--cfsp-surface)", color: "var(--cfsp-text)", border: "1px solid var(--cfsp-border)" }}
+                        style={{ ...staffingSecondaryButtonStyle }}
                       >
                         Clear Selection
                       </button>
@@ -6286,7 +6316,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                         type="button"
                         onClick={() => void handleResetPollExclusions()}
                         disabled={excludedPollSpIdsFromMetadata.length === 0 && excludedPollSpEmailsFromMetadata.length === 0}
-                        style={{ ...buttonStyle, background: "var(--cfsp-surface)", color: "var(--cfsp-text)", border: "1px solid var(--cfsp-border)", opacity: excludedPollSpIdsFromMetadata.length === 0 && excludedPollSpEmailsFromMetadata.length === 0 ? 0.65 : 1 }}
+                        style={{ ...staffingSecondaryButtonStyle, opacity: excludedPollSpIdsFromMetadata.length === 0 && excludedPollSpEmailsFromMetadata.length === 0 ? 0.65 : 1 }}
                       >
                         Reset Exclusions
                       </button>
@@ -6297,14 +6327,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                         pollMatchEntries.slice(0, candidateResultsLimit).map((entry) => (
                           <div
                             key={`poll-candidate-${entry.sp.id}`}
-                            style={{
-                              borderRadius: "12px",
-                              border: "1px solid var(--cfsp-border)",
-                              background: "var(--cfsp-surface-muted)",
-                              padding: "10px 12px",
-                              display: "grid",
-                              gap: "6px",
-                            }}
+                            style={staffingRowCardStyle}
                           >
                             <div
                               style={{
@@ -6323,20 +6346,20 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                                 />
                               </label>
                               <div style={{ minWidth: 0 }}>
-                                <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>{getFullName(entry.sp)}</div>
-                                <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontWeight: 700, fontSize: "12px" }}>
+                                <div style={{ color: "#f4fbff", fontWeight: 900 }}>{getFullName(entry.sp)}</div>
+                                <div style={{ marginTop: "4px", color: "#9cc7d3", fontWeight: 700, fontSize: "12px" }}>
                                   {entry.email || "No email on file"}
                                 </div>
                               </div>
                               <div style={{ textAlign: "right" }}>
-                                <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>{entry.matchLabel}</div>
-                                <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 700 }}>
+                                <div style={{ color: "#f4fbff", fontWeight: 900 }}>{entry.matchLabel}</div>
+                                <div style={{ marginTop: "4px", color: "#9cc7d3", fontSize: "12px", fontWeight: 700 }}>
                                   Score {entry.matchScore}
                                 </div>
                               </div>
                               <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
-                                {entry.selected ? <span style={{ ...commandChipStyle, background: "rgba(73, 168, 255, 0.12)", color: "var(--cfsp-blue)" }}>Selected</span> : null}
-                                {entry.excluded ? <span style={{ ...commandChipStyle, background: "rgba(248, 113, 113, 0.14)", color: "var(--cfsp-danger)" }}>Excluded</span> : null}
+                                {entry.selected ? <span style={staffingSelectedChipStyle}>Selected</span> : null}
+                                {entry.excluded ? <span style={{ ...staffingSelectedChipStyle, background: "rgba(252, 165, 165, 0.14)", color: "#fecaca", border: "1px solid rgba(252, 165, 165, 0.18)" }}>Excluded</span> : null}
                               </div>
                             </div>
                             <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
@@ -6348,9 +6371,9 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                                     padding: "4px 8px",
                                     fontSize: "11px",
                                     fontWeight: 900,
-                                    background: "rgba(73, 168, 255, 0.12)",
-                                    border: "1px solid rgba(73, 168, 255, 0.22)",
-                                    color: "var(--cfsp-blue)",
+                                    background: "rgba(125, 211, 252, 0.12)",
+                                    border: "1px solid rgba(125, 211, 252, 0.18)",
+                                    color: "#bae6fd",
                                   }}
                                 >
                                   {chip}
@@ -6360,7 +6383,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                           </div>
                         ))
                       ) : (
-                        <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
+                        <div style={staffingMutedTextStyle}>
                           No SPs match the current filters.
                         </div>
                       )}
@@ -6370,7 +6393,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                             <button
                               type="button"
                               onClick={() => setCandidateResultsLimit((current) => Math.min(current + 10, pollMatchEntries.length))}
-                              style={{ ...buttonStyle, background: "var(--cfsp-surface)", color: "var(--cfsp-text)", border: "1px solid var(--cfsp-border)" }}
+                              style={{ ...staffingSecondaryButtonStyle }}
                             >
                               Load More
                             </button>
@@ -6379,7 +6402,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                             <button
                               type="button"
                               onClick={() => setCandidateResultsLimit(10)}
-                              style={{ ...buttonStyle, background: "var(--cfsp-surface)", color: "var(--cfsp-text)", border: "1px solid var(--cfsp-border)" }}
+                              style={{ ...staffingSecondaryButtonStyle }}
                             >
                               Show Less
                             </button>
@@ -6393,18 +6416,18 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                 {matchMakerMode === "poll" ? (
                   <>
                     <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
-                      <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
+                      <div style={staffingMutedTextStyle}>
                         {pollSelectedCount} selected · {pollReadyEmailCount} email ready · {pollStatusDisplayLabel}
                       </div>
                       <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                        <button type="button" onClick={() => void handleCreatePoll()} disabled={pollSaving} style={{ ...buttonStyle, opacity: pollSaving ? 0.7 : 1 }}>
+                        <button type="button" onClick={() => void handleCreatePoll()} disabled={pollSaving} style={{ ...buttonStyle, boxShadow: "0 8px 16px rgba(14, 165, 233, 0.16)", opacity: pollSaving ? 0.7 : 1 }}>
                           Create Poll
                         </button>
                         <button
                           type="button"
                           onClick={() => void handleDraftPollingEmail()}
                           disabled={pollSaving || pollSelectedCount === 0}
-                          style={{ ...buttonStyle, background: "var(--cfsp-surface)", color: "var(--cfsp-text)", border: "1px solid var(--cfsp-border)", opacity: pollSaving || pollSelectedCount === 0 ? 0.7 : 1 }}
+                          style={{ ...staffingSecondaryButtonStyle, opacity: pollSaving || pollSelectedCount === 0 ? 0.7 : 1 }}
                         >
                           Draft Polling Email
                         </button>
@@ -6412,7 +6435,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                           type="button"
                           onClick={() => void handleMarkPollSent()}
                           disabled={pollSaving || pollSelectedCount === 0}
-                          style={{ ...buttonStyle, background: "rgba(44, 211, 173, 0.12)", color: "var(--cfsp-green)", border: "1px solid rgba(44, 211, 173, 0.22)", opacity: pollSaving || pollSelectedCount === 0 ? 0.7 : 1 }}
+                          style={{ ...buttonStyle, background: "rgba(167, 243, 208, 0.12)", color: "#a7f3d0", border: "1px solid rgba(167, 243, 208, 0.18)", boxShadow: "0 8px 16px rgba(16, 185, 129, 0.12)", opacity: pollSaving || pollSelectedCount === 0 ? 0.7 : 1 }}
                         >
                           Mark Poll Sent
                         </button>
@@ -6426,10 +6449,10 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                         gap: "10px",
                       }}
                     >
-                      <div style={statCard}><div style={statLabel}>Available</div><div style={statValue}>{pollResponseSummary.availableCount}</div></div>
-                      <div style={statCard}><div style={statLabel}>Maybe</div><div style={statValue}>{pollResponseSummary.maybeCount}</div></div>
-                      <div style={statCard}><div style={statLabel}>Not Available</div><div style={statValue}>{pollResponseSummary.notAvailableCount}</div></div>
-                      <div style={statCard}><div style={statLabel}>No Response</div><div style={statValue}>{pollResponseSummary.noResponseCount}</div></div>
+                      <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: "#89b7c4" }}>Available</div><div style={{ ...statValue, color: "#a7f3d0" }}>{pollResponseSummary.availableCount}</div></div>
+                      <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: "#89b7c4" }}>Maybe</div><div style={{ ...statValue, color: "#fde68a" }}>{pollResponseSummary.maybeCount}</div></div>
+                      <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: "#89b7c4" }}>Not Available</div><div style={{ ...statValue, color: "#fecaca" }}>{pollResponseSummary.notAvailableCount}</div></div>
+                      <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: "#89b7c4" }}>No Response</div><div style={{ ...statValue, color: "#cbd5e1" }}>{pollResponseSummary.noResponseCount}</div></div>
                     </div>
 
                     <div style={{ display: "grid", gap: "8px" }}>
@@ -6437,26 +6460,16 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                         pollSelectedEntries.slice(0, selectedPollRosterLimit).map((entry) => (
                           <div
                             key={`poll-selected-${entry.sp.id}`}
-                            style={{
-                              borderRadius: "12px",
-                              border: "1px solid var(--cfsp-border)",
-                              background: "var(--cfsp-surface-muted)",
-                              padding: "10px 12px",
-                              display: "flex",
-                              justifyContent: "space-between",
-                              gap: "10px",
-                              flexWrap: "wrap",
-                              alignItems: "center",
-                            }}
+                            style={{ ...staffingRowCardStyle, display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}
                           >
                             <div>
-                              <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>{getFullName(entry.sp)}</div>
-                              <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 700 }}>
+                              <div style={{ color: "#f4fbff", fontWeight: 900 }}>{getFullName(entry.sp)}</div>
+                              <div style={{ marginTop: "4px", color: "#9cc7d3", fontSize: "12px", fontWeight: 700 }}>
                                 {entry.sp.working_email || entry.sp.email || "No email on file"}
                               </div>
                             </div>
                             <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
-                              <span style={{ ...commandChipStyle, background: "rgba(73, 168, 255, 0.12)", color: "var(--cfsp-blue)" }}>
+                              <span style={staffingSelectedChipStyle}>
                                 {entry.pollResponseStatus === "no_response"
                                   ? "No response"
                                   : entry.pollResponseStatus === "not_available"
@@ -6476,7 +6489,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                           </div>
                         ))
                       ) : (
-                        <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
+                        <div style={staffingMutedTextStyle}>
                           Select candidate SPs to start an in-app availability poll.
                         </div>
                       )}
@@ -6486,7 +6499,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                             <button
                               type="button"
                               onClick={() => setSelectedPollRosterLimit((current) => Math.min(current + 10, pollSelectedEntries.length))}
-                              style={{ ...buttonStyle, background: "var(--cfsp-surface)", color: "var(--cfsp-text)", border: "1px solid var(--cfsp-border)" }}
+                              style={{ ...staffingSecondaryButtonStyle }}
                             >
                               Load More
                             </button>
@@ -6495,7 +6508,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                             <button
                               type="button"
                               onClick={() => setSelectedPollRosterLimit(10)}
-                              style={{ ...buttonStyle, background: "var(--cfsp-surface)", color: "var(--cfsp-text)", border: "1px solid var(--cfsp-border)" }}
+                              style={{ ...staffingSecondaryButtonStyle }}
                             >
                               Show Less
                             </button>
@@ -6511,8 +6524,8 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                     <div
                       style={{
                         borderRadius: "14px",
-                      border: "1px dashed rgba(61, 201, 184, 0.28)",
-                      background: "rgba(61, 201, 184, 0.08)",
+                      border: "1px dashed rgba(126, 231, 219, 0.24)",
+                      background: "rgba(126, 231, 219, 0.08)",
                       padding: "14px",
                       display: "flex",
                       justifyContent: "space-between",
@@ -6522,10 +6535,10 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                     }}
                   >
                     <div>
-                      <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>
+                      <div style={{ color: "#f4fbff", fontWeight: 900 }}>
                         Use Match Maker to find SPs to poll or rank poll responders.
                       </div>
-                      <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontWeight: 700, fontSize: "13px" }}>
+                      <div style={{ marginTop: "4px", color: "#9cc7d3", fontWeight: 700, fontSize: "13px" }}>
                         Keep it optional until you want deterministic staffing suggestions.
                       </div>
                     </div>
@@ -6540,7 +6553,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                         type="button"
                         onClick={() => void handleAssignTopPollMatches()}
                         disabled={saving || topMatchAssignmentCount === 0}
-                        style={{ ...buttonStyle, opacity: saving || topMatchAssignmentCount === 0 ? 0.65 : 1 }}
+                        style={{ ...buttonStyle, boxShadow: "0 8px 16px rgba(14, 165, 233, 0.16)", opacity: saving || topMatchAssignmentCount === 0 ? 0.65 : 1 }}
                       >
                         Assign Top Matches
                       </button>
@@ -6548,7 +6561,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                         type="button"
                         onClick={() => void handleConvertAvailableToConfirmed()}
                         disabled={saving || availablePollResponders.filter((entry) => entry.assignment && !entry.isConfirmed).length === 0}
-                        style={{ ...buttonStyle, opacity: saving || availablePollResponders.filter((entry) => entry.assignment && !entry.isConfirmed).length === 0 ? 0.65 : 1 }}
+                        style={{ ...buttonStyle, boxShadow: "0 8px 16px rgba(14, 165, 233, 0.16)", opacity: saving || availablePollResponders.filter((entry) => entry.assignment && !entry.isConfirmed).length === 0 ? 0.65 : 1 }}
                       >
                         Convert Available → Confirmed
                       </button>
@@ -6556,14 +6569,14 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                         type="button"
                         onClick={() => void handleMoveMaybeToBackup()}
                         disabled={saving || maybePollResponders.filter((entry) => entry.assignment).length === 0}
-                        style={{ ...buttonStyle, opacity: saving || maybePollResponders.filter((entry) => entry.assignment).length === 0 ? 0.65 : 1 }}
+                        style={{ ...buttonStyle, boxShadow: "0 8px 16px rgba(14, 165, 233, 0.16)", opacity: saving || maybePollResponders.filter((entry) => entry.assignment).length === 0 ? 0.65 : 1 }}
                       >
                         Move Maybe → Backup
                       </button>
                       <button
                         type="button"
                         onClick={handleClearSuggestedAssignments}
-                        style={{ ...buttonStyle, background: "var(--cfsp-surface)", color: "var(--cfsp-text)", border: "1px solid var(--cfsp-border)" }}
+                        style={{ ...staffingSecondaryButtonStyle }}
                       >
                         Clear Suggested Assignments
                       </button>
@@ -6584,12 +6597,12 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                           style={{
                             ...buttonStyle,
                             padding: "8px 12px",
-                            background: suggestedAssignmentFilter === filter.value ? "var(--cfsp-blue)" : "var(--cfsp-surface)",
-                            color: suggestedAssignmentFilter === filter.value ? "#ffffff" : "var(--cfsp-text)",
+                            background: suggestedAssignmentFilter === filter.value ? "rgba(125, 211, 252, 0.24)" : "rgba(148, 163, 184, 0.08)",
+                            color: suggestedAssignmentFilter === filter.value ? "#f4fbff" : "#d8eef5",
                             border:
                               suggestedAssignmentFilter === filter.value
-                                ? "1px solid var(--cfsp-blue)"
-                                : "1px solid var(--cfsp-border)",
+                                ? "1px solid rgba(125, 211, 252, 0.3)"
+                                : "1px solid rgba(148, 163, 184, 0.18)",
                           }}
                         >
                           {filter.label}
@@ -6599,7 +6612,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
 
                     <div style={{ display: "grid", gap: "8px" }}>
                       {suggestedAssignmentRows.length === 0 ? (
-                        <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
+                        <div style={staffingMutedTextStyle}>
                           No responders match this staffing filter yet.
                         </div>
                       ) : (
@@ -6622,12 +6635,12 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                                 alignItems: "center",
                                 borderRadius: "14px",
                                 padding: "10px 12px",
-                                background: "var(--cfsp-surface-muted)",
-                                border: "1px solid var(--cfsp-border)",
+                                background: "linear-gradient(180deg, rgba(22, 37, 54, 0.92) 0%, rgba(17, 30, 45, 0.94) 100%)",
+                                border: "1px solid rgba(126, 231, 219, 0.1)",
                               }}
                             >
                               <div style={{ minWidth: 0 }}>
-                                <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>{getFullName(entry.sp)}</div>
+                                <div style={{ color: "#f4fbff", fontWeight: 900 }}>{getFullName(entry.sp)}</div>
                                 <div style={{ marginTop: "4px", display: "flex", gap: "6px", flexWrap: "wrap" }}>
                                   <span style={{ ...responseTone, borderRadius: "999px", padding: "5px 8px", fontSize: "11px", fontWeight: 900 }}>
                                     {entry.pollResponseStatus === "not_available"
@@ -6674,7 +6687,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                                   {assigningSpId === entry.sp.id ? "Assigning..." : "Assign"}
                                 </button>
                               ) : (
-                                <span style={{ color: "var(--cfsp-text-muted)", fontWeight: 800, fontSize: "12px" }}>
+                                <span style={{ color: "#9cc7d3", fontWeight: 800, fontSize: "12px" }}>
                                   {entry.isAssigned ? "Assigned" : "Do not assign"}
                                 </span>
                               )}
