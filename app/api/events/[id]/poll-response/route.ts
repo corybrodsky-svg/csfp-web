@@ -8,7 +8,7 @@ import {
 } from "../../../../lib/authCookies";
 import { createSupabaseServerClient } from "../../../../lib/supabaseServerClient";
 import { getProfileForUser } from "../../../../lib/profileServer";
-import { resolveSpAccountLink } from "../../../../lib/spAccountLinking";
+import { persistSpAccountLink, resolveSpAccountLink } from "../../../../lib/spAccountLinking";
 import { parseTrainingEventMetadata } from "../../../../lib/trainingEventNotes";
 
 export const dynamic = "force-dynamic";
@@ -84,6 +84,19 @@ type ViewerSpRow = {
   full_name: string | null;
   working_email: string | null;
   email: string | null;
+};
+
+type ViewerSpMatch = {
+  sp: ViewerSpRow | null;
+  matchedEmail: string;
+  matchedBy: "linked_sp_id" | "working_email" | "email" | "full_name" | "none";
+};
+
+type PollInclusionDebug = {
+  accountEmail: string;
+  matchedSpEmail: string;
+  matchedSpId: string;
+  matchedBy: string;
 };
 
 type AssignmentRow = {
@@ -339,7 +352,7 @@ function upsertPollResponseMetadata(notes: string | null | undefined, partial: P
 async function findViewerSp(
   supabaseServer: ReturnType<typeof createSupabaseServerClient>,
   viewer: ViewerContext
-) {
+) : Promise<ViewerSpMatch> {
   const { data, error } = await supabaseServer
     .from("sps")
     .select("id,first_name,last_name,full_name,working_email,email")
@@ -353,18 +366,49 @@ async function findViewerSp(
     [normalizeMatchValue(viewer.fullName), normalizeMatchValue(viewer.scheduleName)].filter(Boolean)
   );
 
-  return (
-    sps.find((sp) => viewer.linkedSpId && asText(sp.id) === viewer.linkedSpId) ||
-    sps.find((sp) => normalizeEmail(sp.working_email) === viewerEmail) ||
-    sps.find((sp) => normalizeEmail(sp.email) === viewerEmail) ||
+  const linkedMatch = sps.find((sp) => viewer.linkedSpId && asText(sp.id) === asText(viewer.linkedSpId));
+  if (linkedMatch) {
+    return {
+      sp: linkedMatch,
+      matchedEmail: normalizeEmail(linkedMatch.working_email) || normalizeEmail(linkedMatch.email),
+      matchedBy: "linked_sp_id",
+    };
+  }
+
+  const workingEmailMatch = sps.find((sp) => normalizeEmail(sp.working_email) === viewerEmail);
+  if (workingEmailMatch) {
+    return {
+      sp: workingEmailMatch,
+      matchedEmail: normalizeEmail(workingEmailMatch.working_email) || normalizeEmail(workingEmailMatch.email),
+      matchedBy: "working_email",
+    };
+  }
+
+  const emailMatch = sps.find((sp) => normalizeEmail(sp.email) === viewerEmail);
+  if (emailMatch) {
+    return {
+      sp: emailMatch,
+      matchedEmail: normalizeEmail(emailMatch.working_email) || normalizeEmail(emailMatch.email),
+      matchedBy: "email",
+    };
+  }
+
+  const fullNameMatch =
     sps.find((sp) => {
       const spName =
         normalizeMatchValue(sp.full_name) ||
         normalizeMatchValue([sp.first_name, sp.last_name].map(asText).filter(Boolean).join(" "));
       return Boolean(spName) && viewerNames.has(spName);
-    }) ||
-    null
-  );
+    }) || null;
+  if (fullNameMatch) {
+    return {
+      sp: fullNameMatch,
+      matchedEmail: normalizeEmail(fullNameMatch.working_email) || normalizeEmail(fullNameMatch.email),
+      matchedBy: "full_name",
+    };
+  }
+
+  return { sp: null, matchedEmail: "", matchedBy: "none" };
 }
 
 async function getEventAndViewerAccess(
@@ -381,12 +425,50 @@ async function getEventAndViewerAccess(
   if (eventError) throw new Error(eventError.message || "Could not load event.");
   if (!event) return { event: null, viewerSp: null, assignment: null, pollMetadata: emptyPollMetadata(), trainingMetadata: null };
 
-  const viewerSp = await findViewerSp(supabaseServer, viewer);
+  const viewerSpMatch = await findViewerSp(supabaseServer, viewer);
+  const viewerSp = viewerSpMatch.sp;
   const pollMetadata = parsePollMetadata(event.notes);
   const trainingMetadata = parseTrainingEventMetadata(event.notes);
 
   if (!viewerSp) {
-    throw new Error("Your SP account is awaiting directory matching.");
+    return {
+      event,
+      viewerSp: null,
+      assignment: null,
+      pollMetadata,
+      trainingMetadata,
+      selected: false,
+      inclusionDebug: {
+        accountEmail: normalizeEmail(viewer.email),
+        matchedSpEmail: "",
+        matchedSpId: "",
+        matchedBy: "none",
+      } satisfies PollInclusionDebug,
+    };
+  }
+
+  if (viewerSp && (!viewer.linkedSpId || asText(viewer.linkedSpId) !== asText(viewerSp.id))) {
+    const auth = await getAuthenticatedUser();
+    if (auth.user && auth.accessToken) {
+      await persistSpAccountLink({
+        user: auth.user,
+        accessToken: auth.accessToken,
+        link: {
+          status: "linked",
+          sp_id: viewerSp.id,
+          sp_name:
+            asText(viewerSp.full_name) ||
+            [asText(viewerSp.first_name), asText(viewerSp.last_name)].filter(Boolean).join(" ") ||
+            "SP account",
+          matched_by:
+            viewerSpMatch.matchedBy === "linked_sp_id"
+              ? "saved_link"
+              : viewerSpMatch.matchedBy === "working_email" || viewerSpMatch.matchedBy === "email" || viewerSpMatch.matchedBy === "full_name"
+                ? viewerSpMatch.matchedBy
+                : "none",
+        },
+      });
+    }
   }
 
   const { data: assignment, error: assignmentError } = await supabaseServer
@@ -403,7 +485,7 @@ async function getEventAndViewerAccess(
   const selectedIds = new Set(
     pollMetadata.pollSelectedSpIds
       .split(",")
-      .map((item) => item.trim())
+      .map((item) => String(item).trim())
       .filter(Boolean)
   );
   const selectedEmails = new Set(
@@ -412,13 +494,31 @@ async function getEventAndViewerAccess(
       .map((item) => normalizeEmail(item))
       .filter(Boolean)
   );
-  const viewerEmails = [viewer.email, viewerSp.working_email, viewerSp.email]
+  const viewerEmails = [viewer.email, viewerSp.working_email, viewerSp.email, viewerSpMatch.matchedEmail]
     .map((item) => normalizeEmail(item))
     .filter(Boolean);
-  const selected = selectedIds.has(asText(viewerSp.id)) || viewerEmails.some((email) => selectedEmails.has(email));
+  const viewerSpId = String(asText(viewerSp.id));
+  const linkedSpId = String(asText(viewer.linkedSpId));
+  const selected =
+    (viewerSpId && selectedIds.has(viewerSpId)) ||
+    (linkedSpId && selectedIds.has(linkedSpId)) ||
+    viewerEmails.some((email) => selectedEmails.has(email));
 
   if (!selected && !assignment?.id) {
-    return { event, viewerSp, assignment: assignment || null, pollMetadata, trainingMetadata, selected: false };
+    return {
+      event,
+      viewerSp,
+      assignment: assignment || null,
+      pollMetadata,
+      trainingMetadata,
+      selected: false,
+      inclusionDebug: {
+        accountEmail: normalizeEmail(viewer.email),
+        matchedSpEmail: normalizeEmail(viewerSp.working_email) || normalizeEmail(viewerSp.email),
+        matchedSpId: viewerSpId,
+        matchedBy: viewerSpMatch.matchedBy,
+      } satisfies PollInclusionDebug,
+    };
   }
 
   return {
@@ -428,6 +528,12 @@ async function getEventAndViewerAccess(
     pollMetadata,
     trainingMetadata,
     selected: true,
+    inclusionDebug: {
+      accountEmail: normalizeEmail(viewer.email),
+      matchedSpEmail: normalizeEmail(viewerSp.working_email) || normalizeEmail(viewerSp.email),
+      matchedSpId: viewerSpId,
+      matchedBy: viewerSpMatch.matchedBy,
+    } satisfies PollInclusionDebug,
   };
 }
 
@@ -486,6 +592,12 @@ export async function GET(
     let assignmentId: string | null = null;
     let canRespond = false;
     let responseAccessMessage = "";
+    let inclusionDebug: PollInclusionDebug = {
+      accountEmail: normalizeEmail(viewer?.email),
+      matchedSpEmail: "",
+      matchedSpId: "",
+      matchedBy: "none",
+    };
     let sp = {
       id: "",
       name: "",
@@ -499,10 +611,16 @@ export async function GET(
         "This poll is for SP availability responses. Please create or switch to an SP account to respond.";
     } else {
       const access = await getEventAndViewerAccess(supabaseServer, eventId, viewer);
+      inclusionDebug = access.inclusionDebug || {
+        accountEmail: normalizeEmail(viewer.email),
+        matchedSpEmail: "",
+        matchedSpId: "",
+        matchedBy: "none",
+      };
       if (!access.viewerSp) {
         responseAccessMessage = "Your SP account is awaiting directory matching before you can submit this poll.";
       } else if (!access.selected) {
-        responseAccessMessage = "Your SP account is not included in this availability poll.";
+        responseAccessMessage = "We could not verify your SP directory link for this poll.";
       } else {
         canRespond = true;
         responseMetadata = parsePollResponseMetadata(access.assignment?.notes);
@@ -550,6 +668,7 @@ export async function GET(
         },
         canRespond,
         responseAccessMessage,
+        inclusionDebug,
       }),
       viewer
     );

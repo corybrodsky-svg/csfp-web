@@ -57,6 +57,12 @@ type PollPayload = {
   };
   canRespond: boolean;
   responseAccessMessage: string;
+  inclusionDebug: {
+    accountEmail: string;
+    matchedSpEmail: string;
+    matchedSpId: string;
+    matchedBy: string;
+  };
 };
 
 const cardStyle: React.CSSProperties = {
@@ -403,6 +409,36 @@ export default function EventPollResponsePage() {
                 <div style={{ marginTop: "8px", color: "var(--cfsp-text-muted)", fontWeight: 700, lineHeight: 1.6 }}>
                   {payload.responseAccessMessage}
                 </div>
+                {payload.viewerRole === "sp" ? (
+                  <div
+                    style={{
+                      marginTop: "12px",
+                      borderRadius: "14px",
+                      border: "1px solid var(--cfsp-border)",
+                      background: "var(--cfsp-surface-muted)",
+                      padding: "12px",
+                      color: "var(--cfsp-text-muted)",
+                      fontWeight: 700,
+                      lineHeight: 1.6,
+                    }}
+                  >
+                    <div>
+                      <strong style={{ color: "var(--cfsp-text)" }}>Account email:</strong>{" "}
+                      {payload.inclusionDebug.accountEmail || "Not available"}
+                    </div>
+                    <div>
+                      <strong style={{ color: "var(--cfsp-text)" }}>Matched SP email:</strong>{" "}
+                      {payload.inclusionDebug.matchedSpEmail || "No directory match found"}
+                    </div>
+                    <div>
+                      <strong style={{ color: "var(--cfsp-text)" }}>Matched by:</strong>{" "}
+                      {payload.inclusionDebug.matchedBy || "No match"}
+                    </div>
+                    <div style={{ marginTop: "8px" }}>
+                      Contact simulation staff if this mismatch persists.
+                    </div>
+                  </div>
+                ) : null}
                 <div style={{ marginTop: "16px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
                   {payload.viewerRole !== "sp" ? (
                     <Link

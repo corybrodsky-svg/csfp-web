@@ -1972,8 +1972,16 @@ const summaryTimeLabel = useMemo(() => {
     [pollMetadata.pollSelectedSpEmails]
   );
   const pollSelectedSps = useMemo(
-    () => availableSps.filter((sp) => selectedPollSpIds.includes(String(sp.id))),
-    [availableSps, selectedPollSpIds]
+    () =>
+      Array.from(
+        new Map(
+          selectedPollSpIds
+            .map((spId) => spsById.get(String(spId)))
+            .filter((sp): sp is SPRow => Boolean(sp))
+            .map((sp) => [String(sp.id), sp])
+        ).values()
+      ),
+    [selectedPollSpIds, spsById]
   );
   const pollSelectedEmails = useMemo(
     () =>
@@ -2159,8 +2167,8 @@ const summaryTimeLabel = useMemo(() => {
         {
           pollCreatedAt: new Date().toISOString(),
           pollSentAt: pollMetadata.pollSentAt,
-          pollSelectedSpIds: selectedPollSpIds.join(","),
-          pollSelectedSpEmails: pollSelectedEmails.join(","),
+          pollSelectedSpIds: Array.from(new Set(selectedPollSpIds.map((spId) => String(spId).trim()).filter(Boolean))).join(","),
+          pollSelectedSpEmails: Array.from(new Set(pollSelectedEmails.map((email) => normalizeEmail(email)).filter(Boolean))).join(","),
           pollStatus: "draft_ready",
         },
         "Availability poll created."
@@ -2221,8 +2229,12 @@ Cory`;
           {
             pollCreatedAt: pollMetadata.pollCreatedAt || new Date().toISOString(),
             pollSentAt: pollMetadata.pollSentAt,
-            pollSelectedSpIds: (selectedPollSpIds.length ? selectedPollSpIds : pollSelectedSpIdsFromMetadata).join(","),
-            pollSelectedSpEmails: (pollSelectedEmails.length ? pollSelectedEmails : pollSelectedSpEmailsFromMetadata).join(","),
+            pollSelectedSpIds: Array.from(
+              new Set((selectedPollSpIds.length ? selectedPollSpIds : pollSelectedSpIdsFromMetadata).map((spId) => String(spId).trim()).filter(Boolean))
+            ).join(","),
+            pollSelectedSpEmails: Array.from(
+              new Set((pollSelectedEmails.length ? pollSelectedEmails : pollSelectedSpEmailsFromMetadata).map((email) => normalizeEmail(email)).filter(Boolean))
+            ).join(","),
             pollStatus: "draft_ready",
           },
           "Polling email draft opened."
@@ -2245,8 +2257,12 @@ Cory`;
         {
           pollCreatedAt: pollMetadata.pollCreatedAt || new Date().toISOString(),
           pollSentAt: new Date().toISOString(),
-          pollSelectedSpIds: (selectedPollSpIds.length ? selectedPollSpIds : pollSelectedSpIdsFromMetadata).join(","),
-          pollSelectedSpEmails: (pollSelectedEmails.length ? pollSelectedEmails : pollSelectedSpEmailsFromMetadata).join(","),
+          pollSelectedSpIds: Array.from(
+            new Set((selectedPollSpIds.length ? selectedPollSpIds : pollSelectedSpIdsFromMetadata).map((spId) => String(spId).trim()).filter(Boolean))
+          ).join(","),
+          pollSelectedSpEmails: Array.from(
+            new Set((pollSelectedEmails.length ? pollSelectedEmails : pollSelectedSpEmailsFromMetadata).map((email) => normalizeEmail(email)).filter(Boolean))
+          ).join(","),
           pollStatus: "sent",
         },
         "Availability poll marked sent."
