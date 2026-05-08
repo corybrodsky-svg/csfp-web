@@ -3130,7 +3130,7 @@ export default function EventDetailPage() {
   }
 
   const trainingAttendancePanel =
-    canManageTrainingAttendance && sortedAssignments.length > 0 ? (
+    canManageTrainingAttendance ? (
       <section
         style={{
           marginTop: "12px",
@@ -3186,6 +3186,17 @@ export default function EventDetailPage() {
         <div style={{ padding: "12px 16px 16px", display: "grid", gap: "12px" }}>
           <div
             style={{
+              color: "var(--cfsp-warning)",
+              fontSize: "12px",
+              fontWeight: 900,
+              letterSpacing: "0.02em",
+              textTransform: "uppercase",
+            }}
+          >
+            Attendance checklist mounted
+          </div>
+          <div
+            style={{
               display: "flex",
               justifyContent: "space-between",
               gap: "8px",
@@ -3236,62 +3247,77 @@ export default function EventDetailPage() {
             <div className="cfsp-alert cfsp-alert-info">{attendanceSuccess}</div>
           ) : null}
 
-          <div style={{ display: "grid", gap: "8px" }}>
-            {sortedAssignments.map((assignment) => {
-              const sp = assignment.sp_id ? spsById.get(assignment.sp_id) : undefined;
-              const status = getAssignmentStatus(assignment);
-              const checkedAt = formatAttendanceTimestamp(assignment.training_checked_in_at);
+          {sortedAssignments.length === 0 ? (
+            <div
+              style={{
+                border: "1px solid var(--cfsp-border)",
+                borderRadius: "14px",
+                padding: "12px",
+                background: "var(--cfsp-surface)",
+                color: "var(--cfsp-text-muted)",
+                fontWeight: 700,
+              }}
+            >
+              No assigned SPs yet.
+            </div>
+          ) : (
+            <div style={{ display: "grid", gap: "8px" }}>
+              {sortedAssignments.map((assignment) => {
+                const sp = assignment.sp_id ? spsById.get(assignment.sp_id) : undefined;
+                const status = getAssignmentStatus(assignment);
+                const checkedAt = formatAttendanceTimestamp(assignment.training_checked_in_at);
 
-              return (
-                <label
-                  key={`attendance-${assignment.id}`}
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "auto minmax(0, 1fr) auto",
-                    gap: "10px",
-                    alignItems: "center",
-                    border: "1px solid var(--cfsp-border)",
-                    borderRadius: "14px",
-                    padding: "10px 12px",
-                    background: assignment.training_attended ? "rgba(44, 211, 173, 0.08)" : "var(--cfsp-surface)",
-                  }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={assignment.training_attended === true}
-                    disabled={attendanceSaving || trainingAttendanceFieldsMissing}
-                    onChange={(event) => void handleTrainingAttendanceToggle(assignment, event.target.checked)}
-                    style={{ width: "18px", height: "18px", accentColor: "var(--cfsp-green)" }}
-                  />
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>
-                      {sp ? getFullName(sp) : "Unknown SP"}
-                    </div>
-                    <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontSize: "13px", fontWeight: 700 }}>
-                      {sp ? getEmail(sp) || "No email on file" : assignment.sp_id || "No SP id"}
-                    </div>
-                    {assignment.training_attended && checkedAt ? (
-                      <div style={{ marginTop: "4px", color: "var(--cfsp-green)", fontSize: "12px", fontWeight: 800 }}>
-                        Checked in {checkedAt}
-                      </div>
-                    ) : null}
-                  </div>
-                  <span
+                return (
+                  <label
+                    key={`attendance-${assignment.id}`}
                     style={{
-                      ...assignmentStatusStyles[status],
-                      borderRadius: "999px",
-                      padding: "6px 9px",
-                      fontSize: "11px",
-                      fontWeight: 900,
-                      whiteSpace: "nowrap",
+                      display: "grid",
+                      gridTemplateColumns: "auto minmax(0, 1fr) auto",
+                      gap: "10px",
+                      alignItems: "center",
+                      border: "1px solid var(--cfsp-border)",
+                      borderRadius: "14px",
+                      padding: "10px 12px",
+                      background: assignment.training_attended ? "rgba(44, 211, 173, 0.08)" : "var(--cfsp-surface)",
                     }}
                   >
-                    {assignmentStatusLabels[status]}
-                  </span>
-                </label>
-              );
-            })}
-          </div>
+                    <input
+                      type="checkbox"
+                      checked={assignment.training_attended === true}
+                      disabled={attendanceSaving || trainingAttendanceFieldsMissing}
+                      onChange={(event) => void handleTrainingAttendanceToggle(assignment, event.target.checked)}
+                      style={{ width: "18px", height: "18px", accentColor: "var(--cfsp-green)" }}
+                    />
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>
+                        {sp ? getFullName(sp) : "Unknown SP"}
+                      </div>
+                      <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontSize: "13px", fontWeight: 700 }}>
+                        {sp ? getEmail(sp) || "No email on file" : assignment.sp_id || "No SP id"}
+                      </div>
+                      {assignment.training_attended && checkedAt ? (
+                        <div style={{ marginTop: "4px", color: "var(--cfsp-green)", fontSize: "12px", fontWeight: 800 }}>
+                          Checked in {checkedAt}
+                        </div>
+                      ) : null}
+                    </div>
+                    <span
+                      style={{
+                        ...assignmentStatusStyles[status],
+                        borderRadius: "999px",
+                        padding: "6px 9px",
+                        fontSize: "11px",
+                        fontWeight: 900,
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {assignmentStatusLabels[status]}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          )}
         </div>
       </section>
     ) : null;
