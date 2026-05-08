@@ -231,6 +231,9 @@ type PollMetadata = {
   pollStatus: string;
   excludedSpIds: string;
   excludedSpEmails: string;
+  importedPollResponses: string;
+  pollImportCreatedAt: string;
+  pollImportSource: string;
 };
 type PollResponseMetadata = {
   responseStatus: string;
@@ -238,6 +241,21 @@ type PollResponseMetadata = {
   responseSubmittedAt: string;
 };
 type PollResponseStatus = "available" | "maybe" | "not_available" | "no_response";
+type ImportedPollMatchType = "email" | "name" | "unmatched";
+type ImportedPollResponseRecord = {
+  name: string;
+  email: string;
+  normalizedEmail: string;
+  responseStatus: PollResponseStatus;
+  responseLabel: string;
+  responseSubmittedAt: string;
+  responseNote: string;
+  matchedSpId: string;
+  matchedSpEmail: string;
+  matchedSpName: string;
+  matchType: ImportedPollMatchType;
+  matchConfidence: number;
+};
 type PollMatchSort = "best_match" | "name" | "email_ready" | "recently_responded" | "assigned_last";
 type RelatedCopyOption =
   | "assigned_sps"
@@ -1104,6 +1122,9 @@ const POLL_METADATA_KEYS: Array<keyof PollMetadata> = [
   "pollStatus",
   "excludedSpIds",
   "excludedSpEmails",
+  "importedPollResponses",
+  "pollImportCreatedAt",
+  "pollImportSource",
 ];
 const POLL_RESPONSE_START = "[CFSP_POLL_RESPONSE]";
 const POLL_RESPONSE_END = "[/CFSP_POLL_RESPONSE]";
@@ -1122,6 +1143,9 @@ function emptyPollMetadata(): PollMetadata {
     pollStatus: "",
     excludedSpIds: "",
     excludedSpEmails: "",
+    importedPollResponses: "",
+    pollImportCreatedAt: "",
+    pollImportSource: "",
   };
 }
 
@@ -1208,6 +1232,125 @@ function getPollResponseStatus(notes?: string | null): PollResponseStatus {
   if (status === "maybe") return "maybe";
   if (status === "not_available") return "not_available";
   return "no_response";
+}
+
+function getPollResponseTimestamp(notes?: string | null) {
+  return asText(parsePollResponseMetadata(notes).responseSubmittedAt);
+}
+
+function getEffectivePollResponseStatus(
+  notes: string | null | undefined,
+  imported?: ImportedPollResponseRecord | null
+) {
+  const inAppStatus = getPollResponseStatus(notes);
+  if (!imported) return inAppStatus;
+
+  const inAppTimestamp = Date.parse(getPollResponseTimestamp(notes) || "");
+  const importedTimestamp = Date.parse(imported.responseSubmittedAt || "");
+
+  if (Number.isNaN(inAppTimestamp) && Number.isNaN(importedTimestamp)) {
+    return inAppStatus !== "no_response" ? inAppStatus : imported.responseStatus;
+  }
+  if (Number.isNaN(inAppTimestamp)) return imported.responseStatus;
+  if (Number.isNaN(importedTimestamp)) return inAppStatus;
+  return importedTimestamp >= inAppTimestamp ? imported.responseStatus : inAppStatus;
+}
+
+function encodeImportedPollResponses(entries: ImportedPollResponseRecord[]) {
+  try {
+    return encodeURIComponent(JSON.stringify(entries));
+  } catch {
+    return "";
+  }
+}
+
+function parseImportedPollResponses(value?: string | null): ImportedPollResponseRecord[] {
+  const text = asText(value);
+  if (!text) return [] as ImportedPollResponseRecord[];
+  try {
+    const decoded = decodeURIComponent(text);
+    const parsed = JSON.parse(decoded);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((entry): ImportedPollResponseRecord => {
+        const responseStatus = asText((entry as ImportedPollResponseRecord).responseStatus) as PollResponseStatus;
+        return {
+          name: asText((entry as ImportedPollResponseRecord).name),
+          email: asText((entry as ImportedPollResponseRecord).email),
+          normalizedEmail: normalizeEmail(asText((entry as ImportedPollResponseRecord).normalizedEmail || (entry as ImportedPollResponseRecord).email)),
+          responseStatus:
+            responseStatus === "available" || responseStatus === "maybe" || responseStatus === "not_available"
+              ? responseStatus
+              : "no_response",
+          responseLabel: asText((entry as ImportedPollResponseRecord).responseLabel),
+          responseSubmittedAt: asText((entry as ImportedPollResponseRecord).responseSubmittedAt),
+          responseNote: asText((entry as ImportedPollResponseRecord).responseNote),
+          matchedSpId: asText((entry as ImportedPollResponseRecord).matchedSpId),
+          matchedSpEmail: asText((entry as ImportedPollResponseRecord).matchedSpEmail),
+          matchedSpName: asText((entry as ImportedPollResponseRecord).matchedSpName),
+          matchType:
+            asText((entry as ImportedPollResponseRecord).matchType) === "email"
+              ? "email"
+              : asText((entry as ImportedPollResponseRecord).matchType) === "name"
+                ? "name"
+                : "unmatched",
+          matchConfidence: Number((entry as ImportedPollResponseRecord).matchConfidence) || 0,
+        };
+      })
+      .filter((entry) => entry.name || entry.email || entry.matchedSpId);
+  } catch {
+    return [];
+  }
+}
+
+function classifyImportedAvailabilityResponse(value: string) {
+  const normalized = asText(value).toLowerCase();
+  if (!normalized) return { status: "no_response" as const, label: "No clear response" };
+  if (
+    /\b(not available|unavailable|cannot|can not|can't|decline|declined|no,? not available|not attending|unable)\b/.test(
+      normalized
+    )
+  ) {
+    return { status: "not_available" as const, label: "Not Available" };
+  }
+  if (/\b(maybe|need to discuss|depends|unsure|not sure|possibly|can discuss)\b/.test(normalized)) {
+    return { status: "maybe" as const, label: "Maybe / Need to discuss" };
+  }
+  if (/\b(available|yes|i am available|i'm available|can do|works for me|attend|attending)\b/.test(normalized)) {
+    return { status: "available" as const, label: "Available" };
+  }
+  return { status: "no_response" as const, label: "No clear response" };
+}
+
+function normalizeImportHeader(value: unknown) {
+  return asText(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function getImportFieldValue(row: Record<string, unknown>, aliases: string[]) {
+  const entries = Object.entries(row);
+  for (const alias of aliases) {
+    const normalizedAlias = normalizeImportHeader(alias);
+    const matched = entries.find(([key]) => normalizeImportHeader(key) === normalizedAlias);
+    if (matched) return asText(matched[1]);
+  }
+  return "";
+}
+
+function parseImportedPollWorkbook(file: File) {
+  return file.arrayBuffer().then((buffer) => {
+    const workbook = XLSX.read(buffer, { type: "array" });
+    const firstSheetName = workbook.SheetNames[0];
+    const sheet = firstSheetName ? workbook.Sheets[firstSheetName] : null;
+    if (!sheet) return [] as Array<Record<string, unknown>>;
+    return XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
+      defval: "",
+      raw: false,
+    });
+  });
 }
 
 function buildRotationRounds(sessions: EventSessionRow[]): RotationRound[] {
@@ -1598,6 +1741,9 @@ export default function EventDetailPage() {
   const [pollMatchSpanishOnly, setPollMatchSpanishOnly] = useState(false);
   const [pollMatchTelehealthOnly, setPollMatchTelehealthOnly] = useState(false);
   const [pollMatchSort, setPollMatchSort] = useState<PollMatchSort>("best_match");
+  const [pollImportSaving, setPollImportSaving] = useState(false);
+  const [pollImportError, setPollImportError] = useState("");
+  const [pollImportIgnoredUnmatched, setPollImportIgnoredUnmatched] = useState(false);
   const [loading, setLoading] = useState(Boolean(id));
   const [saving, setSaving] = useState(false);
   const [assigningSpId, setAssigningSpId] = useState("");
@@ -1648,6 +1794,7 @@ export default function EventDetailPage() {
   const [selectedPollSpIds, setSelectedPollSpIds] = useState<string[]>([]);
   const [pollSaving, setPollSaving] = useState(false);
   const [deletingEvent, setDeletingEvent] = useState(false);
+  const pollImportInputRef = useRef<HTMLInputElement | null>(null);
 
   const [relatedMatches, setRelatedMatches] = useState<RelatedEventPreview[]>([]);
   const [selectedRelatedTargetIds, setSelectedRelatedTargetIds] = useState<string[]>([]);
@@ -1859,6 +2006,31 @@ export default function EventDetailPage() {
         .filter(Boolean),
     [pollMetadata.excludedSpEmails]
   );
+  const importedPollResponses = useMemo(
+    () => parseImportedPollResponses(pollMetadata.importedPollResponses),
+    [pollMetadata.importedPollResponses]
+  );
+  const importedPollResponsesBySpId = useMemo(() => {
+    const next = new Map<string, ImportedPollResponseRecord>();
+    importedPollResponses.forEach((entry) => {
+      if (!entry.matchedSpId) return;
+      const current = next.get(entry.matchedSpId);
+      if (!current) {
+        next.set(entry.matchedSpId, entry);
+        return;
+      }
+      const currentStamp = Date.parse(current.responseSubmittedAt || "");
+      const nextStamp = Date.parse(entry.responseSubmittedAt || "");
+      if (!Number.isNaN(nextStamp) && (Number.isNaN(currentStamp) || nextStamp >= currentStamp)) {
+        next.set(entry.matchedSpId, entry);
+      }
+    });
+    return next;
+  }, [importedPollResponses]);
+  const unmatchedImportedPollResponses = useMemo(
+    () => importedPollResponses.filter((entry) => !entry.matchedSpId),
+    [importedPollResponses]
+  );
   const pollSelectedSps = useMemo(
     () =>
       Array.from(
@@ -1933,9 +2105,8 @@ export default function EventDetailPage() {
         const detectedLocation = detectLocationFitFromText(locationText);
         const email = getEmail(sp);
         const assignment = assignmentsBySpId.get(sp.id) || null;
-        const pollResponseStatus = assignment
-          ? getPollResponseStatus(assignment.notes)
-          : "no_response";
+        const importedResponse = importedPollResponsesBySpId.get(sp.id) || null;
+        const pollResponseStatus = getEffectivePollResponseStatus(assignment?.notes, importedResponse);
         const hasPriorResponse = pollResponseStatus !== "no_response";
         const locationMatched =
           effectivePollLocationFilter === "any"
@@ -1973,6 +2144,11 @@ export default function EventDetailPage() {
         const ageFitUsed = Boolean(ageKeyword);
         const excluded = excludedIds.has(String(sp.id)) || (email ? excludedEmails.has(normalizeEmail(email)) : false);
         const chips = [
+          importedResponse?.responseStatus === "available" ? "Imported Available" : "",
+          importedResponse?.responseStatus === "maybe" ? "Imported Maybe" : "",
+          importedResponse?.responseStatus === "not_available" ? "Imported Not Available" : "",
+          importedResponse?.matchType === "email" ? "Email matched" : "",
+          importedResponse?.matchType === "name" ? "Name matched" : "",
           effectivePollLocationFilter === "elkins_park" && locationMatched ? "Elkins Park fit" : "",
           effectivePollLocationFilter === "center_city" && locationMatched ? "Center City fit" : "",
           effectivePollLocationFilter === "virtual" && locationMatched ? "Virtual ready" : "",
@@ -1992,8 +2168,11 @@ export default function EventDetailPage() {
           if (emailReady) total += 18;
           if (active) total += 16;
           if (hasPriorResponse) total += 14;
+          if (importedResponse?.matchType === "email") total += 12;
+          else if (importedResponse?.matchType === "name") total += 5;
           if (pollResponseStatus === "available") total += 20;
           else if (pollResponseStatus === "maybe") total += 10;
+          else if (pollResponseStatus === "not_available") total -= 25;
           if (roleMatch) total += 8;
           if (skillMatch) total += 6;
           if (ageFitUsed && ageFitMatched) total += 6;
@@ -2031,6 +2210,7 @@ export default function EventDetailPage() {
           availabilityMatch: availabilityMatchBySpId.get(sp.id)?.status || "unknown",
           selected: selectedIds.has(String(sp.id)),
           excluded,
+          importedResponse,
         };
       })
       .filter((entry) => {
@@ -2080,6 +2260,7 @@ export default function EventDetailPage() {
     excludedPollSpIdsFromMetadata,
     effectivePollLocationFilter,
     event?.location,
+    importedPollResponsesBySpId,
     pollMatchActiveOnly,
     pollMatchAgeKeyword,
     pollMatchAvailableRespondersOnly,
@@ -5555,68 +5736,89 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
       </section>
     ) : null;
 
+  const staffingWorkspacePalette = {
+    surface: "linear-gradient(180deg, rgba(247, 251, 255, 0.98) 0%, rgba(238, 248, 250, 0.98) 50%, rgba(245, 247, 255, 0.99) 100%)",
+    panel: "linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(241, 248, 251, 0.98) 100%)",
+    panelSoft: "linear-gradient(180deg, rgba(248, 252, 255, 0.96) 0%, rgba(240, 247, 252, 0.98) 100%)",
+    row: "linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(242, 248, 252, 0.98) 100%)",
+    subtle: "rgba(233, 242, 247, 0.72)",
+    border: "rgba(128, 167, 182, 0.22)",
+    borderStrong: "rgba(106, 180, 195, 0.26)",
+    text: "#18364a",
+    textStrong: "#0f2940",
+    textMuted: "#597b8e",
+    chip: "rgba(88, 187, 198, 0.12)",
+    chipText: "#1b6e7d",
+    chipBorder: "rgba(88, 187, 198, 0.22)",
+    selectedBg: "rgba(135, 206, 235, 0.18)",
+    selectedText: "#1d5f83",
+    selectedBorder: "rgba(99, 181, 217, 0.24)",
+    buttonBg: "linear-gradient(180deg, rgba(232, 247, 251, 0.98) 0%, rgba(219, 240, 246, 0.98) 100%)",
+    buttonBorder: "rgba(110, 171, 191, 0.24)",
+  } as const;
   const staffingCommandSurfaceStyle: React.CSSProperties = {
     ...cardStyle,
-    background:
-      "linear-gradient(180deg, rgba(15, 27, 42, 0.98) 0%, rgba(17, 31, 47, 0.96) 55%, rgba(14, 26, 39, 0.98) 100%)",
-    border: "1px solid rgba(126, 231, 219, 0.16)",
-    boxShadow: "0 18px 36px rgba(6, 12, 24, 0.18)",
+    background: staffingWorkspacePalette.surface,
+    border: `1px solid ${staffingWorkspacePalette.borderStrong}`,
+    boxShadow: "0 18px 40px rgba(112, 148, 169, 0.14)",
     display: "grid",
     gap: "12px",
     overflow: "hidden",
+    backdropFilter: "blur(12px)",
   };
   const staffingPanelStyle: React.CSSProperties = {
-    border: "1px solid rgba(148, 163, 184, 0.16)",
+    border: `1px solid ${staffingWorkspacePalette.border}`,
     borderRadius: "18px",
-    background: "linear-gradient(180deg, rgba(20, 36, 54, 0.94) 0%, rgba(15, 28, 43, 0.96) 100%)",
-    boxShadow: "inset 0 1px 0 rgba(255,255,255,0.03)",
+    background: staffingWorkspacePalette.panel,
+    boxShadow: "0 12px 24px rgba(110, 148, 169, 0.08), inset 0 1px 0 rgba(255,255,255,0.55)",
     padding: "12px 14px",
   };
   const staffingSummaryStyle: React.CSSProperties = {
     cursor: "pointer",
-    color: "#e7fbff",
+    color: staffingWorkspacePalette.textStrong,
     fontWeight: 900,
     letterSpacing: "0.01em",
   };
   const staffingMetricCardStyle: React.CSSProperties = {
     ...statCard,
     padding: "10px 12px",
-    background: "linear-gradient(180deg, rgba(30, 47, 67, 0.9) 0%, rgba(22, 37, 54, 0.92) 100%)",
-    border: "1px solid rgba(126, 231, 219, 0.12)",
-    boxShadow: "0 10px 18px rgba(4, 12, 24, 0.12)",
+    background: staffingWorkspacePalette.panelSoft,
+    border: `1px solid ${staffingWorkspacePalette.border}`,
+    boxShadow: "0 8px 18px rgba(110, 148, 169, 0.08)",
   };
   const staffingRowCardStyle: React.CSSProperties = {
-    border: "1px solid rgba(126, 231, 219, 0.1)",
+    border: `1px solid ${staffingWorkspacePalette.border}`,
     borderRadius: "14px",
     padding: "10px 12px",
-    background: "linear-gradient(180deg, rgba(22, 37, 54, 0.92) 0%, rgba(17, 30, 45, 0.94) 100%)",
+    background: staffingWorkspacePalette.row,
     display: "grid",
     gap: "8px",
-    boxShadow: "0 10px 18px rgba(4, 12, 24, 0.1)",
+    boxShadow: "0 8px 18px rgba(110, 148, 169, 0.08)",
   };
   const staffingEmptyStateStyle: React.CSSProperties = {
-    border: "1px dashed rgba(148, 163, 184, 0.24)",
+    border: `1px dashed ${staffingWorkspacePalette.borderStrong}`,
     borderRadius: "12px",
     padding: "10px 12px",
-    background: "rgba(148, 163, 184, 0.08)",
-    color: "#bdd4df",
+    background: staffingWorkspacePalette.subtle,
+    color: staffingWorkspacePalette.textMuted,
     fontWeight: 700,
     fontSize: "13px",
   };
   const staffingSecondaryButtonStyle: React.CSSProperties = {
     ...buttonStyle,
-    background: "rgba(148, 163, 184, 0.08)",
-    color: "#d8eef5",
-    border: "1px solid rgba(148, 163, 184, 0.18)",
+    background: staffingWorkspacePalette.buttonBg,
+    color: staffingWorkspacePalette.textStrong,
+    border: `1px solid ${staffingWorkspacePalette.buttonBorder}`,
+    boxShadow: "0 6px 14px rgba(110, 148, 169, 0.08)",
   };
   const staffingSelectedChipStyle: React.CSSProperties = {
     ...commandChipStyle,
-    background: "rgba(126, 231, 219, 0.12)",
-    color: "#99f6e4",
-    border: "1px solid rgba(126, 231, 219, 0.18)",
+    background: staffingWorkspacePalette.selectedBg,
+    color: staffingWorkspacePalette.selectedText,
+    border: `1px solid ${staffingWorkspacePalette.selectedBorder}`,
   };
   const staffingMutedTextStyle: React.CSSProperties = {
-    color: "#9cc7d3",
+    color: staffingWorkspacePalette.textMuted,
     fontWeight: 700,
     fontSize: "13px",
   };
@@ -5638,14 +5840,14 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
           }}
         >
           <div>
-            <h2 style={{ ...compactSectionTitleStyle, color: "#f4fbff", letterSpacing: "0.01em" }}>Staffing Command Center</h2>
-            <p style={{ ...compactSectionHintStyle, color: "#9cc7d3" }}>
+            <h2 style={{ ...compactSectionTitleStyle, color: staffingWorkspacePalette.textStrong, letterSpacing: "0.01em" }}>Staffing Command Center</h2>
+            <p style={{ ...compactSectionHintStyle, color: staffingWorkspacePalette.textMuted }}>
               Run coverage, polling, responder ranking, and assigned-SP operations from one compact workflow.
             </p>
           </div>
           <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-            <span style={{ ...staffingSelectedChipStyle, background: "rgba(125, 211, 252, 0.12)", color: "#bae6fd" }}>{needed} needed</span>
-            <span style={{ ...staffingSelectedChipStyle, background: "rgba(167, 243, 208, 0.12)", color: "#a7f3d0" }}>
+            <span style={{ ...staffingSelectedChipStyle, background: "rgba(186, 230, 253, 0.28)", color: "#1d5f83" }}>{needed} needed</span>
+            <span style={{ ...staffingSelectedChipStyle, background: "rgba(209, 250, 229, 0.34)", color: "#0f766e" }}>
               {confirmedCount} confirmed
             </span>
             <span
@@ -5722,8 +5924,8 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                 }}
               >
                 <div>
-                  <div style={{ ...statLabel, color: "#7dd3fc" }}>Related Training Event</div>
-                  <div style={{ marginTop: "4px", color: "#f4fbff", fontWeight: 900 }}>
+                  <div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Related Training Event</div>
+                  <div style={{ marginTop: "4px", color: staffingWorkspacePalette.textStrong, fontWeight: 900 }}>
                     {relatedTrainingEventName || "Open linked SP training event"}
                   </div>
                 </div>
@@ -5761,7 +5963,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                     { label: "Unavailable", value: unavailablePollResponders.length, tone: "var(--cfsp-danger)" },
                   ].map((item) => (
                     <div key={item.label} style={staffingMetricCardStyle}>
-                      <div style={{ ...statLabel, color: "#89b7c4" }}>{item.label}</div>
+                      <div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>{item.label}</div>
                       <div style={{ ...statValue, color: item.tone }}>{item.value}</div>
                     </div>
                   ))}
@@ -5805,16 +6007,16 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                     <div style={{ marginTop: "4px", fontWeight: 700, fontSize: "13px" }}>{staffingHealthLabel}</div>
                   </div>
                   <div style={staffingMetricCardStyle}>
-                    <div style={{ ...statLabel, color: "#89b7c4" }}>Operational Summary</div>
-                    <div style={{ marginTop: "4px", color: "#f4fbff", fontWeight: 800, fontSize: "13px" }}>
+                    <div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Operational Summary</div>
+                    <div style={{ marginTop: "4px", color: staffingWorkspacePalette.textStrong, fontWeight: 800, fontSize: "13px" }}>
                       {confirmedCount >= needed ? "Coverage met" : `Short by ${Math.max(needed - confirmedCount, 0)}`}
                     </div>
-                    <div style={{ marginTop: "4px", color: "#9cc7d3", fontWeight: 700, fontSize: "12px" }}>
+                    <div style={{ marginTop: "4px", color: staffingWorkspacePalette.textMuted, fontWeight: 700, fontSize: "12px" }}>
                       {maybePollResponders.length
                         ? `Backup coverage available from ${maybePollResponders.length} maybe responder${maybePollResponders.length === 1 ? "" : "s"}.`
                         : "No backup responses yet."}
                     </div>
-                    <div style={{ marginTop: "4px", color: "#9cc7d3", fontWeight: 700, fontSize: "12px" }}>
+                    <div style={{ marginTop: "4px", color: staffingWorkspacePalette.textMuted, fontWeight: 700, fontSize: "12px" }}>
                       Poll response rate: {pollResponseRate}%
                     </div>
                   </div>
@@ -5863,8 +6065,8 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
 
                 {showEmailDraft ? (
                   <div style={{ ...staffingMetricCardStyle, padding: "12px 14px" }}>
-                    <div style={{ ...statLabel, color: "#89b7c4" }}>Email Draft Preview</div>
-                    <div style={{ marginTop: "8px", color: "#e7fbff", lineHeight: 1.7 }}>
+                    <div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Email Draft Preview</div>
+                    <div style={{ marginTop: "8px", color: staffingWorkspacePalette.textStrong, lineHeight: 1.7 }}>
                       <div><strong>Recipients (BCC):</strong> {assignedBccEmails.length ? assignedBccEmails.join(", ") : "No assigned SP emails found."}</div>
                       <div style={{ marginTop: "8px" }}><strong>Subject:</strong> {emailSubject}</div>
                       <div style={{ marginTop: "8px", whiteSpace: "pre-wrap" }}><strong>Body:</strong>{"\n"}{emailBody}</div>
@@ -5894,9 +6096,9 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                       onClick={() => setAssignmentFilter(filter.value as AssignmentFilterStatus)}
                       style={{
                         ...buttonStyle,
-                        background: assignmentFilter === filter.value ? "rgba(125, 211, 252, 0.24)" : "rgba(148, 163, 184, 0.08)",
-                        color: assignmentFilter === filter.value ? "#f4fbff" : "#d8eef5",
-                        border: assignmentFilter === filter.value ? "1px solid rgba(125, 211, 252, 0.3)" : "1px solid rgba(148, 163, 184, 0.18)",
+                        background: assignmentFilter === filter.value ? "rgba(186, 230, 253, 0.28)" : staffingWorkspacePalette.buttonBg,
+                        color: assignmentFilter === filter.value ? staffingWorkspacePalette.textStrong : staffingWorkspacePalette.textMuted,
+                        border: assignmentFilter === filter.value ? "1px solid rgba(99, 181, 217, 0.28)" : `1px solid ${staffingWorkspacePalette.buttonBorder}`,
                         padding: "8px 12px",
                       }}
                     >
@@ -5936,10 +6138,10 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                             }}
                           >
                             <div style={{ minWidth: 0 }}>
-                              <div style={{ color: "#f4fbff", fontWeight: 900 }}>
+                              <div style={{ color: staffingWorkspacePalette.textStrong, fontWeight: 900 }}>
                                 {sp ? getFullName(sp) : "Unknown SP"}
                               </div>
-                              <div style={{ marginTop: "4px", color: "#9cc7d3", fontWeight: 700, fontSize: "13px" }}>
+                              <div style={{ marginTop: "4px", color: staffingWorkspacePalette.textMuted, fontWeight: 700, fontSize: "13px" }}>
                                 {[email || assignment.sp_id || "No SP id", sp?.phone || ""].filter(Boolean).join(" · ")}
                               </div>
                               <div style={{ marginTop: "6px", display: "flex", gap: "6px", flexWrap: "wrap" }}>
@@ -5969,7 +6171,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                                 value={status}
                                 onChange={(e) => handleStatusChange(assignment, e.target.value as AssignmentStatus)}
                                 disabled={saving}
-                                style={{ ...selectStyle, width: "100%", background: "rgba(10, 20, 32, 0.92)", color: "#f4fbff", border: "1px solid rgba(148, 163, 184, 0.2)" }}
+                                style={{ ...selectStyle, width: "100%", background: "rgba(255, 255, 255, 0.96)", color: staffingWorkspacePalette.textStrong, border: `1px solid ${staffingWorkspacePalette.border}` }}
                               >
                                 {assignmentStatuses.map((option) => (
                                   <option key={option} value={option}>
@@ -5991,13 +6193,13 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                           </div>
                           <details
                             style={{
-                              border: "1px solid rgba(148, 163, 184, 0.14)",
+                              border: `1px solid ${staffingWorkspacePalette.border}`,
                               borderRadius: "12px",
-                              background: "rgba(10, 20, 32, 0.86)",
+                              background: "rgba(252, 254, 255, 0.94)",
                               padding: "8px 10px",
                             }}
                           >
-                            <summary style={{ cursor: "pointer", color: "#d8eef5", fontWeight: 800 }}>
+                            <summary style={{ cursor: "pointer", color: staffingWorkspacePalette.textStrong, fontWeight: 800 }}>
                               Notes
                             </summary>
                             <div style={{ marginTop: "10px" }}>
@@ -6023,18 +6225,18 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
 
                 <div
                   style={{
-                    border: "1px solid rgba(125, 211, 252, 0.16)",
+                    border: `1px solid ${staffingWorkspacePalette.borderStrong}`,
                     borderRadius: "14px",
                     padding: "10px 12px",
-                    background: "rgba(125, 211, 252, 0.06)",
+                    background: "linear-gradient(180deg, rgba(238, 248, 252, 0.96) 0%, rgba(246, 250, 255, 0.98) 100%)",
                     display: "grid",
                     gap: "10px",
                   }}
                 >
                   <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
                     <div>
-                      <div style={{ ...statLabel, color: "#e7fbff" }}>Candidate SP Pool</div>
-                      <div style={{ marginTop: "4px", color: "#9cc7d3", fontWeight: 700, fontSize: "13px" }}>
+                      <div style={{ ...statLabel, color: staffingWorkspacePalette.textStrong }}>Candidate SP Pool</div>
+                      <div style={{ marginTop: "4px", color: staffingWorkspacePalette.textMuted, fontWeight: 700, fontSize: "13px" }}>
                         Browse unassigned candidates only when you need more coverage.
                       </div>
                     </div>
@@ -6046,7 +6248,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                         value={candidateQuery}
                         onChange={(event) => setCandidateQuery(event.target.value)}
                         placeholder="Search by name, email, phone, notes, roles, or preferences..."
-                        style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                        style={{ ...inputStyle, width: "100%", boxSizing: "border-box", background: "rgba(255, 255, 255, 0.96)", color: staffingWorkspacePalette.textStrong, border: `1px solid ${staffingWorkspacePalette.border}` }}
                       />
                       <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
                         {[
@@ -6062,8 +6264,8 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                             onClick={() => filter.setActive((current) => !current)}
                             style={{
                               ...staffingSecondaryButtonStyle,
-                              background: filter.active ? "rgba(125, 211, 252, 0.24)" : "rgba(148, 163, 184, 0.08)",
-                              color: filter.active ? "#f4fbff" : "#d8eef5",
+                              background: filter.active ? "rgba(186, 230, 253, 0.28)" : staffingWorkspacePalette.buttonBg,
+                              color: filter.active ? staffingWorkspacePalette.textStrong : staffingWorkspacePalette.textMuted,
                               padding: "8px 12px",
                             }}
                           >
@@ -6075,7 +6277,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                         <select
                           value={selectedSpId}
                           onChange={(e) => setSelectedSpId(e.target.value)}
-                          style={{ ...selectStyle, background: "rgba(10, 20, 32, 0.92)", color: "#f4fbff", border: "1px solid rgba(148, 163, 184, 0.2)" }}
+                          style={{ ...selectStyle, background: "rgba(255, 255, 255, 0.96)", color: staffingWorkspacePalette.textStrong, border: `1px solid ${staffingWorkspacePalette.border}` }}
                           disabled={saving || availableSps.length === 0}
                         >
                           <option value="">
@@ -6131,9 +6333,9 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                       }}
                       style={{
                         ...staffingSecondaryButtonStyle,
-                        background: matchMakerMode === mode.key ? "rgba(125, 211, 252, 0.24)" : "rgba(148, 163, 184, 0.08)",
-                        color: matchMakerMode === mode.key ? "#f4fbff" : "#d8eef5",
-                        border: matchMakerMode === mode.key ? "1px solid rgba(125, 211, 252, 0.3)" : "1px solid rgba(148, 163, 184, 0.18)",
+                        background: matchMakerMode === mode.key ? "rgba(186, 230, 253, 0.28)" : staffingWorkspacePalette.buttonBg,
+                        color: matchMakerMode === mode.key ? staffingWorkspacePalette.textStrong : staffingWorkspacePalette.textMuted,
+                        border: matchMakerMode === mode.key ? "1px solid rgba(99, 181, 217, 0.28)" : `1px solid ${staffingWorkspacePalette.buttonBorder}`,
                       }}
                     >
                       {mode.label}
@@ -6151,20 +6353,20 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                       }}
                     >
                       <label style={{ display: "grid", gap: "6px", gridColumn: "1 / -1" }}>
-                        <span style={{ ...statLabel, color: "#89b7c4" }}>Search</span>
+                        <span style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Search</span>
                         <input
                           value={pollMatchKeyword}
                           onChange={(event) => setPollMatchKeyword(event.target.value)}
                           placeholder="Search SPs by name, email, notes, skills, role, campus..."
-                          style={{ ...inputStyle, width: "100%", boxSizing: "border-box", background: "rgba(10, 20, 32, 0.9)", color: "#f4fbff", border: "1px solid rgba(148, 163, 184, 0.18)" }}
+                          style={{ ...inputStyle, width: "100%", boxSizing: "border-box", background: "rgba(255, 255, 255, 0.96)", color: staffingWorkspacePalette.textStrong, border: `1px solid ${staffingWorkspacePalette.border}` }}
                         />
                       </label>
                       <label style={{ display: "grid", gap: "6px" }}>
-                        <span style={{ ...statLabel, color: "#89b7c4" }}>Campus/location fit</span>
+                        <span style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Campus/location fit</span>
                         <select
                           value={pollMatchLocationFilter}
                           onChange={(event) => setPollMatchLocationFilter(event.target.value as PollLocationFilter)}
-                          style={{ ...selectStyle, width: "100%", background: "rgba(10, 20, 32, 0.9)", color: "#f4fbff", border: "1px solid rgba(148, 163, 184, 0.18)" }}
+                          style={{ ...selectStyle, width: "100%", background: "rgba(255, 255, 255, 0.96)", color: staffingWorkspacePalette.textStrong, border: `1px solid ${staffingWorkspacePalette.border}` }}
                         >
                           <option value="any">Any location</option>
                           <option value="elkins_park">Elkins Park only</option>
@@ -6173,29 +6375,29 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                         </select>
                       </label>
                       <label style={{ display: "grid", gap: "6px" }}>
-                        <span style={{ ...statLabel, color: "#89b7c4" }}>Role / patient fit</span>
+                        <span style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Role / patient fit</span>
                         <input
                           value={pollMatchRoleKeyword}
                           onChange={(event) => setPollMatchRoleKeyword(event.target.value)}
                           placeholder="Patient profile or role fit"
-                          style={{ ...inputStyle, width: "100%", boxSizing: "border-box", background: "rgba(10, 20, 32, 0.9)", color: "#f4fbff", border: "1px solid rgba(148, 163, 184, 0.18)" }}
+                          style={{ ...inputStyle, width: "100%", boxSizing: "border-box", background: "rgba(255, 255, 255, 0.96)", color: staffingWorkspacePalette.textStrong, border: `1px solid ${staffingWorkspacePalette.border}` }}
                         />
                       </label>
                       <label style={{ display: "grid", gap: "6px" }}>
-                        <span style={{ ...statLabel, color: "#89b7c4" }}>Age range fit</span>
+                        <span style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Age range fit</span>
                         <input
                           value={pollMatchAgeKeyword}
                           onChange={(event) => setPollMatchAgeKeyword(event.target.value)}
                           placeholder="Adult, 40-50, teen..."
-                          style={{ ...inputStyle, width: "100%", boxSizing: "border-box", background: "rgba(10, 20, 32, 0.9)", color: "#f4fbff", border: "1px solid rgba(148, 163, 184, 0.18)" }}
+                          style={{ ...inputStyle, width: "100%", boxSizing: "border-box", background: "rgba(255, 255, 255, 0.96)", color: staffingWorkspacePalette.textStrong, border: `1px solid ${staffingWorkspacePalette.border}` }}
                         />
                       </label>
                       <label style={{ display: "grid", gap: "6px" }}>
-                        <span style={{ ...statLabel, color: "#89b7c4" }}>Gender fit</span>
+                        <span style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Gender fit</span>
                         <select
                           value={pollMatchGenderFilter}
                           onChange={(event) => setPollMatchGenderFilter(event.target.value)}
-                          style={{ ...selectStyle, width: "100%", background: "rgba(10, 20, 32, 0.9)", color: "#f4fbff", border: "1px solid rgba(148, 163, 184, 0.18)" }}
+                          style={{ ...selectStyle, width: "100%", background: "rgba(255, 255, 255, 0.96)", color: staffingWorkspacePalette.textStrong, border: `1px solid ${staffingWorkspacePalette.border}` }}
                         >
                           <option value="any">Any</option>
                           {uniquePollGenderOptions.map((option) => (
@@ -6206,11 +6408,11 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                         </select>
                       </label>
                       <label style={{ display: "grid", gap: "6px" }}>
-                        <span style={{ ...statLabel, color: "#89b7c4" }}>Race / ethnicity fit</span>
+                        <span style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Race / ethnicity fit</span>
                         <select
                           value={pollMatchRaceFilter}
                           onChange={(event) => setPollMatchRaceFilter(event.target.value)}
-                          style={{ ...selectStyle, width: "100%", background: "rgba(10, 20, 32, 0.9)", color: "#f4fbff", border: "1px solid rgba(148, 163, 184, 0.18)" }}
+                          style={{ ...selectStyle, width: "100%", background: "rgba(255, 255, 255, 0.96)", color: staffingWorkspacePalette.textStrong, border: `1px solid ${staffingWorkspacePalette.border}` }}
                         >
                           <option value="any">Any</option>
                           {uniquePollRaceOptions.map((option) => (
@@ -6221,11 +6423,11 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                         </select>
                       </label>
                       <label style={{ display: "grid", gap: "6px" }}>
-                        <span style={{ ...statLabel, color: "#89b7c4" }}>Sort</span>
+                        <span style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Sort</span>
                         <select
                           value={pollMatchSort}
                           onChange={(event) => setPollMatchSort(event.target.value as PollMatchSort)}
-                          style={{ ...selectStyle, width: "100%", background: "rgba(10, 20, 32, 0.9)", color: "#f4fbff", border: "1px solid rgba(148, 163, 184, 0.18)" }}
+                          style={{ ...selectStyle, width: "100%", background: "rgba(255, 255, 255, 0.96)", color: staffingWorkspacePalette.textStrong, border: `1px solid ${staffingWorkspacePalette.border}` }}
                         >
                           <option value="best_match">Best match</option>
                           <option value="name">Name A-Z</option>
@@ -6254,9 +6456,9 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                           style={{
                             ...staffingSecondaryButtonStyle,
                             padding: "8px 12px",
-                            background: filter.active ? "rgba(125, 211, 252, 0.24)" : "rgba(148, 163, 184, 0.08)",
-                            color: filter.active ? "#f4fbff" : "#d8eef5",
-                            border: filter.active ? "1px solid rgba(125, 211, 252, 0.3)" : "1px solid rgba(148, 163, 184, 0.18)",
+                            background: filter.active ? "rgba(186, 230, 253, 0.28)" : staffingWorkspacePalette.buttonBg,
+                            color: filter.active ? staffingWorkspacePalette.textStrong : staffingWorkspacePalette.textMuted,
+                            border: filter.active ? "1px solid rgba(99, 181, 217, 0.28)" : `1px solid ${staffingWorkspacePalette.buttonBorder}`,
                           }}
                         >
                           {filter.label}
@@ -6346,14 +6548,14 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                                 />
                               </label>
                               <div style={{ minWidth: 0 }}>
-                                <div style={{ color: "#f4fbff", fontWeight: 900 }}>{getFullName(entry.sp)}</div>
-                                <div style={{ marginTop: "4px", color: "#9cc7d3", fontWeight: 700, fontSize: "12px" }}>
+                                <div style={{ color: staffingWorkspacePalette.textStrong, fontWeight: 900 }}>{getFullName(entry.sp)}</div>
+                                <div style={{ marginTop: "4px", color: staffingWorkspacePalette.textMuted, fontWeight: 700, fontSize: "12px" }}>
                                   {entry.email || "No email on file"}
                                 </div>
                               </div>
                               <div style={{ textAlign: "right" }}>
-                                <div style={{ color: "#f4fbff", fontWeight: 900 }}>{entry.matchLabel}</div>
-                                <div style={{ marginTop: "4px", color: "#9cc7d3", fontSize: "12px", fontWeight: 700 }}>
+                                <div style={{ color: staffingWorkspacePalette.textStrong, fontWeight: 900 }}>{entry.matchLabel}</div>
+                                <div style={{ marginTop: "4px", color: staffingWorkspacePalette.textMuted, fontSize: "12px", fontWeight: 700 }}>
                                   Score {entry.matchScore}
                                 </div>
                               </div>
@@ -6371,9 +6573,9 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                                     padding: "4px 8px",
                                     fontSize: "11px",
                                     fontWeight: 900,
-                                    background: "rgba(125, 211, 252, 0.12)",
-                                    border: "1px solid rgba(125, 211, 252, 0.18)",
-                                    color: "#bae6fd",
+                                    background: staffingWorkspacePalette.chip,
+                                    border: `1px solid ${staffingWorkspacePalette.chipBorder}`,
+                                    color: staffingWorkspacePalette.chipText,
                                   }}
                                 >
                                   {chip}
@@ -6449,10 +6651,10 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                         gap: "10px",
                       }}
                     >
-                      <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: "#89b7c4" }}>Available</div><div style={{ ...statValue, color: "#a7f3d0" }}>{pollResponseSummary.availableCount}</div></div>
-                      <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: "#89b7c4" }}>Maybe</div><div style={{ ...statValue, color: "#fde68a" }}>{pollResponseSummary.maybeCount}</div></div>
-                      <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: "#89b7c4" }}>Not Available</div><div style={{ ...statValue, color: "#fecaca" }}>{pollResponseSummary.notAvailableCount}</div></div>
-                      <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: "#89b7c4" }}>No Response</div><div style={{ ...statValue, color: "#cbd5e1" }}>{pollResponseSummary.noResponseCount}</div></div>
+                      <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Available</div><div style={{ ...statValue, color: "#0f766e" }}>{pollResponseSummary.availableCount}</div></div>
+                      <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Maybe</div><div style={{ ...statValue, color: "#b45309" }}>{pollResponseSummary.maybeCount}</div></div>
+                      <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Not Available</div><div style={{ ...statValue, color: "#b91c1c" }}>{pollResponseSummary.notAvailableCount}</div></div>
+                      <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>No Response</div><div style={{ ...statValue, color: staffingWorkspacePalette.textMuted }}>{pollResponseSummary.noResponseCount}</div></div>
                     </div>
 
                     <div style={{ display: "grid", gap: "8px" }}>
@@ -6463,8 +6665,8 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                             style={{ ...staffingRowCardStyle, display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}
                           >
                             <div>
-                              <div style={{ color: "#f4fbff", fontWeight: 900 }}>{getFullName(entry.sp)}</div>
-                              <div style={{ marginTop: "4px", color: "#9cc7d3", fontSize: "12px", fontWeight: 700 }}>
+                              <div style={{ color: staffingWorkspacePalette.textStrong, fontWeight: 900 }}>{getFullName(entry.sp)}</div>
+                              <div style={{ marginTop: "4px", color: staffingWorkspacePalette.textMuted, fontSize: "12px", fontWeight: 700 }}>
                                 {entry.sp.working_email || entry.sp.email || "No email on file"}
                               </div>
                             </div>
@@ -6524,8 +6726,8 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                     <div
                       style={{
                         borderRadius: "14px",
-                      border: "1px dashed rgba(126, 231, 219, 0.24)",
-                      background: "rgba(126, 231, 219, 0.08)",
+                      border: `1px dashed ${staffingWorkspacePalette.borderStrong}`,
+                      background: "rgba(230, 245, 249, 0.82)",
                       padding: "14px",
                       display: "flex",
                       justifyContent: "space-between",
@@ -6535,10 +6737,10 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                     }}
                   >
                     <div>
-                      <div style={{ color: "#f4fbff", fontWeight: 900 }}>
+                      <div style={{ color: staffingWorkspacePalette.textStrong, fontWeight: 900 }}>
                         Use Match Maker to find SPs to poll or rank poll responders.
                       </div>
-                      <div style={{ marginTop: "4px", color: "#9cc7d3", fontWeight: 700, fontSize: "13px" }}>
+                      <div style={{ marginTop: "4px", color: staffingWorkspacePalette.textMuted, fontWeight: 700, fontSize: "13px" }}>
                         Keep it optional until you want deterministic staffing suggestions.
                       </div>
                     </div>
@@ -6597,12 +6799,12 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                           style={{
                             ...buttonStyle,
                             padding: "8px 12px",
-                            background: suggestedAssignmentFilter === filter.value ? "rgba(125, 211, 252, 0.24)" : "rgba(148, 163, 184, 0.08)",
-                            color: suggestedAssignmentFilter === filter.value ? "#f4fbff" : "#d8eef5",
+                            background: suggestedAssignmentFilter === filter.value ? "rgba(186, 230, 253, 0.28)" : staffingWorkspacePalette.buttonBg,
+                            color: suggestedAssignmentFilter === filter.value ? staffingWorkspacePalette.textStrong : staffingWorkspacePalette.textMuted,
                             border:
                               suggestedAssignmentFilter === filter.value
-                                ? "1px solid rgba(125, 211, 252, 0.3)"
-                                : "1px solid rgba(148, 163, 184, 0.18)",
+                                ? "1px solid rgba(99, 181, 217, 0.28)"
+                                : `1px solid ${staffingWorkspacePalette.buttonBorder}`,
                           }}
                         >
                           {filter.label}
@@ -6635,12 +6837,12 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                                 alignItems: "center",
                                 borderRadius: "14px",
                                 padding: "10px 12px",
-                                background: "linear-gradient(180deg, rgba(22, 37, 54, 0.92) 0%, rgba(17, 30, 45, 0.94) 100%)",
-                                border: "1px solid rgba(126, 231, 219, 0.1)",
+                                background: staffingWorkspacePalette.row,
+                                border: `1px solid ${staffingWorkspacePalette.border}`,
                               }}
                             >
                               <div style={{ minWidth: 0 }}>
-                                <div style={{ color: "#f4fbff", fontWeight: 900 }}>{getFullName(entry.sp)}</div>
+                                <div style={{ color: staffingWorkspacePalette.textStrong, fontWeight: 900 }}>{getFullName(entry.sp)}</div>
                                 <div style={{ marginTop: "4px", display: "flex", gap: "6px", flexWrap: "wrap" }}>
                                   <span style={{ ...responseTone, borderRadius: "999px", padding: "5px 8px", fontSize: "11px", fontWeight: 900 }}>
                                     {entry.pollResponseStatus === "not_available"
@@ -6687,7 +6889,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                                   {assigningSpId === entry.sp.id ? "Assigning..." : "Assign"}
                                 </button>
                               ) : (
-                                <span style={{ color: "#9cc7d3", fontWeight: 800, fontSize: "12px" }}>
+                                <span style={{ color: staffingWorkspacePalette.textMuted, fontWeight: 800, fontSize: "12px" }}>
                                   {entry.isAssigned ? "Assigned" : "Do not assign"}
                                 </span>
                               )}
