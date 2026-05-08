@@ -124,6 +124,7 @@ type ContactMethod = "call" | "text" | "email";
 type AssignmentFilterStatus = "all" | "invited" | "confirmed" | "declined";
 type SuggestedAssignmentFilter = "all" | "available" | "confirmed" | "needs_outreach" | "backup";
 type PollLocationFilter = "any" | "elkins_park" | "center_city" | "virtual";
+type CommandCenterMode = "planning" | "live";
 
 type AvailabilityMatchStatus =
   | "available"
@@ -984,6 +985,28 @@ function formatAttendanceTimestamp(value?: string | null) {
   });
 }
 
+function formatMinutesAsClockLabel(totalMinutes: number) {
+  const normalized = ((Math.floor(totalMinutes) % 1440) + 1440) % 1440;
+  const hours = Math.floor(normalized / 60);
+  const minutes = normalized % 60;
+  const suffix = hours >= 12 ? "PM" : "AM";
+  const displayHour = hours % 12 || 12;
+  return `${displayHour}:${String(minutes).padStart(2, "0")} ${suffix}`;
+}
+
+function formatMinuteRange(startMinutes: number, endMinutes: number) {
+  return `${formatMinutesAsClockLabel(startMinutes)} - ${formatMinutesAsClockLabel(endMinutes)}`;
+}
+
+function formatRemainingMinutes(totalMinutes: number) {
+  if (totalMinutes <= 0) return "0m";
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours > 0 && minutes > 0) return `${hours}h ${minutes}m`;
+  if (hours > 0) return `${hours}h`;
+  return `${minutes}m`;
+}
+
 function formatUploadedTimestamp(value?: string | null) {
   if (!value) return "Not uploaded";
   const parsed = new Date(value);
@@ -1470,6 +1493,10 @@ export default function EventDetailPage() {
   const [showEmailDraft, setShowEmailDraft] = useState(false);
   const [assignmentFilter, setAssignmentFilter] = useState<AssignmentFilterStatus>("all");
   const [suggestedAssignmentFilter, setSuggestedAssignmentFilter] = useState<SuggestedAssignmentFilter>("all");
+  const [commandCenterMode, setCommandCenterMode] = useState<CommandCenterMode>("planning");
+  const [liveDelayMinutes, setLiveDelayMinutes] = useState(0);
+  const [livePausedAtMs, setLivePausedAtMs] = useState<number | null>(null);
+  const [liveNowMs, setLiveNowMs] = useState(() => Date.now());
   const [pollMatchLocationFilter, setPollMatchLocationFilter] = useState<PollLocationFilter>("any");
   const [pollMatchActiveOnly, setPollMatchActiveOnly] = useState(true);
   const [pollMatchEmailReadyOnly, setPollMatchEmailReadyOnly] = useState(true);
@@ -1618,6 +1645,7 @@ export default function EventDetailPage() {
     viewerRole === "admin" || viewerRole === "sim_op" || viewerRole === "super_admin";
   const canManageAvailabilityPoll = canManageTrainingAttendance;
   const canManageSpMatchMaker = canManageTrainingAttendance;
+  const canRunLiveEventMode = canManageTrainingAttendance;
   const canDeleteEvent = viewerRole === "admin" || viewerRole === "super_admin";
 
   const assignmentsBySpId = useMemo(() => {
@@ -1979,6 +2007,129 @@ const summaryTimeLabel = useMemo(() => {
 
   return "See rotation rounds below";
 }, [rotationRounds]);
+  const liveEventAnchorDateIso = useMemo(() => {
+    if (!rotationRounds.length) return "";
+    const todayIso = new Date().toISOString().slice(0, 10);
+    const matchingToday = rotationRounds.find(
+      (round) => normalizeLooseDateToIso(round.session_date, importedYearHint) === todayIso
+    );
+    if (matchingToday) {
+      return normalizeLooseDateToIso(matchingToday.session_date, importedYearHint) || "";
+    }
+    return normalizeLooseDateToIso(rotationRounds[0]?.session_date, importedYearHint) || "";
+  }, [importedYearHint, rotationRounds]);
+  const liveFlowBlocks = useMemo(() => {
+    if (!rotationRounds.length) return [] as Array<{
+      key: string;
+      label: string;
+      detail: string;
+      startMinutes: number;
+      endMinutes: number;
+      tone: "rotation" | "transition" | "break" | "support";
+      roundNumber: number | null;
+      rooms: string[];
+    }>;
+
+    const notesText = [event?.notes, eventEditor.notes].map(asText).join(" ").toLowerCase();
+    const eventDayRounds = rotationRounds.filter((round) => {
+      const iso = normalizeLooseDateToIso(round.session_date, importedYearHint);
+      return liveEventAnchorDateIso ? iso === liveEventAnchorDateIso : true;
+    });
+    const blocks: Array<{
+      key: string;
+      label: string;
+      detail: string;
+      startMinutes: number;
+      endMinutes: number;
+      tone: "rotation" | "transition" | "break" | "support";
+      roundNumber: number | null;
+      rooms: string[];
+    }> = [];
+
+    eventDayRounds.forEach((round, index) => {
+      const startMinutes = parseTimeToMinutes(round.start_time);
+      const endMinutes = parseTimeToMinutes(round.end_time);
+      if (startMinutes === null || endMinutes === null || endMinutes <= startMinutes) return;
+
+      blocks.push({
+        key: `${round.key}-rotation`,
+        label: `Rotation ${index + 1}`,
+        detail: `${round.rooms.length} room${round.rooms.length === 1 ? "" : "s"} in use`,
+        startMinutes,
+        endMinutes,
+        tone: "rotation",
+        roundNumber: index + 1,
+        rooms: round.rooms,
+      });
+
+      const nextRound = eventDayRounds[index + 1];
+      const nextStartMinutes = parseTimeToMinutes(nextRound?.start_time);
+      if (typeof nextStartMinutes === "number" && nextStartMinutes > endMinutes) {
+        const gapMinutes = nextStartMinutes - endMinutes;
+        const blockLabel =
+          gapMinutes >= 40
+            ? "Lunch"
+            : /soap/i.test(notesText) && gapMinutes >= 10
+              ? "SOAP Notes"
+              : /checklist/i.test(notesText) && gapMinutes >= 5
+                ? "Checklist"
+                : gapMinutes >= 15
+                  ? "Break"
+                  : "Transition";
+        blocks.push({
+          key: `${round.key}-gap`,
+          label: blockLabel,
+          detail: `${gapMinutes} minutes`,
+          startMinutes: endMinutes,
+          endMinutes: nextStartMinutes,
+          tone:
+            blockLabel === "Transition"
+              ? "transition"
+              : blockLabel === "Break" || blockLabel === "Lunch"
+                ? "break"
+                : "support",
+          roundNumber: null,
+          rooms: [],
+        });
+      }
+    });
+
+    return blocks;
+  }, [event?.notes, eventEditor.notes, importedYearHint, liveEventAnchorDateIso, rotationRounds]);
+  const simulatedLiveMinutes = useMemo(() => {
+    const baseMs = livePausedAtMs ?? liveNowMs;
+    const simulated = new Date(baseMs - liveDelayMinutes * 60 * 1000);
+    return simulated.getHours() * 60 + simulated.getMinutes();
+  }, [liveDelayMinutes, liveNowMs, livePausedAtMs]);
+  const currentLiveBlockIndex = liveFlowBlocks.findIndex(
+    (block) =>
+      simulatedLiveMinutes >= block.startMinutes && simulatedLiveMinutes < block.endMinutes
+  );
+  const currentLiveBlock =
+    currentLiveBlockIndex >= 0
+      ? liveFlowBlocks[currentLiveBlockIndex]
+      : null;
+  const nextLiveBlock =
+    currentLiveBlockIndex >= 0
+      ? liveFlowBlocks[currentLiveBlockIndex + 1] || null
+      : liveFlowBlocks.find((block) => block.startMinutes > simulatedLiveMinutes) || null;
+  const currentRotationRoundNumber =
+    currentLiveBlock?.tone === "rotation" ? currentLiveBlock.roundNumber : null;
+  const currentLiveAssignmentRows = useMemo(() => {
+    if (!currentLiveBlock?.rooms.length) return [] as Array<{
+      assignment: AssignmentRow;
+      sp: SPRow;
+      roomName: string;
+    }>;
+    return currentLiveBlock.rooms
+      .map((roomName, index) => {
+        const assignment = sortedAssignments[index];
+        const sp = assignment?.sp_id ? spsById.get(assignment.sp_id) : undefined;
+        if (!assignment || !sp) return null;
+        return { assignment, sp, roomName };
+      })
+      .filter(Boolean) as Array<{ assignment: AssignmentRow; sp: SPRow; roomName: string }>;
+  }, [currentLiveBlock, sortedAssignments, spsById]);
   const assignedEmailSources = useMemo(() => {
     return assignments
       .map((assignment) => {
@@ -2341,6 +2492,97 @@ const summaryTimeLabel = useMemo(() => {
       : coverageRiskTone === "yellow"
         ? `Short by ${coverageGap}`
         : `Understaffed by ${coverageGap}`;
+  const firstLiveRotationStartMinutes = liveFlowBlocks.find((block) => block.tone === "rotation")?.startMinutes ?? null;
+  const checkedInAssignedCount = attendedCount;
+  const missingAssignedCount = useMemo(
+    () =>
+      sortedAssignments.filter(
+        (assignment) =>
+          getAssignmentStatus(assignment) !== "declined" &&
+          getAssignmentStatus(assignment) !== "no_show" &&
+          assignment.training_attended !== true
+      ).length,
+    [sortedAssignments]
+  );
+  const lateAssignedCount = useMemo(() => {
+    if (firstLiveRotationStartMinutes === null || simulatedLiveMinutes <= firstLiveRotationStartMinutes) {
+      return 0;
+    }
+    return sortedAssignments.filter((assignment) => {
+      const status = getAssignmentStatus(assignment);
+      return status !== "declined" && status !== "no_show" && assignment.training_attended !== true;
+    }).length;
+  }, [firstLiveRotationStartMinutes, simulatedLiveMinutes, sortedAssignments]);
+  const noShowAssignedCount = useMemo(() => {
+    if (firstLiveRotationStartMinutes === null || simulatedLiveMinutes < firstLiveRotationStartMinutes + 15) {
+      return 0;
+    }
+    return sortedAssignments.filter(
+      (assignment) =>
+        getAssignmentStatus(assignment) !== "declined" &&
+        getAssignmentStatus(assignment) !== "no_show" &&
+        assignment.training_attended !== true
+    ).length;
+  }, [firstLiveRotationStartMinutes, simulatedLiveMinutes, sortedAssignments]);
+  const backupAvailableCount =
+    sortedAssignments.filter((assignment) => getAssignmentStatus(assignment) === "backup").length +
+    maybePollResponders.filter((entry) => !entry.isAssigned).length;
+  const liveStaffingHealthTone =
+    shortageCount <= 0 && missingAssignedCount === 0
+      ? "green"
+      : shortageCount <= 0 && backupAvailableCount > 0
+        ? "yellow"
+        : "red";
+  const activeCoverageRiskRooms = useMemo(() => {
+    if (!currentLiveBlock?.rooms?.length) return [] as string[];
+    return currentLiveBlock.rooms.filter((roomName, index) => {
+      const assignment = sortedAssignments[index];
+      const status = assignment ? getAssignmentStatus(assignment) : null;
+      return !assignment || status === "backup" || status === "declined" || status === "no_show";
+    });
+  }, [currentLiveBlock, sortedAssignments]);
+  const liveAlerts = useMemo(() => {
+    const alerts: Array<{ tone: "info" | "warning" | "danger"; message: string }> = [];
+    if (nextLiveBlock) {
+      const minutesUntil = nextLiveBlock.startMinutes - simulatedLiveMinutes;
+      if (minutesUntil >= 0 && minutesUntil <= 5) {
+        alerts.push({
+          tone: nextLiveBlock.tone === "rotation" ? "warning" : "info",
+          message: `${nextLiveBlock.label}${nextLiveBlock.roundNumber ? ` ${nextLiveBlock.roundNumber}` : ""} begins in ${minutesUntil} minute${minutesUntil === 1 ? "" : "s"}.`,
+        });
+      }
+    }
+    if (missingAssignedCount > 0) {
+      alerts.push({
+        tone: noShowAssignedCount > 0 ? "danger" : "warning",
+        message:
+          noShowAssignedCount > 0
+            ? `${noShowAssignedCount} SP${noShowAssignedCount === 1 ? "" : "s"} now read as no-show.`
+            : `${missingAssignedCount} SP${missingAssignedCount === 1 ? "" : "s"} not checked in yet.`,
+      });
+    }
+    if (activeCoverageRiskRooms.length > 0) {
+      alerts.push({
+        tone: "danger",
+        message: `Coverage risk in ${activeCoverageRiskRooms.join(", ")}.`,
+      });
+    }
+    if (shortageCount > 0) {
+      alerts.push({
+        tone: liveStaffingHealthTone === "yellow" ? "warning" : "danger",
+        message: `Staffing still short by ${shortageCount}.`,
+      });
+    }
+    return alerts.slice(0, 4);
+  }, [
+    activeCoverageRiskRooms,
+    liveStaffingHealthTone,
+    missingAssignedCount,
+    nextLiveBlock,
+    noShowAssignedCount,
+    shortageCount,
+    simulatedLiveMinutes,
+  ]);
   const needsOutreachCount = useMemo(
     () =>
       pollResponderEntries.filter(
@@ -3758,6 +4000,42 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
     };
   }, []);
 
+  useEffect(() => {
+    if (!canRunLiveEventMode || commandCenterMode !== "live") return;
+    const interval = window.setInterval(() => {
+      setLiveNowMs(Date.now());
+    }, 1000);
+    return () => window.clearInterval(interval);
+  }, [canRunLiveEventMode, commandCenterMode]);
+
+  function handlePauseLiveSchedule() {
+    if (livePausedAtMs !== null) return;
+    setLivePausedAtMs(Date.now());
+    showSuccessMessage("Live schedule paused.");
+  }
+
+  function handleResumeLiveSchedule() {
+    if (livePausedAtMs === null) return;
+    const pauseDurationMinutes = Math.max(0, Math.round((Date.now() - livePausedAtMs) / 60000));
+    setLiveDelayMinutes((current) => current + pauseDurationMinutes);
+    setLivePausedAtMs(null);
+    showSuccessMessage(
+      pauseDurationMinutes > 0
+        ? `Event resumed with ${pauseDurationMinutes} minute${pauseDurationMinutes === 1 ? "" : "s"} of delay.`
+        : "Live event resumed."
+    );
+  }
+
+  function handleAddLiveDelay(minutes = 5) {
+    setLiveDelayMinutes((current) => current + minutes);
+    showSuccessMessage(`Added ${minutes} minute${minutes === 1 ? "" : "s"} of operational delay.`);
+  }
+
+  function handleReplaceSpFromLiveMode() {
+    setShowCandidatePool(true);
+    showSuccessMessage("Candidate SP pool opened for replacement.");
+  }
+
   async function handleAddAssignment(spId = selectedSpId) {
     if (!id || !spId) return;
 
@@ -4111,6 +4389,487 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
     setSuggestedAssignmentFilter("all");
     showSuccessMessage("Suggested assignments reset.");
   }
+
+  const liveCommandCenterPanel =
+    canRunLiveEventMode && commandCenterMode === "live" ? (
+      <section
+        style={{
+          marginTop: "14px",
+          border: "1px solid rgba(94, 234, 212, 0.32)",
+          borderRadius: "22px",
+          padding: "16px",
+          background:
+            "linear-gradient(180deg, rgba(5, 18, 31, 0.98) 0%, rgba(11, 33, 48, 0.98) 52%, rgba(10, 25, 39, 0.98) 100%)",
+          boxShadow: "0 24px 48px rgba(4, 12, 24, 0.34)",
+          display: "grid",
+          gap: "14px",
+          overflow: "hidden",
+          position: "relative",
+        }}
+      >
+        <div
+          aria-hidden="true"
+          style={{
+            position: "absolute",
+            inset: 0,
+            background:
+              "linear-gradient(rgba(126, 231, 219, 0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(126, 231, 219, 0.05) 1px, transparent 1px)",
+            backgroundSize: "22px 22px",
+            pointerEvents: "none",
+            opacity: 0.35,
+          }}
+        />
+
+        <div style={{ position: "relative", display: "grid", gap: "14px" }}>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              gap: "12px",
+              alignItems: "center",
+              flexWrap: "wrap",
+            }}
+          >
+            <div>
+              <div style={{ ...statLabel, color: "#7ee7db" }}>Live Event Mode</div>
+              <div style={{ marginTop: "4px", color: "#f4fbff", fontSize: "24px", fontWeight: 900 }}>
+                Event Command Station
+              </div>
+              <div style={{ marginTop: "6px", color: "#9ed9d1", fontSize: "13px", fontWeight: 700 }}>
+                Run staffing, timing, and rotation flow from one operational view.
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+              <span
+                style={{
+                  borderRadius: "999px",
+                  padding: "7px 12px",
+                  background:
+                    livePausedAtMs !== null
+                      ? "rgba(243, 187, 103, 0.14)"
+                      : "rgba(44, 211, 173, 0.14)",
+                  border:
+                    livePausedAtMs !== null
+                      ? "1px solid rgba(243, 187, 103, 0.28)"
+                      : "1px solid rgba(44, 211, 173, 0.26)",
+                  color: livePausedAtMs !== null ? "var(--cfsp-warning)" : "var(--cfsp-green)",
+                  fontWeight: 900,
+                  fontSize: "12px",
+                }}
+              >
+                {livePausedAtMs !== null ? "Paused" : "Go Live"}
+              </span>
+              {liveDelayMinutes > 0 ? (
+                <span style={{ ...commandChipStyle, background: "rgba(73, 168, 255, 0.12)", color: "#7dd3fc" }}>
+                  Delay +{liveDelayMinutes}m
+                </span>
+              ) : null}
+            </div>
+          </div>
+
+          <div
+            style={{
+              display: "grid",
+              gap: "10px",
+              gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+            }}
+          >
+            {[
+              {
+                label: "Current Rotation",
+                value:
+                  currentRotationRoundNumber !== null
+                    ? `Round ${currentRotationRoundNumber}`
+                    : currentLiveBlock?.label || "Stand by",
+                tone: "#f4fbff",
+              },
+              {
+                label: "Checked-in SPs",
+                value: `${checkedInAssignedCount}/${sortedAssignments.length || 0}`,
+                tone: "var(--cfsp-green)",
+              },
+              {
+                label: "Missing SPs",
+                value: String(missingAssignedCount),
+                tone: missingAssignedCount > 0 ? "var(--cfsp-warning)" : "#d9f99d",
+              },
+              {
+                label: "Backup Available",
+                value: String(backupAvailableCount),
+                tone: backupAvailableCount > 0 ? "#7dd3fc" : "var(--cfsp-text-muted)",
+              },
+              {
+                label: "Coverage Health",
+                value:
+                  liveStaffingHealthTone === "green"
+                    ? "Covered"
+                    : liveStaffingHealthTone === "yellow"
+                      ? "At risk"
+                      : "Understaffed",
+                tone:
+                  liveStaffingHealthTone === "green"
+                    ? "var(--cfsp-green)"
+                    : liveStaffingHealthTone === "yellow"
+                      ? "var(--cfsp-warning)"
+                      : "var(--cfsp-danger)",
+              },
+              {
+                label: "Live Clock",
+                value: formatMinutesAsClockLabel(simulatedLiveMinutes),
+                tone: "#f4fbff",
+              },
+            ].map((item) => (
+              <div
+                key={item.label}
+                style={{
+                  borderRadius: "16px",
+                  border: "1px solid rgba(126, 231, 219, 0.18)",
+                  background: "rgba(11, 24, 38, 0.88)",
+                  padding: "12px 14px",
+                  display: "grid",
+                  gap: "6px",
+                }}
+              >
+                <div style={{ ...statLabel, color: "#89b7c4" }}>{item.label}</div>
+                <div style={{ color: item.tone, fontSize: "20px", fontWeight: 900 }}>{item.value}</div>
+              </div>
+            ))}
+          </div>
+
+          <div
+            style={{
+              display: "grid",
+              gap: "14px",
+              gridTemplateColumns: "minmax(0, 1.5fr) minmax(280px, 1fr)",
+            }}
+          >
+            <section
+              style={{
+                borderRadius: "18px",
+                border: "1px solid rgba(73, 168, 255, 0.22)",
+                background: "rgba(9, 20, 33, 0.94)",
+                padding: "14px",
+                display: "grid",
+                gap: "12px",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap" }}>
+                <div>
+                  <div style={{ ...statLabel, color: "#7ee7db" }}>Current Rotation</div>
+                  <div style={{ marginTop: "4px", color: "#f4fbff", fontSize: "20px", fontWeight: 900 }}>
+                    {currentLiveBlock?.label || "Awaiting first live block"}
+                  </div>
+                  <div style={{ marginTop: "4px", color: "#b8d7e3", fontWeight: 700 }}>
+                    {currentLiveBlock
+                      ? formatMinuteRange(currentLiveBlock.startMinutes, currentLiveBlock.endMinutes)
+                      : summaryTimeLabel}
+                  </div>
+                </div>
+                <div style={{ textAlign: "right" }}>
+                  <div style={{ ...statLabel, color: "#89b7c4" }}>Time Remaining</div>
+                  <div style={{ marginTop: "4px", color: "#f4fbff", fontSize: "24px", fontWeight: 900 }}>
+                    {currentLiveBlock
+                      ? formatRemainingMinutes(
+                          Math.max(currentLiveBlock.endMinutes - simulatedLiveMinutes, 0)
+                        )
+                      : liveFlowBlocks[0]
+                        ? `${Math.max(liveFlowBlocks[0].startMinutes - simulatedLiveMinutes, 0)}m to start`
+                        : "Timeline TBD"}
+                  </div>
+                  {nextLiveBlock ? (
+                    <div style={{ marginTop: "4px", color: "#9ed9d1", fontSize: "13px", fontWeight: 700 }}>
+                      Next: {nextLiveBlock.label} · {formatMinuteRange(nextLiveBlock.startMinutes, nextLiveBlock.endMinutes)}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+
+              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                <span style={commandChipStyle}>
+                  {currentLiveBlock?.rooms.length || 0} room{currentLiveBlock?.rooms.length === 1 ? "" : "s"} in use
+                </span>
+                <span style={commandChipStyle}>{checkedInAssignedCount} checked in</span>
+                {lateAssignedCount > 0 ? (
+                  <span style={{ ...commandChipStyle, background: "rgba(243, 187, 103, 0.14)", color: "var(--cfsp-warning)" }}>
+                    {lateAssignedCount} late
+                  </span>
+                ) : null}
+                {noShowAssignedCount > 0 ? (
+                  <span style={{ ...commandChipStyle, background: "rgba(248, 113, 113, 0.14)", color: "var(--cfsp-danger)" }}>
+                    {noShowAssignedCount} no-show
+                  </span>
+                ) : null}
+              </div>
+
+              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                {livePausedAtMs === null ? (
+                  <button type="button" onClick={handlePauseLiveSchedule} style={{ ...buttonStyle, padding: "8px 12px" }}>
+                    Pause schedule
+                  </button>
+                ) : (
+                  <button type="button" onClick={handleResumeLiveSchedule} style={{ ...buttonStyle, padding: "8px 12px" }}>
+                    Resume event
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => handleAddLiveDelay(5)}
+                  style={{
+                    ...buttonStyle,
+                    padding: "8px 12px",
+                    background: "var(--cfsp-button-secondary-bg)",
+                    color: "var(--cfsp-button-secondary-text)",
+                    border: "1px solid var(--cfsp-button-secondary-border)",
+                  }}
+                >
+                  Add delay
+                </button>
+              </div>
+
+              <div style={{ display: "grid", gap: "8px" }}>
+                {currentLiveAssignmentRows.length === 0 ? (
+                  <div style={{ color: "#9bb4c0", fontWeight: 700 }}>
+                    No active rotation assignments mapped yet. Use the schedule and staffing tools below to complete the live board.
+                  </div>
+                ) : (
+                  currentLiveAssignmentRows.map(({ assignment, sp, roomName }) => {
+                    const checkedAt = formatAttendanceTimestamp(assignment.training_checked_in_at);
+                    const status = getAssignmentStatus(assignment);
+                    const isMissing = assignment.training_attended !== true && status !== "declined" && status !== "no_show";
+                    const isLate =
+                      firstLiveRotationStartMinutes !== null &&
+                      simulatedLiveMinutes > firstLiveRotationStartMinutes &&
+                      isMissing;
+                    const isNoShow =
+                      firstLiveRotationStartMinutes !== null &&
+                      simulatedLiveMinutes >= firstLiveRotationStartMinutes + 15 &&
+                      isMissing;
+                    return (
+                      <div
+                        key={`live-assignment-${assignment.id}`}
+                        style={{
+                          borderRadius: "14px",
+                          border: isNoShow
+                            ? "1px solid rgba(248, 113, 113, 0.34)"
+                            : isLate
+                              ? "1px solid rgba(243, 187, 103, 0.3)"
+                              : "1px solid rgba(126, 231, 219, 0.18)",
+                          background: "rgba(13, 27, 42, 0.92)",
+                          padding: "10px 12px",
+                          display: "grid",
+                          gap: "8px",
+                        }}
+                      >
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap" }}>
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ color: "#f4fbff", fontWeight: 900 }}>{roomName || "Room TBD"}</div>
+                            <div style={{ marginTop: "4px", color: "#d6edf4", fontWeight: 800 }}>
+                              {getFullName(sp)}
+                            </div>
+                            <div style={{ marginTop: "4px", color: "#89b7c4", fontSize: "13px", fontWeight: 700 }}>
+                              {[getEmail(sp), sp.phone].filter(Boolean).join(" · ") || "No contact info"}
+                            </div>
+                          </div>
+                          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                            <span
+                              style={{
+                                ...assignmentStatusStyles[status],
+                                borderRadius: "999px",
+                                padding: "5px 9px",
+                                fontSize: "11px",
+                                fontWeight: 900,
+                              }}
+                            >
+                              {assignmentStatusLabels[status]}
+                            </span>
+                            {assignment.training_attended ? (
+                              <span style={{ ...commandChipStyle, background: "var(--cfsp-green-soft)", color: "var(--cfsp-green)" }}>
+                                Arrived {checkedAt || "checked in"}
+                              </span>
+                            ) : isNoShow ? (
+                              <span style={{ ...commandChipStyle, background: "rgba(248, 113, 113, 0.14)", color: "var(--cfsp-danger)" }}>
+                                No-show risk
+                              </span>
+                            ) : isLate ? (
+                              <span style={{ ...commandChipStyle, background: "rgba(243, 187, 103, 0.14)", color: "var(--cfsp-warning)" }}>
+                                Late
+                              </span>
+                            ) : null}
+                          </div>
+                        </div>
+
+                        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                          <button
+                            type="button"
+                            onClick={() => void handleTrainingAttendanceToggle(assignment, true)}
+                            disabled={attendanceSaving || trainingAttendanceFieldsMissing || assignment.training_attended === true}
+                            style={{ ...buttonStyle, padding: "7px 11px", opacity: attendanceSaving || trainingAttendanceFieldsMissing || assignment.training_attended === true ? 0.65 : 1 }}
+                          >
+                            Mark SP arrived
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void handleStatusChange(assignment, "no_show")}
+                            disabled={saving}
+                            style={{ ...dangerButtonStyle, padding: "7px 11px", opacity: saving ? 0.65 : 1 }}
+                          >
+                            Mark SP absent
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void handleStatusChange(assignment, "backup")}
+                            disabled={saving}
+                            style={{
+                              ...buttonStyle,
+                              padding: "7px 11px",
+                              background: "var(--cfsp-button-secondary-bg)",
+                              color: "var(--cfsp-button-secondary-text)",
+                              border: "1px solid var(--cfsp-button-secondary-border)",
+                              opacity: saving ? 0.65 : 1,
+                            }}
+                          >
+                            Move SP to backup
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleReplaceSpFromLiveMode}
+                            style={{
+                              ...buttonStyle,
+                              padding: "7px 11px",
+                              background: "rgba(73, 168, 255, 0.12)",
+                              color: "#7dd3fc",
+                              border: "1px solid rgba(73, 168, 255, 0.24)",
+                            }}
+                          >
+                            Replace SP
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </section>
+
+            <section style={{ display: "grid", gap: "12px" }}>
+              <div
+                style={{
+                  borderRadius: "18px",
+                  border: "1px solid rgba(126, 231, 219, 0.18)",
+                  background: "rgba(9, 20, 33, 0.94)",
+                  padding: "14px",
+                  display: "grid",
+                  gap: "10px",
+                }}
+              >
+                <div style={{ ...statLabel, color: "#7ee7db" }}>Operational Alerts</div>
+                {liveAlerts.length === 0 ? (
+                  <div style={{ color: "#9bb4c0", fontWeight: 700 }}>
+                    No live alerts. Timeline and staffing are stable right now.
+                  </div>
+                ) : (
+                  liveAlerts.map((alert, index) => (
+                    <div
+                      key={`${alert.message}-${index}`}
+                      style={{
+                        borderRadius: "12px",
+                        padding: "10px 12px",
+                        border:
+                          alert.tone === "danger"
+                            ? "1px solid rgba(248, 113, 113, 0.28)"
+                            : alert.tone === "warning"
+                              ? "1px solid rgba(243, 187, 103, 0.28)"
+                              : "1px solid rgba(73, 168, 255, 0.24)",
+                        background:
+                          alert.tone === "danger"
+                            ? "rgba(127, 29, 29, 0.2)"
+                            : alert.tone === "warning"
+                              ? "rgba(120, 53, 15, 0.18)"
+                              : "rgba(8, 47, 73, 0.2)",
+                        color:
+                          alert.tone === "danger"
+                            ? "#fecaca"
+                            : alert.tone === "warning"
+                              ? "#fde68a"
+                              : "#bfdbfe",
+                        fontWeight: 800,
+                        lineHeight: 1.45,
+                      }}
+                    >
+                      {alert.message}
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <div
+                style={{
+                  borderRadius: "18px",
+                  border: "1px solid rgba(73, 168, 255, 0.22)",
+                  background: "rgba(9, 20, 33, 0.94)",
+                  padding: "14px",
+                  display: "grid",
+                  gap: "10px",
+                }}
+              >
+                <div style={{ ...statLabel, color: "#7ee7db" }}>Today&apos;s Flow</div>
+                {liveFlowBlocks.length === 0 ? (
+                  <div style={{ color: "#9bb4c0", fontWeight: 700 }}>
+                    Build a schedule to unlock the live flow timeline.
+                  </div>
+                ) : (
+                  liveFlowBlocks.map((block, index) => {
+                    const isCurrent =
+                      currentLiveBlock?.key === block.key ||
+                      (currentLiveBlock === null && index === 0 && simulatedLiveMinutes < block.startMinutes);
+                    const toneColor =
+                      block.tone === "rotation"
+                        ? "#7dd3fc"
+                        : block.tone === "support"
+                          ? "#a7f3d0"
+                          : block.tone === "break"
+                            ? "#fde68a"
+                            : "#c4b5fd";
+                    return (
+                      <div
+                        key={block.key}
+                        style={{
+                          borderRadius: "14px",
+                          padding: "10px 12px",
+                          border: isCurrent
+                            ? "1px solid rgba(126, 231, 219, 0.3)"
+                            : "1px solid rgba(148, 163, 184, 0.16)",
+                          background: isCurrent ? "rgba(16, 44, 59, 0.92)" : "rgba(13, 27, 42, 0.82)",
+                          boxShadow: isCurrent ? "0 0 0 1px rgba(126, 231, 219, 0.12)" : "none",
+                          display: "grid",
+                          gap: "4px",
+                        }}
+                      >
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap" }}>
+                          <div style={{ color: toneColor, fontWeight: 900 }}>
+                            {block.label}
+                            {block.roundNumber ? ` ${block.roundNumber}` : ""}
+                          </div>
+                          {isCurrent ? (
+                            <span style={{ ...commandChipStyle, background: "rgba(126, 231, 219, 0.14)", color: "#7ee7db" }}>
+                              Active now
+                            </span>
+                          ) : null}
+                        </div>
+                        <div style={{ color: "#d6edf4", fontWeight: 700 }}>
+                          {formatMinuteRange(block.startMinutes, block.endMinutes)}
+                        </div>
+                        <div style={{ color: "#89b7c4", fontSize: "13px", fontWeight: 700 }}>{block.detail}</div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </section>
+          </div>
+        </div>
+      </section>
+    ) : null;
 
   const trainingAttendancePanel =
     canManageTrainingAttendance ? (
@@ -4819,6 +5578,90 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
             </div>
           </div>
         ) : null}
+
+        {canRunLiveEventMode ? (
+          <section
+            style={{
+              marginTop: "12px",
+              border: "1px solid rgba(126, 231, 219, 0.22)",
+              borderRadius: "18px",
+              padding: "12px 14px",
+              background: "linear-gradient(180deg, rgba(11, 23, 37, 0.96) 0%, rgba(10, 19, 31, 0.94) 100%)",
+              display: "grid",
+              gap: "12px",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                gap: "12px",
+                flexWrap: "wrap",
+                alignItems: "center",
+              }}
+            >
+              <div>
+                <div style={{ ...statLabel, color: "#7ee7db" }}>Command Center Mode</div>
+                <div style={{ marginTop: "4px", color: "#f4fbff", fontSize: "18px", fontWeight: 900 }}>
+                  {commandCenterMode === "live" ? "Live Event Mode" : "Planning Mode"}
+                </div>
+                <div style={{ marginTop: "4px", color: "#9ed9d1", fontSize: "13px", fontWeight: 700 }}>
+                  Switch between planning workflows and a real-time operations board.
+                </div>
+              </div>
+              <div
+                style={{
+                  display: "inline-flex",
+                  gap: "8px",
+                  flexWrap: "wrap",
+                  padding: "6px",
+                  borderRadius: "999px",
+                  border: "1px solid rgba(126, 231, 219, 0.18)",
+                  background: "rgba(5, 16, 29, 0.82)",
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => setCommandCenterMode("planning")}
+                  style={{
+                    ...buttonStyle,
+                    padding: "8px 12px",
+                    borderRadius: "999px",
+                    background:
+                      commandCenterMode === "planning" ? "var(--cfsp-blue)" : "transparent",
+                    color: commandCenterMode === "planning" ? "#ffffff" : "#c7e8f2",
+                    border:
+                      commandCenterMode === "planning"
+                        ? "1px solid var(--cfsp-blue)"
+                        : "1px solid rgba(148, 163, 184, 0.2)",
+                  }}
+                >
+                  Planning Mode
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCommandCenterMode("live")}
+                  style={{
+                    ...buttonStyle,
+                    padding: "8px 12px",
+                    borderRadius: "999px",
+                    background:
+                      commandCenterMode === "live" ? "rgba(44, 211, 173, 0.18)" : "transparent",
+                    color: commandCenterMode === "live" ? "#7ee7db" : "#c7e8f2",
+                    border:
+                      commandCenterMode === "live"
+                        ? "1px solid rgba(44, 211, 173, 0.28)"
+                        : "1px solid rgba(148, 163, 184, 0.2)",
+                  }}
+                >
+                  Live Event Mode
+                </button>
+              </div>
+            </div>
+          </section>
+        ) : null}
+
+        {liveCommandCenterPanel}
 
         <div
           style={{
