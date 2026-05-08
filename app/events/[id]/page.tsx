@@ -461,7 +461,6 @@ const assignmentStatusStyles: Record<AssignmentStatus, React.CSSProperties> = {
     border: "1px solid var(--cfsp-border)",
   },
 };
-
 const confirmationStyles = {
   confirmed: {
     background: "rgba(73, 168, 255, 0.18)",
@@ -1328,6 +1327,10 @@ export default function EventDetailPage() {
     "zoom_recording",
     "case_doorsign",
   ]);
+  const [hiringFormLink, setHiringFormLink] = useState("");
+const [hiringDeadline, setHiringDeadline] = useState("");
+const [selectedHiringSpIds, setSelectedHiringSpIds] = useState<string[]>([]);
+
   const [relatedMatches, setRelatedMatches] = useState<RelatedEventPreview[]>([]);
   const [selectedRelatedTargetIds, setSelectedRelatedTargetIds] = useState<string[]>([]);
   const [relatedPreviewLoading, setRelatedPreviewLoading] = useState(false);
@@ -1767,6 +1770,70 @@ export default function EventDetailPage() {
     subject: trainingEmailSubject,
     body: trainingEmailBody,
   });
+  function toggleHiringSp(spId: string) {
+  setSelectedHiringSpIds((current) =>
+    current.includes(spId)
+      ? current.filter((id) => id !== spId)
+      : [...current, spId]
+  );
+}
+
+function selectAllVisibleCandidates(candidateIds: string[]) {
+  setSelectedHiringSpIds(candidateIds);
+}
+
+function clearHiringSelection() {
+  setSelectedHiringSpIds([]);
+}
+const selectedHiringSps = filteredCandidateSps.filter((sp) =>
+  selectedHiringSpIds.includes(String(sp.id))
+);
+
+const hiringBccEmails = Array.from(
+  new Set(
+    selectedHiringSps
+      .map((sp) => getEmail(sp))
+      .filter(Boolean)
+  )
+);
+
+
+
+const hiringEmailSubject = `${event?.name || "Event"}: Standardized Patient Availability Request`;
+
+const hiringEmailBody = `Hello SPs,
+
+We are currently staffing standardized patient roles for the following event:
+
+Event: ${event?.name || "TBD"}
+Date(s): ${event?.date_text || "TBD"}
+Time(s): ${
+  sessions.length
+    ? sessions
+        .map((session) => formatSessionTime(session))
+        .join(", ")
+    : "TBD"
+}
+Location/Zoom: ${event?.location || "TBD"}
+
+If you are interested and available, please complete the availability form below:
+
+${hiringFormLink || "[Microsoft Forms Link]"}
+
+Please respond by ${hiringDeadline || "the requested deadline"}.
+
+Additional details regarding roles, training, and assignments will be sent after staffing is finalized.
+
+Thank you,
+Cory`;
+
+const hiringMailtoHref = buildMailtoHref({
+  to: me?.email || "",
+  cc: facultyEmails,
+  bcc: hiringBccEmails,
+  subject: hiringEmailSubject,
+  body: hiringEmailBody,
+});
   const workflowGroups = useMemo(
     () => [
       {
@@ -1877,6 +1944,7 @@ export default function EventDetailPage() {
           },
         ],
       },
+
       {
         key: "platform" as WorkflowGroupKey,
         title: "Simulation Platform",
@@ -6510,7 +6578,146 @@ export default function EventDetailPage() {
       </div>
       )
       ) : null}
+<div style={cardStyle}>
+  <div
+    style={{
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "center",
+      marginBottom: "12px",
+    }}
+  >
+    <div>
+      <h2 style={compactSectionTitleStyle}>Hiring Email</h2>
 
+      <p style={compactSectionHintStyle}>
+        Draft SP availability outreach emails with Microsoft Forms polling.
+      </p>
+    </div>
+  </div>
+
+  <div
+    style={{
+      display: "grid",
+      gap: "10px",
+      marginBottom: "14px",
+    }}
+  >
+    <input
+      style={inputStyle}
+      placeholder="Microsoft Forms Link"
+      value={hiringFormLink}
+      onChange={(event) => setHiringFormLink(event.target.value)}
+    />
+
+    <input
+      style={inputStyle}
+      placeholder="Response Deadline"
+      value={hiringDeadline}
+      onChange={(event) => setHiringDeadline(event.target.value)}
+    />
+  </div>
+
+  <div
+    style={{
+      display: "flex",
+      gap: "8px",
+      flexWrap: "wrap",
+      marginBottom: "14px",
+    }}
+  >
+    <button
+      type="button"
+      style={buttonStyle}
+      onClick={() =>
+        selectAllVisibleCandidates(
+          filteredCandidateSps.map((sp) => String(sp.id))
+        )
+      }
+    >
+      Select All Visible
+    </button>
+
+    <button
+      type="button"
+      style={{
+        ...buttonStyle,
+        background: "var(--cfsp-surface-muted)",
+        color: "var(--cfsp-text)",
+      }}
+      onClick={clearHiringSelection}
+    >
+      Clear Selected
+    </button>
+
+    <a
+      href={hiringMailtoHref}
+      style={{
+        ...buttonStyle,
+        textDecoration: "none",
+        display: "inline-flex",
+        alignItems: "center",
+      }}
+    >
+      Draft Hiring Email
+    </a>
+  </div>
+
+  <div
+    style={{
+      maxHeight: "320px",
+      overflowY: "auto",
+      border: "1px solid var(--cfsp-border)",
+      borderRadius: "14px",
+      padding: "10px",
+      background: "var(--cfsp-surface-muted)",
+    }}
+  >
+    {filteredCandidateSps.map((sp) => {
+      const spId = String(sp.id);
+      const checked = selectedHiringSpIds.includes(spId);
+
+      return (
+        <label
+          key={spId}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "10px",
+            padding: "8px 4px",
+            cursor: "pointer",
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={checked}
+            onChange={() => toggleHiringSp(spId)}
+          />
+
+          <div>
+            <div
+              style={{
+                fontWeight: 800,
+                color: "var(--cfsp-text)",
+              }}
+            >
+              {getFullName(sp)}
+            </div>
+
+            <div
+              style={{
+                fontSize: "12px",
+                color: "var(--cfsp-text-muted)",
+              }}
+            >
+              {getEmail(sp)}
+            </div>
+          </div>
+        </label>
+      );
+    })}
+  </div>
+</div>
       {materialPreview ? (
         <div
           role="dialog"
