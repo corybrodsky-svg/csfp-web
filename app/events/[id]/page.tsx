@@ -359,8 +359,6 @@ const assignmentStatuses: AssignmentStatus[] = [
   "no_show",
 ];
 
-const contactMethods: ContactMethod[] = ["call", "text", "email"];
-
 const trainingMaterialFieldMap: Record<
   TrainingMaterialKind,
   {
@@ -665,16 +663,6 @@ function getEventTypeButtonStyle(type: EventDisplayType, active: boolean): React
   };
 }
 
-function getContactMethod(assignment: AssignmentRow) {
-  const rawMethod = asText(assignment.contact_method) as ContactMethod;
-  return contactMethods.includes(rawMethod) ? rawMethod : "";
-}
-
-function getContactMethodLabel(assignment: AssignmentRow) {
-  const raw = getContactMethod(assignment);
-  return raw || "Not set";
-}
-
 function getFilenameFromUrl(value: string) {
   const text = asText(value);
   if (!text) return "";
@@ -966,13 +954,6 @@ function getSpTagLabels(sp: SPRow) {
   return tags;
 }
 
-function formatTimestamp(value?: string | null) {
-  if (!value) return "Not contacted yet";
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return "Not contacted yet";
-  return parsed.toLocaleString();
-}
-
 function formatAttendanceTimestamp(value?: string | null) {
   if (!value) return "";
   const parsed = new Date(value);
@@ -1047,22 +1028,6 @@ function toStoredTimeValue(value: string) {
   const trimmed = value.trim();
   if (!trimmed) return null;
   return trimmed.length === 5 ? `${trimmed}:00` : trimmed;
-}
-
-function toDatetimeLocalValue(value?: string | null) {
-  if (!value) return "";
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return "";
-  return new Date(parsed.getTime() - parsed.getTimezoneOffset() * 60000)
-    .toISOString()
-    .slice(0, 16);
-}
-
-function fromDatetimeLocalValue(value: string) {
-  if (!value) return null;
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return null;
-  return parsed.toISOString();
 }
 
 function buildMailtoHref(args: {
@@ -5014,7 +4979,7 @@ export default function EventDetailPage() {
             <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
               <div>
                 <h2 style={compactSectionTitleStyle}>Workflow Report</h2>
-                <p style={compactSectionHintStyle}>Compact workflow status for this event.</p>
+                <p style={compactSectionHintStyle}>Compact workflow status that stays out of the way.</p>
               </div>
               <div
                 style={{
@@ -5031,15 +4996,15 @@ export default function EventDetailPage() {
               </div>
             </div>
 
-            <div style={{ display: "grid", gap: "8px", marginTop: "12px" }}>
+            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "12px" }}>
               {workflowReportItems.map((item) => (
                 <div
                   key={item.id}
                   style={{
-                    display: "grid",
-                    gap: "2px",
+                    flex: "1 1 170px",
+                    minWidth: "150px",
                     borderRadius: "14px",
-                    padding: "10px 12px",
+                    padding: "9px 11px",
                     border: "1px solid rgba(120, 180, 255, 0.18)",
                     background: item.complete ? "rgba(44, 211, 173, 0.08)" : "rgba(255,255,255,0.66)",
                   }}
@@ -5059,8 +5024,7 @@ export default function EventDetailPage() {
                       {item.complete ? "Ready" : "Pending"}
                     </span>
                   </div>
-                  <div style={{ color: "var(--cfsp-text)", fontWeight: 900, fontSize: "14px" }}>{item.value}</div>
-                  <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 700 }}>{item.detail}</div>
+                  <div style={{ marginTop: "5px", color: "var(--cfsp-text)", fontWeight: 900, fontSize: "13px" }}>{item.value}</div>
                 </div>
               ))}
             </div>
@@ -5159,26 +5123,19 @@ export default function EventDetailPage() {
             ) : null}
           </section>
 
-          <aside
+          <section
             className="hidden xl:block"
             style={{
-              position: "fixed",
-              right: "20px",
-              top: "96px",
-              width: "320px",
-              maxHeight: "calc(100vh - 120px)",
-              overflowY: "auto",
-              zIndex: 30,
               ...cardStyle,
+              marginTop: "12px",
               background: "var(--cfsp-surface-muted)",
               borderColor: "rgba(120, 180, 255, 0.24)",
-              boxShadow: "0 20px 48px rgba(15, 23, 42, 0.18)",
             }}
           >
             <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
               <div>
                 <h2 style={compactSectionTitleStyle}>Workflow Report</h2>
-                <p style={compactSectionHintStyle}>Compact workflow status for this event.</p>
+                <p style={compactSectionHintStyle}>Compact workflow status that stays out of the way.</p>
               </div>
               <div
                 style={{
@@ -5195,15 +5152,15 @@ export default function EventDetailPage() {
               </div>
             </div>
 
-            <div style={{ display: "grid", gap: "8px", marginTop: "12px" }}>
+            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "12px" }}>
               {workflowReportItems.map((item) => (
                 <div
                   key={item.id}
                   style={{
-                    display: "grid",
-                    gap: "2px",
+                    flex: "1 1 180px",
+                    minWidth: "160px",
                     borderRadius: "14px",
-                    padding: "10px 12px",
+                    padding: "9px 11px",
                     border: "1px solid rgba(120, 180, 255, 0.18)",
                     background: item.complete ? "rgba(44, 211, 173, 0.08)" : "rgba(255,255,255,0.7)",
                   }}
@@ -5223,8 +5180,7 @@ export default function EventDetailPage() {
                       {item.complete ? "Ready" : "Pending"}
                     </span>
                   </div>
-                  <div style={{ color: "var(--cfsp-text)", fontWeight: 900, fontSize: "14px" }}>{item.value}</div>
-                  <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 700 }}>{item.detail}</div>
+                  <div style={{ marginTop: "5px", color: "var(--cfsp-text)", fontWeight: 900, fontSize: "13px" }}>{item.value}</div>
                 </div>
               ))}
             </div>
@@ -5322,7 +5278,7 @@ export default function EventDetailPage() {
                 ))}
               </div>
             ) : null}
-          </aside>
+          </section>
         </>
       ) : null}
 
@@ -5922,25 +5878,18 @@ export default function EventDetailPage() {
             {filteredAssignments.map((assignment) => {
               const sp = assignment.sp_id ? spsById.get(assignment.sp_id) : undefined;
               const status = getAssignmentStatus(assignment);
-              const confirmed = isAssignmentConfirmed(assignment);
-              const commandLabel = getCommandCenterAssignmentLabel(assignment);
-              const confirmationTone = getCommandCenterAssignmentTone(assignment);
               const checkedAt = formatAttendanceTimestamp(assignment.training_checked_in_at);
               const email = sp ? getEmail(sp) : "";
-              const contactMethod = getContactMethod(assignment);
-              const availabilityForSp = assignment.sp_id
-                ? availabilityBySpId.get(assignment.sp_id) || []
-                : [];
               const isRecentlyAssigned = assignment.sp_id === recentAssignedSpId;
 
               return (
                 <div
                   key={assignment.id}
                   style={{
-                    border: confirmed ? "1px solid var(--cfsp-blue)" : confirmationStyles.pending.border,
-                    borderRadius: "18px",
-                    padding: "14px",
-                    background: confirmed ? "var(--cfsp-surface-muted)" : "var(--cfsp-surface)",
+                    border: "1px solid var(--cfsp-border)",
+                    borderRadius: "16px",
+                    padding: "12px 14px",
+                    background: "var(--cfsp-surface)",
                     boxShadow: isRecentlyAssigned
                       ? "0 0 0 4px rgba(44, 211, 173, 0.18), 0 16px 34px rgba(0, 0, 0, 0.4)"
                       : "var(--cfsp-shadow)",
@@ -5948,134 +5897,37 @@ export default function EventDetailPage() {
                     transition: "box-shadow 180ms ease, transform 180ms ease",
                   }}
                 >
-                  <div style={{ display: "grid", gap: "12px" }}>
-                    <div>
-                      <div
-                        style={{
-                          display: "flex",
-                          gap: "12px",
-                          flexWrap: "wrap",
-                          alignItems: "center",
-                        }}
-                      >
-                        <h3 style={{ margin: 0, color: "var(--cfsp-text)", fontSize: "20px" }}>
-                          {sp ? getFullName(sp) : "Unknown SP"}
-                        </h3>
-                        <span
-                          style={{
-                            ...confirmationStyles[confirmationTone],
-                            borderRadius: "999px",
-                            padding: "9px 14px",
-                            fontWeight: 900,
-                            fontSize: "14px",
-                            letterSpacing: "0.01em",
-                          }}
-                        >
-                          {commandLabel}
-                        </span>
-                        <span
-                          style={{
-                            borderRadius: "999px",
-                            padding: "8px 12px",
-                            background: confirmed ? "rgba(73, 168, 255, 0.16)" : "var(--cfsp-warning-soft)",
-                            color: confirmed ? "#ffffff" : "var(--cfsp-warning)",
-                            border: confirmed
-                              ? "1px solid rgba(120, 180, 255, 0.28)"
-                              : "1px solid rgba(243, 187, 103, 0.24)",
-                            fontWeight: 900,
-                            fontSize: "12px",
-                          }}
-                        >
-                          {confirmed ? "Confirmed" : "Needs Confirmation"}
-                        </span>
-                      </div>
-
-                      <div style={{ marginTop: 6, color: "var(--cfsp-text-muted)", fontWeight: 700, lineHeight: 1.6 }}>
-                        <div>{email || assignment.sp_id || "No SP id"}</div>
-                        <div>{sp?.phone || "No phone on file"}</div>
-                        {canManageTrainingAttendance && assignment.training_attended && checkedAt ? (
-                          <div style={{ color: "var(--cfsp-green)", fontSize: "12px", fontWeight: 800 }}>
-                            Checked in {checkedAt}
-                          </div>
-                        ) : null}
-                      </div>
-                    </div>
-
-                    {canManageTrainingAttendance ? (
-                      <label
-                        style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: "10px",
-                          width: "fit-content",
-                          borderRadius: "999px",
-                          padding: "8px 12px",
-                          background: assignment.training_attended ? "var(--cfsp-green-soft)" : "rgba(168, 183, 204, 0.12)",
-                          border: assignment.training_attended
-                            ? "1px solid rgba(44, 211, 173, 0.24)"
-                            : "1px solid var(--cfsp-border)",
-                          color: assignment.training_attended ? "var(--cfsp-green)" : "var(--cfsp-text-muted)",
-                          fontSize: "12px",
-                          fontWeight: 900,
-                          cursor: attendanceSaving || trainingAttendanceFieldsMissing ? "not-allowed" : "pointer",
-                        }}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={assignment.training_attended === true}
-                          disabled={attendanceSaving || trainingAttendanceFieldsMissing}
-                          onChange={(event) => void handleTrainingAttendanceToggle(assignment, event.target.checked)}
-                          style={{ width: "18px", height: "18px", accentColor: "var(--cfsp-green)" }}
-                        />
-                        Present for training
-                      </label>
-                    ) : null}
-
+                  <div
+                    style={{
+                      display: "grid",
+                      gap: "10px",
+                    }}
+                  >
                     <div
                       style={{
                         display: "grid",
                         gap: "10px",
-                        gridTemplateColumns: "1fr auto",
-                        alignItems: "start",
+                        gridTemplateColumns: "minmax(0, 1.4fr) minmax(150px, 220px) auto auto",
+                        alignItems: "center",
                       }}
                     >
-                      <div
-                        style={{
-                          border: confirmationStyles[confirmationTone].border,
-                          borderRadius: "18px",
-                          padding: "12px",
-                          background: confirmationStyles[confirmationTone].background,
-                          color: confirmationStyles[confirmationTone].color,
-                        }}
-                      >
-                        <div style={{ fontSize: "12px", fontWeight: 800, textTransform: "uppercase" }}>
-                          Assignment State
-                        </div>
-                        <div style={{ marginTop: "4px", fontSize: "18px", fontWeight: 900 }}>
-                          {commandLabel}
-                        </div>
-                        <div style={{ marginTop: "6px", fontSize: "12px", fontWeight: 800, opacity: 0.88 }}>
-                          {confirmed ? "Confirmed coverage" : "Still needs confirmation"}
+                      <div style={{ minWidth: 0 }}>
+                        <h3 style={{ margin: 0, color: "var(--cfsp-text)", fontSize: "18px" }}>
+                          {sp ? getFullName(sp) : "Unknown SP"}
+                        </h3>
+                        <div style={{ marginTop: 6, color: "var(--cfsp-text-muted)", fontWeight: 700, lineHeight: 1.5 }}>
+                          <div>{email || assignment.sp_id || "No SP id"}</div>
+                          <div>{sp?.phone || "No phone on file"}</div>
+                          {canManageTrainingAttendance && assignment.training_attended && checkedAt ? (
+                            <div style={{ color: "var(--cfsp-green)", fontSize: "12px", fontWeight: 800 }}>
+                              Checked in {checkedAt}
+                            </div>
+                          ) : null}
                         </div>
                       </div>
 
-                      <button
-                        type="button"
-                        onClick={() => void handleRemoveAssignment(assignment)}
-                        disabled={saving}
-                        style={{
-                          ...dangerButtonStyle,
-                          opacity: saving ? 0.65 : 1,
-                          minWidth: "120px",
-                        }}
-                      >
-                        Remove
-                      </button>
-                    </div>
-
-                    <div style={{ ...detailGridStyle, marginTop: 0 }}>
-                      <div style={statCard}>
-                        <div style={statLabel}>Status</div>
+                      <label style={{ display: "grid", gap: "6px", minWidth: 0 }}>
+                        <span style={statLabel}>Status</span>
                         <select
                           value={status}
                           onChange={(e) =>
@@ -6087,7 +5939,6 @@ export default function EventDetailPage() {
                             width: "100%",
                             maxWidth: "100%",
                             background: "var(--cfsp-surface)",
-                            marginTop: "8px",
                           }}
                         >
                           {assignmentStatuses.map((option) => (
@@ -6096,29 +5947,64 @@ export default function EventDetailPage() {
                             </option>
                           ))}
                         </select>
-                      </div>
+                      </label>
 
-                      <div style={statCard}>
-                        <div style={statLabel}>Contact Method</div>
-                        <div style={{ ...statValue, fontSize: "16px" }}>
-                          {getContactMethodLabel(assignment)}
-                        </div>
-                        <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontWeight: 700, fontSize: "12px" }}>
-                          {formatTimestamp(assignment.last_contacted_at)}
-                        </div>
-                      </div>
+                      {canManageTrainingAttendance ? (
+                        <label
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "10px",
+                            width: "fit-content",
+                            borderRadius: "999px",
+                            padding: "8px 12px",
+                            background: assignment.training_attended ? "var(--cfsp-green-soft)" : "rgba(168, 183, 204, 0.12)",
+                            border: assignment.training_attended
+                              ? "1px solid rgba(44, 211, 173, 0.24)"
+                              : "1px solid var(--cfsp-border)",
+                            color: assignment.training_attended ? "var(--cfsp-green)" : "var(--cfsp-text-muted)",
+                            fontSize: "12px",
+                            fontWeight: 900,
+                            cursor: attendanceSaving || trainingAttendanceFieldsMissing ? "not-allowed" : "pointer",
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={assignment.training_attended === true}
+                            disabled={attendanceSaving || trainingAttendanceFieldsMissing}
+                            onChange={(event) => void handleTrainingAttendanceToggle(assignment, event.target.checked)}
+                            style={{ width: "18px", height: "18px", accentColor: "var(--cfsp-green)" }}
+                          />
+                          Present
+                        </label>
+                      ) : null}
+
+                      <button
+                        type="button"
+                        onClick={() => void handleRemoveAssignment(assignment)}
+                        disabled={saving}
+                        style={{
+                          ...dangerButtonStyle,
+                          opacity: saving ? 0.65 : 1,
+                          minWidth: "96px",
+                        }}
+                      >
+                        Remove
+                      </button>
                     </div>
 
-                    <div
+                    <details
                       style={{
                         border: "1px solid var(--cfsp-border)",
-                        borderRadius: "16px",
-                        padding: "12px",
-                        background: confirmed ? "rgba(73, 168, 255, 0.12)" : "var(--cfsp-surface-muted)",
+                        borderRadius: "14px",
+                        background: "var(--cfsp-surface-muted)",
+                        padding: "10px 12px",
                       }}
                     >
-                      <div style={statLabel}>Notes</div>
-                      <div style={{ marginTop: "8px" }}>
+                      <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 800 }}>
+                        Notes
+                      </summary>
+                      <div style={{ marginTop: "10px" }}>
                         <textarea
                           key={`${assignment.id}-${assignment.notes || ""}`}
                           defaultValue={assignment.notes || ""}
@@ -6127,116 +6013,12 @@ export default function EventDetailPage() {
                               notes: e.target.value.trim() || null,
                             })
                           }
-                          placeholder="Add contact notes, constraints, follow-up details..."
+                          placeholder="Add optional notes..."
                           disabled={saving}
-                          style={{ ...textareaStyle, minHeight: "88px" }}
+                          style={{ ...textareaStyle, minHeight: "76px" }}
                         />
                       </div>
-                    </div>
-
-                    <div
-                      style={{
-                        borderRadius: "16px",
-                        padding: "12px",
-                        background: "var(--cfsp-surface)",
-                        border: "1px solid var(--cfsp-border)",
-                        color: "var(--cfsp-text)",
-                        lineHeight: 1.6,
-                      }}
-                    >
-                      <div style={statLabel}>Availability Summary</div>
-                      <div
-                        style={{
-                          marginTop: "6px",
-                          display: "-webkit-box",
-                          WebkitLineClamp: 2,
-                          WebkitBoxOrient: "vertical",
-                          overflow: "hidden",
-                          whiteSpace: "pre-wrap",
-                        }}
-                      >
-                        {formatAvailabilityRows(availabilityForSp)}
-                      </div>
-                    </div>
-
-                    <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                      <button
-                        type="button"
-                        onClick={() => void handleStatusChange(assignment, "confirmed")}
-                        disabled={saving || status === "confirmed"}
-                        style={{ ...buttonStyle, opacity: saving || status === "confirmed" ? 0.65 : 1 }}
-                      >
-                        Confirm
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void handleStatusChange(assignment, "contacted")}
-                        disabled={saving || status === "contacted"}
-                        style={{
-                          ...buttonStyle,
-                          background: "var(--cfsp-surface)",
-                          color: "var(--cfsp-warning)",
-                          border: "1px solid rgba(243, 187, 103, 0.24)",
-                          opacity: saving || status === "contacted" ? 0.65 : 1,
-                        }}
-                      >
-                        Mark Contacted
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void handleStatusChange(assignment, "declined")}
-                        disabled={saving || status === "declined"}
-                        style={{
-                          ...buttonStyle,
-                          background: "var(--cfsp-danger-soft)",
-                          color: "var(--cfsp-danger)",
-                          border: "1px solid var(--cfsp-danger-border)",
-                          opacity: saving || status === "declined" ? 0.65 : 1,
-                        }}
-                      >
-                        Decline
-                      </button>
-                    </div>
-
-                    <div style={{ ...detailGridStyle, marginTop: "2px" }}>
-                      <label style={{ display: "grid", gap: "6px" }}>
-                        <span style={statLabel}>Contact Method</span>
-                        <select
-                          value={contactMethod}
-                          onChange={(e) =>
-                            handleAssignmentDetailsChange(assignment, {
-                              contact_method: e.target.value
-                                ? (e.target.value as ContactMethod)
-                                : null,
-                            })
-                          }
-                          disabled={saving}
-                          style={{ ...selectStyle, maxWidth: "100%", width: "100%", background: "var(--cfsp-surface)" }}
-                        >
-                          <option value="">Not set</option>
-                          {contactMethods.map((method) => (
-                            <option key={method} value={method}>
-                              {method}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-
-                      <label style={{ display: "grid", gap: "6px" }}>
-                        <span style={statLabel}>Last Contacted</span>
-                        <input
-                          type="datetime-local"
-                          defaultValue={toDatetimeLocalValue(assignment.last_contacted_at)}
-                          onBlur={(e) =>
-                            handleAssignmentDetailsChange(assignment, {
-                              last_contacted_at: fromDatetimeLocalValue(e.target.value),
-                            })
-                          }
-                          disabled={saving}
-                          style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
-                        />
-                      </label>
-                    </div>
+                    </details>
                   </div>
 
                 </div>

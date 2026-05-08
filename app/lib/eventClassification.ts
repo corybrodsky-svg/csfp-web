@@ -41,6 +41,20 @@ function buildEventText(input: EventClassificationInput) {
     .toLowerCase();
 }
 
+function buildTitleText(input: EventClassificationInput) {
+  return [input.name, input.status]
+    .map(asText)
+    .join(" ")
+    .toLowerCase();
+}
+
+function buildLocationContextText(input: EventClassificationInput) {
+  return [input.location, input.notes]
+    .map(asText)
+    .join(" ")
+    .toLowerCase();
+}
+
 export function isSkillsWorkshopEvent(
   spNeeded: number | null | undefined,
   assignmentCount: number | null | undefined,
@@ -51,22 +65,28 @@ export function isSkillsWorkshopEvent(
 
 export function classifyEventPresentation(input: EventClassificationInput) {
   const eventText = buildEventText(input);
+  const titleText = buildTitleText(input);
+  const locationContextText = buildLocationContextText(input);
   const spNeeded = Number(input.spNeeded || 0);
   const assignmentCount = Number(input.assignmentCount || 0);
   const confirmedCount = Number(input.confirmedCount || 0);
   const explicitTypes = getExplicitEventTypes(input.notes);
   const explicitTypeSet = new Set(explicitTypes);
   const hasExplicitTypes = explicitTypeSet.size > 0;
+  const hasRoomSignal =
+    /\b(room|rooms|flat|flats|spl|sim lab|simulation lab|in person|in-person|onsite|on-site)\b/.test(
+      locationContextText
+    );
+  const hasTrainingTitleSignal =
+    /\btraining\b/.test(titleText) || titleText.includes("orientation") || titleText.includes("onboarding");
+  const hasVirtualKeyword = /\b(vir|virtual|telehealth|zoom|simiq)\b/.test(eventText);
 
   const isTraining =
     explicitTypeSet.has("training") ||
-    (!hasExplicitTypes &&
-      (/\btraining\b/.test(eventText) ||
-        eventText.includes("orientation") ||
-        eventText.includes("onboarding")));
+    (!hasExplicitTypes && hasTrainingTitleSignal);
   const isVirtualSp =
     explicitTypeSet.has("virtual") ||
-    (!hasExplicitTypes && (/\bvir\b/.test(eventText) || eventText.includes("virtual")));
+    (!hasExplicitTypes && !isTraining && hasVirtualKeyword && !hasRoomSignal);
   const isHiFi =
     explicitTypeSet.has("hifi") ||
     (!hasExplicitTypes &&
