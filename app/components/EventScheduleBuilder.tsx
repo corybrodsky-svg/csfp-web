@@ -34,18 +34,50 @@ type EventScheduleBuilderProps = {
   backLabel?: string;
 };
 
+type DayBlockType =
+  | "break"
+  | "checklist"
+  | "soap_notes"
+  | "feedback"
+  | "debrief"
+  | "lunch"
+  | "transition"
+  | "custom";
+
+type DayBlockPlacement =
+  | "before_rotations"
+  | "after_each_rotation"
+  | "after_every_x_rotations"
+  | "after_rotations"
+  | "specific_time";
+
+type DayBlockVisibility = "student" | "operations" | "both";
+
+type DayBlockConfig = {
+  id: string;
+  type: DayBlockType;
+  label: string;
+  durationMinutes: string;
+  placement: DayBlockPlacement;
+  placementInterval: string;
+  specificTime: string;
+  visibleTo: DayBlockVisibility;
+};
+
 type TimelineBlock = {
   label: string;
   start: number;
   end: number;
   detail?: string;
   tone: "setup" | "prebrief" | "rotation" | "wrap";
+  visibleTo?: DayBlockVisibility;
 };
 
 type RoundSubBlock = {
   label: string;
   start: number;
   end: number;
+  visibleTo?: DayBlockVisibility;
 };
 
 type GeneratedRoomSlot = {
@@ -95,6 +127,7 @@ type ScheduleBuilderDraft = {
   encounterMinutes: string;
   postEncounterBlock: "checklist" | "break" | "other";
   postEncounterMinutes: string;
+  dayBlocks: DayBlockConfig[];
   manualRoundOverride: boolean;
   checklistMinutes: string;
   soapMinutes: string;
@@ -152,6 +185,28 @@ const DEFAULT_SCHEDULE_BUILDER_DRAFT: ScheduleBuilderDraft = {
   encounterMinutes: "20",
   postEncounterBlock: "checklist",
   postEncounterMinutes: "5",
+  dayBlocks: [
+    {
+      id: "default-checklist",
+      type: "checklist",
+      label: "Checklist",
+      durationMinutes: "5",
+      placement: "after_each_rotation",
+      placementInterval: "2",
+      specificTime: "",
+      visibleTo: "both",
+    },
+    {
+      id: "default-feedback",
+      type: "feedback",
+      label: "Feedback",
+      durationMinutes: "10",
+      placement: "after_each_rotation",
+      placementInterval: "2",
+      specificTime: "",
+      visibleTo: "both",
+    },
+  ],
   manualRoundOverride: false,
   checklistMinutes: "5",
   soapMinutes: "10",
@@ -170,6 +225,50 @@ const DEFAULT_SCHEDULE_BUILDER_DRAFT: ScheduleBuilderDraft = {
 function asText(value: unknown) {
   if (value === null || value === undefined) return "";
   return String(value).trim();
+}
+
+function makeDayBlockId() {
+  return `day-block-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function getDayBlockTypeLabel(type: DayBlockType) {
+  if (type === "soap_notes") return "SOAP Notes";
+  if (type === "custom") return "Custom";
+  return type
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function getDefaultDayBlockLabel(type: DayBlockType) {
+  if (type === "soap_notes") return "SOAP Notes";
+  if (type === "transition") return "Transition";
+  if (type === "custom") return "Custom Block";
+  return getDayBlockTypeLabel(type);
+}
+
+function getDayBlockTone(type: DayBlockType): TimelineBlock["tone"] {
+  if (type === "checklist" || type === "soap_notes" || type === "feedback") return "rotation";
+  if (type === "transition") return "prebrief";
+  return "wrap";
+}
+
+function isDayBlockVisibleToView(visibleTo: DayBlockVisibility, viewMode: "student" | "operations") {
+  return visibleTo === "both" || visibleTo === viewMode;
+}
+
+function createDayBlock(partial?: Partial<DayBlockConfig>): DayBlockConfig {
+  const type = partial?.type || "break";
+  return {
+    id: partial?.id || makeDayBlockId(),
+    type,
+    label: partial?.label || getDefaultDayBlockLabel(type),
+    durationMinutes: partial?.durationMinutes || "10",
+    placement: partial?.placement || "after_each_rotation",
+    placementInterval: partial?.placementInterval || "2",
+    specificTime: partial?.specificTime || "",
+    visibleTo: partial?.visibleTo || "both",
+  };
 }
 
 function parseNumber(value: string, fallback: number) {
@@ -242,6 +341,159 @@ function extractTimeRange(value: string) {
 function getNotesLineValue(notes: string | null | undefined, label: "Training Time" | "Event Time") {
   const match = asText(notes).match(new RegExp(`(?:^|\\n)${label}\\s*:\\s*(.+?)(?:\\n|$)`, "i"));
   return asText(match?.[1]);
+}
+
+function normalizeDayBlockType(value: unknown): DayBlockType {
+  const text = asText(value).toLowerCase();
+  if (
+    text === "break" ||
+    text === "checklist" ||
+    text === "feedback" ||
+    text === "debrief" ||
+    text === "lunch" ||
+    text === "transition" ||
+    text === "custom"
+  ) {
+    return text;
+  }
+  if (text === "soap notes" || text === "soap_note" || text === "soap") return "soap_notes";
+  return "break";
+}
+
+function normalizeDayBlockPlacement(value: unknown): DayBlockPlacement {
+  const text = asText(value).toLowerCase();
+  if (
+    text === "before_rotations" ||
+    text === "after_each_rotation" ||
+    text === "after_every_x_rotations" ||
+    text === "after_rotations" ||
+    text === "specific_time"
+  ) {
+    return text;
+  }
+  return "after_each_rotation";
+}
+
+function normalizeDayBlockVisibility(value: unknown): DayBlockVisibility {
+  const text = asText(value).toLowerCase();
+  if (text === "student" || text === "operations" || text === "both") return text;
+  return "both";
+}
+
+function normalizeDayBlocks(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => {
+      const record = item && typeof item === "object" ? (item as Partial<DayBlockConfig>) : {};
+      const type = normalizeDayBlockType(record.type);
+      return createDayBlock({
+        id: asText(record.id) || undefined,
+        type,
+        label: asText(record.label) || getDefaultDayBlockLabel(type),
+        durationMinutes: asText(record.durationMinutes) || "0",
+        placement: normalizeDayBlockPlacement(record.placement),
+        placementInterval: asText(record.placementInterval) || "2",
+        specificTime: asText(record.specificTime),
+        visibleTo: normalizeDayBlockVisibility(record.visibleTo),
+      });
+    })
+    .filter((block) => asText(block.durationMinutes) !== "");
+}
+
+function buildLegacyDayBlocks(parsed: Partial<ScheduleBuilderDraft>) {
+  const blocks: DayBlockConfig[] = [];
+  const builderMode = parsed.builderMode === "advanced" ? "advanced" : "simple";
+  const postEncounterMinutes = asText(parsed.postEncounterMinutes) || DEFAULT_SCHEDULE_BUILDER_DRAFT.postEncounterMinutes;
+  const postEncounterBlock = parsed.postEncounterBlock === "break" ? "break" : parsed.postEncounterBlock === "other" ? "custom" : "checklist";
+
+  if (builderMode === "simple") {
+    blocks.push(
+      createDayBlock({
+        type: postEncounterBlock,
+        label:
+          postEncounterBlock === "custom"
+            ? "Custom Block"
+            : getDefaultDayBlockLabel(postEncounterBlock),
+        durationMinutes: postEncounterMinutes,
+        placement: "after_each_rotation",
+      })
+    );
+    const feedbackMinutes = asText(parsed.feedbackMinutes);
+    if (parseNumber(feedbackMinutes, 0) > 0) {
+      blocks.push(
+        createDayBlock({
+          type: "feedback",
+          label: "Feedback",
+          durationMinutes: feedbackMinutes,
+          placement: "after_each_rotation",
+        })
+      );
+    }
+    return blocks;
+  }
+
+  if (parsed.includeChecklist && parseNumber(asText(parsed.checklistMinutes), 0) > 0) {
+    blocks.push(
+      createDayBlock({
+        type: "checklist",
+        label: "Checklist",
+        durationMinutes: asText(parsed.checklistMinutes),
+        placement: "after_each_rotation",
+      })
+    );
+  }
+  if (parsed.includeSoap && parseNumber(asText(parsed.soapMinutes), 0) > 0) {
+    blocks.push(
+      createDayBlock({
+        type: "soap_notes",
+        label: "SOAP Notes",
+        durationMinutes: asText(parsed.soapMinutes),
+        placement: "after_each_rotation",
+      })
+    );
+  }
+  if (parsed.includeFeedback && parseNumber(asText(parsed.feedbackMinutes), 0) > 0) {
+    blocks.push(
+      createDayBlock({
+        type: "feedback",
+        label: "Feedback",
+        durationMinutes: asText(parsed.feedbackMinutes),
+        placement: "after_each_rotation",
+      })
+    );
+  }
+  if (parseNumber(asText(parsed.transitionMinutes), 0) > 0) {
+    blocks.push(
+      createDayBlock({
+        type: "transition",
+        label: "Transition",
+        durationMinutes: asText(parsed.transitionMinutes),
+        placement: "after_each_rotation",
+      })
+    );
+  }
+  if (parsed.includeDebrief && parseNumber(asText(parsed.debriefMinutes), 0) > 0) {
+    blocks.push(
+      createDayBlock({
+        type: "debrief",
+        label: "Debrief",
+        durationMinutes: asText(parsed.debriefMinutes),
+        placement: "after_rotations",
+      })
+    );
+  }
+  if (parsed.includeBreakdown && parseNumber(asText(parsed.breakdownMinutes), 0) > 0) {
+    blocks.push(
+      createDayBlock({
+        type: "custom",
+        label: "Room Reset / Breakdown",
+        durationMinutes: asText(parsed.breakdownMinutes),
+        placement: "after_rotations",
+        visibleTo: "operations",
+      })
+    );
+  }
+  return blocks.length ? blocks : DEFAULT_SCHEDULE_BUILDER_DRAFT.dayBlocks.map((block) => ({ ...block }));
 }
 
 function buildTimePrefill(event: EventRow | null, savedDraft: ScheduleBuilderDraft | null): BuilderTimePrefill {
@@ -381,50 +633,75 @@ function buildRounds(args: {
   flexRoomCount: number;
   maxPairsPerFlexRoom: number;
   encounterMinutes: number;
-  includeChecklist: boolean;
-  checklistMinutes: number;
-  includeSoap: boolean;
-  soapMinutes: number;
-  includeFeedback: boolean;
-  feedbackMinutes: number;
-  transitionMinutes: number;
-  transitionLabel: string;
+  dayBlocks: DayBlockConfig[];
 }) {
-  const blockDurations = [
-    { label: "Encounter", minutes: args.encounterMinutes, enabled: true },
-    { label: "Checklist", minutes: args.checklistMinutes, enabled: args.includeChecklist && args.checklistMinutes > 0 },
-    { label: "SOAP Note", minutes: args.soapMinutes, enabled: args.includeSoap && args.soapMinutes > 0 },
-    { label: "Feedback", minutes: args.feedbackMinutes, enabled: args.includeFeedback && args.feedbackMinutes > 0 },
-    { label: args.transitionLabel, minutes: args.transitionMinutes, enabled: args.transitionMinutes > 0 },
-  ].filter((item) => item.enabled && item.minutes > 0);
+  const recurringBlocks = args.dayBlocks.filter((block) => {
+    const duration = parseNumber(block.durationMinutes, 0);
+    return (
+      duration > 0 &&
+      (block.placement === "after_each_rotation" || block.placement === "after_every_x_rotations")
+    );
+  });
+  const blockDurationForRound = (roundNumber: number) =>
+    recurringBlocks.reduce((sum, block) => {
+      const minutes = parseNumber(block.durationMinutes, 0);
+      if (!minutes) return sum;
+      if (block.placement === "after_each_rotation") return sum + minutes;
+      const interval = Math.max(1, parseNumber(block.placementInterval, 2));
+      return roundNumber % interval === 0 ? sum + minutes : sum;
+    }, 0);
 
-  const configuredLength = blockDurations.reduce((sum, item) => sum + item.minutes, 0);
+  const configuredLength = args.encounterMinutes + blockDurationForRound(1);
   const sessionLengthMinutes = Math.max(0, args.sessionLengthMinutes);
-  const targetLength = sessionLengthMinutes > 0 ? sessionLengthMinutes : configuredLength;
-  const roundLength = Math.max(configuredLength, targetLength, 1);
+  const roundLength =
+    sessionLengthMinutes > 0 ? Math.max(configuredLength, sessionLengthMinutes, 1) : Math.max(configuredLength, 1);
   const bufferMinutes = sessionLengthMinutes > 0 ? Math.max(sessionLengthMinutes - configuredLength, 0) : 0;
   const overrunMinutes = sessionLengthMinutes > 0 ? Math.max(configuredLength - sessionLengthMinutes, 0) : 0;
   const rounds: GeneratedRound[] = [];
   let roundStart = args.startMinutes;
 
   for (let roundIndex = 0; roundIndex < args.rounds; roundIndex += 1) {
+    const roundNumber = roundIndex + 1;
     const subBlocks: RoundSubBlock[] = [];
     let current = roundStart;
+    const encounterEnd = current + args.encounterMinutes;
+    subBlocks.push({
+      label: "Encounter",
+      start: current,
+      end: encounterEnd,
+      visibleTo: "both",
+    });
+    current = encounterEnd;
 
-    for (const block of blockDurations) {
+    recurringBlocks.forEach((block) => {
+      const minutes = parseNumber(block.durationMinutes, 0);
+      if (!minutes) return;
+      if (block.placement === "after_every_x_rotations") {
+        const interval = Math.max(1, parseNumber(block.placementInterval, 2));
+        if (roundNumber % interval !== 0) return;
+      }
+      const label = asText(block.label) || getDefaultDayBlockLabel(block.type);
       subBlocks.push({
-        label: block.label,
+        label,
         start: current,
-        end: current + block.minutes,
+        end: current + minutes,
+        visibleTo: block.visibleTo,
       });
-      current += block.minutes;
-    }
+      current += minutes;
+    });
 
-    if (bufferMinutes > 0) {
+    const configuredRoundLength = current - roundStart;
+    const roundTargetLength =
+      sessionLengthMinutes > 0 ? Math.max(configuredRoundLength, sessionLengthMinutes, 1) : Math.max(configuredRoundLength, 1);
+    const roundBufferMinutes =
+      sessionLengthMinutes > 0 ? Math.max(sessionLengthMinutes - configuredRoundLength, 0) : 0;
+
+    if (roundBufferMinutes > 0) {
       subBlocks.push({
         label: "Open Buffer",
         start: current,
-        end: current + bufferMinutes,
+        end: current + roundBufferMinutes,
+        visibleTo: "operations",
       });
     }
 
@@ -443,14 +720,14 @@ function buildRounds(args: {
     }));
 
     rounds.push({
-      round: roundIndex + 1,
+      round: roundNumber,
       start: roundStart,
-      end: roundStart + roundLength,
+      end: roundStart + roundTargetLength,
       roomSlots: [...examSlots, ...flexSlots],
       subBlocks,
     });
 
-    roundStart += roundLength;
+    roundStart += roundTargetLength;
   }
 
   return { rounds, roundLength, configuredLength, bufferMinutes, overrunMinutes };
@@ -638,6 +915,7 @@ function parseSavedDraft(raw: string | null): ScheduleBuilderDraft | null {
 
   try {
     const parsed = JSON.parse(raw) as Partial<ScheduleBuilderDraft>;
+    const normalizedDayBlocks = normalizeDayBlocks((parsed as { dayBlocks?: unknown }).dayBlocks);
     return {
       ...DEFAULT_SCHEDULE_BUILDER_DRAFT,
       ...parsed,
@@ -649,6 +927,7 @@ function parseSavedDraft(raw: string | null): ScheduleBuilderDraft | null {
       uploadedLearners: Array.isArray(parsed.uploadedLearners)
         ? parsed.uploadedLearners.map((item) => asText(item)).filter(Boolean)
         : [],
+      dayBlocks: normalizedDayBlocks.length ? normalizedDayBlocks : buildLegacyDayBlocks(parsed),
       selectedEventId: asText(parsed.selectedEventId),
       learnerFileName: asText(parsed.learnerFileName),
       savedAt: asText(parsed.savedAt) || null,
@@ -748,6 +1027,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const [encounterMinutes, setEncounterMinutes] = useState(DEFAULT_SCHEDULE_BUILDER_DRAFT.encounterMinutes);
   const [postEncounterBlock, setPostEncounterBlock] = useState<"checklist" | "break" | "other">(DEFAULT_SCHEDULE_BUILDER_DRAFT.postEncounterBlock);
   const [postEncounterMinutes, setPostEncounterMinutes] = useState(DEFAULT_SCHEDULE_BUILDER_DRAFT.postEncounterMinutes);
+  const [dayBlocks, setDayBlocks] = useState<DayBlockConfig[]>(DEFAULT_SCHEDULE_BUILDER_DRAFT.dayBlocks);
   const [manualRoundOverride, setManualRoundOverride] = useState(DEFAULT_SCHEDULE_BUILDER_DRAFT.manualRoundOverride);
   const [checklistMinutes, setChecklistMinutes] = useState(DEFAULT_SCHEDULE_BUILDER_DRAFT.checklistMinutes);
   const [soapMinutes, setSoapMinutes] = useState(DEFAULT_SCHEDULE_BUILDER_DRAFT.soapMinutes);
@@ -791,6 +1071,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     setEncounterMinutes(draft.encounterMinutes);
     setPostEncounterBlock(draft.postEncounterBlock);
     setPostEncounterMinutes(draft.postEncounterMinutes);
+    setDayBlocks(draft.dayBlocks.length ? draft.dayBlocks : DEFAULT_SCHEDULE_BUILDER_DRAFT.dayBlocks);
     setManualRoundOverride(Boolean(draft.manualRoundOverride));
     setChecklistMinutes(draft.checklistMinutes);
     setSoapMinutes(draft.soapMinutes);
@@ -905,6 +1186,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       encounterMinutes,
       postEncounterBlock,
       postEncounterMinutes,
+      dayBlocks,
       manualRoundOverride,
       checklistMinutes,
       soapMinutes,
@@ -944,6 +1226,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       encounterMinutes,
       postEncounterBlock,
       postEncounterMinutes,
+      dayBlocks,
       manualRoundOverride,
       checklistMinutes,
       soapMinutes,
@@ -1043,7 +1326,6 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const roomLabel = isVirtualEvent ? "Breakout Room" : "Exam Room";
   const roomCountLabel = isVirtualEvent ? "Number of breakout rooms" : "Number of exam rooms";
   const roomCapacityLabel = isVirtualEvent ? "Students per breakout room" : "Students per room";
-  const postEncounterLabel = postEncounterBlock === "checklist" ? "Checklist" : postEncounterBlock === "break" ? "Break" : "Other";
 
   const parsedStartMinutes = toMinutes(startTime);
   const parsedRounds = parseNumber(roundCount, 4);
@@ -1053,11 +1335,6 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const parsedMaxPairs = Math.max(1, parseNumber(maxPairsPerFlexRoom, 3));
   const parsedSessionLength = parseNumber(sessionLengthMinutes, 0);
   const parsedEncounter = parseNumber(encounterMinutes, 20);
-  const parsedPostEncounter = parseNumber(postEncounterMinutes, 5);
-  const parsedChecklist = parseNumber(checklistMinutes, 5);
-  const parsedSoap = parseNumber(soapMinutes, 10);
-  const parsedFeedback = parseNumber(feedbackMinutes, 10);
-  const parsedTransition = parseNumber(transitionMinutes, 0);
   const parsedStaffArrival = toMinutes(staffArrivalTime);
   const parsedSpArrival = toMinutes(spArrivalTime);
   const parsedFacultyArrival = toMinutes(facultyArrivalTime);
@@ -1065,8 +1342,6 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const parsedStudentPrebrief = parseNumber(studentPrebriefMinutes, 0);
   const parsedSpPrebrief = parseNumber(spPrebriefMinutes, 0);
   const parsedFacultyPrebrief = parseNumber(facultyPrebriefMinutes, 0);
-  const parsedDebrief = parseNumber(debriefMinutes, 0);
-  const parsedBreakdown = parseNumber(breakdownMinutes, 0);
   const effectiveFlexRoomCount = isVirtualEvent ? 0 : parsedFlexRooms;
   const effectiveFlexCapacity = isVirtualEvent ? 0 : parsedMaxPairs;
   const slotsPerRound = parsedExamRooms * parsedRoomCapacity + effectiveFlexRoomCount * effectiveFlexCapacity;
@@ -1079,18 +1354,45 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     builderMode === "advanced" && manualRoundOverride
       ? Math.max(parsedRounds, 1)
       : autoCalculatedRounds;
-  const effectiveIncludeChecklist =
-    builderMode === "simple" ? postEncounterBlock === "checklist" : includeChecklist;
-  const effectiveChecklistMinutes =
-    builderMode === "simple" && postEncounterBlock === "checklist" ? parsedPostEncounter : parsedChecklist;
-  const effectiveIncludeFeedback =
-    builderMode === "simple" ? parsedFeedback > 0 : includeFeedback;
-  const effectiveFeedbackMinutes =
-    builderMode === "simple" ? parsedFeedback : parsedFeedback;
-  const effectiveTransitionMinutes =
-    builderMode === "simple" && postEncounterBlock !== "checklist" ? parsedPostEncounter : parsedTransition;
-  const effectiveIncludeSoap = builderMode === "simple" ? false : includeSoap;
-  const effectiveSoapMinutes = builderMode === "simple" ? 0 : parsedSoap;
+  const normalizedDayBlocks = useMemo(
+    () =>
+      dayBlocks.map((block) =>
+        createDayBlock({
+          ...block,
+          label: asText(block.label) || getDefaultDayBlockLabel(block.type),
+          durationMinutes: asText(block.durationMinutes) || "0",
+        })
+      ),
+    [dayBlocks]
+  );
+  const afterRotationDayBlocks = useMemo(
+    () =>
+      normalizedDayBlocks.filter(
+        (block) =>
+          parseNumber(block.durationMinutes, 0) > 0 &&
+          block.placement === "after_rotations"
+      ),
+    [normalizedDayBlocks]
+  );
+  const beforeRotationDayBlocks = useMemo(
+    () =>
+      normalizedDayBlocks.filter(
+        (block) =>
+          parseNumber(block.durationMinutes, 0) > 0 &&
+          block.placement === "before_rotations"
+      ),
+    [normalizedDayBlocks]
+  );
+  const specificTimeDayBlocks = useMemo(
+    () =>
+      normalizedDayBlocks.filter(
+        (block) =>
+          parseNumber(block.durationMinutes, 0) > 0 &&
+          block.placement === "specific_time" &&
+          toMinutes(block.specificTime) !== null
+      ),
+    [normalizedDayBlocks]
+  );
 
   const generated = useMemo(() => {
     if (parsedStartMinutes === null) {
@@ -1115,14 +1417,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       flexRoomCount: effectiveFlexRoomCount,
       maxPairsPerFlexRoom: effectiveFlexCapacity,
       encounterMinutes: parsedEncounter,
-      includeChecklist: effectiveIncludeChecklist,
-      checklistMinutes: effectiveChecklistMinutes,
-      includeSoap: effectiveIncludeSoap,
-      soapMinutes: effectiveSoapMinutes,
-      includeFeedback: effectiveIncludeFeedback,
-      feedbackMinutes: effectiveFeedbackMinutes,
-      transitionMinutes: effectiveTransitionMinutes,
-      transitionLabel: postEncounterLabel,
+      dayBlocks: normalizedDayBlocks,
     });
 
     const rotationStart = parsedStartMinutes;
@@ -1199,36 +1494,80 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       });
     }
 
+    if (beforeRotationDayBlocks.length) {
+      const beforeBlocks = beforeRotationDayBlocks.map((block) => ({
+        ...block,
+        minutes: parseNumber(block.durationMinutes, 0),
+      }));
+      let current = rotationStart - beforeBlocks.reduce((sum, block) => sum + block.minutes, 0);
+      beforeBlocks.forEach((block) => {
+        timeline.push({
+          label: asText(block.label) || getDefaultDayBlockLabel(block.type),
+          start: current,
+          end: current + block.minutes,
+          detail: `${block.minutes} minutes`,
+          tone: getDayBlockTone(block.type),
+          visibleTo: block.visibleTo,
+        });
+        current += block.minutes;
+      });
+    }
+
     if (rounds.length) {
-      timeline.push({
-        label: "Session Blocks",
-        start: rotationStart,
-        end: rotationEnd,
-        detail: `${effectiveRoundCount} round${effectiveRoundCount === 1 ? "" : "s"} · ${roundLength} minutes each`,
-        tone: "rotation",
+      rounds.forEach((round) => {
+        const encounterBlock = round.subBlocks.find((block) => block.label === "Encounter");
+        timeline.push({
+          label: `Rotation Round ${round.round}`,
+          start: round.start,
+          end: encounterBlock?.end || round.end,
+          detail: "Encounter",
+          tone: "rotation",
+          visibleTo: "both",
+        });
+        round.subBlocks
+          .filter((block) => block.label !== "Encounter" && block.label !== "Open Buffer")
+          .forEach((block) => {
+            timeline.push({
+              label: block.label,
+              start: block.start,
+              end: block.end,
+              detail: `Round ${round.round}`,
+              tone: "wrap",
+              visibleTo: block.visibleTo,
+            });
+          });
       });
     }
 
-    if (includeDebrief && parsedDebrief > 0) {
-      timeline.push({
-        label: "Debrief",
-        start: rotationEnd,
-        end: rotationEnd + parsedDebrief,
-        detail: `${parsedDebrief} minutes`,
-        tone: "wrap",
+    if (afterRotationDayBlocks.length) {
+      let current = rotationEnd;
+      afterRotationDayBlocks.forEach((block) => {
+        const minutes = parseNumber(block.durationMinutes, 0);
+        timeline.push({
+          label: asText(block.label) || getDefaultDayBlockLabel(block.type),
+          start: current,
+          end: current + minutes,
+          detail: `${minutes} minutes`,
+          tone: getDayBlockTone(block.type),
+          visibleTo: block.visibleTo,
+        });
+        current += minutes;
       });
     }
 
-    const breakdownStart = includeDebrief && parsedDebrief > 0 ? rotationEnd + parsedDebrief : rotationEnd;
-    if (includeBreakdown && parsedBreakdown > 0) {
+    specificTimeDayBlocks.forEach((block) => {
+      const start = toMinutes(block.specificTime);
+      const minutes = parseNumber(block.durationMinutes, 0);
+      if (start === null || minutes <= 0) return;
       timeline.push({
-        label: "Breakdown",
-        start: breakdownStart,
-        end: breakdownStart + parsedBreakdown,
-        detail: `${parsedBreakdown} minutes`,
-        tone: "wrap",
+        label: asText(block.label) || getDefaultDayBlockLabel(block.type),
+        start,
+        end: start + minutes,
+        detail: `${minutes} minutes`,
+        tone: getDayBlockTone(block.type),
+        visibleTo: block.visibleTo,
       });
-    }
+    });
 
     timeline.sort((a, b) => a.start - b.start || a.end - b.end);
 
@@ -1243,18 +1582,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       timeline,
     };
   }, [
-    effectiveChecklistMinutes,
-    effectiveFeedbackMinutes,
-    effectiveIncludeChecklist,
-    effectiveIncludeFeedback,
-    effectiveIncludeSoap,
     effectiveRoundCount,
-    effectiveSoapMinutes,
-    effectiveTransitionMinutes,
-    includeBreakdown,
-    includeDebrief,
-    parsedBreakdown,
-    parsedDebrief,
+    afterRotationDayBlocks,
+    beforeRotationDayBlocks,
+    normalizedDayBlocks,
     parsedEncounter,
     parsedExamRooms,
     parsedFacultyArrival,
@@ -1269,7 +1600,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     parsedStaffArrival,
     parsedStartMinutes,
     parsedStudentPrebrief,
-    postEncounterLabel,
+    specificTimeDayBlocks,
   ]);
 
   const learnerRoster = useMemo(
@@ -1280,6 +1611,23 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const scheduledRounds = useMemo(
     () => attachLearners(generated.rounds, learnerRoster),
     [generated.rounds, learnerRoster]
+  );
+  const visibleTimeline = useMemo(
+    () =>
+      generated.timeline.filter((block) =>
+        isDayBlockVisibleToView(block.visibleTo || "both", scheduleViewMode)
+      ),
+    [generated.timeline, scheduleViewMode]
+  );
+  const visibleScheduledRounds = useMemo(
+    () =>
+      scheduledRounds.map((round) => ({
+        ...round,
+        subBlocks: round.subBlocks.filter((block) =>
+          isDayBlockVisibleToView(block.visibleTo || "both", scheduleViewMode)
+        ),
+      })),
+    [scheduleViewMode, scheduledRounds]
   );
   const totalScheduleCapacity = Math.max(slotsPerRound, 0) * generated.rounds.length;
   const unplacedLearnerCount =
@@ -1317,14 +1665,14 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     () =>
       buildPlaintextPreview({
         event: selectedEvent,
-        timeline: generated.timeline,
-        rounds: scheduledRounds,
+        timeline: visibleTimeline,
+        rounds: visibleScheduledRounds,
         roomLabel,
         caseName: selectedEventMetadata.case_name,
         assignedSpNames: selectedEvent?.assigned_sp_names || [],
         viewMode: scheduleViewMode,
       }),
-    [generated.timeline, roomLabel, scheduleViewMode, scheduledRounds, selectedEvent, selectedEventMetadata.case_name]
+    [roomLabel, scheduleViewMode, selectedEvent, selectedEventMetadata.case_name, visibleScheduledRounds, visibleTimeline]
   );
   const saveStateAppearance = getSaveStateAppearance(saveState);
   const lastSavedLabel = formatSavedTimestamp(lastSavedAt);
@@ -1333,16 +1681,9 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     parsedStudentPrebrief > 0 ||
     parsedSpPrebrief > 0 ||
     parsedFacultyPrebrief > 0 ||
-    parsedDebrief > 0 ||
-    parsedBreakdown > 0 ||
-    parsedTransition > 0 ||
     parsedSessionLength > 0 ||
-    effectiveSoapMinutes > 0 ||
     Boolean(parsedStaffArrival !== null || parsedSpArrival !== null || parsedFacultyArrival !== null) ||
-    manualRoundOverride ||
-    includeSoap ||
-    includeDebrief ||
-    includeBreakdown;
+    manualRoundOverride;
   const currentTimeSourceLabel = startTime === timeSource.startTime ? timeSource.label : "Edited in builder";
   const referenceEndTimeLabel = timeSource.endTime ? toDisplayTime(toMinutes(timeSource.endTime) || 0) : "";
 
@@ -1400,6 +1741,62 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     window.setTimeout(() => setCopyMessage(""), 2600);
   }
 
+  function handleAddDayBlock() {
+    setDayBlocks((current) => [
+      ...current,
+      createDayBlock({
+        type: "break",
+        label: "Break",
+        durationMinutes: "10",
+        placement: "after_each_rotation",
+        visibleTo: "both",
+      }),
+    ]);
+  }
+
+  function handleUpdateDayBlock(blockId: string, updates: Partial<DayBlockConfig>) {
+    setDayBlocks((current) =>
+      current.map((block) => {
+        if (block.id !== blockId) return block;
+        const nextType = updates.type ? normalizeDayBlockType(updates.type) : block.type;
+        const nextLabel =
+          updates.label !== undefined
+            ? updates.label
+            : block.label === getDefaultDayBlockLabel(block.type)
+              ? getDefaultDayBlockLabel(nextType)
+              : block.label;
+        return createDayBlock({
+          ...block,
+          ...updates,
+          type: nextType,
+          label: nextLabel,
+          placement: updates.placement
+            ? normalizeDayBlockPlacement(updates.placement)
+            : block.placement,
+          visibleTo: updates.visibleTo
+            ? normalizeDayBlockVisibility(updates.visibleTo)
+            : block.visibleTo,
+        });
+      })
+    );
+  }
+
+  function handleRemoveDayBlock(blockId: string) {
+    setDayBlocks((current) => current.filter((block) => block.id !== blockId));
+  }
+
+  function handleMoveDayBlock(blockId: string, direction: "up" | "down") {
+    setDayBlocks((current) => {
+      const index = current.findIndex((block) => block.id === blockId);
+      if (index < 0) return current;
+      const targetIndex = direction === "up" ? index - 1 : index + 1;
+      if (targetIndex < 0 || targetIndex >= current.length) return current;
+      const next = [...current];
+      [next[index], next[targetIndex]] = [next[targetIndex], next[index]];
+      return next;
+    });
+  }
+
   return (
     <div className="grid gap-5">
       {errorMessage ? <div className="cfsp-alert cfsp-alert-error">{errorMessage}</div> : null}
@@ -1408,9 +1805,9 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <p className="cfsp-kicker">Connected builder</p>
-            <h2 className="mt-3 text-[1.7rem] leading-tight font-black text-[#14304f]">Build session schedule</h2>
+            <h2 className="mt-3 text-[1.7rem] leading-tight font-black text-[#14304f]">Build rotation schedule</h2>
             <p className="mt-3 max-w-3xl text-[0.98rem] leading-6 text-[#5e7388]">
-              Build a full-day session schedule preview with arrivals, time blocks, rooms, and learner flow while keeping the event record untouched. Builder changes auto-save locally in this browser for the current event.
+              Build a full-day simulation schedule preview with arrivals, rotation rounds, day blocks, rooms, and learner flow while keeping the event record untouched. Builder changes auto-save locally in this browser for the current event.
             </p>
             <div className="mt-4 inline-flex rounded-[12px] border border-[var(--cfsp-border)] p-1">
               <button
@@ -1716,18 +2113,136 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                   </>
                 ) : null}
                 <NumberInput label="Encounter minutes" value={encounterMinutes} onChange={setEncounterMinutes} />
-                <NumberInput label="Feedback minutes" value={feedbackMinutes} onChange={setFeedbackMinutes} />
-                <SelectInput
-                  label="Post-encounter block"
-                  value={postEncounterBlock}
-                  options={[
-                    { value: "checklist", label: "Checklist" },
-                    { value: "break", label: "Break" },
-                    { value: "other", label: "Other" },
-                  ]}
-                  onChange={(value) => setPostEncounterBlock(value as "checklist" | "break" | "other")}
-                />
-                <NumberInput label="Post-encounter minutes" value={postEncounterMinutes} onChange={setPostEncounterMinutes} />
+                <NumberInput label="Session length override" value={sessionLengthMinutes} onChange={setSessionLengthMinutes} />
+              </div>
+              <div className="mt-4 rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <div className="cfsp-label">Day Blocks</div>
+                    <div className="mt-2 text-sm font-semibold leading-6 text-[#5e7388]">
+                      Add reusable breaks, checklists, SOAP notes, feedback, debriefs, lunch, transitions, or custom blocks around rotation rounds.
+                    </div>
+                  </div>
+                  <button type="button" onClick={handleAddDayBlock} className="cfsp-btn cfsp-btn-secondary">
+                    Add Day Block
+                  </button>
+                </div>
+                <div className="mt-4 grid gap-3">
+                  {dayBlocks.length ? (
+                    dayBlocks.map((block, index) => (
+                      <div key={block.id} className="rounded-[12px] border border-[#dce6ee] bg-white px-3 py-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="text-sm font-black text-[#14304f]">Day Block {index + 1}</div>
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              onClick={() => handleMoveDayBlock(block.id, "up")}
+                              className="cfsp-btn cfsp-btn-secondary"
+                              disabled={index === 0}
+                            >
+                              Move Up
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleMoveDayBlock(block.id, "down")}
+                              className="cfsp-btn cfsp-btn-secondary"
+                              disabled={index === dayBlocks.length - 1}
+                            >
+                              Move Down
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveDayBlock(block.id)}
+                              className="cfsp-btn cfsp-btn-secondary"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        </div>
+                        <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                          <SelectInput
+                            label="Block type"
+                            value={block.type}
+                            options={[
+                              { value: "break", label: "Break" },
+                              { value: "checklist", label: "Checklist" },
+                              { value: "soap_notes", label: "SOAP Notes" },
+                              { value: "feedback", label: "Feedback" },
+                              { value: "debrief", label: "Debrief" },
+                              { value: "lunch", label: "Lunch" },
+                              { value: "transition", label: "Transition" },
+                              { value: "custom", label: "Custom" },
+                            ]}
+                            onChange={(value) => handleUpdateDayBlock(block.id, { type: value as DayBlockType })}
+                          />
+                          <label className="grid gap-2">
+                            <span className="cfsp-label">Label</span>
+                            <input
+                              className="cfsp-input"
+                              value={block.label}
+                              onChange={(event) => handleUpdateDayBlock(block.id, { label: event.target.value })}
+                            />
+                          </label>
+                          <NumberInput
+                            label="Duration minutes"
+                            value={block.durationMinutes}
+                            onChange={(value) => handleUpdateDayBlock(block.id, { durationMinutes: value })}
+                          />
+                          <SelectInput
+                            label="Placement"
+                            value={block.placement}
+                            options={[
+                              { value: "before_rotations", label: "Before rotations" },
+                              { value: "after_each_rotation", label: "After each rotation" },
+                              { value: "after_every_x_rotations", label: "After every X rotations" },
+                              { value: "after_rotations", label: "After rotations" },
+                              { value: "specific_time", label: "Specific time" },
+                            ]}
+                            onChange={(value) => handleUpdateDayBlock(block.id, { placement: value as DayBlockPlacement })}
+                          />
+                          {block.placement === "after_every_x_rotations" ? (
+                            <NumberInput
+                              label="After every X rotations"
+                              value={block.placementInterval}
+                              onChange={(value) => handleUpdateDayBlock(block.id, { placementInterval: value })}
+                            />
+                          ) : block.placement === "specific_time" ? (
+                            <TimeInput
+                              label="Specific time"
+                              value={block.specificTime}
+                              onChange={(value) => handleUpdateDayBlock(block.id, { specificTime: value })}
+                            />
+                          ) : (
+                            <div className="grid gap-2">
+                              <span className="cfsp-label">Placement detail</span>
+                              <div className="cfsp-input flex items-center bg-[#eef5fb] text-sm font-semibold text-[#5e7388]">
+                                {block.placement === "before_rotations"
+                                  ? "Scheduled before the first rotation round"
+                                  : block.placement === "after_rotations"
+                                    ? "Scheduled after the last rotation round"
+                                    : "Scheduled after each rotation round"}
+                              </div>
+                            </div>
+                          )}
+                          <SelectInput
+                            label="Visible to"
+                            value={block.visibleTo}
+                            options={[
+                              { value: "student", label: "Student View" },
+                              { value: "operations", label: "Operations View" },
+                              { value: "both", label: "Both" },
+                            ]}
+                            onChange={(value) => handleUpdateDayBlock(block.id, { visibleTo: value as DayBlockVisibility })}
+                          />
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="rounded-[12px] border border-dashed border-[#c9d7e3] bg-white px-4 py-4 text-sm font-semibold text-[#5e7388]">
+                      No day blocks yet. Add a break, checklist, SOAP notes, feedback, debrief, lunch, transition, or custom block.
+                    </div>
+                  )}
+                </div>
               </div>
             </section>
           </div>
@@ -1767,20 +2282,8 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                   <NumberInput label="Student prebrief minutes" value={studentPrebriefMinutes} onChange={setStudentPrebriefMinutes} />
                   <NumberInput label="SP prebrief minutes" value={spPrebriefMinutes} onChange={setSpPrebriefMinutes} />
                   <NumberInput label="Faculty prebrief minutes" value={facultyPrebriefMinutes} onChange={setFacultyPrebriefMinutes} />
-                  <NumberInput label="Session length override" value={sessionLengthMinutes} onChange={setSessionLengthMinutes} />
                   <ToggleInput label="Manual rounds override" checked={manualRoundOverride} onChange={setManualRoundOverride} />
                   <NumberInput label="Manual round count" value={roundCount} onChange={setRoundCount} disabled={!manualRoundOverride} />
-                  <NumberInput label="Transition minutes" value={transitionMinutes} onChange={setTransitionMinutes} />
-                  <ToggleInput label="Include SOAP note" checked={includeSoap} onChange={setIncludeSoap} />
-                  <NumberInput label="SOAP note minutes" value={soapMinutes} onChange={setSoapMinutes} disabled={!includeSoap} />
-                  <ToggleInput label="Include checklist" checked={includeChecklist} onChange={setIncludeChecklist} />
-                  <NumberInput label="Checklist minutes" value={checklistMinutes} onChange={setChecklistMinutes} disabled={!includeChecklist} />
-                  <ToggleInput label="Include feedback" checked={includeFeedback} onChange={setIncludeFeedback} />
-                  <NumberInput label="Feedback minutes" value={feedbackMinutes} onChange={setFeedbackMinutes} disabled={!includeFeedback} />
-                  <ToggleInput label="Include debrief" checked={includeDebrief} onChange={setIncludeDebrief} />
-                  <NumberInput label="Post-event debrief minutes" value={debriefMinutes} onChange={setDebriefMinutes} disabled={!includeDebrief} />
-                  <ToggleInput label="Include breakdown" checked={includeBreakdown} onChange={setIncludeBreakdown} />
-                  <NumberInput label="Room reset / breakdown minutes" value={breakdownMinutes} onChange={setBreakdownMinutes} disabled={!includeBreakdown} />
                 </div>
               </section>
 
@@ -1793,7 +2296,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                       {advancedSettingsActive ? "Active" : "Inactive"}
                     </div>
                     <div className="mt-2 text-sm font-semibold text-[#5e7388]">
-                      Set arrival, prebrief, transition, debrief, or breakdown values only when you want them included in the timeline.
+                      Set arrival, prebrief, manual round overrides, or session targets only when you want them included in the builder. Use Day Blocks for reusable breaks, checklist steps, SOAP notes, feedback, and debrief timing.
                     </div>
                   </div>
                 </div>
@@ -1806,7 +2309,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
               <div>
                 <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">Full day timeline</h3>
                 <p className="mt-2 mb-0 text-sm leading-6 text-[#5e7388]">
-                  Review the operational day from arrival through breakdown before moving into the session grid.
+                  Review the operational day from arrival through the final day block before moving into the rotation grid.
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -1825,7 +2328,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
               <div className="cfsp-alert cfsp-alert-error mt-5">Enter a valid start time to generate the full-day preview.</div>
             ) : (
               <div className="mt-5 grid gap-3">
-                {generated.timeline.map((block) => {
+                {visibleTimeline.map((block) => {
                   const tone = getToneStyles(block.tone);
                   return (
                     <div
@@ -1848,9 +2351,9 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
           <section className="cfsp-panel px-4 py-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
-                <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">Session schedule grid</h3>
+                <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">Rotation schedule grid</h3>
                 <p className="mt-2 mb-0 text-sm leading-6 text-[#5e7388]">
-                  Rows track rounds and time blocks while columns track rooms in a spreadsheet-style layout. Without an upload, fallback learner names are generated automatically.
+                  Rows track rotation rounds and day-block timing while columns track rooms in a spreadsheet-style layout. Without an upload, fallback learner names are generated automatically.
                 </p>
               </div>
               <div className="inline-flex rounded-[12px] border border-[var(--cfsp-border)] p-1">
@@ -1880,9 +2383,9 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
             </div>
 
             {parsedStartMinutes === null ? (
-              <div className="cfsp-alert cfsp-alert-error mt-5">Enter a valid start time to generate the session schedule grid.</div>
+              <div className="cfsp-alert cfsp-alert-error mt-5">Enter a valid start time to generate the rotation schedule grid.</div>
             ) : !scheduledRounds.length ? (
-              <div className="cfsp-alert cfsp-alert-info mt-5">Add enough rooms and schedule timing to generate the session schedule grid.</div>
+              <div className="cfsp-alert cfsp-alert-info mt-5">Add enough rooms and schedule timing to generate the rotation schedule grid.</div>
             ) : (
               <div className="mt-5 overflow-hidden rounded-[16px] border border-[#dce6ee] bg-[#f8fbfd]">
                 <div className="border-b border-[#dce6ee] px-4 py-3 text-sm font-semibold text-[#5e7388]">
@@ -1904,7 +2407,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                     </tr>
                   </thead>
                   <tbody>
-                    {scheduledRounds.map((round) => (
+                    {visibleScheduledRounds.map((round) => (
                       <tr key={round.round} className="border-b border-[#eef3f7] align-top text-sm text-[#14304f]">
                         <td className="px-3 py-4 font-black">Round {round.round}</td>
                         <td className="px-3 py-4">
