@@ -97,6 +97,20 @@ type AssignedSpApiRow = {
   email?: string | null;
 };
 
+type AssignmentApiRow = {
+  id: string;
+  event_id: string | null;
+  sp_id: string | null;
+  status: string | null;
+  confirmed: boolean | null;
+  notes?: string | null;
+  last_contacted_at?: string | null;
+  contact_method?: string | null;
+  created_at?: string | null;
+  training_attended?: boolean | null;
+  training_checked_in_at?: string | null;
+};
+
 type AuthenticatedUserResult = {
   accessToken: string;
   refreshToken: string;
@@ -245,6 +259,10 @@ function getSafeAssignmentUpdates(rawUpdates: unknown) {
   if (typeof source.contact_method === "string" || source.contact_method === null) {
     updates.contact_method = source.contact_method;
   }
+  if (typeof source.training_attended === "boolean") updates.training_attended = source.training_attended;
+  if (typeof source.training_checked_in_at === "string" || source.training_checked_in_at === null) {
+    updates.training_checked_in_at = source.training_checked_in_at;
+  }
 
   return Object.keys(updates).length ? updates : null;
 }
@@ -304,6 +322,76 @@ function sanitizeEventForSp(event: {
     sp_needed: null,
     visibility: null,
     notes: null,
+  };
+}
+
+async function loadEventAssignments(supabaseServer: ReturnType<typeof createSupabaseServerClient>, eventId: string) {
+  const primary = await supabaseServer
+    .from("event_sps")
+    .select(
+      "id,event_id,sp_id,status,confirmed,notes,last_contacted_at,contact_method,created_at,training_attended,training_checked_in_at"
+    )
+    .eq("event_id", eventId);
+
+  if (!primary.error) {
+    return {
+      assignments: (primary.data || []) as AssignmentApiRow[],
+      error: null,
+    };
+  }
+
+  const fallback = await supabaseServer
+    .from("event_sps")
+    .select("id,event_id,sp_id,status,confirmed,notes,last_contacted_at,contact_method,created_at")
+    .eq("event_id", eventId);
+
+  return {
+    assignments: ((fallback.data || []) as AssignmentApiRow[]).map((assignment) => ({
+      ...assignment,
+      training_attended: false,
+      training_checked_in_at: null,
+    })),
+    error: fallback.error,
+  };
+}
+
+async function fetchAssignmentById(
+  supabaseServer: ReturnType<typeof createSupabaseServerClient>,
+  eventId: string,
+  assignmentId: string
+) {
+  const primary = await supabaseServer
+    .from("event_sps")
+    .select(
+      "id,event_id,sp_id,status,confirmed,notes,last_contacted_at,contact_method,created_at,training_attended,training_checked_in_at"
+    )
+    .eq("event_id", eventId)
+    .eq("id", assignmentId)
+    .maybeSingle();
+
+  if (!primary.error) {
+    return {
+      assignment: (primary.data || null) as AssignmentApiRow | null,
+      error: null,
+    };
+  }
+
+  const fallback = await supabaseServer
+    .from("event_sps")
+    .select("id,event_id,sp_id,status,confirmed,notes,last_contacted_at,contact_method,created_at")
+    .eq("event_id", eventId)
+    .eq("id", assignmentId)
+    .maybeSingle();
+
+  return {
+    assignment: fallback.data
+      ? ({
+          ...(fallback.data as AssignmentApiRow),
+          training_attended: false,
+          training_checked_in_at: null,
+        } satisfies AssignmentApiRow)
+      : null,
+    error: fallback.error,
   };
 }
 
@@ -372,22 +460,9 @@ export async function GET(
       );
     }
 
-    const assignmentResult = await supabaseServer
-      .from("event_sps")
-      .select("id,event_id,sp_id,status,confirmed,notes,last_contacted_at,contact_method,created_at")
-      .eq("event_id", eventId);
-    let assignments: unknown[] | null = assignmentResult.data;
-    let assignmentError = assignmentResult.error;
-
-    if (assignmentError) {
-      const fallback = await supabaseServer
-        .from("event_sps")
-        .select("id,event_id,sp_id,status,confirmed,created_at")
-        .eq("event_id", eventId);
-
-      assignments = fallback.data;
-      assignmentError = fallback.error;
-    }
+    const assignmentResult = await loadEventAssignments(supabaseServer, eventId);
+    const assignments: AssignmentApiRow[] = assignmentResult.assignments;
+    const assignmentError = assignmentResult.error;
 
     if (assignmentError) {
       return applyAuthCookies(
@@ -657,6 +732,8 @@ export async function PATCH(
     const sessionUpdates = getSafeSessionUpdates(body?.session_updates);
     const assignmentId = typeof body?.assignment_id === "string" ? body.assignment_id : "";
     const updates = getSafeAssignmentUpdates(body?.updates);
+    const attendanceAction =
+      typeof body?.attendance_action === "string" ? body.attendance_action.trim().toLowerCase() : "";
 
     if (eventId && (eventUpdates || sessionUpdates)) {
       const nextEventUpdates = eventUpdates ? { ...eventUpdates } : {};
@@ -746,6 +823,47 @@ export async function PATCH(
       return applyAuthCookies(NextResponse.json({ ok: true }), viewer);
     }
 
+    if (eventId && (attendanceAction === "confirm_all" || attendanceAction === "clear_all")) {
+      const nextAttended = attendanceAction === "confirm_all";
+      const nextCheckedAt = nextAttended ? new Date().toISOString() : null;
+      const { error } = await supabaseServer
+        .from("event_sps")
+        .update({
+          training_attended: nextAttended,
+          training_checked_in_at: nextCheckedAt,
+        })
+        .eq("event_id", eventId);
+
+      if (error) {
+        return applyAuthCookies(
+          NextResponse.json(
+            { error: error.message || "Could not update training attendance." },
+            { status: 500 }
+          ),
+          viewer
+        );
+      }
+
+      const refreshedAssignments = await loadEventAssignments(supabaseServer, eventId);
+      if (refreshedAssignments.error) {
+        return applyAuthCookies(
+          NextResponse.json(
+            { error: refreshedAssignments.error.message || "Could not reload assignments." },
+            { status: 500 }
+          ),
+          viewer
+        );
+      }
+
+      return applyAuthCookies(
+        NextResponse.json({
+          ok: true,
+          assignments: refreshedAssignments.assignments,
+        }),
+        viewer
+      );
+    }
+
     if (!eventId || !assignmentId || !updates) {
       return applyAuthCookies(
         NextResponse.json(
@@ -771,8 +889,21 @@ export async function PATCH(
         viewer
       );
     }
+    const refreshedAssignment = await fetchAssignmentById(supabaseServer, eventId, assignmentId);
+    if (refreshedAssignment.error) {
+      return applyAuthCookies(
+        NextResponse.json(
+          { error: refreshedAssignment.error.message || "Could not reload assignment." },
+          { status: 500 }
+        ),
+        viewer
+      );
+    }
 
-    return applyAuthCookies(NextResponse.json({ ok: true }), viewer);
+    return applyAuthCookies(
+      NextResponse.json({ ok: true, assignment: refreshedAssignment.assignment }),
+      viewer
+    );
   } catch (error) {
     return NextResponse.json(
       { error: `Supabase request failed: ${getErrorMessage(error)}` },
