@@ -134,6 +134,10 @@ type PollLocationFilter = "any" | "elkins_park" | "center_city" | "virtual";
 type CommandCenterMode = "planning" | "live";
 type RotationCompanionView = "announcements" | "student" | "sp" | "operations";
 type LiveRoomStatusValue = "ready" | "in_session" | "delayed" | "empty" | "sp_missing" | "complete";
+type RoomDisplayEntry = {
+  roomName: string;
+  sourceIndex: number;
+};
 type AssignSpOptions = {
   status?: AssignmentStatus;
   confirmed?: boolean;
@@ -1024,6 +1028,38 @@ function getInitials(value: string) {
   const first = parts[0]?.[0] || "";
   const last = parts.length > 1 ? parts[parts.length - 1]?.[0] || "" : parts[0]?.[1] || "";
   return `${first}${last}`.toUpperCase() || "SP";
+}
+
+function getRoomDisplayNumber(label?: string | null) {
+  const match = asText(label).match(/\d+/);
+  return match ? Number.parseInt(match[0], 10) : null;
+}
+
+function compareRoomLabels(a?: string | null, b?: string | null) {
+  const aText = asText(a);
+  const bText = asText(b);
+  const aNumber = getRoomDisplayNumber(aText);
+  const bNumber = getRoomDisplayNumber(bText);
+
+  if (aNumber !== null && bNumber !== null && aNumber !== bNumber) return aNumber - bNumber;
+  if (aNumber !== null && bNumber === null) return -1;
+  if (aNumber === null && bNumber !== null) return 1;
+
+  return aText.localeCompare(bText, undefined, {
+    numeric: true,
+    sensitivity: "base",
+  });
+}
+
+function sortRoomLabelsForDisplay(rooms: string[]) {
+  return [...rooms].sort(compareRoomLabels);
+}
+
+function sortItemsByRoomLabel<T>(items: T[], getRoomLabel: (item: T) => string | null | undefined) {
+  return items
+    .map((item, sourceIndex) => ({ item, sourceIndex }))
+    .sort((a, b) => compareRoomLabels(getRoomLabel(a.item), getRoomLabel(b.item)) || a.sourceIndex - b.sourceIndex)
+    .map(({ item }) => item);
 }
 
 function getEmail(sp: SPRow) {
@@ -2107,7 +2143,10 @@ function buildRotationRounds(sessions: EventSessionRow[]): RotationRound[] {
     });
   });
 
-  return Array.from(rounds.values()).sort((a, b) => {
+  return Array.from(rounds.values()).map((round) => ({
+    ...round,
+    rooms: sortRoomLabelsForDisplay(round.rooms),
+  })).sort((a, b) => {
     const dateCompare = asText(a.session_date).localeCompare(asText(b.session_date));
     if (dateCompare !== 0) return dateCompare;
     return asText(a.start_time).localeCompare(asText(b.start_time));
@@ -2145,6 +2184,10 @@ function getRoundCompanionAudience(label: string): RotationCompanionView[] {
 
 function getScheduleBuilderStorageKey(eventId?: string) {
   return `cfsp:schedule-builder:${eventId || "global"}`;
+}
+
+function getRotationCommandSurfaceStorageKey(eventId?: string) {
+  return `cfsp:rotation-command-surface:${eventId || "global"}`;
 }
 
 function parsePositiveInteger(value: unknown, fallback = 0) {
@@ -2570,6 +2613,7 @@ export default function EventDetailPage() {
   const [roundCompanionView, setRoundCompanionView] = useState<RotationCompanionView>("announcements");
   const [roundAnnouncementDrafts, setRoundAnnouncementDrafts] = useState<Record<string, string>>({});
   const [hasTouchedRoundCompanion, setHasTouchedRoundCompanion] = useState(false);
+  const [rotationCommandSurfaceOpen, setRotationCommandSurfaceOpen] = useState(false);
   const [liveRoomStates, setLiveRoomStates] = useState<Record<string, LiveRoomLocalState>>({});
   const [scheduleBuilderPreviewDraft, setScheduleBuilderPreviewDraft] =
     useState<ScheduleBuilderPreviewDraft | null>(null);
@@ -3622,6 +3666,17 @@ const summaryTimeLabel = useMemo(() => {
       : liveFlowBlocks.find((block) => block.startMinutes > simulatedLiveMinutes) || null;
   const currentRotationRoundNumber =
     currentLiveBlock?.tone === "rotation" ? currentLiveBlock.roundNumber : null;
+  const currentLiveRoomDisplayEntries = useMemo(() => {
+    if (!currentLiveBlock?.rooms.length) return [] as RoomDisplayEntry[];
+
+    return sortItemsByRoomLabel(
+      currentLiveBlock.rooms.map((roomName, sourceIndex) => ({
+        roomName,
+        sourceIndex,
+      })),
+      (entry) => entry.roomName
+    );
+  }, [currentLiveBlock]);
   const defaultSelectedRotationRoundKey = useMemo(() => {
     if (!rotationRounds.length) return "";
     if (
@@ -3634,25 +3689,26 @@ const summaryTimeLabel = useMemo(() => {
     return rotationRounds[0]?.key || "";
   }, [currentRotationRoundNumber, rotationRounds]);
   const currentLiveAssignmentRows = useMemo(() => {
-    if (!currentLiveBlock?.rooms.length) return [] as Array<{
+    if (!currentLiveRoomDisplayEntries.length) return [] as Array<{
       assignment: AssignmentRow;
       sp: SPRow;
       roomName: string;
     }>;
-    return currentLiveBlock.rooms
-      .map((roomName, index) => {
-        const assignment = sortedAssignments[index];
+    return currentLiveRoomDisplayEntries
+      .map(({ roomName, sourceIndex }, index) => {
+        const assignment = sortedAssignments[sourceIndex];
         const sp = assignment?.sp_id ? spsById.get(assignment.sp_id) : undefined;
         if (!assignment || !sp) return null;
-        return { assignment, sp, roomName };
+        return { assignment, sp, roomName: roomName || `Room ${index + 1}` };
       })
       .filter(Boolean) as Array<{ assignment: AssignmentRow; sp: SPRow; roomName: string }>;
-  }, [currentLiveBlock, sortedAssignments, spsById]);
+  }, [currentLiveRoomDisplayEntries, sortedAssignments, spsById]);
   const currentLiveRoomBoardRows = useMemo(() => {
-    if (!currentLiveBlock?.rooms.length) {
+    if (!currentLiveBlock || !currentLiveRoomDisplayEntries.length) {
       return [] as Array<{
         key: string;
         roomName: string;
+        sourceIndex: number;
         assignment: AssignmentRow | null;
         sp: SPRow | null;
         learnerLabel: string;
@@ -3669,11 +3725,11 @@ const summaryTimeLabel = useMemo(() => {
       ? formatRemainingMinutes(Math.max(currentLiveBlock.endMinutes - simulatedLiveMinutes, 0))
       : "Timeline TBD";
 
-    return currentLiveBlock.rooms.map((roomName, index) => {
-      const assignment = sortedAssignments[index] || null;
+    return currentLiveRoomDisplayEntries.map(({ roomName, sourceIndex }, index) => {
+      const assignment = sortedAssignments[sourceIndex] || null;
       const sp = assignment?.sp_id ? spsById.get(assignment.sp_id) || null : null;
       const checkedAt = assignment ? formatAttendanceTimestamp(assignment.training_checked_in_at) : "";
-      const liveKey = `${currentLiveBlock.key}|${roomName || `room-${index}`}`;
+      const liveKey = `${currentLiveBlock.key}|${roomName || `room-${sourceIndex}`}`;
       const localState = liveRoomStates[liveKey] || {};
       const assignmentStatus = assignment ? getAssignmentStatus(assignment) : null;
       const missingSp =
@@ -3690,11 +3746,12 @@ const summaryTimeLabel = useMemo(() => {
             : "in_session";
       const learnerLabel =
         metadataStudentCount > 0 && metadataRoomCount > 0
-          ? `Learner ${Math.min(metadataStudentCount, currentRotationRoundNumber ? (currentRotationRoundNumber - 1) * metadataRoomCount + index + 1 : index + 1)}`
+          ? `Learner ${Math.min(metadataStudentCount, currentRotationRoundNumber ? (currentRotationRoundNumber - 1) * metadataRoomCount + sourceIndex + 1 : sourceIndex + 1)}`
           : "Learner TBD";
 
       return {
         key: liveKey,
+        sourceIndex,
         roomName: roomName || `Room ${index + 1}`,
         assignment,
         sp,
@@ -3709,6 +3766,7 @@ const summaryTimeLabel = useMemo(() => {
     });
   }, [
     currentLiveBlock,
+    currentLiveRoomDisplayEntries,
     currentRotationRoundNumber,
     livePausedAtMs,
     liveRoomStates,
@@ -3757,6 +3815,12 @@ const summaryTimeLabel = useMemo(() => {
       window.removeEventListener("focus", loadScheduleBuilderDraft);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
+  }, [id]);
+  useEffect(() => {
+    if (typeof window === "undefined" || !id) return;
+
+    const savedState = window.localStorage.getItem(getRotationCommandSurfaceStorageKey(id));
+    setRotationCommandSurfaceOpen(savedState === "open");
   }, [id]);
   const assignedEmailSources = useMemo(() => {
     return assignments
@@ -4476,21 +4540,28 @@ const summaryTimeLabel = useMemo(() => {
               created_at: null,
             },
           ];
+    const displayRows = sortItemsByRoomLabel(
+      usableRows.map((session, sourceIndex) => ({
+        session,
+        sourceIndex,
+      })),
+      (entry) => asText(entry.session.room) || asText(selectedRotationRound.rooms[entry.sourceIndex])
+    );
     const rowCount = Math.max(usableRows.length, 1);
     const learnersPerRow = scheduleBuilderLearnerNames.length ? scheduleBuilderRoomCapacity : 1;
     const learnersPerRound = rowCount * Math.max(learnersPerRow, 1);
     const firstLearnerIndex = activeSelectedRotationRoundIndex * learnersPerRound;
 
-    return usableRows.map((session, index) => {
+    return displayRows.map(({ session, sourceIndex }, index) => {
       const rawRoomName =
         asText(session.room) ||
-        asText(selectedRotationRound.rooms[index]) ||
+        asText(selectedRotationRound.rooms[sourceIndex]) ||
         "";
       const displayRoomName = rawRoomName || "Room TBD";
-      const assignment = sortedAssignments[index] || null;
+      const assignment = sortedAssignments[sourceIndex] || null;
       const sp = assignment?.sp_id ? spsById.get(assignment.sp_id) || null : null;
       const learnerLabels = Array.from({ length: Math.max(learnersPerRow, 1) }, (_, learnerOffset) => {
-        const learnerIndex = firstLearnerIndex + index * Math.max(learnersPerRow, 1) + learnerOffset;
+        const learnerIndex = firstLearnerIndex + sourceIndex * Math.max(learnersPerRow, 1) + learnerOffset;
         if (scheduleBuilderLearnerNames[learnerIndex]) return scheduleBuilderLearnerNames[learnerIndex];
         if (metadataStudentCount > 0 && learnerIndex < metadataStudentCount) return `Learner slot ${learnerIndex + 1}`;
         return "";
@@ -4503,7 +4574,7 @@ const summaryTimeLabel = useMemo(() => {
       ].filter(Boolean);
 
       return {
-        key: `${selectedRotationRound.key}-${session.id || index}`,
+        key: `${selectedRotationRound.key}-${session.id || sourceIndex}-${index}`,
         roomName: displayRoomName,
         location: asText(session.location) || asText(event?.location),
         learnerLabels,
@@ -4643,6 +4714,22 @@ const summaryTimeLabel = useMemo(() => {
   const selectedRoundOperationsScheduleReady =
     selectedRoundScheduleRows.length > 0 ||
     visibleSelectedRoundScheduleBlocks.length > 0;
+  const rotationSurfaceRoomCount =
+    selectedRoundScheduleRows.length ||
+    selectedRotationRound?.rooms.length ||
+    metadataRoomCount ||
+    0;
+  const rotationSurfaceSpCoverageCount = selectedRoundScheduleRows.length
+    ? selectedRoundScheduleRows.filter((row) => Boolean(row.assignment)).length
+    : Math.min(sortedAssignments.length, rotationSurfaceRoomCount || sortedAssignments.length);
+  const rotationSurfaceSummaryChips = [
+    `${rotationRounds.length} round${rotationRounds.length === 1 ? "" : "s"}`,
+    `${rotationSurfaceRoomCount} room${rotationSurfaceRoomCount === 1 ? "" : "s"}`,
+    staffingRelevant
+      ? `${rotationSurfaceSpCoverageCount}/${rotationSurfaceRoomCount || needed || 0} SP coverage`
+      : "SP coverage optional",
+    selectedRotationRound ? `Selected Round ${activeSelectedRotationRoundIndex + 1}` : "No round selected",
+  ];
   const feedbackMinutesFromMetadata = useMemo(
     () => parseIntegerNoteValue(eventEditor.notes || event?.notes, "Feedback / Break Length"),
     [event?.notes, eventEditor.notes]
@@ -4997,13 +5084,15 @@ const summaryTimeLabel = useMemo(() => {
         ? "yellow"
         : "red";
   const activeCoverageRiskRooms = useMemo(() => {
-    if (!currentLiveBlock?.rooms?.length) return [] as string[];
-    return currentLiveBlock.rooms.filter((roomName, index) => {
-      const assignment = sortedAssignments[index];
+    if (!currentLiveRoomDisplayEntries.length) return [] as string[];
+    return currentLiveRoomDisplayEntries.flatMap(({ roomName, sourceIndex }, index) => {
+      const assignment = sortedAssignments[sourceIndex];
       const status = assignment ? getAssignmentStatus(assignment) : null;
-      return !assignment || status === "backup" || status === "declined" || status === "no_show";
+      return !assignment || status === "backup" || status === "declined" || status === "no_show"
+        ? [roomName || `Room ${index + 1}`]
+        : [];
     });
-  }, [currentLiveBlock, sortedAssignments]);
+  }, [currentLiveRoomDisplayEntries, sortedAssignments]);
   const liveAlerts = useMemo(() => {
     const alerts: Array<{ tone: "info" | "warning" | "danger"; message: string }> = [];
     if (nextLiveBlock) {
@@ -5046,24 +5135,33 @@ const summaryTimeLabel = useMemo(() => {
     shortageCount,
     simulatedLiveMinutes,
   ]);
-  const liveBlueprintRoomNames = useMemo(() => {
-    const sourceRooms =
-      currentLiveBlock?.rooms.length
-        ? currentLiveBlock.rooms
-        : selectedRotationRound?.rooms.length
+  const liveBlueprintRoomEntries = useMemo(() => {
+    const sourceEntries = currentLiveRoomDisplayEntries.length
+      ? currentLiveRoomDisplayEntries
+      : (selectedRotationRound?.rooms.length
           ? selectedRotationRound.rooms
-          : rotationRounds[0]?.rooms || [];
+          : rotationRounds[0]?.rooms || []
+        ).map((roomName, sourceIndex) => ({
+          roomName,
+          sourceIndex,
+        }));
+    const sortedSourceEntries = sortItemsByRoomLabel(sourceEntries, (entry) => entry.roomName);
     const fallbackRoomCount = Math.max(metadataRoomCount || 0, sortedAssignments.length || 0, 8);
-    const roomCount = sourceRooms.length || fallbackRoomCount;
-    return Array.from({ length: Math.max(roomCount, 1) }, (_, index) =>
-      asText(sourceRooms[index]) || `Room ${index + 1}`
-    );
-  }, [currentLiveBlock, metadataRoomCount, rotationRounds, selectedRotationRound, sortedAssignments.length]);
+    const roomCount = sortedSourceEntries.length || fallbackRoomCount;
+
+    return Array.from({ length: Math.max(roomCount, 1) }, (_, index) => ({
+      roomName: asText(sortedSourceEntries[index]?.roomName) || `Room ${index + 1}`,
+      sourceIndex: sortedSourceEntries[index]?.sourceIndex ?? index,
+    }));
+  }, [currentLiveRoomDisplayEntries, metadataRoomCount, rotationRounds, selectedRotationRound, sortedAssignments.length]);
   const liveAttendanceBlueprintRooms = useMemo(
     () =>
-      liveBlueprintRoomNames.map((roomName, index) => {
-        const boardRow = currentLiveRoomBoardRows[index] || null;
-        const assignment = boardRow?.assignment || sortedAssignments[index] || null;
+      liveBlueprintRoomEntries.map(({ roomName, sourceIndex }, index) => {
+        const boardRow =
+          currentLiveRoomBoardRows.find((row) => row.sourceIndex === sourceIndex) ||
+          currentLiveRoomBoardRows[index] ||
+          null;
+        const assignment = boardRow?.assignment || sortedAssignments[sourceIndex] || null;
         const sp = boardRow?.sp || (assignment?.sp_id ? spsById.get(assignment.sp_id) || null : null);
         const assignmentStatus = assignment ? getAssignmentStatus(assignment) : null;
         const checkedIn = assignment?.training_attended === true;
@@ -5110,16 +5208,16 @@ const summaryTimeLabel = useMemo(() => {
                   : status === "awaiting"
                     ? "Awaiting"
                     : "Standby",
-          isCurrentRotationRoom: Boolean(currentLiveBlock?.rooms.length && index < currentLiveBlock.rooms.length),
+          isCurrentRotationRoom: Boolean(currentLiveRoomDisplayEntries.length && sourceIndex < currentLiveRoomDisplayEntries.length),
           issueNote: boardRow?.issueNote || "",
           delayMinutes: boardRow?.delayMinutes || 0,
         };
       }),
     [
-      currentLiveBlock,
+      currentLiveRoomDisplayEntries.length,
       currentLiveRoomBoardRows,
       firstLiveRotationStartMinutes,
-      liveBlueprintRoomNames,
+      liveBlueprintRoomEntries,
       simulatedLiveMinutes,
       sortedAssignments,
       spsById,
@@ -7300,6 +7398,13 @@ Cory`;
     showSuccessMessage(
       `${matchingIds.length} matching candidate${matchingIds.length === 1 ? "" : "s"} selected for the hiring email.`
     );
+  }
+
+  function handleRotationCommandSurfaceOpenChange(nextOpen: boolean) {
+    setRotationCommandSurfaceOpen(nextOpen);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(getRotationCommandSurfaceStorageKey(id), nextOpen ? "open" : "closed");
+    }
   }
 
   async function handleTrainingAttendanceToggle(assignment: AssignmentRow, checked: boolean) {
@@ -11906,6 +12011,77 @@ Cory`;
               <div style={{ marginTop: "10px" }}>
                 <div
                   style={{
+                    borderRadius: "18px",
+                    border: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.2)" : "1px solid rgba(126, 231, 219, 0.2)",
+                    background: isPlanningVisualMode
+                      ? "linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(241, 249, 252, 0.96) 100%)"
+                      : "linear-gradient(180deg, rgba(8, 22, 36, 0.94) 0%, rgba(8, 28, 38, 0.9) 100%)",
+                    boxShadow: isPlanningVisualMode ? "0 12px 26px rgba(42, 112, 140, 0.08)" : "0 14px 34px rgba(0, 0, 0, 0.24)",
+                    padding: "12px 14px",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    gap: "12px",
+                    flexWrap: "wrap",
+                    alignItems: "center",
+                  }}
+                >
+                  <div style={{ display: "grid", gap: "7px", minWidth: 0 }}>
+                    <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>
+                      Rotation Command Surface
+                    </div>
+                    <div style={{ color: commandCenterVisual.headingColor, fontSize: "17px", fontWeight: 900 }}>
+                      {rotationCommandSurfaceOpen ? "Tactical rotation board open" : "Tactical rotation board ready"}
+                    </div>
+                    <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                      {rotationSurfaceSummaryChips.map((chip) => (
+                        <span
+                          key={`rotation-surface-summary-${chip}`}
+                          style={{
+                            ...commandChipStyle,
+                            background: commandCenterVisual.chipBackground,
+                            color: commandCenterVisual.chipText,
+                            border: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.18)" : commandChipStyle.border,
+                          }}
+                        >
+                          {chip}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    aria-expanded={rotationCommandSurfaceOpen}
+                    onClick={() => handleRotationCommandSurfaceOpenChange(!rotationCommandSurfaceOpen)}
+                    style={{
+                      ...buttonStyle,
+                      padding: "9px 13px",
+                      background: rotationCommandSurfaceOpen
+                        ? isPlanningVisualMode ? "rgba(255, 255, 255, 0.92)" : "rgba(15, 23, 42, 0.76)"
+                        : isPlanningVisualMode
+                          ? "linear-gradient(135deg, #0f766e 0%, #0369a1 100%)"
+                          : "linear-gradient(135deg, rgba(44, 211, 173, 0.95) 0%, rgba(73, 168, 255, 0.9) 100%)",
+                      color: rotationCommandSurfaceOpen
+                        ? commandCenterVisual.textColor
+                        : isPlanningVisualMode
+                          ? "#ffffff"
+                          : "#06111d",
+                      border: rotationCommandSurfaceOpen
+                        ? isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.22)" : "1px solid rgba(126, 231, 219, 0.22)"
+                        : "1px solid rgba(126, 231, 219, 0.28)",
+                      boxShadow: rotationCommandSurfaceOpen
+                        ? "none"
+                        : isPlanningVisualMode
+                          ? "0 10px 22px rgba(3, 105, 161, 0.16)"
+                          : "0 12px 28px rgba(44, 211, 173, 0.18)",
+                    }}
+                  >
+                    {rotationCommandSurfaceOpen ? "Collapse" : "Open Rotation Command Surface"}
+                  </button>
+                </div>
+                {rotationCommandSurfaceOpen ? (
+                  <>
+                <div
+                  style={{
                     position: "sticky",
                     top: "10px",
                     zIndex: 2,
@@ -11935,6 +12111,16 @@ Cory`;
                     </div>
                   </div>
                   <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                    <button
+                      type="button"
+                      onClick={() => handleRotationCommandSurfaceOpenChange(false)}
+                      style={{
+                        ...staffingSecondaryButtonStyle,
+                        padding: "7px 10px",
+                      }}
+                    >
+                      Collapse
+                    </button>
                     <span style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText, border: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.18)" : commandChipStyle.border }}>
                       {selectedRotationRound ? `Selected Round ${activeSelectedRotationRoundIndex + 1}` : "No round selected"}
                     </span>
@@ -12303,7 +12489,7 @@ Cory`;
                             <div
                               style={{
                                 display: "grid",
-                                gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+                                gridTemplateColumns: "repeat(auto-fit, minmax(215px, 1fr))",
                                 gap: "10px",
                               }}
                             >
@@ -12346,10 +12532,10 @@ Cory`;
                                         : isPlanningVisualMode
                                           ? "0 10px 24px rgba(32, 104, 132, 0.08)"
                                           : "inset 0 0 0 1px rgba(255,255,255,0.02)",
-                                      padding: "13px",
+                                      padding: "11px 12px",
                                       display: "grid",
-                                      gap: "11px",
-                                      minHeight: "230px",
+                                      gap: "9px",
+                                      minHeight: "188px",
                                       position: "relative",
                                     }}
                                   >
@@ -12766,6 +12952,8 @@ Cory`;
                     )}
                   </aside>
                 </div>
+                  </>
+                ) : null}
               </div>
             ) : (
               <div style={{ marginTop: "10px", color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
