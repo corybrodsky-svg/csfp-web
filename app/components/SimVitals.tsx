@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
 export type SimVitalsRole = "sim_ops" | "admin" | "faculty" | "sp" | "system";
 export type SimVitalsFeedType =
@@ -26,9 +26,18 @@ export type SimVitalsPost = {
   linkedEventName?: string;
   body: string;
   tags: string[];
+  attachment?: SimVitalsAttachment | null;
   reactionCount: number;
   commentCount: number;
   acknowledgedByViewer?: boolean;
+};
+
+export type SimVitalsAttachment = {
+  fileName: string;
+  path: string;
+  url: string;
+  mimeType: string;
+  size: number;
 };
 
 export type SimVitalsComment = {
@@ -170,6 +179,31 @@ function asText(value: unknown) {
   return String(value).trim();
 }
 
+const SIMVITALS_ATTACHMENT_ACCEPT = ".pdf,.docx,.xlsx,.csv,.png,.jpg,.jpeg";
+
+function formatSimVitalsFileSize(size: number) {
+  if (!Number.isFinite(size) || size <= 0) return "";
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${Math.round(size / 1024)} KB`;
+  return `${(size / (1024 * 1024)).toFixed(size >= 10 * 1024 * 1024 ? 0 : 1)} MB`;
+}
+
+function normalizeSimVitalsAttachment(value: unknown): SimVitalsAttachment | null {
+  if (!value || typeof value !== "object") return null;
+  const source = value as Partial<SimVitalsAttachment>;
+  const fileName = asText(source.fileName);
+  const path = asText(source.path);
+  const url = asText(source.url);
+  if (!fileName || !path || !url) return null;
+  return {
+    fileName,
+    path,
+    url,
+    mimeType: asText(source.mimeType) || "application/octet-stream",
+    size: Math.max(0, Number(source.size) || 0),
+  };
+}
+
 async function parseSimVitalsApiError(response: Response) {
   const body = (await response.json().catch(() => null)) as { error?: string; warning?: string } | null;
   return body?.error || body?.warning || `${response.status} ${response.statusText}`;
@@ -194,6 +228,7 @@ function normalizeSimVitalsPost(value: unknown): SimVitalsPost | null {
     linkedEventName: asText(source.linkedEventName),
     body: asText(source.body),
     tags: Array.isArray(source.tags) ? source.tags.map(asText).filter(Boolean) : [],
+    attachment: normalizeSimVitalsAttachment(source.attachment),
     reactionCount: Number(source.reactionCount) || 0,
     commentCount: Number(source.commentCount) || 0,
     acknowledgedByViewer: Boolean(source.acknowledgedByViewer),
@@ -351,22 +386,30 @@ function SimVitalsRoleBadge({ role }: { role: SimVitalsRole }) {
 function SimVitalsIconButton({
   label,
   children,
+  onClick,
+  disabled = false,
+  title,
 }: {
   label: string;
   children: ReactNode;
+  onClick?: () => void;
+  disabled?: boolean;
+  title?: string;
 }) {
   return (
     <button
       type="button"
       aria-label={label}
-      title={`${label} coming soon`}
+      title={title || label}
       className="inline-flex h-[42px] w-[42px] items-center justify-center rounded-[10px]"
-      disabled
+      disabled={disabled}
+      onClick={onClick}
       style={{
         border: "1px solid var(--cfsp-border)",
         background: "var(--cfsp-surface-muted)",
         color: "var(--cfsp-text-muted)",
-        opacity: 0.72,
+        opacity: disabled ? 0.62 : 1,
+        cursor: disabled ? "not-allowed" : "pointer",
       }}
     >
       {children}
@@ -569,6 +612,30 @@ export function SimVitalsPostCard({
 
       <p className={`${compact ? "mt-2 text-[0.88rem] leading-5" : "mt-3 text-[0.95rem] leading-6"} text-[var(--cfsp-text)]`}>{post.body}</p>
 
+      {post.attachment ? (
+        <div className="mt-3">
+          <a
+            href={post.attachment.url}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex max-w-full items-center gap-2 rounded-[12px] px-3 py-2 text-xs font-black no-underline"
+            style={{
+              border: "1px solid var(--cfsp-border)",
+              background: "var(--cfsp-surface-muted)",
+              color: "var(--cfsp-text)",
+            }}
+          >
+            <SimVitalsAttachmentIcon />
+            <span className="truncate">{post.attachment.fileName}</span>
+            {post.attachment.size ? (
+              <span className="shrink-0 text-[var(--cfsp-text-muted)]">
+                {formatSimVitalsFileSize(post.attachment.size)}
+              </span>
+            ) : null}
+          </a>
+        </div>
+      ) : null}
+
       {post.tags.length ? (
         <div className="mt-3 flex flex-wrap gap-2">
           {post.tags.slice(0, compact ? 3 : post.tags.length).map((tag) => (
@@ -768,6 +835,8 @@ export function SimVitalsFullExperience({
   const [feedError, setFeedError] = useState("");
   const [savingPost, setSavingPost] = useState(false);
   const [composerError, setComposerError] = useState("");
+  const [selectedAttachmentFile, setSelectedAttachmentFile] = useState<File | null>(null);
+  const attachmentInputRef = useRef<HTMLInputElement | null>(null);
   const authorInitials = getSimVitalsInitials(displayName);
   const selectedTypeLook = simVitalsFeedTypeAppearance[postType];
   const authorRoleLook = simVitalsRoleAppearance[authorRole];
@@ -817,6 +886,48 @@ export function SimVitalsFullExperience({
     );
   }
 
+  function handleAttachmentFileChange(file: File | null) {
+    setComposerError("");
+    if (!file) {
+      setSelectedAttachmentFile(null);
+      return;
+    }
+
+    const acceptedExtensions = [".pdf", ".docx", ".xlsx", ".csv", ".png", ".jpg", ".jpeg"];
+    const lowerName = file.name.toLowerCase();
+    const accepted = acceptedExtensions.some((extension) => lowerName.endsWith(extension));
+    if (!accepted) {
+      setComposerError("Unsupported attachment type. Use PDF, DOCX, XLSX, CSV, PNG, or JPG.");
+      setSelectedAttachmentFile(null);
+      return;
+    }
+
+    setSelectedAttachmentFile(file);
+  }
+
+  async function uploadSelectedAttachment(file: File) {
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const response = await fetch("/api/simvitals/attachments", {
+      method: "POST",
+      cache: "no-store",
+      credentials: "include",
+      body: formData,
+    });
+    const responseBody = (await response.json().catch(() => null)) as
+      | { attachment?: unknown; error?: string }
+      | null;
+
+    if (!response.ok) {
+      throw new Error(responseBody?.error || (await parseSimVitalsApiError(response)));
+    }
+
+    const attachment = normalizeSimVitalsAttachment(responseBody?.attachment);
+    if (!attachment) throw new Error("The uploaded attachment could not be read.");
+    return attachment;
+  }
+
   async function handleCreatePost() {
     const body = draft.trim();
     if (!body || savingPost) return;
@@ -825,6 +936,9 @@ export function SimVitalsFullExperience({
     setComposerError("");
 
     try {
+      const attachment = selectedAttachmentFile
+        ? await uploadSelectedAttachment(selectedAttachmentFile)
+        : null;
       const response = await fetch("/api/simvitals/posts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -834,6 +948,7 @@ export function SimVitalsFullExperience({
           body,
           postType,
           tags: [selectedTypeLook.signal, authorRoleLook.label],
+          attachment,
         }),
       });
       const responseBody = (await response.json().catch(() => null)) as { post?: unknown; error?: string } | null;
@@ -844,6 +959,8 @@ export function SimVitalsFullExperience({
       if (!post) throw new Error("The new SimVitals post could not be read.");
       setPosts((current) => [post, ...current]);
       setDraft("");
+      setSelectedAttachmentFile(null);
+      if (attachmentInputRef.current) attachmentInputRef.current.value = "";
       if (activeFilter !== "all" && activeFilter !== post.type) {
         setActiveFilter("all");
       }
@@ -953,12 +1070,23 @@ export function SimVitalsFullExperience({
           />
 
           <div className="flex shrink-0 items-center gap-2">
-            {/* TODO attachments: connect this placeholder to future SimVitals upload records. */}
-            <SimVitalsIconButton label="Add attachment">
+            <input
+              ref={attachmentInputRef}
+              type="file"
+              accept={SIMVITALS_ATTACHMENT_ACCEPT}
+              className="hidden"
+              onChange={(event) => handleAttachmentFileChange(event.target.files?.[0] || null)}
+            />
+            <SimVitalsIconButton
+              label="Add attachment"
+              title="Attach file"
+              disabled={savingPost}
+              onClick={() => attachmentInputRef.current?.click()}
+            >
               <SimVitalsAttachmentIcon />
             </SimVitalsIconButton>
             {/* TODO linked_events: store event_id references and hydrate event chips from Supabase. */}
-            <SimVitalsIconButton label="Link event">
+            <SimVitalsIconButton label="Link event" disabled title="Link event coming soon">
               <SimVitalsEventLinkIcon />
             </SimVitalsIconButton>
             <button
@@ -972,10 +1100,40 @@ export function SimVitalsFullExperience({
                 boxShadow: draft.trim() && !savingPost ? "0 10px 26px rgba(20, 91, 150, 0.20)" : undefined,
               }}
             >
-              {savingPost ? "Posting..." : "Post"}
+              {savingPost ? (selectedAttachmentFile ? "Uploading..." : "Posting...") : "Post"}
             </button>
           </div>
         </div>
+
+        {selectedAttachmentFile ? (
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <span
+              className="inline-flex max-w-full items-center gap-2 rounded-[12px] px-3 py-2 text-xs font-black"
+              style={{
+                border: "1px solid var(--cfsp-border)",
+                background: "var(--cfsp-surface-muted)",
+                color: "var(--cfsp-text)",
+              }}
+            >
+              <SimVitalsAttachmentIcon />
+              <span className="truncate">{selectedAttachmentFile.name}</span>
+              <span className="shrink-0 text-[var(--cfsp-text-muted)]">
+                {formatSimVitalsFileSize(selectedAttachmentFile.size)}
+              </span>
+            </span>
+            <button
+              type="button"
+              className="cfsp-btn cfsp-btn-secondary min-h-[32px] px-3 py-1.5 text-xs"
+              disabled={savingPost}
+              onClick={() => {
+                setSelectedAttachmentFile(null);
+                if (attachmentInputRef.current) attachmentInputRef.current.value = "";
+              }}
+            >
+              Remove
+            </button>
+          </div>
+        ) : null}
 
         {composerError ? (
           <div className="mt-3 rounded-[12px] border border-[var(--cfsp-danger-border)] bg-[var(--cfsp-danger-soft)] px-3 py-2 text-sm font-bold text-[var(--cfsp-danger)]">

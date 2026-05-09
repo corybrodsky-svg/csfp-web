@@ -4,10 +4,12 @@ import {
   getErrorMessage,
   isMissingSimVitalsSchemaError,
   jsonNoStore,
+  normalizeSimVitalsAttachmentMetadata,
   normalizePostType,
   normalizeTags,
   SIMVITALS_SCHEMA_MESSAGE,
   unauthorizedSimVitalsResponse,
+  type SimVitalsAttachmentMetadata,
   type SimVitalsPostType,
   type SimVitalsRole,
 } from "../_lib";
@@ -24,6 +26,7 @@ type SimVitalsPostRow = {
   linked_event_id: string | null;
   linked_event_name: string | null;
   tags: string[] | null;
+  attachment: SimVitalsAttachmentMetadata | null;
   created_at: string | null;
   updated_at: string | null;
 };
@@ -70,6 +73,7 @@ function toPostResponse(
     linkedEventId: asText(row.linked_event_id) || null,
     linkedEventName: asText(row.linked_event_name) || null,
     tags: Array.isArray(row.tags) ? row.tags.map(asText).filter(Boolean) : [],
+    attachment: normalizeSimVitalsAttachmentMetadata(row.attachment),
     reactionCount: counts.reactionsByPostId.get(row.id) || 0,
     commentCount: counts.commentsByPostId.get(row.id) || 0,
     acknowledgedByViewer: counts.acknowledgedPostIds.has(row.id),
@@ -138,7 +142,7 @@ export async function GET(request: Request) {
 
     let query = context.db
       .from("simvitals_posts")
-      .select("id,author_user_id,author_name,author_role,post_type,body,linked_event_id,linked_event_name,tags,created_at,updated_at")
+      .select("id,author_user_id,author_name,author_role,post_type,body,linked_event_id,linked_event_name,tags,attachment,created_at,updated_at")
       .order("created_at", { ascending: false })
       .limit(limit);
 
@@ -167,7 +171,8 @@ export async function GET(request: Request) {
         jsonNoStore({
           ok: true,
           schemaReady: false,
-          migration: "supabase/migrations/20260509_create_simvitals_tables.sql",
+          migration:
+            "supabase/migrations/20260509_create_simvitals_tables.sql and supabase/migrations/20260509_add_simvitals_post_attachments.sql",
           warning: SIMVITALS_SCHEMA_MESSAGE,
           posts: [],
         }),
@@ -205,6 +210,7 @@ export async function POST(request: Request) {
           linkedEventName?: unknown;
           linked_event_name?: unknown;
           tags?: unknown;
+          attachment?: unknown;
         }
       | null;
     const postBody = asText(body?.body);
@@ -219,6 +225,13 @@ export async function POST(request: Request) {
     const tags = normalizeTags(body?.tags);
     const linkedEventId = asText(body?.linkedEventId ?? body?.linked_event_id) || null;
     const linkedEventName = asText(body?.linkedEventName ?? body?.linked_event_name) || null;
+    const attachment = normalizeSimVitalsAttachmentMetadata(body?.attachment, context.viewer.id);
+    if (body?.attachment && !attachment) {
+      return applySimVitalsAuthCookies(
+        jsonNoStore({ ok: false, error: "Attachment metadata could not be verified." }, { status: 400 }),
+        context
+      );
+    }
 
     const { data, error } = await context.db
       .from("simvitals_posts")
@@ -231,8 +244,9 @@ export async function POST(request: Request) {
         linked_event_id: linkedEventId,
         linked_event_name: linkedEventName,
         tags: tags.length ? tags : [DEFAULT_TAG_BY_TYPE[postType]],
+        attachment,
       })
-      .select("id,author_user_id,author_name,author_role,post_type,body,linked_event_id,linked_event_name,tags,created_at,updated_at")
+      .select("id,author_user_id,author_name,author_role,post_type,body,linked_event_id,linked_event_name,tags,attachment,created_at,updated_at")
       .single();
 
     if (error) throw error;
@@ -254,7 +268,8 @@ export async function POST(request: Request) {
           {
             ok: false,
             error: SIMVITALS_SCHEMA_MESSAGE,
-            migration: "supabase/migrations/20260509_create_simvitals_tables.sql",
+            migration:
+              "supabase/migrations/20260509_create_simvitals_tables.sql and supabase/migrations/20260509_add_simvitals_post_attachments.sql",
           },
           { status: 503 }
         ),

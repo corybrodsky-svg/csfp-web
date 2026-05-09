@@ -25,11 +25,23 @@ export const SIMVITALS_POST_TYPES = [
 ] as const;
 
 export const SIMVITALS_ROLES = ["sim_ops", "admin", "faculty", "sp", "system"] as const;
+export const SIMVITALS_ATTACHMENTS_BUCKET = "simvitals-attachments";
+export const SIMVITALS_ATTACHMENT_MAX_BYTES = 25 * 1024 * 1024;
 export const SIMVITALS_SCHEMA_MESSAGE =
-  "SimVitals storage is not ready yet. Apply supabase/migrations/20260509_create_simvitals_tables.sql.";
+  "SimVitals storage is not ready yet. Apply supabase/migrations/20260509_create_simvitals_tables.sql and supabase/migrations/20260509_add_simvitals_post_attachments.sql.";
 
 export type SimVitalsPostType = (typeof SIMVITALS_POST_TYPES)[number];
 export type SimVitalsRole = (typeof SIMVITALS_ROLES)[number];
+
+export type SimVitalsAttachmentMetadata = {
+  fileName: string;
+  path: string;
+  url: string;
+  mimeType: string;
+  size: number;
+  uploadedAt?: string;
+  uploadedBy?: string;
+};
 
 export type SimVitalsViewer = {
   id: string;
@@ -51,6 +63,147 @@ export type SimVitalsContext = {
 function asText(value: unknown) {
   if (value === null || value === undefined) return "";
   return String(value).trim();
+}
+
+function sanitizePathSegment(value: string) {
+  return asText(value)
+    .replace(/[^a-zA-Z0-9._-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 120);
+}
+
+export function sanitizeSimVitalsFileName(value: string) {
+  const cleaned = normalizeSimVitalsAttachmentFileName(value)
+    .replace(/[\\/]+/g, "-")
+    .replace(/\s+/g, "-")
+    .replace(/[^a-zA-Z0-9._-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+
+  return cleaned || "simvitals-attachment";
+}
+
+export function normalizeSimVitalsAttachmentFileName(value: string) {
+  const cleaned = asText(value)
+    .replace(/[\\/]+/g, "-")
+    .replace(/[\u0000-\u001f\u007f]+/g, "")
+    .replace(/\s+/g, " ")
+    .slice(0, 180)
+    .trim();
+
+  return cleaned || "simvitals-attachment";
+}
+
+export function buildSimVitalsAttachmentPath(userId: string, fileName: string) {
+  const safeUserId = sanitizePathSegment(userId) || "user";
+  const safeFileName = sanitizeSimVitalsFileName(fileName);
+  return `simvitals/${safeUserId}/${Date.now()}-${safeFileName}`;
+}
+
+export function getSimVitalsAttachmentContentType(path: string, fallback: string) {
+  const lower = asText(path).toLowerCase();
+  if (lower.endsWith(".pdf")) return "application/pdf";
+  if (lower.endsWith(".docx")) return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+  if (lower.endsWith(".xlsx")) return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+  if (lower.endsWith(".csv")) return "text/csv";
+  if (lower.endsWith(".png")) return "image/png";
+  if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+  return fallback || "application/octet-stream";
+}
+
+export function getSimVitalsAttachmentUrl(path: string, fileName: string, mode: "preview" | "download" = "download") {
+  const params = new URLSearchParams({
+    path,
+    filename: fileName,
+    mode,
+  });
+  return `/api/simvitals/attachments?${params.toString()}`;
+}
+
+export function validateSimVitalsAttachmentFile(args: {
+  fileName: string;
+  mimeType: string;
+  size: number;
+}) {
+  const fileName = asText(args.fileName);
+  const lowerName = fileName.toLowerCase();
+  const mimeType = asText(args.mimeType).toLowerCase();
+  const allowedExtensions = [".pdf", ".docx", ".xlsx", ".csv", ".png", ".jpg", ".jpeg"];
+  const allowedMimeTypes = new Set([
+    "application/pdf",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "text/csv",
+    "application/csv",
+    "application/vnd.ms-excel",
+    "image/png",
+    "image/jpeg",
+  ]);
+
+  if (!fileName) return "Attachment file name is required.";
+  if (args.size <= 0) return "Selected attachment is empty.";
+  if (args.size > SIMVITALS_ATTACHMENT_MAX_BYTES) {
+    return `Attachment is too large. Maximum upload size is ${Math.round(
+      SIMVITALS_ATTACHMENT_MAX_BYTES / (1024 * 1024)
+    )} MB.`;
+  }
+
+  const extensionAllowed = allowedExtensions.some((extension) => lowerName.endsWith(extension));
+  const mimeAllowed = allowedMimeTypes.has(mimeType);
+  if (!extensionAllowed && !mimeAllowed) {
+    return "Unsupported attachment type. Use PDF, DOCX, XLSX, CSV, PNG, or JPG.";
+  }
+
+  return "";
+}
+
+export function normalizeSimVitalsAttachmentMetadata(
+  value: unknown,
+  viewerId?: string
+): SimVitalsAttachmentMetadata | null {
+  if (!value || typeof value !== "object") return null;
+  const source = value as Partial<SimVitalsAttachmentMetadata>;
+  const fileName = normalizeSimVitalsAttachmentFileName(asText(source.fileName));
+  const path = asText(source.path);
+  if (!fileName || !path) return null;
+  if (viewerId && !path.startsWith(`simvitals/${sanitizePathSegment(viewerId)}/`)) return null;
+  const mimeType = getSimVitalsAttachmentContentType(path, asText(source.mimeType));
+  const size = Math.max(0, Number(source.size) || 0);
+
+  return {
+    fileName,
+    path,
+    url: getSimVitalsAttachmentUrl(path, fileName),
+    mimeType,
+    size,
+    uploadedAt: asText(source.uploadedAt),
+    uploadedBy: asText(source.uploadedBy),
+  };
+}
+
+export async function ensureSimVitalsAttachmentsBucket() {
+  const admin = createSupabaseAdminClient();
+  if (!admin) return;
+
+  const { error } = await admin.storage.createBucket(SIMVITALS_ATTACHMENTS_BUCKET, {
+    public: false,
+    fileSizeLimit: `${SIMVITALS_ATTACHMENT_MAX_BYTES}`,
+    allowedMimeTypes: [
+      "application/pdf",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "text/csv",
+      "application/csv",
+      "application/vnd.ms-excel",
+      "image/png",
+      "image/jpeg",
+    ],
+  });
+
+  if (error && !/already exists/i.test(error.message)) {
+    throw new Error(error.message || "Could not create SimVitals attachments bucket.");
+  }
 }
 
 function normalizeRole(value: unknown): SimVitalsRole {
@@ -142,6 +295,8 @@ export function isMissingSimVitalsSchemaError(error: unknown) {
   return (
     /\b42P01\b|PGRST205/i.test(text) ||
     /simvitals_(posts|comments|reactions)/i.test(text) ||
+    /could not find .*attachment/i.test(text) ||
+    /column .*attachment/i.test(text) ||
     /relation .*simvitals/i.test(text) ||
     /could not find .*simvitals/i.test(text)
   );
