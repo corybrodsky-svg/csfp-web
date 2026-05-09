@@ -283,7 +283,7 @@ type TrainingImportResult = {
 };
 
 type TrainingMaterialKind = "case_file" | "doorsign" | "supplemental_doc" | "staffing_doc";
-type MaterialPreviewKind = "pdf" | "image" | "text" | "iframe" | "unsupported";
+type MaterialPreviewKind = "pdf" | "image" | "text" | "html" | "iframe" | "unsupported";
 type MaterialPreviewState = {
   title: string;
   previewUrl: string;
@@ -1155,7 +1155,8 @@ function getMaterialPreviewKind(fileName: string, url: string): MaterialPreviewK
   if (extension === "pdf") return "pdf";
   if (["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp"].includes(extension)) return "image";
   if (["txt", "csv", "log", "json"].includes(extension)) return "text";
-  if (["doc", "docx", "xls", "xlsx"].includes(extension)) return "unsupported";
+  if (extension === "docx") return "html";
+  if (["doc", "xls", "xlsx"].includes(extension)) return "unsupported";
   return "iframe";
 }
 
@@ -2619,6 +2620,7 @@ export default function EventDetailPage() {
   const [materialPreviewLoading, setMaterialPreviewLoading] = useState(false);
   const [materialPreviewError, setMaterialPreviewError] = useState("");
   const [materialPreviewText, setMaterialPreviewText] = useState("");
+  const [materialPreviewHtml, setMaterialPreviewHtml] = useState("");
   const [showRecordingGuideEditor, setShowRecordingGuideEditor] = useState(false);
   const [contactPanelSaving, setContactPanelSaving] = useState(false);
   const [contactPanelSavedAt, setContactPanelSavedAt] = useState("");
@@ -6261,6 +6263,7 @@ Cory`;
     setMaterialPreviewLoading(true);
     setMaterialPreviewError("");
     setMaterialPreviewText("");
+    setMaterialPreviewHtml("");
     setMaterialPreview({
       title: args.title,
       previewUrl: assetUrls.previewUrl,
@@ -6362,11 +6365,13 @@ Cory`;
       setMaterialPreviewLoading(false);
       setMaterialPreviewError("");
       setMaterialPreviewText("");
+      setMaterialPreviewHtml("");
       return;
     }
 
-    if (preview.kind !== "text") {
+    if (preview.kind !== "text" && preview.kind !== "html") {
       setMaterialPreviewText("");
+      setMaterialPreviewHtml("");
       return;
     }
 
@@ -6374,8 +6379,9 @@ Cory`;
     setMaterialPreviewLoading(true);
     setMaterialPreviewError("");
     setMaterialPreviewText("");
+    setMaterialPreviewHtml("");
 
-    async function loadTextPreview() {
+    async function loadDocumentPreview() {
       try {
         const response = await fetch(preview.previewUrl, { cache: "no-store" });
         if (!response.ok) {
@@ -6383,16 +6389,26 @@ Cory`;
         }
         const text = await response.text();
         if (cancelled) return;
-        setMaterialPreviewText(text);
+        if (preview.kind === "html") {
+          setMaterialPreviewHtml(text);
+        } else {
+          setMaterialPreviewText(text);
+        }
         setMaterialPreviewLoading(false);
       } catch (error) {
         if (cancelled) return;
-        setMaterialPreviewError(error instanceof Error ? error.message : "Could not preview this document.");
+        setMaterialPreviewError(
+          preview.kind === "html"
+            ? "Preview could not be generated. Please use Open in New Tab or Download."
+            : error instanceof Error
+              ? error.message
+              : "Could not preview this document."
+        );
         setMaterialPreviewLoading(false);
       }
     }
 
-    void loadTextPreview();
+    void loadDocumentPreview();
     return () => {
       cancelled = true;
     };
@@ -11827,6 +11843,307 @@ Cory`;
                           ) : null}
                         </div>
 
+                        <section
+                          style={{
+                            borderRadius: "22px",
+                            border: isPlanningVisualMode ? "1px solid rgba(44, 211, 173, 0.28)" : "1px solid rgba(126, 231, 219, 0.32)",
+                            background: isPlanningVisualMode
+                              ? "radial-gradient(circle at 12% 0%, rgba(125, 211, 252, 0.2), transparent 34%), linear-gradient(135deg, rgba(247, 253, 255, 0.98) 0%, rgba(231, 246, 250, 0.96) 48%, rgba(236, 253, 245, 0.94) 100%)"
+                              : "radial-gradient(circle at 12% 0%, rgba(34, 211, 238, 0.16), transparent 36%), linear-gradient(135deg, rgba(7, 18, 31, 0.98) 0%, rgba(12, 32, 46, 0.96) 50%, rgba(5, 46, 44, 0.86) 100%)",
+                            boxShadow: isPlanningVisualMode
+                              ? "0 18px 44px rgba(32, 104, 132, 0.12)"
+                              : "0 20px 58px rgba(0, 0, 0, 0.28), inset 0 0 0 1px rgba(255,255,255,0.03)",
+                            padding: "14px",
+                            display: "grid",
+                            gap: "12px",
+                            overflow: "hidden",
+                          }}
+                        >
+                          <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "flex-start" }}>
+                            <div>
+                              <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Rotation Command Canvas</div>
+                              <div style={{ marginTop: "4px", color: commandCenterVisual.headingColor, fontWeight: 900, fontSize: "20px" }}>
+                                Round {activeSelectedRotationRoundIndex + 1} tactical room board
+                              </div>
+                              <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontWeight: 700, fontSize: "13px" }}>
+                                {formatRotationRoundLabel(selectedRotationRound, importedYearHint)}
+                              </div>
+                            </div>
+                            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const previousRound = rotationRounds[Math.max(activeSelectedRotationRoundIndex - 1, 0)];
+                                  if (previousRound) setSelectedRotationRoundKey(previousRound.key);
+                                }}
+                                disabled={activeSelectedRotationRoundIndex <= 0}
+                                style={{
+                                  ...staffingSecondaryButtonStyle,
+                                  padding: "7px 10px",
+                                  opacity: activeSelectedRotationRoundIndex <= 0 ? 0.55 : 1,
+                                }}
+                              >
+                                Previous
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const nextRound = rotationRounds[Math.min(activeSelectedRotationRoundIndex + 1, rotationRounds.length - 1)];
+                                  if (nextRound) setSelectedRotationRoundKey(nextRound.key);
+                                }}
+                                disabled={activeSelectedRotationRoundIndex >= rotationRounds.length - 1}
+                                style={{
+                                  ...staffingSecondaryButtonStyle,
+                                  padding: "7px 10px",
+                                  opacity: activeSelectedRotationRoundIndex >= rotationRounds.length - 1 ? 0.55 : 1,
+                                }}
+                              >
+                                Next
+                              </button>
+                              <span
+                                style={{
+                                  ...commandChipStyle,
+                                  background: selectedRoundOperationsFlags.length
+                                    ? "rgba(243, 187, 103, 0.16)"
+                                    : commandCenterVisual.activeSoftBackground,
+                                  color: selectedRoundOperationsFlags.length
+                                    ? isPlanningVisualMode ? "#92400e" : "#fde68a"
+                                    : commandCenterVisual.activeSoftText,
+                                  border: selectedRoundOperationsFlags.length
+                                    ? "1px solid rgba(243, 187, 103, 0.28)"
+                                    : isPlanningVisualMode ? "1px solid rgba(44, 211, 173, 0.2)" : commandChipStyle.border,
+                                }}
+                              >
+                                {selectedRoundOperationsFlags.length ? `${selectedRoundOperationsFlags.length} alert${selectedRoundOperationsFlags.length === 1 ? "" : "s"}` : "Room board ready"}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div
+                            style={{
+                              display: "grid",
+                              gridTemplateColumns: "repeat(auto-fit, minmax(145px, 1fr))",
+                              gap: "10px",
+                            }}
+                          >
+                            {[
+                              {
+                                label: "Rooms Mapped",
+                                value: selectedRoundScheduleRows.length || selectedRotationRound.rooms.length || metadataRoomCount || 0,
+                                detail: "encounter slots",
+                              },
+                              {
+                                label: "SP Coverage",
+                                value: staffingRelevant
+                                  ? `${selectedRoundScheduleRows.filter((row) => Boolean(row.assignment)).length}/${selectedRoundScheduleRows.length || selectedRotationRound.rooms.length || metadataRoomCount || 0}`
+                                  : "Optional",
+                                detail: staffingRelevant ? "assigned to canvas" : "no SP workflow",
+                              },
+                              {
+                                label: "Learner Flow",
+                                value: selectedRoundLearnerCount ?? selectedRoundScheduleRows.reduce((total, row) => total + row.learnerLabels.length, 0),
+                                detail: "visible in round",
+                              },
+                              {
+                                label: "Telemetry",
+                                value: selectedRoundOperationsFlags.length ? "Needs scan" : "Stable",
+                                detail: selectedRoundOperationsFlags[0] || "no visible flags",
+                              },
+                            ].map((metric) => (
+                              <div
+                                key={metric.label}
+                                style={{
+                                  borderRadius: "16px",
+                                  border: commandCenterVisual.rowBorder,
+                                  background: isPlanningVisualMode ? "rgba(255, 255, 255, 0.72)" : "rgba(4, 15, 26, 0.56)",
+                                  padding: "11px 12px",
+                                }}
+                              >
+                                <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>{metric.label}</div>
+                                <div style={{ marginTop: "4px", color: commandCenterVisual.textColor, fontSize: "17px", fontWeight: 900 }}>{metric.value}</div>
+                                <div style={{ marginTop: "3px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 700 }}>{metric.detail}</div>
+                              </div>
+                            ))}
+                          </div>
+
+                          {selectedRoundScheduleRows.length ? (
+                            <div
+                              style={{
+                                display: "grid",
+                                gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+                                gap: "10px",
+                              }}
+                            >
+                              {selectedRoundScheduleRows.map((row, index) => {
+                                const hasFlags = row.flags.length > 0;
+                                const statusLabel = hasFlags
+                                  ? "Needs attention"
+                                  : row.assignment
+                                    ? "Covered"
+                                    : staffingRelevant
+                                      ? "SP TBD"
+                                      : "Ready";
+                                const statusBackground = hasFlags
+                                  ? "rgba(243, 187, 103, 0.16)"
+                                  : row.assignment || !staffingRelevant
+                                    ? "rgba(44, 211, 173, 0.16)"
+                                    : "rgba(248, 113, 113, 0.14)";
+                                const statusColor = hasFlags
+                                  ? isPlanningVisualMode ? "#92400e" : "#fde68a"
+                                  : row.assignment || !staffingRelevant
+                                    ? isPlanningVisualMode ? "#0f766e" : "#86efac"
+                                    : staffingWorkspacePalette.dangerText;
+                                const encounterLabel = [row.stationLabel, row.caseLabel].filter(Boolean).join(" · ") || "Encounter TBD";
+                                return (
+                                  <article
+                                    key={`${row.key}-canvas`}
+                                    data-room-card-key={row.key}
+                                    style={{
+                                      borderRadius: "18px",
+                                      border: hasFlags
+                                        ? "1px solid rgba(243, 187, 103, 0.32)"
+                                        : isPlanningVisualMode
+                                          ? "1px solid rgba(99, 181, 217, 0.22)"
+                                          : "1px solid rgba(126, 231, 219, 0.2)",
+                                      background: isPlanningVisualMode
+                                        ? "linear-gradient(180deg, rgba(255,255,255,0.92) 0%, rgba(241,248,251,0.9) 100%)"
+                                        : "linear-gradient(180deg, rgba(9, 25, 39, 0.9) 0%, rgba(6, 18, 31, 0.86) 100%)",
+                                      boxShadow: hasFlags
+                                        ? "0 12px 28px rgba(180, 83, 9, 0.12)"
+                                        : isPlanningVisualMode
+                                          ? "0 10px 24px rgba(32, 104, 132, 0.08)"
+                                          : "inset 0 0 0 1px rgba(255,255,255,0.02)",
+                                      padding: "13px",
+                                      display: "grid",
+                                      gap: "11px",
+                                      minHeight: "230px",
+                                      position: "relative",
+                                    }}
+                                  >
+                                    <div
+                                      style={{
+                                        position: "absolute",
+                                        inset: "0 auto 0 0",
+                                        width: "4px",
+                                        borderRadius: "18px 0 0 18px",
+                                        background: hasFlags ? "#f3bb67" : row.assignment || !staffingRelevant ? "#2cd3ad" : "#f87171",
+                                      }}
+                                    />
+                                    <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "flex-start" }}>
+                                      <div style={{ minWidth: 0 }}>
+                                        <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Station {index + 1}</div>
+                                        <div style={{ marginTop: "3px", color: commandCenterVisual.headingColor, fontSize: "18px", fontWeight: 900, overflowWrap: "anywhere" }}>
+                                          {row.roomName || `Room ${index + 1}`}
+                                        </div>
+                                      </div>
+                                      <span style={{ ...commandChipStyle, background: statusBackground, color: statusColor, border: `1px solid ${hasFlags ? "rgba(243, 187, 103, 0.28)" : "rgba(44, 211, 173, 0.22)"}` }}>
+                                        {statusLabel}
+                                      </span>
+                                    </div>
+
+                                    <div style={{ display: "grid", gap: "8px" }}>
+                                      {[
+                                        { label: "SP", value: row.sp ? getFullName(row.sp) : staffingRelevant ? "SP TBD" : "No SP required" },
+                                        { label: "Learner / Group", value: row.learnerLabels.length ? row.learnerLabels.join(", ") : "Learner TBD" },
+                                        { label: "Encounter", value: encounterLabel },
+                                        {
+                                          label: "Timing",
+                                          value: selectedRotationRound.start_time && selectedRotationRound.end_time
+                                            ? `${formatDisplayTime(selectedRotationRound.start_time)} - ${formatDisplayTime(selectedRotationRound.end_time)}`
+                                            : formatDisplayTime(selectedRotationRound.start_time || selectedRotationRound.end_time) || "Time TBD",
+                                        },
+                                      ].map((item) => (
+                                        <div key={`${row.key}-${item.label}`} style={{ display: "grid", gap: "2px" }}>
+                                          <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>{item.label}</div>
+                                          <div style={{ color: commandCenterVisual.textColor, fontSize: "13px", fontWeight: 800, lineHeight: 1.35, overflowWrap: "anywhere" }}>
+                                            {item.value}
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+
+                                    <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
+                                      <span style={{ ...commandChipStyle, background: "rgba(73, 168, 255, 0.12)", color: isPlanningVisualMode ? "#0369a1" : "#7dd3fc" }}>
+                                        {selectedModalityLabel}
+                                      </span>
+                                      {row.assignment ? (
+                                        <span style={{ ...commandChipStyle, background: "rgba(126, 231, 219, 0.14)", color: isPlanningVisualMode ? "#0f766e" : "#7ee7db" }}>
+                                          {assignmentStatusLabels[getAssignmentStatus(row.assignment)]}
+                                        </span>
+                                      ) : null}
+                                      {row.location ? (
+                                        <span style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText }}>
+                                          {row.location}
+                                        </span>
+                                      ) : null}
+                                      {row.flags.map((flag) => (
+                                        <span key={`${row.key}-${flag}`} style={{ ...commandChipStyle, background: "rgba(248, 113, 113, 0.12)", color: staffingWorkspacePalette.dangerText }}>
+                                          {flag}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </article>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <div style={{ color: commandCenterVisual.mutedColor, fontWeight: 700, fontSize: "13px" }}>
+                              No operations schedule has been built for this round yet.
+                            </div>
+                          )}
+
+                          {selectedRoundAnnouncementTimeline.length || selectedRoundOperationsFlags.length ? (
+                            <div
+                              style={{
+                                display: "grid",
+                                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                                gap: "10px",
+                              }}
+                            >
+                              {selectedRoundAnnouncementTimeline.slice(0, 3).map((entry) => (
+                                <div
+                                  key={`${entry.key}-canvas-announcement`}
+                                  style={{
+                                    borderRadius: "14px",
+                                    border: commandCenterVisual.rowBorder,
+                                    background: isPlanningVisualMode ? "rgba(255, 255, 255, 0.68)" : "rgba(255,255,255,0.05)",
+                                    padding: "10px 12px",
+                                  }}
+                                >
+                                  <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", alignItems: "center" }}>
+                                    <div style={{ color: commandCenterVisual.textColor, fontWeight: 900 }}>{entry.timeLabel}</div>
+                                    <span style={{ ...commandChipStyle, background: "rgba(126, 231, 219, 0.14)", color: isPlanningVisualMode ? "#0f766e" : "#7ee7db" }}>
+                                      {entry.phaseLabel}
+                                    </span>
+                                  </div>
+                                  <div style={{ marginTop: "6px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 700, lineHeight: 1.45 }}>
+                                    {roundAnnouncementDrafts[entry.key] ?? entry.announcement}
+                                  </div>
+                                </div>
+                              ))}
+                              {selectedRoundOperationsFlags.length ? (
+                                <div
+                                  style={{
+                                    borderRadius: "14px",
+                                    border: "1px solid rgba(243, 187, 103, 0.28)",
+                                    background: "rgba(243, 187, 103, 0.1)",
+                                    padding: "10px 12px",
+                                  }}
+                                >
+                                  <div style={{ color: commandCenterVisual.textColor, fontWeight: 900 }}>Operational alerts</div>
+                                  <div style={{ marginTop: "7px", display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                                    {selectedRoundOperationsFlags.slice(0, 5).map((flag) => (
+                                      <span key={`${selectedRotationRound.key}-canvas-alert-${flag}`} style={{ ...commandChipStyle, background: "rgba(248, 113, 113, 0.12)", color: staffingWorkspacePalette.dangerText }}>
+                                        {flag}
+                                      </span>
+                                    ))}
+                                  </div>
+                                </div>
+                              ) : null}
+                            </div>
+                          ) : null}
+                        </section>
+
                         <div style={{ display: "grid", gap: "8px" }}>
                           <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>
                             {roundCompanionView === "announcements"
@@ -15360,6 +15677,7 @@ Cory`;
                     setMaterialPreviewLoading(false);
                     setMaterialPreviewError("");
                     setMaterialPreviewText("");
+                    setMaterialPreviewHtml("");
                   }}
                   style={{
                     ...buttonStyle,
@@ -15392,9 +15710,15 @@ Cory`;
                     color: "#12314b",
                   }}
                 >
-                  <div style={{ fontSize: "18px", fontWeight: 900 }}>Inline preview is not supported for this document type.</div>
+                  <div style={{ fontSize: "18px", fontWeight: 900 }}>
+                    {getFileExtension(materialPreview.fileName) === "doc"
+                      ? "Preview is not available for legacy .doc files."
+                      : "Inline preview is not supported for this document type."}
+                  </div>
                   <div style={{ fontSize: "14px", fontWeight: 700, color: "#50667c", lineHeight: 1.6 }}>
-                    `.doc` and `.docx` files usually require a desktop app or browser plugin. Use `Open in New Tab` or `Download` instead.
+                    {getFileExtension(materialPreview.fileName) === "doc"
+                      ? "Please open or download this file."
+                      : "Please use Open in New Tab or Download for this file."}
                   </div>
                 </div>
               ) : null}
@@ -15429,6 +15753,34 @@ Cory`;
                   >
                     {materialPreviewText || "This text file is empty."}
                   </pre>
+                )
+              ) : null}
+
+              {materialPreview.kind === "html" ? (
+                materialPreviewError ? (
+                  <div
+                    style={{
+                      display: "grid",
+                      gap: "10px",
+                      alignContent: "center",
+                      padding: "24px",
+                      color: "#12314b",
+                    }}
+                  >
+                    <div style={{ fontWeight: 900 }}>Preview unavailable</div>
+                    <div style={{ color: "#6a7d91", fontWeight: 700, lineHeight: 1.6 }}>{materialPreviewError}</div>
+                  </div>
+                ) : materialPreviewLoading ? (
+                  <div style={{ display: "grid", placeItems: "center", color: "#12314b", fontWeight: 800 }}>
+                    Generating preview...
+                  </div>
+                ) : (
+                  <iframe
+                    title={materialPreview.title}
+                    srcDoc={materialPreviewHtml}
+                    sandbox=""
+                    style={{ width: "100%", height: "min(72vh, 880px)", border: "none", background: "#ffffff" }}
+                  />
                 )
               ) : null}
 
