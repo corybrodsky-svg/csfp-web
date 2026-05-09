@@ -6455,6 +6455,32 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
     fontWeight: 700,
     fontSize: "13px",
   };
+  const isPlanningVisualMode = commandCenterMode === "planning";
+  const commandCenterVisual = {
+    shellBorder: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.2)" : "1px solid rgba(73, 168, 255, 0.24)",
+    shellBackground: isPlanningVisualMode
+      ? "linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(241, 249, 252, 0.98) 100%)"
+      : "linear-gradient(180deg, rgba(17, 31, 48, 0.94) 0%, rgba(20, 43, 62, 0.9) 100%)",
+    shellShadow: isPlanningVisualMode ? "0 14px 32px rgba(42, 112, 140, 0.08)" : "none",
+    labelColor: isPlanningVisualMode ? "#247083" : "#7ee7db",
+    headingColor: isPlanningVisualMode ? "#0f2940" : "#f4fbff",
+    textColor: isPlanningVisualMode ? "#18364a" : "#f8fafc",
+    mutedColor: isPlanningVisualMode ? "#597b8e" : "#9cc7d3",
+    cardBackground: isPlanningVisualMode
+      ? "linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(244, 250, 252, 0.98) 100%)"
+      : "linear-gradient(180deg, rgba(20, 37, 54, 0.94) 0%, rgba(21, 40, 58, 0.92) 100%)",
+    cardBorder: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.18)" : "1px solid rgba(126, 231, 219, 0.12)",
+    chipBackground: isPlanningVisualMode ? "rgba(219, 240, 246, 0.82)" : "rgba(125, 211, 252, 0.14)",
+    chipText: isPlanningVisualMode ? "#1d5f83" : "#7dd3fc",
+    activeSoftBackground: isPlanningVisualMode ? "rgba(209, 250, 229, 0.36)" : "rgba(126, 231, 219, 0.14)",
+    activeSoftText: isPlanningVisualMode ? "#0f766e" : "#7ee7db",
+    panelBackground: isPlanningVisualMode
+      ? "linear-gradient(180deg, rgba(249, 253, 255, 0.98) 0%, rgba(237, 248, 251, 0.96) 100%)"
+      : "linear-gradient(180deg, rgba(9, 26, 39, 0.98) 0%, rgba(12, 27, 41, 0.94) 100%)",
+    panelBorder: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.2)" : "1px solid rgba(126, 231, 219, 0.24)",
+    rowBackground: isPlanningVisualMode ? "rgba(255, 255, 255, 0.96)" : "rgba(255,255,255,0.04)",
+    rowBorder: isPlanningVisualMode ? "1px solid rgba(128, 167, 182, 0.22)" : "1px solid rgba(148, 163, 184, 0.18)",
+  } as const;
 
   const normalEventStaffingCommandCenter =
     !isTrainingMode ? (
@@ -8572,10 +8598,13 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
           <section
             style={{
               marginTop: "12px",
-              border: "1px solid rgba(126, 231, 219, 0.22)",
+              border: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.2)" : "1px solid rgba(126, 231, 219, 0.22)",
               borderRadius: "18px",
               padding: "12px 14px",
-              background: "linear-gradient(180deg, rgba(11, 23, 37, 0.96) 0%, rgba(10, 19, 31, 0.94) 100%)",
+              background: isPlanningVisualMode
+                ? "linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(237, 248, 251, 0.96) 100%)"
+                : "linear-gradient(180deg, rgba(11, 23, 37, 0.96) 0%, rgba(10, 19, 31, 0.94) 100%)",
+              boxShadow: isPlanningVisualMode ? "0 12px 28px rgba(42, 112, 140, 0.08)" : "none",
               display: "grid",
               gap: "12px",
             }}
@@ -8590,11 +8619,11 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
               }}
             >
               <div>
-                <div style={{ ...statLabel, color: "#7ee7db" }}>Command Center Mode</div>
-                <div style={{ marginTop: "4px", color: "#f4fbff", fontSize: "18px", fontWeight: 900 }}>
+                <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Command Center Mode</div>
+                <div style={{ marginTop: "4px", color: commandCenterVisual.headingColor, fontSize: "18px", fontWeight: 900 }}>
                   {commandCenterMode === "live" ? "Live Event Mode" : "Planning Mode"}
                 </div>
-                <div style={{ marginTop: "4px", color: "#9ed9d1", fontSize: "13px", fontWeight: 700 }}>
+                <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "13px", fontWeight: 700 }}>
                   Switch between planning workflows and a real-time operations board.
                 </div>
               </div>
@@ -8605,8 +8634,8 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                   flexWrap: "wrap",
                   padding: "6px",
                   borderRadius: "999px",
-                  border: "1px solid rgba(126, 231, 219, 0.18)",
-                  background: "rgba(5, 16, 29, 0.82)",
+                  border: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.2)" : "1px solid rgba(126, 231, 219, 0.18)",
+                  background: isPlanningVisualMode ? "rgba(230, 245, 249, 0.9)" : "rgba(5, 16, 29, 0.82)",
                 }}
               >
                 <button
@@ -8618,11 +8647,13 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                     borderRadius: "999px",
                     background:
                       commandCenterMode === "planning" ? "var(--cfsp-blue)" : "transparent",
-                    color: commandCenterMode === "planning" ? "#ffffff" : "#c7e8f2",
+                    color: commandCenterMode === "planning" ? "#ffffff" : commandCenterVisual.mutedColor,
                     border:
                       commandCenterMode === "planning"
                         ? "1px solid var(--cfsp-blue)"
-                        : "1px solid rgba(148, 163, 184, 0.2)",
+                        : isPlanningVisualMode
+                          ? "1px solid rgba(99, 181, 217, 0.2)"
+                          : "1px solid rgba(148, 163, 184, 0.2)",
                   }}
                 >
                   Planning Mode
@@ -8636,11 +8667,13 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                     borderRadius: "999px",
                     background:
                       commandCenterMode === "live" ? "rgba(44, 211, 173, 0.18)" : "transparent",
-                    color: commandCenterMode === "live" ? "#7ee7db" : "#c7e8f2",
+                    color: commandCenterMode === "live" ? "#7ee7db" : commandCenterVisual.mutedColor,
                     border:
                       commandCenterMode === "live"
                         ? "1px solid rgba(44, 211, 173, 0.28)"
-                        : "1px solid rgba(148, 163, 184, 0.2)",
+                        : isPlanningVisualMode
+                          ? "1px solid rgba(99, 181, 217, 0.2)"
+                          : "1px solid rgba(148, 163, 184, 0.2)",
                   }}
                 >
                   Live Event Mode
@@ -8663,13 +8696,14 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
         >
           <div
             style={{
-              border: "1px solid rgba(73, 168, 255, 0.24)",
+              border: commandCenterVisual.shellBorder,
               borderRadius: "18px",
               padding: "14px",
-              background: "linear-gradient(180deg, rgba(17, 31, 48, 0.94) 0%, rgba(20, 43, 62, 0.9) 100%)",
+              background: commandCenterVisual.shellBackground,
+              boxShadow: commandCenterVisual.shellShadow,
             }}
           >
-            <div style={{ ...statLabel, color: "#7ee7db" }}>Event Summary</div>
+            <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Event Summary</div>
             <div style={{ marginTop: "10px", display: "grid", gap: "10px" }}>
               <div
                 style={{
@@ -8705,29 +8739,32 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                     value: event.status || "No status",
                     chips: activeEventTypes.slice(0, 2).map((type) => editableEventTypeLabels[type] || type),
                   },
-                ].map((card) => (
+                ]
+                  .filter((card) => !isPlanningVisualMode || ["Event Name", "Date / Time", "Location", "Staffing"].includes(card.label))
+                  .map((card) => (
                   <div
                     key={card.label}
                     style={{
                       ...statCard,
-                      minHeight: "132px",
+                      minHeight: isPlanningVisualMode ? "104px" : "132px",
                       display: "grid",
                       alignContent: "space-between",
-                      gap: "10px",
-                      background: "linear-gradient(180deg, rgba(20, 37, 54, 0.94) 0%, rgba(21, 40, 58, 0.92) 100%)",
-                      border: "1px solid rgba(126, 231, 219, 0.12)",
+                      gap: isPlanningVisualMode ? "8px" : "10px",
+                      background: commandCenterVisual.cardBackground,
+                      border: commandCenterVisual.cardBorder,
+                      boxShadow: isPlanningVisualMode ? "0 8px 18px rgba(42, 112, 140, 0.06)" : "none",
                     }}
                   >
                     <div>
-                      <div style={statLabel}>{card.label}</div>
-                      <div style={{ ...statValue, fontSize: "18px", lineHeight: 1.25 }}>{card.value}</div>
+                      <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>{card.label}</div>
+                      <div style={{ ...statValue, fontSize: "18px", lineHeight: 1.25, color: commandCenterVisual.textColor }}>{card.value}</div>
                       {"subvalue" in card && card.subvalue ? (
-                        <div style={{ marginTop: "6px", color: "#9cc7d3", fontSize: "12px", fontWeight: 700 }}>{card.subvalue}</div>
+                        <div style={{ marginTop: "6px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 700 }}>{card.subvalue}</div>
                       ) : null}
                     </div>
                     <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                       {(card.chips || []).slice(0, 3).map((chip: string) => (
-                        <span key={`${card.label}-${chip}`} style={{ ...commandChipStyle, background: "rgba(125, 211, 252, 0.14)", color: "#7dd3fc" }}>
+                        <span key={`${card.label}-${chip}`} style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText, border: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.18)" : commandChipStyle.border }}>
                           {chip}
                         </span>
                       ))}
@@ -8736,6 +8773,8 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                 ))}
               </div>
 
+              {!isPlanningVisualMode ? (
+                <>
               <div
                 style={{
                   display: "grid",
@@ -8874,6 +8913,8 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                   </div>
                 ))}
               </div>
+                </>
+              ) : null}
             </div>
 
             {sessions.length ? (
@@ -8885,9 +8926,10 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                     zIndex: 2,
                     marginBottom: "10px",
                     borderRadius: "16px",
-                    border: "1px solid rgba(126, 231, 219, 0.18)",
-                    background: "rgba(6, 17, 29, 0.9)",
-                    backdropFilter: "blur(10px)",
+                    border: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.18)" : "1px solid rgba(126, 231, 219, 0.18)",
+                    background: isPlanningVisualMode ? "rgba(255, 255, 255, 0.94)" : "rgba(6, 17, 29, 0.9)",
+                    backdropFilter: isPlanningVisualMode ? "none" : "blur(10px)",
+                    boxShadow: isPlanningVisualMode ? "0 10px 24px rgba(42, 112, 140, 0.08)" : "none",
                     padding: "12px 14px",
                     display: "flex",
                     justifyContent: "space-between",
@@ -8897,19 +8939,21 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                   }}
                 >
                   <div>
-                    <div style={{ ...statLabel, color: "#7ee7db" }}>Rotation Command Surface</div>
-                    <div style={{ marginTop: "4px", color: "#f8fafc", fontWeight: 900, fontSize: "16px" }}>
+                    <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>
+                      {isPlanningVisualMode ? "Rotation Plan" : "Rotation Command Surface"}
+                    </div>
+                    <div style={{ marginTop: "4px", color: commandCenterVisual.headingColor, fontWeight: 900, fontSize: "16px" }}>
                       {event.name || "Untitled Event"}
                     </div>
-                    <div style={{ marginTop: "4px", color: "#9cc7d3", fontWeight: 700, fontSize: "12px" }}>
+                    <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontWeight: 700, fontSize: "12px" }}>
                       {[sessionSummaryLabel, summaryTimeLabel].filter(Boolean).join(" · ")}
                     </div>
                   </div>
                   <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "flex-end" }}>
-                    <span style={{ ...commandChipStyle, background: "rgba(73, 168, 255, 0.12)", color: "#7dd3fc" }}>
+                    <span style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText, border: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.18)" : commandChipStyle.border }}>
                       {selectedRotationRound ? `Selected Round ${activeSelectedRotationRoundIndex + 1}` : "No round selected"}
                     </span>
-                    <span style={{ ...commandChipStyle, background: "rgba(126, 231, 219, 0.14)", color: "#7ee7db" }}>
+                    <span style={{ ...commandChipStyle, background: commandCenterVisual.activeSoftBackground, color: commandCenterVisual.activeSoftText, border: isPlanningVisualMode ? "1px solid rgba(44, 211, 173, 0.2)" : commandChipStyle.border }}>
                       {roundCompanionView === "announcements"
                         ? "Announcements"
                         : roundCompanionView === "student"
@@ -8963,10 +9007,26 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                           }}
                           style={{
                             borderRadius: "18px",
-                            border: selected ? "1px solid rgba(126, 231, 219, 0.42)" : "1px solid rgba(148, 163, 184, 0.22)",
-                            background: selected ? "rgba(12, 45, 60, 0.96)" : "rgba(15, 23, 42, 0.92)",
-                            boxShadow: selected ? "0 12px 28px rgba(16, 185, 129, 0.14)" : "none",
-                            padding: "16px 18px",
+                            border: selected
+                              ? isPlanningVisualMode
+                                ? "1px solid rgba(44, 211, 173, 0.32)"
+                                : "1px solid rgba(126, 231, 219, 0.42)"
+                              : isPlanningVisualMode
+                                ? "1px solid rgba(128, 167, 182, 0.22)"
+                                : "1px solid rgba(148, 163, 184, 0.22)",
+                            background: selected
+                              ? isPlanningVisualMode
+                                ? "linear-gradient(180deg, rgba(236, 253, 245, 0.96) 0%, rgba(230, 245, 249, 0.96) 100%)"
+                                : "rgba(12, 45, 60, 0.96)"
+                              : isPlanningVisualMode
+                                ? "rgba(255, 255, 255, 0.96)"
+                                : "rgba(15, 23, 42, 0.92)",
+                            boxShadow: selected
+                              ? isPlanningVisualMode
+                                ? "0 10px 22px rgba(42, 112, 140, 0.08)"
+                                : "0 12px 28px rgba(16, 185, 129, 0.14)"
+                              : "none",
+                            padding: isPlanningVisualMode ? "13px 15px" : "16px 18px",
                             display: "grid",
                             gap: "8px",
                             textAlign: "left",
@@ -8978,13 +9038,13 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                               style={{
                                 fontSize: "1.2rem",
                                 fontWeight: 800,
-                                color: "#f8fafc",
+                                color: commandCenterVisual.headingColor,
                               }}
                             >
                               Round {index + 1}
                             </div>
                             {selected ? (
-                              <span style={{ ...commandChipStyle, background: "rgba(126, 231, 219, 0.16)", color: "#7ee7db" }}>
+                              <span style={{ ...commandChipStyle, background: commandCenterVisual.activeSoftBackground, color: commandCenterVisual.activeSoftText, border: isPlanningVisualMode ? "1px solid rgba(44, 211, 173, 0.2)" : commandChipStyle.border }}>
                                 Active detail view
                               </span>
                             ) : null}
@@ -8992,7 +9052,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
 
                           <div
                             style={{
-                              color: "#cbd5e1",
+                              color: commandCenterVisual.mutedColor,
                               fontSize: "0.98rem",
                               fontWeight: 600,
                             }}
@@ -9001,11 +9061,11 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                           </div>
 
                           <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                            <span style={{ ...commandChipStyle, background: "rgba(73, 168, 255, 0.12)", color: "#7dd3fc" }}>
+                            <span style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText, border: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.18)" : commandChipStyle.border }}>
                               {round.rooms.length} rooms
                             </span>
                             {roundLearnerCount !== null ? (
-                              <span style={{ ...commandChipStyle, background: "rgba(44, 211, 173, 0.14)", color: "#86efac" }}>
+                              <span style={{ ...commandChipStyle, background: commandCenterVisual.activeSoftBackground, color: commandCenterVisual.activeSoftText, border: isPlanningVisualMode ? "1px solid rgba(44, 211, 173, 0.2)" : commandChipStyle.border }}>
                                 {roundLearnerCount} learners
                               </span>
                             ) : null}
@@ -9018,9 +9078,9 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                   <aside
                     style={{
                       borderRadius: "18px",
-                      border: "1px solid rgba(126, 231, 219, 0.24)",
-                      background: "linear-gradient(180deg, rgba(9, 26, 39, 0.98) 0%, rgba(12, 27, 41, 0.94) 100%)",
-                      padding: "18px",
+                      border: commandCenterVisual.panelBorder,
+                      background: commandCenterVisual.panelBackground,
+                      padding: isPlanningVisualMode ? "16px" : "18px",
                       display: "grid",
                       gap: "14px",
                       position: "sticky",
@@ -9030,8 +9090,10 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                   >
                     <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
                       <div>
-                        <div style={{ ...statLabel, color: "#7ee7db" }}>Round Operations</div>
-                        <div style={{ marginTop: "4px", color: "#d6f6f2", fontSize: "18px", fontWeight: 900 }}>
+                        <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>
+                          {isPlanningVisualMode ? "Round Details" : "Round Operations"}
+                        </div>
+                        <div style={{ marginTop: "4px", color: commandCenterVisual.headingColor, fontSize: "18px", fontWeight: 900 }}>
                           {selectedRotationRound ? `Round ${activeSelectedRotationRoundIndex + 1}` : "No round selected"}
                         </div>
                       </div>
@@ -9049,12 +9111,26 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                             style={{
                               ...buttonStyle,
                               padding: "7px 10px",
-                              background: roundCompanionView === view.value ? "rgba(126, 231, 219, 0.18)" : "rgba(15, 23, 42, 0.62)",
-                              color: roundCompanionView === view.value ? "#d6f6f2" : "#c7e8f2",
+                              background: roundCompanionView === view.value
+                                ? isPlanningVisualMode
+                                  ? "rgba(209, 250, 229, 0.46)"
+                                  : "rgba(126, 231, 219, 0.18)"
+                                : isPlanningVisualMode
+                                  ? "rgba(255, 255, 255, 0.84)"
+                                  : "rgba(15, 23, 42, 0.62)",
+                              color: roundCompanionView === view.value
+                                ? isPlanningVisualMode
+                                  ? "#0f766e"
+                                  : "#d6f6f2"
+                                : commandCenterVisual.mutedColor,
                               border:
                                 roundCompanionView === view.value
-                                  ? "1px solid rgba(126, 231, 219, 0.32)"
-                                  : "1px solid rgba(148, 163, 184, 0.18)",
+                                  ? isPlanningVisualMode
+                                    ? "1px solid rgba(44, 211, 173, 0.24)"
+                                    : "1px solid rgba(126, 231, 219, 0.32)"
+                                  : isPlanningVisualMode
+                                    ? "1px solid rgba(128, 167, 182, 0.2)"
+                                    : "1px solid rgba(148, 163, 184, 0.18)",
                             }}
                           >
                             {view.label}
@@ -9064,7 +9140,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                     </div>
 
                     {!hasTouchedRoundCompanion ? (
-                      <div style={{ color: "#8bc8d7", fontWeight: 700, fontSize: "13px" }}>
+                      <div style={{ color: commandCenterVisual.mutedColor, fontWeight: 700, fontSize: "13px" }}>
                         Select a rotation round to view operational details.
                       </div>
                     ) : null}
@@ -9078,32 +9154,32 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                             gap: "10px",
                           }}
                         >
-                          <div style={{ ...statCard, background: "rgba(255,255,255,0.04)" }}>
-                            <div style={{ ...statLabel, color: "#8bc8d7" }}>Time Range</div>
-                            <div style={{ ...statValue, color: "#f8fafc", fontSize: "16px" }}>
+                          <div style={{ ...statCard, background: commandCenterVisual.rowBackground, border: commandCenterVisual.rowBorder }}>
+                            <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Time Range</div>
+                            <div style={{ ...statValue, color: commandCenterVisual.textColor, fontSize: "16px" }}>
                               {selectedRotationRound.start_time && selectedRotationRound.end_time
                                 ? `${formatDisplayTime(selectedRotationRound.start_time)} - ${formatDisplayTime(selectedRotationRound.end_time)}`
                                 : formatDisplayTime(selectedRotationRound.start_time || selectedRotationRound.end_time) || "Time TBD"}
                             </div>
                           </div>
-                          <div style={{ ...statCard, background: "rgba(255,255,255,0.04)" }}>
-                            <div style={{ ...statLabel, color: "#8bc8d7" }}>Rooms in Use</div>
-                            <div style={{ ...statValue, color: "#f8fafc", fontSize: "16px" }}>
+                          <div style={{ ...statCard, background: commandCenterVisual.rowBackground, border: commandCenterVisual.rowBorder }}>
+                            <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Rooms in Use</div>
+                            <div style={{ ...statValue, color: commandCenterVisual.textColor, fontSize: "16px" }}>
                               {selectedRotationRound.rooms.length || metadataRoomCount || 0}
                             </div>
                           </div>
                           {roundCompanionView !== "sp" && selectedRoundLearnerCount !== null ? (
-                            <div style={{ ...statCard, background: "rgba(255,255,255,0.04)" }}>
-                              <div style={{ ...statLabel, color: "#8bc8d7" }}>Learners</div>
-                              <div style={{ ...statValue, color: "#f8fafc", fontSize: "16px" }}>
+                            <div style={{ ...statCard, background: commandCenterVisual.rowBackground, border: commandCenterVisual.rowBorder }}>
+                              <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Learners</div>
+                              <div style={{ ...statValue, color: commandCenterVisual.textColor, fontSize: "16px" }}>
                                 {selectedRoundLearnerCount}
                               </div>
                             </div>
                           ) : null}
                           {roundCompanionView === "operations" && selectedRoundEmptySlots !== null ? (
-                            <div style={{ ...statCard, background: "rgba(255,255,255,0.04)" }}>
-                              <div style={{ ...statLabel, color: "#8bc8d7" }}>Empty Slots</div>
-                              <div style={{ ...statValue, color: "#f8fafc", fontSize: "16px" }}>
+                            <div style={{ ...statCard, background: commandCenterVisual.rowBackground, border: commandCenterVisual.rowBorder }}>
+                              <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Empty Slots</div>
+                              <div style={{ ...statValue, color: commandCenterVisual.textColor, fontSize: "16px" }}>
                                 {selectedRoundEmptySlots}
                               </div>
                             </div>
@@ -9111,7 +9187,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                         </div>
 
                         <div style={{ display: "grid", gap: "8px" }}>
-                          <div style={{ ...statLabel, color: "#8bc8d7" }}>
+                          <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>
                             {roundCompanionView === "announcements"
                               ? "Announcements"
                               : roundCompanionView === "student"
@@ -9120,7 +9196,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                                 ? "SP Schedule"
                                 : "Operations View"}
                           </div>
-                          <div style={{ color: "#c7e8f2", fontSize: "13px", fontWeight: 700 }}>
+                          <div style={{ color: commandCenterVisual.mutedColor, fontSize: "13px", fontWeight: 700 }}>
                             {roundCompanionView === "announcements"
                               ? "Operational calling script for this rotation with timed prompts and follow-up blocks."
                               : roundCompanionView === "student"
@@ -9132,7 +9208,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                         </div>
 
                         <div style={{ display: "grid", gap: "8px" }}>
-                          <div style={{ ...statLabel, color: "#8bc8d7" }}>
+                          <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>
                             {roundCompanionView === "announcements"
                               ? "Announcement Timeline"
                               : roundCompanionView === "student"
@@ -9151,15 +9227,15 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                                       key={entry.key}
                                       style={{
                                         borderRadius: "12px",
-                                        border: "1px solid rgba(148, 163, 184, 0.18)",
-                                        background: "rgba(255,255,255,0.04)",
+                                        border: commandCenterVisual.rowBorder,
+                                        background: commandCenterVisual.rowBackground,
                                         padding: "12px 14px",
                                         display: "grid",
                                         gap: "8px",
                                       }}
                                     >
                                       <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
-                                        <div style={{ color: "#f8fafc", fontWeight: 900 }}>{entry.timeLabel}</div>
+                                        <div style={{ color: commandCenterVisual.textColor, fontWeight: 900 }}>{entry.timeLabel}</div>
                                         <span style={{ ...commandChipStyle, background: "rgba(126, 231, 219, 0.14)", color: "#7ee7db" }}>
                                           {entry.phaseLabel}
                                         </span>
@@ -9176,45 +9252,45 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                                           style={{ ...textareaStyle, minHeight: "64px" }}
                                         />
                                       ) : (
-                                        <div style={{ color: "#f8fafc", fontWeight: 800 }}>{draftValue}</div>
+                                        <div style={{ color: commandCenterVisual.textColor, fontWeight: 800 }}>{draftValue}</div>
                                       )}
                                       {entry.detail ? (
-                                        <div style={{ color: "#9cc7d3", fontSize: "12px", fontWeight: 700 }}>{entry.detail}</div>
+                                        <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 700 }}>{entry.detail}</div>
                                       ) : null}
                                     </div>
                                   );
                                 })}
                                 {canManageRoundAnnouncements ? (
-                                  <div style={{ color: "#9cc7d3", fontSize: "12px", fontWeight: 700 }}>
+                                  <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 700 }}>
                                     Announcement edits stay local for now and are ready for future event-level persistence.
                                   </div>
                                 ) : null}
                               </div>
                             ) : (
-                              <div style={{ color: "#9cc7d3", fontWeight: 700, fontSize: "13px" }}>
+                              <div style={{ color: commandCenterVisual.mutedColor, fontWeight: 700, fontSize: "13px" }}>
                                 Announcement timing is not available until this round has valid start and end times.
                               </div>
                             )
                           ) : roundCompanionView === "student" ? (
                             visibleSelectedRoundDayBlocks.length ? (
                               visibleSelectedRoundDayBlocks.map((block) => (
-                                <div key={`${selectedRotationRound.key}-${block.label}`} style={{ borderRadius: "12px", border: "1px solid rgba(148, 163, 184, 0.18)", background: "rgba(255,255,255,0.04)", padding: "10px 12px" }}>
-                                  <div style={{ color: "#f8fafc", fontWeight: 800 }}>{block.label}</div>
-                                  <div style={{ marginTop: "4px", color: "#9cc7d3", fontSize: "12px", fontWeight: 700 }}>{block.detail}</div>
+                                <div key={`${selectedRotationRound.key}-${block.label}`} style={{ borderRadius: "12px", border: commandCenterVisual.rowBorder, background: commandCenterVisual.rowBackground, padding: "10px 12px" }}>
+                                  <div style={{ color: commandCenterVisual.textColor, fontWeight: 800 }}>{block.label}</div>
+                                  <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 700 }}>{block.detail}</div>
                                 </div>
                               ))
                             ) : (
-                              <div style={{ color: "#9cc7d3", fontWeight: 700, fontSize: "13px" }}>
+                              <div style={{ color: commandCenterVisual.mutedColor, fontWeight: 700, fontSize: "13px" }}>
                                 No learner-facing schedule blocks recorded for this round.
                               </div>
                             )
                           ) : roundCompanionView === "sp" ? (
                             <div style={{ display: "grid", gap: "8px" }}>
                               {selectedRoundAssignments.length ? selectedRoundAssignments.map((entry, index) => (
-                                <div key={`${selectedRotationRound.key}-sp-${index}`} style={{ borderRadius: "12px", border: "1px solid rgba(148, 163, 184, 0.18)", background: "rgba(255,255,255,0.04)", padding: "12px 14px", display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
+                                <div key={`${selectedRotationRound.key}-sp-${index}`} style={{ borderRadius: "12px", border: commandCenterVisual.rowBorder, background: commandCenterVisual.rowBackground, padding: "12px 14px", display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
                                   <div>
-                                    <div style={{ color: "#f8fafc", fontWeight: 800 }}>{entry.roomName || `Room ${index + 1}`}</div>
-                                    <div style={{ marginTop: "4px", color: "#9cc7d3", fontSize: "12px", fontWeight: 700 }}>
+                                    <div style={{ color: commandCenterVisual.textColor, fontWeight: 800 }}>{entry.roomName || `Room ${index + 1}`}</div>
+                                    <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 700 }}>
                                       {entry.sp ? getFullName(entry.sp) : "SP TBD"}
                                     </div>
                                   </div>
@@ -9225,7 +9301,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                                   ) : null}
                                 </div>
                               )) : (
-                                <div style={{ color: "#9cc7d3", fontWeight: 700, fontSize: "13px" }}>
+                                <div style={{ color: commandCenterVisual.mutedColor, fontWeight: 700, fontSize: "13px" }}>
                                   No SP roster is attached to this round yet.
                                 </div>
                               )}
@@ -9253,10 +9329,10 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                                 )}
                               </div>
                               {selectedRoundAssignments.length ? selectedRoundAssignments.map((entry, index) => (
-                                <div key={`${selectedRotationRound.key}-ops-${index}`} style={{ borderRadius: "12px", border: "1px solid rgba(148, 163, 184, 0.18)", background: "rgba(255,255,255,0.04)", padding: "12px 14px", display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
+                                <div key={`${selectedRotationRound.key}-ops-${index}`} style={{ borderRadius: "12px", border: commandCenterVisual.rowBorder, background: commandCenterVisual.rowBackground, padding: "12px 14px", display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
                                   <div>
-                                    <div style={{ color: "#f8fafc", fontWeight: 800 }}>{entry.roomName || `Room ${index + 1}`}</div>
-                                    <div style={{ marginTop: "4px", color: "#9cc7d3", fontSize: "12px", fontWeight: 700 }}>
+                                    <div style={{ color: commandCenterVisual.textColor, fontWeight: 800 }}>{entry.roomName || `Room ${index + 1}`}</div>
+                                    <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 700 }}>
                                       {entry.sp ? getFullName(entry.sp) : "SP TBD"}
                                     </div>
                                   </div>
@@ -9277,20 +9353,20 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                               {visibleSelectedRoundDayBlocks.length ? (
                                 <div style={{ display: "grid", gap: "8px" }}>
                                   {visibleSelectedRoundDayBlocks.map((block) => (
-                                    <div key={`${selectedRotationRound.key}-ops-block-${block.label}`} style={{ borderRadius: "12px", border: "1px solid rgba(148, 163, 184, 0.18)", background: "rgba(255,255,255,0.04)", padding: "10px 12px" }}>
-                                      <div style={{ color: "#f8fafc", fontWeight: 800 }}>{block.label}</div>
-                                      <div style={{ marginTop: "4px", color: "#9cc7d3", fontSize: "12px", fontWeight: 700 }}>{block.detail}</div>
+                                    <div key={`${selectedRotationRound.key}-ops-block-${block.label}`} style={{ borderRadius: "12px", border: commandCenterVisual.rowBorder, background: commandCenterVisual.rowBackground, padding: "10px 12px" }}>
+                                      <div style={{ color: commandCenterVisual.textColor, fontWeight: 800 }}>{block.label}</div>
+                                      <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 700 }}>{block.detail}</div>
                                     </div>
                                   ))}
                                 </div>
                               ) : (
-                                <div style={{ color: "#9cc7d3", fontWeight: 700, fontSize: "13px" }}>
+                                <div style={{ color: commandCenterVisual.mutedColor, fontWeight: 700, fontSize: "13px" }}>
                                   No attached day blocks for this round.
                                 </div>
                               )}
                               {selectedRoundOperationsNotes.length ? (
                                 <div style={{ borderRadius: "12px", border: "1px solid rgba(243, 187, 103, 0.22)", background: "rgba(243, 187, 103, 0.08)", padding: "10px 12px" }}>
-                                  <div style={{ color: "#f8fafc", fontWeight: 800 }}>Operations reminders</div>
+                                  <div style={{ color: commandCenterVisual.textColor, fontWeight: 800 }}>Operations reminders</div>
                                   <div style={{ marginTop: "6px", display: "grid", gap: "6px" }}>
                                     {selectedRoundOperationsNotes.slice(0, 3).map((note, index) => (
                                       <div key={`${selectedRotationRound.key}-ops-note-${index}`} style={{ color: "#f7d9a2", fontSize: "12px", fontWeight: 700 }}>
@@ -9305,7 +9381,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                         </div>
                       </>
                     ) : (
-                      <div style={{ color: "#9cc7d3", fontWeight: 700, fontSize: "13px" }}>
+                      <div style={{ color: commandCenterVisual.mutedColor, fontWeight: 700, fontSize: "13px" }}>
                         Select a rotation round to view operational details.
                       </div>
                     )}
@@ -9321,17 +9397,19 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
 
           <section
             style={{
-              border: "1px solid rgba(61, 201, 184, 0.26)",
+              border: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.18)" : "1px solid rgba(61, 201, 184, 0.26)",
               borderRadius: "18px",
               padding: "14px",
-              background: "linear-gradient(180deg, rgba(13, 37, 46, 0.96) 0%, rgba(12, 27, 41, 0.94) 100%)",
-              boxShadow: "0 16px 32px rgba(8, 20, 34, 0.28)",
+              background: isPlanningVisualMode
+                ? "linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(241, 249, 252, 0.98) 100%)"
+                : "linear-gradient(180deg, rgba(13, 37, 46, 0.96) 0%, rgba(12, 27, 41, 0.94) 100%)",
+              boxShadow: isPlanningVisualMode ? "0 12px 28px rgba(42, 112, 140, 0.08)" : "0 16px 32px rgba(8, 20, 34, 0.28)",
             }}
           >
             <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
               <div>
-                <div style={{ ...statLabel, color: "#7ee7db" }}>Faculty / Contact</div>
-                <div style={{ marginTop: "4px", color: "#d6f6f2", fontSize: "18px", fontWeight: 900 }}>
+                <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Faculty / Contact</div>
+                <div style={{ marginTop: "4px", color: commandCenterVisual.headingColor, fontSize: "18px", fontWeight: 900 }}>
                   {trainingFacultyText || "Add faculty contact"}
                 </div>
               </div>
@@ -9370,7 +9448,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
 
             <div style={{ display: "grid", gap: "10px", marginTop: "12px", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))" }}>
               <label style={{ display: "grid", gap: "6px" }}>
-                <span style={{ ...statLabel, color: "#93dbd3" }}>Faculty name</span>
+                <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Faculty name</span>
                 <input
                   value={trainingMetadata.faculty_names}
                   onChange={(event) => handleTrainingMetadataChange("faculty_names", event.target.value)}
@@ -9381,7 +9459,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                 />
               </label>
               <label style={{ display: "grid", gap: "6px" }}>
-                <span style={{ ...statLabel, color: "#93dbd3" }}>Program / course</span>
+                <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Program / course</span>
                 <input
                   value={trainingMetadata.faculty_program}
                   onChange={(event) => handleTrainingMetadataChange("faculty_program", event.target.value)}
@@ -9392,7 +9470,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                 />
               </label>
               <label style={{ display: "grid", gap: "6px" }}>
-                <span style={{ ...statLabel, color: "#93dbd3" }}>Email</span>
+                <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Email</span>
                 <input
                   value={trainingMetadata.faculty_email}
                   onChange={(event) => handleTrainingMetadataChange("faculty_email", event.target.value)}
@@ -9403,7 +9481,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                 />
               </label>
               <label style={{ display: "grid", gap: "6px" }}>
-                <span style={{ ...statLabel, color: "#93dbd3" }}>Phone</span>
+                <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Phone</span>
                 <input
                   value={trainingMetadata.faculty_phone}
                   onChange={(event) => handleTrainingMetadataChange("faculty_phone", event.target.value)}
@@ -9414,7 +9492,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                 />
               </label>
               <label style={{ display: "grid", gap: "6px", gridColumn: "1 / -1" }}>
-                <span style={{ ...statLabel, color: "#93dbd3" }}>Sim team / event lead</span>
+                <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Sim team / event lead</span>
                 <input
                   value={trainingMetadata.sim_contact}
                   onChange={(event) => handleTrainingMetadataChange("sim_contact", event.target.value)}
@@ -9425,7 +9503,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                 />
               </label>
               <label style={{ display: "grid", gap: "6px", gridColumn: "1 / -1" }}>
-                <span style={{ ...statLabel, color: "#93dbd3" }}>Internal notes</span>
+                <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Internal notes</span>
                 <textarea
                   value={trainingMetadata.contact_internal_notes}
                   onChange={(event) => handleTrainingMetadataChange("contact_internal_notes", event.target.value)}
