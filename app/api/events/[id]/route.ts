@@ -689,6 +689,8 @@ export async function POST(
     const spId = typeof body?.sp_id === "string" ? body.sp_id : "";
     const requestedStatus = typeof body?.status === "string" ? body.status.trim() : "";
     const requestedConfirmed = typeof body?.confirmed === "boolean" ? body.confirmed : undefined;
+    const requestedNotes =
+      typeof body?.notes === "string" ? body.notes.trim() || null : body?.notes === null ? null : undefined;
 
     if (!eventId || !spId) {
       return applyAuthCookies(
@@ -726,6 +728,7 @@ export async function POST(
       sp_id: spId,
       status: requestedStatus || "invited",
       confirmed: typeof requestedConfirmed === "boolean" ? requestedConfirmed : requestedStatus === "confirmed",
+      ...(requestedNotes !== undefined ? { notes: requestedNotes } : {}),
     });
 
     if (error) {

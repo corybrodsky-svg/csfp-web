@@ -128,6 +128,17 @@ type PollLocationFilter = "any" | "elkins_park" | "center_city" | "virtual";
 type CommandCenterMode = "planning" | "live";
 type RotationCompanionView = "announcements" | "student" | "sp" | "operations";
 type LiveRoomStatusValue = "ready" | "in_session" | "delayed" | "empty" | "sp_missing" | "complete";
+type AssignSpOptions = {
+  status?: AssignmentStatus;
+  confirmed?: boolean;
+  notesBySpId?: Record<string, string>;
+};
+type AddAssignmentOptions = {
+  status?: AssignmentStatus;
+  confirmed?: boolean;
+  notes?: string;
+  successMessage?: string;
+};
 
 type AvailabilityMatchStatus =
   | "available"
@@ -214,7 +225,7 @@ type TrainingImportResult = {
   eventTimesDetected: string[];
 };
 
-type TrainingMaterialKind = "case_file" | "doorsign" | "supplemental_doc";
+type TrainingMaterialKind = "case_file" | "doorsign" | "supplemental_doc" | "staffing_doc";
 type MaterialPreviewKind = "pdf" | "image" | "text" | "iframe" | "unsupported";
 type MaterialPreviewState = {
   title: string;
@@ -445,23 +456,28 @@ const trainingMaterialFieldMap: Record<
     urlKey:
       | "case_file_url"
       | "doorsign_url"
-      | "supplemental_doc_url";
+      | "supplemental_doc_url"
+      | "staffing_doc_url";
     nameKey:
       | "case_file_name"
       | "doorsign_file_name"
-      | "supplemental_doc_name";
+      | "supplemental_doc_name"
+      | "staffing_doc_name";
     storagePathKey:
       | "case_file_storage_path"
       | "doorsign_storage_path"
-      | "supplemental_doc_storage_path";
+      | "supplemental_doc_storage_path"
+      | "staffing_doc_storage_path";
     uploadedAtKey:
       | "case_file_uploaded_at"
       | "doorsign_uploaded_at"
-      | "supplemental_doc_uploaded_at";
+      | "supplemental_doc_uploaded_at"
+      | "staffing_doc_uploaded_at";
     uploadedByKey:
       | "case_file_uploaded_by"
       | "doorsign_uploaded_by"
-      | "supplemental_doc_uploaded_by";
+      | "supplemental_doc_uploaded_by"
+      | "staffing_doc_uploaded_by";
   }
 > = {
   case_file: {
@@ -488,7 +504,18 @@ const trainingMaterialFieldMap: Record<
     uploadedAtKey: "supplemental_doc_uploaded_at",
     uploadedByKey: "supplemental_doc_uploaded_by",
   },
+  staffing_doc: {
+    label: "Staffing Doc",
+    urlKey: "staffing_doc_url",
+    nameKey: "staffing_doc_name",
+    storagePathKey: "staffing_doc_storage_path",
+    uploadedAtKey: "staffing_doc_uploaded_at",
+    uploadedByKey: "staffing_doc_uploaded_by",
+  },
 };
+
+const staffingDocumentAccept =
+  ".pdf,.doc,.docx,.xls,.xlsx,.csv,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv";
 
 const relatedCopyOptionLabels: Record<RelatedCopyOption, string> = {
   assigned_sps: "Selected SPs",
@@ -880,7 +907,7 @@ function getMaterialPreviewKind(fileName: string, url: string): MaterialPreviewK
   if (extension === "pdf") return "pdf";
   if (["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp"].includes(extension)) return "image";
   if (["txt", "csv", "log", "json"].includes(extension)) return "text";
-  if (["doc", "docx"].includes(extension)) return "unsupported";
+  if (["doc", "docx", "xls", "xlsx"].includes(extension)) return "unsupported";
   return "iframe";
 }
 
@@ -1500,6 +1527,37 @@ function classifyImportedPollResponsesByField({
   return { status: "no_response" as const, label: "No clear response" };
 }
 
+function formatImportedPollAssignmentNote(note: string) {
+  const cleaned = asText(note);
+  return cleaned ? `Poll note: ${cleaned}` : "";
+}
+
+function normalizeAssignmentNoteForCompare(value: string) {
+  return asText(value).toLowerCase().replace(/\s+/g, " ");
+}
+
+function mergeImportedPollNoteIntoAssignmentNotes(
+  existingNotes: string | null | undefined,
+  importedNote: string | null | undefined
+) {
+  const formattedPollNote = formatImportedPollAssignmentNote(asText(importedNote));
+  const currentNotes = asText(existingNotes);
+  if (!formattedPollNote) return currentNotes;
+  if (!currentNotes) return formattedPollNote;
+
+  const normalizedCurrent = normalizeAssignmentNoteForCompare(currentNotes);
+  const normalizedRawNote = normalizeAssignmentNoteForCompare(importedNote || "");
+  const normalizedFormattedNote = normalizeAssignmentNoteForCompare(formattedPollNote);
+  if (
+    normalizedCurrent.includes(normalizedFormattedNote) ||
+    (normalizedRawNote && normalizedCurrent.includes(normalizedRawNote))
+  ) {
+    return currentNotes;
+  }
+
+  return `${currentNotes}\n\n${formattedPollNote}`;
+}
+
 function normalizeImportHeader(value: unknown) {
   return asText(value)
     .toLowerCase()
@@ -1608,6 +1666,9 @@ function scorePollNotesHeader(header: string) {
   const normalized = normalizeImportHeader(header);
   if (!normalized) return -1;
   if (/(^| )(email|name|respondent|responder|start time|completion time|timestamp)( |$)/.test(normalized)) return -1;
+  if (/^do you have any questions concerns$/.test(normalized)) return 160;
+  if (/^do you have any questions or concerns$/.test(normalized)) return 155;
+  if (/(^| )questions concerns( |$)/.test(normalized)) return 145;
   if (/^(notes|comments|comment|questions|additional notes|anything else)$/.test(normalized)) return 100;
   if (/(^| )(notes?|comments?|questions?|anything else)( |$)/.test(normalized)) return 80;
   return -1;
@@ -2164,10 +2225,12 @@ export default function EventDetailPage() {
     case_file: false,
     doorsign: false,
     supplemental_doc: false,
+    staffing_doc: false,
   });
   const caseFileInputRef = useRef<HTMLInputElement | null>(null);
   const doorsignInputRef = useRef<HTMLInputElement | null>(null);
   const supplementalDocInputRef = useRef<HTMLInputElement | null>(null);
+  const staffingDocInputRef = useRef<HTMLInputElement | null>(null);
   const feedbackTimeoutRef = useRef<number | null>(null);
 
   const spsById = useMemo(() => {
@@ -4246,6 +4309,35 @@ const summaryTimeLabel = useMemo(() => {
     return persistTrainingNotes(nextNotes, successMessage);
   }
 
+  function getImportedPollNoteForSpId(spId: string) {
+    return asText(importedPollResponsesBySpId.get(String(spId))?.responseNote);
+  }
+
+  async function syncImportedPollNotesToExistingAssignments(entries: ImportedPollResponseRecord[]) {
+    const noteUpdates = entries
+      .map((entry) => {
+        const assignment = entry.matchedSpId ? assignmentsBySpId.get(String(entry.matchedSpId)) : null;
+        const nextNotes = assignment
+          ? mergeImportedPollNoteIntoAssignmentNotes(assignment.notes, entry.responseNote)
+          : "";
+        return assignment && asText(entry.responseNote) && nextNotes !== asText(assignment.notes)
+          ? { assignment, nextNotes }
+          : null;
+      })
+      .filter((entry): entry is { assignment: AssignmentRow; nextNotes: string } => Boolean(entry));
+
+    for (const update of noteUpdates) {
+      await saveAssignmentRequest("PATCH", {
+        assignment_id: update.assignment.id,
+        updates: {
+          notes: update.nextNotes || null,
+        },
+      });
+    }
+
+    return noteUpdates.length;
+  }
+
   async function handlePollImportFile(file: File | null) {
     if (!file) return;
 
@@ -4273,7 +4365,17 @@ const summaryTimeLabel = useMemo(() => {
           const linkedSpId =
             getImportFieldValueFromHeader(row, debugInfo.matchedSpIdHeader) ||
             getImportFieldValue(row, ["SP ID", "Directory ID", "Linked SP ID", "Participant ID"]);
-          const notes = getImportFieldValue(row, ["Notes", "Comments", "Comment", "Questions", "Additional Notes"]);
+          const notes = getImportFieldValue(row, [
+            "Do you have any questions/concerns?",
+            "Do you have any questions or concerns?",
+            "Questions/Concerns",
+            "Questions or concerns",
+            "Notes",
+            "Comments",
+            "Comment",
+            "Questions",
+            "Additional Notes",
+          ]);
           const timestamp = getImportFieldValue(row, ["Completion time", "Start time", "Timestamp", "Submitted At", "Submission Time"]);
           const trainingResponse =
             getImportFieldValueFromHeader(row, debugInfo.matchedTrainingResponseHeader) ||
@@ -4348,6 +4450,8 @@ const summaryTimeLabel = useMemo(() => {
         throw new Error("No responder rows were found in that poll export.");
       }
 
+      const assignmentNotesUpdated = await syncImportedPollNotesToExistingAssignments(parsedResponses);
+
       await persistPollMetadata(
         {
           importedPollResponses: encodeImportedPollResponses(parsedResponses),
@@ -4357,6 +4461,9 @@ const summaryTimeLabel = useMemo(() => {
         `Imported ${parsedResponses.length} poll response${parsedResponses.length === 1 ? "" : "s"}.`
       );
       setPollImportIgnoredUnmatched(false);
+      if (assignmentNotesUpdated > 0) {
+        await refreshData();
+      }
       if (pollImportInputRef.current) pollImportInputRef.current.value = "";
     } catch (error) {
       setPollImportError(error instanceof Error ? error.message : "Could not import poll responses.");
@@ -4379,7 +4486,12 @@ const summaryTimeLabel = useMemo(() => {
       await handleStatusChange(existingAssignment, "backup");
       return;
     }
-    await assignMultipleSpIds([spId], "Responder added as backup.", { status: "backup", confirmed: false });
+    const pollNote = getImportedPollNoteForSpId(spId);
+    await assignMultipleSpIds([spId], "Responder added as backup.", {
+      status: "backup",
+      confirmed: false,
+      notesBySpId: pollNote ? { [String(spId)]: pollNote } : undefined,
+    });
   }
 
   async function handleCreatePoll() {
@@ -4879,7 +4991,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
   async function assignMultipleSpIds(
     spIds: string[],
     successLabel: string,
-    options?: { status?: AssignmentStatus; confirmed?: boolean }
+    options?: AssignSpOptions
   ) {
     if (!id || spIds.length === 0) return;
 
@@ -4892,10 +5004,13 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
 
     try {
       for (const spId of spIds) {
+        const importedPollNote = asText(options?.notesBySpId?.[String(spId)]);
+        const assignmentNotes = mergeImportedPollNoteIntoAssignmentNotes("", importedPollNote);
         await saveAssignmentRequest("POST", {
           sp_id: spId,
           status: options?.status,
           confirmed: options?.confirmed,
+          notes: assignmentNotes || undefined,
         });
       }
 
@@ -5132,6 +5247,8 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
         ? caseFileInputRef
         : kind === "doorsign"
         ? doorsignInputRef
+        : kind === "staffing_doc"
+        ? staffingDocInputRef
         : supplementalDocInputRef;
 
     inputRef.current?.click();
@@ -5185,7 +5302,10 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
         [fieldConfig.uploadedByKey]: asText(body.material.uploaded_by),
       });
 
-      await persistTrainingNotes(nextNotes, `${fieldConfig.label} saved to training materials.`);
+      await persistTrainingNotes(
+        nextNotes,
+        kind === "staffing_doc" ? "Staffing doc uploaded." : `${fieldConfig.label} saved to training materials.`
+      );
     } catch (error) {
       setEventSaveError(
         error instanceof Error
@@ -5289,7 +5409,10 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
         [fieldConfig.uploadedByKey]: "",
       });
 
-      await persistTrainingNotes(nextNotes, `${fieldConfig.label} removed.`);
+      await persistTrainingNotes(
+        nextNotes,
+        kind === "staffing_doc" ? "Staffing doc removed." : `${fieldConfig.label} removed.`
+      );
     } catch (error) {
       setEventSaveError(
         error instanceof Error
@@ -5662,7 +5785,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
     showSuccessMessage("Candidate SP pool opened for replacement.");
   }
 
-  async function handleAddAssignment(spId = selectedSpId) {
+  async function handleAddAssignment(spId = selectedSpId, options?: AddAssignmentOptions) {
     if (!id || !spId) return;
 
     setSaving(true);
@@ -5673,8 +5796,13 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
     setEventSaveError("");
 
     try {
+      const importedPollNote = asText(options?.notes) || getImportedPollNoteForSpId(spId);
+      const assignmentNotes = mergeImportedPollNoteIntoAssignmentNotes("", importedPollNote);
       await saveAssignmentRequest("POST", {
         sp_id: spId,
+        status: options?.status,
+        confirmed: options?.confirmed,
+        notes: assignmentNotes || undefined,
       });
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Could not save assignment.");
@@ -5685,7 +5813,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
 
     await refreshData();
     setRecentAssignedSpId(spId);
-    showSuccessMessage("SP assigned");
+    showSuccessMessage(options?.successMessage || "SP assigned");
     window.setTimeout(() => {
       setRecentAssignedSpId("");
     }, 2400);
@@ -5696,10 +5824,15 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
   async function handleQuickStaffingAdd(status: "confirmed" | "backup") {
     if (!quickStaffingSpId) return;
     const sp = spsById.get(quickStaffingSpId);
+    const pollNote = getImportedPollNoteForSpId(quickStaffingSpId);
     await assignMultipleSpIds(
       [quickStaffingSpId],
       `${sp ? getFullName(sp) : "SP"} added as ${status === "confirmed" ? "primary" : "backup"}.`,
-      { status, confirmed: status === "confirmed" }
+      {
+        status,
+        confirmed: status === "confirmed",
+        notesBySpId: pollNote ? { [quickStaffingSpId]: pollNote } : undefined,
+      }
     );
     setQuickStaffingSpId("");
     setQuickStaffingQuery("");
@@ -5714,6 +5847,12 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
     setEventSaveError("");
 
     try {
+      const importedPollNote = getImportedPollNoteForSpId(asText(assignment.sp_id));
+      const nextNotes = isSelectedStaffingStatus(status)
+        ? mergeImportedPollNoteIntoAssignmentNotes(assignment.notes, importedPollNote)
+        : asText(assignment.notes);
+      const shouldUpdateNotes =
+        isSelectedStaffingStatus(status) && asText(importedPollNote) && nextNotes !== asText(assignment.notes);
       await saveAssignmentRequest("PATCH", {
         assignment_id: assignment.id,
         updates: {
@@ -5721,6 +5860,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
           confirmed: status === "confirmed",
           last_contacted_at:
             status === "contacted" ? new Date().toISOString() : assignment.last_contacted_at,
+          ...(shouldUpdateNotes ? { notes: nextNotes || null } : {}),
         },
       });
     } catch (error) {
@@ -5834,11 +5974,15 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
 
     try {
       for (const assignment of pendingAssignments) {
+        const importedPollNote = getImportedPollNoteForSpId(asText(assignment.sp_id));
+        const nextNotes = mergeImportedPollNoteIntoAssignmentNotes(assignment.notes, importedPollNote);
+        const shouldUpdateNotes = asText(importedPollNote) && nextNotes !== asText(assignment.notes);
         await saveAssignmentRequest("PATCH", {
           assignment_id: assignment.id,
           updates: {
             status: "confirmed",
             confirmed: true,
+            ...(shouldUpdateNotes ? { notes: nextNotes || null } : {}),
           },
         });
       }
@@ -6756,6 +6900,13 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
     fontWeight: 700,
     fontSize: "13px",
   };
+  const staffingDocUrl = asText(trainingMetadata.staffing_doc_url);
+  const staffingDocName =
+    asText(trainingMetadata.staffing_doc_name) ||
+    getFilenameFromUrl(staffingDocUrl) ||
+    "PDF, DOCX, XLSX, or CSV";
+  const staffingDocStoragePath = asText(trainingMetadata.staffing_doc_storage_path);
+  const staffingDocBusy = trainingMaterialSaving.staffing_doc;
   const isPlanningVisualMode = commandCenterMode === "planning";
   const commandCenterVisual = {
     shellBorder: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.2)" : "1px solid rgba(73, 168, 255, 0.24)",
@@ -6973,6 +7124,104 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                 >
                   Add Backup
                 </button>
+              </div>
+
+              <input
+                ref={staffingDocInputRef}
+                type="file"
+                accept={staffingDocumentAccept}
+                onChange={(event) => {
+                  void handleTrainingMaterialUpload("staffing_doc", event.target.files?.[0] || null);
+                  event.currentTarget.value = "";
+                }}
+                style={{ display: "none" }}
+              />
+              <div
+                style={{
+                  border: `1px solid ${staffingWorkspacePalette.border}`,
+                  borderRadius: "14px",
+                  padding: "10px 12px",
+                  background: "linear-gradient(135deg, rgba(236, 253, 245, 0.76) 0%, rgba(239, 248, 252, 0.94) 54%, rgba(255, 255, 255, 0.96) 100%)",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  gap: "10px",
+                  flexWrap: "wrap",
+                  alignItems: "center",
+                }}
+              >
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ ...statLabel, color: staffingWorkspacePalette.textStrong }}>Upload Staffing Doc</div>
+                  <div
+                    style={{
+                      marginTop: "4px",
+                      color: staffingWorkspacePalette.textMuted,
+                      fontWeight: 700,
+                      fontSize: "12px",
+                      lineHeight: 1.45,
+                      overflowWrap: "anywhere",
+                    }}
+                  >
+                    {staffingDocUrl ? staffingDocName : "Quick utility for PDF, DOCX, XLSX, or CSV support materials."}
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                  {staffingDocUrl ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          openMaterialPreview({
+                            title: "Staffing Doc",
+                            rawUrl: staffingDocUrl,
+                            storagePath: staffingDocStoragePath,
+                            fileName: staffingDocName,
+                          })
+                        }
+                        style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px", fontSize: "12px" }}
+                      >
+                        Preview
+                      </button>
+                      <a
+                        href={
+                          buildTrainingMaterialAssetUrls({
+                            eventId: id,
+                            rawUrl: staffingDocUrl,
+                            storagePath: staffingDocStoragePath,
+                            fileName: staffingDocName,
+                          }).downloadUrl
+                        }
+                        target="_blank"
+                        rel="noreferrer"
+                        download={staffingDocName}
+                        style={{
+                          ...staffingSecondaryButtonStyle,
+                          display: "inline-flex",
+                          alignItems: "center",
+                          textDecoration: "none",
+                          padding: "7px 10px",
+                          fontSize: "12px",
+                        }}
+                      >
+                        Download
+                      </a>
+                    </>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => openTrainingMaterialPicker("staffing_doc")}
+                    disabled={staffingDocBusy}
+                    style={{
+                      ...buttonStyle,
+                      padding: "7px 10px",
+                      fontSize: "12px",
+                      boxShadow: "0 8px 16px rgba(14, 165, 233, 0.14)",
+                      opacity: staffingDocBusy ? 0.65 : 1,
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {staffingDocBusy ? "Uploading..." : staffingDocUrl ? "Replace" : "Upload Staffing Doc"}
+                  </button>
+                </div>
               </div>
             </section>
 
@@ -7238,7 +7487,12 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                                             onClick={() =>
                                               entry.assignment
                                                 ? void handleStatusChange(entry.assignment, "confirmed")
-                                                : void handleAddAssignment(entry.sp.id)
+                                                : void handleAddAssignment(entry.sp.id, {
+                                                    status: "confirmed",
+                                                    confirmed: true,
+                                                    notes: entry.importedResponse?.responseNote,
+                                                    successMessage: "Responder confirmed as primary.",
+                                                  })
                                             }
                                             disabled={saving || entry.assignmentStatus === "confirmed"}
                                             style={{ ...buttonStyle, padding: "7px 10px", opacity: saving || entry.assignmentStatus === "confirmed" ? 0.65 : 1 }}

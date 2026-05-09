@@ -19,7 +19,7 @@ import { resolveSpAccountLink } from "../../../lib/spAccountLinking";
 export const dynamic = "force-dynamic";
 
 const STORAGE_BUCKET = "training-materials";
-const MATERIAL_KINDS = ["case_file", "doorsign", "supplemental_doc"] as const;
+const MATERIAL_KINDS = ["case_file", "doorsign", "supplemental_doc", "staffing_doc"] as const;
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 
 type TrainingMaterialKind = (typeof MATERIAL_KINDS)[number];
@@ -343,6 +343,10 @@ function getContentTypeFromPath(path: string, fallback: string) {
   if (lower.endsWith(".gif")) return "image/gif";
   if (lower.endsWith(".webp")) return "image/webp";
   if (lower.endsWith(".svg")) return "image/svg+xml";
+  if (lower.endsWith(".doc")) return "application/msword";
+  if (lower.endsWith(".docx")) return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+  if (lower.endsWith(".xls")) return "application/vnd.ms-excel";
+  if (lower.endsWith(".xlsx")) return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
   if (lower.endsWith(".txt")) return "text/plain; charset=utf-8";
   if (lower.endsWith(".csv")) return "text/csv; charset=utf-8";
   if (lower.endsWith(".json")) return "application/json; charset=utf-8";

@@ -19,6 +19,11 @@ export type TrainingEventMetadata = {
   supplemental_doc_storage_path: string;
   supplemental_doc_uploaded_at: string;
   supplemental_doc_uploaded_by: string;
+  staffing_doc_url: string;
+  staffing_doc_name: string;
+  staffing_doc_storage_path: string;
+  staffing_doc_uploaded_at: string;
+  staffing_doc_uploaded_by: string;
   faculty_names: string;
   faculty_program: string;
   faculty_email: string;
@@ -64,6 +69,11 @@ const TRAINING_METADATA_KEYS = [
   "supplemental_doc_storage_path",
   "supplemental_doc_uploaded_at",
   "supplemental_doc_uploaded_by",
+  "staffing_doc_url",
+  "staffing_doc_name",
+  "staffing_doc_storage_path",
+  "staffing_doc_uploaded_at",
+  "staffing_doc_uploaded_by",
   "faculty_names",
   "faculty_program",
   "faculty_email",
@@ -118,6 +128,11 @@ export function emptyTrainingEventMetadata(): TrainingEventMetadata {
     supplemental_doc_storage_path: "",
     supplemental_doc_uploaded_at: "",
     supplemental_doc_uploaded_by: "",
+    staffing_doc_url: "",
+    staffing_doc_name: "",
+    staffing_doc_storage_path: "",
+    staffing_doc_uploaded_at: "",
+    staffing_doc_uploaded_by: "",
     faculty_names: "",
     faculty_program: "",
     faculty_email: "",
