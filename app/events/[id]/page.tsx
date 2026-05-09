@@ -313,6 +313,11 @@ type PollResponseMetadata = {
   responseNote: string;
   responseSubmittedAt: string;
 };
+type LiveAttendanceMetadata = {
+  status: string;
+  updatedAt: string;
+  previousStatus: string;
+};
 type PollResponseStatus = "available" | "maybe" | "not_available" | "no_response";
 type ImportedPollMatchType = "email" | "name" | "unmatched";
 type ImportedPollResponseRecord = {
@@ -1197,6 +1202,27 @@ function getAssignmentStatus(assignment: AssignmentRow): AssignmentStatus {
   return assignment.confirmed === true ? "confirmed" : "invited";
 }
 
+function getValidAssignmentStatus(value: unknown): AssignmentStatus | null {
+  const status = asText(value) as AssignmentStatus;
+  return assignmentStatuses.includes(status) ? status : null;
+}
+
+function getRestorableLiveAttendanceStatus(assignment: AssignmentRow) {
+  const metadata = parseLiveAttendanceMetadata(assignment.notes);
+  const previousStatus = getValidAssignmentStatus(metadata.previousStatus);
+  const currentStatus = getAssignmentStatus(assignment);
+
+  if (previousStatus && previousStatus !== "no_show" && previousStatus !== "declined") return previousStatus;
+  if (currentStatus !== "no_show" && currentStatus !== "declined") return currentStatus;
+  return "confirmed";
+}
+
+function getConfirmedValueForStatus(status: AssignmentStatus, assignment: AssignmentRow) {
+  if (status === "confirmed") return true;
+  if (status === "no_show" || status === "declined") return false;
+  return assignment.confirmed === true && status !== "backup";
+}
+
 function isAssignmentConfirmed(assignment: AssignmentRow) {
   return assignment.confirmed === true || getAssignmentStatus(assignment) === "confirmed";
 }
@@ -1679,6 +1705,13 @@ const POLL_RESPONSE_KEYS: Array<keyof PollResponseMetadata> = [
   "responseNote",
   "responseSubmittedAt",
 ];
+const LIVE_ATTENDANCE_START = "[CFSP_LIVE_ATTENDANCE]";
+const LIVE_ATTENDANCE_END = "[/CFSP_LIVE_ATTENDANCE]";
+const LIVE_ATTENDANCE_KEYS: Array<keyof LiveAttendanceMetadata> = [
+  "status",
+  "updatedAt",
+  "previousStatus",
+];
 
 function emptyPollMetadata(): PollMetadata {
   return {
@@ -1782,6 +1815,59 @@ function getPollResponseStatus(notes?: string | null): PollResponseStatus {
 
 function getPollResponseTimestamp(notes?: string | null) {
   return asText(parsePollResponseMetadata(notes).responseSubmittedAt);
+}
+
+function emptyLiveAttendanceMetadata(): LiveAttendanceMetadata {
+  return {
+    status: "",
+    updatedAt: "",
+    previousStatus: "",
+  };
+}
+
+function parseLiveAttendanceMetadata(notes?: string | null) {
+  const metadata = emptyLiveAttendanceMetadata();
+  const text = asText(notes);
+  const match = text.match(
+    new RegExp(`${LIVE_ATTENDANCE_START}\\n?([\\s\\S]*?)\\n?${LIVE_ATTENDANCE_END}`)
+  );
+  if (!match) return metadata;
+
+  match[1].split(/\r?\n/).forEach((line) => {
+    const lineMatch = line.match(/^([A-Za-z]+)\s*:\s*(.*)$/);
+    if (!lineMatch) return;
+    const key = lineMatch[1] as keyof LiveAttendanceMetadata;
+    if (!LIVE_ATTENDANCE_KEYS.includes(key)) return;
+    metadata[key] = lineMatch[2].trim();
+  });
+
+  return metadata;
+}
+
+function upsertLiveAttendanceMetadata(
+  notes: string | null | undefined,
+  partial: Partial<LiveAttendanceMetadata>
+) {
+  const current = parseLiveAttendanceMetadata(notes);
+  const next = {
+    ...current,
+    ...Object.fromEntries(
+      Object.entries(partial).map(([key, value]) => [key, asText(value)])
+    ),
+  } as LiveAttendanceMetadata;
+  const text = asText(notes);
+  const withoutExisting = text.replace(
+    new RegExp(`\\n?${LIVE_ATTENDANCE_START}[\\s\\S]*?${LIVE_ATTENDANCE_END}\\n?`, "g"),
+    "\n"
+  ).trim();
+  const lines = LIVE_ATTENDANCE_KEYS
+    .map((key) => (next[key] ? `${key}: ${next[key]}` : ""))
+    .filter(Boolean);
+
+  if (!lines.length) return withoutExisting;
+
+  const block = [LIVE_ATTENDANCE_START, ...lines, LIVE_ATTENDANCE_END].join("\n");
+  return withoutExisting ? `${withoutExisting}\n\n${block}` : block;
 }
 
 function getEffectivePollResponseStatus(
@@ -2778,6 +2864,8 @@ export default function EventDetailPage() {
   const [attendanceSaving, setAttendanceSaving] = useState(false);
   const [attendanceError, setAttendanceError] = useState("");
   const [attendanceSuccess, setAttendanceSuccess] = useState("");
+  const [activeBlueprintRoomKey, setActiveBlueprintRoomKey] = useState("");
+  const [blueprintActionSavingKey, setBlueprintActionSavingKey] = useState("");
   const [trainingImportResult, setTrainingImportResult] = useState<TrainingImportResult | null>(null);
   const [trainingImportError, setTrainingImportError] = useState("");
   const [trainingImporting, setTrainingImporting] = useState(false);
@@ -5276,7 +5364,6 @@ const summaryTimeLabel = useMemo(() => {
         ? `Short by ${coverageGap} primary`
         : `Understaffed by ${coverageGap} primary`;
   const firstLiveRotationStartMinutes = liveFlowBlocks.find((block) => block.tone === "rotation")?.startMinutes ?? null;
-  const checkedInAssignedCount = attendedCount;
   const missingAssignedCount = useMemo(
     () =>
       sortedAssignments.filter(
@@ -5287,15 +5374,6 @@ const summaryTimeLabel = useMemo(() => {
       ).length,
     [sortedAssignments]
   );
-  const lateAssignedCount = useMemo(() => {
-    if (firstLiveRotationStartMinutes === null || simulatedLiveMinutes <= firstLiveRotationStartMinutes) {
-      return 0;
-    }
-    return sortedAssignments.filter((assignment) => {
-      const status = getAssignmentStatus(assignment);
-      return status !== "declined" && status !== "no_show" && assignment.training_attended !== true;
-    }).length;
-  }, [firstLiveRotationStartMinutes, simulatedLiveMinutes, sortedAssignments]);
   const noShowAssignedCount = useMemo(() => {
     if (firstLiveRotationStartMinutes === null || simulatedLiveMinutes < firstLiveRotationStartMinutes + 15) {
       return 0;
@@ -5395,21 +5473,30 @@ const summaryTimeLabel = useMemo(() => {
         const assignment = boardRow?.assignment || sortedAssignments[sourceIndex] || null;
         const sp = boardRow?.sp || (assignment?.sp_id ? spsById.get(assignment.sp_id) || null : null);
         const assignmentStatus = assignment ? getAssignmentStatus(assignment) : null;
+        const liveAttendanceMetadata = assignment ? parseLiveAttendanceMetadata(assignment.notes) : emptyLiveAttendanceMetadata();
+        const manualStatus = asText(liveAttendanceMetadata.status).toLowerCase();
+        const manualUpdatedAt = asText(liveAttendanceMetadata.updatedAt);
         const checkedIn = assignment?.training_attended === true;
-        const noShow =
-          assignmentStatus === "no_show" ||
-          (!checkedIn &&
-            Boolean(assignment) &&
-            firstLiveRotationStartMinutes !== null &&
-            simulatedLiveMinutes >= firstLiveRotationStartMinutes + 15);
-        const late =
-          !checkedIn &&
-          !noShow &&
+        const autoNoShow =
+          manualStatus !== "cleared" &&
+          manualStatus !== "late" &&
+          Boolean(assignment) &&
+          firstLiveRotationStartMinutes !== null &&
+          simulatedLiveMinutes >= firstLiveRotationStartMinutes + 15;
+        const autoLate =
+          manualStatus !== "cleared" &&
           (boardRow?.status === "delayed" ||
             (Boolean(assignment) &&
               assignmentStatus !== "declined" &&
               firstLiveRotationStartMinutes !== null &&
               simulatedLiveMinutes > firstLiveRotationStartMinutes));
+        const noShow =
+          !checkedIn &&
+          (manualStatus === "no_show" || assignmentStatus === "no_show" || autoNoShow);
+        const late =
+          !checkedIn &&
+          !noShow &&
+          (manualStatus === "late" || autoLate);
         const status = checkedIn
           ? "checked_in"
           : noShow
@@ -5427,7 +5514,15 @@ const summaryTimeLabel = useMemo(() => {
           sp,
           spName: sp ? getFullName(sp) : "",
           initials: sp ? getInitials(getFullName(sp)) : String(index + 1),
-          checkedAt: boardRow?.checkedAt || (assignment ? formatAttendanceTimestamp(assignment.training_checked_in_at) : ""),
+          checkedAt:
+            checkedIn
+              ? boardRow?.checkedAt || (assignment ? formatAttendanceTimestamp(assignment.training_checked_in_at) : "")
+              : manualUpdatedAt
+                ? formatAttendanceTimestamp(manualUpdatedAt)
+                : "",
+          actionTimestamp: checkedIn
+            ? asText(assignment?.training_checked_in_at) || manualUpdatedAt
+            : manualUpdatedAt,
           status,
           statusLabel:
             status === "checked_in"
@@ -5465,9 +5560,7 @@ const summaryTimeLabel = useMemo(() => {
           checkedAt: room.checkedAt,
           status: room.status,
           statusLabel: room.statusLabel,
-          sortTime: room.assignment?.training_checked_in_at
-            ? Date.parse(room.assignment.training_checked_in_at)
-            : 0,
+          sortTime: room.actionTimestamp ? Date.parse(room.actionTimestamp) : 0,
         }))
         .sort((a, b) => {
           const roomCompare = compareRoomLabels(a.roomName, b.roomName);
@@ -5480,6 +5573,7 @@ const summaryTimeLabel = useMemo(() => {
         .slice(0, 8),
     [liveAttendanceBlueprintRooms]
   );
+  const liveBlueprintStaffedCount = liveAttendanceBlueprintRooms.filter((room) => Boolean(room.assignment)).length;
   const liveBlueprintCheckedCount = liveAttendanceBlueprintRooms.filter((room) => room.status === "checked_in").length;
   const liveBlueprintLateCount = liveAttendanceBlueprintRooms.filter((room) => room.status === "late").length;
   const liveBlueprintNoShowCount = liveAttendanceBlueprintRooms.filter((room) => room.status === "no_show").length;
@@ -7728,6 +7822,97 @@ Cory`;
     }
   }
 
+  async function handleLiveBlueprintAttendanceAction(
+    assignment: AssignmentRow | null,
+    roomKey: string,
+    action: "check_in" | "late" | "no_show" | "clear"
+  ) {
+    if (!assignment) {
+      setAttendanceError("No SP is assigned to this room yet.");
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const currentStatus = getAssignmentStatus(assignment);
+    const restorableStatus = getRestorableLiveAttendanceStatus(assignment);
+    const previousStatus =
+      currentStatus !== "no_show" && currentStatus !== "declined"
+        ? currentStatus
+        : restorableStatus;
+    let nextStatus: AssignmentStatus = currentStatus;
+    let nextAttended = assignment.training_attended === true;
+    let nextCheckedInAt: string | null = assignment.training_checked_in_at || null;
+    let metadataStatus = "";
+
+    if (action === "check_in") {
+      nextStatus = currentStatus === "backup" || restorableStatus === "backup" ? "backup" : "confirmed";
+      nextAttended = true;
+      nextCheckedInAt = now;
+      metadataStatus = "checked_in";
+    } else if (action === "late") {
+      nextStatus = currentStatus === "no_show" || currentStatus === "declined" ? restorableStatus : currentStatus;
+      nextAttended = false;
+      nextCheckedInAt = null;
+      metadataStatus = "late";
+    } else if (action === "no_show") {
+      nextStatus = "no_show";
+      nextAttended = false;
+      nextCheckedInAt = null;
+      metadataStatus = "no_show";
+    } else {
+      nextStatus = restorableStatus;
+      nextAttended = false;
+      nextCheckedInAt = null;
+      metadataStatus = "cleared";
+    }
+
+    setAttendanceSaving(true);
+    setBlueprintActionSavingKey(`${roomKey}:${action}`);
+    setAttendanceError("");
+    setAttendanceSuccess("");
+
+    try {
+      const body = await saveAssignmentRequest("PATCH", {
+        assignment_id: assignment.id,
+        updates: {
+          status: nextStatus,
+          confirmed: getConfirmedValueForStatus(nextStatus, assignment),
+          training_attended: nextAttended,
+          training_checked_in_at: nextCheckedInAt,
+          notes: upsertLiveAttendanceMetadata(assignment.notes, {
+            status: metadataStatus,
+            updatedAt: now,
+            previousStatus,
+          }),
+        },
+      });
+
+      if (body?.assignment) {
+        setAssignments((current) =>
+          current.map((item) => (item.id === assignment.id ? { ...item, ...body.assignment } : item))
+        );
+      } else {
+        await refreshData();
+      }
+
+      setAttendanceSuccess(
+        action === "check_in"
+          ? "SP checked in."
+          : action === "late"
+            ? "SP marked late."
+            : action === "no_show"
+              ? "SP marked no-show."
+              : "Live attendance status cleared."
+      );
+      setActiveBlueprintRoomKey("");
+    } catch (error) {
+      setAttendanceError(error instanceof Error ? error.message : "Could not update live attendance.");
+    } finally {
+      setBlueprintActionSavingKey("");
+      setAttendanceSaving(false);
+    }
+  }
+
   async function handleBulkTrainingAttendance(action: "confirm_all" | "clear_all") {
     if (!sortedAssignments.length) return;
 
@@ -8148,27 +8333,33 @@ Cory`;
                   },
                   {
                     label: "Rooms in use",
-                    value: String(currentLiveBlock?.rooms.length || 0),
+                    value: String(liveAttendanceBlueprintRooms.length || 0),
                     detail: "active rooms",
                     color: "#7dd3fc",
                   },
                   {
+                    label: "Staffed",
+                    value: `${liveBlueprintStaffedCount}/${liveAttendanceBlueprintRooms.length || 0}`,
+                    detail: "mapped SPs",
+                    color: liveBlueprintStaffedCount > 0 ? "#9ff5df" : "#9ed9d1",
+                  },
+                  {
                     label: "Checked in",
-                    value: String(checkedInAssignedCount),
-                    detail: `${sortedAssignments.length || 0} assigned`,
+                    value: String(liveBlueprintCheckedCount),
+                    detail: `${liveBlueprintStaffedCount || 0} staffed`,
                     color: "#86efac",
                   },
                   {
                     label: "Late",
-                    value: String(lateAssignedCount),
-                    detail: lateAssignedCount > 0 ? "watch list" : "clear",
-                    color: lateAssignedCount > 0 ? "#fde68a" : "#9ed9d1",
+                    value: String(liveBlueprintLateCount),
+                    detail: liveBlueprintLateCount > 0 ? "watch list" : "clear",
+                    color: liveBlueprintLateCount > 0 ? "#fde68a" : "#9ed9d1",
                   },
                   {
                     label: "No-show",
-                    value: String(noShowAssignedCount),
-                    detail: noShowAssignedCount > 0 ? "coverage risk" : "clear",
-                    color: noShowAssignedCount > 0 ? "#fecaca" : "#9ed9d1",
+                    value: String(liveBlueprintNoShowCount),
+                    detail: liveBlueprintNoShowCount > 0 ? "coverage risk" : "clear",
+                    color: liveBlueprintNoShowCount > 0 ? "#fecaca" : "#9ed9d1",
                   },
                 ].map((item) => (
                   <div
@@ -8269,7 +8460,10 @@ Cory`;
                     </div>
                     <div style={{ display: "flex", gap: "7px", flexWrap: "wrap", justifyContent: "flex-end" }}>
                       <span style={{ ...commandChipStyle, background: "rgba(44, 211, 173, 0.14)", color: "#86efac" }}>
-                        {liveBlueprintCheckedCount} staffed
+                        {liveBlueprintStaffedCount} staffed
+                      </span>
+                      <span style={{ ...commandChipStyle, background: "rgba(44, 211, 173, 0.14)", color: "#9ff5df" }}>
+                        {liveBlueprintCheckedCount} checked in
                       </span>
                       <span style={{ ...commandChipStyle, background: "rgba(243, 187, 103, 0.14)", color: "#fde68a" }}>
                         {liveBlueprintLateCount} late
@@ -8279,6 +8473,26 @@ Cory`;
                       </span>
                     </div>
                   </div>
+
+                  {attendanceError || attendanceSuccess ? (
+                    <div
+                      style={{
+                        borderRadius: "12px",
+                        border: attendanceError
+                          ? "1px solid rgba(248, 113, 113, 0.28)"
+                          : "1px solid rgba(44, 211, 173, 0.24)",
+                        background: attendanceError
+                          ? "rgba(80, 18, 25, 0.32)"
+                          : "rgba(6, 48, 45, 0.28)",
+                        color: attendanceError ? "#fecaca" : "#9ff5df",
+                        padding: "8px 10px",
+                        fontSize: "12px",
+                        fontWeight: 800,
+                      }}
+                    >
+                      {attendanceError || attendanceSuccess}
+                    </div>
+                  ) : null}
 
                   <div className="cfsp-live-blueprint-wall">
                     {[
@@ -8335,10 +8549,25 @@ Cory`;
                                           color: "#8fb5c2",
                                           glow: "none",
                                         };
+                            const isActionMenuOpen = activeBlueprintRoomKey === room.key;
                             return (
                               <div
                                 key={room.key}
-                                className={`cfsp-blueprint-room is-${room.status.replace("_", "-")} ${room.isCurrentRotationRoom ? "is-active" : ""}`}
+                                role="button"
+                                tabIndex={0}
+                                aria-expanded={isActionMenuOpen}
+                                aria-label={`${room.roomName} live attendance controls`}
+                                onClick={() =>
+                                  setActiveBlueprintRoomKey((current) => (current === room.key ? "" : room.key))
+                                }
+                                onKeyDown={(event) => {
+                                  if (event.key === "Enter" || event.key === " ") {
+                                    event.preventDefault();
+                                    setActiveBlueprintRoomKey((current) => (current === room.key ? "" : room.key));
+                                  }
+                                  if (event.key === "Escape") setActiveBlueprintRoomKey("");
+                                }}
+                                className={`cfsp-blueprint-room is-interactive is-${room.status.replace("_", "-")} ${room.isCurrentRotationRoom ? "is-active" : ""} ${isActionMenuOpen ? "is-selected" : ""}`}
                                 style={{
                                   border: tone.border,
                                   background: tone.background,
@@ -8373,7 +8602,94 @@ Cory`;
                                 </div>
                                 {room.status !== "empty" ? (
                                   <div className={`cfsp-blueprint-room-x is-${room.status.replace("_", "-")}`} aria-hidden="true">
-                                    X
+                                    {room.status === "checked_in" ? "✓" : "X"}
+                                  </div>
+                                ) : null}
+                                {isActionMenuOpen ? (
+                                  <div
+                                    onClick={(event) => event.stopPropagation()}
+                                    onKeyDown={(event) => event.stopPropagation()}
+                                    style={{
+                                      marginTop: "10px",
+                                      borderTop: "1px solid rgba(126, 231, 219, 0.16)",
+                                      paddingTop: "8px",
+                                      display: "grid",
+                                      gap: "7px",
+                                      position: "relative",
+                                      zIndex: 2,
+                                    }}
+                                  >
+                                    <div style={{ color: "#9ed9d1", fontSize: "10px", fontWeight: 850, lineHeight: 1.35 }}>
+                                      {room.assignment
+                                        ? "Live attendance action"
+                                        : "No SP assigned. This slot remains visible for coverage scanning."}
+                                    </div>
+                                    <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                                      <button
+                                        type="button"
+                                        onClick={() => void handleLiveBlueprintAttendanceAction(room.assignment, room.key, "check_in")}
+                                        disabled={!room.assignment || attendanceSaving || trainingAttendanceFieldsMissing}
+                                        style={{
+                                          ...buttonStyle,
+                                          padding: "6px 8px",
+                                          fontSize: "11px",
+                                          background: "rgba(44, 211, 173, 0.18)",
+                                          color: "#9ff5df",
+                                          border: "1px solid rgba(44, 211, 173, 0.34)",
+                                          opacity: !room.assignment || attendanceSaving || trainingAttendanceFieldsMissing ? 0.55 : 1,
+                                        }}
+                                      >
+                                        {blueprintActionSavingKey === `${room.key}:check_in` ? "Saving..." : "Check In"}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => void handleLiveBlueprintAttendanceAction(room.assignment, room.key, "late")}
+                                        disabled={!room.assignment || attendanceSaving || trainingAttendanceFieldsMissing}
+                                        style={{
+                                          ...buttonStyle,
+                                          padding: "6px 8px",
+                                          fontSize: "11px",
+                                          background: "rgba(243, 187, 103, 0.16)",
+                                          color: "#fde68a",
+                                          border: "1px solid rgba(243, 187, 103, 0.34)",
+                                          opacity: !room.assignment || attendanceSaving || trainingAttendanceFieldsMissing ? 0.55 : 1,
+                                        }}
+                                      >
+                                        {blueprintActionSavingKey === `${room.key}:late` ? "Saving..." : "Mark Late"}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => void handleLiveBlueprintAttendanceAction(room.assignment, room.key, "no_show")}
+                                        disabled={!room.assignment || attendanceSaving || trainingAttendanceFieldsMissing}
+                                        style={{
+                                          ...buttonStyle,
+                                          padding: "6px 8px",
+                                          fontSize: "11px",
+                                          background: "rgba(248, 113, 113, 0.14)",
+                                          color: "#fecaca",
+                                          border: "1px solid rgba(248, 113, 113, 0.34)",
+                                          opacity: !room.assignment || attendanceSaving || trainingAttendanceFieldsMissing ? 0.55 : 1,
+                                        }}
+                                      >
+                                        {blueprintActionSavingKey === `${room.key}:no_show` ? "Saving..." : "Mark No-show"}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => void handleLiveBlueprintAttendanceAction(room.assignment, room.key, "clear")}
+                                        disabled={!room.assignment || attendanceSaving || trainingAttendanceFieldsMissing}
+                                        style={{
+                                          ...buttonStyle,
+                                          padding: "6px 8px",
+                                          fontSize: "11px",
+                                          background: "rgba(73, 168, 255, 0.12)",
+                                          color: "#bfdbfe",
+                                          border: "1px solid rgba(73, 168, 255, 0.28)",
+                                          opacity: !room.assignment || attendanceSaving || trainingAttendanceFieldsMissing ? 0.55 : 1,
+                                        }}
+                                      >
+                                        {blueprintActionSavingKey === `${room.key}:clear` ? "Saving..." : "Clear Status"}
+                                      </button>
+                                    </div>
                                   </div>
                                 ) : null}
                               </div>

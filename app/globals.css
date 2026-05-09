@@ -789,9 +789,25 @@ textarea {
   overflow: hidden;
   isolation: isolate;
   transition:
+    transform 180ms ease,
     border-color 180ms ease,
     background 180ms ease,
     box-shadow 180ms ease;
+}
+
+.cfsp-blueprint-room.is-interactive {
+  cursor: pointer;
+}
+
+.cfsp-blueprint-room.is-interactive:hover,
+.cfsp-blueprint-room.is-interactive:focus-visible,
+.cfsp-blueprint-room.is-selected {
+  outline: none;
+  transform: translateY(-1px);
+  border-color: rgba(126, 231, 219, 0.62) !important;
+  box-shadow:
+    0 0 0 1px rgba(126, 231, 219, 0.18),
+    0 0 22px rgba(126, 231, 219, 0.16);
 }
 
 .cfsp-blueprint-room::before {
