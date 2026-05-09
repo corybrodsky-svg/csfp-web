@@ -6776,7 +6776,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
     }
 
     for (const assignment of confirmedAssignments) {
-      await updateAssignment(assignment.id, {
+      await handleAssignmentDetailsChange(assignment, {
   status: "invited",
 });
     }
