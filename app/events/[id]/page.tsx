@@ -91,6 +91,15 @@ type OperationalDateMarker = {
   countdown?: string;
   tone: OperationalDateTone;
 };
+type OperationalCountdownTarget = {
+  start: Date;
+  end: Date | null;
+  targetTimeLabel: string;
+};
+type OperationalCountdownClock = {
+  label: string;
+  tone: OperationalDateTone;
+};
 type SPRow = {
   id: string;
   first_name: string | null;
@@ -1708,6 +1717,139 @@ function getOperationalCountdownLabel(
   return labels.future(diffDays);
 }
 
+function getTimeWindowEndpoint(value?: string | null, endpoint: "start" | "end" = "start") {
+  const text = asText(value);
+  if (!text) return "";
+  const normalized = text.replace(/[–—]/g, "-");
+  const parts = normalized
+    .split(/\s+(?:to|until)\s+|\s*-\s*/i)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  if (parts.length > 1) return endpoint === "end" ? parts[parts.length - 1] : parts[0];
+  return endpoint === "end" ? "" : text;
+}
+
+function buildLocalDateTimeFromDateAndTime(
+  dateText?: string | null,
+  timeText?: string | null,
+  fallbackYear?: number | null
+) {
+  const startMinutes = parseTimeToMinutes(getTimeWindowEndpoint(timeText, "start"));
+  if (startMinutes === null) return null;
+
+  const normalizedDate = normalizeLooseDateToIso(dateText, fallbackYear);
+  let date = normalizedDate ? new Date(`${normalizedDate}T00:00:00`) : null;
+  if (!date || Number.isNaN(date.getTime())) {
+    date = parseOperationalDate(dateText, fallbackYear);
+  }
+  if (!date || Number.isNaN(date.getTime())) return null;
+
+  return new Date(
+    date.getFullYear(),
+    date.getMonth(),
+    date.getDate(),
+    Math.floor(startMinutes / 60),
+    startMinutes % 60,
+    0,
+    0
+  );
+}
+
+function buildOperationalCountdownTarget(args: {
+  dateText?: string | null;
+  startTimeText?: string | null;
+  endTimeText?: string | null;
+  fallbackYear?: number | null;
+}) {
+  const start = buildLocalDateTimeFromDateAndTime(args.dateText, args.startTimeText, args.fallbackYear);
+  if (!start) return null;
+
+  const explicitEndText = asText(args.endTimeText) || getTimeWindowEndpoint(args.startTimeText, "end");
+  const parsedEndMinutes = parseTimeToMinutes(explicitEndText);
+  let end: Date | null = null;
+  if (parsedEndMinutes !== null) {
+    end = new Date(
+      start.getFullYear(),
+      start.getMonth(),
+      start.getDate(),
+      Math.floor(parsedEndMinutes / 60),
+      parsedEndMinutes % 60,
+      0,
+      0
+    );
+    if (end.getTime() <= start.getTime()) {
+      end = new Date(end.getTime() + 24 * 60 * 60 * 1000);
+    }
+  }
+
+  const targetDateLabel = start.toLocaleDateString([], {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+  const targetTimeLabel = `${targetDateLabel} • ${formatDisplayTime(getTimeWindowEndpoint(args.startTimeText, "start"))}${
+    end ? ` - ${formatDisplayTime(args.endTimeText || explicitEndText)}` : ""
+  }`;
+
+  return { start, end, targetTimeLabel } satisfies OperationalCountdownTarget;
+}
+
+function formatCountdownDistance(milliseconds: number) {
+  const totalSeconds = Math.max(0, Math.floor(milliseconds / 1000));
+  const totalDays = Math.floor(totalSeconds / 86400);
+  const months = Math.floor(totalDays / 30);
+  const daysAfterMonths = totalDays % 30;
+  const weeks = Math.floor(daysAfterMonths / 7);
+  const days = daysAfterMonths % 7;
+  const remainingAfterDays = totalSeconds % 86400;
+  const hours = Math.floor(remainingAfterDays / 3600);
+  const minutes = Math.floor((remainingAfterDays % 3600) / 60);
+  const seconds = remainingAfterDays % 60;
+
+  return `${months} month${months === 1 ? "" : "s"} • ${weeks} week${weeks === 1 ? "" : "s"} • ${days} day${days === 1 ? "" : "s"} • ${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+function getOperationalCountdownClock(
+  target: OperationalCountdownTarget | null,
+  nowMs: number | null
+): OperationalCountdownClock {
+  if (!target) {
+    return {
+      label: "Countdown unavailable — add event date and start time.",
+      tone: "danger",
+    };
+  }
+  if (nowMs === null) {
+    return {
+      label: "Syncing countdown...",
+      tone: "muted",
+    };
+  }
+
+  const startMs = target.start.getTime();
+  const endMs = target.end?.getTime() ?? null;
+  if (nowMs < startMs) {
+    return {
+      label: `Starts in ${formatCountdownDistance(startMs - nowMs)}`,
+      tone: "scheduled",
+    };
+  }
+  if (endMs && nowMs < endMs) {
+    return {
+      label: `Live now • Ends in ${formatCountdownDistance(endMs - nowMs)}`,
+      tone: "ready",
+    };
+  }
+
+  return {
+    label: endMs
+      ? `Ended ${formatCountdownDistance(nowMs - endMs)} ago`
+      : `Started ${formatCountdownDistance(nowMs - startMs)} ago`,
+    tone: "muted",
+  };
+}
+
 function getTrainingCountdownLabel(trainingDate: Date | null, trainingComplete: boolean, hasTrainingInfo: boolean) {
   if (trainingComplete) return "Training completed";
   if (!trainingDate) return hasTrainingInfo ? "Training scheduled" : "Awaiting training";
@@ -3062,6 +3204,7 @@ export default function EventDetailPage() {
   const [liveDelayMinutes, setLiveDelayMinutes] = useState(0);
   const [livePausedAtMs, setLivePausedAtMs] = useState<number | null>(null);
   const [liveNowMs, setLiveNowMs] = useState(() => Date.now());
+  const [countdownNowMs, setCountdownNowMs] = useState<number | null>(null);
   const [pollMatchLocationFilter, setPollMatchLocationFilter] = useState<PollLocationFilter>("any");
   const [pollMatchActiveOnly, setPollMatchActiveOnly] = useState(true);
   const [pollMatchEmailReadyOnly, setPollMatchEmailReadyOnly] = useState(true);
@@ -4028,26 +4171,49 @@ const primaryEventDate = useMemo(() => {
   }
   return parseOperationalDate(primaryDateText, importedYearHint);
 }, [event?.date_text, importedYearHint, rotationRounds, trainingMetadata.event_session_date]);
+const primaryEventCountdownDateText =
+  asText(trainingMetadata.event_session_date) ||
+  asText(sessions[0]?.session_date) ||
+  asText(event?.date_text) ||
+  asText(rotationRounds[0]?.session_date);
+const primaryEventCountdownStartTimeText =
+  asText(trainingMetadata.event_start_time) ||
+  asText(sessions[0]?.start_time) ||
+  asText(rotationRounds[0]?.start_time);
+const primaryEventCountdownEndTimeText =
+  asText(trainingMetadata.event_end_time) ||
+  asText(sessions[sessions.length - 1]?.end_time) ||
+  asText(rotationRounds[rotationRounds.length - 1]?.end_time);
+const eventCountdownTarget = useMemo(
+  () =>
+    buildOperationalCountdownTarget({
+      dateText: primaryEventCountdownDateText,
+      startTimeText: primaryEventCountdownStartTimeText,
+      endTimeText: primaryEventCountdownEndTimeText,
+      fallbackYear: importedYearHint,
+    }),
+  [
+    importedYearHint,
+    primaryEventCountdownDateText,
+    primaryEventCountdownEndTimeText,
+    primaryEventCountdownStartTimeText,
+  ]
+);
+const eventCountdownClock = useMemo(
+  () => getOperationalCountdownClock(eventCountdownTarget, countdownNowMs),
+  [countdownNowMs, eventCountdownTarget]
+);
 const eventDateMarkerValue = useMemo(() => {
   if (uniqueSessionDates.length > 1) {
     return `${uniqueSessionDates[0]} + ${uniqueSessionDates.length - 1} more`;
   }
   return uniqueSessionDates[0] || formatOperationalDate(primaryEventDate, eventDateLabel);
 }, [eventDateLabel, primaryEventDate, uniqueSessionDates]);
-const eventDateCountdownLabel = useMemo(
-  () =>
-    getOperationalCountdownLabel(primaryEventDate, {
-      today: "Live today",
-      tomorrow: "Live tomorrow",
-      future: (days) => `Live in ${days} days`,
-      yesterday: "Event was yesterday",
-      past: "Event date passed",
-      missing: "Event date needed",
-    }),
-  [primaryEventDate]
-);
+const eventDateCountdownLabel = eventCountdownClock.label;
 const eventDateTone: OperationalDateTone = !primaryEventDate
   ? "danger"
+  : eventCountdownClock.tone === "ready"
+    ? "ready"
   : getDateDeltaDays(primaryEventDate) < -1
     ? "danger"
     : getDateDeltaDays(primaryEventDate) === 0
@@ -4933,6 +5099,33 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
         getFirstNoteValue(event?.notes, ["Training Link", "Zoom", "Zoom Link", "SimIQ", "Virtual Link"])
     );
   const normalEventTrainingDate = parseOperationalDate(normalEventTrainingDateText, importedYearHint);
+  const normalEventTrainingCountdownStartTimeText =
+    asText(trainingMetadata.preferred_training_time) ||
+    getTimeWindowEndpoint(trainingMetadata.imported_training_time, "start") ||
+    getTimeWindowEndpoint(getFirstNoteValue(event?.notes, ["Preferred Training Time", "Training Time", "SP Training Time"]), "start");
+  const normalEventTrainingCountdownEndTimeText =
+    asText(trainingMetadata.preferred_training_end_time) ||
+    getTimeWindowEndpoint(trainingMetadata.imported_training_time, "end") ||
+    getTimeWindowEndpoint(getFirstNoteValue(event?.notes, ["Preferred Training Time", "Training Time", "SP Training Time"]), "end");
+  const normalEventTrainingCountdownTarget = useMemo(
+    () =>
+      buildOperationalCountdownTarget({
+        dateText: normalEventTrainingDateText,
+        startTimeText: normalEventTrainingCountdownStartTimeText,
+        endTimeText: normalEventTrainingCountdownEndTimeText,
+        fallbackYear: importedYearHint,
+      }),
+    [
+      importedYearHint,
+      normalEventTrainingCountdownEndTimeText,
+      normalEventTrainingCountdownStartTimeText,
+      normalEventTrainingDateText,
+    ]
+  );
+  const normalEventTrainingCountdownClock = useMemo(
+    () => getOperationalCountdownClock(normalEventTrainingCountdownTarget, countdownNowMs),
+    [countdownNowMs, normalEventTrainingCountdownTarget]
+  );
   const normalEventTrainingHasInfo = Boolean(
     normalEventTrainingDateText ||
       normalEventTrainingTimeText ||
@@ -4963,11 +5156,10 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
               : trainingRequiredExplicit
                 ? "Training ownership TBD"
                 : "Training planning TBD";
-  const normalEventTrainingCountdownLabel = getTrainingCountdownLabel(
-    normalEventTrainingDate,
-    normalEventTrainingComplete,
-    normalEventTrainingHasInfo
-  );
+  const normalEventTrainingCountdownLabel =
+    normalEventTrainingComplete || trainingNotRequired
+      ? getTrainingCountdownLabel(normalEventTrainingDate, normalEventTrainingComplete, normalEventTrainingHasInfo)
+      : normalEventTrainingCountdownClock.label;
   const normalEventTrainingTimelineLabel = normalEventTrainingDate
     ? normalEventTrainingCountdownLabel
     : normalEventTrainingStatusLabel;
@@ -5024,16 +5216,11 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     ? "Training completed"
     : trainingNotRequired
       ? "No training required"
-      : getOperationalCountdownLabel(normalEventTrainingDate, {
-          today: "Starts today",
-          tomorrow: "Starts tomorrow",
-          future: (days) => `Starts in ${days} days`,
-          yesterday: "Training was yesterday",
-          past: "Training date passed",
-          missing: normalEventTrainingHasInfo ? "Training date needed" : "Training not scheduled",
-        });
+      : normalEventTrainingCountdownClock.label;
   const trainingDateTone: OperationalDateTone = trainingNotRequired || normalEventTrainingComplete
     ? "ready"
+    : normalEventTrainingCountdownClock.tone === "ready"
+      ? "ready"
     : normalEventTrainingDate
       ? getDateDeltaDays(normalEventTrainingDate) < -1
         ? "danger"
@@ -5041,6 +5228,14 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       : trainingRequiredExplicit || facultyLedTraining || internalTraining
         ? "danger"
         : "attention";
+  const activeLiveCountdownTarget =
+    isTrainingMode && normalEventTrainingCountdownTarget
+      ? normalEventTrainingCountdownTarget
+      : eventCountdownTarget;
+  const activeLiveCountdownClock =
+    isTrainingMode && normalEventTrainingCountdownTarget
+      ? normalEventTrainingCountdownClock
+      : eventCountdownClock;
   const eventSummaryDateMarkers = useMemo<OperationalDateMarker[]>(() => {
     const markers: OperationalDateMarker[] = [
       {
@@ -8016,6 +8211,14 @@ Cory`;
   }, []);
 
   useEffect(() => {
+    setCountdownNowMs(Date.now());
+    const interval = window.setInterval(() => {
+      setCountdownNowMs(Date.now());
+    }, 1000);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
     if (!canRunLiveEventMode || commandCenterMode !== "live") return;
     const interval = window.setInterval(() => {
       setLiveNowMs(Date.now());
@@ -8942,13 +9145,9 @@ Cory`;
                     color: "#f4fbff",
                   },
                   {
-                    label: "Time remaining",
-                    value: currentLiveBlock
-                      ? formatRemainingMinutes(Math.max(currentLiveBlock.endMinutes - simulatedLiveMinutes, 0))
-                      : liveFlowBlocks[0]
-                        ? `${Math.max(liveFlowBlocks[0].startMinutes - simulatedLiveMinutes, 0)}m to start`
-                        : "Timeline TBD",
-                    detail: nextLiveBlock ? `Next: ${nextLiveBlock.label}` : "Live clock",
+                    label: isTrainingMode ? "Training clock" : "Event clock",
+                    value: activeLiveCountdownClock.label,
+                    detail: activeLiveCountdownTarget?.targetTimeLabel || "Countdown unavailable",
                     color: "#f4fbff",
                   },
                   {
@@ -8989,8 +9188,8 @@ Cory`;
                       border: "1px solid rgba(126, 231, 219, 0.14)",
                       background: "rgba(3, 15, 27, 0.54)",
                       padding: "8px 10px",
-                      minWidth: item.label === "Current rotation" ? "168px" : "92px",
-                      flex: item.label === "Current rotation" || item.label === "Time remaining" ? "1 1 150px" : "0 1 96px",
+                      minWidth: item.label === "Current rotation" || item.label.endsWith("clock") ? "168px" : "92px",
+                      flex: item.label === "Current rotation" || item.label.endsWith("clock") ? "1 1 180px" : "0 1 96px",
                       display: "grid",
                       gap: "3px",
                       alignContent: "center",
