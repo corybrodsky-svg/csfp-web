@@ -297,7 +297,7 @@ export function isMissingSimVitalsSchemaError(error: unknown) {
   const source = error as { code?: string; message?: string; details?: string; hint?: string } | null;
   const text = [source?.code, source?.message, source?.details, source?.hint].map(asText).join(" ");
   if (isMissingSimVitalsAttachmentColumnError(error)) return false;
-  return isUnauthorizedSimVitalsDataError(error) || Boolean(getMissingSimVitalsCoreTable(error)) || /\b42P01\b|PGRST205/i.test(text);
+  return Boolean(getMissingSimVitalsCoreTable(error)) || /\b42P01\b|PGRST205/i.test(text);
 }
 
 export function getMissingSimVitalsCoreTable(error: unknown) {
@@ -337,7 +337,8 @@ export function getSimVitalsReadinessFailure(error: unknown) {
   const missingTable = getMissingSimVitalsCoreTable(error);
   if (missingTable) return `Missing ${missingTable} table.`;
   if (isMissingSimVitalsAttachmentBucketError(error)) return SIMVITALS_ATTACHMENT_BUCKET_MESSAGE;
-  return SIMVITALS_SCHEMA_MESSAGE;
+  const message = getErrorMessage(error);
+  return message === "Unknown Supabase error" ? SIMVITALS_SCHEMA_MESSAGE : message;
 }
 
 export async function getAuthenticatedSimVitalsContext(): Promise<SimVitalsContext | null> {

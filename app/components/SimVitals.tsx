@@ -304,7 +304,7 @@ async function fetchSimVitalsPosts(limit: number, type: SimVitalsFeedType | "all
     posts: Array.isArray(body?.posts)
       ? body.posts.map(normalizeSimVitalsPost).filter((post): post is SimVitalsPost => Boolean(post))
       : [],
-    warning: "",
+    warning: asText(body?.warning),
     attachmentWarning: body?.attachmentSupportReady === false ? asText(body.attachmentWarning) : "",
   };
 }
@@ -938,7 +938,8 @@ export function SimVitalsFullExperience({
       | null;
 
     if (!response.ok) {
-      throw new Error(responseBody?.error || (await parseSimVitalsApiError(response)));
+      const message = responseBody?.error || (await parseSimVitalsApiError(response));
+      throw new Error(`Attachment upload failed: ${message}`);
     }
 
     const attachment = normalizeSimVitalsAttachment(responseBody?.attachment);
@@ -954,9 +955,13 @@ export function SimVitalsFullExperience({
     setComposerError("");
 
     try {
-      const attachment = selectedAttachmentFile
-        ? await uploadSelectedAttachment(selectedAttachmentFile)
-        : null;
+      let attachment: SimVitalsAttachment | null = null;
+      if (selectedAttachmentFile) {
+        if (attachmentSupportWarning) {
+          throw new Error(`Attachment upload failed: ${attachmentSupportWarning}`);
+        }
+        attachment = await uploadSelectedAttachment(selectedAttachmentFile);
+      }
       const response = await fetch("/api/simvitals/posts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -969,7 +974,7 @@ export function SimVitalsFullExperience({
           attachment,
         }),
       });
-      const responseBody = (await response.json().catch(() => null)) as { post?: unknown; error?: string } | null;
+      const responseBody = (await response.json().catch(() => null)) as { post?: unknown; warning?: string; error?: string } | null;
       if (!response.ok) {
         throw new Error(responseBody?.error || (await parseSimVitalsApiError(response)));
       }
@@ -978,6 +983,7 @@ export function SimVitalsFullExperience({
       setPosts((current) => [post, ...current]);
       setDraft("");
       setSelectedAttachmentFile(null);
+      setFeedError(asText(responseBody?.warning));
       if (attachmentInputRef.current) attachmentInputRef.current.value = "";
       if (activeFilter !== "all" && activeFilter !== post.type) {
         setActiveFilter("all");

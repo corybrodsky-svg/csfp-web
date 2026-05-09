@@ -5,6 +5,7 @@ import {
   getSimVitalsReadinessFailure,
   isMissingSimVitalsAttachmentColumnError,
   isMissingSimVitalsSchemaError,
+  isUnauthorizedSimVitalsDataError,
   jsonNoStore,
   normalizeSimVitalsAttachmentMetadata,
   normalizePostType,
@@ -100,9 +101,10 @@ async function getPostCounts(
   const reactionsByPostId = new Map<string, number>();
   const commentsByPostId = new Map<string, number>();
   const acknowledgedPostIds = new Set<string>();
+  const warnings: string[] = [];
 
   if (!postIds.length) {
-    return { reactionsByPostId, commentsByPostId, acknowledgedPostIds };
+    return { reactionsByPostId, commentsByPostId, acknowledgedPostIds, warnings };
   }
 
   const { data: reactions, error: reactionsError } = await context.db
@@ -111,28 +113,32 @@ async function getPostCounts(
     .in("post_id", postIds)
     .eq("reaction_type", "ack");
 
-  if (reactionsError) throw reactionsError;
-
-  (reactions || []).forEach((reaction) => {
-    const postId = asText(reaction.post_id);
-    if (!postId) return;
-    incrementCount(reactionsByPostId, postId);
-    if (asText(reaction.user_id) === context.viewer.id) acknowledgedPostIds.add(postId);
-  });
+  if (reactionsError) {
+    warnings.push(`Acknowledgement counts unavailable: ${getSimVitalsReadinessFailure(reactionsError)}`);
+  } else {
+    (reactions || []).forEach((reaction) => {
+      const postId = asText(reaction.post_id);
+      if (!postId) return;
+      incrementCount(reactionsByPostId, postId);
+      if (asText(reaction.user_id) === context.viewer.id) acknowledgedPostIds.add(postId);
+    });
+  }
 
   const { data: comments, error: commentsError } = await context.db
     .from("simvitals_comments")
     .select("post_id")
     .in("post_id", postIds);
 
-  if (commentsError) throw commentsError;
+  if (commentsError) {
+    warnings.push(`Comment counts unavailable: ${getSimVitalsReadinessFailure(commentsError)}`);
+  } else {
+    (comments || []).forEach((comment) => {
+      const postId = asText(comment.post_id);
+      if (postId) incrementCount(commentsByPostId, postId);
+    });
+  }
 
-  (comments || []).forEach((comment) => {
-    const postId = asText(comment.post_id);
-    if (postId) incrementCount(commentsByPostId, postId);
-  });
-
-  return { reactionsByPostId, commentsByPostId, acknowledgedPostIds };
+  return { reactionsByPostId, commentsByPostId, acknowledgedPostIds, warnings };
 }
 
 function buildPostsQuery(
@@ -190,6 +196,7 @@ export async function GET(request: Request) {
       coreReady: true,
       attachmentSupportReady,
       attachmentWarning,
+      warning: counts.warnings.join(" "),
       posts: posts.map((post) => toPostResponse(post, counts)),
     });
 
@@ -206,6 +213,19 @@ export async function GET(request: Request) {
           warning: getSimVitalsReadinessFailure(error),
           posts: [],
         }),
+        context
+      );
+    }
+
+    if (isUnauthorizedSimVitalsDataError(error)) {
+      return applySimVitalsAuthCookies(
+        jsonNoStore(
+          {
+            ok: false,
+            error: getSimVitalsReadinessFailure(error),
+          },
+          { status: 403 }
+        ),
         context
       );
     }
@@ -301,6 +321,7 @@ export async function POST(request: Request) {
       const response = jsonNoStore(
         {
           ok: true,
+          warning: counts.warnings.join(" "),
           post: toPostResponse(data as unknown as SimVitalsPostRow, counts),
         },
         { status: 201 }
@@ -321,6 +342,7 @@ export async function POST(request: Request) {
     const response = jsonNoStore(
       {
         ok: true,
+        warning: counts.warnings.join(" "),
         post: toPostResponse(data as unknown as SimVitalsPostRow, counts),
       },
       { status: 201 }
@@ -338,6 +360,19 @@ export async function POST(request: Request) {
               "supabase/migrations/20260509_create_simvitals_tables.sql",
           },
           { status: 503 }
+        ),
+        context
+      );
+    }
+
+    if (isUnauthorizedSimVitalsDataError(error)) {
+      return applySimVitalsAuthCookies(
+        jsonNoStore(
+          {
+            ok: false,
+            error: getSimVitalsReadinessFailure(error),
+          },
+          { status: 403 }
         ),
         context
       );
