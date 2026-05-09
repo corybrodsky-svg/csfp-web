@@ -1317,7 +1317,12 @@ function parseImportedPollResponses(value?: string | null): ImportedPollResponse
 }
 
 function normalizeImportedResponseText(value: string) {
-  return asText(value).replace(/\s+/g, " ").trim().toLowerCase();
+  return asText(value)
+    .replace(/\u00a0/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^[“”"']+|[“”"'.!?]+$/g, "")
+    .toLowerCase();
 }
 
 function responseContainsNotAvailable(value: string) {
@@ -1371,16 +1376,14 @@ function classifyImportedPollResponsesByField({
   trainingResponse,
   eventResponse,
   notes,
-  fallbackResponse,
 }: {
   trainingResponse: string;
   eventResponse: string;
   notes: string;
-  fallbackResponse: string;
 }) {
-  const training = asText(trainingResponse);
-  const event = asText(eventResponse);
-  const noteText = asText(notes);
+  const training = normalizeImportedResponseText(trainingResponse);
+  const event = normalizeImportedResponseText(eventResponse);
+  const noteText = normalizeImportedResponseText(notes);
 
   if (responseContainsNotAvailable(training) || responseContainsNotAvailable(event)) {
     return { status: "not_available" as const, label: "Not Available" };
@@ -1405,7 +1408,7 @@ function classifyImportedPollResponsesByField({
     return { status: "available" as const, label: "Available" };
   }
 
-  return classifyImportedAvailabilityResponse(fallbackResponse);
+  return { status: "no_response" as const, label: "No clear response" };
 }
 
 function normalizeImportHeader(value: unknown) {
@@ -4133,7 +4136,6 @@ const summaryTimeLabel = useMemo(() => {
       console.log("CFSP Poll Import Headers:", debugInfo.detectedHeaders);
       console.log("CFSP Poll Import Detection:", debugInfo);
 
-      const matchedSpIds = new Set<string>();
       const rawParsedResponses = rows
         .map((row) => {
           const name =
@@ -4169,7 +4171,6 @@ const summaryTimeLabel = useMemo(() => {
             trainingResponse,
             eventResponse,
             notes: responseNotes,
-            fallbackResponse: fallbackAnswer,
           });
           const normalizedEmail = normalizeEmail(email);
           const normalizedName = normalizeMatchName(name);
@@ -4183,26 +4184,6 @@ const summaryTimeLabel = useMemo(() => {
 
           const matchedSp = linkedSp || emailMatch || nameMatch;
           const matchedSpId = matchedSp ? String(matchedSp.id) : "";
-
-          if (matchedSpId && matchedSpIds.has(matchedSpId)) {
-            return {
-              name,
-              email,
-              normalizedEmail,
-              responseStatus: classified.status,
-              responseLabel: classified.label,
-              responseSubmittedAt: timestamp,
-              responseNote: responseNotes,
-              matchedSpId: "",
-              matchedSpEmail: "",
-              matchedSpName: "",
-              matchType: "unmatched",
-              matchConfidence: 0,
-              rawAnswer,
-            } satisfies ImportedPollResponseRecord;
-          }
-
-          if (matchedSpId) matchedSpIds.add(matchedSpId);
 
           return {
             name,
@@ -4220,14 +4201,18 @@ const summaryTimeLabel = useMemo(() => {
             rawAnswer,
           } satisfies ImportedPollResponseRecord;
         })
-        .filter((entry) => entry.name || entry.email || entry.matchedSpId || entry.rawAnswer);
+        .filter((entry) => entry.name || entry.email || entry.matchedSpId || entry.rawAnswer || entry.responseStatus !== "no_response");
 
       const parsedResponses = Array.from(
         new Map(
           rawParsedResponses
             .sort((a, b) => Date.parse(a.responseSubmittedAt || "") - Date.parse(b.responseSubmittedAt || ""))
-            .map((entry) => [
-              entry.matchedSpId || entry.normalizedEmail || normalizeMatchName(entry.name) || entry.rawAnswer,
+            .map((entry, index) => [
+              entry.matchedSpId ||
+                entry.normalizedEmail ||
+                normalizeMatchName(entry.name) ||
+                entry.rawAnswer ||
+                `row-${index}`,
               entry,
             ])
         ).values()
