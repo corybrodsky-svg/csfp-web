@@ -2306,10 +2306,14 @@ function formatScheduleBuilderBlockDetail(block: ScheduleBuilderPreviewDayBlock)
 function toTimeInputValue(value?: string | null) {
   const trimmed = asText(value);
   if (!trimmed) return "";
-  return trimmed.slice(0, 5);
+  const minutes = parseTimeToMinutes(trimmed);
+  if (minutes === null) return trimmed.slice(0, 5);
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  return `${String(hours).padStart(2, "0")}:${String(mins).padStart(2, "0")}`;
 }
 
-function getSessionEditorState(
+function getSessionEditorStateFromStructuredSessions(
   sessions: EventSessionRow[],
   eventDateText?: string | null
 ): SessionEditorState {
@@ -2324,10 +2328,35 @@ function getSessionEditorState(
   };
 }
 
+function getEventDetailsSessionEditorState(
+  sessions: EventSessionRow[],
+  eventDateText: string | null | undefined,
+  metadata: TrainingEventMetadata
+): SessionEditorState {
+  const structuredSessionFallback = getSessionEditorStateFromStructuredSessions(sessions, eventDateText);
+
+  return {
+    session_date:
+      normalizeLooseDateToIso(metadata.event_session_date) ||
+      structuredSessionFallback.session_date,
+    start_time: toTimeInputValue(metadata.event_start_time || structuredSessionFallback.start_time),
+    // Event Details owns this value. Do not derive it from selected rotation rounds,
+    // imported schedule blocks, or preferred training windows after it has been saved.
+    end_time: toTimeInputValue(metadata.event_end_time || structuredSessionFallback.end_time),
+  };
+}
+
 function toStoredTimeValue(value: string) {
   const trimmed = value.trim();
   if (!trimmed) return null;
   return trimmed.length === 5 ? `${trimmed}:00` : trimmed;
+}
+
+function formatTimeWindowLabel(start?: string | null, end?: string | null) {
+  const startText = asText(start);
+  const endText = asText(end);
+  if (startText && endText) return `${formatDisplayTime(startText)} - ${formatDisplayTime(endText)}`;
+  return formatDisplayTime(startText || endText);
 }
 
 function buildMailtoHref(args: {
@@ -4159,13 +4188,18 @@ const summaryTimeLabel = useMemo(() => {
   }, [event?.date_text, importedYearHint, rotationRounds]);
   const pollTrainingSummary = useMemo(() => {
     const dateText = asText(trainingMetadata.preferred_training_date) || asText(trainingMetadata.imported_training_date);
-    const timeText = asText(trainingMetadata.preferred_training_time) || asText(trainingMetadata.imported_training_time);
+    const preferredTrainingTimeText = asText(trainingMetadata.preferred_training_time);
+    const preferredTrainingEndTimeText = asText(trainingMetadata.preferred_training_end_time);
+    const timeText = preferredTrainingTimeText || preferredTrainingEndTimeText
+      ? formatTimeWindowLabel(preferredTrainingTimeText, preferredTrainingEndTimeText)
+      : asText(trainingMetadata.imported_training_time);
     if (!dateText && !timeText) return "Training details will be shared separately.";
     return [dateText, timeText].filter(Boolean).join(" · ");
   }, [
     trainingMetadata.imported_training_date,
     trainingMetadata.imported_training_time,
     trainingMetadata.preferred_training_date,
+    trainingMetadata.preferred_training_end_time,
     trainingMetadata.preferred_training_time,
   ]);
   const pollLocationSummary = useMemo(() => {
@@ -4247,8 +4281,12 @@ const summaryTimeLabel = useMemo(() => {
     asText(trainingMetadata.preferred_training_date) ||
     asText(trainingMetadata.imported_training_date) ||
     getFirstNoteValue(event?.notes, ["Preferred Training Date", "Training Date", "SP Training Date", "Training Date/Time"]);
+  const preferredTrainingTimeWindowText =
+    asText(trainingMetadata.preferred_training_time) || asText(trainingMetadata.preferred_training_end_time)
+      ? formatTimeWindowLabel(trainingMetadata.preferred_training_time, trainingMetadata.preferred_training_end_time)
+      : "";
   const normalEventTrainingTimeText =
-    asText(trainingMetadata.preferred_training_time) ||
+    preferredTrainingTimeWindowText ||
     asText(trainingMetadata.imported_training_time) ||
     getFirstNoteValue(event?.notes, ["Preferred Training Time", "Training Time", "SP Training Time"]);
   const normalEventTrainingInfoText =
@@ -6216,7 +6254,13 @@ Cory`;
           ? ""
           : String(result.event.sp_needed),
     });
-    setSessionEditor(getSessionEditorState(result.sessions, result.event?.date_text));
+    setSessionEditor(
+      getEventDetailsSessionEditorState(
+        result.sessions,
+        result.event?.date_text,
+        parseTrainingEventMetadata(result.event?.notes)
+      )
+    );
     setSessions(result.sessions);
     setSps(result.sps);
     setAssignments(result.assignments);
@@ -6291,6 +6335,12 @@ Cory`;
     const trimmedSessionDate = sessionEditor.session_date.trim();
     const startTime = toStoredTimeValue(sessionEditor.start_time);
     const endTime = toStoredTimeValue(sessionEditor.end_time);
+    const nextEventNotes = upsertTrainingEventMetadata(eventEditor.notes, {
+      event_session_date: trimmedSessionDate,
+      event_start_time: startTime || "",
+      event_end_time: endTime || "",
+    });
+    const shouldUpdateStructuredSessionFromEventDetails = sessions.length <= 1;
 
     setSaving(true);
     setEventSaveMessage("");
@@ -6306,14 +6356,17 @@ Cory`;
             status: eventEditor.status,
             visibility: eventEditor.visibility,
             location: eventEditor.location,
-            notes: eventEditor.notes,
+            notes: nextEventNotes,
+            date_text: trimmedSessionDate || null,
             sp_needed: spNeeded,
           },
-          session_updates: {
-            session_date: trimmedSessionDate || null,
-            start_time: startTime,
-            end_time: endTime,
-          },
+          session_updates: shouldUpdateStructuredSessionFromEventDetails
+            ? {
+                session_date: trimmedSessionDate || null,
+                start_time: startTime,
+                end_time: endTime,
+              }
+            : undefined,
         }),
       });
 
@@ -6963,7 +7016,13 @@ Cory`;
               ? ""
               : String(result.event.sp_needed),
         });
-        setSessionEditor(getSessionEditorState(result.sessions, result.event?.date_text));
+        setSessionEditor(
+          getEventDetailsSessionEditorState(
+            result.sessions,
+            result.event?.date_text,
+            parseTrainingEventMetadata(result.event?.notes)
+          )
+        );
         setSessions(result.sessions);
         setSps(result.sps);
         setAssignments(result.assignments);
@@ -8850,11 +8909,22 @@ Cory`;
       </label>
 
       <label style={{ display: "grid", gap: "6px" }}>
-        <span style={statLabel}>Preferred Training Time</span>
+        <span style={statLabel}>Preferred Training Start Time</span>
         <input
           type="time"
           value={asText(trainingMetadata.preferred_training_time)}
           onChange={(event) => handleTrainingMetadataChange("preferred_training_time", event.target.value)}
+          disabled={saving || trainingRequirementValue === "no"}
+          style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+        />
+      </label>
+
+      <label style={{ display: "grid", gap: "6px" }}>
+        <span style={statLabel}>Preferred Training End Time</span>
+        <input
+          type="time"
+          value={asText(trainingMetadata.preferred_training_end_time)}
+          onChange={(event) => handleTrainingMetadataChange("preferred_training_end_time", event.target.value)}
           disabled={saving || trainingRequirementValue === "no"}
           style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
         />

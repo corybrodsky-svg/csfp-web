@@ -315,6 +315,9 @@ function getSafeEventUpdates(rawUpdates: unknown) {
   if (typeof source.status === "string") updates.status = source.status.trim() || null;
   if (typeof source.visibility === "string") updates.visibility = source.visibility.trim() || null;
   if (typeof source.location === "string") updates.location = source.location.trim() || null;
+  if (typeof source.date_text === "string" || source.date_text === null) {
+    updates.date_text = typeof source.date_text === "string" ? source.date_text.trim() || null : null;
+  }
   if (typeof source.notes === "string" || source.notes === null) {
     updates.notes = typeof source.notes === "string" ? source.notes.trim() || null : null;
   }

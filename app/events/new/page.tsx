@@ -244,6 +244,7 @@ function buildNotes(args: {
   trainingOwnership: TrainingOwnership;
   preferredTrainingDate: string;
   preferredTrainingTime: string;
+  preferredTrainingEndTime: string;
   facultyAvailabilityUnknown: boolean;
   trainingZoomRequired: boolean;
   trainingRecordingPlanned: boolean;
@@ -263,9 +264,10 @@ function buildNotes(args: {
     "[CFSP_TRAINING_METADATA]",
     `training_required: ${args.trainingRequirement}`,
     args.trainingRequirement === "yes" ? `training_ownership: ${args.trainingOwnership}` : "",
-    args.trainingRequirement === "yes" ? `training_scheduling_status: ${args.preferredTrainingDate || args.preferredTrainingTime ? "planned" : "not_scheduled"}` : "",
+    args.trainingRequirement === "yes" ? `training_scheduling_status: ${args.preferredTrainingDate || args.preferredTrainingTime || args.preferredTrainingEndTime ? "planned" : "not_scheduled"}` : "",
     args.preferredTrainingDate ? `preferred_training_date: ${args.preferredTrainingDate}` : "",
     args.preferredTrainingTime ? `preferred_training_time: ${args.preferredTrainingTime}` : "",
+    args.preferredTrainingEndTime ? `preferred_training_end_time: ${args.preferredTrainingEndTime}` : "",
     args.trainingRequirement === "yes" ? `faculty_availability_unknown: ${boolText(args.facultyAvailabilityUnknown)}` : "",
     args.trainingRequirement === "yes" ? `training_zoom_required: ${boolText(args.trainingZoomRequired)}` : "",
     args.trainingRequirement === "yes" ? `training_recording_planned: ${boolText(args.trainingRecordingPlanned)}` : "",
@@ -290,6 +292,7 @@ function buildNotes(args: {
     args.trainingRequirement === "yes" ? `SP Training Ownership: ${getTrainingOwnershipLabel(args.trainingOwnership)}` : "",
     args.preferredTrainingDate ? `Preferred Training Date: ${args.preferredTrainingDate}` : "",
     args.preferredTrainingTime ? `Preferred Training Time: ${args.preferredTrainingTime}` : "",
+    args.preferredTrainingEndTime ? `Preferred Training End Time: ${args.preferredTrainingEndTime}` : "",
     args.trainingRequirement === "yes" && args.facultyAvailabilityUnknown ? "Faculty Availability: Unknown" : "",
     args.trainingRequirement === "yes" && args.trainingZoomRequired ? "Training Zoom Required: Yes" : "",
     args.trainingRequirement === "yes" && args.trainingRecordingPlanned ? "Training Recording Planned: Yes" : "",
@@ -335,6 +338,7 @@ export default function NewEventPage() {
   const [trainingOwnership, setTrainingOwnership] = useState<TrainingOwnership>("tbd");
   const [preferredTrainingDate, setPreferredTrainingDate] = useState("");
   const [preferredTrainingTime, setPreferredTrainingTime] = useState("");
+  const [preferredTrainingEndTime, setPreferredTrainingEndTime] = useState("");
   const [facultyAvailabilityUnknown, setFacultyAvailabilityUnknown] = useState(false);
   const [trainingZoomRequired, setTrainingZoomRequired] = useState(false);
   const [trainingRecordingPlanned, setTrainingRecordingPlanned] = useState(false);
@@ -428,6 +432,7 @@ export default function NewEventPage() {
     trainingOwnership,
     preferredTrainingDate,
     preferredTrainingTime,
+    preferredTrainingEndTime,
     facultyAvailabilityUnknown,
     trainingZoomRequired,
     trainingRecordingPlanned,
@@ -778,12 +783,23 @@ export default function NewEventPage() {
                   </label>
 
                   <label className="grid gap-2">
-                    <span className="cfsp-label">Preferred training time</span>
+                    <span className="cfsp-label">Preferred training start time</span>
                     <input
                       className="cfsp-input"
                       type="time"
                       value={preferredTrainingTime}
                       onChange={(e) => setPreferredTrainingTime(e.target.value)}
+                      disabled={!trainingRequired}
+                    />
+                  </label>
+
+                  <label className="grid gap-2">
+                    <span className="cfsp-label">Preferred training end time</span>
+                    <input
+                      className="cfsp-input"
+                      type="time"
+                      value={preferredTrainingEndTime}
+                      onChange={(e) => setPreferredTrainingEndTime(e.target.value)}
                       disabled={!trainingRequired}
                     />
                   </label>
@@ -962,7 +978,13 @@ export default function NewEventPage() {
                     {trainingRequirement === "yes" ? (
                       <>
                         <div><strong>Training Ownership:</strong> {getTrainingOwnershipLabel(trainingOwnership)}</div>
-                        <div><strong>Preferred Training:</strong> {[preferredTrainingDate, preferredTrainingTime].filter(Boolean).join(" · ") || "Not scheduled"}</div>
+                        <div>
+                          <strong>Preferred Training:</strong>{" "}
+                          {[
+                            preferredTrainingDate,
+                            [preferredTrainingTime, preferredTrainingEndTime].filter(Boolean).join(" - "),
+                          ].filter(Boolean).join(" · ") || "Not scheduled"}
+                        </div>
                         <div><strong>Training Logistics:</strong> {[trainingZoomRequired ? "Zoom required" : "", trainingRecordingPlanned ? "Recording planned" : "", facultyAvailabilityUnknown ? "Faculty availability unknown" : ""].filter(Boolean).join(" · ") || "No extra logistics marked"}</div>
                         {facultyAvailabilityRequestPlanned ? <div><strong>Faculty Coordination:</strong> Request availability after creation</div> : null}
                       </>

@@ -2,8 +2,12 @@ export type TrainingEventMetadata = {
   training_required: string;
   training_ownership: string;
   training_scheduling_status: string;
+  event_session_date: string;
+  event_start_time: string;
+  event_end_time: string;
   preferred_training_date: string;
   preferred_training_time: string;
+  preferred_training_end_time: string;
   faculty_availability_unknown: string;
   training_zoom_required: string;
   training_recording_planned: string;
@@ -63,8 +67,12 @@ const TRAINING_METADATA_KEYS = [
   "training_required",
   "training_ownership",
   "training_scheduling_status",
+  "event_session_date",
+  "event_start_time",
+  "event_end_time",
   "preferred_training_date",
   "preferred_training_time",
+  "preferred_training_end_time",
   "faculty_availability_unknown",
   "training_zoom_required",
   "training_recording_planned",
@@ -133,8 +141,12 @@ export function emptyTrainingEventMetadata(): TrainingEventMetadata {
     training_required: "",
     training_ownership: "",
     training_scheduling_status: "",
+    event_session_date: "",
+    event_start_time: "",
+    event_end_time: "",
     preferred_training_date: "",
     preferred_training_time: "",
+    preferred_training_end_time: "",
     faculty_availability_unknown: "",
     training_zoom_required: "",
     training_recording_planned: "",
