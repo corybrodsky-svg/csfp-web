@@ -2107,17 +2107,6 @@ export default function EventDetailPage() {
     [assignedSpIds, filteredCandidateSps]
   );
 
-  const recommendedSps = useMemo(
-    () =>
-      availableSps
-        .filter((sp) => {
-          const matchStatus = availabilityMatchBySpId.get(sp.id)?.status || "unknown";
-          if (matchStatus === "available") return isActiveSp(sp);
-          return matchStatus === "partial";
-        })
-        .slice(0, 5),
-    [availabilityMatchBySpId, availableSps]
-  );
   const pollMetadata = useMemo(() => parsePollMetadata(eventEditor.notes), [eventEditor.notes]);
   const pollSelectedSpIdsFromMetadata = useMemo(
     () =>
@@ -3841,16 +3830,6 @@ const summaryTimeLabel = useMemo(() => {
       ),
     [matchMakerRankedEntries]
   );
-  const topMatchAssignmentCount = useMemo(() => {
-    if (coverageGap <= 0) return 0;
-    return matchMakerTopMatches.filter(
-      (entry) =>
-        !entry.isAssigned &&
-        entry.pollResponseStatus !== "not_available" &&
-        entry.assignmentStatus !== "declined" &&
-        entry.isActive
-    ).length;
-  }, [coverageGap, matchMakerTopMatches]);
   const pollResponseSummary = useMemo(() => {
     const selectedIds = Array.from(new Set(activePollSelectedSpIds.map((item) => item.trim()).filter(Boolean)));
     const availableCount = pollResponderEntries.filter((entry) => entry.pollResponseStatus === "available").length;
@@ -4134,11 +4113,7 @@ const summaryTimeLabel = useMemo(() => {
   async function handleMarkImportedBackup(spId: string) {
     const existingAssignment = assignmentsBySpId.get(String(spId));
     if (existingAssignment) {
-      await handleBulkAssignmentStatusUpdate(
-        [existingAssignment],
-        "backup",
-        "Responder moved to backup."
-      );
+      await handleStatusChange(existingAssignment, "backup");
       return;
     }
     await assignMultipleSpIds([spId], "Responder added as backup.", { status: "backup", confirmed: false });
@@ -5462,7 +5437,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
     }
 
     await refreshData();
-    await handleStatusChange(assignment, "invited");
+    showSuccessMessage("Assignment updated.");
     setSaving(false);
   }
 
@@ -5650,109 +5625,6 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
     } finally {
       setAttendanceSaving(false);
     }
-  }
-
-  async function handleAddTopMatches() {
-    const topIds = recommendedSps.slice(0, 3).map((sp) => sp.id);
-
-    await assignMultipleSpIds(
-      topIds,
-      `Added ${topIds.length} top match${topIds.length === 1 ? "" : "es"}.`
-    );
-  }
-
-  async function handleAssignAvailablePollResponders() {
-    const ids = availablePollResponders
-      .filter((entry) => !entry.isAssigned && entry.isActive)
-      .map((entry) => entry.sp.id);
-
-    await assignMultipleSpIds(
-      ids,
-      `Assigned ${ids.length} available responder${ids.length === 1 ? "" : "s"}.`
-    );
-  }
-
-  async function handleAssignTopPollMatches() {
-    const ids = matchMakerTopMatches
-      .filter(
-        (entry) =>
-          !entry.isAssigned &&
-          entry.isActive &&
-          entry.pollResponseStatus !== "not_available" &&
-          entry.assignmentStatus !== "declined"
-      )
-      .slice(0, coverageGap)
-      .map((entry) => entry.sp.id);
-
-    await assignMultipleSpIds(
-      ids,
-      `Assigned ${ids.length} top match${ids.length === 1 ? "" : "es"}.`
-    );
-  }
-
-  async function handleBulkAssignmentStatusUpdate(
-    assignmentsToUpdate: AssignmentRow[],
-    status: AssignmentStatus,
-    successMessage: string
-  ) {
-    if (!assignmentsToUpdate.length) {
-      showSuccessMessage(successMessage);
-      return;
-    }
-
-    setSaving(true);
-    setAssignmentSuccessMessage("");
-    setErrorMessage("");
-    setEventSaveError("");
-    setEventSaveMessage("");
-
-    try {
-      for (const assignment of assignmentsToUpdate) {
-        await saveAssignmentRequest("PATCH", {
-          assignment_id: assignment.id,
-          updates: {
-            status,
-            confirmed: status === "confirmed",
-          },
-        });
-      }
-      await refreshData();
-      showSuccessMessage(successMessage);
-    } catch (error) {
-      setEventSaveError(error instanceof Error ? error.message : "Could not update suggested assignments.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function handleConvertAvailableToConfirmed() {
-    const assignmentsToUpdate = availablePollResponders
-      .filter((entry) => entry.assignment && !entry.isConfirmed && entry.assignmentStatus !== "declined")
-      .map((entry) => entry.assignment)
-      .filter((assignment): assignment is AssignmentRow => Boolean(assignment));
-
-    await handleBulkAssignmentStatusUpdate(
-      assignmentsToUpdate,
-      "confirmed",
-      assignmentsToUpdate.length
-        ? `Confirmed ${assignmentsToUpdate.length} available responder${assignmentsToUpdate.length === 1 ? "" : "s"}.`
-        : "No available assigned responders needed confirmation."
-    );
-  }
-
-  async function handleMoveMaybeToBackup() {
-    const assignmentsToUpdate = maybePollResponders
-      .filter((entry) => entry.assignment && entry.assignmentStatus !== "backup" && entry.assignmentStatus !== "declined")
-      .map((entry) => entry.assignment)
-      .filter((assignment): assignment is AssignmentRow => Boolean(assignment));
-
-    await handleBulkAssignmentStatusUpdate(
-      assignmentsToUpdate,
-      "backup",
-      assignmentsToUpdate.length
-        ? `Moved ${assignmentsToUpdate.length} maybe responder${assignmentsToUpdate.length === 1 ? "" : "s"} to backup.`
-        : "No maybe responders needed a backup update."
-    );
   }
 
   function handleClearSuggestedAssignments() {
@@ -7257,6 +7129,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                       {pollInviteOnlyAssignments.map((assignment) => {
                         const sp = assignment.sp_id ? spsById.get(assignment.sp_id) : undefined;
                         const email = sp ? getEmail(sp) : "";
+                        const status = getAssignmentStatus(assignment);
 
                         return (
                           <div
@@ -7267,17 +7140,57 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                               padding: "10px 12px",
                               background: "rgba(250, 252, 255, 0.92)",
                               display: "grid",
-                              gap: "4px",
+                              gridTemplateColumns: "minmax(0, 1fr) auto",
+                              gap: "8px",
+                              alignItems: "center",
                             }}
                           >
-                            <div style={{ fontWeight: 800, color: staffingWorkspacePalette.textStrong }}>
-                              {sp ? getFullName(sp) : "Unknown SP"}
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ fontWeight: 800, color: staffingWorkspacePalette.textStrong }}>
+                                {sp ? getFullName(sp) : "Unknown SP"}
+                              </div>
+                              <div style={{ marginTop: "3px", color: staffingWorkspacePalette.textMuted, fontSize: "13px", fontWeight: 700 }}>
+                                {email || "No email"}
+                              </div>
+                              <div style={{ marginTop: "4px", display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                                <span
+                                  style={{
+                                    ...assignmentStatusStyles[status],
+                                    borderRadius: "999px",
+                                    padding: "4px 8px",
+                                    fontSize: "11px",
+                                    fontWeight: 900,
+                                  }}
+                                >
+                                  {assignmentStatusLabels[status]}
+                                </span>
+                              </div>
                             </div>
-                            <div style={{ color: staffingWorkspacePalette.textMuted, fontSize: "13px", fontWeight: 700 }}>
-                              {email || "No email"}
-                            </div>
-                            <div style={{ color: staffingWorkspacePalette.textMuted, fontWeight: 700, fontSize: "12px" }}>
-                              Poll status: {getAssignmentStatus(assignment)}
+                            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                              <button
+                                type="button"
+                                onClick={() => void handleStatusChange(assignment, "confirmed")}
+                                disabled={saving}
+                                style={{ ...buttonStyle, padding: "6px 9px", fontSize: "12px", opacity: saving ? 0.65 : 1 }}
+                              >
+                                Mark Primary
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void handleStatusChange(assignment, "backup")}
+                                disabled={saving}
+                                style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px", fontSize: "12px", opacity: saving ? 0.65 : 1 }}
+                              >
+                                Mark Backup
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void handleStatusChange(assignment, "declined")}
+                                disabled={saving}
+                                style={{ ...dangerButtonStyle, padding: "6px 9px", fontSize: "12px", opacity: saving ? 0.65 : 1 }}
+                              >
+                                Ignore
+                              </button>
                             </div>
                           </div>
                         );
@@ -7814,30 +7727,6 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                   ) : (
                   <>
                     <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                      <button
-                        type="button"
-                        onClick={() => void handleAssignTopPollMatches()}
-                        disabled={saving || topMatchAssignmentCount === 0}
-                        style={{ ...buttonStyle, boxShadow: "0 8px 16px rgba(14, 165, 233, 0.16)", opacity: saving || topMatchAssignmentCount === 0 ? 0.65 : 1 }}
-                      >
-                        Assign Top Matches
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void handleConvertAvailableToConfirmed()}
-                        disabled={saving || availablePollResponders.filter((entry) => entry.assignment && !entry.isConfirmed).length === 0}
-                        style={{ ...buttonStyle, boxShadow: "0 8px 16px rgba(14, 165, 233, 0.16)", opacity: saving || availablePollResponders.filter((entry) => entry.assignment && !entry.isConfirmed).length === 0 ? 0.65 : 1 }}
-                      >
-                        Convert Available → Confirmed
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void handleMoveMaybeToBackup()}
-                        disabled={saving || maybePollResponders.filter((entry) => entry.assignment).length === 0}
-                        style={{ ...buttonStyle, boxShadow: "0 8px 16px rgba(14, 165, 233, 0.16)", opacity: saving || maybePollResponders.filter((entry) => entry.assignment).length === 0 ? 0.65 : 1 }}
-                      >
-                        Move Maybe → Backup
-                      </button>
                       <button
                         type="button"
                         onClick={handleClearSuggestedAssignments}
@@ -11623,20 +11512,6 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
             </button>
             <button
               type="button"
-              onClick={() => void handleAddTopMatches()}
-              disabled={saving || recommendedSps.length === 0}
-              style={{
-                ...buttonStyle,
-                background: "var(--cfsp-surface)",
-                color: "var(--cfsp-text)",
-                border: "1px solid var(--cfsp-border)",
-                opacity: saving || recommendedSps.length === 0 ? 0.65 : 1,
-              }}
-            >
-              Add Top 3 Matches
-            </button>
-            <button
-              type="button"
               onClick={() => setShowEmailDraft((current) => !current)}
               disabled={saving}
               style={{
@@ -12042,32 +11917,6 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                         Confirmed responders rank first, followed by Available, Maybe, No response, and Avoid.
                       </div>
                     </div>
-                    <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                      <button
-                        type="button"
-                        onClick={() => void handleAssignTopPollMatches()}
-                        disabled={saving || topMatchAssignmentCount === 0}
-                        style={{ ...buttonStyle, opacity: saving || topMatchAssignmentCount === 0 ? 0.65 : 1 }}
-                      >
-                        Assign Top Matches
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void handleMoveMaybeToBackup()}
-                        disabled={saving || maybePollResponders.filter((entry) => entry.assignment).length === 0}
-                        style={{ ...buttonStyle, opacity: saving || maybePollResponders.filter((entry) => entry.assignment).length === 0 ? 0.65 : 1 }}
-                      >
-                        Move Maybes to Backup
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void handleConvertAvailableToConfirmed()}
-                        disabled={saving || availablePollResponders.filter((entry) => entry.assignment && !entry.isConfirmed).length === 0}
-                        style={{ ...buttonStyle, opacity: saving || availablePollResponders.filter((entry) => entry.assignment && !entry.isConfirmed).length === 0 ? 0.65 : 1 }}
-                      >
-                        Convert Available → Confirmed
-                      </button>
-                    </div>
                   </div>
 
                   <div
@@ -12210,38 +12059,6 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
               ) : null}
 
               <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                <button
-                  type="button"
-                  onClick={() => void handleAssignAvailablePollResponders()}
-                  disabled={saving || availablePollResponders.filter((entry) => !entry.isAssigned && entry.isActive).length === 0}
-                  style={{ ...buttonStyle, opacity: saving || availablePollResponders.filter((entry) => !entry.isAssigned && entry.isActive).length === 0 ? 0.65 : 1 }}
-                >
-                  Assign Available SPs
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void handleAssignTopPollMatches()}
-                  disabled={saving || topMatchAssignmentCount === 0}
-                  style={{ ...buttonStyle, opacity: saving || topMatchAssignmentCount === 0 ? 0.65 : 1 }}
-                >
-                  Assign Top Matches
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void handleConvertAvailableToConfirmed()}
-                  disabled={saving || availablePollResponders.filter((entry) => entry.assignment && !entry.isConfirmed).length === 0}
-                  style={{ ...buttonStyle, opacity: saving || availablePollResponders.filter((entry) => entry.assignment && !entry.isConfirmed).length === 0 ? 0.65 : 1 }}
-                >
-                  Convert Available → Confirmed
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void handleMoveMaybeToBackup()}
-                  disabled={saving || maybePollResponders.filter((entry) => entry.assignment).length === 0}
-                  style={{ ...buttonStyle, opacity: saving || maybePollResponders.filter((entry) => entry.assignment).length === 0 ? 0.65 : 1 }}
-                >
-                  Move Maybe → Backup
-                </button>
                 <button
                   type="button"
                   onClick={handleClearSuggestedAssignments}
