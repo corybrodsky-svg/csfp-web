@@ -63,10 +63,13 @@ function getSignupErrorStatus(message?: string | null) {
   return 500;
 }
 
-function normalizeSignupRole(value: unknown) {
+type SignupRole = "faculty" | "sim_op" | "admin" | "sp";
+
+function normalizeSignupRole(value: unknown): SignupRole | null {
   const role = asText(value).toLowerCase().replace(/[\s-]+/g, "_");
-  if (role === "faculty") return "faculty";
-  return "sp";
+  if (role === "sim_ops") return "sim_op";
+  if (role === "faculty" || role === "sim_op" || role === "admin" || role === "sp") return role;
+  return null;
 }
 
 export async function POST(request: Request) {
@@ -91,6 +94,16 @@ export async function POST(request: Request) {
     if (!email || !password) {
       return NextResponse.json(
         { ok: false, error: "Email and password are required." },
+        { status: 400 }
+      );
+    }
+
+    if (!requestedRole) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Choose a valid account role: Faculty, Sim Ops, Admin, or SP.",
+        },
         { status: 400 }
       );
     }

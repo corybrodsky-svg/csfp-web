@@ -134,7 +134,21 @@ function formatTransportError(error: unknown) {
     : error.message || "Could not create account.";
 }
 
-type SignupAccountType = "sp" | "faculty";
+type SignupAccountType = "faculty" | "sim_op" | "admin" | "sp";
+
+const signupAccountOptions: Array<{ value: SignupAccountType; label: string }> = [
+  { value: "faculty", label: "Faculty" },
+  { value: "sim_op", label: "Sim Ops" },
+  { value: "admin", label: "Admin" },
+  { value: "sp", label: "SP" },
+];
+
+function normalizeSignupAccountType(value: string): SignupAccountType {
+  const role = value.toLowerCase().replace(/[\s-]+/g, "_");
+  if (role === "sim_ops") return "sim_op";
+  if (role === "faculty" || role === "sim_op" || role === "admin" || role === "sp") return role;
+  return "sp";
+}
 
 export default function SignupPage() {
   const router = useRouter();
@@ -276,14 +290,17 @@ export default function SignupPage() {
             <span style={labelStyle}>Account Type</span>
             <select
               value={accountType}
-              onChange={(event) => setAccountType(event.target.value === "faculty" ? "faculty" : "sp")}
+              onChange={(event) => setAccountType(normalizeSignupAccountType(event.target.value))}
               style={inputStyle}
             >
-              <option value="sp">SP</option>
-              <option value="faculty">Faculty</option>
+              {signupAccountOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
             </select>
             <span style={{ color: "#5b6b7f", fontSize: "13px", lineHeight: 1.6 }}>
-              Sim Ops, Admin, and Super Admin roles are assigned internally after account review.
+              Choose the CFSP role for this account. Super Admin is reserved and is not available during signup.
             </span>
           </label>
 
