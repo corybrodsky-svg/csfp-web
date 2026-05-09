@@ -3885,6 +3885,18 @@ const summaryTimeLabel = useMemo(() => {
   const activeSelectedRotationRoundIndex = selectedRotationRoundIndex >= 0 ? selectedRotationRoundIndex : 0;
   const selectedRotationRound =
     selectedRotationRoundIndex >= 0 ? rotationRounds[selectedRotationRoundIndex] : rotationRounds[0] || null;
+  const expandedScheduleBuilderHref = useMemo(() => {
+    const params = new URLSearchParams();
+    params.set("source", "rotation-command");
+    params.set("view", roundCompanionView);
+
+    if (selectedRotationRound) {
+      params.set("round", selectedRotationRound.key);
+      params.set("roundIndex", String(activeSelectedRotationRoundIndex + 1));
+    }
+
+    return `/events/${encodeURIComponent(id)}/schedule-builder?${params.toString()}`;
+  }, [activeSelectedRotationRoundIndex, id, roundCompanionView, selectedRotationRound]);
   const scheduleBuilderLearnerNames = useMemo(
     () =>
       scheduleBuilderPreviewDraft?.uploadedLearners.length
@@ -9573,7 +9585,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
               </span>
               {!isTrainingMode ? (
                 <Link
-                  href={`/events/${encodeURIComponent(id)}/schedule-builder`}
+                  href={expandedScheduleBuilderHref}
                   style={{
                     ...buttonStyle,
                     display: "inline-flex",
@@ -9581,7 +9593,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                     textDecoration: "none",
                   }}
                 >
-                  Build Schedule
+                  Expand Schedule Builder
                 </Link>
               ) : null}
               <button
@@ -10435,7 +10447,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                           </button>
                         ))}
                         <Link
-                          href={`/events/${encodeURIComponent(id)}/schedule-builder`}
+                          href={expandedScheduleBuilderHref}
                           style={{
                             ...staffingSecondaryButtonStyle,
                             padding: "7px 10px",
@@ -10444,7 +10456,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                             alignItems: "center",
                           }}
                         >
-                          Open Full Schedule Builder
+                          Expand Schedule Builder
                         </Link>
                       </div>
                     </div>

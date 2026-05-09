@@ -28,10 +28,18 @@ type EventsResponse = {
   error?: string;
 };
 
+type ScheduleCompanionView = "announcements" | "student" | "sp" | "operations";
+type ScheduleBuilderViewMode = "student" | "operations";
+
 type EventScheduleBuilderProps = {
   fixedEventId?: string;
   backHref?: string;
   backLabel?: string;
+  expandedWorkspace?: boolean;
+  initialRoundNumber?: number | null;
+  initialRoundKey?: string;
+  initialCompanionView?: ScheduleCompanionView | null;
+  initialScheduleViewMode?: ScheduleBuilderViewMode | null;
 };
 
 type DayBlockType =
@@ -200,6 +208,17 @@ const DEFAULT_SCHEDULE_BUILDER_DRAFT: ScheduleBuilderDraft = {
   breakdownMinutes: "0",
   savedAt: null,
 };
+
+const scheduleCompanionViewLabels: Record<ScheduleCompanionView, string> = {
+  announcements: "Announcements",
+  student: "Student Schedule",
+  sp: "SP Schedule",
+  operations: "Operations View",
+};
+
+function getScheduleCompanionViewLabel(view: ScheduleCompanionView | null | undefined) {
+  return view ? scheduleCompanionViewLabels[view] : "Command Surface";
+}
 
 function asText(value: unknown) {
   if (value === null || value === undefined) return "";
@@ -974,8 +993,15 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const [learnerUploadError, setLearnerUploadError] = useState("");
   const [originalUploadedLearners, setOriginalUploadedLearners] = useState<string[]>([]);
   const [uploadedLearners, setUploadedLearners] = useState<string[]>([]);
-  const [builderMode, setBuilderMode] = useState<"simple" | "advanced">(DEFAULT_SCHEDULE_BUILDER_DRAFT.builderMode);
-  const [scheduleViewMode, setScheduleViewMode] = useState<"student" | "operations">(DEFAULT_SCHEDULE_BUILDER_DRAFT.scheduleViewMode);
+  const [builderMode, setBuilderMode] = useState<"simple" | "advanced">(
+    props.expandedWorkspace ? "advanced" : DEFAULT_SCHEDULE_BUILDER_DRAFT.builderMode
+  );
+  const [scheduleViewMode, setScheduleViewMode] = useState<ScheduleBuilderViewMode>(
+    props.initialScheduleViewMode || DEFAULT_SCHEDULE_BUILDER_DRAFT.scheduleViewMode
+  );
+  const [selectedBuilderRound, setSelectedBuilderRound] = useState<number | null>(
+    typeof props.initialRoundNumber === "number" && props.initialRoundNumber > 0 ? props.initialRoundNumber : null
+  );
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [saveErrorMessage, setSaveErrorMessage] = useState("");
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
@@ -1027,8 +1053,8 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const autosaveTimeoutRef = useRef<number | null>(null);
 
   const applyDraft = useCallback((draft: ScheduleBuilderDraft) => {
-    setBuilderMode(draft.builderMode);
-    setScheduleViewMode(draft.scheduleViewMode);
+    setBuilderMode(props.expandedWorkspace && !draft.savedAt ? "advanced" : draft.builderMode);
+    setScheduleViewMode(props.initialScheduleViewMode || draft.scheduleViewMode);
     setSelectedEventId(props.fixedEventId || draft.selectedEventId || "");
     setLearnerFileName(draft.learnerFileName);
     setOriginalUploadedLearners(draft.originalUploadedLearners);
@@ -1066,7 +1092,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     setLastSavedAt(draft.savedAt || null);
     setSaveState(draft.savedAt ? "saved" : "saved");
     setSaveErrorMessage("");
-  }, [props.fixedEventId]);
+  }, [props.expandedWorkspace, props.fixedEventId, props.initialScheduleViewMode]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1139,6 +1165,18 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       });
     }
   }, [applyDraft, props.fixedEventId, selectedEventId, storageKey]);
+
+  useEffect(() => {
+    if (typeof props.initialRoundNumber === "number" && props.initialRoundNumber > 0) {
+      setSelectedBuilderRound(props.initialRoundNumber);
+    }
+  }, [props.initialRoundNumber]);
+
+  useEffect(() => {
+    if (props.initialScheduleViewMode) {
+      setScheduleViewMode(props.initialScheduleViewMode);
+    }
+  }, [props.initialScheduleViewMode]);
 
   const draftSnapshot = useMemo<ScheduleBuilderDraft>(
     () => ({
@@ -1608,6 +1646,22 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       })),
     [scheduleViewMode, scheduledRounds]
   );
+  const selectedBuilderRoundContext = useMemo(
+    () =>
+      typeof selectedBuilderRound === "number"
+        ? visibleScheduledRounds.find((round) => round.round === selectedBuilderRound) || null
+        : null,
+    [selectedBuilderRound, visibleScheduledRounds]
+  );
+  const commandSurfaceContextLabel = getScheduleCompanionViewLabel(props.initialCompanionView);
+  const commandSurfaceRoundLabel = selectedBuilderRound
+    ? `Round ${selectedBuilderRound}`
+    : props.initialRoundKey
+      ? "Selected event round"
+      : "Event schedule context";
+  const commandSurfaceRoundTimeLabel = selectedBuilderRoundContext
+    ? formatRange(selectedBuilderRoundContext.start, selectedBuilderRoundContext.end)
+    : "";
   const totalScheduleCapacity = Math.max(slotsPerRound, 0) * generated.rounds.length;
   const unplacedLearnerCount =
     uploadedLearners.length > 0 ? Math.max(uploadedLearners.length - totalScheduleCapacity, 0) : 0;
@@ -1788,14 +1842,42 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     <div className="grid gap-5">
       {errorMessage ? <div className="cfsp-alert cfsp-alert-error">{errorMessage}</div> : null}
 
-      <section className="rounded-[14px] border border-[#dce6ee] bg-[linear-gradient(180deg,#f8fbfd_0%,#eef5fb_100%)] px-5 py-5">
+      <section className="rounded-[14px] border border-[#cfe6ef] bg-[linear-gradient(180deg,#f8fcfd_0%,#edf8fa_55%,#eef5fb_100%)] px-5 py-5 shadow-[0_18px_44px_rgba(42,112,140,0.08)]">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <p className="cfsp-kicker">Connected builder</p>
-            <h2 className="mt-3 text-[1.7rem] leading-tight font-black text-[#14304f]">Build rotation schedule</h2>
+            <p className="cfsp-kicker">{props.expandedWorkspace ? "Expanded scheduling workspace" : "Connected builder"}</p>
+            <h2 className="mt-3 text-[1.7rem] leading-tight font-black text-[#14304f]">
+              {props.expandedWorkspace ? "Expanded Schedule Builder" : "Build rotation schedule"}
+            </h2>
             <p className="mt-3 max-w-3xl text-[0.98rem] leading-6 text-[#5e7388]">
-              Build a full-day simulation schedule preview with arrivals, rotation rounds, day blocks, rooms, and learner flow while keeping the event record untouched. Builder changes auto-save locally in this browser for the current event.
+              {props.expandedWorkspace
+                ? "Deep editing mode for the event schedule system. Use this workspace for roster uploads, timing overrides, day blocks, randomization, and bulk schedule generation while the event page remains the operational command surface."
+                : "Build a full-day simulation schedule preview with arrivals, rotation rounds, day blocks, rooms, and learner flow while keeping the event record untouched. Builder changes auto-save locally in this browser for the current event."}
             </p>
+            {props.expandedWorkspace ? (
+              <div className="mt-4 flex flex-wrap gap-2">
+                {[
+                  "Rotation Command Surface",
+                  commandSurfaceRoundLabel,
+                  commandSurfaceContextLabel,
+                  commandSurfaceRoundTimeLabel,
+                ]
+                  .filter(Boolean)
+                  .map((label) => (
+                    <span
+                      key={label}
+                      className="rounded-full border px-3 py-1 text-xs font-black uppercase tracking-[0.08em]"
+                      style={{
+                        borderColor: "rgba(44, 211, 173, 0.28)",
+                        background: "rgba(209, 250, 229, 0.5)",
+                        color: "#0f766e",
+                      }}
+                    >
+                      {label}
+                    </span>
+                  ))}
+              </div>
+            ) : null}
             <div className="mt-4 inline-flex rounded-[12px] border border-[var(--cfsp-border)] p-1">
               <button
                 type="button"
@@ -1806,7 +1888,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                   color: builderMode === "simple" ? "#ffffff" : "var(--cfsp-text-muted)",
                 }}
               >
-                Simple
+                Core Setup
               </button>
               <button
                 type="button"
@@ -1817,7 +1899,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                   color: builderMode === "advanced" ? "#ffffff" : "var(--cfsp-text-muted)",
                 }}
               >
-                Advanced
+                Advanced Editing
               </button>
             </div>
             <div
@@ -1833,8 +1915,8 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
             </div>
             <div className="mt-3 text-sm font-semibold text-[#5e7388]">
               {builderMode === "simple"
-                ? "Simple mode shows the core scheduling inputs only."
-                : "Advanced mode adds arrival, prebrief, wrap-up, and timing overrides."}
+                ? "Core Setup keeps the command surface inputs focused on schedule generation."
+                : "Advanced Editing adds arrival, prebrief, wrap-up, timing overrides, and bulk schedule controls."}
             </div>
             {uploadedLearners.length > 0 && slotsPerRound > 0 ? (
               <div className="mt-3 text-sm font-semibold text-[#165a96]">
@@ -1984,7 +2066,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
 
           <div className="grid gap-4 xl:grid-cols-[1.02fr_0.98fr]">
             <section className="cfsp-panel px-4 py-4">
-              <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">Schedule Summary</h3>
+              <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">Schedule Context Summary</h3>
               <div className="mt-4 grid gap-3 md:grid-cols-2">
                 <div className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
                   <div className="cfsp-label">Start Time</div>
@@ -2065,7 +2147,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
             </section>
 
             <section className="cfsp-panel px-4 py-4">
-              <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">Simple Builder</h3>
+              <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">Core Schedule Setup</h3>
               <p className="mt-2 mb-0 text-sm leading-6 text-[#5e7388]">
                 Use the core scheduling inputs below to generate a standard session schedule quickly.
               </p>
@@ -2220,7 +2302,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                             label="Visible to"
                             value={block.visibleTo}
                             options={[
-                              { value: "student", label: "Student View" },
+                              { value: "student", label: "Student Schedule" },
                               { value: "operations", label: "Operations View" },
                               { value: "both", label: "Both" },
                             ]}
@@ -2244,7 +2326,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
               <section className="cfsp-panel px-4 py-4">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>
-                    <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">Advanced Options</h3>
+                    <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">Advanced Scheduling Controls</h3>
                     <p className="mt-2 mb-0 text-sm leading-6 text-[#5e7388]">
                       These timing details are optional. They only affect the schedule when enabled or set to a nonzero value.
                     </p>
@@ -2280,7 +2362,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
               </section>
 
               <section className="cfsp-panel px-4 py-4">
-                <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">Advanced Status</h3>
+                <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">Workspace Status</h3>
                 <div className="mt-4 grid gap-3">
                   <div className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
                     <div className="cfsp-label">Advanced settings</div>
@@ -2343,9 +2425,9 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
           <section className="cfsp-panel px-4 py-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
-                <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">Rotation schedule grid</h3>
+                <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">Expanded Rotation Schedule Grid</h3>
                 <p className="mt-2 mb-0 text-sm leading-6 text-[#5e7388]">
-                  Rows track rotation rounds and day-block timing while columns track rooms in a spreadsheet-style layout. Without an upload, fallback learner names are generated automatically.
+                  Rows track the same rotation rounds shown on the event command surface, with room columns, learner flow, timing blocks, and operations-only context when enabled.
                 </p>
               </div>
               <div className="inline-flex rounded-[12px] border border-[var(--cfsp-border)] p-1">
@@ -2358,7 +2440,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                     color: scheduleViewMode === "student" ? "#ffffff" : "var(--cfsp-text-muted)",
                   }}
                 >
-                  Student View
+                  Student Schedule
                 </button>
                 <button
                   type="button"
@@ -2382,7 +2464,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
               <div className="mt-5 overflow-hidden rounded-[16px] border border-[#dce6ee] bg-[#f8fbfd]">
                 <div className="border-b border-[#dce6ee] px-4 py-3 text-sm font-semibold text-[#5e7388]">
                   {scheduleViewMode === "student"
-                    ? "Student View excludes internal SP and case details."
+                    ? "Student Schedule excludes internal SP and case details."
                     : "Operations View includes assigned SP and case details when available."}
                 </div>
                 <div className="max-w-full overflow-x-auto">
@@ -2399,68 +2481,85 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                     </tr>
                   </thead>
                   <tbody>
-                    {visibleScheduledRounds.map((round) => (
-                      <tr key={round.round} className="border-b border-[#eef3f7] align-top text-sm text-[#14304f]">
-                        <td className="px-3 py-4 font-black">Round {round.round}</td>
-                        <td className="px-3 py-4">
-                          <div className="font-bold">{formatRange(round.start, round.end)}</div>
-                          <div className="mt-2 grid gap-1 text-xs font-semibold text-[#5e7388]">
-                            {round.subBlocks.map((subBlock) => (
-                              <div key={`${round.round}-${subBlock.label}`}>
-                                {subBlock.label}: {formatRange(subBlock.start, subBlock.end)}
+                    {visibleScheduledRounds.map((round) => {
+                      const isSelectedContextRound = selectedBuilderRound === round.round;
+                      return (
+                        <tr
+                          key={round.round}
+                          className="border-b border-[#eef3f7] align-top text-sm text-[#14304f]"
+                          style={{
+                            background: isSelectedContextRound ? "rgba(209, 250, 229, 0.36)" : undefined,
+                            boxShadow: isSelectedContextRound ? "inset 4px 0 0 rgba(15, 118, 110, 0.72)" : undefined,
+                          }}
+                        >
+                          <td className="px-3 py-4 font-black">
+                            <div>Round {round.round}</div>
+                            {isSelectedContextRound ? (
+                              <div className="mt-2 text-[0.68rem] font-black uppercase tracking-[0.08em] text-[#0f766e]">
+                                Command context
                               </div>
-                            ))}
-                          </div>
-                        </td>
-                        {round.roomSlots.map((slot) => (
-                          <td key={`${round.round}-${slot.roomName}`} className="px-3 py-4">
-                            <div
-                              style={{
-                                border: `1px solid ${slot.roomType === "exam" ? "#c7dcee" : "#bfe4d6"}`,
-                                borderRadius: "12px",
-                                background: slot.roomType === "exam" ? "#edf5fb" : "#eefbf6",
-                                padding: "10px 12px",
-                                minWidth: "160px",
-                              }}
-                            >
-                              <div
-                                style={{
-                                  fontWeight: 800,
-                                  color: slot.roomType === "exam" ? "#165a96" : "#196b57",
-                                  fontSize: "12px",
-                                  textTransform: "uppercase",
-                                }}
-                              >
-                                {formatRoomName(slot.roomName, slot.roomType, roomLabel)} · {slot.capacityLabel}
-                              </div>
-                              {scheduleViewMode === "operations" ? (
-                                <div style={{ marginTop: "6px", fontSize: "12px", fontWeight: 700, color: "#4f677d", lineHeight: 1.5 }}>
-                                  <div>SP: {selectedEvent?.assigned_sp_names?.[round.roomSlots.findIndex((item) => item.roomName === slot.roomName)] || "Unassigned"}</div>
-                                  {selectedEventMetadata.case_name ? <div>Case: {selectedEventMetadata.case_name}</div> : null}
+                            ) : null}
+                          </td>
+                          <td className="px-3 py-4">
+                            <div className="font-bold">{formatRange(round.start, round.end)}</div>
+                            <div className="mt-2 grid gap-1 text-xs font-semibold text-[#5e7388]">
+                              {round.subBlocks.map((subBlock) => (
+                                <div key={`${round.round}-${subBlock.label}`}>
+                                  {subBlock.label}: {formatRange(subBlock.start, subBlock.end)}
                                 </div>
-                              ) : null}
-                              <div style={{ marginTop: "8px", display: "grid", gap: "6px" }}>
-                                {slot.learnerLabels.map((learner) => (
-                                  <div
-                                    key={`${slot.roomName}-${learner}`}
-                                    style={{
-                                      borderRadius: "999px",
-                                      background: "#ffffff",
-                                      border: "1px solid rgba(148,163,184,0.28)",
-                                      padding: "6px 10px",
-                                      fontSize: "12px",
-                                      fontWeight: 700,
-                                    }}
-                                  >
-                                    {learner}
-                                  </div>
-                                ))}
-                              </div>
+                              ))}
                             </div>
                           </td>
-                        ))}
-                      </tr>
-                    ))}
+                          {round.roomSlots.map((slot) => (
+                            <td key={`${round.round}-${slot.roomName}`} className="px-3 py-4">
+                              <div
+                                style={{
+                                  border: `1px solid ${slot.roomType === "exam" ? "#c7dcee" : "#bfe4d6"}`,
+                                  borderRadius: "12px",
+                                  background: slot.roomType === "exam" ? "#edf5fb" : "#eefbf6",
+                                  padding: "10px 12px",
+                                  minWidth: "160px",
+                                }}
+                              >
+                                <div
+                                  style={{
+                                    fontWeight: 800,
+                                    color: slot.roomType === "exam" ? "#165a96" : "#196b57",
+                                    fontSize: "12px",
+                                    textTransform: "uppercase",
+                                  }}
+                                >
+                                  {formatRoomName(slot.roomName, slot.roomType, roomLabel)} · {slot.capacityLabel}
+                                </div>
+                                {scheduleViewMode === "operations" ? (
+                                  <div style={{ marginTop: "6px", fontSize: "12px", fontWeight: 700, color: "#4f677d", lineHeight: 1.5 }}>
+                                    <div>SP: {selectedEvent?.assigned_sp_names?.[round.roomSlots.findIndex((item) => item.roomName === slot.roomName)] || "Unassigned"}</div>
+                                    {selectedEventMetadata.case_name ? <div>Case: {selectedEventMetadata.case_name}</div> : null}
+                                  </div>
+                                ) : null}
+                                <div style={{ marginTop: "8px", display: "grid", gap: "6px" }}>
+                                  {slot.learnerLabels.map((learner) => (
+                                    <div
+                                      key={`${slot.roomName}-${learner}`}
+                                      style={{
+                                        borderRadius: "999px",
+                                        background: "#ffffff",
+                                        border: "1px solid rgba(148,163,184,0.28)",
+                                        padding: "6px 10px",
+                                        fontSize: "12px",
+                                        fontWeight: 700,
+                                      }}
+                                    >
+                                      {learner}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            </td>
+                          ))}
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

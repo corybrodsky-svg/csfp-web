@@ -1,6 +1,6 @@
 "use client";
 
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import EventScheduleBuilder from "../../../components/EventScheduleBuilder";
 import SiteShell from "../../../components/SiteShell";
 
@@ -9,19 +9,45 @@ function getRouteId(raw: string | string[] | undefined) {
   return typeof raw === "string" ? raw : "";
 }
 
+function getInitialRoundNumber(raw: string | null) {
+  const parsed = Number.parseInt(raw || "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function getInitialScheduleView(raw: string | null) {
+  return raw === "student" ? "student" : "operations";
+}
+
+function getInitialCompanionView(raw: string | null) {
+  if (raw === "announcements" || raw === "student" || raw === "sp" || raw === "operations") {
+    return raw;
+  }
+  return null;
+}
+
 export default function EventScopedScheduleBuilderPage() {
   const params = useParams();
+  const searchParams = useSearchParams();
   const eventId = getRouteId(params?.id);
+  const initialRoundNumber = getInitialRoundNumber(searchParams.get("roundIndex"));
+  const initialRoundKey = searchParams.get("round") || "";
+  const initialCompanionView = getInitialCompanionView(searchParams.get("view"));
+  const initialScheduleViewMode = getInitialScheduleView(searchParams.get("view"));
 
   return (
     <SiteShell
-      title="Build Schedule"
-      subtitle="Build a learner rotation schedule for this event without changing the saved event record."
+      title="Expanded Schedule Builder"
+      subtitle="Deep scheduling workspace connected to the event Rotation Command Surface."
     >
       <EventScheduleBuilder
         fixedEventId={eventId}
         backHref={eventId ? `/events/${eventId}` : "/events"}
-        backLabel="Back to Event"
+        backLabel="Back to Rotation Command Surface"
+        expandedWorkspace
+        initialRoundNumber={initialRoundNumber}
+        initialRoundKey={initialRoundKey}
+        initialCompanionView={initialCompanionView}
+        initialScheduleViewMode={initialScheduleViewMode}
       />
     </SiteShell>
   );
