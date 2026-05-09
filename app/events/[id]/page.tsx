@@ -8030,7 +8030,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                   </div>
                 </div>
                 <span style={{ ...staffingSelectedChipStyle, background: planningSuccessBackground, color: planningSuccessText, border: planningSuccessBorder }}>
-                  {sps.length - assignedSpIds.size} addable
+                  {sps.length - assignedSpIds.size} Uncontacted
                 </span>
               </div>
 
@@ -8058,7 +8058,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                   style={{ ...selectStyle, width: "100%", maxWidth: "none", background: "#ffffff" }}
                 >
                   <option value="">
-                    {quickStaffingOptions.length === 0 ? "No addable SPs match" : "Select SP"}
+                    {quickStaffingOptions.length === 0 ? "No uncontacted SPs match" : "Select SP"}
                   </option>
                   {quickStaffingOptions.map((sp) => {
                     const email = getEmail(sp);
@@ -8923,7 +8923,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                     <div>
                       <div style={{ ...statLabel, color: staffingWorkspacePalette.textStrong }}>Candidate SP Pool</div>
                       <div style={{ marginTop: "4px", color: staffingWorkspacePalette.textMuted, fontWeight: 700, fontSize: "13px" }}>
-                        Browse addable candidates when you need more primary coverage or optional backup support.
+                        Browse uncontacted SP candidates when you need more primary coverage or optional backup support.
                       </div>
                     </div>
                   </div>
@@ -8967,7 +8967,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                           disabled={saving || availableSps.length === 0}
                         >
                           <option value="">
-                            {availableSps.length === 0 ? "No matching addable SPs" : "Quick select an SP"}
+                            {availableSps.length === 0 ? "No matching uncontacted SPs" : "Quick select an SP"}
                           </option>
                           {availableSps.map((sp) => (
                             <option key={sp.id} value={sp.id}>
@@ -14276,7 +14276,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
           {showCandidatePool ? (
           <div style={{ marginTop: "12px" }}>
           <div style={statLabel}>
-            Available SP list · {availableSps.length} addable / {filteredCandidateSps.length} shown
+            Uncontacted SP list · {availableSps.length} uncontacted / {filteredCandidateSps.length} shown
           </div>
           <div style={{ display: "grid", gap: "8px", marginTop: "8px" }}>
             {filteredCandidateSps.length === 0 ? (
