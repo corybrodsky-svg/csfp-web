@@ -61,6 +61,8 @@ type DayBlockPlacement =
 
 type DayBlockVisibility = "student" | "operations" | "both";
 
+type SchedulePreviewKind = "timeline" | "student" | "operations" | "rotation";
+
 type DayBlockConfig = {
   id: string;
   type: DayBlockType;
@@ -215,6 +217,13 @@ const scheduleCompanionViewLabels: Record<ScheduleCompanionView, string> = {
   sp: "SP Schedule",
   operations: "Operations View",
 };
+
+const schedulePreviewKindOptions: Array<{ value: SchedulePreviewKind; label: string }> = [
+  { value: "timeline", label: "Day Flow" },
+  { value: "rotation", label: "Rotation Schedule" },
+  { value: "student", label: "Student Schedule" },
+  { value: "operations", label: "Operations Schedule" },
+];
 
 function getScheduleCompanionViewLabel(view: ScheduleCompanionView | null | undefined) {
   return view ? scheduleCompanionViewLabels[view] : "Command Surface";
@@ -622,7 +631,15 @@ function formatRoomName(roomName: string, roomType: "exam" | "flex", roomLabel: 
   return roomName;
 }
 
-function buildRounds(args: {
+type ScheduleTimingVisibility = "all" | DayBlockVisibility;
+
+function shouldTimingBlockApply(block: DayBlockConfig, visibility: ScheduleTimingVisibility) {
+  if (visibility === "all") return true;
+  if (visibility === "student") return block.visibleTo === "student" || block.visibleTo === "both";
+  return block.visibleTo === "operations" || block.visibleTo === "both";
+}
+
+function calculateRoundTimingsWithBlocks(args: {
   startMinutes: number;
   rounds: number;
   sessionLengthMinutes: number;
@@ -632,29 +649,20 @@ function buildRounds(args: {
   maxPairsPerFlexRoom: number;
   encounterMinutes: number;
   dayBlocks: DayBlockConfig[];
+  timingVisibility?: ScheduleTimingVisibility;
 }) {
   const recurringBlocks = args.dayBlocks.filter((block) => {
     const duration = parseNumber(block.durationMinutes, 0);
     return (
       duration > 0 &&
-      (block.placement === "after_each_rotation" || block.placement === "after_every_x_rotations")
+      (block.placement === "after_each_rotation" || block.placement === "after_every_x_rotations") &&
+      shouldTimingBlockApply(block, args.timingVisibility || "all")
     );
   });
-  const blockDurationForRound = (roundNumber: number) =>
-    recurringBlocks.reduce((sum, block) => {
-      const minutes = parseNumber(block.durationMinutes, 0);
-      if (!minutes) return sum;
-      if (block.placement === "after_each_rotation") return sum + minutes;
-      const interval = Math.max(1, parseNumber(block.placementInterval, 2));
-      return roundNumber % interval === 0 ? sum + minutes : sum;
-    }, 0);
+  const configuredLengthValues: number[] = [];
+  const bufferLengthValues: number[] = [];
 
-  const configuredLength = args.encounterMinutes + blockDurationForRound(1);
   const sessionLengthMinutes = Math.max(0, args.sessionLengthMinutes);
-  const roundLength =
-    sessionLengthMinutes > 0 ? Math.max(configuredLength, sessionLengthMinutes, 1) : Math.max(configuredLength, 1);
-  const bufferMinutes = sessionLengthMinutes > 0 ? Math.max(sessionLengthMinutes - configuredLength, 0) : 0;
-  const overrunMinutes = sessionLengthMinutes > 0 ? Math.max(configuredLength - sessionLengthMinutes, 0) : 0;
   const rounds: GeneratedRound[] = [];
   let roundStart = args.startMinutes;
 
@@ -689,17 +697,21 @@ function buildRounds(args: {
     });
 
     const configuredRoundLength = current - roundStart;
+    configuredLengthValues.push(configuredRoundLength);
     const roundTargetLength =
-      sessionLengthMinutes > 0 ? Math.max(configuredRoundLength, sessionLengthMinutes, 1) : Math.max(configuredRoundLength, 1);
+      sessionLengthMinutes > 0
+        ? Math.max(configuredRoundLength, sessionLengthMinutes, 1)
+        : Math.max(configuredRoundLength, 1);
     const roundBufferMinutes =
       sessionLengthMinutes > 0 ? Math.max(sessionLengthMinutes - configuredRoundLength, 0) : 0;
+    bufferLengthValues.push(roundBufferMinutes);
 
     if (roundBufferMinutes > 0) {
       subBlocks.push({
         label: "Open Buffer",
         start: current,
         end: current + roundBufferMinutes,
-        visibleTo: "operations",
+        visibleTo: "both",
       });
     }
 
@@ -728,7 +740,209 @@ function buildRounds(args: {
     roundStart += roundTargetLength;
   }
 
+  const configuredLength = configuredLengthValues.length ? Math.max(...configuredLengthValues, 0) : 0;
+  const roundLength =
+    sessionLengthMinutes > 0
+      ? Math.max(configuredLength, sessionLengthMinutes, 1)
+      : Math.max(configuredLength, 1);
+  const bufferMinutes = bufferLengthValues.length ? Math.max(...bufferLengthValues, 0) : 0;
+  const overrunMinutes = sessionLengthMinutes > 0 ? Math.max(configuredLength - sessionLengthMinutes, 0) : 0;
+
   return { rounds, roundLength, configuredLength, bufferMinutes, overrunMinutes };
+}
+
+function getTimingDayBlocksByVisibility(
+  dayBlocks: DayBlockConfig[],
+  timingVisibility: ScheduleTimingVisibility
+) {
+  return {
+    beforeRotationDayBlocks: dayBlocks.filter(
+      (block) =>
+        parseNumber(block.durationMinutes, 0) > 0 &&
+        block.placement === "before_rotations" &&
+        shouldTimingBlockApply(block, timingVisibility)
+    ),
+    afterRotationDayBlocks: dayBlocks.filter(
+      (block) =>
+        parseNumber(block.durationMinutes, 0) > 0 &&
+        block.placement === "after_rotations" &&
+        shouldTimingBlockApply(block, timingVisibility)
+    ),
+    specificTimeDayBlocks: dayBlocks.filter(
+      (block) =>
+        parseNumber(block.durationMinutes, 0) > 0 &&
+        block.placement === "specific_time" &&
+        shouldTimingBlockApply(block, timingVisibility) &&
+        toMinutes(block.specificTime) !== null
+    ),
+  };
+}
+
+function buildScheduleTimeline(args: {
+  parsedStartMinutes: number;
+  rounds: GeneratedRound[];
+  parsedRoomSetup: number;
+  parsedStaffArrival: number | null;
+  parsedSpArrival: number | null;
+  parsedFacultyArrival: number | null;
+  parsedStudentPrebrief: number;
+  parsedSpPrebrief: number;
+  parsedFacultyPrebrief: number;
+  beforeRotationDayBlocks: DayBlockConfig[];
+  afterRotationDayBlocks: DayBlockConfig[];
+  specificTimeDayBlocks: DayBlockConfig[];
+}) {
+  const timeline: TimelineBlock[] = [];
+  const rotationStart = args.parsedStartMinutes;
+  const rotationEnd = args.rounds.length ? args.rounds[args.rounds.length - 1].end : rotationStart;
+
+  if (args.parsedRoomSetup > 0) {
+    timeline.push({
+      label: "Room Setup",
+      start: Math.max(args.parsedStaffArrival ?? rotationStart, rotationStart - args.parsedRoomSetup),
+      end: rotationStart,
+      detail: `${args.parsedRoomSetup} minutes`,
+      tone: "setup",
+    });
+  }
+
+  if (args.parsedStaffArrival !== null && args.parsedStaffArrival < rotationStart) {
+    timeline.push({
+      label: "Staff Arrival",
+      start: args.parsedStaffArrival,
+      end: rotationStart,
+      detail: "Staff on site before session start",
+      tone: "setup",
+    });
+  }
+
+  if (args.parsedSpArrival !== null && args.parsedSpArrival < rotationStart) {
+    timeline.push({
+      label: "SP Arrival",
+      start: args.parsedSpArrival,
+      end: rotationStart,
+      detail: "SP check-in window",
+      tone: "setup",
+    });
+  }
+
+  if (args.parsedFacultyArrival !== null && args.parsedFacultyArrival < rotationStart) {
+    timeline.push({
+      label: "Faculty Arrival",
+      start: args.parsedFacultyArrival,
+      end: rotationStart,
+      detail: "Faculty prep window",
+      tone: "setup",
+    });
+  }
+
+  if (args.parsedStudentPrebrief > 0) {
+    timeline.push({
+      label: "Student Prebrief",
+      start: rotationStart - args.parsedStudentPrebrief,
+      end: rotationStart,
+      detail: `${args.parsedStudentPrebrief} minutes`,
+      tone: "prebrief",
+    });
+  }
+
+  if (args.parsedSpPrebrief > 0) {
+    timeline.push({
+      label: "SP Prebrief",
+      start: rotationStart - args.parsedSpPrebrief,
+      end: rotationStart,
+      detail: `${args.parsedSpPrebrief} minutes`,
+      tone: "prebrief",
+    });
+  }
+
+  if (args.parsedFacultyPrebrief > 0) {
+    timeline.push({
+      label: "Faculty Prebrief",
+      start: rotationStart - args.parsedFacultyPrebrief,
+      end: rotationStart,
+      detail: `${args.parsedFacultyPrebrief} minutes`,
+      tone: "prebrief",
+    });
+  }
+
+  if (args.beforeRotationDayBlocks.length) {
+    const beforeBlocks = args.beforeRotationDayBlocks.map((block) => ({
+      ...block,
+      minutes: parseNumber(block.durationMinutes, 0),
+    }));
+    let current = rotationStart - beforeBlocks.reduce((sum, block) => sum + block.minutes, 0);
+    beforeBlocks.forEach((block) => {
+      timeline.push({
+        label: asText(block.label) || getDefaultDayBlockLabel(block.type),
+        start: current,
+        end: current + block.minutes,
+        detail: `${block.minutes} minutes`,
+        tone: getDayBlockTone(block.type),
+        visibleTo: block.visibleTo,
+      });
+      current += block.minutes;
+    });
+  }
+
+  if (args.rounds.length) {
+    args.rounds.forEach((round) => {
+      const encounterBlock = round.subBlocks.find((block) => block.label === "Encounter");
+      timeline.push({
+        label: `Rotation Round ${round.round}`,
+        start: round.start,
+        end: encounterBlock?.end || round.end,
+        detail: "Encounter",
+        tone: "rotation",
+        visibleTo: "both",
+      });
+      round.subBlocks
+        .filter((block) => block.label !== "Encounter" && block.label !== "Open Buffer")
+        .forEach((block) => {
+          timeline.push({
+            label: block.label,
+            start: block.start,
+            end: block.end,
+            detail: `Round ${round.round}`,
+            tone: "wrap",
+            visibleTo: block.visibleTo,
+          });
+        });
+    });
+  }
+
+  if (args.afterRotationDayBlocks.length) {
+    let current = rotationEnd;
+    args.afterRotationDayBlocks.forEach((block) => {
+      const minutes = parseNumber(block.durationMinutes, 0);
+      timeline.push({
+        label: asText(block.label) || getDefaultDayBlockLabel(block.type),
+        start: current,
+        end: current + minutes,
+        detail: `${minutes} minutes`,
+        tone: getDayBlockTone(block.type),
+        visibleTo: block.visibleTo,
+      });
+      current += minutes;
+    });
+  }
+
+  args.specificTimeDayBlocks.forEach((block) => {
+    const start = toMinutes(block.specificTime);
+    const minutes = parseNumber(block.durationMinutes, 0);
+    if (start === null || minutes <= 0) return;
+    timeline.push({
+      label: asText(block.label) || getDefaultDayBlockLabel(block.type),
+      start,
+      end: start + minutes,
+      detail: `${minutes} minutes`,
+      tone: getDayBlockTone(block.type),
+      visibleTo: block.visibleTo,
+    });
+  });
+
+  timeline.sort((a, b) => a.start - b.start || a.end - b.end);
+  return { rotationStart, rotationEnd, timeline };
 }
 
 function getFirstNonEmptyCell(row: unknown[]) {
@@ -853,55 +1067,165 @@ function attachLearners(rounds: GeneratedRound[], learnerRoster: string[]) {
   });
 }
 
-function buildPlaintextPreview(args: {
+function getSafeFileName(name: string) {
+  return name
+    .toLowerCase()
+    .replace(/\s+/g, "-")
+    .replace(/[^a-z0-9-_\.]/g, "")
+    .replace(/-+/g, "-")
+    .replace(/(^-|-$)/g, "");
+}
+
+function escapeHtml(text: string) {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function buildSchedulePreviewData(args: {
+  kind: SchedulePreviewKind;
   event: EventRow | null;
   timeline: TimelineBlock[];
   rounds: ScheduledRound[];
   roomLabel: string;
   caseName?: string;
   assignedSpNames?: string[];
-  viewMode: "student" | "operations";
+  generated: {
+    rounds: Array<GeneratedRound | ScheduledRound>;
+    rotationStart: number;
+    rotationEnd: number;
+    timeline: TimelineBlock[];
+  };
+  selectedEventSummaryTime?: string;
 }) {
+  const { kind, event, timeline, rounds, roomLabel, caseName, assignedSpNames, generated, selectedEventSummaryTime } = args;
+
+  const isOperations = kind === "operations" || kind === "rotation";
+  const titleMap: Record<SchedulePreviewKind, string> = {
+    timeline: "Day Flow Preview",
+    student: "Student Schedule Preview",
+    operations: "Operations Schedule Preview",
+    rotation: "Rotation Schedule Preview",
+  };
+
   const lines: string[] = [];
 
-  if (args.event) {
-    lines.push(`Event: ${args.event.name || "Untitled Event"}`);
-    lines.push(`Date: ${formatEventDate(args.event)}`);
-    lines.push(`Location: ${args.event.location || "TBD"}`);
-    if (args.viewMode === "operations") {
-      lines.push(`SP Coverage: ${Number(args.event.confirmed_assignments || 0)} / ${Number(args.event.sp_needed || 0)}`);
+  if (event) {
+    lines.push(`Event: ${event.name || "Untitled Event"}`);
+    lines.push(`Date/Location: ${formatEventDate(event)}${event.location ? ` · ${event.location}` : ""}`);
+    if (selectedEventSummaryTime) {
+      lines.push(`Time Window: ${selectedEventSummaryTime}`);
     }
+    lines.push(`Rooms in Rotation: ${generated.rounds[0]?.roomSlots.length || 0}`);
     lines.push("");
   }
 
-  lines.push("DAY TIMELINE");
-  args.timeline.forEach((block) => {
-    lines.push(`- ${block.label}: ${formatRange(block.start, block.end)}${block.detail ? ` (${block.detail})` : ""}`);
-  });
-  lines.push("");
-  lines.push("SESSION SCHEDULE");
+  const includeOperationsContext = isOperations;
+  const previewLabel = titleMap[kind];
 
-  args.rounds.forEach((round) => {
-    lines.push(`Round ${round.round}: ${formatRange(round.start, round.end)}`);
-    round.subBlocks.forEach((subBlock) => {
-      lines.push(`  ${subBlock.label}: ${formatRange(subBlock.start, subBlock.end)}`);
-    });
-    round.roomSlots.forEach((slot) => {
-      const displayRoomName = formatRoomName(slot.roomName, slot.roomType, args.roomLabel);
-      lines.push(`  ${displayRoomName}: ${slot.capacityLabel}`);
-      if (args.viewMode === "operations") {
-        const slotIndex = round.roomSlots.findIndex((item) => item.roomName === slot.roomName);
-        const spName = args.assignedSpNames?.[slotIndex] || "";
-        if (spName) lines.push(`    SP: ${spName}`);
-        if (args.caseName) lines.push(`    Case: ${args.caseName}`);
-      }
-      slot.learnerLabels.forEach((learner) => {
-        lines.push(`    ${args.roomLabel}: ${displayRoomName} · Learner: ${learner}`);
+  if (kind === "timeline") {
+    lines.push("EVENT FLOW");
+    lines.push("-----------");
+    if (!timeline.length) {
+      lines.push("No flow blocks yet. Add day blocks to build a full-day timeline.");
+    } else {
+      timeline.forEach((block) => {
+        const duration = `${block.detail ? ` (${block.detail})` : ""}`;
+        lines.push(`${formatRange(block.start, block.end)}  ${block.label}${duration}`);
       });
+    }
+    lines.push("");
+    lines.push("ROTATION FLOW");
+    lines.push("------------");
+    rounds.forEach((round) => {
+      lines.push(`Round ${round.round}: ${formatRange(round.start, round.end)}`);
+      if (round.subBlocks.length) {
+        round.subBlocks.forEach((subBlock) => {
+          lines.push(`  ${subBlock.label}: ${formatRange(subBlock.start, subBlock.end)}`);
+        });
+      }
+      round.roomSlots.forEach((slot) => {
+        const displayRoomName = formatRoomName(slot.roomName, slot.roomType, roomLabel);
+        const slotIndex = round.roomSlots.findIndex((item) => item.roomName === slot.roomName);
+        const learnerText = slot.learnerLabels.length ? slot.learnerLabels.join(", ") : "No learner assigned";
+        lines.push(`  ${displayRoomName}: ${learnerText}`);
+        if (isOperations) {
+          const spName = assignedSpNames?.[slotIndex] || "Unassigned";
+          lines.push(`    SP: ${spName}`);
+          if (caseName) lines.push(`    Case: ${caseName}`);
+        }
+      });
+      lines.push("");
     });
-  });
+    if (!rounds.length) {
+      lines.push("No rotation schedule has been generated yet.");
+    }
+  } else {
+    lines.push(previewLabel.toUpperCase().replace(/\s+/g, " "));
+    lines.push("=".repeat(Math.max(30, previewLabel.length)));
+    rounds.forEach((round) => {
+      lines.push(`\nRound ${round.round}: ${formatRange(round.start, round.end)}`);
+      if (round.subBlocks.length) {
+        round.subBlocks.forEach((subBlock) => {
+          lines.push(`  ${subBlock.label}: ${formatRange(subBlock.start, subBlock.end)}`);
+        });
+      }
+      round.roomSlots.forEach((slot) => {
+        const displayRoomName = formatRoomName(slot.roomName, slot.roomType, roomLabel);
+        const slotIndex = round.roomSlots.findIndex((item) => item.roomName === slot.roomName);
+        const learnerText = slot.learnerLabels.length ? slot.learnerLabels.join(", ") : "No learner assigned";
+        lines.push(`  ${displayRoomName}`);
+        lines.push(`    Learner: ${learnerText}`);
+        if (includeOperationsContext) {
+          lines.push(`    SP: ${assignedSpNames?.[slotIndex] || "Unassigned"}`);
+          if (caseName) lines.push(`    Case: ${caseName}`);
+        }
+      });
+      lines.push("");
+    });
 
-  return lines.join("\n");
+    if (!rounds.length) {
+      lines.push("No rotation schedule has been generated yet.");
+    }
+  }
+
+  const timelineSummary = timeline.length
+    ? `${timeline.length} timeline block${timeline.length === 1 ? "" : "s"} · ${Math.max(generated.rotationEnd - generated.rotationStart, 0)} min planned`
+    : "No timeline blocks configured";
+
+  return {
+    kind,
+    title: titleMap[kind],
+    summary: timelineSummary,
+    text: lines.join("\n"),
+    html: `
+      <!doctype html>
+      <html>
+        <head>
+          <meta charSet="UTF-8" />
+          <title>${titleMap[kind]}</title>
+          <style>
+            body { margin: 0; padding: 24px; font-family: Arial, Helvetica, sans-serif; color: #17304f; background: #fff; }
+            .meta { color: #5e7388; font-size: 12px; margin-bottom: 12px; }
+            h1 { margin: 0 0 6px; font-size: 24px; }
+            pre { margin: 0; padding: 12px; border: 1px solid #dce6ee; border-radius: 10px; background: #f7fafc; overflow: auto; white-space: pre-wrap; }
+            .line { line-height: 1.5; }
+          </style>
+        </head>
+        <body>
+          <div>
+            <h1>${escapeHtml(titleMap[kind])}</h1>
+            <div class="meta">${escapeHtml(event ? `Generated from ${event.name || "Untitled Event"}` : "Schedule Builder")}</div>
+            <div class="meta">${escapeHtml(timelineSummary)}</div>
+            <pre class="line">${escapeHtml(lines.join("\n"))}</pre>
+          </div>
+        </body>
+      </html>
+    `,
+  };
 }
 
 function getStorageKey(eventId?: string) {
@@ -991,6 +1315,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const [copyMessage, setCopyMessage] = useState("");
   const [learnerFileName, setLearnerFileName] = useState("");
   const [learnerUploadError, setLearnerUploadError] = useState("");
+  const [showClearRosterDialog, setShowClearRosterDialog] = useState(false);
   const [originalUploadedLearners, setOriginalUploadedLearners] = useState<string[]>([]);
   const [uploadedLearners, setUploadedLearners] = useState<string[]>([]);
   const [builderMode, setBuilderMode] = useState<"simple" | "advanced">(
@@ -1051,6 +1376,8 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const hydratedTimePrefillKeyRef = useRef<string>("");
   const skipNextAutosaveRef = useRef(false);
   const autosaveTimeoutRef = useRef<number | null>(null);
+  const [showSchedulePreview, setShowSchedulePreview] = useState(false);
+  const [previewKind, setPreviewKind] = useState<SchedulePreviewKind>("timeline");
 
   const applyDraft = useCallback((draft: ScheduleBuilderDraft) => {
     setBuilderMode(props.expandedWorkspace && !draft.savedAt ? "advanced" : draft.builderMode);
@@ -1382,33 +1709,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       ),
     [dayBlocks]
   );
-  const afterRotationDayBlocks = useMemo(
-    () =>
-      normalizedDayBlocks.filter(
-        (block) =>
-          parseNumber(block.durationMinutes, 0) > 0 &&
-          block.placement === "after_rotations"
-      ),
-    [normalizedDayBlocks]
-  );
-  const beforeRotationDayBlocks = useMemo(
-    () =>
-      normalizedDayBlocks.filter(
-        (block) =>
-          parseNumber(block.durationMinutes, 0) > 0 &&
-          block.placement === "before_rotations"
-      ),
-    [normalizedDayBlocks]
-  );
-  const specificTimeDayBlocks = useMemo(
-    () =>
-      normalizedDayBlocks.filter(
-        (block) =>
-          parseNumber(block.durationMinutes, 0) > 0 &&
-          block.placement === "specific_time" &&
-          toMinutes(block.specificTime) !== null
-      ),
-    [normalizedDayBlocks]
+  const timingVisibility = scheduleViewMode === "operations" ? "operations" : "student";
+  const { beforeRotationDayBlocks, afterRotationDayBlocks, specificTimeDayBlocks } = useMemo(
+    () => getTimingDayBlocksByVisibility(normalizedDayBlocks, timingVisibility),
+    [normalizedDayBlocks, timingVisibility]
   );
 
   const generated = useMemo(() => {
@@ -1425,7 +1729,8 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       };
     }
 
-    const { rounds, roundLength, configuredLength, bufferMinutes, overrunMinutes } = buildRounds({
+    const { rounds, roundLength, configuredLength, bufferMinutes, overrunMinutes } =
+      calculateRoundTimingsWithBlocks({
       startMinutes: parsedStartMinutes,
       rounds: effectiveRoundCount,
       sessionLengthMinutes: parsedSessionLength,
@@ -1435,158 +1740,22 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       maxPairsPerFlexRoom: effectiveFlexCapacity,
       encounterMinutes: parsedEncounter,
       dayBlocks: normalizedDayBlocks,
+      timingVisibility,
     });
-
-    const rotationStart = parsedStartMinutes;
-    const rotationEnd = rounds.length ? rounds[rounds.length - 1].end : rotationStart;
-    const timeline: TimelineBlock[] = [];
-
-    if (parsedRoomSetup > 0) {
-      timeline.push({
-        label: "Room Setup",
-        start: Math.max(parsedStaffArrival ?? rotationStart, rotationStart - parsedRoomSetup),
-        end: rotationStart,
-        detail: `${parsedRoomSetup} minutes`,
-        tone: "setup",
-      });
-    }
-
-    if (parsedStaffArrival !== null && parsedStaffArrival < rotationStart) {
-      timeline.push({
-        label: "Staff Arrival",
-        start: parsedStaffArrival,
-        end: rotationStart,
-        detail: "Staff on site before session start",
-        tone: "setup",
-      });
-    }
-
-    if (parsedSpArrival !== null && parsedSpArrival < rotationStart) {
-      timeline.push({
-        label: "SP Arrival",
-        start: parsedSpArrival,
-        end: rotationStart,
-        detail: "SP check-in window",
-        tone: "setup",
-      });
-    }
-
-    if (parsedFacultyArrival !== null && parsedFacultyArrival < rotationStart) {
-      timeline.push({
-        label: "Faculty Arrival",
-        start: parsedFacultyArrival,
-        end: rotationStart,
-        detail: "Faculty prep window",
-        tone: "setup",
-      });
-    }
-
-    if (parsedStudentPrebrief > 0) {
-      timeline.push({
-        label: "Student Prebrief",
-        start: rotationStart - parsedStudentPrebrief,
-        end: rotationStart,
-        detail: `${parsedStudentPrebrief} minutes`,
-        tone: "prebrief",
-      });
-    }
-
-    if (parsedSpPrebrief > 0) {
-      timeline.push({
-        label: "SP Prebrief",
-        start: rotationStart - parsedSpPrebrief,
-        end: rotationStart,
-        detail: `${parsedSpPrebrief} minutes`,
-        tone: "prebrief",
-      });
-    }
-
-    if (parsedFacultyPrebrief > 0) {
-      timeline.push({
-        label: "Faculty Prebrief",
-        start: rotationStart - parsedFacultyPrebrief,
-        end: rotationStart,
-        detail: `${parsedFacultyPrebrief} minutes`,
-        tone: "prebrief",
-      });
-    }
-
-    if (beforeRotationDayBlocks.length) {
-      const beforeBlocks = beforeRotationDayBlocks.map((block) => ({
-        ...block,
-        minutes: parseNumber(block.durationMinutes, 0),
-      }));
-      let current = rotationStart - beforeBlocks.reduce((sum, block) => sum + block.minutes, 0);
-      beforeBlocks.forEach((block) => {
-        timeline.push({
-          label: asText(block.label) || getDefaultDayBlockLabel(block.type),
-          start: current,
-          end: current + block.minutes,
-          detail: `${block.minutes} minutes`,
-          tone: getDayBlockTone(block.type),
-          visibleTo: block.visibleTo,
-        });
-        current += block.minutes;
-      });
-    }
-
-    if (rounds.length) {
-      rounds.forEach((round) => {
-        const encounterBlock = round.subBlocks.find((block) => block.label === "Encounter");
-        timeline.push({
-          label: `Rotation Round ${round.round}`,
-          start: round.start,
-          end: encounterBlock?.end || round.end,
-          detail: "Encounter",
-          tone: "rotation",
-          visibleTo: "both",
-        });
-        round.subBlocks
-          .filter((block) => block.label !== "Encounter" && block.label !== "Open Buffer")
-          .forEach((block) => {
-            timeline.push({
-              label: block.label,
-              start: block.start,
-              end: block.end,
-              detail: `Round ${round.round}`,
-              tone: "wrap",
-              visibleTo: block.visibleTo,
-            });
-          });
-      });
-    }
-
-    if (afterRotationDayBlocks.length) {
-      let current = rotationEnd;
-      afterRotationDayBlocks.forEach((block) => {
-        const minutes = parseNumber(block.durationMinutes, 0);
-        timeline.push({
-          label: asText(block.label) || getDefaultDayBlockLabel(block.type),
-          start: current,
-          end: current + minutes,
-          detail: `${minutes} minutes`,
-          tone: getDayBlockTone(block.type),
-          visibleTo: block.visibleTo,
-        });
-        current += minutes;
-      });
-    }
-
-    specificTimeDayBlocks.forEach((block) => {
-      const start = toMinutes(block.specificTime);
-      const minutes = parseNumber(block.durationMinutes, 0);
-      if (start === null || minutes <= 0) return;
-      timeline.push({
-        label: asText(block.label) || getDefaultDayBlockLabel(block.type),
-        start,
-        end: start + minutes,
-        detail: `${minutes} minutes`,
-        tone: getDayBlockTone(block.type),
-        visibleTo: block.visibleTo,
-      });
+    const { rotationStart, rotationEnd, timeline } = buildScheduleTimeline({
+      parsedStartMinutes,
+      rounds,
+      parsedRoomSetup,
+      parsedStaffArrival,
+      parsedSpArrival,
+      parsedFacultyArrival,
+      parsedStudentPrebrief,
+      parsedSpPrebrief,
+      parsedFacultyPrebrief,
+      beforeRotationDayBlocks,
+      afterRotationDayBlocks,
+      specificTimeDayBlocks,
     });
-
-    timeline.sort((a, b) => a.start - b.start || a.end - b.end);
 
     return {
       rounds,
@@ -1606,19 +1775,20 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     parsedEncounter,
     parsedExamRooms,
     parsedFacultyArrival,
-    parsedFacultyPrebrief,
-    effectiveFlexCapacity,
-    effectiveFlexRoomCount,
-    parsedRoomCapacity,
-    parsedRoomSetup,
-    parsedSessionLength,
-    parsedSpArrival,
-    parsedSpPrebrief,
-    parsedStaffArrival,
-    parsedStartMinutes,
-    parsedStudentPrebrief,
-    specificTimeDayBlocks,
-  ]);
+      parsedFacultyPrebrief,
+      effectiveFlexCapacity,
+      effectiveFlexRoomCount,
+      parsedRoomCapacity,
+      parsedRoomSetup,
+      parsedSessionLength,
+      parsedSpArrival,
+      parsedSpPrebrief,
+      parsedStaffArrival,
+      parsedStartMinutes,
+      parsedStudentPrebrief,
+      timingVisibility,
+      specificTimeDayBlocks,
+    ]);
 
   const learnerRoster = useMemo(
     () => buildLearnerRoster(uploadedLearners, Math.max(slotsPerRound, 1), generated.rounds.length),
@@ -1694,19 +1864,65 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         ? `${uploadedLearners.length} learners uploaded • configure rooms to calculate rounds`
         : "";
 
-  const previewText = useMemo(
-    () =>
-      buildPlaintextPreview({
-        event: selectedEvent,
-        timeline: visibleTimeline,
-        rounds: visibleScheduledRounds,
-        roomLabel,
-        caseName: selectedEventMetadata.case_name,
-        assignedSpNames: selectedEvent?.assigned_sp_names || [],
-        viewMode: scheduleViewMode,
-      }),
-    [roomLabel, scheduleViewMode, selectedEvent, selectedEventMetadata.case_name, visibleScheduledRounds, visibleTimeline]
-  );
+  const selectedEventSummaryTime = useMemo(() => {
+    if (parsedStartMinutes === null || !generated.rounds.length) return "";
+    return `${toDisplayTime(parsedStartMinutes)} - ${toDisplayTime(generated.rotationEnd)}`;
+  }, [generated.rotationEnd, generated.rounds.length, parsedStartMinutes]);
+  const schedulePreviews = useMemo(() => {
+    const timelinePreview = buildSchedulePreviewData({
+      kind: "timeline",
+      event: selectedEvent,
+      timeline: generated.timeline,
+      rounds: visibleScheduledRounds,
+      roomLabel,
+      caseName: selectedEventMetadata.case_name,
+      assignedSpNames: selectedEvent?.assigned_sp_names || [],
+      generated,
+      selectedEventSummaryTime,
+    });
+    const studentPreview = buildSchedulePreviewData({
+      kind: "student",
+      event: selectedEvent,
+      timeline: generated.timeline,
+      rounds: visibleScheduledRounds,
+      roomLabel,
+      caseName: selectedEventMetadata.case_name,
+      assignedSpNames: selectedEvent?.assigned_sp_names || [],
+      generated,
+      selectedEventSummaryTime,
+    });
+    const operationsPreview = buildSchedulePreviewData({
+      kind: "operations",
+      event: selectedEvent,
+      timeline: generated.timeline,
+      rounds: scheduledRounds,
+      roomLabel,
+      caseName: selectedEventMetadata.case_name,
+      assignedSpNames: selectedEvent?.assigned_sp_names || [],
+      generated,
+      selectedEventSummaryTime,
+    });
+    const rotationPreview = buildSchedulePreviewData({
+      kind: "rotation",
+      event: selectedEvent,
+      timeline: generated.timeline,
+      rounds: scheduledRounds,
+      roomLabel,
+      caseName: selectedEventMetadata.case_name,
+      assignedSpNames: selectedEvent?.assigned_sp_names || [],
+      generated,
+      selectedEventSummaryTime,
+    });
+
+    return {
+      timeline: timelinePreview,
+      student: studentPreview,
+      operations: operationsPreview,
+      rotation: rotationPreview,
+    };
+  }, [generated, roomLabel, scheduledRounds, selectedEvent, selectedEventMetadata.case_name, selectedEventSummaryTime, visibleScheduledRounds]);
+  const schedulePreview = schedulePreviews[previewKind];
+  const selectedPreviewFileName = `${getSafeFileName(schedulePreview.title)}.html`;
   const saveStateAppearance = getSaveStateAppearance(saveState);
   const lastSavedLabel = formatSavedTimestamp(lastSavedAt);
   const advancedSettingsActive =
@@ -1737,13 +1953,75 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
 
   async function handleCopyPreview() {
     try {
-      await navigator.clipboard.writeText(previewText);
+      await navigator.clipboard.writeText(schedulePreview.text);
       setCopyMessage("Schedule preview copied.");
       window.setTimeout(() => setCopyMessage(""), 2400);
     } catch (error) {
       setCopyMessage(error instanceof Error ? error.message : "Could not copy schedule preview.");
       window.setTimeout(() => setCopyMessage(""), 2400);
     }
+  }
+
+  async function handleOpenPreviewInNewTab() {
+    if (!schedulePreview.html) return;
+    const htmlBlob = new Blob([schedulePreview.html], { type: "text/html;charset=utf-8" });
+    const htmlUrl = URL.createObjectURL(htmlBlob);
+    const openWindow = window.open(htmlUrl, "_blank", "noopener,noreferrer");
+    if (!openWindow) {
+      setCopyMessage("Preview window blocked. Please allow popups for this site.");
+      window.setTimeout(() => setCopyMessage(""), 2500);
+      URL.revokeObjectURL(htmlUrl);
+      return;
+    }
+    window.setTimeout(() => {
+      URL.revokeObjectURL(htmlUrl);
+    }, 12000);
+  }
+
+  function handleDownloadPreview() {
+    const downloadBlob = new Blob([schedulePreview.html], { type: "text/html;charset=utf-8" });
+    const downloadUrl = URL.createObjectURL(downloadBlob);
+    const anchor = document.createElement("a");
+    anchor.href = downloadUrl;
+    anchor.download = selectedPreviewFileName;
+    anchor.rel = "noreferrer";
+    anchor.style.display = "none";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(downloadUrl);
+    setCopyMessage(`${schedulePreview.title} downloaded.`);
+    window.setTimeout(() => setCopyMessage(""), 2200);
+  }
+
+  async function handlePrintPreview() {
+    const popup = window.open("", "_blank", "noopener,noreferrer");
+    if (!popup) {
+      setCopyMessage("Print window blocked. Please allow popups for this site.");
+      window.setTimeout(() => setCopyMessage(""), 2500);
+      return;
+    }
+
+    popup.document.write(schedulePreview.html);
+    popup.document.close();
+    popup.onload = () => {
+      popup.focus();
+      popup.print();
+    };
+  }
+
+  function handleClearRoster() {
+    setLearnerFileName("");
+    setOriginalUploadedLearners([]);
+    setUploadedLearners([]);
+    setSaveState("unsaved");
+    setCopyMessage("Learner roster cleared. Placeholder learner names restored.");
+    window.setTimeout(() => setCopyMessage(""), 2400);
+  }
+
+  function confirmClearRoster() {
+    setShowClearRosterDialog(false);
+    handleClearRoster();
   }
 
   async function handleLearnerUpload(file: File | null) {
@@ -2048,6 +2326,13 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                   </div>
                   <div className="mt-2 text-sm font-semibold text-[#5e7388]">
                     {learnerFileName && uploadedLearners.length ? `Source: ${learnerFileName}` : "Using builder-generated fallback learner names."}
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {uploadedLearners.length ? (
+                      <button type="button" onClick={() => setShowClearRosterDialog(true)} className="cfsp-btn cfsp-btn-secondary">
+                        Clear Roster
+                      </button>
+                    ) : null}
                   </div>
                   <div className="mt-3 flex flex-wrap gap-2">
                     {learnerRoster.slice(0, 10).map((learner) => (
@@ -2379,27 +2664,49 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
           ) : null}
 
           <section className="cfsp-panel px-4 py-4">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
-                <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">Full day timeline</h3>
+                <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">Operations Timeline</h3>
                 <p className="mt-2 mb-0 text-sm leading-6 text-[#5e7388]">
-                  Review the operational day from arrival through the final day block before moving into the rotation grid.
+                  Review the operational day from arrival through the final block before the next activity window.
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
-                <button type="button" onClick={handleCopyPreview} className="cfsp-btn cfsp-btn-secondary">
-                  Copy Full Schedule Preview
+                <select
+                  value={previewKind}
+                  onChange={(event) => setPreviewKind(event.target.value as SchedulePreviewKind)}
+                  className="cfsp-input h-10 min-w-[170px] rounded-[10px] px-3"
+                  aria-label="Schedule preview type"
+                >
+                  {schedulePreviewKindOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <button type="button" onClick={() => setShowSchedulePreview(true)} className="cfsp-btn cfsp-btn-secondary">
+                  Preview
                 </button>
-                <button type="button" onClick={() => window.print()} className="cfsp-btn cfsp-btn-secondary">
-                  Print Preview
+                <button type="button" onClick={handleOpenPreviewInNewTab} className="cfsp-btn cfsp-btn-secondary">
+                  Open in New Tab
+                </button>
+                <button type="button" onClick={handleDownloadPreview} className="cfsp-btn cfsp-btn-secondary">
+                  Download
+                </button>
+                <button type="button" onClick={handlePrintPreview} className="cfsp-btn cfsp-btn-secondary">
+                  Print
                 </button>
               </div>
             </div>
+            <div className="mt-2 text-xs font-semibold uppercase tracking-[0.08em] text-[#5e7388]">
+              Output: {schedulePreview.summary}
+            </div>
 
             {copyMessage ? <div className="mt-4 text-sm font-semibold text-[#196b57]">{copyMessage}</div> : null}
+            <div className="mt-4 text-sm font-black text-[#14304f]">Live source: {schedulePreview.title}</div>
 
             {parsedStartMinutes === null ? (
-              <div className="cfsp-alert cfsp-alert-error mt-5">Enter a valid start time to generate the full-day preview.</div>
+              <div className="cfsp-alert cfsp-alert-error mt-5">Enter a valid start time to generate a full schedule preview.</div>
             ) : (
               <div className="mt-5 grid gap-3">
                 {visibleTimeline.map((block) => {
@@ -2425,9 +2732,9 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
           <section className="cfsp-panel px-4 py-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
-                <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">Expanded Rotation Schedule Grid</h3>
+                <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">Rotation Schedule</h3>
                 <p className="mt-2 mb-0 text-sm leading-6 text-[#5e7388]">
-                  Rows track the same rotation rounds shown on the event command surface, with room columns, learner flow, timing blocks, and operations-only context when enabled.
+                  Rows track the same rotation rounds shown on the event command surface, with room columns, learner flow, timing blocks, and operations context.
                 </p>
               </div>
               <div className="inline-flex rounded-[12px] border border-[var(--cfsp-border)] p-1">
@@ -2492,11 +2799,11 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                             boxShadow: isSelectedContextRound ? "inset 4px 0 0 rgba(15, 118, 110, 0.72)" : undefined,
                           }}
                         >
-                          <td className="px-3 py-4 font-black">
-                            <div>Round {round.round}</div>
-                            {isSelectedContextRound ? (
-                              <div className="mt-2 text-[0.68rem] font-black uppercase tracking-[0.08em] text-[#0f766e]">
-                                Command context
+                            <td className="px-3 py-4 font-black">
+                              <div>Round {round.round}</div>
+                              {isSelectedContextRound ? (
+                                <div className="mt-2 text-[0.68rem] font-black uppercase tracking-[0.08em] text-[#0f766e]">
+                                Selected round
                               </div>
                             ) : null}
                           </td>
@@ -2568,6 +2875,133 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
           </section>
         </>
       )}
+
+      {showSchedulePreview ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 70,
+            background: "rgba(3, 9, 17, 0.8)",
+            display: "grid",
+            alignItems: "center",
+            justifyItems: "center",
+            padding: 20,
+          }}
+        >
+          <div
+            style={{
+              width: "min(1024px, 100%)",
+              maxHeight: "calc(100vh - 56px)",
+              borderRadius: 18,
+              border: "1px solid rgba(148, 184, 218, 0.32)",
+              background: "#0f2335",
+              boxShadow: "0 26px 60px rgba(3, 9, 17, 0.55)",
+              display: "grid",
+              gridTemplateRows: "auto 1fr",
+              overflow: "hidden",
+            }}
+          >
+            <div
+              style={{
+                borderBottom: "1px solid rgba(120, 180, 255, 0.16)",
+                padding: "14px 16px",
+                display: "flex",
+                gap: 10,
+                flexWrap: "wrap",
+                alignItems: "center",
+                justifyContent: "space-between",
+              }}
+            >
+              <div>
+                <div style={{ color: "var(--cfsp-info)", fontSize: 12, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                  Schedule Preview
+                </div>
+                <div style={{ color: "#ffffff", fontWeight: 900, fontSize: 19, marginTop: 4 }}>{schedulePreview.title}</div>
+                <div style={{ color: "rgba(220, 239, 255, 0.7)", fontSize: 12, marginTop: 3 }}>
+                  {schedulePreview.summary}
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <button type="button" onClick={() => void handleCopyPreview()} className="cfsp-btn" style={{ background: "var(--cfsp-button-secondary-bg)", border: "1px solid var(--cfsp-button-secondary-border)", color: "var(--cfsp-button-secondary-text)" }}>
+                  Copy
+                </button>
+                <button type="button" onClick={handleOpenPreviewInNewTab} className="cfsp-btn">
+                  Open in New Tab
+                </button>
+                <button type="button" onClick={handleDownloadPreview} className="cfsp-btn">
+                  Download
+                </button>
+                <button type="button" onClick={handlePrintPreview} className="cfsp-btn" style={{ background: "var(--cfsp-button-secondary-bg)", border: "1px solid var(--cfsp-button-secondary-border)", color: "var(--cfsp-button-secondary-text)" }}>
+                  Print
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowSchedulePreview(false)}
+                  className="cfsp-btn"
+                  style={{ background: "var(--cfsp-button-secondary-bg)", border: "1px solid var(--cfsp-button-secondary-border)", color: "var(--cfsp-button-secondary-text)" }}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+            <div style={{ minHeight: "min(76vh, 860px)", background: "#ffffff", overflow: "auto" }}>
+              <iframe
+                title={schedulePreview.title}
+                srcDoc={schedulePreview.html}
+                style={{ width: "100%", minHeight: "min(76vh, 860px)", border: "none", background: "#fff" }}
+              />
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {showClearRosterDialog ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 75,
+            background: "rgba(3, 9, 17, 0.73)",
+            display: "grid",
+            placeItems: "center",
+            padding: 20,
+          }}
+        >
+          <div
+            style={{
+              maxWidth: 480,
+              width: "100%",
+              borderRadius: 14,
+              background: "#0f2335",
+              border: "1px solid rgba(120, 180, 255, 0.16)",
+              padding: "18px",
+              color: "#fff",
+            }}
+          >
+            <div style={{ fontWeight: 900, fontSize: 18 }}>Remove current learner roster?</div>
+            <div style={{ marginTop: 8, color: "rgba(220, 239, 255, 0.8)" }}>
+              This will clear uploaded learner names and source metadata. The builder will return to generated placeholder learners.
+            </div>
+            <div style={{ marginTop: 16, display: "flex", justifyContent: "flex-end", gap: 8, flexWrap: "wrap" }}>
+              <button
+                type="button"
+                onClick={() => setShowClearRosterDialog(false)}
+                className="cfsp-btn cfsp-btn-secondary"
+              >
+                Cancel
+              </button>
+              <button type="button" onClick={confirmClearRoster} className="cfsp-btn">
+                Clear Roster
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <div
         style={{
