@@ -36,13 +36,13 @@ export default function EventScopedScheduleBuilderPage() {
 
   return (
     <SiteShell
-      title="Expanded Schedule Builder"
-      subtitle="Deep scheduling workspace connected to the event Rotation Command Surface."
+      title="Schedule Builder"
+      subtitle="Canonical scheduling workspace for this CFSP event."
     >
       <EventScheduleBuilder
         fixedEventId={eventId}
         backHref={eventId ? `/events/${eventId}` : "/events"}
-        backLabel="Back to Rotation Command Surface"
+        backLabel="Back to Event"
         expandedWorkspace
         initialRoundNumber={initialRoundNumber}
         initialRoundKey={initialRoundKey}

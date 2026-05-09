@@ -11448,7 +11448,7 @@ Cory`;
                     textDecoration: "none",
                   }}
                 >
-                  Expand Schedule Builder
+                  Schedule Builder
                 </Link>
               ) : null}
               <button
@@ -12384,18 +12384,6 @@ Cory`;
                             {view.label}
                           </button>
                         ))}
-                        <Link
-                          href={expandedScheduleBuilderHref}
-                          style={{
-                            ...staffingSecondaryButtonStyle,
-                            padding: "7px 10px",
-                            textDecoration: "none",
-                            display: "inline-flex",
-                            alignItems: "center",
-                          }}
-                        >
-                          Expand Schedule Builder
-                        </Link>
                       </div>
                     </div>
 

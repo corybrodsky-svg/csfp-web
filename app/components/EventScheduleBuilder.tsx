@@ -1845,19 +1845,19 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       <section className="rounded-[14px] border border-[#cfe6ef] bg-[linear-gradient(180deg,#f8fcfd_0%,#edf8fa_55%,#eef5fb_100%)] px-5 py-5 shadow-[0_18px_44px_rgba(42,112,140,0.08)]">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <p className="cfsp-kicker">{props.expandedWorkspace ? "Expanded scheduling workspace" : "Connected builder"}</p>
+            <p className="cfsp-kicker">{props.expandedWorkspace ? "Canonical scheduling workspace" : "Connected builder"}</p>
             <h2 className="mt-3 text-[1.7rem] leading-tight font-black text-[#14304f]">
-              {props.expandedWorkspace ? "Expanded Schedule Builder" : "Build rotation schedule"}
+              {props.expandedWorkspace ? "Schedule Builder" : "Build rotation schedule"}
             </h2>
             <p className="mt-3 max-w-3xl text-[0.98rem] leading-6 text-[#5e7388]">
               {props.expandedWorkspace
-                ? "Deep editing mode for the event schedule system. Use this workspace for roster uploads, timing overrides, day blocks, randomization, and bulk schedule generation while the event page remains the operational command surface."
+                ? "Canonical scheduling workspace for roster uploads, timing overrides, day blocks, randomization, and bulk schedule generation."
                 : "Build a full-day simulation schedule preview with arrivals, rotation rounds, day blocks, rooms, and learner flow while keeping the event record untouched. Builder changes auto-save locally in this browser for the current event."}
             </p>
             {props.expandedWorkspace ? (
               <div className="mt-4 flex flex-wrap gap-2">
                 {[
-                  "Rotation Command Surface",
+                  "Schedule Builder",
                   commandSurfaceRoundLabel,
                   commandSurfaceContextLabel,
                   commandSurfaceRoundTimeLabel,
