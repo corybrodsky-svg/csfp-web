@@ -231,10 +231,41 @@ type SessionEditorState = {
 type WorkflowGroupKey =
   | "planning"
   | "staffing"
-  | "schedule"
-  | "platform"
-  | "day_of"
-  | "wrap_up";
+  | "materials"
+  | "communications"
+  | "live_readiness";
+
+type WorkflowReadinessStatus =
+  | "Ready"
+  | "Needs Action"
+  | "Not Started"
+  | "Optional"
+  | "Blocked"
+  | "In Progress";
+
+type WorkflowReadinessAction = {
+  label: string;
+  href?: string;
+  onClick?: () => void;
+  disabled?: boolean;
+  target?: string;
+  rel?: string;
+};
+
+type WorkflowReadinessItem = {
+  id: string;
+  label: string;
+  status: WorkflowReadinessStatus;
+  value: string;
+  explanation: string;
+  actions?: WorkflowReadinessAction[];
+};
+
+type WorkflowReadinessGroup = {
+  key: WorkflowGroupKey;
+  title: string;
+  items: WorkflowReadinessItem[];
+};
 
 type TrainingImportResult = {
   eventTitle: string;
@@ -456,6 +487,60 @@ const planningSuccessCardBackground = "linear-gradient(180deg, rgba(220, 252, 23
 const planningSuccessBorder = "1px solid rgba(4, 120, 87, 0.38)";
 const planningSuccessText = "#064e3b";
 
+function getWorkflowReadinessTone(status: WorkflowReadinessStatus) {
+  if (status === "Ready") {
+    return {
+      background: planningSuccessBackground,
+      cardBackground: planningSuccessCardBackground,
+      border: planningSuccessBorder,
+      color: planningSuccessText,
+    };
+  }
+
+  if (status === "Needs Action") {
+    return {
+      background: "rgba(253, 230, 138, 0.34)",
+      cardBackground: "linear-gradient(180deg, rgba(255, 251, 235, 0.96) 0%, rgba(254, 243, 199, 0.76) 100%)",
+      border: "1px solid rgba(180, 83, 9, 0.32)",
+      color: "#92400e",
+    };
+  }
+
+  if (status === "Blocked") {
+    return {
+      background: "rgba(254, 202, 202, 0.42)",
+      cardBackground: "linear-gradient(180deg, rgba(254, 242, 242, 0.96) 0%, rgba(254, 226, 226, 0.76) 100%)",
+      border: "1px solid rgba(185, 28, 28, 0.28)",
+      color: "#991b1b",
+    };
+  }
+
+  if (status === "Optional") {
+    return {
+      background: "rgba(186, 230, 253, 0.24)",
+      cardBackground: "linear-gradient(180deg, rgba(240, 249, 255, 0.96) 0%, rgba(224, 242, 254, 0.72) 100%)",
+      border: "1px solid rgba(2, 132, 199, 0.22)",
+      color: "#075985",
+    };
+  }
+
+  if (status === "In Progress") {
+    return {
+      background: "rgba(191, 219, 254, 0.36)",
+      cardBackground: "linear-gradient(180deg, rgba(239, 246, 255, 0.96) 0%, rgba(219, 234, 254, 0.72) 100%)",
+      border: "1px solid rgba(37, 99, 235, 0.22)",
+      color: "#1d4ed8",
+    };
+  }
+
+  return {
+    background: "rgba(226, 232, 240, 0.46)",
+    cardBackground: "linear-gradient(180deg, rgba(248, 250, 252, 0.96) 0%, rgba(226, 232, 240, 0.72) 100%)",
+    border: "1px solid rgba(100, 116, 139, 0.22)",
+    color: "#475569",
+  };
+}
+
 const recordingStatusOptions = [
   { value: "not_recorded", label: "Not Recorded", active: false, tone: "#94a3b8", chip: "Disabled" },
   { value: "recorded", label: "Recorded", active: true, tone: "#ff6b6b", chip: "Recorded" },
@@ -487,8 +572,8 @@ const materialsReadinessOptions = [
   },
   {
     value: "materials_uploaded",
-    label: "Materials Uploaded",
-    reportLabel: "Materials uploaded",
+    label: "Review Requested",
+    reportLabel: "Review requested",
     complete: false,
   },
   {
@@ -812,6 +897,8 @@ function normalizeMaterialsReadinessValue(value: unknown): MaterialsReadinessVal
     faculty_materials_pending: "awaiting_faculty_materials",
     materials_uploaded: "materials_uploaded",
     uploaded: "materials_uploaded",
+    review_requested: "materials_uploaded",
+    materials_review_requested: "materials_uploaded",
     materials_ready: "materials_ready",
     ready: "materials_ready",
     materials_not_required: "materials_not_required",
@@ -1217,42 +1304,6 @@ function getAvailabilityMatchRank(status: AvailabilityMatchStatus) {
   if (status === "partial") return 1;
   if (status === "unknown") return 2;
   return 3;
-}
-
-function getCoverageWorkflowTone(needed: number, selectedCount: number, contactedCount: number) {
-  if (needed <= 0) {
-    return {
-      background: "rgba(168, 183, 204, 0.12)",
-      border: "1px solid var(--cfsp-border)",
-      color: "var(--cfsp-text-muted)",
-      label: "No target set",
-    };
-  }
-
-  if (selectedCount >= needed) {
-    return {
-      background: planningSuccessBackground,
-      border: planningSuccessBorder,
-      color: planningSuccessText,
-      label: "Fully staffed",
-    };
-  }
-
-  if (selectedCount > 0 || contactedCount > 0) {
-    return {
-      background: "var(--cfsp-warning-soft)",
-      border: "1px solid rgba(243, 187, 103, 0.24)",
-      color: "var(--cfsp-warning)",
-      label: "Partially staffed",
-    };
-  }
-
-  return {
-    background: "var(--cfsp-danger-soft)",
-    border: "1px solid var(--cfsp-danger-border)",
-    color: "var(--cfsp-danger)",
-    label: "Needs attention",
-  };
 }
 
 function getSpTagLabels(sp: SPRow) {
@@ -3231,7 +3282,6 @@ export default function EventDetailPage() {
   const contactedAssignmentCount = pollInviteOnlyAssignments.length;
   const needed = Number(event?.sp_needed || 0);
   const shortage = Math.max(needed - confirmedCount, 0);
-  const workflowTone = getCoverageWorkflowTone(needed, confirmedCount, contactedAssignmentCount);
   const eventMeta = classifyEventPresentation({
     name: event?.name,
     status: event?.status,
@@ -3770,7 +3820,6 @@ const summaryTimeLabel = useMemo(() => {
   const noSpStaffingRequired = activeEventTypeSet.has("skills") && !eventMeta.hasSpWorkflow;
   const staffingRelevant = eventMeta.hasSpWorkflow;
   const hasFaculty = hasNotesLine(event?.notes, /^(Course Faculty|Faculty)\s*:/im);
-  const hasCase = hasNotesLine(event?.notes, /^Case\s*:/im);
   const hasTrainingScheduled = hasNotesLine(event?.notes, /^Training Date\s*:/im);
   const hasZoomReady = hasNotesLine(event?.notes, /^(Zoom|SimIQ)\s*:/im) || /zoom|simiq|online|virtual/i.test(asText(event?.notes));
   const hasRoomsBuilt = sessions.some((session) => Boolean(asText(session.room) || asText(session.location)));
@@ -3778,7 +3827,6 @@ const summaryTimeLabel = useMemo(() => {
     asText(trainingMetadata.rotation_schedule_status).toLowerCase()
   );
   const trainingFacultyText = trainingMetadata.faculty_names || fallbackFacultyText;
-  const facultyProgramText = trainingMetadata.faculty_program;
   const facultyEmailText = trainingMetadata.faculty_email;
   const facultyPhoneText = trainingMetadata.faculty_phone;
   const trainingSimContact =
@@ -3795,30 +3843,57 @@ const summaryTimeLabel = useMemo(() => {
     "Materials Status",
   ]);
   const savedMaterialsReadinessValue = normalizeMaterialsReadinessValue(materialsReadinessRaw);
-  const hasSavedMaterialsReadiness = Boolean(savedMaterialsReadinessValue);
   const materialsReadinessOption =
     getMaterialsReadinessOption(savedMaterialsReadinessValue || "materials_not_reviewed") ||
     materialsReadinessOptions[0];
   const hasUploadedEventMaterial = Boolean(eventMaterialUrl);
   const hasAnyMaterialEvidence = hasUploadedEventMaterial || hasMaterialEvidence(trainingMetadata);
-  const materialsStatusLabel = hasSavedMaterialsReadiness
-    ? materialsReadinessOption.reportLabel
-    : hasUploadedEventMaterial
-      ? "Materials uploaded — review needed"
-      : "Not reviewed";
-  const materialsReadinessComplete = hasSavedMaterialsReadiness && materialsReadinessOption.complete;
   const materialsReadinessNeedsAttention =
     savedMaterialsReadinessValue === "materials_needed" ||
     savedMaterialsReadinessValue === "awaiting_faculty_materials";
   const materialsReadinessReviewNeeded =
-    !hasSavedMaterialsReadiness && hasUploadedEventMaterial;
-  const materialsReadinessDetail = hasSavedMaterialsReadiness
-    ? materialsReadinessOption.label
-    : hasUploadedEventMaterial
-      ? "Event material uploaded; admin review still needed."
-      : hasAnyMaterialEvidence
-        ? "Materials evidence exists; readiness has not been reviewed."
-        : "No materials requirement has been reviewed yet.";
+    savedMaterialsReadinessValue === "materials_uploaded";
+  const materialsReadinessOptional = savedMaterialsReadinessValue === "materials_not_required";
+  const materialsReadinessReady = savedMaterialsReadinessValue === "materials_ready";
+  const materialsStatusLabel = materialsReadinessOptional
+    ? "Not required"
+    : materialsReadinessReady
+      ? "Materials ready"
+      : materialsReadinessReviewNeeded
+        ? "Review requested"
+        : materialsReadinessNeedsAttention
+          ? materialsReadinessOption.reportLabel
+          : hasAnyMaterialEvidence
+            ? "Materials available"
+            : "Needs materials";
+  const materialsReadinessComplete =
+    materialsReadinessReady ||
+    materialsReadinessOptional ||
+    (!materialsReadinessNeedsAttention && !materialsReadinessReviewNeeded && hasAnyMaterialEvidence);
+  const materialsReadinessDetail = materialsReadinessOptional
+    ? "Materials are marked not required for this event."
+    : materialsReadinessReady
+      ? "Materials have been reviewed and marked ready."
+      : materialsReadinessReviewNeeded
+        ? "Sim Ops/Admin requested review of the uploaded event material before marking it ready."
+        : savedMaterialsReadinessValue === "awaiting_faculty_materials"
+          ? "Faculty materials are expected before staff release."
+          : savedMaterialsReadinessValue === "materials_needed"
+            ? "Event materials are marked as needed."
+            : hasUploadedEventMaterial
+              ? "Event material is uploaded and ready for staff access."
+              : hasAnyMaterialEvidence
+                ? "Related event materials are attached and available."
+                : "No event material has been uploaded for staff access.";
+  const materialsWorkflowStatus: WorkflowReadinessStatus = materialsReadinessOptional
+    ? "Optional"
+    : materialsReadinessReady || (!materialsReadinessNeedsAttention && !materialsReadinessReviewNeeded && hasAnyMaterialEvidence)
+      ? "Ready"
+      : savedMaterialsReadinessValue === "awaiting_faculty_materials"
+        ? "Blocked"
+        : "Needs Action";
+  const materialsWorkflowNeedsAction =
+    materialsWorkflowStatus === "Needs Action" || materialsWorkflowStatus === "Blocked";
   const emailStatusLabel = getEmailStatusLabel(trainingMetadata);
   const facultyReadinessComplete = Boolean(
     trainingFacultyText || facultyEmailText || facultyPhoneText || trainingMetadata.sim_contact || hasFaculty
@@ -4079,13 +4154,7 @@ const summaryTimeLabel = useMemo(() => {
     return chips.length ? chips : ["Operational Sim"];
   }, [eventSummarySourceText, isTrainingMode]);
   const operationalReadinessItems = useMemo(() => {
-    const materialsReadinessLabel = materialsReadinessNeedsAttention
-      ? materialsStatusLabel
-      : materialsReadinessReviewNeeded
-        ? "Materials review needed"
-        : !hasSavedMaterialsReadiness && hasAnyMaterialEvidence
-          ? "Materials not reviewed"
-          : "";
+    const materialsReadinessLabel = materialsWorkflowNeedsAction ? materialsStatusLabel : "";
     const items = [
       { label: "Needs Staffing", active: staffingRelevant && confirmedCount < Math.max(needed, 1) },
       { label: "Needs Faculty", active: !facultyReadinessComplete },
@@ -4100,12 +4169,9 @@ const summaryTimeLabel = useMemo(() => {
   }, [
     facultyReadinessComplete,
     confirmedCount,
-    hasAnyMaterialEvidence,
     hasRoomsBuilt,
-    hasSavedMaterialsReadiness,
-    materialsReadinessNeedsAttention,
-    materialsReadinessReviewNeeded,
     materialsStatusLabel,
+    materialsWorkflowNeedsAction,
     needed,
     rotationRounds.length,
     staffingRelevant,
@@ -4117,7 +4183,7 @@ const summaryTimeLabel = useMemo(() => {
       { label: "Hiring Email Sent", active: outreachProgressLabel === "Sent" || outreachProgressLabel === "In progress" },
       { label: "Faculty Confirmed", active: facultyReadinessComplete && Boolean(facultyEmailText || facultyPhoneText || trainingFacultyText) },
       { label: "Training Complete", active: Boolean(hasTrainingScheduled && trainingImportResult) || sortedAssignments.some((assignment) => assignment.training_attended) },
-      { label: "Reminder Pending", active: asText(pollMetadata.pollStatus).toLowerCase() === "draft_ready" || outreachProgressLabel === "Draft opened" },
+      { label: "Reminder Needed", active: asText(pollMetadata.pollStatus).toLowerCase() === "draft_ready" || outreachProgressLabel === "Draft opened" },
     ],
     [
       facultyEmailText,
@@ -5370,294 +5436,272 @@ Cory`;
   const pollReadyEmailCount = pollSelectedEmails.length || pollSelectedSpEmailsFromMetadata.length;
   const pollCreatedLabel = formatUploadedTimestamp(pollMetadata.pollCreatedAt);
   const pollSentLabel = formatUploadedTimestamp(pollMetadata.pollSentAt);
-  const workflowGroups = useMemo(
-    () => [
-      {
-        key: "planning" as WorkflowGroupKey,
-        title: "Planning",
-        items: [
-          {
-            id: "event_details_confirmed",
-            label: "Event details confirmed",
-            autoComplete: Boolean(asText(event?.name) && asText(event?.status)),
-            detail: "Event name and status are filled in.",
-          },
-          {
-            id: "date_time_confirmed",
-            label: "Date/time confirmed",
-            autoComplete: Boolean(asText(event?.date_text) || sessions.length) && summaryTimeLabel !== "Time TBD",
-            detail: "Event date and usable time information are on file.",
-          },
-          {
-            id: "location_rooms_confirmed",
-            label: "Location/rooms confirmed",
-            autoComplete: Boolean(asText(event?.location) || hasRoomsBuilt),
-            detail: "A site or room plan is listed for the event.",
-          },
-          {
-            id: "faculty_confirmed",
-            label: "Faculty/contact confirmed",
-            autoComplete: hasFaculty,
-            detail: hasFaculty ? "Faculty/contact details found in notes." : "Add Course Faculty or Faculty notes when ready.",
-          },
-          {
-            id: "case_materials_confirmed",
-            label: "Case/materials confirmed",
-            autoComplete: hasCase,
-            detail: hasCase ? "Case details found in notes." : "Case/materials are not clearly documented yet.",
-          },
-        ],
-      },
-      {
-        key: "staffing" as WorkflowGroupKey,
-        title: "SP Staffing",
-        items: [
-          {
-            id: "sp_count_confirmed",
-            label: "SP count confirmed",
-            autoComplete: noSpStaffingRequired || needed > 0,
-            detail: noSpStaffingRequired ? "No SP staffing required for this event." : `${needed} SP target on file.`,
-          },
-          {
-            id: "sps_assigned",
-            label: "SPs selected",
-            autoComplete: noSpStaffingRequired || selectedStaffingCount > 0,
-            detail: noSpStaffingRequired
-              ? "SP staffing workflow suppressed."
-              : `${selectedStaffingCount} selected for staffing (${confirmedCount} primary, ${backupCount} backup).`,
-          },
-          {
-            id: "sps_contacted",
-            label: "SPs contacted",
-            autoComplete: noSpStaffingRequired || assignments.some((assignment) => Boolean(assignment.last_contacted_at) || ["contacted", "confirmed", "declined"].includes(getAssignmentStatus(assignment))),
-            detail: noSpStaffingRequired
-              ? "No SP outreach required."
-              : contactedAssignmentCount
-                ? `${contactedAssignmentCount} contacted or invite-only row${contactedAssignmentCount === 1 ? "" : "s"} not counted as staffing.`
-                : "No contacted-only or invite-only rows are counted as staffing.",
-          },
-          {
-            id: "sp_confirmations_complete",
-            label: "SP staffing complete",
-            autoComplete: noSpStaffingRequired || (needed > 0 && confirmedCount >= needed),
-            detail: noSpStaffingRequired
-              ? "No confirmations required."
-              : `${confirmedCount} primary confirmed of ${needed} needed (${backupCount} backup optional).`,
-          },
-          {
-            id: "sp_training_scheduled",
-            label: "SP training scheduled",
-            autoComplete: noSpStaffingRequired || hasTrainingScheduled,
-            detail: hasTrainingScheduled ? "Training date is stored in notes." : "Add a Training Date note when scheduling prep.",
-          },
-          {
-            id: "sp_training_completed",
-            label: "SP training completed",
-            autoComplete: false,
-            detail: "Mark this locally when training has actually been completed.",
-          },
-        ],
-      },
-      {
-        key: "schedule" as WorkflowGroupKey,
-        title: "Schedule / Rooms",
-        items: [
-          {
-            id: "student_schedule_built",
-            label: "Student schedule imported or built",
-            autoComplete: sessions.length > 0,
-            detail: sessions.length ? `${sessions.length} structured session${sessions.length === 1 ? "" : "s"} loaded.` : "No structured sessions are built yet.",
-          },
-          {
-            id: "room_schedule_built",
-            label: "Room schedule built",
-            autoComplete: hasRoomsBuilt,
-            detail: hasRoomsBuilt ? "At least one session includes room or location details." : "No room assignments are structured yet.",
-          },
-          {
-            id: "checklists_ready",
-            label: "Checklists/forms ready",
-            autoComplete: false,
-            detail: "Use this once printed or digital evaluation materials are ready.",
-          },
-          {
-            id: "soap_ready",
-            label: "SOAP note workflow ready if applicable",
-            autoComplete: /soap/i.test(asText(event?.notes)),
-            detail: /soap/i.test(asText(event?.notes)) ? "SOAP note workflow appears in notes." : "Mark when SOAP workflow is confirmed for the event.",
-          },
-        ],
-      },
+  const staffingReadinessStatus: WorkflowReadinessStatus = noSpStaffingRequired
+    ? "Optional"
+    : needed > 0 && confirmedCount >= needed
+      ? "Ready"
+      : selectedStaffingCount > 0 || contactedAssignmentCount > 0
+        ? "Needs Action"
+        : "Not Started";
+  const facultyReadinessStatus: WorkflowReadinessStatus = facultyReadinessComplete ? "Ready" : "Needs Action";
+  const scheduleReadinessStatus: WorkflowReadinessStatus =
+    rotationRounds.length && summaryTimeLabel !== "Time TBD"
+      ? "Ready"
+      : sessions.length || asText(event?.date_text)
+        ? "Needs Action"
+        : "Not Started";
+  const emailReadinessStatus: WorkflowReadinessStatus =
+    outreachProgressLabel === "Sent"
+      ? "Ready"
+      : outreachProgressLabel === "In progress" || outreachProgressLabel === "Draft opened"
+        ? "In Progress"
+        : "Not Started";
+  const trainingReadinessStatus: WorkflowReadinessStatus = noSpStaffingRequired
+    ? "Optional"
+    : normalEventTrainingComplete
+      ? "Ready"
+      : normalEventTrainingHasInfo
+        ? "Needs Action"
+        : "Not Started";
+  const platformReadinessStatus: WorkflowReadinessStatus =
+    eventMeta.isVirtualSp || selectedModalityLabel === "Virtual" || selectedModalityLabel === "Hybrid"
+      ? hasZoomReady || Boolean(normalEventTrainingLink)
+        ? "Ready"
+        : "Blocked"
+      : "Optional";
+  const recordingReadinessStatus: WorkflowReadinessStatus = recordingStatus.value === "recording_pending"
+    ? "Needs Action"
+    : recordingStatus.value === "recording_planned" || recordingStatus.value === "recorded"
+      ? "Ready"
+      : "Optional";
 
-      {
-        key: "platform" as WorkflowGroupKey,
-        title: "Simulation Platform",
-        items: [
-          {
-            id: "zoom_ready",
-            label: "Zoom/SimIQ link confirmed if virtual",
-            autoComplete: !eventMeta.isVirtualSp || hasZoomReady,
-            detail: !eventMeta.isVirtualSp ? "Not a virtual event." : hasZoomReady ? "Virtual platform details found in notes." : "Virtual logistics still need a Zoom / SimIQ note.",
-          },
-        ],
-      },
-      {
-        key: "day_of" as WorkflowGroupKey,
-        title: "Day-of Operations",
-        items: [
-          {
-            id: "faculty_briefing_complete",
-            label: "Faculty briefing complete",
-            autoComplete: false,
-            detail: "Manual check for the live faculty briefing step.",
-          },
-          {
-            id: "setup_complete",
-            label: "Day-of setup complete",
-            autoComplete: false,
-            detail: "Manual check for room, platform, and staffing setup.",
-          },
-          {
-            id: "event_completed",
-            label: "Event completed",
-            autoComplete: /complete/i.test(asText(event?.status)),
-            detail: /complete/i.test(asText(event?.status)) ? "Event status already indicates completion." : "Mark once the live event ends.",
-          },
-        ],
-      },
-      {
-        key: "wrap_up" as WorkflowGroupKey,
-        title: "Wrap-Up",
-        items: [
-          {
-            id: "debrief_complete",
-            label: "Debrief complete",
-            autoComplete: false,
-            detail: "Manual check for the post-event debrief step.",
-          },
-          {
-            id: "breakdown_complete",
-            label: "Breakdown/reset complete",
-            autoComplete: false,
-            detail: "Manual check for room or platform reset.",
-          },
-          {
-            id: "follow_up_complete",
-            label: "Post-event follow-up complete",
-            autoComplete: false,
-            detail: "Manual check for emails, notes, and post-event wrap-up.",
-          },
-        ],
-      },
-    ],
-    [
-      assignments,
-      backupCount,
-      contactedAssignmentCount,
-      confirmedCount,
-      event?.date_text,
-      event?.location,
-      event?.name,
-      event?.notes,
-      event?.status,
-      eventMeta.isVirtualSp,
-      hasCase,
-      hasFaculty,
-      hasRoomsBuilt,
-      hasTrainingScheduled,
-      hasZoomReady,
-      needed,
-      noSpStaffingRequired,
-      selectedStaffingCount,
-      sessions,
-      summaryTimeLabel,
-    ]
-  );
-  const workflowReportItems = useMemo(
-    () => [
-      {
-        id: "staffing",
-        label: "SP coverage",
-        value: noSpStaffingRequired
-          ? "Not required"
+  const eventMaterialDownloadUrl = eventMaterialUrl
+    ? buildTrainingMaterialAssetUrls({
+        eventId: id,
+        rawUrl: eventMaterialUrl,
+        storagePath: eventMaterialStoragePath,
+        fileName: eventMaterialName,
+      }).downloadUrl
+    : "";
+  const workflowReportItems: WorkflowReadinessItem[] = [
+    {
+      id: "staffing",
+      label: "SP coverage",
+      status: staffingReadinessStatus,
+      value: noSpStaffingRequired
+        ? "No SP staffing required"
+        : needed > 0
+          ? `${confirmedCount} primary / ${needed} needed`
+          : `${selectedStaffingCount} selected`,
+      explanation: noSpStaffingRequired
+        ? "SP staffing is optional for this event type."
+        : needed > 0 && confirmedCount >= needed
+          ? `${confirmedCount} primary SP${confirmedCount === 1 ? "" : "s"} confirmed for ${needed} needed. ${backupCount} backup selected; backup remains optional.`
           : needed > 0
-            ? `${confirmedCount} primary / ${needed} needed`
-            : `${selectedStaffingCount} selected`,
-        complete: noSpStaffingRequired || (needed > 0 ? confirmedCount >= needed : selectedStaffingCount > 0),
-        detail: noSpStaffingRequired
-          ? "No SP staffing required."
-          : needed > 0
-            ? confirmedCount >= needed
-              ? `${backupCount} backup selected · backup optional`
-              : `${Math.max(needed - confirmedCount, 0)} primary slot${Math.max(needed - confirmedCount, 0) === 1 ? "" : "s"} open · ${backupCount} backup selected`
+            ? `${Math.max(needed - confirmedCount, 0)} primary slot${Math.max(needed - confirmedCount, 0) === 1 ? "" : "s"} still need selected staffing. Contacted/archive rows are not counted as coverage.`
             : selectedStaffingCount > 0
-              ? `${confirmedCount} primary / ${backupCount} backup selected`
-              : contactedAssignmentCount > 0
-                ? `${contactedAssignmentCount} contacted, none selected for staffing`
-                : "No selected roster yet",
-      },
-      {
-        id: "faculty",
-        label: "Faculty readiness",
-        value: facultyReadinessLabel,
-        complete: facultyReadinessComplete,
-        detail: facultyProgramText || trainingMetadata.sim_contact || "Add lead, faculty, or contact details",
-      },
-      {
-        id: "materials",
-        label: "Materials readiness",
-        value: materialsStatusLabel,
-        complete: materialsReadinessComplete,
-        detail: materialsReadinessDetail,
-      },
-      {
-        id: "schedule",
-        label: "Schedule readiness",
-       value: rotationRounds.length
-  ? `${rotationRounds.length} rotation round${rotationRounds.length === 1 ? "" : "s"} ready`
-  : "Needs schedule",
-       complete: Boolean((asText(event?.date_text) || rotationRounds.length) && summaryTimeLabel !== "Time TBD"),
-detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
-      },
-      {
-        id: "email",
-        label: "Email / contact",
-        value: outreachProgressLabel,
-        complete: outreachProgressLabel === "Sent" || outreachProgressLabel === "In progress",
-        detail:
-          outreachProgressLabel === "In progress"
-            ? "Contact activity is already logged."
-            : outreachProgressLabel === "Sent"
-              ? "Email action marked complete."
-              : "No contact activity recorded yet.",
-      },
-    ],
-    [
-      backupCount,
-      contactedAssignmentCount,
-      confirmedCount,
-      event?.date_text,
-      facultyProgramText,
-      facultyReadinessComplete,
-      facultyReadinessLabel,
-      materialsReadinessComplete,
-      materialsReadinessDetail,
-      materialsStatusLabel,
-      needed,
-      noSpStaffingRequired,
-      outreachProgressLabel,
-      rotationRounds.length,
-      selectedStaffingCount,
-      summaryTimeLabel,
-      trainingMetadata.sim_contact,
-    ]
-  );
-  const workflowPercent =
-    workflowReportItems.length > 0
-      ? Math.round(
-          (workflowReportItems.filter((item) => item.complete).length / workflowReportItems.length) * 100
-        )
-      : 0;
+              ? `${confirmedCount} primary / ${backupCount} backup selected.`
+              : "No selected staffing roster is in place yet.",
+      actions: [{ label: "Open Staffing Command Center", href: "#staffing-command-center" }],
+    },
+    {
+      id: "faculty",
+      label: "Faculty readiness",
+      status: facultyReadinessStatus,
+      value: facultyReadinessComplete ? facultyReadinessLabel : "Contact info needed",
+      explanation: facultyReadinessComplete
+        ? "Faculty or lead contact information is available for operations."
+        : "Add faculty, lead, or simulation contact details so operators know who owns event decisions.",
+      actions: [{ label: "Edit contact info", href: "#coverage-actions" }],
+    },
+    {
+      id: "materials",
+      label: "Materials",
+      status: materialsWorkflowStatus,
+      value: materialsStatusLabel,
+      explanation: materialsReadinessDetail,
+      actions: [
+        ...(eventMaterialUrl
+          ? [
+              {
+                label: "Preview",
+                onClick: () =>
+                  openMaterialPreview({
+                    title: "Event Material",
+                    rawUrl: eventMaterialUrl,
+                    storagePath: eventMaterialStoragePath,
+                    fileName: eventMaterialName,
+                  }),
+              },
+              { label: "Download", href: eventMaterialDownloadUrl, target: "_blank", rel: "noreferrer" },
+              { label: "Replace", onClick: () => openTrainingMaterialPicker("staffing_doc"), disabled: eventMaterialBusy },
+            ]
+          : [{ label: "Upload Event Material", onClick: () => openTrainingMaterialPicker("staffing_doc"), disabled: eventMaterialBusy }]),
+        ...(materialsReadinessReviewNeeded
+          ? [{ label: "Mark reviewed", onClick: () => void handleMarkMaterialsReviewed(), disabled: saving }]
+          : []),
+      ],
+    },
+    {
+      id: "schedule",
+      label: "Schedule readiness",
+      status: scheduleReadinessStatus,
+      value: rotationRounds.length
+        ? `${rotationRounds.length} rotation round${rotationRounds.length === 1 ? "" : "s"} prepared`
+        : "Schedule not built",
+      explanation: rotationRounds.length
+        ? `Rotation schedule is available for ${summaryTimeLabel}.`
+        : sessions.length
+          ? `${sessions.length} structured session${sessions.length === 1 ? "" : "s"} exist, but rotation rounds still need QA.`
+          : "Open the scheduling workspace to build or import the learner/SP flow.",
+      actions: [{ label: "Open Schedule Builder", href: expandedScheduleBuilderHref }],
+    },
+    {
+      id: "email",
+      label: "Email / contact",
+      status: emailReadinessStatus,
+      value: outreachProgressLabel,
+      explanation:
+        outreachProgressLabel === "Sent"
+          ? "Hiring or staffing communication is marked sent."
+          : outreachProgressLabel === "In progress"
+            ? "SP contact activity exists; finalize any remaining hiring communication in the staffing workflow."
+            : outreachProgressLabel === "Draft opened"
+              ? "A draft was opened, but final sending is not tracked in CFSP yet."
+              : "Hiring communication has not been finalized from this event page.",
+      actions: [
+        {
+          label: "Open Hiring Email",
+          onClick: () => {
+            setShowEmailDraft(true);
+            window.requestAnimationFrame(() => {
+              document.getElementById("staffing-command-center")?.scrollIntoView({ behavior: "smooth", block: "start" });
+            });
+          },
+        },
+      ],
+    },
+  ];
+  const workflowGroups: WorkflowReadinessGroup[] = [
+    {
+      key: "planning",
+      title: "Planning",
+      items: [
+        {
+          id: "event_details",
+          label: "Event details",
+          status: asText(event?.name) && (asText(event?.date_text) || sessions.length) ? "Ready" : "Needs Action",
+          value: asText(event?.name) || "Untitled event",
+          explanation:
+            asText(event?.name) && (asText(event?.date_text) || sessions.length)
+              ? "Event title and date context are available."
+              : "Add the event title and date/time context before final planning.",
+          actions: [{ label: "Edit event details", href: "#coverage-actions" }],
+        },
+        workflowReportItems.find((item) => item.id === "faculty") as WorkflowReadinessItem,
+        workflowReportItems.find((item) => item.id === "schedule") as WorkflowReadinessItem,
+      ],
+    },
+    {
+      key: "staffing",
+      title: "Staffing",
+      items: [
+        workflowReportItems.find((item) => item.id === "staffing") as WorkflowReadinessItem,
+        {
+          id: "training",
+          label: "SP training",
+          status: trainingReadinessStatus,
+          value: normalEventTrainingStatusLabel,
+          explanation: normalEventTrainingComplete
+            ? "Training is marked complete for this event."
+            : normalEventTrainingHasInfo
+              ? "Training details exist; verify attendance or mark complete once finished."
+              : "Training information is not yet visible for the SP workflow.",
+          actions: normalEventTrainingComplete
+            ? [{ label: "Review training info", href: "#coverage-actions" }]
+            : [
+                { label: "Edit training info", href: "#coverage-actions" },
+                ...(normalEventTrainingHasInfo
+                  ? [
+                      {
+                        label: "Mark training complete",
+                        onClick: () => void handleToggleWorkflowCheck("sp_training_completed", Boolean(workflowChecks.sp_training_completed)),
+                        disabled: saving,
+                      },
+                    ]
+                  : []),
+              ],
+        },
+      ],
+    },
+    {
+      key: "materials",
+      title: "Materials",
+      items: [workflowReportItems.find((item) => item.id === "materials") as WorkflowReadinessItem],
+    },
+    {
+      key: "communications",
+      title: "Communications",
+      items: [
+        workflowReportItems.find((item) => item.id === "email") as WorkflowReadinessItem,
+        {
+          id: "polling",
+          label: "Availability polling",
+          status: asText(pollMetadata.pollStatus).toLowerCase() === "sent"
+            ? "Ready"
+            : pollSelectedCount > 0
+              ? "In Progress"
+              : "Not Started",
+          value: asText(pollMetadata.pollStatus).toLowerCase() === "sent"
+            ? "Poll sent"
+            : pollSelectedCount > 0
+              ? `${pollSelectedCount} selected for poll`
+              : "No poll selection",
+          explanation: asText(pollMetadata.pollStatus).toLowerCase() === "sent"
+            ? `Availability poll sent${pollSentLabel ? ` on ${pollSentLabel}` : ""}.`
+            : pollSelectedCount > 0
+              ? "Poll candidates are selected; draft or send the poll from the staffing workflow."
+              : "Use the staffing command center when this event needs a native availability poll.",
+          actions: [{ label: "Open Poll Workflow", href: "#staffing-command-center" }],
+        },
+      ],
+    },
+    {
+      key: "live_readiness",
+      title: "Live Readiness",
+      items: [
+        {
+          id: "platform",
+          label: "Platform / room access",
+          status: platformReadinessStatus,
+          value: selectedModalityLabel,
+          explanation:
+            platformReadinessStatus === "Ready"
+              ? "Room or virtual platform access is available."
+              : platformReadinessStatus === "Blocked"
+                ? "Virtual or hybrid event needs a Zoom / SimIQ link before live operations."
+                : "No virtual platform requirement is detected for this event.",
+          actions: [{ label: "Edit access details", href: "#coverage-actions" }],
+        },
+        {
+          id: "recording",
+          label: "Recording",
+          status: recordingReadinessStatus,
+          value: recordingStatus.label,
+          explanation:
+            recordingStatus.value === "recording_pending"
+              ? "Recording is pending; confirm production ownership or update recording status."
+              : recordingStatus.active
+                ? "Recording status is active for this event."
+                : "Recording is not required or not active for this event.",
+          actions: [{ label: "Edit recording status", href: "#coverage-actions" }],
+        },
+      ],
+    },
+  ];
+  const workflowReadyCount = workflowReportItems.filter((item) => item.status === "Ready" || item.status === "Optional").length;
+  const workflowActionCount = workflowReportItems.filter((item) => ["Needs Action", "Blocked", "Not Started"].includes(item.status)).length;
+  const workflowBoardStatus: WorkflowReadinessStatus = workflowActionCount > 0 ? "Needs Action" : "Ready";
   const arrivalInstructions = getFirstNoteValue(eventEditor.notes || event?.notes, [
     "Arrival Instructions",
     "Arrival",
@@ -5957,6 +6001,15 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
       ...current,
       notes: upsertNoteValue(current.notes, "Materials Readiness", nextValue),
     }));
+  }
+
+  async function handleMarkMaterialsReviewed() {
+    try {
+      const nextNotes = upsertNoteValue(eventEditor.notes, "Materials Readiness", "materials_ready");
+      await persistTrainingNotes(nextNotes, "Materials marked reviewed.");
+    } catch (error) {
+      setEventSaveError(error instanceof Error ? error.message : "Could not mark materials reviewed.");
+    }
   }
 
   async function persistTrainingNotes(nextNotes: string, successMessage: string) {
@@ -7992,6 +8045,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
   const normalEventStaffingCommandCenter =
     !isTrainingMode ? (
       <section
+        id="staffing-command-center"
         style={{
           ...staffingCommandSurfaceStyle,
         }}
@@ -9895,6 +9949,193 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
         </div>
       </section>
     ) : null;
+
+  function renderWorkflowReadinessActions(actions?: WorkflowReadinessAction[]) {
+    if (!actions?.length) return null;
+
+    return (
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "7px", marginTop: "10px" }}>
+        {actions.map((action) => {
+          const actionStyle: React.CSSProperties = {
+            ...buttonStyle,
+            padding: "7px 10px",
+            fontSize: "12px",
+            minHeight: "30px",
+            boxShadow: "0 8px 16px rgba(14, 165, 233, 0.10)",
+            opacity: action.disabled ? 0.6 : 1,
+            textDecoration: "none",
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            whiteSpace: "nowrap",
+          };
+
+          if (action.href) {
+            if (action.href.startsWith("/")) {
+              return (
+                <Link key={`${action.label}-${action.href}`} href={action.href} style={actionStyle}>
+                  {action.label}
+                </Link>
+              );
+            }
+
+            return (
+              <a
+                key={`${action.label}-${action.href}`}
+                href={action.href}
+                target={action.target}
+                rel={action.rel}
+                style={actionStyle}
+              >
+                {action.label}
+              </a>
+            );
+          }
+
+          return (
+            <button
+              key={action.label}
+              type="button"
+              onClick={action.onClick}
+              disabled={action.disabled}
+              style={actionStyle}
+            >
+              {action.label}
+            </button>
+          );
+        })}
+      </div>
+    );
+  }
+
+  function renderWorkflowReadinessItem(item: WorkflowReadinessItem, compact = false) {
+    const tone = getWorkflowReadinessTone(item.status);
+
+    return (
+      <div
+        key={item.id}
+        style={{
+          borderRadius: "14px",
+          padding: compact ? "10px 12px" : "12px 14px",
+          border: tone.border,
+          background: tone.cardBackground,
+          minWidth: compact ? "160px" : undefined,
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "flex-start" }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={statLabel}>{item.label}</div>
+            <div style={{ marginTop: "5px", color: "var(--cfsp-text)", fontWeight: 900, fontSize: compact ? "13px" : "14px", lineHeight: 1.28 }}>
+              {item.value}
+            </div>
+          </div>
+          <span
+            style={{
+              flex: "0 0 auto",
+              borderRadius: "999px",
+              padding: "5px 9px",
+              background: tone.background,
+              color: tone.color,
+              border: tone.border,
+              fontSize: "11px",
+              fontWeight: 900,
+              whiteSpace: "nowrap",
+            }}
+          >
+            {item.status}
+          </span>
+        </div>
+        <div style={{ marginTop: "8px", color: "var(--cfsp-text-muted)", fontSize: "13px", fontWeight: 700, lineHeight: 1.45 }}>
+          {item.explanation}
+        </div>
+        {renderWorkflowReadinessActions(item.actions)}
+      </div>
+    );
+  }
+
+  function renderOperationalReadinessBoard(className: string, extraStyle: React.CSSProperties = {}) {
+    const boardTone = getWorkflowReadinessTone(workflowBoardStatus);
+
+    return (
+      <section
+        className={className}
+        style={{
+          ...cardStyle,
+          ...extraStyle,
+          background: "var(--cfsp-surface-muted)",
+          borderColor: "rgba(120, 180, 255, 0.24)",
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "flex-start" }}>
+          <div>
+            <h2 style={compactSectionTitleStyle}>Operational Readiness Board</h2>
+            <p style={compactSectionHintStyle}>
+              Event QA telemetry with clear ownership, real actions, and no cosmetic pending checks.
+            </p>
+          </div>
+          <div
+            style={{
+              borderRadius: "14px",
+              padding: "9px 12px",
+              background: boardTone.background,
+              border: boardTone.border,
+              color: boardTone.color,
+              fontWeight: 900,
+              fontSize: "13px",
+              display: "grid",
+              gap: "2px",
+              minWidth: "150px",
+            }}
+          >
+            <span>{workflowBoardStatus}</span>
+            <span style={{ fontSize: "11px", opacity: 0.82 }}>
+              {workflowReadyCount} ready / optional · {workflowActionCount} action
+            </span>
+          </div>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: "10px", marginTop: "14px" }}>
+          {workflowReportItems.map((item) => renderWorkflowReadinessItem(item, true))}
+        </div>
+
+        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "12px" }}>
+          <button
+            type="button"
+            onClick={() => setShowWorkflowAdvanced((current) => !current)}
+            style={{
+              ...buttonStyle,
+              background: "var(--cfsp-surface)",
+              color: "var(--cfsp-text)",
+              border: "1px solid var(--cfsp-border)",
+            }}
+          >
+            {showWorkflowAdvanced ? "Hide Operational QA Board" : "Show Operational QA Board"}
+          </button>
+        </div>
+
+        {showWorkflowAdvanced ? (
+          <div style={{ display: "grid", gap: "14px", marginTop: "16px" }}>
+            {workflowGroups.map((group) => (
+              <section
+                key={group.key}
+                style={{
+                  border: "1px solid var(--cfsp-border)",
+                  borderRadius: "14px",
+                  background: "var(--cfsp-surface)",
+                  padding: "14px",
+                }}
+              >
+                <div style={{ color: "var(--cfsp-text)", fontWeight: 900, fontSize: "16px" }}>{group.title}</div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "10px", marginTop: "10px" }}>
+                  {group.items.map((item) => renderWorkflowReadinessItem(item))}
+                </div>
+              </section>
+            ))}
+          </div>
+        ) : null}
+      </section>
+    );
+  }
 
   if (loading) {
     return (
@@ -12553,319 +12794,8 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
 
       {!isTrainingMode ? (
         <>
-          <section
-            className="xl:hidden"
-            style={{
-              ...cardStyle,
-              background: "var(--cfsp-surface-muted)",
-              borderColor: "rgba(120, 180, 255, 0.24)",
-            }}
-          >
-            <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
-              <div>
-                <h2 style={compactSectionTitleStyle}>Workflow Report</h2>
-                <p style={compactSectionHintStyle}>Compact workflow status that stays out of the way.</p>
-              </div>
-              <div
-                style={{
-                  borderRadius: "999px",
-                  padding: "8px 12px",
-                  background: workflowTone.background,
-                  border: workflowTone.border,
-                  color: workflowTone.color,
-                  fontWeight: 900,
-                  fontSize: "13px",
-                }}
-              >
-                {workflowPercent}% complete
-              </div>
-            </div>
-
-            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "12px" }}>
-              {workflowReportItems.map((item) => (
-                <div
-                  key={item.id}
-                  style={{
-                    flex: "1 1 170px",
-                    minWidth: "150px",
-                    borderRadius: "14px",
-                    padding: "9px 11px",
-                    border: "1px solid rgba(120, 180, 255, 0.18)",
-                    background: item.complete ? planningSuccessCardBackground : "rgba(255,255,255,0.66)",
-                  }}
-                >
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "center" }}>
-                    <div style={statLabel}>{item.label}</div>
-                    <span
-                      style={{
-                        borderRadius: "999px",
-                        padding: "4px 8px",
-                        background: item.complete ? planningSuccessBackground : "var(--cfsp-warning-soft)",
-                        color: item.complete ? planningSuccessText : "var(--cfsp-warning)",
-                        border: item.complete ? planningSuccessBorder : "1px solid rgba(243, 187, 103, 0.18)",
-                        fontSize: "11px",
-                        fontWeight: 900,
-                      }}
-                    >
-                      {item.complete ? "Ready" : item.id === "materials" ? item.value : "Pending"}
-                    </span>
-                  </div>
-                  <div style={{ marginTop: "5px", color: "var(--cfsp-text)", fontWeight: 900, fontSize: "13px" }}>{item.value}</div>
-                </div>
-              ))}
-            </div>
-
-            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "12px" }}>
-              <button
-                type="button"
-                onClick={() => setShowWorkflowAdvanced((current) => !current)}
-                style={{
-                  ...buttonStyle,
-                  background: "var(--cfsp-surface)",
-                  color: "var(--cfsp-text)",
-                  border: "1px solid var(--cfsp-border)",
-                }}
-              >
-                {showWorkflowAdvanced ? "Hide Advanced Workflow" : "Advanced Workflow / Expand"}
-              </button>
-            </div>
-
-            {showWorkflowAdvanced ? (
-              <div style={{ display: "grid", gap: "14px", marginTop: "16px" }}>
-                {workflowGroups.map((group) => (
-                  <section
-                    key={group.key}
-                    style={{
-                      border: "1px solid var(--cfsp-border)",
-                      borderRadius: "14px",
-                      background: "var(--cfsp-surface)",
-                      padding: "14px",
-                    }}
-                  >
-                    <div style={{ color: "var(--cfsp-text)", fontWeight: 900, fontSize: "16px" }}>{group.title}</div>
-                    <div style={{ display: "grid", gap: "10px", marginTop: "10px" }}>
-                      {group.items.map((item) => {
-                        const complete = item.autoComplete || workflowChecks[item.id];
-                        const manualOnly = !item.autoComplete;
-                        return (
-                          <div
-                            key={item.id}
-                            style={{
-                              display: "flex",
-                              justifyContent: "space-between",
-                              gap: "12px",
-                              alignItems: "center",
-                              flexWrap: "wrap",
-                              border: "1px solid var(--cfsp-border)",
-                              borderRadius: "12px",
-                              background: "var(--cfsp-surface-muted)",
-                              padding: "12px 14px",
-                            }}
-                          >
-                            <div>
-                              <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>{item.label}</div>
-                              <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontSize: "13px", fontWeight: 700 }}>
-                                {item.detail}
-                              </div>
-                            </div>
-                            <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-                              <span
-                                style={{
-                                  borderRadius: "999px",
-                                  padding: "6px 10px",
-                                  fontSize: "12px",
-                                  fontWeight: 900,
-                                  background: complete ? planningSuccessBackground : "rgba(168, 183, 204, 0.12)",
-                                  border: complete ? planningSuccessBorder : "1px solid var(--cfsp-border)",
-                                  color: complete ? planningSuccessText : "var(--cfsp-text-muted)",
-                                }}
-                              >
-                                {complete ? "Complete" : item.autoComplete ? "Auto check pending" : "Manual check"}
-                              </span>
-                              {manualOnly ? (
-                                <button
-                                  type="button"
-                                  onClick={() => void handleToggleWorkflowCheck(item.id, complete)}
-                                  disabled={saving}
-                                  style={{
-                                    ...buttonStyle,
-                                    background: complete ? "var(--cfsp-surface)" : "var(--cfsp-blue)",
-                                    color: complete ? "var(--cfsp-text)" : "#ffffff",
-                                    border: complete ? "1px solid var(--cfsp-border)" : buttonStyle.border,
-                                    opacity: saving ? 0.65 : 1,
-                                  }}
-                                >
-                                  {complete ? "Mark Pending" : "Mark Complete"}
-                                </button>
-                              ) : null}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </section>
-                ))}
-              </div>
-            ) : null}
-          </section>
-
-          <section
-            className="hidden xl:block"
-            style={{
-              ...cardStyle,
-              marginTop: "12px",
-              background: "var(--cfsp-surface-muted)",
-              borderColor: "rgba(120, 180, 255, 0.24)",
-            }}
-          >
-            <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
-              <div>
-                <h2 style={compactSectionTitleStyle}>Workflow Report</h2>
-                <p style={compactSectionHintStyle}>Compact workflow status that stays out of the way.</p>
-              </div>
-              <div
-                style={{
-                  borderRadius: "999px",
-                  padding: "8px 12px",
-                  background: workflowTone.background,
-                  border: workflowTone.border,
-                  color: workflowTone.color,
-                  fontWeight: 900,
-                  fontSize: "13px",
-                }}
-              >
-                {workflowPercent}% complete
-              </div>
-            </div>
-
-            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "12px" }}>
-              {workflowReportItems.map((item) => (
-                <div
-                  key={item.id}
-                  style={{
-                    flex: "1 1 180px",
-                    minWidth: "160px",
-                    borderRadius: "14px",
-                    padding: "9px 11px",
-                    border: "1px solid rgba(120, 180, 255, 0.18)",
-                    background: item.complete ? planningSuccessCardBackground : "rgba(255,255,255,0.7)",
-                  }}
-                >
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "center" }}>
-                    <div style={statLabel}>{item.label}</div>
-                    <span
-                      style={{
-                        borderRadius: "999px",
-                        padding: "4px 8px",
-                        background: item.complete ? planningSuccessBackground : "var(--cfsp-warning-soft)",
-                        color: item.complete ? planningSuccessText : "var(--cfsp-warning)",
-                        border: item.complete ? planningSuccessBorder : "1px solid rgba(243, 187, 103, 0.18)",
-                        fontSize: "11px",
-                        fontWeight: 900,
-                      }}
-                    >
-                      {item.complete ? "Ready" : item.id === "materials" ? item.value : "Pending"}
-                    </span>
-                  </div>
-                  <div style={{ marginTop: "5px", color: "var(--cfsp-text)", fontWeight: 900, fontSize: "13px" }}>{item.value}</div>
-                </div>
-              ))}
-            </div>
-
-            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "12px" }}>
-              <button
-                type="button"
-                onClick={() => setShowWorkflowAdvanced((current) => !current)}
-                style={{
-                  ...buttonStyle,
-                  width: "100%",
-                  background: "var(--cfsp-surface)",
-                  color: "var(--cfsp-text)",
-                  border: "1px solid var(--cfsp-border)",
-                }}
-              >
-                {showWorkflowAdvanced ? "Hide Advanced Workflow" : "Advanced Workflow / Expand"}
-              </button>
-            </div>
-
-            {showWorkflowAdvanced ? (
-              <div style={{ display: "grid", gap: "14px", marginTop: "16px" }}>
-                {workflowGroups.map((group) => (
-                  <section
-                    key={group.key}
-                    style={{
-                      border: "1px solid var(--cfsp-border)",
-                      borderRadius: "14px",
-                      background: "var(--cfsp-surface)",
-                      padding: "14px",
-                    }}
-                  >
-                    <div style={{ color: "var(--cfsp-text)", fontWeight: 900, fontSize: "16px" }}>{group.title}</div>
-                    <div style={{ display: "grid", gap: "10px", marginTop: "10px" }}>
-                      {group.items.map((item) => {
-                        const complete = item.autoComplete || workflowChecks[item.id];
-                        const manualOnly = !item.autoComplete;
-                        return (
-                          <div
-                            key={item.id}
-                            style={{
-                              display: "flex",
-                              justifyContent: "space-between",
-                              gap: "12px",
-                              alignItems: "center",
-                              flexWrap: "wrap",
-                              border: "1px solid var(--cfsp-border)",
-                              borderRadius: "12px",
-                              background: "var(--cfsp-surface-muted)",
-                              padding: "12px 14px",
-                            }}
-                          >
-                            <div>
-                              <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>{item.label}</div>
-                              <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontSize: "13px", fontWeight: 700 }}>
-                                {item.detail}
-                              </div>
-                            </div>
-                            <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-                              <span
-                                style={{
-                                  borderRadius: "999px",
-                                  padding: "6px 10px",
-                                  fontSize: "12px",
-                                  fontWeight: 900,
-                                  background: complete ? planningSuccessBackground : "rgba(168, 183, 204, 0.12)",
-                                  border: complete ? planningSuccessBorder : "1px solid var(--cfsp-border)",
-                                  color: complete ? planningSuccessText : "var(--cfsp-text-muted)",
-                                }}
-                              >
-                                {complete ? "Complete" : item.autoComplete ? "Auto check pending" : "Manual check"}
-                              </span>
-                              {manualOnly ? (
-                                <button
-                                  type="button"
-                                  onClick={() => void handleToggleWorkflowCheck(item.id, complete)}
-                                  disabled={saving}
-                                  style={{
-                                    ...buttonStyle,
-                                    background: complete ? "var(--cfsp-surface)" : "var(--cfsp-blue)",
-                                    color: complete ? "var(--cfsp-text)" : "#ffffff",
-                                    border: complete ? "1px solid var(--cfsp-border)" : buttonStyle.border,
-                                    opacity: saving ? 0.65 : 1,
-                                  }}
-                                >
-                                  {complete ? "Mark Pending" : "Mark Complete"}
-                                </button>
-                              ) : null}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </section>
-                ))}
-              </div>
-            ) : null}
-          </section>
+          {renderOperationalReadinessBoard("xl:hidden")}
+          {renderOperationalReadinessBoard("hidden xl:block", { marginTop: "12px" })}
         </>
       ) : null}
 
