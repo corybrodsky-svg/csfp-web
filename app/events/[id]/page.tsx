@@ -2486,7 +2486,7 @@ export default function EventDetailPage() {
   const activeEventTypes = (explicitEventTypes.length
     ? explicitEventTypes
     : eventMeta.activeEventTypes) as EditableEventType[];
-  const activeEventTypeSet = new Set(activeEventTypes);
+  const activeEventTypeSet = useMemo(() => new Set(activeEventTypes), [activeEventTypes]);
   const coverageStatus =
     isWorkshop
       ? {
@@ -3046,6 +3046,170 @@ const summaryTimeLabel = useMemo(() => {
     }
     return asText(event?.location) || "Location TBD";
   }, [event?.location, trainingMetadata.zoom_url]);
+  const eventSummarySourceText = useMemo(
+    () =>
+      [event?.name, event?.location, event?.notes, eventEditor.notes, trainingMetadata.recording_url, trainingMetadata.zoom_url]
+        .map(asText)
+        .join(" ")
+        .toLowerCase(),
+    [
+      event?.location,
+      event?.name,
+      event?.notes,
+      eventEditor.notes,
+      trainingMetadata.recording_url,
+      trainingMetadata.zoom_url,
+    ]
+  );
+  const recordingStatus = useMemo(() => {
+    const hasRecordingGuide = Boolean(asText(trainingMetadata.recording_url));
+    const hasZoomRecording = /\bzoom\b/.test(eventSummarySourceText) && /\brecord/i.test(eventSummarySourceText);
+    const hasSimCaptureRecording = /\bsim\s*capture\b|\bsimcapture\b/.test(eventSummarySourceText);
+    if (hasZoomRecording && hasSimCaptureRecording) {
+      return { label: "Partial Recording", active: true, tone: "#ff7a7a" };
+    }
+    if (hasSimCaptureRecording) {
+      return { label: "SimCapture Recording", active: true, tone: "#ff6b6b" };
+    }
+    if (hasZoomRecording) {
+      return { label: "Zoom Recording", active: true, tone: "#ff7a7a" };
+    }
+    if (hasRecordingGuide || /\brecording enabled\b|\brecorded\b/.test(eventSummarySourceText)) {
+      return { label: "Recording Enabled", active: true, tone: "#ff6b6b" };
+    }
+    return { label: "Not Recorded", active: false, tone: "#94a3b8" };
+  }, [eventSummarySourceText, trainingMetadata.recording_url]);
+  const eventModalityChips = useMemo(() => {
+    const chips = new Set<string>();
+    chips.add(selectedModalityLabel);
+    if (activeEventTypeSet.has("skills") || isWorkshop) chips.add("Skills");
+    if (staffingRelevant) chips.add("SP Encounter");
+    if (activeEventTypeSet.has("hifi")) chips.add("HiFi");
+    if (/telehealth/.test(eventSummarySourceText)) chips.add("Telehealth");
+    if ((metadataRoomCount || 0) > 1 || rotationRounds.length > 1) chips.add("Multi-Station");
+    return Array.from(chips);
+  }, [
+    activeEventTypeSet,
+    eventSummarySourceText,
+    isWorkshop,
+    metadataRoomCount,
+    rotationRounds.length,
+    selectedModalityLabel,
+    staffingRelevant,
+  ]);
+  const simulationModalityChips = useMemo(() => {
+    const chips: string[] = [];
+    const addIf = (label: string, test: boolean) => {
+      if (test && !chips.includes(label)) chips.push(label);
+    };
+    addIf("Formative", /\bformative\b/.test(eventSummarySourceText));
+    addIf("Summative", /\bsummative\b/.test(eventSummarySourceText));
+    addIf("OSCE", /\bosce\b/.test(eventSummarySourceText));
+    addIf("IPE", /\bipe\b/.test(eventSummarySourceText));
+    addIf("Training", isTrainingMode || /\btraining\b/.test(eventSummarySourceText));
+    addIf("Mock Clinic", /\bmock clinic\b/.test(eventSummarySourceText));
+    addIf("Assessment", /\bassessment\b/.test(eventSummarySourceText));
+    addIf("Remediation", /\bremediation\b/.test(eventSummarySourceText));
+    return chips.length ? chips : ["Operational Sim"];
+  }, [eventSummarySourceText, isTrainingMode]);
+  const operationalReadinessItems = useMemo(() => {
+    const items = [
+      { label: "Needs Staffing", active: staffingRelevant && confirmedCount < Math.max(needed, 1) },
+      { label: "Needs Faculty", active: !facultyReadinessComplete },
+      { label: "Needs Materials", active: materialsStatusLabel !== "Ready" },
+      { label: "Awaiting Schedule", active: !rotationRounds.length || summaryTimeLabel === "Time TBD" },
+      { label: "Awaiting Rooms", active: !hasRoomsBuilt },
+    ];
+    return {
+      primary: items.some((item) => item.active) ? items.find((item) => item.active)?.label || "Needs attention" : "Ready",
+      items,
+    };
+  }, [
+    confirmedCount,
+    facultyReadinessComplete,
+    hasRoomsBuilt,
+    materialsStatusLabel,
+    needed,
+    rotationRounds.length,
+    staffingRelevant,
+    summaryTimeLabel,
+  ]);
+  const communicationStatusItems = useMemo(
+    () => [
+      { label: "SP Poll Sent", active: asText(pollMetadata.pollStatus).toLowerCase() === "sent" },
+      { label: "Hiring Email Sent", active: outreachProgressLabel === "Sent" || outreachProgressLabel === "In progress" },
+      { label: "Faculty Confirmed", active: facultyReadinessComplete && Boolean(facultyEmailText || facultyPhoneText || trainingFacultyText) },
+      { label: "Training Complete", active: Boolean(hasTrainingScheduled && trainingImportResult) || sortedAssignments.some((assignment) => assignment.training_attended) },
+      { label: "Reminder Pending", active: asText(pollMetadata.pollStatus).toLowerCase() === "draft_ready" || outreachProgressLabel === "Draft opened" },
+    ],
+    [
+      facultyEmailText,
+      facultyPhoneText,
+      facultyReadinessComplete,
+      hasTrainingScheduled,
+      outreachProgressLabel,
+      pollMetadata.pollStatus,
+      sortedAssignments,
+      trainingFacultyText,
+      trainingImportResult,
+    ]
+  );
+  const materialsStatusItems = useMemo(
+    () => [
+      { label: "Case Uploaded", active: Boolean(trainingMetadata.case_file_url || trainingMetadata.case_name) },
+      { label: "Door Signs Ready", active: Boolean(trainingMetadata.doorsign_url) },
+      { label: "Zoom Ready", active: Boolean(trainingMetadata.zoom_url) || selectedModalityLabel === "Virtual" || selectedModalityLabel === "Hybrid" },
+      { label: "AV Ready", active: /av ready|audio visual|av support/i.test(eventSummarySourceText) || Boolean(trainingMetadata.recording_url) },
+      { label: "Recording Ready", active: Boolean(trainingMetadata.recording_url) || recordingStatus.active },
+    ],
+    [
+      eventSummarySourceText,
+      recordingStatus.active,
+      selectedModalityLabel,
+      trainingMetadata.case_file_url,
+      trainingMetadata.case_name,
+      trainingMetadata.doorsign_url,
+      trainingMetadata.recording_url,
+      trainingMetadata.zoom_url,
+    ]
+  );
+  const eventRiskLevel = useMemo(() => {
+    let score = 0;
+    if (staffingRelevant && shortageCount > 0) score += shortageCount > 2 ? 3 : 2;
+    if (!facultyReadinessComplete) score += 2;
+    if (!rotationRounds.length || summaryTimeLabel === "Time TBD") score += 2;
+    if (!hasRoomsBuilt) score += 1;
+    if (materialsStatusLabel !== "Ready") score += 2;
+    if (score <= 1) return { label: "Stable", tone: "green", detail: "Operational plan is in good shape." };
+    if (score <= 4) return { label: "Moderate Risk", tone: "yellow", detail: "A few planning dependencies still need follow-through." };
+    return { label: "High Risk", tone: "red", detail: "Critical planning gaps could disrupt simulation flow." };
+  }, [
+    facultyReadinessComplete,
+    hasRoomsBuilt,
+    materialsStatusLabel,
+    rotationRounds.length,
+    shortageCount,
+    staffingRelevant,
+    summaryTimeLabel,
+  ]);
+  const liveSupportNeeds = useMemo(() => {
+    const needs = [
+      { label: "AV Support Required", active: /av|audio visual|projector|mic/.test(eventSummarySourceText) || Boolean(trainingMetadata.recording_url) },
+      { label: "Sim Tech Required", active: activeEventTypeSet.has("hifi") || /sim tech|simcapture|recording/i.test(eventSummarySourceText) },
+      { label: "Faculty Operator Needed", active: Boolean(facultyReadinessComplete && (activeEventTypeSet.has("hifi") || activeEventTypeSet.has("virtual"))) },
+      { label: "SP Educator Needed", active: staffingRelevant && isTrainingMode },
+      { label: "Recording Monitor Needed", active: recordingStatus.active },
+    ];
+    return needs.filter((item) => item.active);
+  }, [
+    activeEventTypeSet,
+    eventSummarySourceText,
+    facultyReadinessComplete,
+    isTrainingMode,
+    recordingStatus.active,
+    staffingRelevant,
+    trainingMetadata.recording_url,
+  ]);
   const selectedRotationRoundIndex = useMemo(
     () => rotationRounds.findIndex((round) => round.key === selectedRotationRoundKey),
     [rotationRounds, selectedRotationRoundKey]
@@ -8387,6 +8551,192 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
               <div style={statCard}>
                 <div style={statLabel}>Time</div>
                 <div style={statValue}>{summaryTimeLabel}</div>
+              </div>
+            </div>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                gap: "10px",
+                marginTop: "10px",
+              }}
+            >
+              <div
+                style={{
+                  ...statCard,
+                  background: "linear-gradient(180deg, rgba(24, 42, 61, 0.94) 0%, rgba(22, 39, 56, 0.92) 100%)",
+                  border: "1px solid rgba(255, 107, 107, 0.24)",
+                }}
+              >
+                <div style={statLabel}>Recording Status</div>
+                <div style={{ marginTop: "8px", display: "flex", alignItems: "center", gap: "8px", color: "#f8fafc", fontWeight: 900, fontSize: "18px" }}>
+                  <span
+                    style={{
+                      width: "10px",
+                      height: "10px",
+                      borderRadius: "999px",
+                      background: recordingStatus.active ? recordingStatus.tone : "#64748b",
+                      boxShadow: recordingStatus.active ? `0 0 0 6px ${recordingStatus.tone}22` : "none",
+                    }}
+                  />
+                  <span>{recordingStatus.label}</span>
+                </div>
+              </div>
+
+              <div style={statCard}>
+                <div style={statLabel}>Event Modality</div>
+                <div style={{ marginTop: "10px", display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                  {eventModalityChips.map((chip, index) => (
+                    <span
+                      key={`event-modality-${chip}-${index}`}
+                      style={{
+                        ...commandChipStyle,
+                        background: index === 0 ? "rgba(125, 211, 252, 0.16)" : "rgba(126, 231, 219, 0.12)",
+                        color: index === 0 ? "#7dd3fc" : "#99f6e4",
+                      }}
+                    >
+                      {chip}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              <div style={statCard}>
+                <div style={statLabel}>Simulation Modality</div>
+                <div style={{ marginTop: "10px", display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                  {simulationModalityChips.map((chip, index) => (
+                    <span
+                      key={`simulation-modality-${chip}-${index}`}
+                      style={{
+                        ...commandChipStyle,
+                        background: "rgba(196, 181, 253, 0.14)",
+                        color: "#ddd6fe",
+                      }}
+                    >
+                      {chip}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              <div style={statCard}>
+                <div style={statLabel}>Operational Readiness</div>
+                <div style={{ marginTop: "8px", color: "#f8fafc", fontWeight: 900, fontSize: "18px" }}>
+                  {operationalReadinessItems.primary}
+                </div>
+                <div style={{ marginTop: "10px", display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                  {operationalReadinessItems.items.map((item) => (
+                    <span
+                      key={item.label}
+                      style={{
+                        ...commandChipStyle,
+                        background: item.active ? "rgba(243, 187, 103, 0.16)" : "rgba(44, 211, 173, 0.12)",
+                        color: item.active ? "#fde68a" : "#86efac",
+                      }}
+                    >
+                      {item.active ? item.label : item.label.replace(/^Needs\s|^Awaiting\s/, "")}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              <div style={statCard}>
+                <div style={statLabel}>Communication Status</div>
+                <div style={{ marginTop: "10px", display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                  {communicationStatusItems.map((item) => (
+                    <span
+                      key={item.label}
+                      style={{
+                        ...commandChipStyle,
+                        background: item.active ? "rgba(125, 211, 252, 0.14)" : "rgba(100, 116, 139, 0.18)",
+                        color: item.active ? "#7dd3fc" : "#cbd5e1",
+                      }}
+                    >
+                      {item.label}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              <div style={statCard}>
+                <div style={statLabel}>Materials Status</div>
+                <div style={{ marginTop: "10px", display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                  {materialsStatusItems.map((item) => (
+                    <span
+                      key={item.label}
+                      style={{
+                        ...commandChipStyle,
+                        background: item.active ? "rgba(44, 211, 173, 0.12)" : "rgba(243, 187, 103, 0.14)",
+                        color: item.active ? "#86efac" : "#fde68a",
+                      }}
+                    >
+                      {item.label}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              <div
+                style={{
+                  ...statCard,
+                  border:
+                    eventRiskLevel.tone === "green"
+                      ? "1px solid rgba(44, 211, 173, 0.22)"
+                      : eventRiskLevel.tone === "yellow"
+                        ? "1px solid rgba(243, 187, 103, 0.26)"
+                        : "1px solid rgba(255, 107, 107, 0.34)",
+                  background:
+                    eventRiskLevel.tone === "green"
+                      ? "rgba(16, 185, 129, 0.08)"
+                      : eventRiskLevel.tone === "yellow"
+                        ? "rgba(245, 158, 11, 0.1)"
+                        : "rgba(140, 35, 35, 0.14)",
+                }}
+              >
+                <div style={statLabel}>Event Risk Level</div>
+                <div
+                  style={{
+                    marginTop: "8px",
+                    color:
+                      eventRiskLevel.tone === "green"
+                        ? "#86efac"
+                        : eventRiskLevel.tone === "yellow"
+                          ? "#fde68a"
+                          : "#ff7a7a",
+                    fontWeight: 900,
+                    fontSize: "18px",
+                  }}
+                >
+                  {eventRiskLevel.label}
+                </div>
+                <div style={{ marginTop: "6px", color: "#cbd5e1", fontWeight: 700, fontSize: "12px", lineHeight: 1.5 }}>
+                  {eventRiskLevel.detail}
+                </div>
+              </div>
+
+              <div style={statCard}>
+                <div style={statLabel}>Live Support Needs</div>
+                <div style={{ marginTop: "10px", display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                  {liveSupportNeeds.length ? (
+                    liveSupportNeeds.map((item) => (
+                      <span
+                        key={item.label}
+                        style={{
+                          ...commandChipStyle,
+                          background: "rgba(250, 204, 21, 0.14)",
+                          color: "#fcd34d",
+                        }}
+                      >
+                        {item.label}
+                      </span>
+                    ))
+                  ) : (
+                    <span style={{ ...commandChipStyle, background: "rgba(44, 211, 173, 0.12)", color: "#86efac" }}>
+                      No extra live support flagged
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
 
