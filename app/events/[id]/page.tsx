@@ -169,6 +169,33 @@ type RoomDisplayEntry = {
   roomName: string;
   sourceIndex: number;
 };
+type RoomSlotAssignmentProjection = {
+  assignment: AssignmentRow | null;
+  isExplicit: boolean;
+  isAutoMapped: boolean;
+};
+
+type RoomSlotAssignmentPlan = {
+  assignments: RoomSlotAssignmentProjection[];
+  explicitMappedCount: number;
+  unmappedRoomNames: string[];
+};
+type RoundRoomRow = {
+  key: string;
+  roomName: string;
+  location: string;
+  learnerLabels: string[];
+  assignment: AssignmentRow | null;
+  sp: SPRow | null;
+  caseLabel: string;
+  stationLabel: string;
+  flags: string[];
+};
+type RoundRoomBoardRow = RoundRoomRow & {
+  isAutoMapped: boolean;
+  isExplicitMapped: boolean;
+  mappingState: string;
+};
 type AssignSpOptions = {
   status?: AssignmentStatus;
   confirmed?: boolean;
@@ -1179,6 +1206,65 @@ function buildFullNumericRoomDisplayEntries(
     ...numericEntries,
     ...unnumberedLabels,
   ];
+}
+
+function buildRoomSlotAssignmentPlan(
+  roomSlotEntries: RoomDisplayEntry[],
+  explicitAssignments: Array<AssignmentRow | null>,
+  confirmedAssignments: AssignmentRow[]
+): RoomSlotAssignmentPlan {
+  const roomCount = roomSlotEntries.length;
+  const assignments: RoomSlotAssignmentProjection[] = roomSlotEntries.map((room, index) => {
+    const assignment = explicitAssignments[index] || null;
+    return {
+      assignment,
+      isExplicit: Boolean(assignment),
+      isAutoMapped: false,
+    };
+  });
+
+  const explicitMappedCount = assignments.reduce((acc, item) => acc + (item.isExplicit ? 1 : 0), 0);
+
+  if (!roomCount || confirmedAssignments.length < roomCount) {
+    return {
+      assignments,
+      explicitMappedCount,
+      unmappedRoomNames: assignments
+        .map((entry, index) => (entry.isExplicit ? null : roomSlotEntries[index]?.roomName || `Room ${index + 1}`))
+        .filter((name): name is string => Boolean(name)),
+    };
+  }
+
+  const explicitAssignmentIds = new Set(
+    assignments
+      .filter((item) => item.isExplicit && item.assignment)
+      .map((item) => asText(item.assignment?.id).trim())
+      .filter(Boolean)
+  );
+
+  const fallbackConfirmedPool = confirmedAssignments.filter((assignment) => {
+    const assignmentId = asText(assignment.id).trim();
+    return !assignmentId || !explicitAssignmentIds.has(assignmentId);
+  });
+
+  let fallbackIndex = 0;
+
+  assignments.forEach((item) => {
+    if (item.isExplicit) return;
+    const next = fallbackConfirmedPool[fallbackIndex++] || null;
+    if (next) {
+      item.assignment = next;
+      item.isAutoMapped = true;
+    }
+  });
+
+  return {
+    assignments,
+    explicitMappedCount,
+    unmappedRoomNames: assignments
+      .map((entry, index) => (entry.isExplicit ? null : roomSlotEntries[index]?.roomName || `Room ${index + 1}`))
+      .filter((name): name is string => Boolean(name)),
+  };
 }
 
 function buildFullRoomSlotsForRound(
@@ -3981,6 +4067,10 @@ export default function EventDetailPage() {
   const confirmedCount = assignments.filter(
     (assignment) => getAssignmentStatus(assignment) === "confirmed"
   ).length;
+  const confirmedAssignments = useMemo(
+    () => assignments.filter((assignment) => getAssignmentStatus(assignment) === "confirmed"),
+    [assignments]
+  );
   const backupCount = assignments.filter(
     (assignment) => getAssignmentStatus(assignment) === "backup"
   ).length;
@@ -4514,6 +4604,22 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       })
       .filter(Boolean) as Array<{ assignment: AssignmentRow; sp: SPRow; roomName: string }>;
   }, [currentLiveRoomDisplayEntries, sortedAssignments, spsById]);
+  const currentLiveRoomExplicitAssignments = useMemo(
+    () =>
+      currentLiveRoomDisplayEntries.map(({ sourceIndex }) =>
+        sourceIndex >= 0 ? sortedAssignments[sourceIndex] || null : null
+      ),
+    [currentLiveRoomDisplayEntries, sortedAssignments]
+  );
+  const currentLiveRoomAssignmentPlan = useMemo(
+    () =>
+      buildRoomSlotAssignmentPlan(
+        currentLiveRoomDisplayEntries,
+        currentLiveRoomExplicitAssignments,
+        confirmedAssignments
+      ),
+    [currentLiveRoomDisplayEntries, currentLiveRoomExplicitAssignments, confirmedAssignments]
+  );
   const currentLiveRoomBoardRows = useMemo(() => {
     if (!currentLiveBlock || !currentLiveRoomDisplayEntries.length) {
       return [] as Array<{
@@ -4538,7 +4644,7 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     const currentLiveRoomCount = currentLiveRoomDisplayEntries.length;
 
     return currentLiveRoomDisplayEntries.map(({ roomName, sourceIndex }, index) => {
-      const assignment = sourceIndex >= 0 ? sortedAssignments[sourceIndex] || null : null;
+      const assignment = currentLiveRoomAssignmentPlan.assignments[index]?.assignment || null;
       const sp = assignment?.sp_id ? spsById.get(assignment.sp_id) || null : null;
       const checkedAt = assignment ? formatAttendanceTimestamp(assignment.training_checked_in_at) : "";
       const liveKey = `${currentLiveBlock.key}|${roomName || `room-${index}`}`;
@@ -4584,7 +4690,7 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     liveRoomStates,
     metadataStudentCount,
     simulatedLiveMinutes,
-    sortedAssignments,
+    currentLiveRoomAssignmentPlan.assignments,
     spsById,
   ]);
   const liveRoomDelayedCount = currentLiveRoomBoardRows.filter((row) => row.status === "delayed" || row.delayMinutes > 0).length;
@@ -5529,17 +5635,7 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
   );
   const selectedRoundScheduleRows = useMemo(() => {
     if (!selectedRotationRound) {
-      return [] as Array<{
-        key: string;
-        roomName: string;
-        location: string;
-        learnerLabels: string[];
-        assignment: AssignmentRow | null;
-        sp: SPRow | null;
-        caseLabel: string;
-        stationLabel: string;
-        flags: string[];
-      }>;
+      return [] as Array<RoundRoomRow>;
     }
 
     const sessionByRoomNumber = new Map<number, EventSessionRow>();
@@ -5597,39 +5693,39 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     const learnersPerRound = rowCount * Math.max(learnersPerRow, 1);
     const firstLearnerIndex = activeSelectedRotationRoundIndex * learnersPerRound;
 
-    return displayRows.map(({ session, sourceIndex, slotIndex }, index) => {
-      const rawRoomName =
-        asText(session.room) ||
-        asText(selectedRoundRoomSlotEntries[slotIndex]?.roomName) ||
-        "";
-      const displayRoomName = rawRoomName || "Room TBD";
-      const assignment = sourceIndex >= 0 ? sortedAssignments[sourceIndex] || null : null;
-      const sp = assignment?.sp_id ? spsById.get(assignment.sp_id) || null : null;
-      const learnerLabels = Array.from({ length: Math.max(learnersPerRow, 1) }, (_, learnerOffset) => {
-        const learnerIndex = firstLearnerIndex + slotIndex * Math.max(learnersPerRow, 1) + learnerOffset;
-        if (scheduleBuilderLearnerNames[learnerIndex]) return scheduleBuilderLearnerNames[learnerIndex];
-        if (metadataStudentCount > 0 && learnerIndex < metadataStudentCount) return `Learner slot ${learnerIndex + 1}`;
-        return "";
-      }).filter(Boolean);
-      const flags = [
-        rawRoomName ? "" : "Missing room",
-        assignment && !sp ? "Missing SP profile" : "",
-        staffingRelevant && !assignment ? "Missing SP" : "",
-        metadataStudentCount > 0 && !learnerLabels.length ? "No learner assigned" : "",
-      ].filter(Boolean);
+      return displayRows.map(({ session, sourceIndex, slotIndex }, index) => {
+        const rawRoomName =
+          asText(session.room) ||
+          asText(selectedRoundRoomSlotEntries[slotIndex]?.roomName) ||
+          "";
+        const displayRoomName = rawRoomName || "Room TBD";
+        const assignment = sourceIndex >= 0 ? sortedAssignments[sourceIndex] || null : null;
+        const sp = assignment?.sp_id ? spsById.get(assignment.sp_id) || null : null;
+        const learnerLabels = Array.from({ length: Math.max(learnersPerRow, 1) }, (_, learnerOffset) => {
+          const learnerIndex = firstLearnerIndex + slotIndex * Math.max(learnersPerRow, 1) + learnerOffset;
+          if (scheduleBuilderLearnerNames[learnerIndex]) return scheduleBuilderLearnerNames[learnerIndex];
+          if (metadataStudentCount > 0 && learnerIndex < metadataStudentCount) return `Learner slot ${learnerIndex + 1}`;
+          return "";
+        }).filter(Boolean);
+        const flags = [
+          rawRoomName ? "" : "Missing room",
+          assignment && !sp ? "Missing SP profile" : "",
+          staffingRelevant && !assignment ? "Missing SP" : "",
+          metadataStudentCount > 0 && !learnerLabels.length ? "No learner assigned" : "",
+        ].filter(Boolean);
 
-      return {
-        key: `${selectedRotationRound.key}-${session.id || slotIndex}-${index}`,
-        roomName: displayRoomName,
-        location: asText(session.location) || asText(event?.location),
-        learnerLabels,
-        assignment,
-        sp,
-        caseLabel: selectedRoundCaseLabel,
-        stationLabel: selectedRoundStationLabel,
-        flags,
-      };
-    });
+        return {
+          key: `${selectedRotationRound.key}-${session.id || slotIndex}-${index}`,
+          roomName: displayRoomName,
+          location: asText(session.location) || asText(event?.location),
+          learnerLabels,
+          assignment,
+          sp,
+          caseLabel: selectedRoundCaseLabel,
+          stationLabel: selectedRoundStationLabel,
+          flags,
+        } satisfies RoundRoomRow;
+      });
   }, [
     activeSelectedRotationRoundIndex,
     event?.id,
@@ -5742,15 +5838,6 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       return { ...block, timeLabel };
     });
   }, [selectedRotationRound, visibleSelectedRoundDayBlocks]);
-  const selectedRoundOperationsFlags = useMemo(() => {
-    const flags = new Set<string>();
-    if (!selectedRoundScheduleRows.length) flags.add("No room schedule");
-    selectedRoundScheduleRows.forEach((row) => row.flags.forEach((flag) => flags.add(flag)));
-    if (selectedRoundEmptySlots !== null && selectedRoundEmptySlots > 0) {
-      flags.add(`${selectedRoundEmptySlots} empty learner slot${selectedRoundEmptySlots === 1 ? "" : "s"}`);
-    }
-    return Array.from(flags);
-  }, [selectedRoundEmptySlots, selectedRoundScheduleRows]);
   const selectedRoundLearnerScheduleReady =
     selectedRoundScheduleRows.some(
       (row) =>
@@ -5765,9 +5852,32 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
   const selectedRoundOperationsScheduleReady =
     selectedRoundScheduleRows.length > 0 ||
     visibleSelectedRoundScheduleBlocks.length > 0;
+  const selectedRoundExplicitSlotAssignments = useMemo(() => {
+    if (!selectedRoundRoomSlotEntries.length || !selectedRotationRound) {
+      return [] as Array<AssignmentRow | null>;
+    }
+
+    return selectedRoundRoomSlotEntries.map((_entry, index) => {
+      const scheduledRow = selectedRoundScheduleRows[index];
+      return scheduledRow?.assignment || null;
+    });
+  }, [selectedRoundRoomSlotEntries, selectedRoundScheduleRows, selectedRotationRound]);
+  const selectedRoundRoomAssignmentPlan = useMemo(
+    () =>
+      buildRoomSlotAssignmentPlan(
+        selectedRoundRoomSlotEntries,
+        selectedRoundExplicitSlotAssignments,
+        confirmedAssignments
+      ),
+    [selectedRoundRoomSlotEntries, selectedRoundExplicitSlotAssignments, confirmedAssignments]
+  );
+  const selectedRoundCoverageTarget = Math.max(selectedRoundRoomCount, needed);
+  const selectedRoundCoverageShortage = Math.max(selectedRoundCoverageTarget - confirmedAssignments.length, 0);
+  const selectedRoundRoomsMapped = selectedRoundRoomAssignmentPlan.explicitMappedCount;
+  const selectedRoundRoomMappingGap = Math.max(selectedRoundRoomCount - selectedRoundRoomsMapped, 0);
   const selectedRoundTacticalBoardRows = useMemo(
     () => {
-      if (!selectedRotationRound) return [] as typeof selectedRoundScheduleRows;
+      if (!selectedRotationRound) return [] as Array<RoundRoomBoardRow>;
 
       const roomSlotEntries = selectedRoundRoomSlotEntries.length
         ? selectedRoundRoomSlotEntries
@@ -5775,8 +5885,8 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
             roomName: row.roomName,
             sourceIndex,
           }));
-      const rowsByRoomNumber = new Map<number, (typeof selectedRoundScheduleRows)[number]>();
-      const rowsByRoomName = new Map<string, (typeof selectedRoundScheduleRows)[number]>();
+      const rowsByRoomNumber = new Map<number, RoundRoomRow>();
+      const rowsByRoomName = new Map<string, RoundRoomRow>();
 
       selectedRoundScheduleRows.forEach((row) => {
         const roomNumber = getRoomDisplayNumber(row.roomName);
@@ -5797,8 +5907,9 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
           rowsByRoomName.get(asText(entry.roomName).toLowerCase()) ||
           null;
         const assignment =
-          existingRow?.assignment ||
-          (entry.sourceIndex >= 0 ? sortedAssignments[entry.sourceIndex] || null : null);
+          selectedRoundRoomAssignmentPlan.assignments[index]?.assignment || null;
+        const isAutoMapped = Boolean(selectedRoundRoomAssignmentPlan.assignments[index]?.isAutoMapped);
+        const isExplicitMapped = Boolean(selectedRoundRoomAssignmentPlan.assignments[index]?.isExplicit);
         const sp = assignment?.sp_id ? spsById.get(assignment.sp_id) || null : null;
         const learnerLabels = existingRow?.learnerLabels.length
           ? existingRow.learnerLabels
@@ -5811,11 +5922,15 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
         const flags = Array.from(
           new Set(
             [
-              ...(existingRow?.flags || []).filter((flag) => flag !== "Missing SP"),
+              ...(existingRow?.flags || []).filter((flag) => flag !== "Missing SP" && flag !== "Unassigned"),
               assignment && !sp ? "Missing SP profile" : "",
-              staffingRelevant && !assignment ? "Empty" : "",
-              staffingRelevant && !assignment ? "Unassigned" : "",
-            ].filter(Boolean)
+              staffingRelevant && !assignment
+                ? selectedRoundCoverageShortage > 0
+                  ? "Missing SP"
+                  : "Needs room mapping"
+                : null,
+              staffingRelevant && assignment && isAutoMapped && !isExplicitMapped ? "Needs room mapping" : "",
+            ].filter((flag): flag is string => Boolean(flag))
           )
         );
 
@@ -5828,47 +5943,82 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
           sp,
           caseLabel: existingRow?.caseLabel || selectedRoundCaseLabel,
           stationLabel: existingRow?.stationLabel || selectedRoundStationLabel,
+          isAutoMapped,
+          isExplicitMapped,
+          mappingState: isAutoMapped && !isExplicitMapped ? "Needs room mapping" : "",
           flags,
-        };
+        } satisfies RoundRoomBoardRow;
       });
     },
     [
       activeSelectedRotationRoundIndex,
       event?.location,
       metadataStudentCount,
+      selectedRoundCoverageShortage,
       scheduleBuilderLearnerNames,
       scheduleBuilderRoomCapacity,
       selectedRotationRound,
+      selectedRoundRoomAssignmentPlan.assignments,
       selectedRoundCaseLabel,
       selectedRoundRoomSlotEntries,
       selectedRoundScheduleRows,
       selectedRoundStationLabel,
-      sortedAssignments,
       spsById,
       staffingRelevant,
     ]
   );
+  const selectedRoundOperationsFlags = useMemo(() => {
+    const flags = new Set<string>();
+
+    if (!selectedRoundScheduleRows.length) flags.add("No room schedule");
+    selectedRoundTacticalBoardRows.forEach((row) => {
+      row.flags.forEach((flag) => {
+        const normalizedFlag = asText(flag);
+        if (!normalizedFlag) return;
+        if (normalizedFlag === "Missing SP" && selectedRoundCoverageShortage <= 0) return;
+        flags.add(normalizedFlag);
+      });
+    });
+    if (selectedRoundCoverageShortage > 0) {
+      flags.add(`${selectedRoundCoverageShortage} room${selectedRoundCoverageShortage === 1 ? "" : "s"} still needs SP`);
+    } else if (selectedRoundRoomMappingGap > 0) {
+      flags.add(`Needs room mapping for ${selectedRoundRoomMappingGap} room${selectedRoundRoomMappingGap === 1 ? "" : "s"}`);
+    }
+    if (selectedRoundEmptySlots !== null && selectedRoundEmptySlots > 0) {
+      flags.add(`${selectedRoundEmptySlots} empty learner slot${selectedRoundEmptySlots === 1 ? "" : "s"}`);
+    }
+    return Array.from(flags);
+  }, [
+    selectedRoundCoverageShortage,
+    selectedRoundEmptySlots,
+    selectedRoundRoomMappingGap,
+    selectedRoundScheduleRows,
+    selectedRoundTacticalBoardRows,
+  ]);
   const rotationSurfaceRoomCount = selectedRoundRoomCount || 0;
-  const rotationSurfaceSpCoverageCount = rotationSurfaceRoomCount
-    ? selectedRoundScheduleRows.filter((row) => Boolean(row.assignment)).length
-    : 0;
+  const rotationSurfaceEventCoverageCount = confirmedAssignments.length;
+  const rotationSurfaceRoomMappingCount = selectedRoundRoomsMapped;
   const rotationSurfaceSummaryChips = [
     `${rotationRounds.length} round${rotationRounds.length === 1 ? "" : "s"}`,
     `${rotationSurfaceRoomCount} room${rotationSurfaceRoomCount === 1 ? "" : "s"}`,
     staffingRelevant
-      ? `${rotationSurfaceSpCoverageCount}/${rotationSurfaceRoomCount} SP coverage`
+      ? `${rotationSurfaceEventCoverageCount}/${rotationSurfaceRoomCount} confirmed`
       : "SP coverage optional",
     selectedRotationRound ? `Selected Round ${activeSelectedRotationRoundIndex + 1}` : "No round selected",
   ];
   const tacticalRoomBoardRoomCount = selectedRoundRoomCount || 0;
-  const tacticalRoomBoardCoverageCount = tacticalRoomBoardRoomCount
-    ? selectedRoundTacticalBoardRows.filter((row) => Boolean(row.assignment)).length
-    : 0;
+  const tacticalRoomBoardCoverageCount = confirmedAssignments.length;
+  const tacticalRoomBoardMappedCount = Math.max(rotationSurfaceRoomMappingCount, 0);
+  const tacticalBoardNeedsRoomMapping =
+    staffingRelevant && selectedRoundCoverageShortage <= 0 && selectedRoundRoomMappingGap > 0;
   const tacticalRoomBoardSummary = [
     `${tacticalRoomBoardRoomCount} room${tacticalRoomBoardRoomCount === 1 ? "" : "s"}`,
     staffingRelevant
-      ? `${tacticalRoomBoardCoverageCount}/${tacticalRoomBoardRoomCount} SP coverage`
+      ? `${tacticalRoomBoardCoverageCount}/${tacticalRoomBoardRoomCount} confirmed`
       : "SP coverage optional",
+    staffingRelevant
+      ? `${tacticalRoomBoardMappedCount}/${tacticalRoomBoardRoomCount} rooms mapped${tacticalBoardNeedsRoomMapping ? " (needs mapping)" : ""}`
+      : null,
   ].filter(Boolean).join(" • ");
   const feedbackMinutesFromMetadata = useMemo(
     () => parseIntegerNoteValue(eventEditor.notes || event?.notes, "Feedback / Break Length"),
@@ -6277,6 +6427,22 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       fallbackRoomCount,
     });
   }, [currentLiveRoomDisplayEntries, metadataRoomCount, rotationRounds, selectedRoundRoomSlotEntries]);
+  const liveBlueprintExplicitAssignments = useMemo(
+    () =>
+      liveBlueprintRoomEntries.map(({ sourceIndex }) =>
+        sourceIndex >= 0 ? sortedAssignments[sourceIndex] || null : null
+      ),
+    [liveBlueprintRoomEntries, sortedAssignments]
+  );
+  const liveBlueprintRoomAssignmentPlan = useMemo(
+    () =>
+      buildRoomSlotAssignmentPlan(
+        liveBlueprintRoomEntries,
+        liveBlueprintExplicitAssignments,
+        confirmedAssignments
+      ),
+    [liveBlueprintExplicitAssignments, confirmedAssignments, liveBlueprintRoomEntries]
+  );
   const liveAttendanceBlueprintRooms = useMemo(
     () =>
       liveBlueprintRoomEntries.map(({ roomName, sourceIndex }, index) => {
@@ -6285,7 +6451,7 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
           (sourceIndex >= 0 ? currentLiveRoomBoardRows.find((row) => row.sourceIndex === sourceIndex) : null) ||
           currentLiveRoomBoardRows[index] ||
           null;
-        const assignment = boardRow?.assignment || (sourceIndex >= 0 ? sortedAssignments[sourceIndex] || null : null);
+        const assignment = boardRow?.assignment || liveBlueprintRoomAssignmentPlan.assignments[index]?.assignment || null;
         const sp = boardRow?.sp || (assignment?.sp_id ? spsById.get(assignment.sp_id) || null : null);
         const assignmentStatus = assignment ? getAssignmentStatus(assignment) : null;
         const liveAttendanceMetadata = assignment ? parseLiveAttendanceMetadata(assignment.notes) : emptyLiveAttendanceMetadata();
@@ -6354,13 +6520,13 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
           delayMinutes: boardRow?.delayMinutes || 0,
         };
       }),
-    [
+      [
       currentLiveRoomDisplayEntries.length,
       currentLiveRoomBoardRows,
       firstLiveRotationStartMinutes,
       liveBlueprintRoomEntries,
+      liveBlueprintRoomAssignmentPlan.assignments,
       simulatedLiveMinutes,
-      sortedAssignments,
       spsById,
     ]
   );
@@ -14071,16 +14237,32 @@ Cory`;
                           >
                             {[
                               {
-                                label: "Rooms Mapped",
-                                value: selectedRoundRoomCount,
+                                label: "Rooms",
+                                value: `${selectedRoundRoomCount}`,
                                 detail: "encounter slots",
                               },
                               {
-                                label: "SP Coverage",
+                                label: "Event coverage",
                                 value: staffingRelevant
-                                  ? `${selectedRoundTacticalBoardRows.filter((row) => Boolean(row.assignment)).length}/${selectedRoundRoomCount}`
-                                  : "Optional",
-                                detail: staffingRelevant ? "assigned to canvas" : "no SP workflow",
+                                  ? `${confirmedAssignments.length}/${selectedRoundRoomCount} confirmed`
+                                  : "No SP workflow",
+                                detail: staffingRelevant ? "current round staffing" : "not required",
+                              },
+                              {
+                                label: "Room mapping",
+                                value: staffingRelevant
+                                  ? `${selectedRoundRoomsMapped}/${selectedRoundRoomCount} rooms`
+                                  : "No SP workflow",
+                                detail: staffingRelevant ? "confirmed pool alignment" : "not required",
+                              },
+                              {
+                                label: "Map status",
+                                value: staffingRelevant && selectedRoundCoverageShortage > 0
+                                  ? `${selectedRoundCoverageShortage} short`
+                                  : selectedRoundRoomMappingGap > 0
+                                    ? `${selectedRoundRoomMappingGap} room${selectedRoundRoomMappingGap === 1 ? "" : "s"} needs mapping`
+                                    : "Mapped",
+                                detail: staffingRelevant ? "coverage interpretation" : "not required",
                               },
                               {
                                 label: "Learner Flow",
@@ -14117,27 +14299,45 @@ Cory`;
                                 gap: "10px",
                               }}
                             >
-                              {selectedRoundTacticalBoardRows.map((row, index) => {
+                                {selectedRoundTacticalBoardRows.map((row, index) => {
                                 const hasFlags = row.flags.length > 0;
-                                const statusLabel = !row.assignment && staffingRelevant
-                                  ? "Needs SP"
-                                  : hasFlags
-                                    ? "Needs attention"
-                                  : row.assignment
-                                    ? "Covered"
-                                    : staffingRelevant
-                                      ? "SP TBD"
-                                      : "Ready";
-                                const statusBackground = hasFlags
-                                  ? "rgba(243, 187, 103, 0.16)"
-                                  : row.assignment || !staffingRelevant
-                                    ? "rgba(44, 211, 173, 0.16)"
-                                    : "rgba(248, 113, 113, 0.14)";
-                                const statusColor = hasFlags
-                                  ? isPlanningVisualMode ? "#92400e" : "#fde68a"
-                                  : row.assignment || !staffingRelevant
-                                    ? isPlanningVisualMode ? "#0f766e" : "#86efac"
-                                    : staffingWorkspacePalette.dangerText;
+                                const isShortageSlot = staffingRelevant && !row.assignment && selectedRoundCoverageShortage > 0;
+                                const isMappingGapSlot = staffingRelevant && !row.isExplicitMapped;
+                                const statusLabel = !row.assignment
+                                  ? isShortageSlot
+                                    ? "Missing SP"
+                                    : isMappingGapSlot
+                                      ? "Needs room mapping"
+                                      : staffingRelevant
+                                        ? "SP TBD"
+                                        : "Ready"
+                                  : isMappingGapSlot
+                                    ? "Needs room mapping"
+                                    : "Covered";
+                                const statusBackground = isShortageSlot
+                                  ? "rgba(248, 113, 113, 0.16)"
+                                  : isMappingGapSlot
+                                    ? "rgba(243, 187, 103, 0.16)"
+                                    : hasFlags
+                                      ? "rgba(243, 187, 103, 0.16)"
+                                      : row.assignment || !staffingRelevant
+                                        ? "rgba(44, 211, 173, 0.16)"
+                                        : "rgba(248, 113, 113, 0.14)";
+                                const statusColor = isShortageSlot
+                                  ? staffingWorkspacePalette.dangerText
+                                  : isMappingGapSlot
+                                    ? isPlanningVisualMode
+                                      ? "#92400e"
+                                      : "#fde68a"
+                                    : hasFlags
+                                      ? isPlanningVisualMode
+                                        ? "#92400e"
+                                        : "#fde68a"
+                                      : row.assignment || !staffingRelevant
+                                        ? isPlanningVisualMode
+                                          ? "#0f766e"
+                                          : "#86efac"
+                                        : staffingWorkspacePalette.dangerText;
                                 const encounterLabel = [row.stationLabel, row.caseLabel].filter(Boolean).join(" · ") || "Encounter TBD";
                                 return (
                                   <article
