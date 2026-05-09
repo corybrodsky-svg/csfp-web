@@ -1443,20 +1443,36 @@ function getImportFieldValueFromHeader(row: Record<string, unknown>, header: str
   return matched?.value || "";
 }
 
-function scoreIdentityHeader(header: string, type: "name" | "email" | "sp_id") {
+function scoreIdentityHeader(header: string, type: "name" | "email" | "sp_id", sampleValues: string[] = []) {
   const normalized = normalizeImportHeader(header);
   if (!normalized) return -1;
 
   if (type === "name") {
     if (/(^| )(start time|completion time|submit date|timestamp|duration|id|email)( |$)/.test(normalized)) return -1;
-    if (/^(name|full name|respondent name|responder name)$/.test(normalized)) return 100;
+    if (/^(full name|enter your full name|responder full name)$/.test(normalized)) return 140;
+    if (/^(respondent full name)$/.test(normalized)) return 135;
+    if (/^(name)$/.test(normalized)) {
+      return sampleValues.some((value) => Boolean(asText(value))) ? 20 : -1;
+    }
+    if (/^(respondent name|responder name)$/.test(normalized)) return 100;
     if (/(^| )(respondent|responder)( |$)/.test(normalized)) return 80;
+    if (/(^| )full name( |$)/.test(normalized)) return 130;
     if (/(^| )name( |$)/.test(normalized)) return 70;
     return -1;
   }
 
   if (type === "email") {
-    if (/^(email|email address|respondent email|responder email|e mail)$/.test(normalized)) return 100;
+    const hasUsableEmailValue = sampleValues.some((value) => {
+      const text = asText(value).toLowerCase();
+      return Boolean(text) && text !== "anonymous";
+    });
+    if (/^(enter your email address)$/.test(normalized)) return 140;
+    if (/^(email address)$/.test(normalized)) return 135;
+    if (/^(responder email|respondent email)$/.test(normalized)) return 130;
+    if (/^(email|e mail)$/.test(normalized)) {
+      return hasUsableEmailValue ? 20 : -1;
+    }
+    if (/(^| )email address( |$)/.test(normalized)) return 125;
     if (/(^| )(email|e mail)( |$)/.test(normalized)) return 80;
     return -1;
   }
@@ -1524,11 +1540,25 @@ function detectPollImportHeaders(rows: Array<Record<string, unknown>>): PollImpo
   });
 
   const nameCandidates = detectedHeaders
-    .map((header) => ({ header, score: scoreIdentityHeader(header, "name") }))
+    .map((header) => ({
+      header,
+      score: scoreIdentityHeader(
+        header,
+        "name",
+        rows.map((row) => getImportFieldValueFromHeader(row, header))
+      ),
+    }))
     .filter((entry) => entry.score >= 0)
     .sort((a, b) => b.score - a.score);
   const emailCandidates = detectedHeaders
-    .map((header) => ({ header, score: scoreIdentityHeader(header, "email") }))
+    .map((header) => ({
+      header,
+      score: scoreIdentityHeader(
+        header,
+        "email",
+        rows.map((row) => getImportFieldValueFromHeader(row, header))
+      ),
+    }))
     .filter((entry) => entry.score >= 0)
     .sort((a, b) => b.score - a.score);
   const spIdCandidates = detectedHeaders
