@@ -717,8 +717,8 @@ function getCommandCenterAssignmentLabel(assignment: AssignmentRow) {
   const status = getAssignmentStatus(assignment);
   if (status === "confirmed") return "Confirmed";
   if (status === "declined" || status === "no_show") return "Declined";
-  if (status === "backup") return "Tentative";
-  return "Assigned";
+  if (status === "backup") return "Backup";
+  return "Contacted";
 }
 
 function getCommandCenterAssignmentTone(assignment: AssignmentRow): "confirmed" | "pending" {
@@ -1007,7 +1007,7 @@ function getAvailabilityMatchRank(status: AvailabilityMatchStatus) {
   return 3;
 }
 
-function getCoverageWorkflowTone(needed: number, confirmedCount: number, assignedCount: number) {
+function getCoverageWorkflowTone(needed: number, selectedCount: number, contactedCount: number) {
   if (needed <= 0) {
     return {
       background: "rgba(168, 183, 204, 0.12)",
@@ -1017,16 +1017,16 @@ function getCoverageWorkflowTone(needed: number, confirmedCount: number, assigne
     };
   }
 
-  if (confirmedCount >= needed) {
+  if (selectedCount >= needed) {
     return {
-      background: "var(--cfsp-green-soft)",
-      border: "1px solid rgba(44, 211, 173, 0.24)",
-      color: "var(--cfsp-green)",
+      background: "rgba(167, 243, 208, 0.72)",
+      border: "1px solid rgba(5, 150, 105, 0.36)",
+      color: "#065f46",
       label: "Fully staffed",
     };
   }
 
-  if (assignedCount > 0) {
+  if (selectedCount > 0 || contactedCount > 0) {
     return {
       background: "var(--cfsp-warning-soft)",
       border: "1px solid rgba(243, 187, 103, 0.24)",
@@ -2736,11 +2736,11 @@ export default function EventDetailPage() {
     (assignment) => getAssignmentStatus(assignment) === "backup"
   ).length;
   const staffedCount = confirmedCount + backupCount;
-  const assignmentCount = assignments.length;
-  const unconfirmedCount = Math.max(assignments.length - staffedCount, 0);
+  const selectedStaffingCount = staffedCount;
+  const contactedAssignmentCount = pollInviteOnlyAssignments.length;
   const needed = Number(event?.sp_needed || 0);
   const shortage = Math.max(needed - staffedCount, 0);
-  const workflowTone = getCoverageWorkflowTone(needed, staffedCount, hiredAssignments.length);
+  const workflowTone = getCoverageWorkflowTone(needed, selectedStaffingCount, contactedAssignmentCount);
   const eventMeta = classifyEventPresentation({
     name: event?.name,
     status: event?.status,
@@ -2777,9 +2777,9 @@ export default function EventDetailPage() {
       : shortage === 0
         ? {
             message: "Coverage complete",
-            background: "#ecfdf3",
-            border: "1px solid #86efac",
-            color: "#166534",
+            background: "rgba(167, 243, 208, 0.72)",
+            border: "1px solid rgba(5, 150, 105, 0.36)",
+            color: "#065f46",
           }
         : {
             message: `${shortage} SP${shortage === 1 ? "" : "s"} still needed`,
@@ -3169,7 +3169,6 @@ const summaryTimeLabel = useMemo(() => {
     () => Array.from(new Set(assignedEmailRecipients.map((item) => item.email))),
     [assignedEmailRecipients]
   );
-  const assignedCount = hiredAssignments.length;
   const shortageCount = isWorkshop ? 0 : shortage;
   const isTrainingMode = eventMeta.isTraining || activeEventTypeSet.has("training");
   const noSpStaffingRequired = activeEventTypeSet.has("skills") && !eventMeta.hasSpWorkflow;
@@ -3386,7 +3385,7 @@ const summaryTimeLabel = useMemo(() => {
   }, [eventSummarySourceText, isTrainingMode]);
   const operationalReadinessItems = useMemo(() => {
     const items = [
-      { label: "Needs Staffing", active: staffingRelevant && confirmedCount < Math.max(needed, 1) },
+      { label: "Needs Staffing", active: staffingRelevant && selectedStaffingCount < Math.max(needed, 1) },
       { label: "Needs Faculty", active: !facultyReadinessComplete },
       { label: "Needs Materials", active: materialsStatusLabel !== "Ready" },
       { label: "Awaiting Schedule", active: !rotationRounds.length || summaryTimeLabel === "Time TBD" },
@@ -3397,12 +3396,12 @@ const summaryTimeLabel = useMemo(() => {
       items,
     };
   }, [
-    confirmedCount,
     facultyReadinessComplete,
     hasRoomsBuilt,
     materialsStatusLabel,
     needed,
     rotationRounds.length,
+    selectedStaffingCount,
     staffingRelevant,
     summaryTimeLabel,
   ]);
@@ -3831,14 +3830,18 @@ const summaryTimeLabel = useMemo(() => {
     (entry) => entry.isActive && entry.pollResponseStatus === "available" && entry.assignmentStatus !== "declined"
   ).length;
   const coverageRiskTone =
-    confirmedCount >= needed
+    needed <= 0 || selectedStaffingCount >= needed
       ? "green"
-      : confirmedCount + availableCoverageCount >= needed
+      : selectedStaffingCount + availableCoverageCount >= needed
         ? "yellow"
         : "red";
   const staffingHealthLabel =
-    coverageRiskTone === "green"
-      ? "Coverage met"
+    needed <= 0
+      ? selectedStaffingCount > 0
+        ? "Selected roster on file"
+        : "No SP target set"
+      : coverageRiskTone === "green"
+        ? "Coverage met"
       : coverageRiskTone === "yellow"
         ? `Short by ${coverageGap}`
         : `Understaffed by ${coverageGap}`;
@@ -4456,21 +4459,29 @@ Cory`;
           },
           {
             id: "sps_assigned",
-            label: "SPs assigned",
-            autoComplete: noSpStaffingRequired || assignmentCount > 0,
-            detail: noSpStaffingRequired ? "SP assignment workflow suppressed." : `${assignmentCount} SP assignment${assignmentCount === 1 ? "" : "s"} recorded.`,
+            label: "SPs selected",
+            autoComplete: noSpStaffingRequired || selectedStaffingCount > 0,
+            detail: noSpStaffingRequired
+              ? "SP staffing workflow suppressed."
+              : `${selectedStaffingCount} selected for staffing (${confirmedCount} primary, ${backupCount} backup).`,
           },
           {
             id: "sps_contacted",
             label: "SPs contacted",
             autoComplete: noSpStaffingRequired || assignments.some((assignment) => Boolean(assignment.last_contacted_at) || ["contacted", "confirmed", "declined"].includes(getAssignmentStatus(assignment))),
-            detail: noSpStaffingRequired ? "No SP outreach required." : "Contact activity is tracked from assignment status or last-contacted timestamp.",
+            detail: noSpStaffingRequired
+              ? "No SP outreach required."
+              : contactedAssignmentCount
+                ? `${contactedAssignmentCount} contacted or invite-only row${contactedAssignmentCount === 1 ? "" : "s"} not counted as staffing.`
+                : "No contacted-only or invite-only rows are counted as staffing.",
           },
           {
             id: "sp_confirmations_complete",
-            label: "SP confirmations complete",
-            autoComplete: noSpStaffingRequired || (needed > 0 && confirmedCount >= needed),
-            detail: noSpStaffingRequired ? "No confirmations required." : `${confirmedCount} confirmed of ${needed} needed.`,
+            label: "SP staffing complete",
+            autoComplete: noSpStaffingRequired || (needed > 0 && selectedStaffingCount >= needed),
+            detail: noSpStaffingRequired
+              ? "No confirmations required."
+              : `${selectedStaffingCount} selected of ${needed} needed (${confirmedCount} primary, ${backupCount} backup).`,
           },
           {
             id: "sp_training_scheduled",
@@ -4579,8 +4590,9 @@ Cory`;
       },
     ],
     [
-      assignmentCount,
       assignments,
+      backupCount,
+      contactedAssignmentCount,
       confirmedCount,
       event?.date_text,
       event?.location,
@@ -4595,6 +4607,7 @@ Cory`;
       hasZoomReady,
       needed,
       noSpStaffingRequired,
+      selectedStaffingCount,
       sessions,
       summaryTimeLabel,
     ]
@@ -4606,15 +4619,21 @@ Cory`;
         label: "SP coverage",
         value: noSpStaffingRequired
           ? "Not required"
-          : `${confirmedCount} confirmed / ${assignmentCount} assigned`,
-        complete: noSpStaffingRequired || (needed > 0 ? confirmedCount >= needed : assignmentCount > 0),
+          : needed > 0
+            ? `${selectedStaffingCount} selected / ${needed} needed`
+            : `${selectedStaffingCount} selected`,
+        complete: noSpStaffingRequired || (needed > 0 ? selectedStaffingCount >= needed : selectedStaffingCount > 0),
         detail: noSpStaffingRequired
           ? "No SP staffing required."
           : needed > 0
-            ? `${Math.max(needed - confirmedCount, 0)} still open`
-            : assignmentCount > 0
-              ? "Roster assigned"
-              : "No roster yet",
+            ? selectedStaffingCount >= needed
+              ? `${confirmedCount} confirmed primary / ${backupCount} backup`
+              : `${Math.max(needed - selectedStaffingCount, 0)} selected staffing slot${Math.max(needed - selectedStaffingCount, 0) === 1 ? "" : "s"} open`
+            : selectedStaffingCount > 0
+              ? `${confirmedCount} confirmed primary / ${backupCount} backup`
+              : contactedAssignmentCount > 0
+                ? `${contactedAssignmentCount} contacted, none selected for staffing`
+                : "No selected roster yet",
       },
       {
         id: "faculty",
@@ -4653,7 +4672,8 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
       },
     ],
     [
-      assignmentCount,
+      backupCount,
+      contactedAssignmentCount,
       confirmedCount,
       event?.date_text,
       facultyProgramText,
@@ -4664,6 +4684,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
       noSpStaffingRequired,
       outreachProgressLabel,
       rotationRounds.length,
+      selectedStaffingCount,
       summaryTimeLabel,
       trainingCaseStatus,
       trainingMetadata.sim_contact,
@@ -5672,7 +5693,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
 
   async function handleOpenAvailabilityRequest() {
     if (!assignedBccEmails.length) {
-      setEventSaveError("No assigned SP emails are available for an email draft.");
+      setEventSaveError("No selected staffing SP emails are available for an email draft.");
       return;
     }
 
@@ -5686,7 +5707,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
     );
     window.location.href = mailtoHref;
     showSuccessMessage(
-      `Draft opened for ${assignedBccEmails.length} assigned SP${assignedBccEmails.length === 1 ? "" : "s"}.`
+      `Draft opened for ${assignedBccEmails.length} selected staffing SP${assignedBccEmails.length === 1 ? "" : "s"}.`
     );
   }
 
@@ -6651,8 +6672,8 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
     cardBorder: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.18)" : "1px solid rgba(126, 231, 219, 0.12)",
     chipBackground: isPlanningVisualMode ? "rgba(219, 240, 246, 0.82)" : "rgba(125, 211, 252, 0.14)",
     chipText: isPlanningVisualMode ? "#1d5f83" : "#7dd3fc",
-    activeSoftBackground: isPlanningVisualMode ? "rgba(209, 250, 229, 0.36)" : "rgba(126, 231, 219, 0.14)",
-    activeSoftText: isPlanningVisualMode ? "#0f766e" : "#7ee7db",
+    activeSoftBackground: isPlanningVisualMode ? "rgba(167, 243, 208, 0.72)" : "rgba(126, 231, 219, 0.14)",
+    activeSoftText: isPlanningVisualMode ? "#065f46" : "#7ee7db",
     panelBackground: isPlanningVisualMode
       ? "linear-gradient(180deg, rgba(249, 253, 255, 0.98) 0%, rgba(237, 248, 251, 0.96) 100%)"
       : "linear-gradient(180deg, rgba(9, 26, 39, 0.98) 0%, rgba(12, 27, 41, 0.94) 100%)",
@@ -6680,12 +6701,12 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
           <div>
             <h2 style={{ ...compactSectionTitleStyle, color: staffingWorkspacePalette.textStrong, letterSpacing: "0.01em" }}>Staffing Command Center</h2>
             <p style={{ ...compactSectionHintStyle, color: staffingWorkspacePalette.textMuted }}>
-              Run coverage, polling, responder ranking, and assigned-SP operations from one compact workflow.
+              Run coverage, polling, responder ranking, and selected-staffing operations from one compact workflow.
             </p>
           </div>
           <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
             <span style={{ ...staffingSelectedChipStyle, background: "rgba(186, 230, 253, 0.28)", color: "#1d5f83" }}>{needed} needed</span>
-            <span style={{ ...staffingSelectedChipStyle, background: "rgba(209, 250, 229, 0.34)", color: "#0f766e" }}>
+            <span style={{ ...staffingSelectedChipStyle, background: "rgba(167, 243, 208, 0.72)", color: "#065f46", border: "1px solid rgba(5, 150, 105, 0.28)" }}>
               {confirmedCount} confirmed
             </span>
             <span
@@ -6693,19 +6714,19 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                 ...staffingSelectedChipStyle,
                 background:
                   coverageRiskTone === "green"
-                    ? "rgba(167, 243, 208, 0.12)"
+                    ? "rgba(167, 243, 208, 0.72)"
                     : coverageRiskTone === "yellow"
                       ? "rgba(253, 230, 138, 0.14)"
                       : "rgba(252, 165, 165, 0.14)",
                 color:
                   coverageRiskTone === "green"
-                    ? "#a7f3d0"
+                    ? "#065f46"
                     : coverageRiskTone === "yellow"
                       ? "#fde68a"
                       : staffingWorkspacePalette.dangerText,
                 border:
                   coverageRiskTone === "green"
-                    ? "1px solid rgba(167, 243, 208, 0.18)"
+                    ? "1px solid rgba(5, 150, 105, 0.32)"
                     : coverageRiskTone === "yellow"
                       ? "1px solid rgba(253, 230, 138, 0.2)"
                       : `1px solid ${staffingWorkspacePalette.dangerBorder}`,
@@ -6872,10 +6893,10 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                 >
                   {[
                     { label: "Needed", value: needed, tone: "var(--cfsp-text)" },
-                    { label: "Confirmed", value: confirmedCount, tone: "var(--cfsp-green)" },
+                    { label: "Confirmed", value: confirmedCount, tone: "#047857" },
                     { label: "Backup", value: backupCount, tone: "#2563eb" },
                     { label: "Shortage", value: shortageCount, tone: shortageCount > 0 ? "var(--cfsp-danger)" : "var(--cfsp-text-muted)" },
-                    { label: "Available", value: availablePollResponders.length, tone: "var(--cfsp-green)" },
+                    { label: "Available", value: availablePollResponders.length, tone: "#047857" },
                     { label: "Maybe", value: maybePollResponders.length, tone: "var(--cfsp-warning)" },
                   ].map((item) => (
                     <div key={item.label} style={staffingMetricCardStyle}>
@@ -6898,19 +6919,19 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                       padding: "10px 12px",
                       background:
                         coverageRiskTone === "green"
-                          ? "rgba(167, 243, 208, 0.12)"
+                          ? "rgba(167, 243, 208, 0.72)"
                           : coverageRiskTone === "yellow"
                             ? "rgba(253, 230, 138, 0.14)"
                             : staffingWorkspacePalette.dangerBg,
                       border:
                         coverageRiskTone === "green"
-                          ? "1px solid rgba(167, 243, 208, 0.18)"
+                          ? "1px solid rgba(5, 150, 105, 0.36)"
                           : coverageRiskTone === "yellow"
                             ? "1px solid rgba(253, 230, 138, 0.2)"
                             : `1px solid ${staffingWorkspacePalette.dangerBorder}`,
                       color:
                         coverageRiskTone === "green"
-                          ? "#a7f3d0"
+                          ? "#065f46"
                           : coverageRiskTone === "yellow"
                             ? "#fde68a"
                             : staffingWorkspacePalette.dangerText,
@@ -6924,8 +6945,8 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                   </div>
                   <div style={staffingMetricCardStyle}>
                     <div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Operational Summary</div>
-                    <div style={{ marginTop: "4px", color: staffingWorkspacePalette.textStrong, fontWeight: 800, fontSize: "13px" }}>
-                      {confirmedCount >= needed ? "Coverage met" : `Short by ${Math.max(needed - confirmedCount, 0)}`}
+                    <div style={{ marginTop: "4px", color: coverageRiskTone === "green" ? "#065f46" : staffingWorkspacePalette.textStrong, fontWeight: 800, fontSize: "13px" }}>
+                      {coverageRiskTone === "green" ? staffingHealthLabel : `Short by ${Math.max(needed - selectedStaffingCount, 0)}`}
                     </div>
                     <div style={{ marginTop: "4px", color: staffingWorkspacePalette.textMuted, fontWeight: 700, fontSize: "12px" }}>
                       {maybePollResponders.length
@@ -6940,7 +6961,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
 
                 <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
                   <div style={staffingMutedTextStyle}>
-                    {assignedCount} hired · {confirmedCount} primary confirmed · {backupCount} backup · {assignedBccEmails.length} email{assignedBccEmails.length === 1 ? "" : "s"} ready
+                    {selectedStaffingCount} selected · {confirmedCount} primary confirmed · {backupCount} backup · {assignedBccEmails.length} email{assignedBccEmails.length === 1 ? "" : "s"} ready
                   </div>
                   <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                     <input
@@ -7244,7 +7265,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                   <div style={{ ...staffingMetricCardStyle, padding: "12px 14px" }}>
                     <div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Email Draft Preview</div>
                     <div style={{ marginTop: "8px", color: staffingWorkspacePalette.textStrong, lineHeight: 1.7 }}>
-                      <div><strong>Recipients (BCC):</strong> {assignedBccEmails.length ? assignedBccEmails.join(", ") : "No assigned SP emails found."}</div>
+                      <div><strong>Recipients (BCC):</strong> {assignedBccEmails.length ? assignedBccEmails.join(", ") : "No selected staffing SP emails found."}</div>
                       <div style={{ marginTop: "8px" }}><strong>Subject:</strong> {emailSubject}</div>
                       <div style={{ marginTop: "8px", whiteSpace: "pre-wrap" }}><strong>Body:</strong>{"\n"}{emailBody}</div>
                     </div>
@@ -7280,15 +7301,15 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                   ))}
                 </div>
 
-                {assignments.length === 0 ? (
+                {sortedAssignments.length === 0 ? (
                   <div
                     style={staffingEmptyStateStyle}
                   >
-                    No SPs assigned yet.
+                    No selected staffing SPs yet.
                   </div>
                 ) : filteredAssignments.length === 0 ? (
                   <div style={staffingEmptyStateStyle}>
-                    No assigned SPs match the current filter.
+                    No selected staffing SPs match the current filter.
                   </div>
                 ) : (
                   <div style={{ display: "grid", gap: "8px" }}>
@@ -8991,7 +9012,9 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                   },
                   {
                     label: "Staffing",
-                    value: isTrainingMode ? `${assignedCount} assigned / ${confirmedCount} confirmed` : `${assignedCount}/${needed || 0} staffed`,
+                    value: isTrainingMode
+                      ? `${selectedStaffingCount} selected / ${confirmedCount} confirmed`
+                      : `${selectedStaffingCount}/${needed || 0} selected`,
                     chips: [staffingHealthLabel, shortageCount > 0 ? `${shortageCount} open` : "Covered"].slice(0, 2),
                   },
                   {
@@ -9023,11 +9046,14 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                       ) : null}
                     </div>
                     <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                      {(card.chips || []).slice(0, 3).map((chip: string) => (
-                        <span key={`${card.label}-${chip}`} style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText, border: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.18)" : commandChipStyle.border }}>
+                      {(card.chips || []).slice(0, 3).map((chip: string) => {
+                        const successChip = isPlanningVisualMode && /\b(covered|coverage met|ready|stable)\b/i.test(chip);
+                        return (
+                        <span key={`${card.label}-${chip}`} style={{ ...commandChipStyle, background: successChip ? commandCenterVisual.activeSoftBackground : commandCenterVisual.chipBackground, color: successChip ? commandCenterVisual.activeSoftText : commandCenterVisual.chipText, border: successChip ? "1px solid rgba(5, 150, 105, 0.32)" : isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.18)" : commandChipStyle.border }}>
                           {chip}
                         </span>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 ))}
@@ -10163,7 +10189,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                     <div><strong>From:</strong> {me?.email || "Current logged-in user"}</div>
                     <div><strong>To:</strong> {me?.email || "Current logged-in user"}</div>
                     <div><strong>CC:</strong> {facultyEmails.length ? facultyEmails.join(", ") : trainingFacultyText || "No faculty emails parsed yet"}</div>
-                    <div><strong>BCC:</strong> {assignedBccEmails.length ? assignedBccEmails.join(", ") : "No assigned SP emails found."}</div>
+                    <div><strong>BCC:</strong> {assignedBccEmails.length ? assignedBccEmails.join(", ") : "No selected staffing SP emails found."}</div>
                     <div style={{ marginTop: "8px" }}><strong>Subject:</strong> {trainingEmailSubject}</div>
                     <div style={{ marginTop: "8px", whiteSpace: "pre-wrap" }}><strong>Body:</strong>{"\n"}{trainingEmailBody}</div>
                   </div>
@@ -10528,9 +10554,9 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                 }}
               >
                 <div>
-                  <h2 style={compactSectionTitleStyle}>Assigned SPs</h2>
+                  <h2 style={compactSectionTitleStyle}>Selected SPs</h2>
                   <p style={compactSectionHintStyle}>
-                    {assignedCount} assigned / {confirmedCount} confirmed
+                    {selectedStaffingCount} selected / {confirmedCount} confirmed
                   </p>
                 </div>
                 <div
@@ -10771,7 +10797,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                     borderRadius: "14px",
                     padding: "9px 11px",
                     border: "1px solid rgba(120, 180, 255, 0.18)",
-                    background: item.complete ? "rgba(44, 211, 173, 0.08)" : "rgba(255,255,255,0.66)",
+                    background: item.complete ? "rgba(167, 243, 208, 0.42)" : "rgba(255,255,255,0.66)",
                   }}
                 >
                   <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "center" }}>
@@ -10780,8 +10806,9 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                       style={{
                         borderRadius: "999px",
                         padding: "4px 8px",
-                        background: item.complete ? "var(--cfsp-green-soft)" : "var(--cfsp-warning-soft)",
-                        color: item.complete ? "var(--cfsp-green)" : "var(--cfsp-warning)",
+                        background: item.complete ? "rgba(167, 243, 208, 0.72)" : "var(--cfsp-warning-soft)",
+                        color: item.complete ? "#065f46" : "var(--cfsp-warning)",
+                        border: item.complete ? "1px solid rgba(5, 150, 105, 0.28)" : "1px solid rgba(243, 187, 103, 0.18)",
                         fontSize: "11px",
                         fontWeight: 900,
                       }}
@@ -10854,9 +10881,9 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                                   padding: "6px 10px",
                                   fontSize: "12px",
                                   fontWeight: 900,
-                                  background: complete ? "var(--cfsp-green-soft)" : "rgba(168, 183, 204, 0.12)",
-                                  border: complete ? "1px solid rgba(44, 211, 173, 0.24)" : "1px solid var(--cfsp-border)",
-                                  color: complete ? "var(--cfsp-green)" : "var(--cfsp-text-muted)",
+                                  background: complete ? "rgba(167, 243, 208, 0.72)" : "rgba(168, 183, 204, 0.12)",
+                                  border: complete ? "1px solid rgba(5, 150, 105, 0.32)" : "1px solid var(--cfsp-border)",
+                                  color: complete ? "#065f46" : "var(--cfsp-text-muted)",
                                 }}
                               >
                                 {complete ? "Complete" : item.autoComplete ? "Auto check pending" : "Manual check"}
@@ -10927,7 +10954,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                     borderRadius: "14px",
                     padding: "9px 11px",
                     border: "1px solid rgba(120, 180, 255, 0.18)",
-                    background: item.complete ? "rgba(44, 211, 173, 0.08)" : "rgba(255,255,255,0.7)",
+                    background: item.complete ? "rgba(167, 243, 208, 0.42)" : "rgba(255,255,255,0.7)",
                   }}
                 >
                   <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "center" }}>
@@ -10936,8 +10963,9 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                       style={{
                         borderRadius: "999px",
                         padding: "4px 8px",
-                        background: item.complete ? "var(--cfsp-green-soft)" : "var(--cfsp-warning-soft)",
-                        color: item.complete ? "var(--cfsp-green)" : "var(--cfsp-warning)",
+                        background: item.complete ? "rgba(167, 243, 208, 0.72)" : "var(--cfsp-warning-soft)",
+                        color: item.complete ? "#065f46" : "var(--cfsp-warning)",
+                        border: item.complete ? "1px solid rgba(5, 150, 105, 0.28)" : "1px solid rgba(243, 187, 103, 0.18)",
                         fontSize: "11px",
                         fontWeight: 900,
                       }}
@@ -11011,9 +11039,9 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                                   padding: "6px 10px",
                                   fontSize: "12px",
                                   fontWeight: 900,
-                                  background: complete ? "var(--cfsp-green-soft)" : "rgba(168, 183, 204, 0.12)",
-                                  border: complete ? "1px solid rgba(44, 211, 173, 0.24)" : "1px solid var(--cfsp-border)",
-                                  color: complete ? "var(--cfsp-green)" : "var(--cfsp-text-muted)",
+                                  background: complete ? "rgba(167, 243, 208, 0.72)" : "rgba(168, 183, 204, 0.12)",
+                                  border: complete ? "1px solid rgba(5, 150, 105, 0.32)" : "1px solid var(--cfsp-border)",
+                                  color: complete ? "#065f46" : "var(--cfsp-text-muted)",
                                 }}
                               >
                                 {complete ? "Complete" : item.autoComplete ? "Auto check pending" : "Manual check"}
@@ -11129,7 +11157,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
               </div>
               <div style={{ marginTop: "2px", color: "var(--cfsp-text-muted)", fontWeight: 700, fontSize: "12px" }}>
                 {isTrainingMode
-                  ? `${assignedCount} assigned SP${assignedCount === 1 ? "" : "s"} · Rotation schedule ${
+                  ? `${selectedStaffingCount} selected SP${selectedStaffingCount === 1 ? "" : "s"} · Rotation schedule ${
                       rotationScheduleBuilt ? "built" : "not built"
                     }`
                   : isWorkshop
@@ -11442,11 +11470,11 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
             </h2>
             <p style={compactSectionHintStyle}>
               {isTrainingMode
-                ? "Manage assigned SPs for the training, remove anyone who should not attend, and add more from the existing SP roster."
+                ? "Manage selected SPs for the training, remove anyone who should not attend, and add more from the existing SP roster."
                 : noSpStaffingRequired
                 ? "This skills event does not require SP staffing."
                 : staffingRelevant
-                ? "Manage assigned SPs, update contact status, and confirm coverage without leaving the page."
+                ? "Manage selected SPs, update contact status, and confirm coverage without leaving the page."
                 : "HiFi event. Staffing tools remain available if this event needs SP support."}
             </p>
           </div>
@@ -11464,10 +11492,10 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                 }}
               >
                 <div style={{ color: "var(--cfsp-text)", fontWeight: 900, fontSize: "20px" }}>
-                  {assignedCount} assigned / {confirmedCount} confirmed
+                  {selectedStaffingCount} selected / {confirmedCount} confirmed
                 </div>
                 <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 800 }}>
-                  {assignedBccEmails.length} assigned SP email{assignedBccEmails.length === 1 ? "" : "s"} ready
+                  {assignedBccEmails.length} selected staffing SP email{assignedBccEmails.length === 1 ? "" : "s"} ready
                 </div>
               </div>
             ) : !noSpStaffingRequired && assignedBccEmails.length ? (
@@ -11527,7 +11555,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                   {needed} SPs needed / {confirmedCount} confirmed
                 </div>
                 <div style={{ color: "var(--cfsp-warning)", fontWeight: 800 }}>
-                  {unconfirmedCount} still need attention
+                  {Math.max(needed - selectedStaffingCount, 0)} selected staffing slot{Math.max(needed - selectedStaffingCount, 0) === 1 ? "" : "s"} still open
                 </div>
               </div>
             ) : null}
@@ -11571,7 +11599,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
           <div style={{ ...statCard, marginTop: "12px" }}>
             <div style={statLabel}>Email Draft Preview</div>
             <div style={{ marginTop: "8px", color: "var(--cfsp-text)", lineHeight: 1.7 }}>
-              <div><strong>Recipients (BCC):</strong> {assignedBccEmails.length ? assignedBccEmails.join(", ") : "No assigned SP emails found."}</div>
+              <div><strong>Recipients (BCC):</strong> {assignedBccEmails.length ? assignedBccEmails.join(", ") : "No selected staffing SP emails found."}</div>
               <div style={{ marginTop: "8px" }}><strong>Subject:</strong> {emailSubject}</div>
               <div style={{ marginTop: "8px", whiteSpace: "pre-wrap" }}><strong>Body:</strong>{"\n"}{emailBody}</div>
             </div>
@@ -11631,7 +11659,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
               fontWeight: 700,
             }}
           >
-            No assigned SPs match the current filter.
+            No selected staffing SPs match the current filter.
           </div>
         ) : (
           <div
@@ -11970,9 +11998,9 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                 <div style={{ ...statCard, padding: "12px 14px", background: "var(--cfsp-surface)" }}>
                   <div style={statLabel}>Operational Staffing</div>
                   <div style={{ marginTop: "4px", color: "var(--cfsp-text)", fontWeight: 800 }}>
-                    {confirmedCount >= needed
+                    {selectedStaffingCount >= needed
                       ? "Coverage met"
-                      : `Short by ${Math.max(needed - confirmedCount, 0)}`}
+                      : `Short by ${Math.max(needed - selectedStaffingCount, 0)}`}
                   </div>
                   <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
                     {maybePollResponders.length
