@@ -63,6 +63,12 @@ function getSignupErrorStatus(message?: string | null) {
   return 500;
 }
 
+function normalizeSignupRole(value: unknown) {
+  const role = asText(value).toLowerCase().replace(/[\s-]+/g, "_");
+  if (role === "faculty") return "faculty";
+  return "sp";
+}
+
 export async function POST(request: Request) {
   try {
     const body = await request.json().catch(() => null);
@@ -74,6 +80,12 @@ export async function POST(request: Request) {
     ).toLowerCase();
     const password = asText(
       body && typeof body === "object" ? (body as { password?: unknown }).password : ""
+    );
+    const requestedRole = normalizeSignupRole(
+      body && typeof body === "object"
+        ? ((body as { role?: unknown; account_type?: unknown }).role ??
+            (body as { account_type?: unknown }).account_type)
+        : ""
     );
 
     if (!email || !password) {
@@ -111,7 +123,8 @@ export async function POST(request: Request) {
         options: {
           data: {
             full_name: fullName || null,
-            role: "sp",
+            role: requestedRole,
+            account_type: requestedRole,
           },
         },
       });

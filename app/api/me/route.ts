@@ -44,7 +44,7 @@ function asText(value: unknown) {
 
 function normalizeRole(value: unknown) {
   const role = asText(value).toLowerCase().replace(/[\s-]+/g, "_");
-  if (role === "sim_op" || role === "admin" || role === "super_admin" || role === "sp") return role;
+  if (role === "faculty" || role === "sim_op" || role === "admin" || role === "super_admin" || role === "sp") return role;
   return "sp";
 }
 
@@ -287,6 +287,43 @@ function buildResponseSpLink(link: SpAccountLink): ResponseSpLink {
   };
 }
 
+function buildSpLinkDebug(args: {
+  user: { id: string; email?: string | null; user_metadata?: Record<string, unknown> };
+  profile: ProfileRow | null;
+  link: SpAccountLink;
+}) {
+  const { user, profile, link } = args;
+  return {
+    auth_user_id: user.id,
+    profile_id: profile?.id || null,
+    explicit_sp_id:
+      asText(user.user_metadata?.sp_id) ||
+      asText(user.user_metadata?.linked_sp_id) ||
+      asText(user.user_metadata?.sp_link_sp_id) ||
+      null,
+    profile_email: profile?.email || null,
+    auth_email: user.email || null,
+    normalized_emails: Array.from(
+      new Set(
+        [
+          asText(profile?.email).toLowerCase(),
+          asText(user.email).toLowerCase(),
+          asText(user.user_metadata?.email).toLowerCase(),
+          asText(user.user_metadata?.working_email).toLowerCase(),
+        ].filter(Boolean)
+      )
+    ),
+    full_name: asText(profile?.full_name) || asText(user.user_metadata?.full_name) || null,
+    schedule_match_name: asText(profile?.schedule_name) || asText(user.user_metadata?.schedule_name) || null,
+    profile_role: profile?.role || null,
+    metadata_role: asText(user.user_metadata?.role) || null,
+    resolved_status: link.status,
+    resolved_sp_id: link.sp_id,
+    resolved_sp_name: link.sp_name,
+    matched_by: link.matched_by,
+  };
+}
+
 async function handleGetOrSave(method: "GET" | "POST" | "PATCH", request?: Request) {
   const session = await resolveSession();
 
@@ -332,6 +369,9 @@ async function handleGetOrSave(method: "GET" | "POST" | "PATCH", request?: Reque
       profile: buildResponseProfile(ensuredProfile as ProfileRow | null, user),
       profile_available: profileResult.available,
       sp_link: buildResponseSpLink(spLink),
+      ...(canSelfManageRole(user.email, buildNormalizedProfile(ensuredProfile as ProfileRow | null, user).role)
+        ? { sp_link_debug: buildSpLinkDebug({ user, profile: ensuredProfile as ProfileRow | null, link: spLink }) }
+        : {}),
       ...(profileResult.error || spLinkPersistError ? { warning: profileResult.error || spLinkPersistError } : {}),
     });
 
@@ -386,7 +426,7 @@ async function handleGetOrSave(method: "GET" | "POST" | "PATCH", request?: Reque
   const currentRole = existingProfile?.role || user.user_metadata?.role;
   const finalRole = canSelfManageRole(user.email, currentRole)
     ? getForcedRole(user.email, requestedRole || currentRole)
-    : "sp";
+    : getForcedRole(user.email, currentRole || requestedRole || "sp");
 
   const saveResult = await updateProfileForUser(
     user,
@@ -424,6 +464,7 @@ async function handleGetOrSave(method: "GET" | "POST" | "PATCH", request?: Reque
       user_metadata: {
         ...user.user_metadata,
         full_name: fullName,
+        schedule_name: scheduleMatchName,
         role: finalRole,
       },
     },
@@ -447,6 +488,9 @@ async function handleGetOrSave(method: "GET" | "POST" | "PATCH", request?: Reque
     profile: buildResponseProfile(saveResult.profile as ProfileRow, user),
     profile_available: saveResult.available,
     sp_link: buildResponseSpLink(nextSpLink),
+    ...(canSelfManageRole(user.email, finalRole)
+      ? { sp_link_debug: buildSpLinkDebug({ user, profile: saveResult.profile as ProfileRow, link: nextSpLink }) }
+      : {}),
   });
 
   if (process.env.NODE_ENV !== "production") {

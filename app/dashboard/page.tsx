@@ -690,6 +690,8 @@ export default function DashboardPage() {
   const role = asText(me?.profile?.role).toLowerCase();
   const isAdmin = role.includes("admin");
   const isSp = role === "sp";
+  const isFaculty = role === "faculty";
+  const isOperator = role === "sim_op" || role === "admin" || role === "super_admin";
   const profileIncomplete = !asText(me?.profile?.full_name) || (!isSp && !scheduleMatchName);
   const spLinkPending = isSp && asText(me?.sp_link?.status).toLowerCase() !== "linked";
   const matchTerms = Array.from(new Set([scheduleMatchName, legacyScheduleName, firstName, emailUsername].filter(Boolean)));
@@ -931,7 +933,9 @@ export default function DashboardPage() {
       subtitle={
         isSp
           ? "Use your SP portal to review assigned events, trainings, communications, and upcoming access details."
-          : "Use your dashboard as a personal home base for matched events, staffing work, and profile setup."
+          : isFaculty
+            ? "Use your dashboard to track course-facing events, communication checkpoints, and planning context without the full staffing toolset."
+            : "Use your dashboard as a personal home base for matched events, staffing work, and profile setup."
       }
     >
       <div className="grid gap-5">
@@ -979,7 +983,9 @@ export default function DashboardPage() {
             <p className="mt-3 max-w-2xl text-[0.98rem] leading-6 text-[var(--cfsp-text-muted)]">
               {isSp
                 ? "Start with your assigned events, confirmed work, and training access so you can prep quickly without digging through operations screens."
-                : "Start with events connected to you, then switch to the full event list whenever you need a broader operational view."}
+                : isFaculty
+                  ? "Start with events connected to your teaching or course support work, then switch to the broader event list when you need more planning context."
+                  : "Start with events connected to you, then switch to the full event list whenever you need a broader operational view."}
             </p>
 
             <div className="mt-5 flex flex-wrap gap-2">
@@ -991,7 +997,7 @@ export default function DashboardPage() {
                   View Archive
                 </Link>
               ) : null}
-              {!isSp ? (
+              {!isSp && isOperator ? (
                 <Link href="/events/new" className="cfsp-btn cfsp-btn-primary">
                   Create New Event
                 </Link>
@@ -1038,8 +1044,12 @@ export default function DashboardPage() {
               <p className="mt-3 text-sm leading-6 text-[var(--cfsp-text-muted)]">
                 {isSp
                   ? "Open an assigned event to view your materials, Zoom access, training details, and communications."
+                  : isFaculty
+                    ? scope === "my"
+                      ? "Showing events matched to your profile, faculty ownership notes, or schedule match name."
+                      : "Showing the broader event list while keeping staffing workflows operator-only."
                   : scope === "my"
-                  ? "Showing events matched to your profile, schedule match name, or imported staffing notes."
+                    ? "Showing events matched to your profile, schedule match name, or imported staffing notes."
                   : "Showing the full visible event list across the app."}
               </p>
               {archivedEventCount > 0 ? (
@@ -1051,7 +1061,7 @@ export default function DashboardPage() {
               ) : null}
             </div>
 
-            {!isSp ? (
+            {!isSp && isOperator ? (
               <Link
                 href="/admin"
                 className="cfsp-panel rounded-[14px] px-4 py-4 no-underline transition-transform hover:-translate-y-0.5"
@@ -1062,6 +1072,14 @@ export default function DashboardPage() {
                   Launch imports, people tools, and other workflow shortcuts directly.
                 </p>
               </Link>
+            ) : isFaculty ? (
+              <div className="cfsp-panel rounded-[14px] px-4 py-4">
+                <div className="cfsp-label">Faculty workspace</div>
+                <div className="mt-2 text-lg font-black text-[var(--cfsp-text)]">Course-facing planning and communication</div>
+                <p className="mt-2 text-sm leading-6 text-[var(--cfsp-text-muted)]">
+                  Faculty accounts stay focused on event context, course communication, and planning visibility without admin staffing controls.
+                </p>
+              </div>
             ) : (
               <div className="cfsp-panel rounded-[14px] px-4 py-4">
                 <div className="cfsp-label">SP portal</div>
@@ -1152,6 +1170,89 @@ export default function DashboardPage() {
           {planningJumpMessage ? (
             <div className="mt-3 text-sm font-semibold text-[var(--cfsp-text-muted)]">{planningJumpMessage}</div>
           ) : null}
+        </section>
+
+        <section
+          className="rounded-[14px] px-5 py-4"
+          style={{
+            border: "1px solid var(--cfsp-border)",
+            background: "linear-gradient(180deg, rgba(246, 251, 255, 0.98) 0%, rgba(240, 247, 252, 0.98) 100%)",
+            boxShadow: "var(--cfsp-card-glow)",
+          }}
+        >
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+            <div className="max-w-2xl">
+              <div className="cfsp-kicker">Dashboard Live Feed</div>
+              <h2 className="mt-2 text-[1.2rem] font-black text-[var(--cfsp-text)]">Internal updates and event coordination</h2>
+              <p className="mt-2 text-sm leading-6 text-[var(--cfsp-text-muted)]">
+                This is the starting point for an in-app CFSP live feed where authenticated users will be able to post updates and comment on ongoing work.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <span className="cfsp-chip">{isSp ? "SP view" : isFaculty ? "Faculty view" : "Operations view"}</span>
+              <span className="cfsp-chip">Authenticated only</span>
+              <span className="cfsp-chip">Framework</span>
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
+            <div
+              className="rounded-[12px] px-4 py-4"
+              style={{
+                border: "1px solid var(--cfsp-border)",
+                background: "var(--cfsp-surface)",
+              }}
+            >
+              <div className="cfsp-label">Create Post</div>
+              <textarea
+                className="cfsp-input mt-3 min-h-[108px]"
+                disabled
+                placeholder={
+                  isSp
+                    ? "Post assignment or training updates here soon..."
+                    : isFaculty
+                      ? "Post course-facing updates here soon..."
+                      : "Post operational updates here soon..."
+                }
+                style={{ resize: "vertical", opacity: 0.9 }}
+              />
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-sm text-[var(--cfsp-text-muted)]">
+                <span>
+                  Posting and comments are not live yet. This scaffold keeps role-aware placement ready for the feed API.
+                </span>
+                <button type="button" className="cfsp-btn cfsp-btn-secondary" disabled>
+                  Posting Soon
+                </button>
+              </div>
+              {/* TODO: connect to authenticated live feed API once feed tables/routes exist. */}
+            </div>
+
+            <div
+              className="rounded-[12px] px-4 py-4"
+              style={{
+                border: "1px solid var(--cfsp-border)",
+                background: "var(--cfsp-surface)",
+              }}
+            >
+              <div className="cfsp-label">Feed Activity</div>
+              <div className="mt-3 text-sm font-semibold text-[var(--cfsp-text-muted)]">
+                Role-aware visibility will limit future feed posts to the right audience:
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <span className="cfsp-chip">SP</span>
+                <span className="cfsp-chip">Faculty</span>
+                <span className="cfsp-chip">Sim Ops</span>
+                <span className="cfsp-chip">Admin</span>
+                <span className="cfsp-chip">Super Admin</span>
+              </div>
+              <div className="mt-4 rounded-[12px] border border-dashed border-[var(--cfsp-border)] bg-[var(--cfsp-surface-muted)] px-4 py-6 text-sm font-semibold text-[var(--cfsp-text-muted)]">
+                No live feed updates yet.
+              </div>
+              <div className="mt-3 text-xs font-semibold text-[var(--cfsp-text-muted)]">
+                Future feed items will support posts, comments, and event-linked updates without changing the current dashboard workflow.
+              </div>
+            </div>
+          </div>
         </section>
 
         {error ? <div className="cfsp-alert cfsp-alert-error">{error}</div> : null}

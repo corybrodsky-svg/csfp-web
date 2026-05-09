@@ -31,7 +31,7 @@ type NavItem = {
   label: string;
   match?: "exact" | "prefix";
   tone?: "primary" | "default";
-  roles?: Array<"sp" | "sim_op" | "admin" | "super_admin">;
+  roles?: Array<"sp" | "faculty" | "sim_op" | "admin" | "super_admin">;
 };
 
 const navItems: NavItem[] = [
@@ -69,7 +69,7 @@ function getEmailUsername(email: string) {
 
 function normalizeRole(value: unknown) {
   const role = asText(value).toLowerCase().replace(/[\s-]+/g, "_");
-  if (role === "super_admin" || role === "admin" || role === "sim_op" || role === "sp") return role;
+  if (role === "super_admin" || role === "admin" || role === "sim_op" || role === "faculty" || role === "sp") return role;
   return "sp";
 }
 
@@ -78,6 +78,7 @@ function formatRoleLabel(value: unknown) {
   if (role === "super_admin") return "Super Admin";
   if (role === "admin") return "Admin";
   if (role === "sim_op") return "Sim Op";
+  if (role === "faculty") return "Faculty";
   return "SP";
 }
 

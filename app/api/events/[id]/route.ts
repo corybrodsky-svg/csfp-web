@@ -33,10 +33,14 @@ function asText(value: unknown) {
 
 function normalizeRole(value: unknown) {
   const role = asText(value).toLowerCase().replace(/[\s-]+/g, "_");
-  if (role === "sp" || role === "sim_op" || role === "admin" || role === "super_admin") {
+  if (role === "sp" || role === "faculty" || role === "sim_op" || role === "admin" || role === "super_admin") {
     return role;
   }
   return "unknown";
+}
+
+function isOperatorRole(role: string) {
+  return role === "sim_op" || role === "admin" || role === "super_admin";
 }
 
 function getEffectiveRole(email: unknown, role: unknown) {
@@ -671,9 +675,9 @@ export async function POST(
     if (!viewer) {
       return unauthorizedResponse();
     }
-    if (viewer.role === "sp") {
+    if (!isOperatorRole(viewer.role)) {
       return applyAuthCookies(
-        NextResponse.json({ error: "SP accounts cannot manage event staffing." }, { status: 403 }),
+        NextResponse.json({ error: "Only Sim Ops or admin accounts can manage event staffing." }, { status: 403 }),
         viewer
       );
     }
@@ -752,9 +756,9 @@ export async function PATCH(
     if (!viewer) {
       return unauthorizedResponse();
     }
-    if (viewer.role === "sp") {
+    if (!isOperatorRole(viewer.role)) {
       return applyAuthCookies(
-        NextResponse.json({ error: "SP accounts cannot edit event operations." }, { status: 403 }),
+        NextResponse.json({ error: "Only Sim Ops or admin accounts can edit event operations." }, { status: 403 }),
         viewer
       );
     }
@@ -982,9 +986,9 @@ export async function DELETE(
     if (!viewer) {
       return unauthorizedResponse();
     }
-    if (viewer.role === "sp") {
+    if (!isOperatorRole(viewer.role)) {
       return applyAuthCookies(
-        NextResponse.json({ error: "SP accounts cannot remove event assignments." }, { status: 403 }),
+        NextResponse.json({ error: "Only Sim Ops or admin accounts can remove event assignments." }, { status: 403 }),
         viewer
       );
     }

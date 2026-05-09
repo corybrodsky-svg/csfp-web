@@ -123,7 +123,7 @@ const secondaryButtonStyle: React.CSSProperties = {
   cursor: "pointer",
 };
 
-type RoleValue = "sp" | "sim_op" | "admin" | "super_admin";
+type RoleValue = "sp" | "faculty" | "sim_op" | "admin" | "super_admin";
 
 type MeResponse = {
   user?: {
@@ -167,6 +167,7 @@ type SaveState = "idle" | "saving" | "saved" | "error";
 
 const ROLE_OPTIONS: Array<{ value: RoleValue; label: string }> = [
   { value: "sp", label: "SP" },
+  { value: "faculty", label: "Faculty" },
   { value: "sim_op", label: "Sim Op" },
   { value: "admin", label: "Admin" },
   { value: "super_admin", label: "Super Admin" },
@@ -179,7 +180,7 @@ function asText(value: unknown) {
 
 function normalizeRole(value: unknown): RoleValue {
   const role = asText(value).toLowerCase().replace(/[\s-]+/g, "_");
-  if (role === "sim_op" || role === "admin" || role === "super_admin" || role === "sp") return role;
+  if (role === "faculty" || role === "sim_op" || role === "admin" || role === "super_admin" || role === "sp") return role;
   return "sp";
 }
 
@@ -245,6 +246,9 @@ function getRoleTone(role: RoleValue): React.CSSProperties {
   }
   if (role === "sim_op") {
     return { background: "#eff6ff", color: "#1d4ed8", border: "1px solid #93c5fd" };
+  }
+  if (role === "faculty") {
+    return { background: "#f5f3ff", color: "#7c3aed", border: "1px solid #ddd6fe" };
   }
   return { background: "#ecfdf3", color: "#166534", border: "1px solid #86efac" };
 }

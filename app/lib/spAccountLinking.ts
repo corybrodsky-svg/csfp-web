@@ -12,7 +12,7 @@ type MinimalSpRow = {
 };
 
 export type SpLinkStatus = "linked" | "pending";
-export type SpLinkMatchSource = "saved_link" | "working_email" | "email" | "full_name" | "none";
+export type SpLinkMatchSource = "saved_link" | "working_email" | "email" | "schedule_name" | "full_name" | "none";
 
 export type SpAccountLink = {
   status: SpLinkStatus;
@@ -55,6 +55,15 @@ function sameLink(a: SpAccountLink, b: SpAccountLink) {
   );
 }
 
+function linkStrength(link: SpAccountLink) {
+  if (link.matched_by === "saved_link") return 5;
+  if (link.matched_by === "working_email") return 4;
+  if (link.matched_by === "email") return 3;
+  if (link.matched_by === "schedule_name") return 2;
+  if (link.matched_by === "full_name") return 1;
+  return 0;
+}
+
 async function listSps(accessToken?: string) {
   if (!supabaseUrl || !supabaseKey) return [] as MinimalSpRow[];
 
@@ -78,7 +87,11 @@ export function getSpLinkFromMetadata(
   metadata: Record<string, unknown> | null | undefined,
   fallbackFullName?: string | null
 ) {
-  const spId = asText(metadata?.sp_id) || null;
+  const spId =
+    asText(metadata?.sp_id) ||
+    asText(metadata?.linked_sp_id) ||
+    asText(metadata?.sp_link_sp_id) ||
+    null;
   const spName = asText(metadata?.sp_link_name) || asText(fallbackFullName) || null;
   const status = asText(metadata?.sp_link_status).toLowerCase() === "linked" ? "linked" : "pending";
   const matchedBy = asText(metadata?.sp_link_matched_by).toLowerCase();
@@ -91,6 +104,7 @@ export function getSpLinkFromMetadata(
       matchedBy === "saved_link" ||
       matchedBy === "working_email" ||
       matchedBy === "email" ||
+      matchedBy === "schedule_name" ||
       matchedBy === "full_name"
         ? (matchedBy as SpLinkMatchSource)
         : spId
@@ -118,12 +132,46 @@ export async function resolveSpAccountLink(args: {
         matched_by: "saved_link",
       } satisfies SpAccountLink;
     }
+
+    return {
+      status: "linked",
+      sp_id: existing.sp_id,
+      sp_name: existing.sp_name || asText(profile?.full_name || user.user_metadata?.full_name) || null,
+      matched_by: "saved_link",
+    } satisfies SpAccountLink;
   }
 
-  const email = normalizeEmail(profile?.email || user.email);
-  const fullName = normalizeName(profile?.full_name || user.user_metadata?.full_name);
+  const emailCandidates = Array.from(
+    new Set(
+      [
+        normalizeEmail(profile?.email),
+        normalizeEmail(user.email),
+        normalizeEmail(user.user_metadata?.email),
+        normalizeEmail(user.user_metadata?.working_email),
+      ].filter(Boolean)
+    )
+  );
+  const scheduleNameCandidates = Array.from(
+    new Set(
+      [
+        normalizeName(profile?.schedule_name),
+        normalizeName(user.user_metadata?.schedule_name),
+      ].filter(Boolean)
+    )
+  );
+  const fullNameCandidates = Array.from(
+    new Set(
+      [
+        normalizeName(profile?.full_name),
+        normalizeName(user.user_metadata?.full_name),
+      ].filter(Boolean)
+    )
+  );
 
-  const workingEmailMatch = sps.find((sp) => normalizeEmail(sp.working_email) === email);
+  const workingEmailMatch = sps.find((sp) => {
+    const spEmail = normalizeEmail(sp.working_email);
+    return spEmail && emailCandidates.includes(spEmail);
+  });
   if (workingEmailMatch) {
     return {
       status: "linked",
@@ -133,7 +181,10 @@ export async function resolveSpAccountLink(args: {
     } satisfies SpAccountLink;
   }
 
-  const emailMatch = sps.find((sp) => normalizeEmail(sp.email) === email);
+  const emailMatch = sps.find((sp) => {
+    const spEmail = normalizeEmail(sp.email);
+    return spEmail && emailCandidates.includes(spEmail);
+  });
   if (emailMatch) {
     return {
       status: "linked",
@@ -143,22 +194,30 @@ export async function resolveSpAccountLink(args: {
     } satisfies SpAccountLink;
   }
 
-  const fullNameMatch = fullName
-    ? sps.find((sp) => normalizeName(sp.full_name || [sp.first_name, sp.last_name].filter(Boolean).join(" ")) === fullName)
-    : null;
-  if (fullNameMatch) {
+  const nameMatches = sps.filter((sp) => {
+    const spName = normalizeName(sp.full_name || [sp.first_name, sp.last_name].filter(Boolean).join(" "));
+    return Boolean(spName) && (scheduleNameCandidates.includes(spName) || fullNameCandidates.includes(spName));
+  });
+
+  if (nameMatches.length === 1) {
+    const matchedSp = nameMatches[0];
+    const spName = normalizeName(matchedSp.full_name || [matchedSp.first_name, matchedSp.last_name].filter(Boolean).join(" "));
+    const matchedBy = scheduleNameCandidates.includes(spName) ? "schedule_name" : "full_name";
     return {
       status: "linked",
-      sp_id: fullNameMatch.id,
-      sp_name: getSpDisplayName(fullNameMatch),
-      matched_by: "full_name",
+      sp_id: matchedSp.id,
+      sp_name: getSpDisplayName(matchedSp),
+      matched_by: matchedBy,
     } satisfies SpAccountLink;
   }
 
   return {
     status: "pending",
     sp_id: null,
-    sp_name: asText(profile?.full_name || user.user_metadata?.full_name) || null,
+    sp_name:
+      asText(profile?.full_name || user.user_metadata?.full_name) ||
+      asText(profile?.schedule_name || user.user_metadata?.schedule_name) ||
+      null,
     matched_by: "none",
   } satisfies SpAccountLink;
 }
@@ -170,7 +229,15 @@ export async function persistSpAccountLink(args: {
 }) {
   const { user, link, accessToken } = args;
   const current = getSpLinkFromMetadata(user.user_metadata, null);
-  if (sameLink(current, link) || !supabaseUrl || !supabaseKey || !accessToken) return "";
+  if (
+    sameLink(current, link) ||
+    linkStrength(current) > linkStrength(link) ||
+    !supabaseUrl ||
+    !supabaseKey ||
+    !accessToken
+  ) {
+    return "";
+  }
 
   try {
     const response = await fetch(`${supabaseUrl}/auth/v1/user`, {

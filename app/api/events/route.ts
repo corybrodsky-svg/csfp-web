@@ -41,10 +41,14 @@ function isConfirmedAssignment(assignment: { status: string | null; confirmed: b
 
 function normalizeRole(value: unknown) {
   const role = asText(value).toLowerCase().replace(/[\s-]+/g, "_");
-  if (role === "sp" || role === "sim_op" || role === "admin" || role === "super_admin") {
+  if (role === "sp" || role === "faculty" || role === "sim_op" || role === "admin" || role === "super_admin") {
     return role;
   }
   return "unknown";
+}
+
+function isOperatorRole(role: string) {
+  return role === "sim_op" || role === "admin" || role === "super_admin";
 }
 
 function getEffectiveRole(email: unknown, role: unknown) {
@@ -493,8 +497,8 @@ export async function POST(request: Request) {
     if (!viewer) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    if (viewer.role === "sp") {
-      return NextResponse.json({ error: "SP accounts cannot create events." }, { status: 403 });
+    if (!isOperatorRole(viewer.role)) {
+      return NextResponse.json({ error: "Only Sim Ops or admin accounts can create events." }, { status: 403 });
     }
 
     const supabaseServer = createSupabaseServerClient();

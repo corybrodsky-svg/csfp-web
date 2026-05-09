@@ -134,11 +134,14 @@ function formatTransportError(error: unknown) {
     : error.message || "Could not create account.";
 }
 
+type SignupAccountType = "sp" | "faculty";
+
 export default function SignupPage() {
   const router = useRouter();
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [accountType, setAccountType] = useState<SignupAccountType>("sp");
   const [saving, setSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
@@ -159,6 +162,8 @@ export default function SignupPage() {
           full_name: fullName.trim(),
           email: email.trim(),
           password,
+          role: accountType,
+          account_type: accountType,
         }),
       });
 
@@ -265,6 +270,21 @@ export default function SignupPage() {
               required
               style={inputStyle}
             />
+          </label>
+
+          <label style={inputGroupStyle}>
+            <span style={labelStyle}>Account Type</span>
+            <select
+              value={accountType}
+              onChange={(event) => setAccountType(event.target.value === "faculty" ? "faculty" : "sp")}
+              style={inputStyle}
+            >
+              <option value="sp">SP</option>
+              <option value="faculty">Faculty</option>
+            </select>
+            <span style={{ color: "#5b6b7f", fontSize: "13px", lineHeight: 1.6 }}>
+              Sim Ops, Admin, and Super Admin roles are assigned internally after account review.
+            </span>
           </label>
 
           <button
