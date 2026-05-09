@@ -7,9 +7,12 @@ import {
   getErrorMessage,
   getSimVitalsAttachmentContentType,
   getSimVitalsAttachmentUrl,
+  isMissingSimVitalsAttachmentBucketError,
+  isUnauthorizedSimVitalsDataError,
   jsonNoStore,
   normalizeSimVitalsAttachmentFileName,
   sanitizeSimVitalsFileName,
+  SIMVITALS_ATTACHMENT_BUCKET_MESSAGE,
   SIMVITALS_ATTACHMENTS_BUCKET,
   unauthorizedSimVitalsResponse,
   validateSimVitalsAttachmentFile,
@@ -24,6 +27,13 @@ function asText(value: unknown) {
 
 function buildDownloadName(path: string, filename: string) {
   return sanitizeSimVitalsFileName(filename || path.split("/").pop() || "simvitals-attachment");
+}
+
+function getAttachmentStorageErrorMessage(error: unknown, fallback: string) {
+  if (isMissingSimVitalsAttachmentBucketError(error)) return SIMVITALS_ATTACHMENT_BUCKET_MESSAGE;
+  if (isUnauthorizedSimVitalsDataError(error)) return "Unauthorized attachment storage access.";
+  const message = getErrorMessage(error);
+  return message === "Unknown Supabase error" ? fallback : message;
 }
 
 export async function GET(request: Request) {
@@ -47,9 +57,10 @@ export async function GET(request: Request) {
 
     const downloadResult = await context.db.storage.from(SIMVITALS_ATTACHMENTS_BUCKET).download(path);
     if (downloadResult.error || !downloadResult.data) {
+      const message = getAttachmentStorageErrorMessage(downloadResult.error, "Could not load SimVitals attachment.");
       return applySimVitalsAuthCookies(
         jsonNoStore(
-          { ok: false, error: downloadResult.error?.message || "Could not load SimVitals attachment." },
+          { ok: false, error: message },
           { status: 404 }
         ),
         context
@@ -72,9 +83,10 @@ export async function GET(request: Request) {
 
     return applySimVitalsAuthCookies(response, context);
   } catch (error) {
+    const message = getAttachmentStorageErrorMessage(error, `Could not load SimVitals attachment: ${getErrorMessage(error)}`);
     return applySimVitalsAuthCookies(
       jsonNoStore(
-        { ok: false, error: `Could not load SimVitals attachment: ${getErrorMessage(error)}` },
+        { ok: false, error: message },
         { status: 500 }
       ),
       context
@@ -124,9 +136,10 @@ export async function POST(request: Request) {
       });
 
     if (uploadResult.error) {
+      const message = getAttachmentStorageErrorMessage(uploadResult.error, "Could not upload SimVitals attachment.");
       return applySimVitalsAuthCookies(
         jsonNoStore(
-          { ok: false, error: uploadResult.error.message || "Could not upload SimVitals attachment." },
+          { ok: false, error: message },
           { status: 500 }
         ),
         context
@@ -149,9 +162,10 @@ export async function POST(request: Request) {
       context
     );
   } catch (error) {
+    const message = getAttachmentStorageErrorMessage(error, `Could not upload SimVitals attachment: ${getErrorMessage(error)}`);
     return applySimVitalsAuthCookies(
       jsonNoStore(
-        { ok: false, error: `Could not upload SimVitals attachment: ${getErrorMessage(error)}` },
+        { ok: false, error: message },
         { status: 500 }
       ),
       context

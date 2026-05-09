@@ -2,9 +2,9 @@ import {
   applySimVitalsAuthCookies,
   getAuthenticatedSimVitalsContext,
   getErrorMessage,
+  getSimVitalsReadinessFailure,
   isMissingSimVitalsSchemaError,
   jsonNoStore,
-  SIMVITALS_SCHEMA_MESSAGE,
   unauthorizedSimVitalsResponse,
 } from "../../../_lib";
 
@@ -97,7 +97,7 @@ export async function POST(
         jsonNoStore(
           {
             ok: false,
-            error: SIMVITALS_SCHEMA_MESSAGE,
+            error: getSimVitalsReadinessFailure(error),
             migration: "supabase/migrations/20260509_create_simvitals_tables.sql",
           },
           { status: 503 }

@@ -277,7 +277,15 @@ async function fetchSimVitalsPosts(limit: number, type: SimVitalsFeedType | "all
     credentials: "include",
   });
   const body = (await response.json().catch(() => null)) as
-    | { ok?: boolean; posts?: unknown[]; schemaReady?: boolean; warning?: string; error?: string }
+    | {
+        ok?: boolean;
+        posts?: unknown[];
+        schemaReady?: boolean;
+        warning?: string;
+        error?: string;
+        attachmentSupportReady?: boolean;
+        attachmentWarning?: string;
+      }
     | null;
 
   if (!response.ok || body?.ok === false) {
@@ -287,7 +295,8 @@ async function fetchSimVitalsPosts(limit: number, type: SimVitalsFeedType | "all
   if (body?.schemaReady === false) {
     return {
       posts: [] as SimVitalsPost[],
-      warning: body.warning || "SimVitals storage is not ready yet.",
+      warning: body.warning || "SimVitals database readiness check failed.",
+      attachmentWarning: "",
     };
   }
 
@@ -296,6 +305,7 @@ async function fetchSimVitalsPosts(limit: number, type: SimVitalsFeedType | "all
       ? body.posts.map(normalizeSimVitalsPost).filter((post): post is SimVitalsPost => Boolean(post))
       : [],
     warning: "",
+    attachmentWarning: body?.attachmentSupportReady === false ? asText(body.attachmentWarning) : "",
   };
 }
 
@@ -835,6 +845,7 @@ export function SimVitalsFullExperience({
   const [feedError, setFeedError] = useState("");
   const [savingPost, setSavingPost] = useState(false);
   const [composerError, setComposerError] = useState("");
+  const [attachmentSupportWarning, setAttachmentSupportWarning] = useState("");
   const [selectedAttachmentFile, setSelectedAttachmentFile] = useState<File | null>(null);
   const attachmentInputRef = useRef<HTMLInputElement | null>(null);
   const authorInitials = getSimVitalsInitials(displayName);
@@ -864,9 +875,11 @@ export function SimVitalsFullExperience({
         if (cancelled) return;
         setPosts(result.posts);
         setFeedError(result.warning);
+        setAttachmentSupportWarning(result.attachmentWarning);
       } catch (error) {
         if (cancelled) return;
         setFeedError(error instanceof Error ? error.message : "Could not load SimVitals.");
+        setAttachmentSupportWarning("");
         setPosts([]);
       } finally {
         if (!cancelled) setFeedLoading(false);
@@ -888,6 +901,11 @@ export function SimVitalsFullExperience({
 
   function handleAttachmentFileChange(file: File | null) {
     setComposerError("");
+    if (attachmentSupportWarning) {
+      setComposerError(attachmentSupportWarning);
+      setSelectedAttachmentFile(null);
+      return;
+    }
     if (!file) {
       setSelectedAttachmentFile(null);
       return;
@@ -1079,8 +1097,8 @@ export function SimVitalsFullExperience({
             />
             <SimVitalsIconButton
               label="Add attachment"
-              title="Attach file"
-              disabled={savingPost}
+              title={attachmentSupportWarning || "Attach file"}
+              disabled={savingPost || Boolean(attachmentSupportWarning)}
               onClick={() => attachmentInputRef.current?.click()}
             >
               <SimVitalsAttachmentIcon />
@@ -1138,6 +1156,15 @@ export function SimVitalsFullExperience({
         {composerError ? (
           <div className="mt-3 rounded-[12px] border border-[var(--cfsp-danger-border)] bg-[var(--cfsp-danger-soft)] px-3 py-2 text-sm font-bold text-[var(--cfsp-danger)]">
             {composerError}
+          </div>
+        ) : null}
+
+        {attachmentSupportWarning && !composerError ? (
+          <div
+            className="mt-3 rounded-[12px] border bg-[var(--cfsp-warning-soft)] px-3 py-2 text-sm font-bold text-[var(--cfsp-warning)]"
+            style={{ borderColor: "rgba(168, 100, 17, 0.28)" }}
+          >
+            {attachmentSupportWarning}
           </div>
         ) : null}
 

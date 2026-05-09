@@ -2,12 +2,14 @@ import {
   applySimVitalsAuthCookies,
   getAuthenticatedSimVitalsContext,
   getErrorMessage,
+  getSimVitalsReadinessFailure,
+  isMissingSimVitalsAttachmentColumnError,
   isMissingSimVitalsSchemaError,
   jsonNoStore,
   normalizeSimVitalsAttachmentMetadata,
   normalizePostType,
   normalizeTags,
-  SIMVITALS_SCHEMA_MESSAGE,
+  SIMVITALS_ATTACHMENT_COLUMN_MESSAGE,
   unauthorizedSimVitalsResponse,
   type SimVitalsAttachmentMetadata,
   type SimVitalsPostType,
@@ -26,10 +28,15 @@ type SimVitalsPostRow = {
   linked_event_id: string | null;
   linked_event_name: string | null;
   tags: string[] | null;
-  attachment: SimVitalsAttachmentMetadata | null;
+  attachment?: SimVitalsAttachmentMetadata | null;
   created_at: string | null;
   updated_at: string | null;
 };
+
+const POST_SELECT_BASE =
+  "id,author_user_id,author_name,author_role,post_type,body,linked_event_id,linked_event_name,tags,created_at,updated_at";
+const POST_SELECT_WITH_ATTACHMENT =
+  "id,author_user_id,author_name,author_role,post_type,body,linked_event_id,linked_event_name,tags,attachment,created_at,updated_at";
 
 const DEFAULT_TAG_BY_TYPE: Record<SimVitalsPostType, string> = {
   general_update: "Ops",
@@ -128,6 +135,25 @@ async function getPostCounts(
   return { reactionsByPostId, commentsByPostId, acknowledgedPostIds };
 }
 
+function buildPostsQuery(
+  context: NonNullable<Awaited<ReturnType<typeof getAuthenticatedSimVitalsContext>>>,
+  limit: number,
+  normalizedType: string,
+  includeAttachment: boolean
+) {
+  let query = context.db
+    .from("simvitals_posts")
+    .select(includeAttachment ? POST_SELECT_WITH_ATTACHMENT : POST_SELECT_BASE)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (normalizedType) {
+    query = query.eq("post_type", normalizedType);
+  }
+
+  return query;
+}
+
 export async function GET(request: Request) {
   let context: Awaited<ReturnType<typeof getAuthenticatedSimVitalsContext>> = null;
 
@@ -140,20 +166,20 @@ export async function GET(request: Request) {
     const typeFilter = asText(searchParams.get("type"));
     const normalizedType = typeFilter && typeFilter !== "all" ? normalizePostType(typeFilter) : "";
 
-    let query = context.db
-      .from("simvitals_posts")
-      .select("id,author_user_id,author_name,author_role,post_type,body,linked_event_id,linked_event_name,tags,attachment,created_at,updated_at")
-      .order("created_at", { ascending: false })
-      .limit(limit);
+    let attachmentSupportReady = true;
+    let attachmentWarning = "";
+    let postsResult = await buildPostsQuery(context, limit, normalizedType, true);
 
-    if (normalizedType) {
-      query = query.eq("post_type", normalizedType);
+    if (postsResult.error && isMissingSimVitalsAttachmentColumnError(postsResult.error)) {
+      attachmentSupportReady = false;
+      attachmentWarning = SIMVITALS_ATTACHMENT_COLUMN_MESSAGE;
+      postsResult = await buildPostsQuery(context, limit, normalizedType, false);
     }
 
-    const { data, error } = await query;
+    const { data, error } = postsResult;
     if (error) throw error;
 
-    const posts = (data || []) as SimVitalsPostRow[];
+    const posts = (data || []) as unknown as SimVitalsPostRow[];
     const counts = await getPostCounts(
       context,
       posts.map((post) => post.id).filter(Boolean)
@@ -161,6 +187,9 @@ export async function GET(request: Request) {
     const response = jsonNoStore({
       ok: true,
       schemaReady: true,
+      coreReady: true,
+      attachmentSupportReady,
+      attachmentWarning,
       posts: posts.map((post) => toPostResponse(post, counts)),
     });
 
@@ -171,9 +200,10 @@ export async function GET(request: Request) {
         jsonNoStore({
           ok: true,
           schemaReady: false,
+          coreReady: false,
           migration:
-            "supabase/migrations/20260509_create_simvitals_tables.sql and supabase/migrations/20260509_add_simvitals_post_attachments.sql",
-          warning: SIMVITALS_SCHEMA_MESSAGE,
+            "supabase/migrations/20260509_create_simvitals_tables.sql",
+          warning: getSimVitalsReadinessFailure(error),
           posts: [],
         }),
         context
@@ -233,20 +263,56 @@ export async function POST(request: Request) {
       );
     }
 
+    const insertPayload = {
+      author_user_id: context.viewer.id,
+      author_name: context.viewer.displayName,
+      author_role: context.viewer.role,
+      post_type: postType,
+      body: postBody.slice(0, 5000),
+      linked_event_id: linkedEventId,
+      linked_event_name: linkedEventName,
+      tags: tags.length ? tags : [DEFAULT_TAG_BY_TYPE[postType]],
+    };
+
+    if (attachment) {
+      const { data, error } = await context.db
+        .from("simvitals_posts")
+        .insert({
+          ...insertPayload,
+          attachment,
+        })
+        .select(POST_SELECT_WITH_ATTACHMENT)
+        .single();
+
+      if (error) {
+        if (isMissingSimVitalsAttachmentColumnError(error)) {
+          return applySimVitalsAuthCookies(
+            jsonNoStore(
+              { ok: false, error: SIMVITALS_ATTACHMENT_COLUMN_MESSAGE },
+              { status: 503 }
+            ),
+            context
+          );
+        }
+        throw error;
+      }
+
+      const counts = await getPostCounts(context, [data.id]);
+      const response = jsonNoStore(
+        {
+          ok: true,
+          post: toPostResponse(data as unknown as SimVitalsPostRow, counts),
+        },
+        { status: 201 }
+      );
+
+      return applySimVitalsAuthCookies(response, context);
+    }
+
     const { data, error } = await context.db
       .from("simvitals_posts")
-      .insert({
-        author_user_id: context.viewer.id,
-        author_name: context.viewer.displayName,
-        author_role: context.viewer.role,
-        post_type: postType,
-        body: postBody.slice(0, 5000),
-        linked_event_id: linkedEventId,
-        linked_event_name: linkedEventName,
-        tags: tags.length ? tags : [DEFAULT_TAG_BY_TYPE[postType]],
-        attachment,
-      })
-      .select("id,author_user_id,author_name,author_role,post_type,body,linked_event_id,linked_event_name,tags,attachment,created_at,updated_at")
+      .insert(insertPayload)
+      .select(POST_SELECT_BASE)
       .single();
 
     if (error) throw error;
@@ -255,7 +321,7 @@ export async function POST(request: Request) {
     const response = jsonNoStore(
       {
         ok: true,
-        post: toPostResponse(data as SimVitalsPostRow, counts),
+        post: toPostResponse(data as unknown as SimVitalsPostRow, counts),
       },
       { status: 201 }
     );
@@ -267,9 +333,9 @@ export async function POST(request: Request) {
         jsonNoStore(
           {
             ok: false,
-            error: SIMVITALS_SCHEMA_MESSAGE,
+            error: getSimVitalsReadinessFailure(error),
             migration:
-              "supabase/migrations/20260509_create_simvitals_tables.sql and supabase/migrations/20260509_add_simvitals_post_attachments.sql",
+              "supabase/migrations/20260509_create_simvitals_tables.sql",
           },
           { status: 503 }
         ),

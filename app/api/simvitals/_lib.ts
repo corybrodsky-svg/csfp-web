@@ -28,7 +28,11 @@ export const SIMVITALS_ROLES = ["sim_ops", "admin", "faculty", "sp", "system"] a
 export const SIMVITALS_ATTACHMENTS_BUCKET = "simvitals-attachments";
 export const SIMVITALS_ATTACHMENT_MAX_BYTES = 25 * 1024 * 1024;
 export const SIMVITALS_SCHEMA_MESSAGE =
-  "SimVitals storage is not ready yet. Apply supabase/migrations/20260509_create_simvitals_tables.sql and supabase/migrations/20260509_add_simvitals_post_attachments.sql.";
+  "SimVitals database tables are not ready yet. Apply supabase/migrations/20260509_create_simvitals_tables.sql.";
+export const SIMVITALS_ATTACHMENT_COLUMN_MESSAGE =
+  "Attachment metadata is not available yet. SimVitals posts, comments, and acknowledgements are still operational.";
+export const SIMVITALS_ATTACHMENT_BUCKET_MESSAGE =
+  "Missing attachment bucket: simvitals-attachments.";
 
 export type SimVitalsPostType = (typeof SIMVITALS_POST_TYPES)[number];
 export type SimVitalsRole = (typeof SIMVITALS_ROLES)[number];
@@ -292,14 +296,48 @@ export function normalizeTags(value: unknown) {
 export function isMissingSimVitalsSchemaError(error: unknown) {
   const source = error as { code?: string; message?: string; details?: string; hint?: string } | null;
   const text = [source?.code, source?.message, source?.details, source?.hint].map(asText).join(" ");
+  if (isMissingSimVitalsAttachmentColumnError(error)) return false;
+  return isUnauthorizedSimVitalsDataError(error) || Boolean(getMissingSimVitalsCoreTable(error)) || /\b42P01\b|PGRST205/i.test(text);
+}
+
+export function getMissingSimVitalsCoreTable(error: unknown) {
+  const source = error as { code?: string; message?: string; details?: string; hint?: string } | null;
+  const text = [source?.code, source?.message, source?.details, source?.hint].map(asText).join(" ");
+  const lowerText = text.toLowerCase();
+  const coreTables = ["simvitals_posts", "simvitals_comments", "simvitals_reactions"];
+  return coreTables.find((table) => lowerText.includes(table)) || "";
+}
+
+export function isMissingSimVitalsAttachmentColumnError(error: unknown) {
+  const source = error as { code?: string; message?: string; details?: string; hint?: string } | null;
+  const text = [source?.code, source?.message, source?.details, source?.hint].map(asText).join(" ");
+  return /could not find .*attachment/i.test(text) || /column .*attachment/i.test(text);
+}
+
+export function isMissingSimVitalsAttachmentBucketError(error: unknown) {
+  const source = error as { code?: string; message?: string; details?: string; hint?: string } | null;
+  const text = [source?.code, source?.message, source?.details, source?.hint].map(asText).join(" ");
   return (
-    /\b42P01\b|PGRST205/i.test(text) ||
-    /simvitals_(posts|comments|reactions)/i.test(text) ||
-    /could not find .*attachment/i.test(text) ||
-    /column .*attachment/i.test(text) ||
-    /relation .*simvitals/i.test(text) ||
-    /could not find .*simvitals/i.test(text)
+    /bucket.*not found/i.test(text) ||
+    /not found.*bucket/i.test(text) ||
+    /nosuchbucket/i.test(text) ||
+    /simvitals-attachments.*not found/i.test(text)
   );
+}
+
+export function isUnauthorizedSimVitalsDataError(error: unknown) {
+  const source = error as { code?: string; message?: string; details?: string; hint?: string } | null;
+  const text = [source?.code, source?.message, source?.details, source?.hint].map(asText).join(" ");
+  return /\b42501\b|permission denied|row-level security|unauthorized|not authorized/i.test(text);
+}
+
+export function getSimVitalsReadinessFailure(error: unknown) {
+  if (isUnauthorizedSimVitalsDataError(error)) return "Unauthorized database access.";
+  if (isMissingSimVitalsAttachmentColumnError(error)) return SIMVITALS_ATTACHMENT_COLUMN_MESSAGE;
+  const missingTable = getMissingSimVitalsCoreTable(error);
+  if (missingTable) return `Missing ${missingTable} table.`;
+  if (isMissingSimVitalsAttachmentBucketError(error)) return SIMVITALS_ATTACHMENT_BUCKET_MESSAGE;
+  return SIMVITALS_SCHEMA_MESSAGE;
 }
 
 export async function getAuthenticatedSimVitalsContext(): Promise<SimVitalsContext | null> {
