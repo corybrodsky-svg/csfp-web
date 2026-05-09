@@ -41,6 +41,15 @@
   --cfsp-card-glow: 0 10px 28px rgba(24, 52, 78, 0.07);
   --cfsp-dashboard-hero-bg: linear-gradient(135deg, rgba(20, 91, 150, 0.08) 0%, rgba(44, 211, 173, 0.08) 42%, #ffffff 100%);
   --cfsp-dashboard-panel-bg: linear-gradient(180deg, var(--cfsp-surface-muted) 0%, var(--cfsp-surface) 100%);
+  --cfsp-planning-calendar-bg: linear-gradient(135deg, rgba(180, 129, 42, 0.13) 0%, rgba(255, 251, 240, 0.92) 38%, rgba(20, 91, 150, 0.06) 100%);
+  --cfsp-planning-calendar-border: rgba(190, 142, 62, 0.34);
+  --cfsp-planning-calendar-shadow: 0 18px 42px rgba(122, 88, 28, 0.11), 0 0 0 1px rgba(255, 255, 255, 0.62) inset;
+  --cfsp-planning-calendar-accent: #b4812a;
+  --cfsp-planning-calendar-accent-soft: rgba(180, 129, 42, 0.13);
+  --cfsp-planning-calendar-accent-glow: rgba(224, 178, 91, 0.22);
+  --cfsp-planning-calendar-text: #60400d;
+  --cfsp-planning-calendar-control-bg: rgba(255, 255, 255, 0.82);
+  --cfsp-planning-calendar-control-border: rgba(190, 142, 62, 0.34);
   --cfsp-simvitals-preview-bg: linear-gradient(135deg, rgba(20, 91, 150, 0.08) 0%, rgba(25, 138, 112, 0.08) 48%, var(--cfsp-surface) 100%);
   --cfsp-simvitals-hero-bg: linear-gradient(135deg, rgba(20, 91, 150, 0.11) 0%, rgba(44, 211, 173, 0.10) 42%, var(--cfsp-surface) 100%);
   --cfsp-simvitals-composer-bg: linear-gradient(180deg, var(--cfsp-surface) 0%, var(--cfsp-surface-muted) 100%);
@@ -109,6 +118,15 @@ html[data-theme="dark"] {
   --cfsp-panel-strong: #101827;
   --cfsp-dashboard-hero-bg: linear-gradient(135deg, rgba(73, 168, 255, 0.13) 0%, rgba(44, 211, 173, 0.10) 42%, rgba(13, 20, 32, 0.96) 100%);
   --cfsp-dashboard-panel-bg: linear-gradient(180deg, rgba(17, 29, 45, 0.94) 0%, rgba(11, 18, 29, 0.96) 100%);
+  --cfsp-planning-calendar-bg: linear-gradient(135deg, rgba(181, 132, 47, 0.17) 0%, rgba(16, 25, 39, 0.96) 44%, rgba(8, 15, 26, 0.98) 100%);
+  --cfsp-planning-calendar-border: rgba(224, 178, 91, 0.3);
+  --cfsp-planning-calendar-shadow: 0 0 0 1px rgba(224, 178, 91, 0.08), 0 18px 48px rgba(0, 0, 0, 0.38), 0 0 32px rgba(224, 178, 91, 0.08);
+  --cfsp-planning-calendar-accent: #e0b25b;
+  --cfsp-planning-calendar-accent-soft: rgba(224, 178, 91, 0.12);
+  --cfsp-planning-calendar-accent-glow: rgba(224, 178, 91, 0.18);
+  --cfsp-planning-calendar-text: #f7d891;
+  --cfsp-planning-calendar-control-bg: rgba(16, 25, 39, 0.76);
+  --cfsp-planning-calendar-control-border: rgba(224, 178, 91, 0.28);
   --cfsp-simvitals-preview-bg: linear-gradient(135deg, rgba(73, 168, 255, 0.12) 0%, rgba(44, 211, 173, 0.11) 46%, rgba(13, 20, 32, 0.98) 100%);
   --cfsp-simvitals-hero-bg: linear-gradient(135deg, rgba(73, 168, 255, 0.16) 0%, rgba(44, 211, 173, 0.12) 42%, rgba(8, 15, 26, 0.98) 100%);
   --cfsp-simvitals-composer-bg: linear-gradient(180deg, rgba(13, 20, 32, 0.96) 0%, rgba(17, 25, 39, 0.9) 100%);
@@ -485,6 +503,86 @@ textarea {
   background: var(--cfsp-surface-muted);
   border-color: #d6e6f2;
   color: var(--cfsp-text);
+}
+
+.cfsp-planning-calendar-panel {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--cfsp-planning-calendar-border);
+  background: var(--cfsp-planning-calendar-bg);
+  box-shadow: var(--cfsp-planning-calendar-shadow);
+  backdrop-filter: blur(16px);
+}
+
+.cfsp-planning-calendar-panel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(115deg, transparent 0%, rgba(255, 255, 255, 0.28) 42%, transparent 56%),
+    radial-gradient(circle at 10% 0%, var(--cfsp-planning-calendar-accent-glow), transparent 28%);
+  opacity: 0.44;
+}
+
+.cfsp-planning-calendar-panel::after {
+  content: "";
+  position: absolute;
+  inset: auto 18px 0;
+  height: 1px;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, var(--cfsp-planning-calendar-accent), transparent);
+  opacity: 0.48;
+}
+
+.cfsp-planning-calendar-panel > * {
+  position: relative;
+  z-index: 1;
+}
+
+.cfsp-planning-calendar-kicker {
+  border: 1px solid var(--cfsp-planning-calendar-control-border);
+  background: var(--cfsp-planning-calendar-accent-soft);
+  color: var(--cfsp-planning-calendar-text);
+  box-shadow: 0 8px 22px var(--cfsp-planning-calendar-accent-glow);
+}
+
+.cfsp-planning-calendar-title {
+  color: var(--cfsp-text);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.22);
+}
+
+.cfsp-planning-calendar-muted {
+  color: var(--cfsp-text-muted);
+}
+
+.cfsp-planning-calendar-label {
+  color: var(--cfsp-planning-calendar-text);
+}
+
+.cfsp-planning-calendar-button {
+  border-color: var(--cfsp-planning-calendar-control-border);
+  background: var(--cfsp-planning-calendar-control-bg);
+  color: var(--cfsp-text);
+  box-shadow: 0 8px 20px rgba(122, 88, 28, 0.07);
+}
+
+.cfsp-planning-calendar-button:hover {
+  border-color: var(--cfsp-planning-calendar-accent);
+  background: var(--cfsp-planning-calendar-accent-soft);
+}
+
+.cfsp-planning-calendar-input {
+  border-color: var(--cfsp-planning-calendar-control-border);
+  background: var(--cfsp-planning-calendar-control-bg);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.34) inset;
+}
+
+.cfsp-planning-calendar-input:focus {
+  border-color: var(--cfsp-planning-calendar-accent);
+  box-shadow:
+    0 0 0 3px var(--cfsp-planning-calendar-accent-soft),
+    0 0 20px var(--cfsp-planning-calendar-accent-glow);
 }
 
 .cfsp-kicker {

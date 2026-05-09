@@ -1112,21 +1112,14 @@ export default function DashboardPage() {
           </div>
         </section>
 
-        <section
-          className="rounded-[14px] px-5 py-4"
-          style={{
-            border: "1px solid var(--cfsp-border)",
-            background: "var(--cfsp-dashboard-panel-bg)",
-            boxShadow: "var(--cfsp-card-glow)",
-          }}
-        >
+        <section className="cfsp-planning-calendar-panel rounded-[14px] px-5 py-4">
           <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
             <div>
-              <div className="cfsp-kicker">Planning Calendar</div>
-              <div className="mt-2 text-[1.2rem] font-black text-[var(--cfsp-text)]">
+              <div className="cfsp-kicker cfsp-planning-calendar-kicker">Planning Calendar</div>
+              <div className="cfsp-planning-calendar-title mt-2 text-[1.2rem] font-black">
                 {new Date().toLocaleDateString([], { weekday: "long", month: "long", day: "numeric", year: "numeric" })}
               </div>
-              <div className="mt-1 text-sm font-semibold text-[var(--cfsp-text-muted)]">
+              <div className="cfsp-planning-calendar-muted mt-1 text-sm font-semibold">
                 {selectedJumpMonthLabel} · {monthEventCount} upcoming event{monthEventCount === 1 ? "" : "s"}
               </div>
             </div>
@@ -1144,7 +1137,7 @@ export default function DashboardPage() {
                     key={button.key}
                     type="button"
                     onClick={() => handleQuickDateJump(button.key as "today" | "thisWeek" | "nextWeek" | "thisMonth" | "nextMonth")}
-                    className="cfsp-btn cfsp-btn-secondary"
+                    className="cfsp-btn cfsp-btn-secondary cfsp-planning-calendar-button"
                   >
                     {button.label}
                   </button>
@@ -1153,15 +1146,15 @@ export default function DashboardPage() {
 
               <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
                 <label className="grid min-w-[220px] gap-2">
-                  <span className="cfsp-label">Jump to date</span>
+                  <span className="cfsp-label cfsp-planning-calendar-label">Jump to date</span>
                   <input
                     type="date"
                     value={jumpDate}
                     onChange={(event) => handlePlanningJump(event.target.value)}
-                    className="cfsp-input"
+                    className="cfsp-input cfsp-planning-calendar-input"
                   />
                 </label>
-                <div className="text-sm font-semibold text-[var(--cfsp-text-muted)]">
+                <div className="cfsp-planning-calendar-muted text-sm font-semibold">
                   Jump to the first event on or after the selected date.
                 </div>
               </div>
@@ -1169,7 +1162,7 @@ export default function DashboardPage() {
           </div>
 
           {planningJumpMessage ? (
-            <div className="mt-3 text-sm font-semibold text-[var(--cfsp-text-muted)]">{planningJumpMessage}</div>
+            <div className="cfsp-planning-calendar-muted mt-3 text-sm font-semibold">{planningJumpMessage}</div>
           ) : null}
         </section>
 
