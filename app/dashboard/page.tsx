@@ -89,6 +89,7 @@ type FinderChipKey = "needs_staffing" | "training_soon" | "live_today" | "materi
 const MAX_ROSTER_CHIPS = 12;
 const DASHBOARD_SECTION_PAGE_SIZE = 8;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
+const GLOBAL_EVENT_FINDER_COLLAPSED_KEY = "cfsp:dashboard-global-event-finder:collapsed";
 
 const FINDER_CHIPS: Array<{ key: FinderChipKey; label: string }> = [
   { key: "needs_staffing", label: "Needs Staffing" },
@@ -768,6 +769,7 @@ function GlobalEventFinder({
   const [query, setQuery] = useState("");
   const [activeChip, setActiveChip] = useState<FinderChipKey | null>(null);
   const [resultsOpen, setResultsOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const trimmedQuery = query.trim();
   const hasActiveSearch = Boolean(trimmedQuery || activeChip);
@@ -817,19 +819,49 @@ function GlobalEventFinder({
       })),
     [items]
   );
+  const quickStats = useMemo(
+    () => ({
+      operations: items.length,
+      attention: items.filter(eventNeedsOperationalAttention).length,
+      today: items.filter((item) => eventMatchesFinderChip(item, "live_today")).length,
+    }),
+    [items]
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const restoreTimer = window.setTimeout(() => {
+      setCollapsed(window.localStorage.getItem(GLOBAL_EVENT_FINDER_COLLAPSED_KEY) === "true");
+    }, 0);
+
+    return () => window.clearTimeout(restoreTimer);
+  }, []);
 
   useEffect(() => {
     function handleSlashShortcut(event: KeyboardEvent) {
       if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
       if (event.key !== "/" || isEditableFinderTarget(event.target)) return;
       event.preventDefault();
-      inputRef.current?.focus();
+      if (collapsed) {
+        setCollapsed(false);
+        window.localStorage.setItem(GLOBAL_EVENT_FINDER_COLLAPSED_KEY, "false");
+      }
+      window.requestAnimationFrame(() => inputRef.current?.focus());
       setResultsOpen(Boolean(trimmedQuery || activeChip));
     }
 
     window.addEventListener("keydown", handleSlashShortcut);
     return () => window.removeEventListener("keydown", handleSlashShortcut);
-  }, [activeChip, trimmedQuery]);
+  }, [activeChip, collapsed, trimmedQuery]);
+
+  function toggleCollapsed() {
+    const nextCollapsed = !collapsed;
+    setCollapsed(nextCollapsed);
+    setResultsOpen(false);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(GLOBAL_EVENT_FINDER_COLLAPSED_KEY, String(nextCollapsed));
+    }
+  }
 
   function clearSearch() {
     setQuery("");
@@ -850,13 +882,54 @@ function GlobalEventFinder({
     window.requestAnimationFrame(() => inputRef.current?.focus());
   }
 
+  if (collapsed) {
+    return (
+      <div
+        className="relative rounded-[12px] px-3 py-2"
+        style={{
+          border: "1px solid rgba(73, 168, 255, 0.18)",
+          background: "linear-gradient(135deg, rgba(8, 47, 73, 0.82) 0%, rgba(14, 70, 88, 0.62) 100%)",
+          boxShadow: "0 10px 24px rgba(14, 116, 144, 0.10)",
+        }}
+      >
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <button
+            type="button"
+            onClick={toggleCollapsed}
+            className="flex min-w-0 items-center gap-2 text-left"
+            aria-expanded="false"
+          >
+            <span aria-hidden="true" className="h-2 w-2 shrink-0 rounded-full bg-cyan-300 shadow-[0_0_14px_rgba(103,232,249,0.68)]" />
+            <span className="truncate text-[0.72rem] font-black uppercase tracking-[0.14em] text-cyan-100/82">
+              Mission Lookup
+            </span>
+            <span className="hidden text-xs font-bold text-cyan-100/55 sm:inline">
+              {quickStats.operations} ops · {quickStats.attention} attention
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={toggleCollapsed}
+            className="rounded-full px-2.5 py-1 text-[0.68rem] font-black uppercase tracking-[0.08em] text-cyan-100/80 transition hover:text-white"
+            style={{
+              border: "1px solid rgba(186, 230, 253, 0.14)",
+              background: "rgba(186, 230, 253, 0.07)",
+            }}
+          >
+            Open
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
-      className="relative rounded-[14px] px-4 py-4"
+      className="relative rounded-[13px] px-3 py-2.5"
       style={{
-        border: "1px solid rgba(73, 168, 255, 0.24)",
-        background: "linear-gradient(180deg, rgba(8, 47, 73, 0.90) 0%, rgba(14, 70, 88, 0.82) 100%)",
-        boxShadow: "0 18px 42px rgba(14, 116, 144, 0.18)",
+        border: "1px solid rgba(73, 168, 255, 0.22)",
+        background: "linear-gradient(135deg, rgba(8, 47, 73, 0.90) 0%, rgba(14, 70, 88, 0.72) 100%)",
+        boxShadow: "0 12px 30px rgba(14, 116, 144, 0.14)",
       }}
       onKeyDown={(event) => {
         if (event.key === "Escape") {
@@ -870,71 +943,86 @@ function GlobalEventFinder({
         }
       }}
     >
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <div className="text-[0.68rem] font-black uppercase tracking-[0.16em] text-cyan-100/80">Global Event Finder</div>
-          <div className="mt-1 text-sm font-bold text-cyan-50/78">Mission lookup console</div>
+      <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
+        <div className="flex shrink-0 items-center gap-2 lg:w-[150px]">
+          <span aria-hidden="true" className="h-2 w-2 shrink-0 rounded-full bg-cyan-300 shadow-[0_0_14px_rgba(103,232,249,0.72)]" />
+          <div className="min-w-0">
+            <div className="truncate text-[0.66rem] font-black uppercase tracking-[0.14em] text-cyan-100/82">Mission Lookup</div>
+            <div className="text-[0.68rem] font-bold text-cyan-50/55">Global finder</div>
+          </div>
         </div>
-        <div className="hidden items-center gap-2 sm:flex">
-          <span
-            className="rounded-full px-2.5 py-1 text-[0.65rem] font-black uppercase tracking-[0.12em]"
-            style={{
-              border: "1px solid rgba(125, 211, 252, 0.24)",
-              background: "rgba(14, 165, 233, 0.14)",
-              color: "#cffafe",
+
+        <div
+          className="flex min-h-[38px] min-w-0 flex-1 items-center gap-2 rounded-[11px] px-3 py-1.5"
+          style={{
+            border: "1px solid rgba(125, 211, 252, 0.25)",
+            background: "rgba(2, 24, 38, 0.46)",
+            boxShadow: resultsOpen ? "0 0 0 2px rgba(45, 212, 191, 0.10)" : "none",
+          }}
+        >
+          <input
+            ref={inputRef}
+            value={query}
+            onChange={(event) => {
+              setQuery(event.target.value);
+              setResultsOpen(Boolean(event.target.value.trim() || activeChip));
             }}
-          >
-            {items.length} ops
-          </span>
+            onFocus={() => setResultsOpen(hasActiveSearch)}
+            aria-label="Global Event Finder"
+            aria-expanded={resultsOpen && hasActiveSearch}
+            aria-controls="global-event-finder-results"
+            role="combobox"
+            placeholder="Search events, faculty, locations, courses..."
+            className="min-w-0 flex-1 bg-transparent text-sm font-bold text-cyan-50 outline-none placeholder:text-cyan-100/44"
+          />
           <span
-            className="rounded-[8px] px-2 py-1 text-[0.68rem] font-black"
+            className="hidden rounded-[7px] px-2 py-1 text-[0.62rem] font-black text-cyan-100/70 sm:inline"
             style={{
-              border: "1px solid rgba(226, 232, 240, 0.16)",
-              background: "rgba(15, 23, 42, 0.34)",
-              color: "#e0f2fe",
+              border: "1px solid rgba(226, 232, 240, 0.12)",
+              background: "rgba(15, 23, 42, 0.32)",
             }}
           >
             /
           </span>
+          {query || activeChip ? (
+            <button
+              type="button"
+              onClick={clearSearch}
+              className="rounded-full px-2 py-1 text-[0.68rem] font-black text-cyan-100/78 transition hover:text-white"
+              aria-label="Clear Global Event Finder"
+            >
+              Clear
+            </button>
+          ) : null}
         </div>
-      </div>
 
-      <div className="mt-3 flex items-center gap-2 rounded-[12px] px-3 py-2"
-        style={{
-          border: "1px solid rgba(125, 211, 252, 0.28)",
-          background: "rgba(2, 24, 38, 0.48)",
-          boxShadow: resultsOpen ? "0 0 0 2px rgba(45, 212, 191, 0.12)" : "none",
-        }}
-      >
-        <span aria-hidden="true" className="h-2.5 w-2.5 shrink-0 rounded-full bg-cyan-300 shadow-[0_0_18px_rgba(103,232,249,0.78)]" />
-        <input
-          ref={inputRef}
-          value={query}
-          onChange={(event) => {
-            setQuery(event.target.value);
-            setResultsOpen(Boolean(event.target.value.trim() || activeChip));
+        <div className="flex shrink-0 flex-wrap items-center gap-1.5 text-[0.66rem] font-black uppercase tracking-[0.08em]">
+          <span className="rounded-full px-2 py-1 text-cyan-50/78" style={{ border: "1px solid rgba(125, 211, 252, 0.16)", background: "rgba(14, 165, 233, 0.10)" }}>
+            {quickStats.operations} ops
+          </span>
+          <span className="rounded-full px-2 py-1 text-amber-100/82" style={{ border: "1px solid rgba(251, 191, 36, 0.18)", background: "rgba(251, 191, 36, 0.08)" }}>
+            {quickStats.attention} attention
+          </span>
+          <span className="rounded-full px-2 py-1 text-teal-100/82" style={{ border: "1px solid rgba(45, 212, 191, 0.18)", background: "rgba(20, 184, 166, 0.09)" }}>
+            {quickStats.today} live/today
+          </span>
+        </div>
+
+        <button
+          type="button"
+          onClick={toggleCollapsed}
+          className="shrink-0 rounded-full px-2.5 py-1 text-[0.66rem] font-black uppercase tracking-[0.08em] text-cyan-100/76 transition hover:text-white"
+          style={{
+            border: "1px solid rgba(186, 230, 253, 0.14)",
+            background: "rgba(186, 230, 253, 0.06)",
           }}
-          onFocus={() => setResultsOpen(hasActiveSearch)}
-          aria-label="Global Event Finder"
-          aria-expanded={resultsOpen && hasActiveSearch}
-          aria-controls="global-event-finder-results"
-          role="combobox"
-          placeholder="Search title, faculty, course, team, location..."
-          className="min-w-0 flex-1 bg-transparent text-sm font-bold text-cyan-50 outline-none placeholder:text-cyan-100/48"
-        />
-        {query || activeChip ? (
-          <button
-            type="button"
-            onClick={clearSearch}
-            className="rounded-full px-2 py-1 text-xs font-black text-cyan-100/80 transition hover:text-white"
-            aria-label="Clear Global Event Finder"
-          >
-            Clear
-          </button>
-        ) : null}
+          aria-expanded="true"
+        >
+          Minimize
+        </button>
       </div>
 
-      <div className="mt-3 flex flex-wrap gap-1.5" aria-label="Operational search filters">
+      <div className="mt-2 flex flex-wrap gap-1" aria-label="Operational search filters">
         {chipOptions.map((chip) => {
           const selected = activeChip === chip.key;
           return (
@@ -942,14 +1030,14 @@ function GlobalEventFinder({
               key={chip.key}
               type="button"
               onClick={() => toggleChip(chip.key)}
-              className="rounded-full px-2.5 py-1 text-[0.68rem] font-black uppercase tracking-[0.08em] transition hover:-translate-y-0.5"
+              className="rounded-full px-2 py-0.5 text-[0.62rem] font-black uppercase tracking-[0.07em] transition hover:-translate-y-0.5"
               style={{
-                border: selected ? "1px solid rgba(45, 212, 191, 0.58)" : "1px solid rgba(186, 230, 253, 0.14)",
+                border: selected ? "1px solid rgba(45, 212, 191, 0.52)" : "1px solid rgba(186, 230, 253, 0.13)",
                 background: selected
-                  ? "linear-gradient(135deg, rgba(20, 184, 166, 0.26), rgba(14, 165, 233, 0.18))"
-                  : "rgba(186, 230, 253, 0.07)",
+                  ? "linear-gradient(135deg, rgba(20, 184, 166, 0.24), rgba(14, 165, 233, 0.16))"
+                  : "rgba(186, 230, 253, 0.055)",
                 color: selected ? "#ccfbf1" : "#bae6fd",
-                boxShadow: selected ? "0 0 18px rgba(45, 212, 191, 0.14)" : "none",
+                boxShadow: selected ? "0 0 14px rgba(45, 212, 191, 0.12)" : "none",
               }}
               aria-pressed={selected}
             >
@@ -964,7 +1052,7 @@ function GlobalEventFinder({
         <div
           id="global-event-finder-results"
           role="listbox"
-          className="absolute left-0 right-0 top-[calc(100%-6px)] z-30 mt-2 grid max-h-[430px] gap-2 overflow-y-auto rounded-[14px] p-2"
+          className="absolute left-0 right-0 top-[calc(100%+4px)] z-30 grid max-h-[360px] gap-1.5 overflow-y-auto rounded-[14px] p-2"
           style={{
             border: "1px solid rgba(125, 211, 252, 0.24)",
             background: "linear-gradient(180deg, rgba(4, 25, 39, 0.98) 0%, rgba(8, 47, 73, 0.96) 100%)",
@@ -984,7 +1072,7 @@ function GlobalEventFinder({
                   key={result.item.event.id}
                   role="option"
                   aria-selected="false"
-                  className="rounded-[12px] px-3 py-3 transition hover:-translate-y-0.5"
+                  className="rounded-[12px] px-3 py-2.5 transition hover:-translate-y-0.5"
                   style={{
                     border: "1px solid rgba(125, 211, 252, 0.18)",
                     background: "linear-gradient(135deg, rgba(8, 47, 73, 0.90) 0%, rgba(15, 82, 101, 0.72) 100%)",
@@ -1015,7 +1103,7 @@ function GlobalEventFinder({
                       </span>
                     </div>
 
-                    <div className="mt-2 flex flex-wrap gap-1.5">
+                    <div className="mt-1.5 flex flex-wrap gap-1.5">
                       {[
                         result.eventTypeLabel,
                         result.trainingLabel,
@@ -1040,7 +1128,7 @@ function GlobalEventFinder({
                     </div>
                   </button>
 
-                  <div className="mt-3 flex flex-wrap gap-1.5">
+                  <div className="mt-2 flex flex-wrap gap-1.5">
                     <Link
                       href={eventHref}
                       onClick={() => setResultsOpen(false)}
@@ -1561,7 +1649,7 @@ export default function DashboardPage() {
               </Link>
             </div>
 
-            <div className="mt-4 max-w-3xl">
+            <div className="mt-3 max-w-none">
               <GlobalEventFinder
                 items={allVisibleEvents}
                 myEventIds={myEventIds}
