@@ -2291,6 +2291,175 @@ export default function EventDetailPage() {
       pollMatchEntries.filter((entry) => !entry.selected && !entry.excluded).slice(0, Math.max(Number(event?.sp_needed || 0), 6)),
     [event?.sp_needed, pollMatchEntries]
   );
+  const importedPollResponseSummary = useMemo(() => {
+    const latestMatched = Array.from(importedPollResponsesBySpId.values());
+    const availableCount = latestMatched.filter((entry) => entry.responseStatus === "available").length;
+    const maybeCount = latestMatched.filter((entry) => entry.responseStatus === "maybe").length;
+    const notAvailableCount = latestMatched.filter((entry) => entry.responseStatus === "not_available").length;
+    return {
+      availableCount,
+      maybeCount,
+      notAvailableCount,
+      unmatchedCount: unmatchedImportedPollResponses.length,
+      totalMatched: latestMatched.length,
+    };
+  }, [importedPollResponsesBySpId, unmatchedImportedPollResponses.length]);
+  const importedResponderEntries = useMemo(() => {
+    const excludedIds = new Set(excludedPollSpIdsFromMetadata.map((item) => String(item)));
+    const excludedEmails = new Set(excludedPollSpEmailsFromMetadata.map((item) => normalizeEmail(item)));
+    const demographicFiltersActive =
+      pollMatchGenderFilter !== "any" || pollMatchRaceFilter !== "any" || Boolean(pollMatchAgeKeyword.trim());
+
+    return Array.from(importedPollResponsesBySpId.values())
+      .map((importedResponse) => {
+        const sp = spsById.get(importedResponse.matchedSpId);
+        if (!sp) return null;
+        const assignment = assignmentsBySpId.get(String(sp.id)) || null;
+        const assignmentStatus = assignment ? getAssignmentStatus(assignment) : null;
+        const pollResponseStatus = getEffectivePollResponseStatus(assignment?.notes, importedResponse);
+        const email = getEmail(sp);
+        const emailReady = Boolean(email);
+        const active = isActiveSp(sp);
+        const locationText = [sp.notes, sp.other_roles, sp.telehealth, event?.location].map(asText).join(" ");
+        const detectedLocation = detectLocationFitFromText(locationText);
+        const locationMatched =
+          effectivePollLocationFilter === "any"
+            ? true
+            : effectivePollLocationFilter === "virtual"
+              ? hasTelehealth(sp) || detectedLocation === "virtual"
+              : detectedLocation === effectivePollLocationFilter;
+        const roleKeyword = pollMatchRoleKeyword.trim().toLowerCase();
+        const roleMatch =
+          !roleKeyword ||
+          [sp.other_roles, sp.notes, sp.telehealth]
+            .map(asText)
+            .join(" ")
+            .toLowerCase()
+            .includes(roleKeyword);
+        const keyword = pollMatchKeyword.trim().toLowerCase();
+        const skillMatch = !keyword || getCandidateSearchText(sp).includes(keyword);
+        const ageKeyword = pollMatchAgeKeyword.trim().toLowerCase();
+        const ageFitMatched = !ageKeyword || asText(sp.portrayal_age).toLowerCase().includes(ageKeyword);
+        const genderMatched =
+          pollMatchGenderFilter === "any" ||
+          asText(sp.sex).toLowerCase() === pollMatchGenderFilter.toLowerCase();
+        const raceMatched =
+          pollMatchRaceFilter === "any" ||
+          asText(sp.race).toLowerCase() === pollMatchRaceFilter.toLowerCase();
+        const excluded = excludedIds.has(String(sp.id)) || (email ? excludedEmails.has(normalizeEmail(email)) : false);
+        const isAssigned = Boolean(assignment);
+        const isConfirmed = assignment ? isAssignmentConfirmed(assignment) : false;
+        const demographicPriority =
+          demographicFiltersActive &&
+          ageFitMatched &&
+          genderMatched &&
+          raceMatched;
+        const score = (() => {
+          let total = importedResponse.matchConfidence || 0;
+          if (pollResponseStatus === "available") total += 38;
+          else if (pollResponseStatus === "maybe") total += 20;
+          else if (pollResponseStatus === "not_available") total -= 45;
+          if (demographicPriority) total += 18;
+          if (roleMatch) total += 14;
+          if (locationMatched) total += 14;
+          if (active) total += 12;
+          if (emailReady) total += 10;
+          if (hasTelehealth(sp)) total += 8;
+          if (speaksSpanish(sp)) total += 8;
+          if (isConfirmed) total += 12;
+          else if (isAssigned) total += 6;
+          if (excluded) total -= 1000;
+          return total;
+        })();
+        const reasons = [
+          pollResponseStatus === "available" ? "Imported Available" : "",
+          pollResponseStatus === "maybe" ? "Imported Maybe" : "",
+          pollResponseStatus === "not_available" ? "Imported Not Available" : "",
+          importedResponse.matchType === "email" ? "Email matched" : importedResponse.matchType === "name" ? "Name matched" : "",
+          locationMatched && effectivePollLocationFilter !== "any"
+            ? effectivePollLocationFilter === "elkins_park"
+              ? "Elkins Park fit"
+              : effectivePollLocationFilter === "center_city"
+                ? "Center City fit"
+                : "Virtual ready"
+            : "",
+          roleKeyword && roleMatch ? "Role fit" : "",
+          pollMatchAgeKeyword.trim() && ageFitMatched ? "Age range fit" : "",
+          pollMatchGenderFilter !== "any" && genderMatched ? "Gender fit" : "",
+          pollMatchRaceFilter !== "any" && raceMatched ? "Role fit" : "",
+          keyword && skillMatch ? "Skill match" : "",
+          speaksSpanish(sp) ? "Spanish" : "",
+          hasTelehealth(sp) ? "Virtual ready" : "",
+          active ? "Active" : "",
+          emailReady ? "Email ready" : "",
+          isAssigned ? "Already assigned" : "",
+          isConfirmed ? "Already confirmed" : "",
+          excluded ? "Excluded" : "",
+        ].filter(Boolean);
+        const group =
+          pollResponseStatus === "not_available"
+            ? "backup"
+            : demographicPriority && pollResponseStatus !== "no_response"
+              ? "demographic"
+              : pollResponseStatus === "available"
+                ? score >= 85
+                  ? "best"
+                  : "good"
+                : pollResponseStatus === "maybe" || pollResponseStatus === "no_response"
+                  ? "backup"
+                  : "good";
+        return {
+          sp,
+          assignment,
+          assignmentStatus,
+          pollResponseStatus,
+          importedResponse,
+          isAssigned,
+          isConfirmed,
+          isActive: active,
+          emailReady,
+          excluded,
+          score,
+          reasons,
+          group,
+        };
+      })
+      .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
+      .sort((a, b) => {
+        const responseRank = { available: 0, maybe: 1, no_response: 2, not_available: 3 } satisfies Record<PollResponseStatus, number>;
+        const responseCompare = responseRank[a.pollResponseStatus] - responseRank[b.pollResponseStatus];
+        if (responseCompare !== 0) return responseCompare;
+        const scoreCompare = b.score - a.score;
+        if (scoreCompare !== 0) return scoreCompare;
+        const confidenceCompare = (b.importedResponse.matchConfidence || 0) - (a.importedResponse.matchConfidence || 0);
+        if (confidenceCompare !== 0) return confidenceCompare;
+        if (a.isActive !== b.isActive) return a.isActive ? -1 : 1;
+        if (a.emailReady !== b.emailReady) return a.emailReady ? -1 : 1;
+        return getFullName(a.sp).localeCompare(getFullName(b.sp));
+      });
+  }, [
+    assignmentsBySpId,
+    effectivePollLocationFilter,
+    event?.location,
+    excludedPollSpEmailsFromMetadata,
+    excludedPollSpIdsFromMetadata,
+    importedPollResponsesBySpId,
+    pollMatchAgeKeyword,
+    pollMatchGenderFilter,
+    pollMatchKeyword,
+    pollMatchRaceFilter,
+    pollMatchRoleKeyword,
+    spsById,
+  ]);
+  const importedResponderGroups = useMemo(
+    () => ({
+      best: importedResponderEntries.filter((entry) => entry.group === "best"),
+      good: importedResponderEntries.filter((entry) => entry.group === "good"),
+      backup: importedResponderEntries.filter((entry) => entry.group === "backup"),
+      demographic: importedResponderEntries.filter((entry) => entry.group === "demographic"),
+    }),
+    [importedResponderEntries]
+  );
 
   const confirmedCount = assignments.filter(
     (assignment) => getAssignmentStatus(assignment) === "confirmed"
@@ -3100,6 +3269,8 @@ const summaryTimeLabel = useMemo(() => {
       isActive: boolean;
       isTelehealthReady: boolean;
       hasPtPreferred: boolean;
+      importedResponse: ImportedPollResponseRecord | null;
+      importedMatchConfidence: number;
     }>();
 
     activePollSelectedSpIds.forEach((spId) => {
@@ -3107,17 +3278,20 @@ const summaryTimeLabel = useMemo(() => {
       if (!sp) return;
       const assignment = assignmentsBySpId.get(String(sp.id)) || null;
       const assignmentStatus = assignment ? getAssignmentStatus(assignment) : null;
+      const importedResponse = importedPollResponsesBySpId.get(String(sp.id)) || null;
       byId.set(String(sp.id), {
         sp,
         assignment,
         assignmentStatus,
-        pollResponseStatus: getPollResponseStatus(assignment?.notes),
+        pollResponseStatus: getEffectivePollResponseStatus(assignment?.notes, importedResponse),
         availabilityMatch: availabilityMatchBySpId.get(sp.id)?.status || "unknown",
         isAssigned: Boolean(assignment),
         isConfirmed: assignment ? isAssignmentConfirmed(assignment) : false,
         isActive: isActiveSp(sp),
         isTelehealthReady: hasTelehealth(sp),
         hasPtPreferred: hasPtPreferred(sp),
+        importedResponse,
+        importedMatchConfidence: importedResponse?.matchConfidence || 0,
       });
     });
 
@@ -3127,17 +3301,20 @@ const summaryTimeLabel = useMemo(() => {
       if (byId.has(String(sp.id))) return;
       const assignment = assignmentsBySpId.get(String(sp.id)) || null;
       const assignmentStatus = assignment ? getAssignmentStatus(assignment) : null;
+      const importedResponse = importedPollResponsesBySpId.get(String(sp.id)) || null;
       byId.set(String(sp.id), {
         sp,
         assignment,
         assignmentStatus,
-        pollResponseStatus: getPollResponseStatus(assignment?.notes),
+        pollResponseStatus: getEffectivePollResponseStatus(assignment?.notes, importedResponse),
         availabilityMatch: availabilityMatchBySpId.get(sp.id)?.status || "unknown",
         isAssigned: Boolean(assignment),
         isConfirmed: assignment ? isAssignmentConfirmed(assignment) : false,
         isActive: isActiveSp(sp),
         isTelehealthReady: hasTelehealth(sp),
         hasPtPreferred: hasPtPreferred(sp),
+        importedResponse,
+        importedMatchConfidence: importedResponse?.matchConfidence || 0,
       });
     });
 
@@ -3150,6 +3327,8 @@ const summaryTimeLabel = useMemo(() => {
       const availabilityCompare =
         getAvailabilityMatchRank(a.availabilityMatch) - getAvailabilityMatchRank(b.availabilityMatch);
       if (availabilityCompare !== 0) return availabilityCompare;
+      const importedCompare = b.importedMatchConfidence - a.importedMatchConfidence;
+      if (importedCompare !== 0) return importedCompare;
       return getFullName(a.sp).localeCompare(getFullName(b.sp));
     });
   }, [
@@ -3157,6 +3336,7 @@ const summaryTimeLabel = useMemo(() => {
     activePollSelectedSpIds,
     assignmentsBySpId,
     availabilityMatchBySpId,
+    importedPollResponsesBySpId,
     spByEmail,
     spsById,
   ]);
@@ -3380,22 +3560,10 @@ const summaryTimeLabel = useMemo(() => {
   }, [coverageGap, matchMakerTopMatches]);
   const pollResponseSummary = useMemo(() => {
     const selectedIds = Array.from(new Set(activePollSelectedSpIds.map((item) => item.trim()).filter(Boolean)));
-    let availableCount = 0;
-    let maybeCount = 0;
-    let notAvailableCount = 0;
-    let respondedCount = 0;
-
-    selectedIds.forEach((spId) => {
-      const assignment = assignmentsBySpId.get(spId);
-      const response = parsePollResponseMetadata(assignment?.notes);
-      const status = asText(response.responseStatus).toLowerCase();
-      if (!status) return;
-      respondedCount += 1;
-      if (status === "available") availableCount += 1;
-      else if (status === "maybe") maybeCount += 1;
-      else if (status === "not_available") notAvailableCount += 1;
-    });
-
+    const availableCount = pollResponderEntries.filter((entry) => entry.pollResponseStatus === "available").length;
+    const maybeCount = pollResponderEntries.filter((entry) => entry.pollResponseStatus === "maybe").length;
+    const notAvailableCount = pollResponderEntries.filter((entry) => entry.pollResponseStatus === "not_available").length;
+    const respondedCount = availableCount + maybeCount + notAvailableCount;
     return {
       totalSelected: selectedIds.length,
       availableCount,
@@ -3403,7 +3571,7 @@ const summaryTimeLabel = useMemo(() => {
       notAvailableCount,
       noResponseCount: Math.max(0, selectedIds.length - respondedCount),
     };
-  }, [activePollSelectedSpIds, assignmentsBySpId]);
+  }, [activePollSelectedSpIds, pollResponderEntries]);
   const defaultRelatedKeyword = useMemo(() => getDefaultRelatedEventKeyword(event?.name), [event?.name]);
   const facultyEmails = useMemo(() => {
     const matches = [trainingFacultyText, facultyEmailText]
@@ -3532,6 +3700,98 @@ const summaryTimeLabel = useMemo(() => {
   async function persistPollMetadata(partial: Partial<PollMetadata>, successMessage: string) {
     const nextNotes = upsertPollMetadata(eventEditor.notes, partial);
     return persistTrainingNotes(nextNotes, successMessage);
+  }
+
+  async function handlePollImportFile(file: File | null) {
+    if (!file) return;
+
+    setPollImportSaving(true);
+    setPollImportError("");
+    setEventSaveError("");
+    setEventSaveMessage("");
+
+    try {
+      const rows = await parseImportedPollWorkbook(file);
+      const parsedResponses = rows
+        .map((row) => {
+          const name = getImportFieldValue(row, ["Name", "Full Name", "Responder", "Respondent", "SP Name"]);
+          const email = getImportFieldValue(row, ["Email", "Email Address", "E-mail"]);
+          const availability = getImportFieldValue(row, ["Availability", "Availability Response", "Available"]);
+          const response = getImportFieldValue(row, ["Response", "Answer", "Selection"]);
+          const notes = getImportFieldValue(row, ["Notes", "Comments", "Comment", "Additional Notes"]);
+          const timestamp = getImportFieldValue(row, ["Timestamp", "Submitted At", "Submission Time", "Completion time", "Start time"]);
+          const normalizedEmail = normalizeEmail(email);
+          const emailMatch = normalizedEmail ? spByEmail.get(normalizedEmail) : undefined;
+          const nameMatch = !emailMatch && name ? spByNormalizedName.get(normalizeMatchName(name)) : undefined;
+          const matchedSp = emailMatch || nameMatch;
+          const classified = classifyImportedAvailabilityResponse([availability, response, notes].filter(Boolean).join(" "));
+
+          return {
+            name,
+            email,
+            normalizedEmail,
+            responseStatus: classified.status,
+            responseLabel: classified.label,
+            responseSubmittedAt: timestamp,
+            responseNote: notes,
+            matchedSpId: matchedSp ? String(matchedSp.id) : "",
+            matchedSpEmail: matchedSp ? getEmail(matchedSp) : "",
+            matchedSpName: matchedSp ? getFullName(matchedSp) : "",
+            matchType: matchedSp ? (emailMatch ? "email" : "name") : "unmatched",
+            matchConfidence: matchedSp ? (emailMatch ? 100 : 65) : 0,
+          } satisfies ImportedPollResponseRecord;
+        })
+        .filter((entry) => entry.name || entry.email);
+
+      if (!parsedResponses.length) {
+        throw new Error("No responder rows were found in that poll export.");
+      }
+
+      await persistPollMetadata(
+        {
+          importedPollResponses: encodeImportedPollResponses(parsedResponses),
+          pollImportCreatedAt: new Date().toISOString(),
+          pollImportSource: "Microsoft Forms",
+        },
+        `Imported ${parsedResponses.length} poll response${parsedResponses.length === 1 ? "" : "s"}.`
+      );
+      setPollImportIgnoredUnmatched(false);
+      if (pollImportInputRef.current) pollImportInputRef.current.value = "";
+    } catch (error) {
+      setPollImportError(error instanceof Error ? error.message : "Could not import poll responses.");
+    } finally {
+      setPollImportSaving(false);
+    }
+  }
+
+  async function handleExcludeImportedResponder(spId: string, email?: string) {
+    const nextIds = Array.from(new Set([...excludedPollSpIdsFromMetadata, String(spId)].filter(Boolean)));
+    const nextEmails = Array.from(
+      new Set([...excludedPollSpEmailsFromMetadata, normalizeEmail(email || "")].filter(Boolean))
+    );
+    await persistPollExclusions(nextIds, nextEmails, "Imported responder excluded from staffing suggestions.");
+  }
+
+  async function handleAssignImportedResponders(spIds: string[], label: string) {
+    const ids = Array.from(new Set(spIds.map((spId) => String(spId)).filter(Boolean)));
+    if (!ids.length) {
+      showSuccessMessage("No matching responders were ready for that action.");
+      return;
+    }
+    await assignMultipleSpIds(ids, label);
+  }
+
+  async function handleMarkImportedBackup(spId: string) {
+    const existingAssignment = assignmentsBySpId.get(String(spId));
+    if (existingAssignment) {
+      await handleBulkAssignmentStatusUpdate(
+        [existingAssignment],
+        "backup",
+        "Responder moved to backup."
+      );
+      return;
+    }
+    await assignMultipleSpIds([spId], "Responder added as backup.", { status: "backup", confirmed: false });
   }
 
   async function handleCreatePoll() {
@@ -5904,6 +6164,9 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
     selectedBorder: "rgba(99, 181, 217, 0.24)",
     buttonBg: "linear-gradient(180deg, rgba(232, 247, 251, 0.98) 0%, rgba(219, 240, 246, 0.98) 100%)",
     buttonBorder: "rgba(110, 171, 191, 0.24)",
+    dangerBg: "rgba(142, 28, 28, 0.16)",
+    dangerBorder: "rgba(255, 95, 95, 0.42)",
+    dangerText: "#ff6b6b",
   } as const;
   const staffingCommandSurfaceStyle: React.CSSProperties = {
     ...cardStyle,
@@ -6013,13 +6276,13 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                     ? "#a7f3d0"
                     : coverageRiskTone === "yellow"
                       ? "#fde68a"
-                      : "#fecaca",
+                      : staffingWorkspacePalette.dangerText,
                 border:
                   coverageRiskTone === "green"
                     ? "1px solid rgba(167, 243, 208, 0.18)"
                     : coverageRiskTone === "yellow"
                       ? "1px solid rgba(253, 230, 138, 0.2)"
-                      : "1px solid rgba(252, 165, 165, 0.2)",
+                      : `1px solid ${staffingWorkspacePalette.dangerBorder}`,
               }}
             >
               {staffingHealthLabel}
@@ -6134,19 +6397,19 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                           ? "rgba(167, 243, 208, 0.12)"
                           : coverageRiskTone === "yellow"
                             ? "rgba(253, 230, 138, 0.14)"
-                            : "rgba(252, 165, 165, 0.14)",
+                            : staffingWorkspacePalette.dangerBg,
                       border:
                         coverageRiskTone === "green"
                           ? "1px solid rgba(167, 243, 208, 0.18)"
                           : coverageRiskTone === "yellow"
                             ? "1px solid rgba(253, 230, 138, 0.2)"
-                            : "1px solid rgba(252, 165, 165, 0.2)",
+                            : `1px solid ${staffingWorkspacePalette.dangerBorder}`,
                       color:
                         coverageRiskTone === "green"
                           ? "#a7f3d0"
                           : coverageRiskTone === "yellow"
                             ? "#fde68a"
-                            : "#fecaca",
+                            : staffingWorkspacePalette.dangerText,
                     }}
                   >
                     <div style={{ ...statLabel, color: "inherit" }}>Coverage Health</div>
@@ -6176,6 +6439,13 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                     {assignedCount} assigned / {confirmedCount} confirmed · {assignedBccEmails.length} email{assignedBccEmails.length === 1 ? "" : "s"} ready
                   </div>
                   <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                    <input
+                      ref={pollImportInputRef}
+                      type="file"
+                      accept=".csv,.xlsx,.xls"
+                      onChange={(event) => void handlePollImportFile(event.target.files?.[0] || null)}
+                      style={{ display: "none" }}
+                    />
                     <button
                       type="button"
                       onClick={() => void handleConfirmAllAssignments()}
@@ -6209,8 +6479,208 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                     >
                       {showCandidatePool ? "Hide Candidate SPs" : "Browse Candidate SPs"}
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => pollImportInputRef.current?.click()}
+                      disabled={pollImportSaving}
+                      style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px", opacity: pollImportSaving ? 0.65 : 1 }}
+                    >
+                      {pollImportSaving ? "Uploading..." : "Upload Poll Results"}
+                    </button>
                   </div>
                 </div>
+
+                {pollImportError ? (
+                  <div className="cfsp-alert cfsp-alert-error">{pollImportError}</div>
+                ) : null}
+
+                {importedPollResponses.length ? (
+                  <div
+                    style={{
+                      ...staffingMetricCardStyle,
+                      padding: "12px 14px",
+                      border: importedPollResponseSummary.unmatchedCount > 0 ? `1px solid ${staffingWorkspacePalette.borderStrong}` : staffingMetricCardStyle.border,
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+                      <div>
+                        <div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Imported Poll Results</div>
+                        <div style={{ marginTop: "4px", color: staffingWorkspacePalette.textStrong, fontWeight: 800, fontSize: "13px" }}>
+                          {pollMetadata.pollImportSource || "Microsoft Forms"} · {formatUploadedTimestamp(pollMetadata.pollImportCreatedAt)}
+                        </div>
+                      </div>
+                      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void handleAssignImportedResponders(
+                              importedResponderEntries
+                                .filter((entry) => entry.pollResponseStatus === "available" && !entry.isAssigned && entry.isActive && !entry.excluded)
+                                .map((entry) => entry.sp.id),
+                              "Imported available responders assigned."
+                            )
+                          }
+                          disabled={
+                            saving ||
+                            importedResponderEntries.filter((entry) => entry.pollResponseStatus === "available" && !entry.isAssigned && entry.isActive && !entry.excluded).length === 0
+                          }
+                          style={{ ...buttonStyle, padding: "8px 11px", opacity: saving ? 0.65 : 1 }}
+                        >
+                          Add Available to Assigned
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void handleAssignImportedResponders(
+                              importedResponderEntries
+                                .filter((entry) => entry.pollResponseStatus !== "not_available" && !entry.isAssigned && entry.isActive && !entry.excluded)
+                                .slice(0, Math.max(coverageGap, 1))
+                                .map((entry) => entry.sp.id),
+                              "Imported top matches assigned."
+                            )
+                          }
+                          disabled={
+                            saving ||
+                            importedResponderEntries.filter((entry) => entry.pollResponseStatus !== "not_available" && !entry.isAssigned && entry.isActive && !entry.excluded).length === 0
+                          }
+                          style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px", opacity: saving ? 0.65 : 1 }}
+                        >
+                          Add Top Matches
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleMoveMaybeToBackup()}
+                          disabled={saving || maybePollResponders.filter((entry) => entry.assignment).length === 0}
+                          style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px", opacity: saving ? 0.65 : 1 }}
+                        >
+                          Move Maybe to Backup
+                        </button>
+                      </div>
+                    </div>
+
+                    <div
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))",
+                        gap: "8px",
+                        marginTop: "10px",
+                      }}
+                    >
+                      <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Available</div><div style={{ ...statValue, color: "#0f766e" }}>{importedPollResponseSummary.availableCount}</div></div>
+                      <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Maybe</div><div style={{ ...statValue, color: "#b45309" }}>{importedPollResponseSummary.maybeCount}</div></div>
+                      <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Not Available</div><div style={{ ...statValue, color: staffingWorkspacePalette.dangerText }}>{importedPollResponseSummary.notAvailableCount}</div></div>
+                      <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>No Match Found</div><div style={{ ...statValue, color: staffingWorkspacePalette.textMuted }}>{importedPollResponseSummary.unmatchedCount}</div></div>
+                    </div>
+
+                    <div style={{ display: "grid", gap: "10px", marginTop: "12px" }}>
+                      {[
+                        { label: "Best Matches", items: importedResponderGroups.best, tone: "rgba(16, 185, 129, 0.12)" },
+                        { label: "Good Alternates", items: importedResponderGroups.good, tone: "rgba(59, 130, 246, 0.1)" },
+                        { label: "Backup Options", items: importedResponderGroups.backup, tone: "rgba(245, 158, 11, 0.12)" },
+                        { label: "Demographic Priority Matches", items: importedResponderGroups.demographic, tone: "rgba(196, 181, 253, 0.16)" },
+                      ].map((group) =>
+                        group.items.length ? (
+                          <div key={group.label} style={{ display: "grid", gap: "8px" }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+                              <div style={{ ...statLabel, color: staffingWorkspacePalette.textStrong }}>{group.label}</div>
+                              <span style={{ ...staffingSelectedChipStyle, background: group.tone, color: staffingWorkspacePalette.textStrong }}>{group.items.length}</span>
+                            </div>
+                            {group.items.slice(0, 4).map((entry) => (
+                              <div key={`${group.label}-${entry.sp.id}`} style={staffingRowCardStyle}>
+                                <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.4fr) auto", gap: "10px", alignItems: "center" }}>
+                                  <div style={{ minWidth: 0 }}>
+                                    <div style={{ color: staffingWorkspacePalette.textStrong, fontWeight: 900 }}>{getFullName(entry.sp)}</div>
+                                    <div style={{ marginTop: "4px", color: staffingWorkspacePalette.textMuted, fontWeight: 700, fontSize: "12px" }}>
+                                      {[getEmail(entry.sp), entry.sp.phone].filter(Boolean).join(" · ") || "No contact info"}
+                                    </div>
+                                  </div>
+                                  <span style={{ ...staffingSelectedChipStyle, background: "rgba(186, 230, 253, 0.28)", color: staffingWorkspacePalette.textStrong }}>
+                                    Score {entry.score}
+                                  </span>
+                                </div>
+                                <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                                  {entry.reasons.slice(0, 6).map((reason) => (
+                                    <span
+                                      key={`${entry.sp.id}-${reason}`}
+                                      style={{
+                                        borderRadius: "999px",
+                                        padding: "4px 8px",
+                                        fontSize: "11px",
+                                        fontWeight: 900,
+                                        background: staffingWorkspacePalette.chip,
+                                        border: `1px solid ${staffingWorkspacePalette.chipBorder}`,
+                                        color: staffingWorkspacePalette.chipText,
+                                      }}
+                                    >
+                                      {reason}
+                                    </span>
+                                  ))}
+                                </div>
+                                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                                  <button
+                                    type="button"
+                                    onClick={() => void handleAddAssignment(entry.sp.id)}
+                                    disabled={saving || entry.isAssigned}
+                                    style={{ ...buttonStyle, padding: "7px 10px", opacity: saving || entry.isAssigned ? 0.65 : 1 }}
+                                  >
+                                    {entry.isAssigned ? "Assigned" : "Assign to Event"}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => addPollSelection([entry.sp.id], "Imported responder added to poll.")}
+                                    disabled={entry.excluded}
+                                    style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px", opacity: entry.excluded ? 0.65 : 1 }}
+                                  >
+                                    Add to Poll
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => void handleExcludeImportedResponder(entry.sp.id, getEmail(entry.sp))}
+                                    style={{ ...dangerButtonStyle, padding: "7px 10px" }}
+                                  >
+                                    Exclude
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => void handleMarkImportedBackup(entry.sp.id)}
+                                    style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px" }}
+                                  >
+                                    Mark Backup
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : null
+                      )}
+
+                      {unmatchedImportedPollResponses.length && !pollImportIgnoredUnmatched ? (
+                        <div style={{ display: "grid", gap: "8px" }}>
+                          <div style={{ ...statLabel, color: staffingWorkspacePalette.textStrong }}>No Match Found</div>
+                          {unmatchedImportedPollResponses.slice(0, 4).map((entry, index) => (
+                            <div key={`unmatched-import-${index}`} style={staffingRowCardStyle}>
+                              <div style={{ color: staffingWorkspacePalette.textStrong, fontWeight: 900 }}>
+                                {entry.name || "Unnamed responder"}
+                              </div>
+                              <div style={{ color: staffingWorkspacePalette.textMuted, fontWeight: 700, fontSize: "12px" }}>
+                                {entry.email || "No email provided"} · {entry.responseLabel}
+                              </div>
+                            </div>
+                          ))}
+                          <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                            <button
+                              type="button"
+                              onClick={() => setPollImportIgnoredUnmatched(true)}
+                              style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px" }}
+                            >
+                              Ignore Unmatched
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
 
                 {showEmailDraft ? (
                   <div style={{ ...staffingMetricCardStyle, padding: "12px 14px" }}>
