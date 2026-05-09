@@ -68,6 +68,7 @@ type SPRow = {
   first_name: string | null;
   last_name: string | null;
   full_name: string | null;
+  schedule_name?: string | null;
   working_email: string | null;
   email: string | null;
   phone: string | null;
@@ -667,6 +668,7 @@ function sortSPs(a: SPRow, b: SPRow) {
 function getCandidateSearchText(sp: SPRow) {
   return [
     getFullName(sp),
+    sp.schedule_name,
     getEmail(sp),
     sp.phone,
     sp.notes,
@@ -1825,6 +1827,8 @@ export default function EventDetailPage() {
   const [assignments, setAssignments] = useState<AssignmentRow[]>([]);
   const [availabilityRows, setAvailabilityRows] = useState<AvailabilityRow[]>([]);
   const [selectedSpId, setSelectedSpId] = useState("");
+  const [quickStaffingQuery, setQuickStaffingQuery] = useState("");
+  const [quickStaffingSpId, setQuickStaffingSpId] = useState("");
   const [candidateQuery, setCandidateQuery] = useState("");
   const [showCandidatePool, setShowCandidatePool] = useState(false);
   const [activeOnly, setActiveOnly] = useState(false);
@@ -2106,6 +2110,18 @@ export default function EventDetailPage() {
     () => filteredCandidateSps.filter((sp) => !assignedSpIds.has(String(sp.id))),
     [assignedSpIds, filteredCandidateSps]
   );
+
+  const quickStaffingOptions = useMemo(() => {
+    const query = quickStaffingQuery.trim().toLowerCase();
+    return sps
+      .filter((sp) => {
+        if (assignedSpIds.has(String(sp.id))) return false;
+        if (!query) return true;
+        return getCandidateSearchText(sp).includes(query);
+      })
+      .sort(sortSPs)
+      .slice(0, 30);
+  }, [assignedSpIds, quickStaffingQuery, sps]);
 
   const pollMetadata = useMemo(() => parsePollMetadata(eventEditor.notes), [eventEditor.notes]);
   const pollSelectedSpIdsFromMetadata = useMemo(
@@ -5412,6 +5428,18 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
     setSaving(false);
   }
 
+  async function handleQuickStaffingAdd(status: "confirmed" | "backup") {
+    if (!quickStaffingSpId) return;
+    const sp = spsById.get(quickStaffingSpId);
+    await assignMultipleSpIds(
+      [quickStaffingSpId],
+      `${sp ? getFullName(sp) : "SP"} added as ${status === "confirmed" ? "primary" : "backup"}.`,
+      { status, confirmed: status === "confirmed" }
+    );
+    setQuickStaffingSpId("");
+    setQuickStaffingQuery("");
+  }
+
   async function handleStatusChange(assignment: AssignmentRow, status: AssignmentStatus) {
     setSaving(true);
     setAssigningSpId("");
@@ -6596,6 +6624,84 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                 </Link>
               </div>
             ) : null}
+
+            <section
+              style={{
+                border: `1px solid ${staffingWorkspacePalette.borderStrong}`,
+                borderRadius: "16px",
+                padding: "12px 14px",
+                background: "linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(238, 248, 252, 0.96) 100%)",
+                boxShadow: "0 10px 22px rgba(42, 112, 140, 0.08)",
+                display: "grid",
+                gap: "10px",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
+                <div>
+                  <div style={{ ...statLabel, color: staffingWorkspacePalette.textStrong }}>Quick Add SP</div>
+                  <div style={{ marginTop: "4px", color: staffingWorkspacePalette.textMuted, fontWeight: 700, fontSize: "13px" }}>
+                    Fast primary or backup staffing without opening the full finder.
+                  </div>
+                </div>
+                <span style={{ ...staffingSelectedChipStyle, background: "rgba(209, 250, 229, 0.34)", color: "#0f766e" }}>
+                  {sps.length - assignedSpIds.size} available
+                </span>
+              </div>
+
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+                  gap: "8px",
+                  alignItems: "center",
+                }}
+              >
+                <input
+                  value={quickStaffingQuery}
+                  onChange={(event) => {
+                    setQuickStaffingQuery(event.target.value);
+                    setQuickStaffingSpId("");
+                  }}
+                  placeholder="Search name, email, schedule, phone..."
+                  style={{ ...inputStyle, width: "100%", boxSizing: "border-box", background: "#ffffff" }}
+                />
+                <select
+                  value={quickStaffingSpId}
+                  onChange={(event) => setQuickStaffingSpId(event.target.value)}
+                  disabled={saving || quickStaffingOptions.length === 0}
+                  style={{ ...selectStyle, width: "100%", maxWidth: "none", background: "#ffffff" }}
+                >
+                  <option value="">
+                    {quickStaffingOptions.length === 0 ? "No unassigned SPs match" : "Select SP"}
+                  </option>
+                  {quickStaffingOptions.map((sp) => {
+                    const email = getEmail(sp);
+                    const scheduleName = asText(sp.schedule_name);
+                    return (
+                      <option key={`quick-add-${sp.id}`} value={sp.id}>
+                        {[getFullName(sp), scheduleName, email, sp.phone].map(asText).filter(Boolean).join(" - ")}
+                      </option>
+                    );
+                  })}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => void handleQuickStaffingAdd("confirmed")}
+                  disabled={saving || !quickStaffingSpId}
+                  style={{ ...buttonStyle, padding: "9px 12px", opacity: saving || !quickStaffingSpId ? 0.65 : 1, whiteSpace: "nowrap" }}
+                >
+                  Add Primary
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleQuickStaffingAdd("backup")}
+                  disabled={saving || !quickStaffingSpId}
+                  style={{ ...staffingSecondaryButtonStyle, padding: "9px 12px", opacity: saving || !quickStaffingSpId ? 0.65 : 1, whiteSpace: "nowrap" }}
+                >
+                  Add Backup
+                </button>
+              </div>
+            </section>
 
             <details
               open={staffingOverviewOpen}
