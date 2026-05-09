@@ -7,6 +7,8 @@ import SiteShell from "../../components/SiteShell";
 
 type EventType = "sp" | "skills" | "training" | "virtual" | "hifi";
 type WizardStep = 0 | 1 | 2 | 3;
+type TrainingRequirement = "yes" | "no" | "tbd";
+type TrainingOwnership = "faculty_led" | "internal_sim" | "shared" | "tbd";
 
 type GeneratedSession = {
   session_date: string;
@@ -35,6 +37,19 @@ const EVENT_TYPE_OPTIONS: Array<{ value: EventType; label: string }> = [
 ];
 
 const STEP_TITLES = ["Event Info", "Schedule Builder", "Staffing Needs", "Review & Create"] as const;
+
+const TRAINING_REQUIREMENT_OPTIONS: Array<{ value: TrainingRequirement; label: string }> = [
+  { value: "tbd", label: "TBD" },
+  { value: "yes", label: "Yes" },
+  { value: "no", label: "No" },
+];
+
+const TRAINING_OWNERSHIP_OPTIONS: Array<{ value: TrainingOwnership; label: string; detail: string }> = [
+  { value: "faculty_led", label: "Faculty-led training", detail: "Faculty owns SP prep content and timing." },
+  { value: "internal_sim", label: "Internal sim team training", detail: "Sim Ops owns SP prep and logistics." },
+  { value: "shared", label: "Shared/co-led training", detail: "Faculty and Sim Ops coordinate together." },
+  { value: "tbd", label: "TBD", detail: "Ownership still needs confirmation." },
+];
 
 function asText(value: unknown) {
   if (value === null || value === undefined) return "";
@@ -71,6 +86,18 @@ function toDisplayTime(totalMinutes: number) {
 
 function displayStoredTime(value: string) {
   return toDisplayTime(toMinutes(value) || 0);
+}
+
+function getTrainingRequirementLabel(value: TrainingRequirement) {
+  return TRAINING_REQUIREMENT_OPTIONS.find((option) => option.value === value)?.label || "TBD";
+}
+
+function getTrainingOwnershipLabel(value: TrainingOwnership) {
+  return TRAINING_OWNERSHIP_OPTIONS.find((option) => option.value === value)?.label || "TBD";
+}
+
+function boolText(value: boolean) {
+  return value ? "yes" : "no";
 }
 
 function parseDateList(value: string) {
@@ -213,6 +240,15 @@ function buildNotes(args: {
   eventLeadTeam: string;
   simStaff: string;
   courseFaculty: string;
+  trainingRequirement: TrainingRequirement;
+  trainingOwnership: TrainingOwnership;
+  preferredTrainingDate: string;
+  preferredTrainingTime: string;
+  facultyAvailabilityUnknown: boolean;
+  trainingZoomRequired: boolean;
+  trainingRecordingPlanned: boolean;
+  requestFacultyAvailability: boolean;
+  trainingNotes: string;
   studentCount: string;
   notes: string;
   sessionLength: string;
@@ -225,10 +261,21 @@ function buildNotes(args: {
 }) {
   const trainingMetadataLines = [
     "[CFSP_TRAINING_METADATA]",
+    `training_required: ${args.trainingRequirement}`,
+    args.trainingRequirement === "yes" ? `training_ownership: ${args.trainingOwnership}` : "",
+    args.trainingRequirement === "yes" ? `training_scheduling_status: ${args.preferredTrainingDate || args.preferredTrainingTime ? "planned" : "not_scheduled"}` : "",
+    args.preferredTrainingDate ? `preferred_training_date: ${args.preferredTrainingDate}` : "",
+    args.preferredTrainingTime ? `preferred_training_time: ${args.preferredTrainingTime}` : "",
+    args.trainingRequirement === "yes" ? `faculty_availability_unknown: ${boolText(args.facultyAvailabilityUnknown)}` : "",
+    args.trainingRequirement === "yes" ? `training_zoom_required: ${boolText(args.trainingZoomRequired)}` : "",
+    args.trainingRequirement === "yes" ? `training_recording_planned: ${boolText(args.trainingRecordingPlanned)}` : "",
+    args.requestFacultyAvailability ? "faculty_training_coordination_requested: yes" : "",
+    args.requestFacultyAvailability ? "faculty_training_coordination_status: requested" : "",
     args.courseFaculty ? `faculty_names: ${args.courseFaculty}` : "",
     (args.eventLeadTeam || args.simStaff)
       ? `sim_contact: ${args.eventLeadTeam || args.simStaff}`
       : "",
+    args.trainingNotes ? `training_notes: ${args.trainingNotes}` : "",
     "[/CFSP_TRAINING_METADATA]",
   ]
     .filter(Boolean)
@@ -239,6 +286,15 @@ function buildNotes(args: {
     args.eventLeadTeam ? `Event Lead/Team: ${args.eventLeadTeam}` : "",
     args.simStaff ? `Sim Staff: ${args.simStaff}` : "",
     args.courseFaculty ? `Course Faculty: ${args.courseFaculty}` : "",
+    `SP Training Required: ${getTrainingRequirementLabel(args.trainingRequirement)}`,
+    args.trainingRequirement === "yes" ? `SP Training Ownership: ${getTrainingOwnershipLabel(args.trainingOwnership)}` : "",
+    args.preferredTrainingDate ? `Preferred Training Date: ${args.preferredTrainingDate}` : "",
+    args.preferredTrainingTime ? `Preferred Training Time: ${args.preferredTrainingTime}` : "",
+    args.trainingRequirement === "yes" && args.facultyAvailabilityUnknown ? "Faculty Availability: Unknown" : "",
+    args.trainingRequirement === "yes" && args.trainingZoomRequired ? "Training Zoom Required: Yes" : "",
+    args.trainingRequirement === "yes" && args.trainingRecordingPlanned ? "Training Recording Planned: Yes" : "",
+    args.requestFacultyAvailability ? "Faculty Training Coordination: Request faculty availability" : "",
+    args.trainingNotes ? `Training Notes: ${args.trainingNotes}` : "",
     `Student Count: ${args.studentCount || "Uncapped preview"}`,
     `Rotation Rounds Needed: ${args.studentCount ? String(args.rotationsNeeded) : "Uncapped preview"}`,
     `Generated Rotation Rounds: ${args.generatedRotationRounds}`,
@@ -275,6 +331,15 @@ export default function NewEventPage() {
   const [courseFaculty, setCourseFaculty] = useState("");
   const [notes, setNotes] = useState("");
   const [visibility, setVisibility] = useState("team");
+  const [trainingRequirement, setTrainingRequirement] = useState<TrainingRequirement>("tbd");
+  const [trainingOwnership, setTrainingOwnership] = useState<TrainingOwnership>("tbd");
+  const [preferredTrainingDate, setPreferredTrainingDate] = useState("");
+  const [preferredTrainingTime, setPreferredTrainingTime] = useState("");
+  const [facultyAvailabilityUnknown, setFacultyAvailabilityUnknown] = useState(false);
+  const [trainingZoomRequired, setTrainingZoomRequired] = useState(false);
+  const [trainingRecordingPlanned, setTrainingRecordingPlanned] = useState(false);
+  const [requestFacultyAvailability, setRequestFacultyAvailability] = useState(false);
+  const [trainingNotes, setTrainingNotes] = useState("");
 
   const [dateList, setDateList] = useState("");
   const [startTime, setStartTime] = useState("08:00");
@@ -311,6 +376,10 @@ export default function NewEventPage() {
     [endTime, feedbackLengthMinutes, parsedDates, sessionLengthMinutes, startTime]
   );
   const calculatedSpNeeded = eventType === "skills" ? 0 : parsedRoomCount;
+  const trainingRequired = trainingRequirement === "yes";
+  const facultyTrainingCoordinationRelevant =
+    trainingRequired && (trainingOwnership === "faculty_led" || trainingOwnership === "shared");
+  const facultyAvailabilityRequestPlanned = facultyTrainingCoordinationRelevant && requestFacultyAvailability;
   const parsedSpNeeded =
     eventType === "skills"
       ? 0
@@ -355,6 +424,15 @@ export default function NewEventPage() {
     eventLeadTeam,
     simStaff,
     courseFaculty,
+    trainingRequirement,
+    trainingOwnership,
+    preferredTrainingDate,
+    preferredTrainingTime,
+    facultyAvailabilityUnknown,
+    trainingZoomRequired,
+    trainingRecordingPlanned,
+    requestFacultyAvailability: facultyAvailabilityRequestPlanned,
+    trainingNotes,
     studentCount,
     notes,
     sessionLength,
@@ -383,8 +461,35 @@ export default function NewEventPage() {
     }
     if (eventType !== "skills" && parsedSpNeeded <= 0) next.push("SP staffing is set to 0. This event will behave as no-SP-required.");
     if (!asText(simStaff) && !asText(eventLeadTeam)) next.push("Add sim staff or event lead/team so ownership is visible.");
+    if (trainingRequirement === "yes" && trainingOwnership === "tbd") next.push("SP training is marked Yes, but training ownership is still TBD.");
+    if (facultyTrainingCoordinationRelevant && facultyAvailabilityUnknown && !facultyAvailabilityRequestPlanned) {
+      next.push("Faculty-led/co-led training has unknown faculty availability. Consider requesting faculty availability before staffing locks.");
+    }
+    if (trainingRequirement === "yes" && trainingZoomRequired && !preferredTrainingDate) {
+      next.push("Zoom is marked needed for training; add a preferred training date when available.");
+    }
     return next;
-  }, [availableRoundCapacity, eventLeadTeam, eventType, name, parsedDates.length, parsedSpNeeded, parsedStudentCount, rotationRounds.length, rotationsNeeded, simStaff, startTime, endTime]);
+  }, [
+    availableRoundCapacity,
+    endTime,
+    eventLeadTeam,
+    eventType,
+    facultyAvailabilityUnknown,
+    facultyAvailabilityRequestPlanned,
+    facultyTrainingCoordinationRelevant,
+    name,
+    parsedDates.length,
+    parsedSpNeeded,
+    parsedStudentCount,
+    preferredTrainingDate,
+    rotationRounds.length,
+    rotationsNeeded,
+    simStaff,
+    startTime,
+    trainingOwnership,
+    trainingRequirement,
+    trainingZoomRequired,
+  ]);
 
   async function handleCreate(event: React.FormEvent) {
     event.preventDefault();
@@ -612,6 +717,140 @@ export default function NewEventPage() {
                 </label>
               </div>
 
+              <section className="rounded-[14px] border border-[#b7dce8] bg-[linear-gradient(180deg,#f8fdff_0%,#eef8fb_100%)] px-4 py-4">
+                <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                  <div>
+                    <h3 className="m-0 text-[1.05rem] font-black text-[#14304f]">Training Planning</h3>
+                    <p className="mt-1 mb-0 text-sm font-semibold leading-6 text-[#5e7388]">
+                      Capture SP training intent early so ownership, faculty coordination, Zoom, and recording needs are visible after creation.
+                    </p>
+                  </div>
+                  <span className="inline-flex rounded-full border border-[#99d8e9] bg-white/80 px-3 py-1 text-xs font-black uppercase tracking-[0.08em] text-[#1d5f83]">
+                    SP readiness
+                  </span>
+                </div>
+
+                <div className="mt-4 grid gap-4 md:grid-cols-3">
+                  <label className="grid gap-2">
+                    <span className="cfsp-label">Does this event require SP training?</span>
+                    <select className="cfsp-input" value={trainingRequirement} onChange={(e) => setTrainingRequirement(e.target.value as TrainingRequirement)}>
+                      {TRAINING_REQUIREMENT_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="grid gap-2">
+                    <span className="cfsp-label">Training ownership</span>
+                    <select
+                      className="cfsp-input"
+                      value={trainingOwnership}
+                      onChange={(e) => setTrainingOwnership(e.target.value as TrainingOwnership)}
+                      disabled={!trainingRequired}
+                    >
+                      {TRAINING_OWNERSHIP_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <div className="rounded-[12px] border border-[#dce6ee] bg-white/80 px-3 py-3 text-sm font-semibold leading-6 text-[#14304f]">
+                    {trainingRequired
+                      ? TRAINING_OWNERSHIP_OPTIONS.find((option) => option.value === trainingOwnership)?.detail || "Training ownership still needs confirmation."
+                      : trainingRequirement === "no"
+                        ? "Training will be marked not required for this event."
+                        : "Training requirement will remain TBD until operations confirm it."}
+                  </div>
+
+                  <label className="grid gap-2">
+                    <span className="cfsp-label">Preferred training date</span>
+                    <input
+                      className="cfsp-input"
+                      type="date"
+                      value={preferredTrainingDate}
+                      onChange={(e) => setPreferredTrainingDate(e.target.value)}
+                      disabled={!trainingRequired}
+                    />
+                  </label>
+
+                  <label className="grid gap-2">
+                    <span className="cfsp-label">Preferred training time</span>
+                    <input
+                      className="cfsp-input"
+                      type="time"
+                      value={preferredTrainingTime}
+                      onChange={(e) => setPreferredTrainingTime(e.target.value)}
+                      disabled={!trainingRequired}
+                    />
+                  </label>
+
+                  <div className="grid gap-2 rounded-[12px] border border-[#dce6ee] bg-white/80 px-3 py-3">
+                    {[
+                      {
+                        id: "faculty-availability",
+                        label: "Faculty availability unknown",
+                        checked: facultyAvailabilityUnknown,
+                        onChange: setFacultyAvailabilityUnknown,
+                        disabled: !trainingRequired,
+                      },
+                      {
+                        id: "training-zoom",
+                        label: "Zoom required",
+                        checked: trainingZoomRequired,
+                        onChange: setTrainingZoomRequired,
+                        disabled: !trainingRequired,
+                      },
+                      {
+                        id: "training-recording",
+                        label: "Recording planned",
+                        checked: trainingRecordingPlanned,
+                        onChange: setTrainingRecordingPlanned,
+                        disabled: !trainingRequired,
+                      },
+                    ].map((option) => (
+                      <label key={option.id} className="flex items-center gap-2 text-sm font-bold text-[#14304f]">
+                        <input
+                          type="checkbox"
+                          checked={option.checked}
+                          onChange={(e) => option.onChange(e.target.checked)}
+                          disabled={option.disabled}
+                          className="h-4 w-4 accent-[#0f766e]"
+                        />
+                        {option.label}
+                      </label>
+                    ))}
+                  </div>
+
+                  {facultyTrainingCoordinationRelevant ? (
+                    <label className="flex items-center gap-2 rounded-[12px] border border-[#f2d48b] bg-[#fffbeb] px-3 py-3 text-sm font-bold text-[#8a5a13] md:col-span-3">
+                      <input
+                        type="checkbox"
+                        checked={requestFacultyAvailability}
+                        onChange={(e) => setRequestFacultyAvailability(e.target.checked)}
+                        className="h-4 w-4 accent-[#b45309]"
+                      />
+                      Request faculty availability for SP training after event creation
+                    </label>
+                  ) : null}
+
+                  <label className="grid gap-2 md:col-span-3">
+                    <span className="cfsp-label">Training notes</span>
+                    <textarea
+                      className="cfsp-input"
+                      style={{ minHeight: 92, resize: "vertical" }}
+                      value={trainingNotes}
+                      onChange={(e) => setTrainingNotes(e.target.value)}
+                      disabled={!trainingRequired && trainingRequirement !== "tbd"}
+                      placeholder="Faculty constraints, prep ownership, tentative windows, Zoom/recording requirements..."
+                    />
+                  </label>
+                </div>
+              </section>
+
               <div className={`cfsp-alert ${eventType === "skills" || parsedSpNeeded <= 0 ? "cfsp-alert-info" : "cfsp-alert-success"}`}>
                 {eventType === "skills" || parsedSpNeeded <= 0
                   ? "No SP staffing required. This event will suppress SP assignment workflow after creation."
@@ -673,6 +912,13 @@ export default function NewEventPage() {
                   <div className="cfsp-label">SP Coverage</div>
                   <div className="cfsp-stat-value">{eventType === "skills" || parsedSpNeeded <= 0 ? "None" : totalSpCoverageNeeded}</div>
                 </div>
+                <div className="cfsp-stat-card">
+                  <div className="cfsp-label">Training Plan</div>
+                  <div className="cfsp-stat-value text-[1.35rem]">{getTrainingRequirementLabel(trainingRequirement)}</div>
+                  <div className="mt-1 text-sm font-bold text-[#5e7388]">
+                    {trainingRequirement === "yes" ? getTrainingOwnershipLabel(trainingOwnership) : "Ownership not required yet"}
+                  </div>
+                </div>
               </div>
 
               <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
@@ -712,6 +958,15 @@ export default function NewEventPage() {
                     <div><strong>Generated Room Slots:</strong> {generatedSessions.length}</div>
                     <div><strong>Empty Room Slots In Final Round:</strong> {parsedStudentCount > 0 ? emptyRoomSlotsInFinalRound : "—"}</div>
                     <div><strong>SPs Needed:</strong> {eventType === "skills" ? "No SPs required" : parsedSpNeeded}</div>
+                    <div><strong>SP Training:</strong> {getTrainingRequirementLabel(trainingRequirement)}</div>
+                    {trainingRequirement === "yes" ? (
+                      <>
+                        <div><strong>Training Ownership:</strong> {getTrainingOwnershipLabel(trainingOwnership)}</div>
+                        <div><strong>Preferred Training:</strong> {[preferredTrainingDate, preferredTrainingTime].filter(Boolean).join(" · ") || "Not scheduled"}</div>
+                        <div><strong>Training Logistics:</strong> {[trainingZoomRequired ? "Zoom required" : "", trainingRecordingPlanned ? "Recording planned" : "", facultyAvailabilityUnknown ? "Faculty availability unknown" : ""].filter(Boolean).join(" · ") || "No extra logistics marked"}</div>
+                        {facultyAvailabilityRequestPlanned ? <div><strong>Faculty Coordination:</strong> Request availability after creation</div> : null}
+                      </>
+                    ) : null}
                     <div><strong>Room Names:</strong> {normalizedRoomNames.join(", ")}</div>
                   </div>
                 </div>

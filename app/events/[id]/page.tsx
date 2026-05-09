@@ -551,6 +551,32 @@ const recordingStatusOptions = [
 
 type RecordingStatusValue = (typeof recordingStatusOptions)[number]["value"];
 
+const trainingRequirementOptions = [
+  { value: "tbd", label: "TBD" },
+  { value: "yes", label: "Training required" },
+  { value: "no", label: "Training not required" },
+] as const;
+
+type TrainingRequirementValue = (typeof trainingRequirementOptions)[number]["value"];
+
+const trainingOwnershipOptions = [
+  { value: "faculty_led", label: "Faculty-led training" },
+  { value: "internal_sim", label: "Internal sim team training" },
+  { value: "shared", label: "Shared/co-led training" },
+  { value: "tbd", label: "TBD" },
+] as const;
+
+type TrainingOwnershipValue = (typeof trainingOwnershipOptions)[number]["value"];
+
+const trainingSchedulingOptions = [
+  { value: "not_scheduled", label: "Not scheduled" },
+  { value: "planned", label: "Preferred window planned" },
+  { value: "scheduled", label: "Training scheduled" },
+  { value: "completed", label: "Training completed" },
+] as const;
+
+type TrainingSchedulingValue = (typeof trainingSchedulingOptions)[number]["value"];
+
 const materialsReadinessOptions = [
   {
     value: "materials_not_reviewed",
@@ -881,6 +907,45 @@ function getRecordingStatusOption(value: unknown) {
   return normalized
     ? recordingStatusOptions.find((option) => option.value === normalized) || null
     : null;
+}
+
+function normalizeTrainingRequirementValue(value: unknown): TrainingRequirementValue {
+  const normalized = asText(value).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  if (["yes", "required", "training_required", "true"].includes(normalized)) return "yes";
+  if (["no", "not_required", "training_not_required", "false"].includes(normalized)) return "no";
+  return "tbd";
+}
+
+function normalizeTrainingOwnershipValue(value: unknown): TrainingOwnershipValue {
+  const normalized = asText(value).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  if (["faculty", "faculty_led", "faculty_lead", "faculty_owned"].includes(normalized)) return "faculty_led";
+  if (["internal", "internal_sim", "sim", "sim_team", "sim_center", "simulation_team"].includes(normalized)) return "internal_sim";
+  if (["shared", "co_led", "coled", "shared_co_led"].includes(normalized)) return "shared";
+  return "tbd";
+}
+
+function normalizeTrainingSchedulingValue(value: unknown): TrainingSchedulingValue {
+  const normalized = asText(value).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  if (["complete", "completed", "done"].includes(normalized)) return "completed";
+  if (["scheduled", "confirmed"].includes(normalized)) return "scheduled";
+  if (["planned", "preferred", "window_planned", "preferred_window_planned"].includes(normalized)) return "planned";
+  return "not_scheduled";
+}
+
+function getTrainingRequirementLabel(value: TrainingRequirementValue) {
+  return trainingRequirementOptions.find((option) => option.value === value)?.label || "TBD";
+}
+
+function getTrainingOwnershipLabel(value: TrainingOwnershipValue) {
+  return trainingOwnershipOptions.find((option) => option.value === value)?.label || "TBD";
+}
+
+function getTrainingSchedulingLabel(value: TrainingSchedulingValue) {
+  return trainingSchedulingOptions.find((option) => option.value === value)?.label || "Not scheduled";
+}
+
+function isMetadataYes(value: unknown) {
+  return ["yes", "true", "1", "required", "planned"].includes(asText(value).toLowerCase());
 }
 
 function normalizeMaterialsReadinessValue(value: unknown): MaterialsReadinessValue | "" {
@@ -4008,11 +4073,16 @@ const summaryTimeLabel = useMemo(() => {
       .join("; ");
   }, [event?.date_text, importedYearHint, rotationRounds]);
   const pollTrainingSummary = useMemo(() => {
-    const dateText = asText(trainingMetadata.imported_training_date);
-    const timeText = asText(trainingMetadata.imported_training_time);
+    const dateText = asText(trainingMetadata.preferred_training_date) || asText(trainingMetadata.imported_training_date);
+    const timeText = asText(trainingMetadata.preferred_training_time) || asText(trainingMetadata.imported_training_time);
     if (!dateText && !timeText) return "Training details will be shared separately.";
     return [dateText, timeText].filter(Boolean).join(" · ");
-  }, [trainingMetadata.imported_training_date, trainingMetadata.imported_training_time]);
+  }, [
+    trainingMetadata.imported_training_date,
+    trainingMetadata.imported_training_time,
+    trainingMetadata.preferred_training_date,
+    trainingMetadata.preferred_training_time,
+  ]);
   const pollLocationSummary = useMemo(() => {
     if (trainingMetadata.zoom_url || /zoom|virtual|telehealth|online/i.test(asText(event?.location))) {
       return "Online via Zoom";
@@ -4056,12 +4126,46 @@ const summaryTimeLabel = useMemo(() => {
       : recordingStatus.value === "recording_pending"
         ? "REC pending"
         : "REC";
+  const trainingRequirementValue = normalizeTrainingRequirementValue(trainingMetadata.training_required);
+  const trainingOwnershipValue = normalizeTrainingOwnershipValue(trainingMetadata.training_ownership);
+  const trainingSchedulingValue = normalizeTrainingSchedulingValue(trainingMetadata.training_scheduling_status);
+  const trainingMarkedScheduled = trainingSchedulingValue === "planned" || trainingSchedulingValue === "scheduled";
+  const trainingMarkedComplete = trainingSchedulingValue === "completed";
+  const trainingRequiredExplicit = trainingRequirementValue === "yes";
+  const trainingNotRequired = trainingRequirementValue === "no" || noSpStaffingRequired;
+  const facultyLedTraining = trainingOwnershipValue === "faculty_led" || trainingOwnershipValue === "shared";
+  const internalTraining = trainingOwnershipValue === "internal_sim";
+  const facultyAvailabilityUnknown = isMetadataYes(trainingMetadata.faculty_availability_unknown);
+  const trainingZoomRequired =
+    isMetadataYes(trainingMetadata.training_zoom_required) ||
+    eventMeta.isVirtualSp ||
+    selectedModalityLabel === "Virtual" ||
+    selectedModalityLabel === "Hybrid";
+  const trainingRecordingPlanned = isMetadataYes(trainingMetadata.training_recording_planned);
+  const facultyTrainingCoordinationRequested =
+    isMetadataYes(trainingMetadata.faculty_training_coordination_requested) ||
+    Boolean(asText(trainingMetadata.faculty_training_coordination_status));
+  const facultyTrainingCoordinationLabel = facultyLedTraining
+    ? trainingMetadata.faculty_training_coordination_status === "draft_opened"
+      ? "Faculty request drafted"
+      : facultyTrainingCoordinationRequested
+        ? "Faculty availability requested"
+        : facultyAvailabilityUnknown
+          ? "Faculty availability needed"
+          : facultyReadinessComplete
+            ? "Faculty contact ready"
+            : "Faculty contact needed"
+    : internalTraining
+      ? "Owned by Sim Ops"
+      : "Ownership TBD";
   const normalEventTrainingDateText =
+    asText(trainingMetadata.preferred_training_date) ||
     asText(trainingMetadata.imported_training_date) ||
-    getFirstNoteValue(event?.notes, ["Training Date", "SP Training Date", "Training Date/Time"]);
+    getFirstNoteValue(event?.notes, ["Preferred Training Date", "Training Date", "SP Training Date", "Training Date/Time"]);
   const normalEventTrainingTimeText =
+    asText(trainingMetadata.preferred_training_time) ||
     asText(trainingMetadata.imported_training_time) ||
-    getFirstNoteValue(event?.notes, ["Training Time", "SP Training Time"]);
+    getFirstNoteValue(event?.notes, ["Preferred Training Time", "Training Time", "SP Training Time"]);
   const normalEventTrainingInfoText =
     asText(trainingMetadata.training_notes) ||
     getFirstNoteValue(event?.notes, ["Training Information", "Training Info", "SP Training Information"]);
@@ -4075,32 +4179,50 @@ const summaryTimeLabel = useMemo(() => {
     normalEventTrainingDateText ||
       normalEventTrainingTimeText ||
       normalEventTrainingInfoText ||
-      hasTrainingScheduled
+      hasTrainingScheduled ||
+      trainingMarkedScheduled ||
+      trainingMarkedComplete
   );
   const normalEventTrainingComplete =
-    allAssignedCheckedIn || Boolean(workflowChecks.sp_training_completed);
-  const normalEventTrainingAccessReady = Boolean(normalEventTrainingLink) || !eventMeta.isVirtualSp;
+    !trainingNotRequired && (trainingMarkedComplete || allAssignedCheckedIn || Boolean(workflowChecks.sp_training_completed));
+  const normalEventTrainingAccessReady = !trainingZoomRequired || Boolean(normalEventTrainingLink);
   const normalEventTrainingReady =
+    trainingNotRequired ||
     normalEventTrainingComplete ||
-    Boolean(normalEventTrainingHasInfo && normalEventTrainingAccessReady && selectedStaffingCount > 0);
-  const normalEventTrainingStatusLabel = normalEventTrainingComplete
-    ? "Training completed"
-    : normalEventTrainingReady
-      ? "Training ready"
-      : normalEventTrainingHasInfo
-        ? "Training scheduled"
-        : "Awaiting training";
+    Boolean(normalEventTrainingHasInfo && normalEventTrainingAccessReady && (selectedStaffingCount > 0 || trainingRequiredExplicit));
+  const normalEventTrainingStatusLabel = trainingNotRequired
+    ? "Training not required"
+    : normalEventTrainingComplete
+      ? "Training completed"
+      : trainingZoomRequired && !normalEventTrainingLink
+        ? "Training logistics incomplete"
+        : normalEventTrainingHasInfo && normalEventTrainingAccessReady
+          ? "Training scheduled"
+          : facultyLedTraining
+            ? "Awaiting faculty scheduling"
+            : internalTraining
+              ? "Internal training pending"
+              : trainingRequiredExplicit
+                ? "Training ownership TBD"
+                : "Training planning TBD";
   const normalEventTrainingCountdownLabel = getTrainingCountdownLabel(
     normalEventTrainingDate,
     normalEventTrainingComplete,
     normalEventTrainingHasInfo
   );
+  const normalEventTrainingTimelineLabel = normalEventTrainingDate
+    ? normalEventTrainingCountdownLabel
+    : normalEventTrainingStatusLabel;
   const normalEventTrainingAttendanceLabel = trainingAttendanceFieldsMissing
     ? "Attendance tracking unavailable"
     : selectedStaffingCount > 0
       ? `${attendedCount} / ${selectedStaffingCount} checked in`
       : "No selected SPs yet";
-  const normalEventTrainingRecordingLabel = trainingMetadata.recording_url
+  const normalEventTrainingRecordingLabel = trainingRecordingPlanned
+    ? trainingMetadata.recording_url
+      ? "Training recording ready"
+      : "Training recording planned"
+    : trainingMetadata.recording_url
     ? "Recording guide ready"
     : recordingStatus.active
       ? recordingStatus.label
@@ -5011,14 +5133,21 @@ const summaryTimeLabel = useMemo(() => {
   useEffect(() => {
     setSelectedPollSpIds(pollSelectedSpIdsFromMetadata);
   }, [pollSelectedSpIdsFromMetadata]);
-  const trainingEmailSubject = `${event?.name || "Event"}: SP Training - ${eventDateLabel || "Date TBD"}`;
+  const trainingEmailDateLabel =
+    formatEventDateText(normalEventTrainingDateText, importedYearHint) ||
+    normalEventTrainingDateText ||
+    sessionSummaryLabel ||
+    eventDateLabel ||
+    "Date TBD";
+  const trainingEmailTimeLabel = normalEventTrainingTimeText || summaryTimeLabel || "Time TBD";
+  const trainingEmailSubject = `${event?.name || "Event"}: SP Training - ${trainingEmailDateLabel}`;
   const trainingEmailBody = [
     "SPs,",
     "",
-    `In preparation for ${event?.name || "this"} Training, please review the following:`,
+    `In preparation for ${event?.name || "this"} SP training, please review the following:`,
     "",
-    `• Date: ${sessionSummaryLabel || "Date TBD"}`,
-    `• Time: ${summaryTimeLabel || "Time TBD"}`,
+    `• Date: ${trainingEmailDateLabel}`,
+    `• Time: ${trainingEmailTimeLabel}`,
     `• Zoom Link: ${trainingMetadata.zoom_url || "INPUT ZOOM LINK"}`,
     `• Password: ${trainingMetadata.training_password || "INPUT PASSWORD"}`,
     `• Case: ${trainingMetadata.case_name || "Name of CASE"}`,
@@ -5456,11 +5585,13 @@ Cory`;
       : outreachProgressLabel === "In progress" || outreachProgressLabel === "Draft opened"
         ? "In Progress"
         : "Not Started";
-  const trainingReadinessStatus: WorkflowReadinessStatus = noSpStaffingRequired
+  const trainingReadinessStatus: WorkflowReadinessStatus = trainingNotRequired
     ? "Optional"
-    : normalEventTrainingComplete
+    : normalEventTrainingComplete || normalEventTrainingReady
       ? "Ready"
-      : normalEventTrainingHasInfo
+      : trainingZoomRequired && !normalEventTrainingLink
+        ? "Blocked"
+        : trainingRequiredExplicit || facultyLedTraining || internalTraining || normalEventTrainingHasInfo
         ? "Needs Action"
         : "Not Started";
   const platformReadinessStatus: WorkflowReadinessStatus =
@@ -5612,25 +5743,36 @@ Cory`;
           label: "SP training",
           status: trainingReadinessStatus,
           value: normalEventTrainingStatusLabel,
-          explanation: normalEventTrainingComplete
-            ? "Training is marked complete for this event."
-            : normalEventTrainingHasInfo
-              ? "Training details exist; verify attendance or mark complete once finished."
-              : "Training information is not yet visible for the SP workflow.",
-          actions: normalEventTrainingComplete
-            ? [{ label: "Review training info", href: "#coverage-actions" }]
-            : [
-                { label: "Edit training info", href: "#coverage-actions" },
-                ...(normalEventTrainingHasInfo
-                  ? [
-                      {
-                        label: "Mark training complete",
-                        onClick: () => void handleToggleWorkflowCheck("sp_training_completed", Boolean(workflowChecks.sp_training_completed)),
-                        disabled: saving,
-                      },
-                    ]
-                  : []),
-              ],
+          explanation: trainingNotRequired
+            ? "SP training is marked not required for this event."
+            : normalEventTrainingComplete
+              ? "Training is marked complete for this event."
+              : normalEventTrainingReady
+                ? "Training ownership, scheduling, and access details are visible for the SP workflow."
+                : trainingZoomRequired && !normalEventTrainingLink
+                  ? "Training requires Zoom or virtual access, but no training link is saved yet."
+                  : facultyLedTraining
+                    ? "Faculty-led/co-led training needs faculty availability and scheduling coordination."
+                    : internalTraining
+                      ? "Internal Sim Ops training needs a planned training window or readiness update."
+                      : trainingRequiredExplicit
+                        ? "Training is required, but ownership has not been selected."
+                        : "Training requirement is still TBD for this event.",
+          actions: [
+            { label: trainingNotRequired ? "Edit training plan" : "Edit training info", href: "#coverage-actions" },
+            ...(facultyLedTraining && facultyEmails.length
+              ? [{ label: "Request faculty availability", onClick: () => void handleDraftFacultyTrainingAvailabilityRequest(), disabled: saving }]
+              : []),
+            ...(!trainingNotRequired && normalEventTrainingHasInfo && !normalEventTrainingComplete
+              ? [
+                  {
+                    label: "Mark training complete",
+                    onClick: () => void handleToggleWorkflowCheck("sp_training_completed", Boolean(workflowChecks.sp_training_completed)),
+                    disabled: saving,
+                  },
+                ]
+              : []),
+          ],
         },
       ],
     },
@@ -5711,11 +5853,17 @@ Cory`;
     "Call Time",
   ]);
   const confirmationTrainingDetails = [
-    trainingMetadata.imported_training_date
-      ? `Training Date: ${trainingMetadata.imported_training_date}`
+    trainingRequirementValue !== "tbd"
+      ? `Training Requirement: ${getTrainingRequirementLabel(trainingRequirementValue)}`
       : "",
-    trainingMetadata.imported_training_time
-      ? `Training Time: ${trainingMetadata.imported_training_time}`
+    trainingRequirementValue === "yes"
+      ? `Training Ownership: ${getTrainingOwnershipLabel(trainingOwnershipValue)}`
+      : "",
+    normalEventTrainingDateText
+      ? `Training Date: ${formatEventDateText(normalEventTrainingDateText, importedYearHint) || normalEventTrainingDateText}`
+      : "",
+    normalEventTrainingTimeText
+      ? `Training Time: ${normalEventTrainingTimeText}`
       : "",
     trainingMetadata.zoom_url ? `Zoom/Virtual Link: ${trainingMetadata.zoom_url}` : "",
     trainingMetadata.training_password ? `Zoom Password: ${trainingMetadata.training_password}` : "",
@@ -5990,6 +6138,15 @@ Cory`;
     setEventEditor((current) => ({
       ...current,
       notes: upsertTrainingEventMetadata(current.notes, { [key]: value }),
+    }));
+  }
+
+  function handleTrainingMetadataFieldsChange(partial: Partial<TrainingEventMetadata>) {
+    setEventSaveMessage("");
+    setEventSaveError("");
+    setEventEditor((current) => ({
+      ...current,
+      notes: upsertTrainingEventMetadata(current.notes, partial),
     }));
   }
 
@@ -6822,6 +6979,69 @@ Cory`;
     showSuccessMessage(
       `Draft opened for ${hiringEmailBccEmails.length} ${hiringEmailRecipientMode} SP${hiringEmailBccEmails.length === 1 ? "" : "s"}.`
     );
+  }
+
+  async function handleDraftFacultyTrainingAvailabilityRequest() {
+    if (!facultyEmails.length) {
+      setEventSaveError("Add a faculty email before drafting an SP training availability request.");
+      document.getElementById("coverage-actions")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
+
+    setEventSaveError("");
+
+    const preferredTrainingWindow = [
+      formatEventDateText(normalEventTrainingDateText, importedYearHint) || normalEventTrainingDateText,
+      normalEventTrainingTimeText,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    const requestBody = [
+      "Hello,",
+      "",
+      `CFSP is coordinating SP training planning for ${event?.name || "this simulation event"}.`,
+      "",
+      `Event date/time: ${sessionSummaryLabel || eventDateLabel || "TBD"} · ${summaryTimeLabel || "Time TBD"}`,
+      `Location/modality: ${trainingLocationModality}`,
+      `Training ownership model: ${getTrainingOwnershipLabel(trainingOwnershipValue)}`,
+      preferredTrainingWindow ? `Preferred training window: ${preferredTrainingWindow}` : "Preferred training window: TBD",
+      `Zoom needed: ${trainingZoomRequired ? "Yes" : "TBD / optional"}`,
+      `Recording planned: ${trainingRecordingPlanned ? "Yes" : "No / TBD"}`,
+      "",
+      "Could you reply with faculty availability for SP training and confirm whether faculty, Sim Ops, or a shared model should own the training content?",
+      "",
+      "Helpful details to confirm:",
+      "- available training windows",
+      "- content/case preparation owner",
+      "- Zoom or in-person preference",
+      "- whether the session should be recorded for SP prep",
+      "",
+      "Thank you,",
+      me?.fullName || me?.scheduleName || me?.email || "CFSP Simulation Operations",
+    ].join("\n");
+
+    const facultyTrainingMailtoHref = buildMailtoHref({
+      to: facultyEmails.join(","),
+      cc: me?.email ? [me.email] : [],
+      bcc: [],
+      subject: `SP Training Availability Request: ${event?.name || "CFSP Event"}`,
+      body: requestBody,
+    });
+
+    try {
+      await persistTrainingMetadataFields(
+        {
+          faculty_training_coordination_requested: "yes",
+          faculty_training_coordination_status: "draft_opened",
+          faculty_training_coordination_requested_at: new Date().toISOString(),
+        },
+        "Faculty training availability request drafted."
+      );
+      window.location.href = facultyTrainingMailtoHref;
+      showSuccessMessage("Faculty training availability request draft opened.");
+    } catch (error) {
+      setEventSaveError(error instanceof Error ? error.message : "Could not draft faculty training availability request.");
+    }
   }
 
   async function handleOpenConfirmationEmailDraft() {
@@ -7901,7 +8121,7 @@ Cory`;
                 color: normalEventTrainingPrimaryTone.color,
               }}
             >
-              {normalEventTrainingCountdownLabel}
+              {normalEventTrainingTimelineLabel}
             </span>
             <span style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText, border: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.18)" : commandChipStyle.border }}>
               {selectedStaffingCount} selected SP{selectedStaffingCount === 1 ? "" : "s"}
@@ -7918,19 +8138,29 @@ Cory`;
         >
           {[
             {
-              label: "Training Date",
-              value: formatEventDateText(normalEventTrainingDateText, importedYearHint) || normalEventTrainingDateText || "Date needed",
-              detail: normalEventTrainingCountdownLabel,
+              label: "Training Required",
+              value: getTrainingRequirementLabel(trainingRequirementValue),
+              detail: trainingNotRequired ? "No SP training workflow required" : "Requirement captured in planning metadata",
             },
             {
-              label: "Training Time",
-              value: normalEventTrainingTimeText || "Time needed",
-              detail: normalEventTrainingHasInfo ? "Prep timing" : "Add training time",
+              label: "Ownership",
+              value: getTrainingOwnershipLabel(trainingOwnershipValue),
+              detail: facultyTrainingCoordinationLabel,
             },
             {
-              label: "Training Status",
-              value: normalEventTrainingStatusLabel,
-              detail: normalEventTrainingReady ? "SP readiness linked" : "Needs training details",
+              label: "Scheduling",
+              value: formatEventDateText(normalEventTrainingDateText, importedYearHint) || normalEventTrainingDateText || normalEventTrainingStatusLabel,
+              detail: normalEventTrainingTimelineLabel,
+            },
+            {
+              label: "Zoom",
+              value: trainingZoomRequired ? normalEventTrainingLink ? "Zoom ready" : "Zoom needed" : "Zoom optional",
+              detail: trainingZoomRequired ? "Required for training logistics" : "Not required unless training changes",
+            },
+            {
+              label: "Recording",
+              value: normalEventTrainingRecordingLabel,
+              detail: trainingRecordingPlanned ? "Training recording planned" : "Recording optional unless marked",
             },
             {
               label: "Attendance",
@@ -7938,9 +8168,9 @@ Cory`;
               detail: `${confirmedCount} primary confirmed / ${backupCount} backup`,
             },
             {
-              label: "Recording",
-              value: normalEventTrainingRecordingLabel,
-              detail: trainingMetadata.recording_url ? "Available for prep" : recordingStatus.active ? "Event recording state active" : "Not posted",
+              label: "Faculty Coordination",
+              value: facultyTrainingCoordinationLabel,
+              detail: facultyLedTraining ? "Faculty availability and ownership tracked here" : "Not faculty-led unless ownership changes",
             },
           ].map((item) => (
             <div
@@ -7948,11 +8178,11 @@ Cory`;
               style={{
                 ...statCard,
                 background:
-                  ["Training Date", "Training Status"].includes(item.label) && (normalEventTrainingComplete || normalEventTrainingReady)
+                  ["Training Required", "Scheduling"].includes(item.label) && (normalEventTrainingComplete || normalEventTrainingReady)
                     ? normalEventTrainingPrimaryTone.cardBackground
                     : commandCenterVisual.cardBackground,
                 border:
-                  ["Training Date", "Training Status"].includes(item.label) && (normalEventTrainingComplete || normalEventTrainingReady)
+                  ["Training Required", "Scheduling"].includes(item.label) && (normalEventTrainingComplete || normalEventTrainingReady)
                     ? normalEventTrainingPrimaryTone.border
                     : commandCenterVisual.cardBorder,
                 minHeight: "104px",
@@ -7989,12 +8219,12 @@ Cory`;
             <span
               style={{
                 ...commandChipStyle,
-                background: eventMeta.isVirtualSp ? "rgba(253, 230, 138, 0.18)" : commandCenterVisual.chipBackground,
-                color: eventMeta.isVirtualSp ? "#b45309" : commandCenterVisual.chipText,
-                border: eventMeta.isVirtualSp ? "1px solid rgba(180, 83, 9, 0.28)" : isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.18)" : commandChipStyle.border,
+                background: trainingZoomRequired ? "rgba(253, 230, 138, 0.18)" : commandCenterVisual.chipBackground,
+                color: trainingZoomRequired ? "#b45309" : commandCenterVisual.chipText,
+                border: trainingZoomRequired ? "1px solid rgba(180, 83, 9, 0.28)" : isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.18)" : commandChipStyle.border,
               }}
             >
-              {eventMeta.isVirtualSp ? "Training link needed" : "No training link posted"}
+              {trainingZoomRequired ? "Training Zoom needed" : "Zoom optional"}
             </span>
           )}
 
@@ -8016,11 +8246,30 @@ Cory`;
           ) : null}
 
           <span style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText, border: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.18)" : commandChipStyle.border }}>
-            Zoom {normalEventTrainingLink ? "ready" : "pending"}
+            Zoom {trainingZoomRequired ? normalEventTrainingLink ? "ready" : "needed" : "optional"}
           </span>
           <span style={{ ...commandChipStyle, background: normalEventTrainingComplete ? normalEventTrainingPrimaryTone.background : commandCenterVisual.chipBackground, color: normalEventTrainingComplete ? normalEventTrainingPrimaryTone.color : commandCenterVisual.chipText, border: normalEventTrainingComplete ? normalEventTrainingPrimaryTone.border : isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.18)" : commandChipStyle.border }}>
             Attendance {normalEventTrainingComplete ? "complete" : "open"}
           </span>
+          {facultyLedTraining ? (
+            facultyEmails.length ? (
+              <button
+                type="button"
+                onClick={() => void handleDraftFacultyTrainingAvailabilityRequest()}
+                style={{ ...staffingSecondaryButtonStyle, padding: "8px 12px" }}
+              >
+                Request Faculty Availability
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => document.getElementById("coverage-actions")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                style={{ ...staffingSecondaryButtonStyle, padding: "8px 12px" }}
+              >
+                Add Faculty Email
+              </button>
+            )
+          ) : null}
         </div>
 
         {normalEventTrainingInfoText ? (
@@ -8041,6 +8290,181 @@ Cory`;
         ) : null}
       </section>
     ) : null;
+
+  const editableTrainingSchedulingValue: TrainingSchedulingValue =
+    asText(trainingMetadata.training_scheduling_status)
+      ? trainingSchedulingValue
+      : normalEventTrainingDateText || normalEventTrainingTimeText
+        ? "planned"
+        : "not_scheduled";
+  const advancedTrainingPlanningControls = (
+    <>
+      <label style={{ display: "grid", gap: "6px" }}>
+        <span style={statLabel}>SP Training Required</span>
+        <select
+          value={trainingRequirementValue}
+          onChange={(event) =>
+            handleTrainingMetadataFieldsChange({
+              training_required: event.target.value,
+              ...(event.target.value === "no"
+                ? {
+                    training_ownership: "tbd",
+                    training_scheduling_status: "not_scheduled",
+                    faculty_availability_unknown: "no",
+                    training_zoom_required: "no",
+                    training_recording_planned: "no",
+                  }
+                : {}),
+            })
+          }
+          disabled={saving}
+          style={{ ...selectStyle, width: "100%", maxWidth: "none", boxSizing: "border-box" }}
+        >
+          {trainingRequirementOptions.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+        <span style={compactSectionHintStyle}>Current readiness label: {normalEventTrainingStatusLabel}</span>
+      </label>
+
+      <label style={{ display: "grid", gap: "6px" }}>
+        <span style={statLabel}>Training Ownership</span>
+        <select
+          value={trainingOwnershipValue}
+          onChange={(event) =>
+            handleTrainingMetadataFieldsChange({
+              training_ownership: event.target.value,
+              ...(event.target.value === "faculty_led" || event.target.value === "shared"
+                ? { training_required: trainingRequirementValue === "no" ? "yes" : trainingRequirementValue }
+                : {}),
+            })
+          }
+          disabled={saving || trainingRequirementValue === "no"}
+          style={{ ...selectStyle, width: "100%", maxWidth: "none", boxSizing: "border-box" }}
+        >
+          {trainingOwnershipOptions.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+        <span style={compactSectionHintStyle}>{facultyTrainingCoordinationLabel}</span>
+      </label>
+
+      <label style={{ display: "grid", gap: "6px" }}>
+        <span style={statLabel}>Training Scheduling State</span>
+        <select
+          value={editableTrainingSchedulingValue}
+          onChange={(event) => handleTrainingMetadataChange("training_scheduling_status", event.target.value)}
+          disabled={saving || trainingRequirementValue === "no"}
+          style={{ ...selectStyle, width: "100%", maxWidth: "none", boxSizing: "border-box" }}
+        >
+          {trainingSchedulingOptions.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+        <span style={compactSectionHintStyle}>{getTrainingSchedulingLabel(editableTrainingSchedulingValue)}</span>
+      </label>
+
+      <label style={{ display: "grid", gap: "6px" }}>
+        <span style={statLabel}>Preferred Training Date</span>
+        <input
+          type="date"
+          value={asText(trainingMetadata.preferred_training_date)}
+          onChange={(event) => handleTrainingMetadataChange("preferred_training_date", event.target.value)}
+          disabled={saving || trainingRequirementValue === "no"}
+          style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+        />
+      </label>
+
+      <label style={{ display: "grid", gap: "6px" }}>
+        <span style={statLabel}>Preferred Training Time</span>
+        <input
+          type="time"
+          value={asText(trainingMetadata.preferred_training_time)}
+          onChange={(event) => handleTrainingMetadataChange("preferred_training_time", event.target.value)}
+          disabled={saving || trainingRequirementValue === "no"}
+          style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+        />
+      </label>
+
+      <div
+        style={{
+          display: "grid",
+          gap: "8px",
+          border: "1px solid var(--cfsp-border)",
+          borderRadius: "14px",
+          padding: "10px 12px",
+          background: "var(--cfsp-surface-muted)",
+        }}
+      >
+        {[
+          {
+            key: "faculty_availability_unknown" as keyof TrainingEventMetadata,
+            label: "Faculty availability unknown",
+            checked: facultyAvailabilityUnknown,
+            disabled: trainingRequirementValue === "no" || !facultyLedTraining,
+          },
+          {
+            key: "training_zoom_required" as keyof TrainingEventMetadata,
+            label: "Zoom required",
+            checked: isMetadataYes(trainingMetadata.training_zoom_required),
+            disabled: trainingRequirementValue === "no",
+          },
+          {
+            key: "training_recording_planned" as keyof TrainingEventMetadata,
+            label: "Recording planned",
+            checked: trainingRecordingPlanned,
+            disabled: trainingRequirementValue === "no",
+          },
+        ].map((option) => (
+          <label key={option.key} style={{ display: "flex", alignItems: "center", gap: "8px", color: "var(--cfsp-text)", fontWeight: 800, fontSize: "13px" }}>
+            <input
+              type="checkbox"
+              checked={option.checked}
+              onChange={(event) => handleTrainingMetadataChange(option.key, event.target.checked ? "yes" : "no")}
+              disabled={saving || option.disabled}
+              style={{ width: "16px", height: "16px", accentColor: "var(--cfsp-green)" }}
+            />
+            {option.label}
+          </label>
+        ))}
+      </div>
+
+      <label
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "8px",
+          border: "1px solid rgba(180, 83, 9, 0.2)",
+          borderRadius: "14px",
+          padding: "10px 12px",
+          background: facultyLedTraining ? "rgba(253, 230, 138, 0.16)" : "var(--cfsp-surface-muted)",
+          color: facultyLedTraining ? "#92400e" : "var(--cfsp-text-muted)",
+          fontWeight: 800,
+          fontSize: "13px",
+        }}
+      >
+        <input
+          type="checkbox"
+          checked={facultyTrainingCoordinationRequested}
+          onChange={(event) =>
+            handleTrainingMetadataFieldsChange({
+              faculty_training_coordination_requested: event.target.checked ? "yes" : "no",
+              faculty_training_coordination_status: event.target.checked ? "requested" : "",
+            })
+          }
+          disabled={saving || !facultyLedTraining}
+          style={{ width: "16px", height: "16px", accentColor: "#b45309" }}
+        />
+        Request faculty availability for SP training
+      </label>
+    </>
+  );
 
   const normalEventStaffingCommandCenter =
     !isTrainingMode ? (
@@ -12365,6 +12789,7 @@ Cory`;
                       Saves as {sessionEditor.end_time ? formatDisplayTime(toStoredTimeValue(sessionEditor.end_time) || "") : "AM/PM"}
                     </span>
                   </label>
+                  {advancedTrainingPlanningControls}
                   <label style={{ display: "grid", gap: "6px" }}>
                     <span style={statLabel}>Zoom URL</span>
                     <input
@@ -13024,6 +13449,8 @@ Cory`;
                   Saves as {sessionEditor.end_time ? formatDisplayTime(toStoredTimeValue(sessionEditor.end_time) || "") : "AM/PM"}
                 </span>
               </label>
+
+              {advancedTrainingPlanningControls}
 
               <label style={{ display: "grid", gap: "6px" }}>
                 <span style={statLabel}>Recording Status</span>

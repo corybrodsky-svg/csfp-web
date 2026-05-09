@@ -1,4 +1,15 @@
 export type TrainingEventMetadata = {
+  training_required: string;
+  training_ownership: string;
+  training_scheduling_status: string;
+  preferred_training_date: string;
+  preferred_training_time: string;
+  faculty_availability_unknown: string;
+  training_zoom_required: string;
+  training_recording_planned: string;
+  faculty_training_coordination_requested: string;
+  faculty_training_coordination_status: string;
+  faculty_training_coordination_requested_at: string;
   zoom_url: string;
   training_password: string;
   recording_url: string;
@@ -49,6 +60,17 @@ const TRAINING_METADATA_START = "[CFSP_TRAINING_METADATA]";
 const TRAINING_METADATA_END = "[/CFSP_TRAINING_METADATA]";
 
 const TRAINING_METADATA_KEYS = [
+  "training_required",
+  "training_ownership",
+  "training_scheduling_status",
+  "preferred_training_date",
+  "preferred_training_time",
+  "faculty_availability_unknown",
+  "training_zoom_required",
+  "training_recording_planned",
+  "faculty_training_coordination_requested",
+  "faculty_training_coordination_status",
+  "faculty_training_coordination_requested_at",
   "zoom_url",
   "training_password",
   "recording_url",
@@ -108,6 +130,17 @@ export function isMeaningfulTrainingMetadataText(value: unknown) {
 
 export function emptyTrainingEventMetadata(): TrainingEventMetadata {
   return {
+    training_required: "",
+    training_ownership: "",
+    training_scheduling_status: "",
+    preferred_training_date: "",
+    preferred_training_time: "",
+    faculty_availability_unknown: "",
+    training_zoom_required: "",
+    training_recording_planned: "",
+    faculty_training_coordination_requested: "",
+    faculty_training_coordination_status: "",
+    faculty_training_coordination_requested_at: "",
     zoom_url: "",
     training_password: "",
     recording_url: "",
