@@ -683,7 +683,14 @@ function normalizeRecordingStatusValue(value: unknown): RecordingStatusValue | "
 
   if (!normalized) return "";
   if (normalized === "not_recorded" || normalized === "disabled") return "not_recorded";
-  if (normalized === "recorded" || normalized === "recording_enabled") return "recorded";
+  if (
+    normalized === "recorded" ||
+    normalized === "recording_enabled" ||
+    normalized === "recording_live" ||
+    normalized === "live_recording"
+  ) {
+    return "recorded";
+  }
   if (normalized === "recording_planned" || normalized === "planned") return "recording_planned";
   if (normalized === "recording_pending" || normalized === "pending") return "recording_pending";
   if (normalized === "recording_not_allowed" || normalized === "not_allowed") return "recording_not_allowed";
@@ -695,6 +702,37 @@ function getRecordingStatusOption(value: unknown) {
   return normalized
     ? recordingStatusOptions.find((option) => option.value === normalized) || null
     : null;
+}
+
+function RecordingStatusIndicator({
+  label,
+  compact = false,
+  hot = false,
+  liveMode = false,
+  planningMode = false,
+}: {
+  label: string;
+  compact?: boolean;
+  hot?: boolean;
+  liveMode?: boolean;
+  planningMode?: boolean;
+}) {
+  const className = [
+    "cfsp-recording-indicator",
+    compact ? "is-compact" : "",
+    hot ? "is-hot" : "",
+    liveMode ? "is-live" : "",
+    planningMode ? "is-planning" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  return (
+    <span className={className} aria-label={`Recording status: ${label}`} title={`Recording status: ${label}`}>
+      <span className="cfsp-recording-dot" aria-hidden="true" />
+      <span>{label}</span>
+    </span>
+  );
 }
 
 function getFullName(sp: SPRow) {
@@ -3394,14 +3432,17 @@ const summaryTimeLabel = useMemo(() => {
     const savedRecordingStatus = getRecordingStatusOption(trainingMetadata.recording_status);
     if (savedRecordingStatus) return savedRecordingStatus;
 
-    return getRecordingStatusOption("not_recorded") || {
-      label: "Not Recorded",
-      active: false,
-      tone: "#94a3b8",
-      chip: "Disabled",
-    };
+    return getRecordingStatusOption("not_recorded") || recordingStatusOptions[0];
   }, [trainingMetadata.recording_status]);
   const recordingSupportActive = recordingStatus.active || (!hasSavedRecordingStatus && inferredRecordingActive);
+  const recordingIndicatorActive = recordingStatus.active;
+  const recordingIndicatorHot = recordingIndicatorActive && commandCenterMode === "live" && recordingStatus.value === "recorded";
+  const recordingIndicatorLabel =
+    recordingStatus.value === "recording_planned"
+      ? "REC planned"
+      : recordingStatus.value === "recording_pending"
+        ? "REC pending"
+        : "REC";
   const eventModalityChips = useMemo(() => {
     const chips = new Set<string>();
     chips.add(selectedModalityLabel);
@@ -5974,6 +6015,14 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
               </div>
             </div>
             <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+              {recordingIndicatorActive ? (
+                <RecordingStatusIndicator
+                  label={recordingIndicatorLabel}
+                  compact
+                  hot={recordingIndicatorHot}
+                  liveMode
+                />
+              ) : null}
               <span
                 style={{
                   borderRadius: "999px",
@@ -9140,6 +9189,14 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                     value: recordingStatus.label,
                     chips: [recordingStatus.chip],
                     accent: recordingStatus.tone,
+                    indicator: recordingIndicatorActive ? (
+                      <RecordingStatusIndicator
+                        label={recordingIndicatorLabel}
+                        hot={recordingIndicatorHot}
+                        liveMode={!isPlanningVisualMode}
+                        planningMode={isPlanningVisualMode}
+                      />
+                    ) : null,
                   },
                   {
                     label: "Event Modality",
@@ -9186,6 +9243,9 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                     <div>
                       <div style={statLabel}>{card.label}</div>
                       <div style={{ ...statValue, fontSize: "18px", lineHeight: 1.25, color: card.accent }}>{card.value}</div>
+                      {"indicator" in card && card.indicator ? (
+                        <div style={{ marginTop: "8px" }}>{card.indicator}</div>
+                      ) : null}
                     </div>
                     <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                       {card.chips.slice(0, 3).map((chip) => (
@@ -9237,6 +9297,15 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                     value: liveSupportNeeds.length ? `${liveSupportNeeds.length} support flags` : "No support flags",
                     chips: (liveSupportNeeds.length ? liveSupportNeeds : [{ label: "No extra live support flagged" }]).slice(0, 3).map((item) => item.label),
                     accent: "#fcd34d",
+                    indicator: recordingIndicatorActive ? (
+                      <RecordingStatusIndicator
+                        label={recordingIndicatorLabel}
+                        compact
+                        hot={recordingIndicatorHot}
+                        liveMode={!isPlanningVisualMode}
+                        planningMode={isPlanningVisualMode}
+                      />
+                    ) : null,
                   },
                 ].map((card) => (
                   <div
@@ -9254,6 +9323,9 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                     <div>
                       <div style={statLabel}>{card.label}</div>
                       <div style={{ ...statValue, fontSize: "18px", lineHeight: 1.25 }}>{card.value}</div>
+                      {"indicator" in card && card.indicator ? (
+                        <div style={{ marginTop: "8px" }}>{card.indicator}</div>
+                      ) : null}
                     </div>
                     <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                       {card.chips.map((chip) => (

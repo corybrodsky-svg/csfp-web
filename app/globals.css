@@ -555,6 +555,73 @@ textarea {
   animation: cfspSignalTrace 4.8s ease-in-out infinite;
 }
 
+.cfsp-recording-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 28px;
+  border-radius: 999px;
+  padding: 5px 10px;
+  border: 1px solid rgba(248, 113, 113, 0.38);
+  background: rgba(127, 29, 29, 0.2);
+  color: #ffe4e6;
+  box-shadow: 0 0 18px rgba(239, 68, 68, 0.18);
+  font-size: 0.72rem;
+  font-weight: 950;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.cfsp-recording-indicator.is-compact {
+  min-height: 26px;
+  padding: 4px 9px;
+  font-size: 0.68rem;
+}
+
+.cfsp-recording-indicator.is-planning {
+  background: rgba(254, 226, 226, 0.92);
+  border-color: rgba(220, 38, 38, 0.32);
+  color: #991b1b;
+  box-shadow: 0 8px 18px rgba(220, 38, 38, 0.08);
+}
+
+.cfsp-recording-indicator.is-live {
+  background: rgba(127, 29, 29, 0.32);
+  border-color: rgba(248, 113, 113, 0.46);
+  box-shadow:
+    0 0 18px rgba(239, 68, 68, 0.2),
+    inset 0 0 14px rgba(248, 113, 113, 0.08);
+}
+
+.cfsp-recording-indicator.is-hot {
+  box-shadow:
+    0 0 22px rgba(239, 68, 68, 0.32),
+    0 0 44px rgba(127, 29, 29, 0.18),
+    inset 0 0 16px rgba(248, 113, 113, 0.1);
+}
+
+.cfsp-recording-dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: #ef4444;
+  box-shadow:
+    0 0 0 3px rgba(239, 68, 68, 0.15),
+    0 0 14px rgba(248, 113, 113, 0.72);
+  animation: cfspRecordingPulse 1.45s ease-in-out infinite;
+}
+
+.cfsp-recording-indicator.is-hot .cfsp-recording-dot {
+  background: #ff1f32;
+  animation-duration: 1.12s;
+  box-shadow:
+    0 0 0 4px rgba(239, 68, 68, 0.18),
+    0 0 18px rgba(248, 113, 113, 0.88);
+}
+
 @keyframes cfspSignalSweep {
   0%,
   100% {
@@ -583,9 +650,22 @@ textarea {
   }
 }
 
+@keyframes cfspRecordingPulse {
+  0%,
+  100% {
+    opacity: 0.72;
+    transform: scale(0.86);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.14);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .simvitals-mark::before,
-  .simvitals-mark-signal path {
+  .simvitals-mark-signal path,
+  .cfsp-recording-dot {
     animation: none;
   }
 }
