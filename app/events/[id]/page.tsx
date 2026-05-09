@@ -6680,6 +6680,25 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                     >
                       {pollImportSaving ? "Uploading..." : "Upload Poll Results"}
                     </button>
+                    <button
+  type="button"
+  onClick={() =>
+    void persistPollMetadata(
+      {
+        importedPollResponses: "",
+        pollImportCreatedAt: "",
+        pollImportSource: "",
+      },
+      "Cleared imported poll results."
+    )
+  }
+  style={{
+    ...dangerButtonStyle,
+    padding: "8px 11px",
+  }}
+>
+  Clear Poll Results
+</button>
                   </div>
                 </div>
 
