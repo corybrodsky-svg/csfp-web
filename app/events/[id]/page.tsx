@@ -2190,6 +2190,10 @@ function getRotationCommandSurfaceStorageKey(eventId?: string) {
   return `cfsp:rotation-command-surface:${eventId || "global"}`;
 }
 
+function getTacticalRoomBoardStorageKey(eventId?: string) {
+  return `cfsp:tactical-room-board:${eventId || "global"}`;
+}
+
 function parsePositiveInteger(value: unknown, fallback = 0) {
   const parsed = Number(asText(value));
   if (!Number.isFinite(parsed)) return fallback;
@@ -2614,6 +2618,7 @@ export default function EventDetailPage() {
   const [roundAnnouncementDrafts, setRoundAnnouncementDrafts] = useState<Record<string, string>>({});
   const [hasTouchedRoundCompanion, setHasTouchedRoundCompanion] = useState(false);
   const [rotationCommandSurfaceOpen, setRotationCommandSurfaceOpen] = useState(false);
+  const [tacticalRoomBoardOpen, setTacticalRoomBoardOpen] = useState(false);
   const [liveRoomStates, setLiveRoomStates] = useState<Record<string, LiveRoomLocalState>>({});
   const [scheduleBuilderPreviewDraft, setScheduleBuilderPreviewDraft] =
     useState<ScheduleBuilderPreviewDraft | null>(null);
@@ -3822,6 +3827,12 @@ const summaryTimeLabel = useMemo(() => {
     const savedState = window.localStorage.getItem(getRotationCommandSurfaceStorageKey(id));
     setRotationCommandSurfaceOpen(savedState === "open");
   }, [id]);
+  useEffect(() => {
+    if (typeof window === "undefined" || !id) return;
+
+    const savedState = window.localStorage.getItem(getTacticalRoomBoardStorageKey(id));
+    setTacticalRoomBoardOpen(savedState === "open");
+  }, [id]);
   const assignedEmailSources = useMemo(() => {
     return assignments
       .map((assignment) => {
@@ -4714,6 +4725,10 @@ const summaryTimeLabel = useMemo(() => {
   const selectedRoundOperationsScheduleReady =
     selectedRoundScheduleRows.length > 0 ||
     visibleSelectedRoundScheduleBlocks.length > 0;
+  const selectedRoundTacticalBoardRows = useMemo(
+    () => sortItemsByRoomLabel(selectedRoundScheduleRows, (row) => row.roomName),
+    [selectedRoundScheduleRows]
+  );
   const rotationSurfaceRoomCount =
     selectedRoundScheduleRows.length ||
     selectedRotationRound?.rooms.length ||
@@ -4730,6 +4745,20 @@ const summaryTimeLabel = useMemo(() => {
       : "SP coverage optional",
     selectedRotationRound ? `Selected Round ${activeSelectedRotationRoundIndex + 1}` : "No round selected",
   ];
+  const tacticalRoomBoardRoomCount =
+    selectedRoundScheduleRows.length ||
+    selectedRotationRound?.rooms.length ||
+    metadataRoomCount ||
+    0;
+  const tacticalRoomBoardCoverageCount = selectedRoundScheduleRows.length
+    ? selectedRoundScheduleRows.filter((row) => Boolean(row.assignment)).length
+    : Math.min(sortedAssignments.length, tacticalRoomBoardRoomCount || sortedAssignments.length);
+  const tacticalRoomBoardSummary = [
+    `${tacticalRoomBoardRoomCount} room${tacticalRoomBoardRoomCount === 1 ? "" : "s"}`,
+    staffingRelevant
+      ? `${tacticalRoomBoardCoverageCount}/${tacticalRoomBoardRoomCount || needed || 0} SP coverage`
+      : "SP coverage optional",
+  ].filter(Boolean).join(" • ");
   const feedbackMinutesFromMetadata = useMemo(
     () => parseIntegerNoteValue(eventEditor.notes || event?.notes, "Feedback / Break Length"),
     [event?.notes, eventEditor.notes]
@@ -7407,6 +7436,13 @@ Cory`;
     setRotationCommandSurfaceOpen(nextOpen);
     if (typeof window !== "undefined") {
       window.localStorage.setItem(getRotationCommandSurfaceStorageKey(id), nextOpen ? "open" : "closed");
+    }
+  }
+
+  function handleTacticalRoomBoardOpenChange(nextOpen: boolean) {
+    setTacticalRoomBoardOpen(nextOpen);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(getTacticalRoomBoardStorageKey(id), nextOpen ? "open" : "closed");
     }
   }
 
@@ -12340,6 +12376,51 @@ Cory`;
                           ) : null}
                         </div>
 
+                        <div
+                          style={{
+                            borderRadius: "18px",
+                            border: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.2)" : "1px solid rgba(126, 231, 219, 0.2)",
+                            background: isPlanningVisualMode ? "rgba(255, 255, 255, 0.88)" : "rgba(8, 22, 36, 0.78)",
+                            padding: "11px 13px",
+                            display: "flex",
+                            justifyContent: "space-between",
+                            gap: "10px",
+                            flexWrap: "wrap",
+                            alignItems: "center",
+                          }}
+                        >
+                          <div>
+                            <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Tactical Room Board</div>
+                            <div style={{ marginTop: "3px", color: commandCenterVisual.headingColor, fontSize: "15px", fontWeight: 900 }}>
+                              {tacticalRoomBoardOpen ? "Tactical room board open" : "Open Tactical Room Board"}
+                            </div>
+                            <div style={{ marginTop: "3px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 800 }}>
+                              {tacticalRoomBoardSummary || "Rooms TBD"}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            aria-expanded={tacticalRoomBoardOpen}
+                            onClick={() => handleTacticalRoomBoardOpenChange(!tacticalRoomBoardOpen)}
+                            style={{
+                              ...staffingSecondaryButtonStyle,
+                              padding: "7px 10px",
+                              background: tacticalRoomBoardOpen
+                                ? isPlanningVisualMode ? "rgba(255, 255, 255, 0.9)" : "rgba(15, 23, 42, 0.7)"
+                                : isPlanningVisualMode
+                                  ? "rgba(209, 250, 229, 0.5)"
+                                  : "rgba(126, 231, 219, 0.14)",
+                              color: tacticalRoomBoardOpen ? commandCenterVisual.textColor : commandCenterVisual.activeSoftText,
+                              border: tacticalRoomBoardOpen
+                                ? isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.2)" : "1px solid rgba(148, 163, 184, 0.18)"
+                                : isPlanningVisualMode ? "1px solid rgba(44, 211, 173, 0.22)" : "1px solid rgba(126, 231, 219, 0.26)",
+                            }}
+                          >
+                            {tacticalRoomBoardOpen ? "Collapse Board" : "Open Board"}
+                          </button>
+                        </div>
+
+                        {tacticalRoomBoardOpen ? (
                         <section
                           style={{
                             borderRadius: "22px",
@@ -12367,6 +12448,16 @@ Cory`;
                               </div>
                             </div>
                             <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                              <button
+                                type="button"
+                                onClick={() => handleTacticalRoomBoardOpenChange(false)}
+                                style={{
+                                  ...staffingSecondaryButtonStyle,
+                                  padding: "7px 10px",
+                                }}
+                              >
+                                Collapse Board
+                              </button>
                               <button
                                 type="button"
                                 onClick={() => {
@@ -12463,7 +12554,7 @@ Cory`;
                             ))}
                           </div>
 
-                          {selectedRoundScheduleRows.length ? (
+                          {selectedRoundTacticalBoardRows.length ? (
                             <div
                               style={{
                                 display: "grid",
@@ -12471,7 +12562,7 @@ Cory`;
                                 gap: "10px",
                               }}
                             >
-                              {selectedRoundScheduleRows.map((row, index) => {
+                              {selectedRoundTacticalBoardRows.map((row, index) => {
                                 const hasFlags = row.flags.length > 0;
                                 const statusLabel = hasFlags
                                   ? "Needs attention"
@@ -12640,6 +12731,7 @@ Cory`;
                             </div>
                           ) : null}
                         </section>
+                        ) : null}
 
                         <div style={{ display: "grid", gap: "8px" }}>
                           <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>
