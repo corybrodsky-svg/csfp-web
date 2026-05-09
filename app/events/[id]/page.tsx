@@ -3887,98 +3887,54 @@ const summaryTimeLabel = useMemo(() => {
       const rows = await parseImportedPollWorkbook(file);
       console.log("CFSP Poll Import Headers:", Object.keys(rows?.[0] || {}));
 console.log("CFSP Poll Import Sample Row:", rows?.[0]);
-      const parsedResponses = rows
-        .map((row) => {
-          const name = getImportFieldValue(row, [
-  "Full name",
-  "Full Name",
-  "Enter your full name",
-  "Name",
-  "Responder",
-  "Respondent",
-  "Respondent Name",
-  "Responder Name",
-  "SP Name",
-  "Standardized Patient",
-]);
+const rawParsedResponses = rows
+  .map((row) => {
+    const name = asText(row["Full name"]);
+    const email = asText(row["Enter your email address"]);
+    const trainingAnswer = asText(row["Training (ZOOM): 5/22"]);
+    const eventAnswer = asText(row["Event: 5/29, 8:30am-3:00pm"]);
+    const notes = asText(row["Do you have any questions/concerns?"]);
+    const timestamp = asText(row["Completion time"]);
 
-const email = getImportFieldValue(row, [
-  "Enter your email address",
-  "Email Address",
-  "Responder Email",
-  "Respondent Email",
-  "E-mail",
-  "Email",
-  "Microsoft Email",
-]);
+    const answerText = [trainingAnswer, eventAnswer].filter(Boolean).join(" ");
 
-const cleanedEmail =
-  asText(email).toLowerCase() === "anonymous"
-    ? ""
-    : asText(email);
+    const normalizedEmail = normalizeEmail(email);
+    const emailMatch = normalizedEmail ? spByEmail.get(normalizedEmail) : undefined;
+    const nameMatch = !emailMatch && name ? spByNormalizedName.get(normalizeMatchName(name)) : undefined;
+    const matchedSp = emailMatch || nameMatch;
+    const classified = classifyImportedAvailabilityResponse(answerText);
 
-const cleanedName =
-  asText(name).toLowerCase() === "anonymous"
-    ? ""
-    : asText(name);
+    return {
+      name,
+      email,
+      normalizedEmail,
+      responseStatus: classified.status,
+      responseLabel: classified.label,
+      responseSubmittedAt: timestamp,
+      responseNote: notes,
+      matchedSpId: matchedSp ? String(matchedSp.id) : "",
+      matchedSpEmail: matchedSp ? getEmail(matchedSp) : "",
+      matchedSpName: matchedSp ? getFullName(matchedSp) : "",
+      matchType: matchedSp ? (emailMatch ? "email" : "name") : "unmatched",
+      matchConfidence: matchedSp ? (emailMatch ? 100 : 65) : 0,
+    } satisfies ImportedPollResponseRecord;
+  })
+  .filter((entry) => entry.name || entry.email);
 
-const allKeys = Object.keys(row || {});
-
-const availabilityKey =
-  allKeys.find((key) => {
-    const normalized = normalizeImportHeader(key);
-
-    return (
-      normalized.includes("availability") ||
-      normalized.includes("available") ||
-      normalized.includes("can you work") ||
-      normalized.includes("are you available") ||
-      normalized.includes("can attend") ||
-      normalized.includes("attendance") ||
-      normalized.includes("work this event") ||
-      normalized.includes("work this simulation") ||
-      normalized.includes("would you be available")
-    );
-  }) || "";
-
-const responseKey =
-  allKeys.find((key) => {
-    const normalized = normalizeImportHeader(key);
-
-    return (
-      normalized.includes("response") ||
-      normalized.includes("answer") ||
-      normalized.includes("selection") ||
-      normalized.includes("yes no") ||
-      normalized.includes("attending")
-    );
-  }) || "";
-
-const availability = availabilityKey ? asText(row[availabilityKey]) : "";
-const response = responseKey ? asText(row[responseKey]) : "";
-          const notes = getImportFieldValue(row, ["Notes", "Comments", "Comment", "Additional Notes"]);
-          const timestamp = getImportFieldValue(row, ["Timestamp", "Submitted At", "Submission Time", "Completion time", "Start time"]);
-          const normalizedEmail = normalizeEmail(cleanedEmail);
-          const emailMatch = normalizedEmail ? spByEmail.get(normalizedEmail) : undefined;
-          const nameMatch = !emailMatch && cleanedName ? spByNormalizedName.get(normalizeMatchName(name)) : undefined;
-          const matchedSp = emailMatch || nameMatch;
-const classified = classifyImportedAvailabilityResponse([availability, response].filter(Boolean).join(" ") || notes);
-          return {
-           name: cleanedName,
-email: cleanedEmail,
-            normalizedEmail,
-            responseStatus: classified.status,
-            responseLabel: classified.label,
-            responseSubmittedAt: timestamp,
-            responseNote: notes,
-            matchedSpId: matchedSp ? String(matchedSp.id) : "",
-            matchedSpEmail: matchedSp ? getEmail(matchedSp) : "",
-            matchedSpName: matchedSp ? getFullName(matchedSp) : "",
-            matchType: matchedSp ? (emailMatch ? "email" : "name") : "unmatched",
-            matchConfidence: matchedSp ? (emailMatch ? 100 : 65) : 0,
-          } satisfies ImportedPollResponseRecord;
-        })
-        .filter((entry) => entry.name || entry.email);
+const parsedResponses = Array.from(
+  new Map(
+    rawParsedResponses
+      .sort(
+        (a, b) =>
+          Date.parse(a.responseSubmittedAt || "") -
+          Date.parse(b.responseSubmittedAt || "")
+      )
+      .map((entry) => [
+        entry.normalizedEmail || normalizeMatchName(entry.name),
+        entry,
+      ])
+  ).values()
+);
 
       if (!parsedResponses.length) {
         throw new Error("No responder rows were found in that poll export.");
