@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import SiteShell from "../components/SiteShell";
 import { isPastEvent } from "../lib/eventArchive";
@@ -95,6 +95,201 @@ type EventWithMeta = {
   confirmed: number;
   shortage: number;
 };
+
+type PulseRole = "sim_ops" | "admin" | "faculty" | "sp" | "system";
+type PulseFeedType =
+  | "general_update"
+  | "staffing_alert"
+  | "faculty_note"
+  | "live_issue"
+  | "training_update"
+  | "system_notice";
+
+type PulsePost = {
+  id: string;
+  authorName: string;
+  authorRole: PulseRole;
+  type: PulseFeedType;
+  timestampLabel: string;
+  linkedEventName?: string;
+  body: string;
+  tags: string[];
+  reactionCount: number;
+  commentCount: number;
+};
+
+const pulseFeedTypeOrder: PulseFeedType[] = [
+  "general_update",
+  "staffing_alert",
+  "faculty_note",
+  "live_issue",
+  "training_update",
+  "system_notice",
+];
+
+const pulseFeedTypeAppearance: Record<
+  PulseFeedType,
+  {
+    label: string;
+    accent: string;
+    background: string;
+    border: string;
+    color: string;
+    signal: string;
+  }
+> = {
+  general_update: {
+    label: "General Update",
+    accent: "#145b96",
+    background: "rgba(20, 91, 150, 0.08)",
+    border: "rgba(20, 91, 150, 0.24)",
+    color: "var(--cfsp-blue-dark)",
+    signal: "Ops",
+  },
+  staffing_alert: {
+    label: "Staffing Alert",
+    accent: "#198a70",
+    background: "rgba(25, 138, 112, 0.11)",
+    border: "rgba(25, 138, 112, 0.28)",
+    color: "var(--cfsp-green-dark)",
+    signal: "Staffing",
+  },
+  faculty_note: {
+    label: "Faculty Note",
+    accent: "#a86411",
+    background: "rgba(168, 100, 17, 0.10)",
+    border: "rgba(168, 100, 17, 0.26)",
+    color: "var(--cfsp-warning)",
+    signal: "Faculty",
+  },
+  live_issue: {
+    label: "Live Issue",
+    accent: "#af2f26",
+    background: "rgba(175, 47, 38, 0.09)",
+    border: "rgba(175, 47, 38, 0.28)",
+    color: "var(--cfsp-danger)",
+    signal: "Live",
+  },
+  training_update: {
+    label: "Training Update",
+    accent: "#0f766e",
+    background: "rgba(15, 118, 110, 0.10)",
+    border: "rgba(15, 118, 110, 0.26)",
+    color: "#0f766e",
+    signal: "Training",
+  },
+  system_notice: {
+    label: "System Notice",
+    accent: "#475569",
+    background: "rgba(71, 85, 105, 0.10)",
+    border: "rgba(71, 85, 105, 0.24)",
+    color: "var(--cfsp-text-muted)",
+    signal: "System",
+  },
+};
+
+const pulseRoleAppearance: Record<
+  PulseRole,
+  {
+    label: string;
+    background: string;
+    border: string;
+    color: string;
+    cardBorder: string;
+    cardBackground: string;
+  }
+> = {
+  sim_ops: {
+    label: "Sim Ops",
+    background: "rgba(73, 168, 255, 0.12)",
+    border: "rgba(73, 168, 255, 0.30)",
+    color: "var(--cfsp-blue-dark)",
+    cardBorder: "rgba(73, 168, 255, 0.24)",
+    cardBackground: "linear-gradient(180deg, rgba(73, 168, 255, 0.08) 0%, var(--cfsp-surface) 100%)",
+  },
+  admin: {
+    label: "Admin",
+    background: "rgba(44, 211, 173, 0.13)",
+    border: "rgba(44, 211, 173, 0.30)",
+    color: "var(--cfsp-green-dark)",
+    cardBorder: "rgba(44, 211, 173, 0.25)",
+    cardBackground: "linear-gradient(180deg, rgba(44, 211, 173, 0.08) 0%, var(--cfsp-surface) 100%)",
+  },
+  faculty: {
+    label: "Faculty",
+    background: "rgba(168, 100, 17, 0.10)",
+    border: "rgba(168, 100, 17, 0.24)",
+    color: "var(--cfsp-warning)",
+    cardBorder: "rgba(168, 100, 17, 0.22)",
+    cardBackground: "linear-gradient(180deg, rgba(255, 246, 232, 0.74) 0%, var(--cfsp-surface) 100%)",
+  },
+  sp: {
+    label: "SP",
+    background: "rgba(96, 117, 136, 0.10)",
+    border: "rgba(96, 117, 136, 0.22)",
+    color: "var(--cfsp-text-muted)",
+    cardBorder: "var(--cfsp-border)",
+    cardBackground: "linear-gradient(180deg, var(--cfsp-surface-muted) 0%, var(--cfsp-surface) 100%)",
+  },
+  system: {
+    label: "System",
+    background: "rgba(71, 85, 105, 0.12)",
+    border: "rgba(71, 85, 105, 0.24)",
+    color: "var(--cfsp-text-muted)",
+    cardBorder: "rgba(71, 85, 105, 0.24)",
+    cardBackground: "linear-gradient(180deg, rgba(71, 85, 105, 0.08) 0%, var(--cfsp-surface) 100%)",
+  },
+};
+
+const pulseSeedPosts: PulsePost[] = [
+  {
+    id: "pulse-seed-staffing",
+    authorName: "Maya Chen",
+    authorRole: "admin",
+    type: "staffing_alert",
+    timestampLabel: "12 min ago",
+    linkedEventName: "Center City OSCE Block",
+    body: "Need one backup SP for the afternoon rotation. Poll responders are triaged; available candidates are being confirmed now.",
+    tags: ["Coverage", "Backup queue", "Today"],
+    reactionCount: 4,
+    commentCount: 2,
+  },
+  {
+    id: "pulse-seed-live",
+    authorName: "Sim Ops Desk",
+    authorRole: "sim_ops",
+    type: "live_issue",
+    timestampLabel: "26 min ago",
+    linkedEventName: "HiFi Acute Care",
+    body: "Room 3 monitor handoff is in progress. Scenario start remains on track; AV is standing by for a final signal check.",
+    tags: ["Room 3", "AV check", "Live support"],
+    reactionCount: 6,
+    commentCount: 1,
+  },
+  {
+    id: "pulse-seed-faculty",
+    authorName: "Dr. Rivera",
+    authorRole: "faculty",
+    type: "faculty_note",
+    timestampLabel: "44 min ago",
+    linkedEventName: "Foundations Skills Lab",
+    body: "Faculty timing note added: keep learner feedback to five minutes so the second rotation can start cleanly.",
+    tags: ["Timing", "Learner flow"],
+    reactionCount: 3,
+    commentCount: 0,
+  },
+  {
+    id: "pulse-seed-system",
+    authorName: "Pulse",
+    authorRole: "system",
+    type: "system_notice",
+    timestampLabel: "1 hr ago",
+    body: "Dashboard pulse initialized. Event-linked updates, attachments, reactions, and comments are staged for the next Supabase pass.",
+    tags: ["Preview", "Internal ops"],
+    reactionCount: 0,
+    commentCount: 0,
+  },
+];
 
 function asText(value: unknown) {
   if (value === null || value === undefined) return "";
@@ -375,6 +570,355 @@ function getGreetingName(me: MeResponse | null) {
   if (emailUsername) return emailUsername;
 
   return asText(me?.user?.email) || "Member";
+}
+
+function getPulseRoleFromProfile(role: string): PulseRole {
+  const normalized = asText(role).toLowerCase();
+  if (normalized.includes("admin")) return "admin";
+  if (normalized === "sim_op") return "sim_ops";
+  if (normalized === "faculty") return "faculty";
+  if (normalized === "sp") return "sp";
+  return "sim_ops";
+}
+
+function getPulseInitials(name: string) {
+  const parts = asText(name).split(/\s+/).filter(Boolean);
+  if (!parts.length) return "P";
+  return parts.slice(0, 2).map((part) => part[0]?.toUpperCase()).join("");
+}
+
+function PulseAttachmentIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 12.5 12.6 20.9a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7L9.7 18.2a2 2 0 0 1-2.8-2.8l8.5-8.5" />
+    </svg>
+  );
+}
+
+function PulseEventLinkIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M10 13a5 5 0 0 0 7.1 0l2-2a5 5 0 0 0-7.1-7.1l-1.1 1.1" />
+      <path d="M14 11a5 5 0 0 0-7.1 0l-2 2A5 5 0 0 0 12 20.1l1.1-1.1" />
+    </svg>
+  );
+}
+
+function PulseRoleBadge({ role }: { role: PulseRole }) {
+  const roleLook = pulseRoleAppearance[role];
+
+  return (
+    <span
+      className="inline-flex min-h-[24px] items-center rounded-full px-2.5 py-1 text-[0.72rem] font-black uppercase tracking-[0.05em]"
+      style={{
+        background: roleLook.background,
+        border: `1px solid ${roleLook.border}`,
+        color: roleLook.color,
+      }}
+    >
+      {roleLook.label}
+    </span>
+  );
+}
+
+function PulseIconButton({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={`${label} coming soon`}
+      className="inline-flex h-[42px] w-[42px] items-center justify-center rounded-[10px]"
+      disabled
+      style={{
+        border: "1px solid var(--cfsp-border)",
+        background: "var(--cfsp-surface-muted)",
+        color: "var(--cfsp-text-muted)",
+        opacity: 0.72,
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+function PulsePostCard({ post }: { post: PulsePost }) {
+  const typeLook = pulseFeedTypeAppearance[post.type];
+  const roleLook = pulseRoleAppearance[post.authorRole];
+  const initials = getPulseInitials(post.authorName);
+
+  return (
+    <article
+      className="relative overflow-hidden rounded-[14px] px-4 py-4"
+      style={{
+        border: `1px solid ${roleLook.cardBorder}`,
+        background: roleLook.cardBackground,
+        boxShadow: "0 12px 26px rgba(24, 52, 78, 0.08)",
+      }}
+    >
+      <div
+        aria-hidden="true"
+        className="absolute bottom-0 left-0 top-0 w-[4px]"
+        style={{ background: `linear-gradient(180deg, ${typeLook.accent}, transparent)` }}
+      />
+
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <div
+            className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-[12px] text-sm font-black"
+            style={{
+              background: typeLook.background,
+              border: `1px solid ${typeLook.border}`,
+              color: typeLook.color,
+              boxShadow: `0 0 18px ${typeLook.border}`,
+            }}
+          >
+            {initials}
+          </div>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-black text-[var(--cfsp-text)]">{post.authorName}</span>
+              <PulseRoleBadge role={post.authorRole} />
+            </div>
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs font-bold text-[var(--cfsp-text-muted)]">
+              <span>{post.timestampLabel}</span>
+              <span>{typeLook.signal}</span>
+            </div>
+          </div>
+        </div>
+
+        <span
+          className="inline-flex min-h-[28px] items-center rounded-full px-3 py-1 text-xs font-black"
+          style={{
+            background: typeLook.background,
+            border: `1px solid ${typeLook.border}`,
+            color: typeLook.color,
+          }}
+        >
+          {typeLook.label}
+        </span>
+      </div>
+
+      {post.linkedEventName ? (
+        <div className="mt-3">
+          <span
+            className="inline-flex min-h-[28px] max-w-full items-center rounded-full px-3 py-1 text-xs font-black"
+            style={{
+              background: "var(--cfsp-surface)",
+              border: "1px solid var(--cfsp-border)",
+              color: "var(--cfsp-blue-dark)",
+            }}
+          >
+            <span className="truncate">Event: {post.linkedEventName}</span>
+          </span>
+        </div>
+      ) : null}
+
+      <p className="mt-3 text-[0.95rem] leading-6 text-[var(--cfsp-text)]">{post.body}</p>
+
+      {post.tags.length ? (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {post.tags.map((tag) => (
+            <span key={`${post.id}-${tag}`} className="cfsp-chip">
+              {tag}
+            </span>
+          ))}
+        </div>
+      ) : null}
+
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        {/* TODO reactions: persist per-user acknowledgements once Pulse tables exist. */}
+        <button type="button" className="cfsp-btn cfsp-btn-secondary min-h-[34px] px-3 py-1.5 text-xs" disabled>
+          Ack {post.reactionCount}
+        </button>
+        {/* TODO comments: hydrate comment counts and threaded replies from the future Pulse comments API. */}
+        <button type="button" className="cfsp-btn cfsp-btn-secondary min-h-[34px] px-3 py-1.5 text-xs" disabled>
+          Comments {post.commentCount}
+        </button>
+      </div>
+    </article>
+  );
+}
+
+function PulsePanel({
+  displayName,
+  profileRole,
+}: {
+  displayName: string;
+  profileRole: string;
+}) {
+  const authorRole = getPulseRoleFromProfile(profileRole);
+  const [pulseDraft, setPulseDraft] = useState("");
+  const [pulseType, setPulseType] = useState<PulseFeedType>("general_update");
+  const [pulsePosts, setPulsePosts] = useState<PulsePost[]>(() => pulseSeedPosts);
+  const authorInitials = getPulseInitials(displayName);
+  const selectedTypeLook = pulseFeedTypeAppearance[pulseType];
+  const authorRoleLook = pulseRoleAppearance[authorRole];
+
+  function handleCreatePulsePost() {
+    const body = pulseDraft.trim();
+    if (!body) return;
+
+    // TODO create_post: replace this local prepend with an authenticated Supabase insert.
+    setPulsePosts((current) => [
+      {
+        id: `pulse-local-${Date.now()}`,
+        authorName: displayName,
+        authorRole,
+        type: pulseType,
+        timestampLabel: "Just now",
+        body,
+        tags: [selectedTypeLook.signal, authorRoleLook.label],
+        reactionCount: 0,
+        commentCount: 0,
+      },
+      ...current,
+    ]);
+    setPulseDraft("");
+  }
+
+  return (
+    <section
+      className="relative overflow-hidden rounded-[14px] px-5 py-5"
+      style={{
+        border: "1px solid var(--cfsp-border)",
+        background:
+          "linear-gradient(135deg, rgba(20, 91, 150, 0.10) 0%, rgba(25, 138, 112, 0.10) 44%, var(--cfsp-surface) 100%)",
+        boxShadow: "var(--cfsp-card-glow)",
+      }}
+    >
+      <div
+        aria-hidden="true"
+        className="absolute left-0 right-0 top-0 h-[3px]"
+        style={{ background: "linear-gradient(90deg, #145b96, #2cd3ad, #a86411)" }}
+      />
+
+      <div className="relative">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+          <div className="max-w-2xl">
+            <div className="cfsp-kicker">Pulse</div>
+            <h2 className="mt-2 text-[1.45rem] leading-tight font-black text-[var(--cfsp-text)]">CFSP Pulse</h2>
+            <p className="mt-2 text-sm leading-6 text-[var(--cfsp-text-muted)]">
+              Live operational coordination for staffing, rooms, faculty notes, training signals, and day-of support.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <span className="cfsp-chip">Ops channel</span>
+            <span className="cfsp-chip">Team pulse</span>
+            <span className="cfsp-chip">Event aware</span>
+          </div>
+        </div>
+
+        <div
+          className="mt-4 rounded-[14px] px-4 py-4"
+          style={{
+            border: "1px solid rgba(73, 168, 255, 0.24)",
+            background: "linear-gradient(180deg, var(--cfsp-surface) 0%, var(--cfsp-surface-muted) 100%)",
+            boxShadow: "0 16px 34px rgba(24, 52, 78, 0.08)",
+          }}
+        >
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+            <div className="flex min-w-[220px] items-center gap-3">
+              <div
+                className="flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-[13px] text-sm font-black"
+                style={{
+                  background: authorRoleLook.background,
+                  border: `1px solid ${authorRoleLook.border}`,
+                  color: authorRoleLook.color,
+                }}
+              >
+                {authorInitials}
+              </div>
+              <div className="min-w-0">
+                <div className="truncate text-sm font-black text-[var(--cfsp-text)]">{displayName}</div>
+                <div className="mt-1">
+                  <PulseRoleBadge role={authorRole} />
+                </div>
+              </div>
+            </div>
+
+            <input
+              value={pulseDraft}
+              onChange={(event) => setPulseDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  handleCreatePulsePost();
+                }
+              }}
+              className="cfsp-input"
+              placeholder="What's happening?"
+              aria-label="Pulse update"
+            />
+
+            <div className="flex shrink-0 items-center gap-2">
+              {/* TODO attachments: connect this placeholder to future Pulse upload records. */}
+              <PulseIconButton label="Add attachment">
+                <PulseAttachmentIcon />
+              </PulseIconButton>
+              {/* TODO linked_events: store event_id references and hydrate event chips from Supabase. */}
+              <PulseIconButton label="Link event">
+                <PulseEventLinkIcon />
+              </PulseIconButton>
+              <button
+                type="button"
+                onClick={handleCreatePulsePost}
+                disabled={!pulseDraft.trim()}
+                className="cfsp-btn cfsp-btn-primary"
+                style={{
+                  minWidth: "104px",
+                  opacity: pulseDraft.trim() ? 1 : 0.62,
+                  boxShadow: pulseDraft.trim() ? "0 10px 26px rgba(20, 91, 150, 0.20)" : undefined,
+                }}
+              >
+                Post
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-3 flex flex-wrap gap-2">
+            {pulseFeedTypeOrder.map((type) => {
+              const typeLook = pulseFeedTypeAppearance[type];
+              const active = pulseType === type;
+              return (
+                <button
+                  key={type}
+                  type="button"
+                  onClick={() => setPulseType(type)}
+                  className="inline-flex min-h-[30px] items-center rounded-full px-3 py-1 text-xs font-black transition"
+                  style={{
+                    background: active ? typeLook.background : "var(--cfsp-surface)",
+                    border: `1px solid ${active ? typeLook.border : "var(--cfsp-border)"}`,
+                    color: active ? typeLook.color : "var(--cfsp-text-muted)",
+                    boxShadow: active ? `0 0 18px ${typeLook.border}` : "none",
+                  }}
+                >
+                  {typeLook.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {pulsePosts.length ? (
+          <div className="mt-4 grid gap-3 xl:grid-cols-2">
+            {pulsePosts.map((post) => (
+              <PulsePostCard key={post.id} post={post} />
+            ))}
+          </div>
+        ) : (
+          <div className="mt-4 rounded-[14px] border border-dashed border-[var(--cfsp-border)] bg-[var(--cfsp-surface)] px-5 py-7 text-sm font-bold text-[var(--cfsp-text-muted)]">
+            No Pulse updates yet.
+          </div>
+        )}
+      </div>
+    </section>
+  );
 }
 
 function WorkflowSection({
@@ -1172,88 +1716,7 @@ export default function DashboardPage() {
           ) : null}
         </section>
 
-        <section
-          className="rounded-[14px] px-5 py-4"
-          style={{
-            border: "1px solid var(--cfsp-border)",
-            background: "linear-gradient(180deg, rgba(246, 251, 255, 0.98) 0%, rgba(240, 247, 252, 0.98) 100%)",
-            boxShadow: "var(--cfsp-card-glow)",
-          }}
-        >
-          <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-            <div className="max-w-2xl">
-              <div className="cfsp-kicker">Dashboard Live Feed</div>
-              <h2 className="mt-2 text-[1.2rem] font-black text-[var(--cfsp-text)]">Internal updates and event coordination</h2>
-              <p className="mt-2 text-sm leading-6 text-[var(--cfsp-text-muted)]">
-                This is the starting point for an in-app CFSP live feed where authenticated users will be able to post updates and comment on ongoing work.
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <span className="cfsp-chip">{isSp ? "SP view" : isFaculty ? "Faculty view" : "Operations view"}</span>
-              <span className="cfsp-chip">Authenticated only</span>
-              <span className="cfsp-chip">Framework</span>
-            </div>
-          </div>
-
-          <div className="mt-4 grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
-            <div
-              className="rounded-[12px] px-4 py-4"
-              style={{
-                border: "1px solid var(--cfsp-border)",
-                background: "var(--cfsp-surface)",
-              }}
-            >
-              <div className="cfsp-label">Create Post</div>
-              <textarea
-                className="cfsp-input mt-3 min-h-[108px]"
-                disabled
-                placeholder={
-                  isSp
-                    ? "Post assignment or training updates here soon..."
-                    : isFaculty
-                      ? "Post course-facing updates here soon..."
-                      : "Post operational updates here soon..."
-                }
-                style={{ resize: "vertical", opacity: 0.9 }}
-              />
-              <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-sm text-[var(--cfsp-text-muted)]">
-                <span>
-                  Posting and comments are not live yet. This scaffold keeps role-aware placement ready for the feed API.
-                </span>
-                <button type="button" className="cfsp-btn cfsp-btn-secondary" disabled>
-                  Posting Soon
-                </button>
-              </div>
-              {/* TODO: connect to authenticated live feed API once feed tables/routes exist. */}
-            </div>
-
-            <div
-              className="rounded-[12px] px-4 py-4"
-              style={{
-                border: "1px solid var(--cfsp-border)",
-                background: "var(--cfsp-surface)",
-              }}
-            >
-              <div className="cfsp-label">Feed Activity</div>
-              <div className="mt-3 text-sm font-semibold text-[var(--cfsp-text-muted)]">
-                Role-aware visibility will limit future feed posts to the right audience:
-              </div>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <span className="cfsp-chip">SP</span>
-                <span className="cfsp-chip">Faculty</span>
-                <span className="cfsp-chip">Sim Ops</span>
-                <span className="cfsp-chip">Admin</span>
-                <span className="cfsp-chip">Super Admin</span>
-              </div>
-              <div className="mt-4 rounded-[12px] border border-dashed border-[var(--cfsp-border)] bg-[var(--cfsp-surface-muted)] px-4 py-6 text-sm font-semibold text-[var(--cfsp-text-muted)]">
-                No live feed updates yet.
-              </div>
-              <div className="mt-3 text-xs font-semibold text-[var(--cfsp-text-muted)]">
-                Future feed items will support posts, comments, and event-linked updates without changing the current dashboard workflow.
-              </div>
-            </div>
-          </div>
-        </section>
+        <PulsePanel displayName={displayName} profileRole={role} />
 
         {error ? <div className="cfsp-alert cfsp-alert-error">{error}</div> : null}
 
