@@ -505,7 +505,7 @@ const trainingMaterialFieldMap: Record<
     uploadedByKey: "supplemental_doc_uploaded_by",
   },
   staffing_doc: {
-    label: "Staffing Doc",
+    label: "Event Material",
     urlKey: "staffing_doc_url",
     nameKey: "staffing_doc_name",
     storagePathKey: "staffing_doc_storage_path",
@@ -5304,7 +5304,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
 
       await persistTrainingNotes(
         nextNotes,
-        kind === "staffing_doc" ? "Staffing doc uploaded." : `${fieldConfig.label} saved to training materials.`
+        kind === "staffing_doc" ? "Event material uploaded." : `${fieldConfig.label} saved to training materials.`
       );
     } catch (error) {
       setEventSaveError(
@@ -6904,7 +6904,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
   const staffingDocName =
     asText(trainingMetadata.staffing_doc_name) ||
     getFilenameFromUrl(staffingDocUrl) ||
-    "PDF, DOCX, XLSX, or CSV";
+    "Event Material";
   const staffingDocStoragePath = asText(trainingMetadata.staffing_doc_storage_path);
   const staffingDocBusy = trainingMaterialSaving.staffing_doc;
   const isPlanningVisualMode = commandCenterMode === "planning";
@@ -7150,7 +7150,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                 }}
               >
                 <div style={{ minWidth: 0 }}>
-                  <div style={{ ...statLabel, color: staffingWorkspacePalette.textStrong }}>Upload Staffing Doc</div>
+                  <div style={{ ...statLabel, color: staffingWorkspacePalette.textStrong }}>Upload Event Material</div>
                   <div
                     style={{
                       marginTop: "4px",
@@ -7161,7 +7161,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                       overflowWrap: "anywhere",
                     }}
                   >
-                    {staffingDocUrl ? staffingDocName : "Quick utility for PDF, DOCX, XLSX, or CSV support materials."}
+                    {staffingDocUrl ? staffingDocName : "Quick utility for PDF, DOCX, XLSX, or CSV event materials."}
                   </div>
                 </div>
                 <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
@@ -7171,7 +7171,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                         type="button"
                         onClick={() =>
                           openMaterialPreview({
-                            title: "Staffing Doc",
+                            title: "Event Material",
                             rawUrl: staffingDocUrl,
                             storagePath: staffingDocStoragePath,
                             fileName: staffingDocName,
@@ -7219,7 +7219,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                       whiteSpace: "nowrap",
                     }}
                   >
-                    {staffingDocBusy ? "Uploading..." : staffingDocUrl ? "Replace" : "Upload Staffing Doc"}
+                    {staffingDocBusy ? "Uploading..." : staffingDocUrl ? "Replace" : "Upload Event Material"}
                   </button>
                 </div>
               </div>
