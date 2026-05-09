@@ -125,7 +125,7 @@ type AssignmentFilterStatus = "all" | "invited" | "confirmed" | "declined";
 type SuggestedAssignmentFilter = "all" | "available" | "confirmed" | "needs_outreach" | "backup";
 type PollLocationFilter = "any" | "elkins_park" | "center_city" | "virtual";
 type CommandCenterMode = "planning" | "live";
-type RotationCompanionView = "student" | "sp" | "operations";
+type RotationCompanionView = "announcements" | "student" | "sp" | "operations";
 type LiveRoomStatusValue = "ready" | "in_session" | "delayed" | "empty" | "sp_missing" | "complete";
 
 type AvailabilityMatchStatus =
@@ -1078,6 +1078,13 @@ function formatRemainingMinutes(totalMinutes: number) {
   return `${minutes}m`;
 }
 
+function parseDurationMinutes(value?: string | null) {
+  const text = asText(value);
+  if (!text) return 0;
+  const matched = text.match(/(\d+)/);
+  return matched ? Number(matched[1]) || 0 : 0;
+}
+
 function formatUploadedTimestamp(value?: string | null) {
   if (!value) return "Not uploaded";
   const parsed = new Date(value);
@@ -1720,7 +1727,8 @@ export default function EventDetailPage() {
   const [suggestedAssignmentFilter, setSuggestedAssignmentFilter] = useState<SuggestedAssignmentFilter>("all");
   const [commandCenterMode, setCommandCenterMode] = useState<CommandCenterMode>("planning");
   const [selectedRotationRoundKey, setSelectedRotationRoundKey] = useState("");
-  const [roundCompanionView, setRoundCompanionView] = useState<RotationCompanionView>("operations");
+  const [roundCompanionView, setRoundCompanionView] = useState<RotationCompanionView>("announcements");
+  const [roundAnnouncementDrafts, setRoundAnnouncementDrafts] = useState<Record<string, string>>({});
   const [hasTouchedRoundCompanion, setHasTouchedRoundCompanion] = useState(false);
   const [liveRoomStates, setLiveRoomStates] = useState<Record<string, LiveRoomLocalState>>({});
   const [liveDelayMinutes, setLiveDelayMinutes] = useState(0);
@@ -1886,6 +1894,7 @@ export default function EventDetailPage() {
     viewerRole === "admin" || viewerRole === "sim_op" || viewerRole === "super_admin";
   const canManageAvailabilityPoll = canManageTrainingAttendance;
   const canManageSpMatchMaker = canManageTrainingAttendance;
+  const canManageRoundAnnouncements = canManageTrainingAttendance;
   const canRunLiveEventMode = canManageTrainingAttendance;
   const canDeleteEvent = viewerRole === "admin" || viewerRole === "super_admin";
 
@@ -2913,10 +2922,150 @@ const summaryTimeLabel = useMemo(() => {
   const visibleSelectedRoundDayBlocks = useMemo(
     () =>
       selectedRoundDayBlocks.filter(
-        (block) => roundCompanionView === "operations" || block.audience.includes(roundCompanionView)
+        (block) =>
+          roundCompanionView === "operations" ||
+          roundCompanionView === "announcements" ||
+          block.audience.includes(roundCompanionView)
       ),
     [roundCompanionView, selectedRoundDayBlocks]
   );
+  const feedbackMinutesFromMetadata = useMemo(
+    () => parseIntegerNoteValue(eventEditor.notes || event?.notes, "Feedback / Break Length"),
+    [event?.notes, eventEditor.notes]
+  );
+  const selectedRoundAnnouncementTimeline = useMemo(() => {
+    if (!selectedRotationRound) {
+      return [] as Array<{
+        key: string;
+        timeLabel: string;
+        phaseLabel: string;
+        announcement: string;
+        detail?: string;
+      }>;
+    }
+
+    const startMinutes = parseTimeToMinutes(selectedRotationRound.start_time);
+    const encounterEndMinutes = parseTimeToMinutes(selectedRotationRound.end_time);
+    if (startMinutes === null || encounterEndMinutes === null || encounterEndMinutes <= startMinutes) {
+      return [] as Array<{
+        key: string;
+        timeLabel: string;
+        phaseLabel: string;
+        announcement: string;
+        detail?: string;
+      }>;
+    }
+
+    const nextRound = rotationRounds[activeSelectedRotationRoundIndex + 1] || null;
+    const nextRoundStartMinutes = nextRound ? parseTimeToMinutes(nextRound.start_time) : null;
+    const safeFeedbackMinutes = Math.max(feedbackMinutesFromMetadata, 0);
+    const feedbackEndMinutes =
+      safeFeedbackMinutes > 0
+        ? nextRoundStartMinutes !== null
+          ? Math.min(encounterEndMinutes + safeFeedbackMinutes, nextRoundStartMinutes)
+          : encounterEndMinutes + safeFeedbackMinutes
+        : encounterEndMinutes;
+
+    const timeline: Array<{
+      key: string;
+      timeLabel: string;
+      phaseLabel: string;
+      announcement: string;
+      detail?: string;
+    }> = [
+      {
+        key: `${selectedRotationRound.key}-prepare`,
+        timeLabel: formatMinutesAsClockLabel(Math.max(startMinutes - 1, 0)),
+        phaseLabel: "Prepare",
+        announcement: "SPs, please prepare.",
+        detail: "1 minute before encounter start",
+      },
+      {
+        key: `${selectedRotationRound.key}-start`,
+        timeLabel: formatMinutesAsClockLabel(startMinutes),
+        phaseLabel: "Start",
+        announcement: "You may now begin your encounter.",
+      },
+    ];
+
+    if (encounterEndMinutes - startMinutes >= 5) {
+      timeline.push({
+        key: `${selectedRotationRound.key}-warning`,
+        timeLabel: formatMinutesAsClockLabel(encounterEndMinutes - 5),
+        phaseLabel: "5-Min Warning",
+        announcement: "You have 5 minutes remaining in your encounter.",
+      });
+    }
+
+    timeline.push({
+      key: `${selectedRotationRound.key}-feedback-start`,
+      timeLabel: formatMinutesAsClockLabel(encounterEndMinutes),
+      phaseLabel: "Feedback",
+      announcement: "Encounter has ended. SPs, please begin feedback.",
+      detail: safeFeedbackMinutes > 0 ? `${safeFeedbackMinutes} minute feedback window` : undefined,
+    });
+
+    if (safeFeedbackMinutes > 0 && feedbackEndMinutes > encounterEndMinutes) {
+      timeline.push({
+        key: `${selectedRotationRound.key}-session-end`,
+        timeLabel: formatMinutesAsClockLabel(feedbackEndMinutes),
+        phaseLabel: "Session End",
+        announcement: "Your session has ended. Please leave the simulation.",
+      });
+    }
+
+    let cursorMinutes = feedbackEndMinutes;
+    visibleSelectedRoundDayBlocks.forEach((block, index) => {
+      const blockMinutes = Math.max(parseDurationMinutes(block.detail), 0);
+      const blockStart = cursorMinutes;
+      const blockEnd = blockMinutes > 0 ? cursorMinutes + blockMinutes : cursorMinutes;
+      const normalizedLabel = asText(block.label).toLowerCase();
+      const phaseLabel = normalizedLabel.includes("checklist")
+        ? "Checklist"
+        : normalizedLabel.includes("soap")
+          ? "SOAP Notes"
+          : normalizedLabel.includes("feedback")
+            ? "Feedback"
+            : normalizedLabel.includes("debrief")
+              ? "Debrief"
+              : normalizedLabel.includes("break") || normalizedLabel.includes("lunch") || normalizedLabel.includes("transition")
+                ? "Break/Transition"
+                : block.label || "Day Block";
+      timeline.push({
+        key: `${selectedRotationRound.key}-block-${index}`,
+        timeLabel:
+          blockEnd > blockStart ? formatMinuteRange(blockStart, blockEnd) : formatMinutesAsClockLabel(blockStart),
+        phaseLabel,
+        announcement: block.label,
+        detail: block.detail,
+      });
+      cursorMinutes = blockEnd;
+    });
+
+    if (nextRoundStartMinutes !== null && nextRoundStartMinutes > cursorMinutes) {
+      timeline.push({
+        key: `${selectedRotationRound.key}-transition`,
+        timeLabel: formatMinuteRange(cursorMinutes, nextRoundStartMinutes),
+        phaseLabel: "Break/Transition",
+        announcement: "Turnaround / transition time.",
+      });
+      timeline.push({
+        key: `${selectedRotationRound.key}-next-prepare`,
+        timeLabel: formatMinutesAsClockLabel(Math.max(nextRoundStartMinutes - 1, 0)),
+        phaseLabel: "Prepare",
+        announcement: "SPs, please prepare.",
+        detail: `Preparing for Round ${activeSelectedRotationRoundIndex + 2}`,
+      });
+    }
+
+    return timeline;
+  }, [
+    activeSelectedRotationRoundIndex,
+    feedbackMinutesFromMetadata,
+    rotationRounds,
+    selectedRotationRound,
+    visibleSelectedRoundDayBlocks,
+  ]);
   const selectedRoundOperationsNotes = useMemo(
     () =>
       [
@@ -7805,7 +7954,9 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                       {selectedRotationRound ? `Selected Round ${activeSelectedRotationRoundIndex + 1}` : "No round selected"}
                     </span>
                     <span style={{ ...commandChipStyle, background: "rgba(126, 231, 219, 0.14)", color: "#7ee7db" }}>
-                      {roundCompanionView === "student"
+                      {roundCompanionView === "announcements"
+                        ? "Announcements"
+                        : roundCompanionView === "student"
                         ? "Student Schedule"
                         : roundCompanionView === "sp"
                           ? "SP Schedule"
@@ -7930,6 +8081,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                       </div>
                       <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                         {[
+                          { value: "announcements", label: "Announcements" },
                           { value: "student", label: "Student Schedule" },
                           { value: "sp", label: "SP Schedule" },
                           { value: "operations", label: "Operations View" },
@@ -8004,14 +8156,18 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
 
                         <div style={{ display: "grid", gap: "8px" }}>
                           <div style={{ ...statLabel, color: "#8bc8d7" }}>
-                            {roundCompanionView === "student"
+                            {roundCompanionView === "announcements"
+                              ? "Announcements"
+                              : roundCompanionView === "student"
                               ? "Student Schedule"
                               : roundCompanionView === "sp"
                                 ? "SP Schedule"
                                 : "Operations View"}
                           </div>
                           <div style={{ color: "#c7e8f2", fontSize: "13px", fontWeight: 700 }}>
-                            {roundCompanionView === "student"
+                            {roundCompanionView === "announcements"
+                              ? "Operational calling script for this rotation with timed prompts and follow-up blocks."
+                              : roundCompanionView === "student"
                               ? "Learner-facing timing and follow-up blocks for this rotation."
                               : roundCompanionView === "sp"
                                 ? "SP-facing rooms, staffing, and attached support blocks for this rotation."
@@ -8021,9 +8177,69 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
 
                         <div style={{ display: "grid", gap: "8px" }}>
                           <div style={{ ...statLabel, color: "#8bc8d7" }}>
-                            {roundCompanionView === "student" ? "Learner Blocks" : roundCompanionView === "sp" ? "SP Assignments" : "Round Operations"}
+                            {roundCompanionView === "announcements"
+                              ? "Announcement Timeline"
+                              : roundCompanionView === "student"
+                                ? "Learner Blocks"
+                                : roundCompanionView === "sp"
+                                  ? "SP Assignments"
+                                  : "Round Operations"}
                           </div>
-                          {roundCompanionView === "student" ? (
+                          {roundCompanionView === "announcements" ? (
+                            selectedRoundAnnouncementTimeline.length ? (
+                              <div style={{ display: "grid", gap: "10px" }}>
+                                {selectedRoundAnnouncementTimeline.map((entry) => {
+                                  const draftValue = roundAnnouncementDrafts[entry.key] ?? entry.announcement;
+                                  return (
+                                    <div
+                                      key={entry.key}
+                                      style={{
+                                        borderRadius: "12px",
+                                        border: "1px solid rgba(148, 163, 184, 0.18)",
+                                        background: "rgba(255,255,255,0.04)",
+                                        padding: "12px 14px",
+                                        display: "grid",
+                                        gap: "8px",
+                                      }}
+                                    >
+                                      <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+                                        <div style={{ color: "#f8fafc", fontWeight: 900 }}>{entry.timeLabel}</div>
+                                        <span style={{ ...commandChipStyle, background: "rgba(126, 231, 219, 0.14)", color: "#7ee7db" }}>
+                                          {entry.phaseLabel}
+                                        </span>
+                                      </div>
+                                      {canManageRoundAnnouncements ? (
+                                        <textarea
+                                          value={draftValue}
+                                          onChange={(event) =>
+                                            setRoundAnnouncementDrafts((current) => ({
+                                              ...current,
+                                              [entry.key]: event.target.value,
+                                            }))
+                                          }
+                                          style={{ ...textareaStyle, minHeight: "64px" }}
+                                        />
+                                      ) : (
+                                        <div style={{ color: "#f8fafc", fontWeight: 800 }}>{draftValue}</div>
+                                      )}
+                                      {entry.detail ? (
+                                        <div style={{ color: "#9cc7d3", fontSize: "12px", fontWeight: 700 }}>{entry.detail}</div>
+                                      ) : null}
+                                    </div>
+                                  );
+                                })}
+                                {canManageRoundAnnouncements ? (
+                                  <div style={{ color: "#9cc7d3", fontSize: "12px", fontWeight: 700 }}>
+                                    Announcement edits stay local for now and are ready for future event-level persistence.
+                                  </div>
+                                ) : null}
+                              </div>
+                            ) : (
+                              <div style={{ color: "#9cc7d3", fontWeight: 700, fontSize: "13px" }}>
+                                Announcement timing is not available until this round has valid start and end times.
+                              </div>
+                            )
+                          ) : roundCompanionView === "student" ? (
                             visibleSelectedRoundDayBlocks.length ? (
                               visibleSelectedRoundDayBlocks.map((block) => (
                                 <div key={`${selectedRotationRound.key}-${block.label}`} style={{ borderRadius: "12px", border: "1px solid rgba(148, 163, 184, 0.18)", background: "rgba(255,255,255,0.04)", padding: "10px 12px" }}>
