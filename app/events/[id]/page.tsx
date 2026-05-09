@@ -3881,8 +3881,10 @@ console.log("CFSP Poll Import Sample Row:", rows?.[0]);
       const parsedResponses = rows
         .map((row) => {
           const name = getImportFieldValue(row, [
-  "Name",
+  "Full name",
   "Full Name",
+  "Enter your full name",
+  "Name",
   "Responder",
   "Respondent",
   "Respondent Name",
@@ -3892,13 +3894,24 @@ console.log("CFSP Poll Import Sample Row:", rows?.[0]);
 ]);
 
 const email = getImportFieldValue(row, [
-  "Email",
+  "Enter your email address",
   "Email Address",
-  "E-mail",
   "Responder Email",
   "Respondent Email",
+  "E-mail",
+  "Email",
   "Microsoft Email",
 ]);
+
+const cleanedEmail =
+  asText(email).toLowerCase() === "anonymous"
+    ? ""
+    : asText(email);
+
+const cleanedName =
+  asText(name).toLowerCase() === "anonymous"
+    ? ""
+    : asText(name);
 
 const allKeys = Object.keys(row || {});
 
@@ -3936,15 +3949,15 @@ const availability = availabilityKey ? asText(row[availabilityKey]) : "";
 const response = responseKey ? asText(row[responseKey]) : "";
           const notes = getImportFieldValue(row, ["Notes", "Comments", "Comment", "Additional Notes"]);
           const timestamp = getImportFieldValue(row, ["Timestamp", "Submitted At", "Submission Time", "Completion time", "Start time"]);
-          const normalizedEmail = normalizeEmail(email);
+          const normalizedEmail = normalizeEmail(cleanedEmail);
           const emailMatch = normalizedEmail ? spByEmail.get(normalizedEmail) : undefined;
-          const nameMatch = !emailMatch && name ? spByNormalizedName.get(normalizeMatchName(name)) : undefined;
+          const nameMatch = !emailMatch && cleanedName ? spByNormalizedName.get(normalizeMatchName(name)) : undefined;
           const matchedSp = emailMatch || nameMatch;
           const classified = classifyImportedAvailabilityResponse([availability, response, notes].filter(Boolean).join(" "));
 
           return {
-            name,
-            email,
+           name: cleanedName,
+email: cleanedEmail,
             normalizedEmail,
             responseStatus: classified.status,
             responseLabel: classified.label,
