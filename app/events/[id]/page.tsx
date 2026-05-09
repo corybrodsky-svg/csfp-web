@@ -5239,6 +5239,8 @@ const summaryTimeLabel = useMemo(() => {
             : 0,
         }))
         .sort((a, b) => {
+          const roomCompare = compareRoomLabels(a.roomName, b.roomName);
+          if (roomCompare !== 0) return roomCompare;
           const aChecked = a.status === "checked_in" ? 1 : 0;
           const bChecked = b.status === "checked_in" ? 1 : 0;
           if (aChecked !== bChecked) return bChecked - aChecked;
@@ -5250,8 +5252,9 @@ const summaryTimeLabel = useMemo(() => {
   const liveBlueprintCheckedCount = liveAttendanceBlueprintRooms.filter((room) => room.status === "checked_in").length;
   const liveBlueprintLateCount = liveAttendanceBlueprintRooms.filter((room) => room.status === "late").length;
   const liveBlueprintNoShowCount = liveAttendanceBlueprintRooms.filter((room) => room.status === "no_show").length;
-  const liveBlueprintTopRooms = liveAttendanceBlueprintRooms.filter((_, index) => index % 2 === 0);
-  const liveBlueprintBottomRooms = liveAttendanceBlueprintRooms.filter((_, index) => index % 2 === 1);
+  const liveBlueprintHallwaySplitIndex = Math.ceil(liveAttendanceBlueprintRooms.length / 2);
+  const liveBlueprintTopRooms = liveAttendanceBlueprintRooms.slice(0, liveBlueprintHallwaySplitIndex);
+  const liveBlueprintBottomRooms = liveAttendanceBlueprintRooms.slice(liveBlueprintHallwaySplitIndex);
   const needsOutreachCount = useMemo(
     () =>
       pollResponderEntries.filter(
