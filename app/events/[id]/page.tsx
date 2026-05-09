@@ -1864,24 +1864,43 @@ export default function EventDetailPage() {
     [assignments]
   );
 
+  const hiredAssignments = useMemo(
+    () =>
+      assignments.filter((assignment) => {
+        const status = getAssignmentStatus(assignment);
+        return status === "confirmed";
+      }),
+    [assignments]
+  );
+
+  const pollInviteOnlyAssignments = useMemo(
+    () =>
+      assignments.filter((assignment) => {
+        const status = getAssignmentStatus(assignment);
+        return status !== "confirmed";
+      }),
+    [assignments]
+  );
+
   const sortedAssignments = useMemo(
     () =>
-      [...assignments].sort((a, b) => {
-        const aStatus = getAssignmentStatus(a);
-        const bStatus = getAssignmentStatus(b);
-        const rankDiff = getAssignmentStatusRank(aStatus) - getAssignmentStatusRank(bStatus);
-        if (rankDiff !== 0) return rankDiff;
-
+      [...hiredAssignments].sort((a, b) => {
         const aSp = a.sp_id ? spsById.get(a.sp_id) : undefined;
         const bSp = b.sp_id ? spsById.get(b.sp_id) : undefined;
-        return getFullName(aSp || emptySpRow).localeCompare(getFullName(bSp || emptySpRow));
+
+        return getFullName(aSp || emptySpRow).localeCompare(
+          getFullName(bSp || emptySpRow)
+        );
       }),
-    [assignments, spsById]
+    [hiredAssignments, spsById]
   );
 
   const filteredAssignments = useMemo(() => {
     if (assignmentFilter === "all") return sortedAssignments;
-    return sortedAssignments.filter((assignment) => getAssignmentStatus(assignment) === assignmentFilter);
+
+    return sortedAssignments.filter(
+      (assignment) => getAssignmentStatus(assignment) === assignmentFilter
+    );
   }, [assignmentFilter, sortedAssignments]);
 
   const attendedCount = useMemo(
@@ -5929,7 +5948,71 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
 	                          </span>
 	                        ) : null}
 	                      </div>
+{pollInviteOnlyAssignments.length > 0 ? (
+  <details
+    style={{
+      marginBottom: "12px",
+      border: "1px solid rgba(148, 163, 184, 0.18)",
+      borderRadius: "14px",
+      padding: "12px",
+      background: "rgba(15, 23, 42, 0.35)",
+    }}
+  >
+    <summary
+      style={{
+        cursor: "pointer",
+        color: staffingWorkspacePalette.textStrong,
+        fontWeight: 800,
+      }}
+    >
+      Poll Invite Pool ({pollInviteOnlyAssignments.length})
+    </summary>
 
+    <div style={{ display: "grid", gap: "8px", marginTop: "12px" }}>
+      {pollInviteOnlyAssignments.map((assignment) => {
+        const sp = assignment.sp_id ? spsById.get(assignment.sp_id) : undefined;
+        const email = sp ? getEmail(sp) : "";
+
+        return (
+          <div
+            key={assignment.id}
+            style={{
+              borderRadius: "12px",
+              border: "1px solid rgba(148, 163, 184, 0.14)",
+              padding: "10px 12px",
+              background: "rgba(15, 23, 42, 0.24)",
+            }}
+          >
+            <div style={{ fontWeight: 800, color: staffingWorkspacePalette.textStrong }}>
+              {sp ? getFullName(sp) : "Unknown SP"}
+            </div>
+
+            <div
+              style={{
+                marginTop: "4px",
+                color: staffingWorkspacePalette.textMuted,
+                fontSize: "13px",
+              }}
+            >
+              {email || "No email"}
+            </div>
+
+            <div
+              style={{
+                marginTop: "6px",
+                color: "#93c5fd",
+                fontWeight: 700,
+                fontSize: "12px",
+              }}
+            >
+              Poll status: {getAssignmentStatus(assignment)}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  </details>
+) : null}
 	                      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
 	                        <button type="button" onClick={() => handleSetLiveRoomStatus(row.key, "ready")} style={{ ...buttonStyle, padding: "7px 10px" }}>
 	                          Mark Ready
