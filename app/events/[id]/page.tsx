@@ -3876,12 +3876,64 @@ const summaryTimeLabel = useMemo(() => {
 
     try {
       const rows = await parseImportedPollWorkbook(file);
+      console.log("CFSP Poll Import Headers:", Object.keys(rows?.[0] || {}));
+console.log("CFSP Poll Import Sample Row:", rows?.[0]);
       const parsedResponses = rows
         .map((row) => {
-          const name = getImportFieldValue(row, ["Name", "Full Name", "Responder", "Respondent", "SP Name"]);
-          const email = getImportFieldValue(row, ["Email", "Email Address", "E-mail"]);
-          const availability = getImportFieldValue(row, ["Availability", "Availability Response", "Available"]);
-          const response = getImportFieldValue(row, ["Response", "Answer", "Selection"]);
+          const name = getImportFieldValue(row, [
+  "Name",
+  "Full Name",
+  "Responder",
+  "Respondent",
+  "Respondent Name",
+  "Responder Name",
+  "SP Name",
+  "Standardized Patient",
+]);
+
+const email = getImportFieldValue(row, [
+  "Email",
+  "Email Address",
+  "E-mail",
+  "Responder Email",
+  "Respondent Email",
+  "Microsoft Email",
+]);
+
+const allKeys = Object.keys(row || {});
+
+const availabilityKey =
+  allKeys.find((key) => {
+    const normalized = normalizeImportHeader(key);
+
+    return (
+      normalized.includes("availability") ||
+      normalized.includes("available") ||
+      normalized.includes("can you work") ||
+      normalized.includes("are you available") ||
+      normalized.includes("can attend") ||
+      normalized.includes("attendance") ||
+      normalized.includes("work this event") ||
+      normalized.includes("work this simulation") ||
+      normalized.includes("would you be available")
+    );
+  }) || "";
+
+const responseKey =
+  allKeys.find((key) => {
+    const normalized = normalizeImportHeader(key);
+
+    return (
+      normalized.includes("response") ||
+      normalized.includes("answer") ||
+      normalized.includes("selection") ||
+      normalized.includes("yes no") ||
+      normalized.includes("attending")
+    );
+  }) || "";
+
+const availability = availabilityKey ? asText(row[availabilityKey]) : "";
+const response = responseKey ? asText(row[responseKey]) : "";
           const notes = getImportFieldValue(row, ["Notes", "Comments", "Comment", "Additional Notes"]);
           const timestamp = getImportFieldValue(row, ["Timestamp", "Submitted At", "Submission Time", "Completion time", "Start time"]);
           const normalizedEmail = normalizeEmail(email);
