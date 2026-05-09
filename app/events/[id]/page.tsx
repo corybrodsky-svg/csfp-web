@@ -414,6 +414,11 @@ const commandChipStyle: React.CSSProperties = {
   textTransform: "uppercase",
 };
 
+const planningSuccessBackground = "linear-gradient(180deg, rgba(187, 247, 208, 0.94) 0%, rgba(134, 239, 172, 0.8) 100%)";
+const planningSuccessCardBackground = "linear-gradient(180deg, rgba(220, 252, 231, 0.96) 0%, rgba(187, 247, 208, 0.82) 100%)";
+const planningSuccessBorder = "1px solid rgba(4, 120, 87, 0.38)";
+const planningSuccessText = "#064e3b";
+
 const assignmentStatuses: AssignmentStatus[] = [
   "invited",
   "contacted",
@@ -476,7 +481,7 @@ const trainingMaterialFieldMap: Record<
 };
 
 const relatedCopyOptionLabels: Record<RelatedCopyOption, string> = {
-  assigned_sps: "Assigned SPs",
+  assigned_sps: "Selected SPs",
   training_materials: "Training metadata/materials",
   faculty: "Faculty",
   zoom_recording: "Zoom/recording info",
@@ -492,6 +497,20 @@ const assignmentStatusLabels: Record<AssignmentStatus, string> = {
   backup: "Backup",
   no_show: "No-show",
 };
+
+function isSelectedStaffingStatus(status: AssignmentStatus | null | undefined) {
+  return status === "confirmed" || status === "backup";
+}
+
+function getPlanningStaffingPresenceLabel(status: AssignmentStatus | null | undefined) {
+  if (status === "confirmed") return "Primary selected";
+  if (status === "backup") return "Backup selected";
+  if (status === "invited") return "Poll invite archive";
+  if (status === "contacted") return "Contacted";
+  if (status === "declined") return "Declined";
+  if (status === "no_show") return "No-show";
+  return "Not selected";
+}
 
 const assignmentStatusStyles: Record<AssignmentStatus, React.CSSProperties> = {
   invited: {
@@ -1019,9 +1038,9 @@ function getCoverageWorkflowTone(needed: number, selectedCount: number, contacte
 
   if (selectedCount >= needed) {
     return {
-      background: "rgba(167, 243, 208, 0.72)",
-      border: "1px solid rgba(5, 150, 105, 0.36)",
-      color: "#065f46",
+      background: planningSuccessBackground,
+      border: planningSuccessBorder,
+      color: planningSuccessText,
       label: "Fully staffed",
     };
   }
@@ -2118,7 +2137,7 @@ export default function EventDetailPage() {
     () =>
       assignments.filter((assignment) => {
         const status = getAssignmentStatus(assignment);
-        return status === "confirmed" || status === "backup";
+        return isSelectedStaffingStatus(status);
       }),
     [assignments]
   );
@@ -2127,7 +2146,7 @@ export default function EventDetailPage() {
     () =>
       assignments.filter((assignment) => {
         const status = getAssignmentStatus(assignment);
-        return status !== "confirmed" && status !== "backup";
+        return !isSelectedStaffingStatus(status);
       }),
     [assignments]
   );
@@ -2670,7 +2689,7 @@ export default function EventDetailPage() {
           hasTelehealth(sp) ? "Virtual ready" : "",
           active ? "Active" : "",
           emailReady ? "Email ready" : "",
-          isAssigned ? "Already assigned" : "",
+          isAssigned ? "Existing event row" : "",
           isConfirmed ? "Already confirmed" : "",
           excluded ? "Excluded" : "",
         ].filter(Boolean);
@@ -2769,7 +2788,7 @@ export default function EventDetailPage() {
         }
       : needed <= 0
       ? {
-          message: hiredAssignments.length > 0 ? "Roster assigned" : "SP target not set",
+          message: hiredAssignments.length > 0 ? "Roster selected" : "SP target not set",
           background: "rgba(168, 183, 204, 0.12)",
           border: "1px solid var(--cfsp-border)",
           color: "var(--cfsp-text-muted)",
@@ -2777,9 +2796,9 @@ export default function EventDetailPage() {
       : shortage === 0
         ? {
             message: "Coverage complete",
-            background: "rgba(167, 243, 208, 0.72)",
-            border: "1px solid rgba(5, 150, 105, 0.36)",
-            color: "#065f46",
+            background: planningSuccessBackground,
+            border: planningSuccessBorder,
+            color: planningSuccessText,
           }
         : {
             message: `${shortage} SP${shortage === 1 ? "" : "s"} still needed`,
@@ -5729,7 +5748,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
   async function handleConfirmAllAssignments() {
     const pendingAssignments = sortedAssignments.filter((assignment) => !isAssignmentConfirmed(assignment));
     if (!pendingAssignments.length) {
-      showSuccessMessage("All assigned SPs are already confirmed.");
+      showSuccessMessage("All selected SPs are already confirmed.");
       return;
     }
 
@@ -6672,8 +6691,8 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
     cardBorder: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.18)" : "1px solid rgba(126, 231, 219, 0.12)",
     chipBackground: isPlanningVisualMode ? "rgba(219, 240, 246, 0.82)" : "rgba(125, 211, 252, 0.14)",
     chipText: isPlanningVisualMode ? "#1d5f83" : "#7dd3fc",
-    activeSoftBackground: isPlanningVisualMode ? "rgba(167, 243, 208, 0.72)" : "rgba(126, 231, 219, 0.14)",
-    activeSoftText: isPlanningVisualMode ? "#065f46" : "#7ee7db",
+    activeSoftBackground: isPlanningVisualMode ? planningSuccessBackground : "rgba(126, 231, 219, 0.14)",
+    activeSoftText: isPlanningVisualMode ? planningSuccessText : "#7ee7db",
     panelBackground: isPlanningVisualMode
       ? "linear-gradient(180deg, rgba(249, 253, 255, 0.98) 0%, rgba(237, 248, 251, 0.96) 100%)"
       : "linear-gradient(180deg, rgba(9, 26, 39, 0.98) 0%, rgba(12, 27, 41, 0.94) 100%)",
@@ -6706,7 +6725,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
           </div>
           <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
             <span style={{ ...staffingSelectedChipStyle, background: "rgba(186, 230, 253, 0.28)", color: "#1d5f83" }}>{needed} needed</span>
-            <span style={{ ...staffingSelectedChipStyle, background: "rgba(167, 243, 208, 0.72)", color: "#065f46", border: "1px solid rgba(5, 150, 105, 0.28)" }}>
+            <span style={{ ...staffingSelectedChipStyle, background: planningSuccessBackground, color: planningSuccessText, border: planningSuccessBorder }}>
               {confirmedCount} confirmed
             </span>
             <span
@@ -6714,19 +6733,19 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                 ...staffingSelectedChipStyle,
                 background:
                   coverageRiskTone === "green"
-                    ? "rgba(167, 243, 208, 0.72)"
+                    ? planningSuccessBackground
                     : coverageRiskTone === "yellow"
                       ? "rgba(253, 230, 138, 0.14)"
                       : "rgba(252, 165, 165, 0.14)",
                 color:
                   coverageRiskTone === "green"
-                    ? "#065f46"
+                    ? planningSuccessText
                     : coverageRiskTone === "yellow"
                       ? "#fde68a"
                       : staffingWorkspacePalette.dangerText,
                 border:
                   coverageRiskTone === "green"
-                    ? "1px solid rgba(5, 150, 105, 0.32)"
+                    ? planningSuccessBorder
                     : coverageRiskTone === "yellow"
                       ? "1px solid rgba(253, 230, 138, 0.2)"
                       : `1px solid ${staffingWorkspacePalette.dangerBorder}`,
@@ -6756,11 +6775,11 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
         {noSpStaffingRequired ? (
           <div
             style={{
-              border: "1px solid rgba(167, 243, 208, 0.18)",
+              border: planningSuccessBorder,
               borderRadius: "16px",
               padding: "14px 16px",
-              background: "rgba(167, 243, 208, 0.12)",
-              color: "#a7f3d0",
+              background: planningSuccessCardBackground,
+              color: planningSuccessText,
               fontWeight: 800,
             }}
           >
@@ -6815,8 +6834,8 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                     Fast primary or backup staffing without opening the full finder.
                   </div>
                 </div>
-                <span style={{ ...staffingSelectedChipStyle, background: "rgba(209, 250, 229, 0.34)", color: "#0f766e" }}>
-                  {sps.length - assignedSpIds.size} available
+                <span style={{ ...staffingSelectedChipStyle, background: planningSuccessBackground, color: planningSuccessText, border: planningSuccessBorder }}>
+                  {sps.length - assignedSpIds.size} addable
                 </span>
               </div>
 
@@ -6844,7 +6863,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                   style={{ ...selectStyle, width: "100%", maxWidth: "none", background: "#ffffff" }}
                 >
                   <option value="">
-                    {quickStaffingOptions.length === 0 ? "No unassigned SPs match" : "Select SP"}
+                    {quickStaffingOptions.length === 0 ? "No addable SPs match" : "Select SP"}
                   </option>
                   {quickStaffingOptions.map((sp) => {
                     const email = getEmail(sp);
@@ -6919,19 +6938,19 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                       padding: "10px 12px",
                       background:
                         coverageRiskTone === "green"
-                          ? "rgba(167, 243, 208, 0.72)"
+                          ? planningSuccessCardBackground
                           : coverageRiskTone === "yellow"
                             ? "rgba(253, 230, 138, 0.14)"
                             : staffingWorkspacePalette.dangerBg,
                       border:
                         coverageRiskTone === "green"
-                          ? "1px solid rgba(5, 150, 105, 0.36)"
+                          ? planningSuccessBorder
                           : coverageRiskTone === "yellow"
                             ? "1px solid rgba(253, 230, 138, 0.2)"
                             : `1px solid ${staffingWorkspacePalette.dangerBorder}`,
                       color:
                         coverageRiskTone === "green"
-                          ? "#065f46"
+                          ? planningSuccessText
                           : coverageRiskTone === "yellow"
                             ? "#fde68a"
                             : staffingWorkspacePalette.dangerText,
@@ -6945,7 +6964,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                   </div>
                   <div style={staffingMetricCardStyle}>
                     <div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Operational Summary</div>
-                    <div style={{ marginTop: "4px", color: coverageRiskTone === "green" ? "#065f46" : staffingWorkspacePalette.textStrong, fontWeight: 800, fontSize: "13px" }}>
+                    <div style={{ marginTop: "4px", color: coverageRiskTone === "green" ? planningSuccessText : staffingWorkspacePalette.textStrong, fontWeight: 800, fontSize: "13px" }}>
                       {coverageRiskTone === "green" ? staffingHealthLabel : `Short by ${Math.max(needed - selectedStaffingCount, 0)}`}
                     </div>
                     <div style={{ marginTop: "4px", color: staffingWorkspacePalette.textMuted, fontWeight: 700, fontSize: "12px" }}>
@@ -6977,7 +6996,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                       disabled={saving || sortedAssignments.length === 0}
                       style={{ ...buttonStyle, padding: "8px 11px", boxShadow: "0 8px 16px rgba(14, 165, 233, 0.16)", opacity: saving || sortedAssignments.length === 0 ? 0.65 : 1 }}
                     >
-                      Confirm All Assigned SPs
+                      Confirm All Selected SPs
                     </button>
                     <button
                       type="button"
@@ -7115,7 +7134,11 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                                         <span style={staffingSelectedChipStyle}>
                                           {importedResponse?.matchType === "name" ? "Name matched" : "Email matched"}
                                         </span>
-                                        {entry.isAssigned ? <span style={staffingSelectedChipStyle}>Already assigned</span> : null}
+                                        {entry.assignmentStatus ? (
+                                          <span style={staffingSelectedChipStyle}>
+                                            {getPlanningStaffingPresenceLabel(entry.assignmentStatus)}
+                                          </span>
+                                        ) : null}
                                       </div>
 
                                       {note ? (
@@ -7342,8 +7365,9 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                                 <span
                                   style={{
                                     ...commandChipStyle,
-                                    background: email ? "rgba(44, 211, 173, 0.12)" : "rgba(248, 113, 113, 0.12)",
-                                    color: email ? "#a7f3d0" : "#fecaca",
+                                    background: email ? planningSuccessBackground : "rgba(248, 113, 113, 0.12)",
+                                    color: email ? planningSuccessText : "#fecaca",
+                                    border: email ? planningSuccessBorder : commandChipStyle.border,
                                   }}
                                 >
                                   {email ? "Email ready" : "No email"}
@@ -7351,8 +7375,9 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                                 <span
                                   style={{
                                     ...commandChipStyle,
-                                    background: isConfirmed ? "rgba(44, 211, 173, 0.12)" : "rgba(73, 168, 255, 0.12)",
-                                    color: isConfirmed ? "#a7f3d0" : "#bae6fd",
+                                    background: isConfirmed ? planningSuccessBackground : "rgba(73, 168, 255, 0.12)",
+                                    color: isConfirmed ? planningSuccessText : "#bae6fd",
+                                    border: isConfirmed ? planningSuccessBorder : commandChipStyle.border,
                                   }}
                                 >
                                   {isConfirmed ? "Confirmed" : assignmentStatusLabels[status]}
@@ -7520,7 +7545,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                     <div>
                       <div style={{ ...statLabel, color: staffingWorkspacePalette.textStrong }}>Candidate SP Pool</div>
                       <div style={{ marginTop: "4px", color: staffingWorkspacePalette.textMuted, fontWeight: 700, fontSize: "13px" }}>
-                        Browse unassigned candidates only when you need more coverage.
+                        Browse addable candidates only when you need more selected staffing coverage.
                       </div>
                     </div>
                   </div>
@@ -7564,7 +7589,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                           disabled={saving || availableSps.length === 0}
                         >
                           <option value="">
-                            {availableSps.length === 0 ? "No matching unassigned SPs" : "Quick select an SP"}
+                            {availableSps.length === 0 ? "No matching addable SPs" : "Quick select an SP"}
                           </option>
                           {availableSps.map((sp) => (
                             <option key={sp.id} value={sp.id}>
@@ -7598,7 +7623,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
               </summary>
               <div style={{ display: "grid", gap: "12px", marginTop: "12px" }}>
                 <div style={staffingMutedTextStyle}>
-                  Match Maker helps narrow who to poll. It does not assign SPs until you choose to assign them.
+                  Match Maker helps narrow who to poll. It does not select SPs for staffing until you choose them.
                 </div>
 
                 <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
@@ -7716,7 +7741,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                           <option value="name">Name A-Z</option>
                           <option value="email_ready">Email ready</option>
                           <option value="recently_responded">Recently responded</option>
-                          <option value="assigned_last">Already assigned last</option>
+                          <option value="assigned_last">Existing rows last</option>
                         </select>
                       </label>
                     </div>
@@ -7727,7 +7752,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                         { label: "Email ready only", active: pollMatchEmailReadyOnly, toggle: () => setPollMatchEmailReadyOnly((current) => !current) },
                         { label: "Available responders only", active: pollMatchAvailableRespondersOnly, toggle: () => setPollMatchAvailableRespondersOnly((current) => !current) },
                         { label: "Not already selected", active: pollMatchNotSelectedOnly, toggle: () => setPollMatchNotSelectedOnly((current) => !current) },
-                        { label: "Not already assigned", active: pollMatchNotAssignedOnly, toggle: () => setPollMatchNotAssignedOnly((current) => !current) },
+                        { label: "No existing event row", active: pollMatchNotAssignedOnly, toggle: () => setPollMatchNotAssignedOnly((current) => !current) },
                         { label: "Not excluded", active: pollMatchNotExcludedOnly, toggle: () => setPollMatchNotExcludedOnly((current) => !current) },
                         { label: "Spanish", active: pollMatchSpanishOnly, toggle: () => setPollMatchSpanishOnly((current) => !current) },
                         { label: "Virtual ready", active: pollMatchTelehealthOnly, toggle: () => setPollMatchTelehealthOnly((current) => !current) },
@@ -7920,7 +7945,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                           type="button"
                           onClick={() => void handleMarkPollSent()}
                           disabled={pollSaving || pollSelectedCount === 0}
-                          style={{ ...buttonStyle, background: "rgba(167, 243, 208, 0.12)", color: "#a7f3d0", border: "1px solid rgba(167, 243, 208, 0.18)", boxShadow: "0 8px 16px rgba(16, 185, 129, 0.12)", opacity: pollSaving || pollSelectedCount === 0 ? 0.7 : 1 }}
+                          style={{ ...buttonStyle, background: planningSuccessBackground, color: planningSuccessText, border: planningSuccessBorder, boxShadow: "0 8px 16px rgba(16, 185, 129, 0.14)", opacity: pollSaving || pollSelectedCount === 0 ? 0.7 : 1 }}
                         >
                           Mark Poll Sent
                         </button>
@@ -8080,7 +8105,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                         suggestedAssignmentRows.slice(0, 10).map((entry) => {
                           const responseTone =
                             entry.pollResponseStatus === "available"
-                              ? assignmentStatusStyles.confirmed
+                              ? { background: planningSuccessBackground, color: planningSuccessText, border: planningSuccessBorder }
                               : entry.pollResponseStatus === "maybe"
                                 ? assignmentStatusStyles.backup
                                 : entry.pollResponseStatus === "not_available"
@@ -8133,7 +8158,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                                         fontWeight: 900,
                                       }}
                                     >
-                                      {assignmentStatusLabels[entry.assignmentStatus]}
+                                      {getPlanningStaffingPresenceLabel(entry.assignmentStatus)}
                                     </span>
                                   ) : null}
                                 </div>
@@ -8149,7 +8174,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                                 </button>
                               ) : (
                                 <span style={{ color: staffingWorkspacePalette.textMuted, fontWeight: 800, fontSize: "12px" }}>
-                                  {entry.isAssigned ? "Assigned" : "Do not assign"}
+                                  {entry.isAssigned ? getPlanningStaffingPresenceLabel(entry.assignmentStatus) : "Do not assign"}
                                 </span>
                               )}
                             </div>
@@ -9049,9 +9074,17 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                       {(card.chips || []).slice(0, 3).map((chip: string) => {
                         const successChip = isPlanningVisualMode && /\b(covered|coverage met|ready|stable)\b/i.test(chip);
                         return (
-                        <span key={`${card.label}-${chip}`} style={{ ...commandChipStyle, background: successChip ? commandCenterVisual.activeSoftBackground : commandCenterVisual.chipBackground, color: successChip ? commandCenterVisual.activeSoftText : commandCenterVisual.chipText, border: successChip ? "1px solid rgba(5, 150, 105, 0.32)" : isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.18)" : commandChipStyle.border }}>
-                          {chip}
-                        </span>
+                          <span
+                            key={`${card.label}-${chip}`}
+                            style={{
+                              ...commandChipStyle,
+                              background: successChip ? commandCenterVisual.activeSoftBackground : commandCenterVisual.chipBackground,
+                              color: successChip ? commandCenterVisual.activeSoftText : commandCenterVisual.chipText,
+                              border: successChip ? planningSuccessBorder : isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.18)" : commandChipStyle.border,
+                            }}
+                          >
+                            {chip}
+                          </span>
                         );
                       })}
                     </div>
@@ -10797,7 +10830,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                     borderRadius: "14px",
                     padding: "9px 11px",
                     border: "1px solid rgba(120, 180, 255, 0.18)",
-                    background: item.complete ? "rgba(167, 243, 208, 0.42)" : "rgba(255,255,255,0.66)",
+                    background: item.complete ? planningSuccessCardBackground : "rgba(255,255,255,0.66)",
                   }}
                 >
                   <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "center" }}>
@@ -10806,9 +10839,9 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                       style={{
                         borderRadius: "999px",
                         padding: "4px 8px",
-                        background: item.complete ? "rgba(167, 243, 208, 0.72)" : "var(--cfsp-warning-soft)",
-                        color: item.complete ? "#065f46" : "var(--cfsp-warning)",
-                        border: item.complete ? "1px solid rgba(5, 150, 105, 0.28)" : "1px solid rgba(243, 187, 103, 0.18)",
+                        background: item.complete ? planningSuccessBackground : "var(--cfsp-warning-soft)",
+                        color: item.complete ? planningSuccessText : "var(--cfsp-warning)",
+                        border: item.complete ? planningSuccessBorder : "1px solid rgba(243, 187, 103, 0.18)",
                         fontSize: "11px",
                         fontWeight: 900,
                       }}
@@ -10881,9 +10914,9 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                                   padding: "6px 10px",
                                   fontSize: "12px",
                                   fontWeight: 900,
-                                  background: complete ? "rgba(167, 243, 208, 0.72)" : "rgba(168, 183, 204, 0.12)",
-                                  border: complete ? "1px solid rgba(5, 150, 105, 0.32)" : "1px solid var(--cfsp-border)",
-                                  color: complete ? "#065f46" : "var(--cfsp-text-muted)",
+                                  background: complete ? planningSuccessBackground : "rgba(168, 183, 204, 0.12)",
+                                  border: complete ? planningSuccessBorder : "1px solid var(--cfsp-border)",
+                                  color: complete ? planningSuccessText : "var(--cfsp-text-muted)",
                                 }}
                               >
                                 {complete ? "Complete" : item.autoComplete ? "Auto check pending" : "Manual check"}
@@ -10954,7 +10987,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                     borderRadius: "14px",
                     padding: "9px 11px",
                     border: "1px solid rgba(120, 180, 255, 0.18)",
-                    background: item.complete ? "rgba(167, 243, 208, 0.42)" : "rgba(255,255,255,0.7)",
+                    background: item.complete ? planningSuccessCardBackground : "rgba(255,255,255,0.7)",
                   }}
                 >
                   <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "center" }}>
@@ -10963,9 +10996,9 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                       style={{
                         borderRadius: "999px",
                         padding: "4px 8px",
-                        background: item.complete ? "rgba(167, 243, 208, 0.72)" : "var(--cfsp-warning-soft)",
-                        color: item.complete ? "#065f46" : "var(--cfsp-warning)",
-                        border: item.complete ? "1px solid rgba(5, 150, 105, 0.28)" : "1px solid rgba(243, 187, 103, 0.18)",
+                        background: item.complete ? planningSuccessBackground : "var(--cfsp-warning-soft)",
+                        color: item.complete ? planningSuccessText : "var(--cfsp-warning)",
+                        border: item.complete ? planningSuccessBorder : "1px solid rgba(243, 187, 103, 0.18)",
                         fontSize: "11px",
                         fontWeight: 900,
                       }}
@@ -11039,9 +11072,9 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                                   padding: "6px 10px",
                                   fontSize: "12px",
                                   fontWeight: 900,
-                                  background: complete ? "rgba(167, 243, 208, 0.72)" : "rgba(168, 183, 204, 0.12)",
-                                  border: complete ? "1px solid rgba(5, 150, 105, 0.32)" : "1px solid var(--cfsp-border)",
-                                  color: complete ? "#065f46" : "var(--cfsp-text-muted)",
+                                  background: complete ? planningSuccessBackground : "rgba(168, 183, 204, 0.12)",
+                                  border: complete ? planningSuccessBorder : "1px solid var(--cfsp-border)",
+                                  color: complete ? planningSuccessText : "var(--cfsp-text-muted)",
                                 }}
                               >
                                 {complete ? "Complete" : item.autoComplete ? "Auto check pending" : "Manual check"}
@@ -11163,7 +11196,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                   : isWorkshop
                   ? "No SP staffing required for this event"
                   : needed > 0
-                    ? `${coveragePercent}% confirmed coverage`
+                    ? `${coveragePercent}% selected staffing coverage`
                     : "No SP target set"}
               </div>
             </div>
