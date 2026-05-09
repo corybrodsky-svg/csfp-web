@@ -3,7 +3,7 @@
 import * as XLSX from "xlsx";
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import SiteShell from "../../components/SiteShell";
 import {
@@ -1016,6 +1016,14 @@ function getFullName(sp: SPRow) {
 
   const joined = [sp.first_name, sp.last_name].map(asText).filter(Boolean).join(" ");
   return joined || "Unnamed SP";
+}
+
+function getInitials(value: string) {
+  const parts = asText(value).split(/\s+/).filter(Boolean);
+  if (!parts.length) return "SP";
+  const first = parts[0]?.[0] || "";
+  const last = parts.length > 1 ? parts[parts.length - 1]?.[0] || "" : parts[0]?.[1] || "";
+  return `${first}${last}`.toUpperCase() || "SP";
 }
 
 function getEmail(sp: SPRow) {
@@ -5038,6 +5046,114 @@ const summaryTimeLabel = useMemo(() => {
     shortageCount,
     simulatedLiveMinutes,
   ]);
+  const liveBlueprintRoomNames = useMemo(() => {
+    const sourceRooms =
+      currentLiveBlock?.rooms.length
+        ? currentLiveBlock.rooms
+        : selectedRotationRound?.rooms.length
+          ? selectedRotationRound.rooms
+          : rotationRounds[0]?.rooms || [];
+    const fallbackRoomCount = Math.max(metadataRoomCount || 0, sortedAssignments.length || 0, 8);
+    const roomCount = sourceRooms.length || fallbackRoomCount;
+    return Array.from({ length: Math.max(roomCount, 1) }, (_, index) =>
+      asText(sourceRooms[index]) || `Room ${index + 1}`
+    );
+  }, [currentLiveBlock, metadataRoomCount, rotationRounds, selectedRotationRound, sortedAssignments.length]);
+  const liveAttendanceBlueprintRooms = useMemo(
+    () =>
+      liveBlueprintRoomNames.map((roomName, index) => {
+        const boardRow = currentLiveRoomBoardRows[index] || null;
+        const assignment = boardRow?.assignment || sortedAssignments[index] || null;
+        const sp = boardRow?.sp || (assignment?.sp_id ? spsById.get(assignment.sp_id) || null : null);
+        const assignmentStatus = assignment ? getAssignmentStatus(assignment) : null;
+        const checkedIn = assignment?.training_attended === true;
+        const noShow =
+          assignmentStatus === "no_show" ||
+          (!checkedIn &&
+            Boolean(assignment) &&
+            firstLiveRotationStartMinutes !== null &&
+            simulatedLiveMinutes >= firstLiveRotationStartMinutes + 15);
+        const late =
+          !checkedIn &&
+          !noShow &&
+          (boardRow?.status === "delayed" ||
+            (Boolean(assignment) &&
+              assignmentStatus !== "declined" &&
+              firstLiveRotationStartMinutes !== null &&
+              simulatedLiveMinutes > firstLiveRotationStartMinutes));
+        const status = checkedIn
+          ? "checked_in"
+          : noShow
+            ? "no_show"
+            : late
+              ? "late"
+              : assignment
+                ? "awaiting"
+                : "empty";
+
+        return {
+          key: boardRow?.key || `blueprint-room-${index}`,
+          roomName,
+          assignment,
+          sp,
+          spName: sp ? getFullName(sp) : "",
+          initials: sp ? getInitials(getFullName(sp)) : String(index + 1),
+          checkedAt: boardRow?.checkedAt || (assignment ? formatAttendanceTimestamp(assignment.training_checked_in_at) : ""),
+          status,
+          statusLabel:
+            status === "checked_in"
+              ? "Checked In"
+              : status === "no_show"
+                ? "No-show"
+                : status === "late"
+                  ? "Late"
+                  : status === "awaiting"
+                    ? "Awaiting"
+                    : "Standby",
+          isCurrentRotationRoom: Boolean(currentLiveBlock?.rooms.length && index < currentLiveBlock.rooms.length),
+          issueNote: boardRow?.issueNote || "",
+          delayMinutes: boardRow?.delayMinutes || 0,
+        };
+      }),
+    [
+      currentLiveBlock,
+      currentLiveRoomBoardRows,
+      firstLiveRotationStartMinutes,
+      liveBlueprintRoomNames,
+      simulatedLiveMinutes,
+      sortedAssignments,
+      spsById,
+    ]
+  );
+  const liveAttendanceLogRows = useMemo(
+    () =>
+      liveAttendanceBlueprintRooms
+        .filter((room) => room.assignment || room.sp)
+        .map((room) => ({
+          key: room.key,
+          roomName: room.roomName,
+          spName: room.spName || "SP TBD",
+          checkedAt: room.checkedAt,
+          status: room.status,
+          statusLabel: room.statusLabel,
+          sortTime: room.assignment?.training_checked_in_at
+            ? Date.parse(room.assignment.training_checked_in_at)
+            : 0,
+        }))
+        .sort((a, b) => {
+          const aChecked = a.status === "checked_in" ? 1 : 0;
+          const bChecked = b.status === "checked_in" ? 1 : 0;
+          if (aChecked !== bChecked) return bChecked - aChecked;
+          return b.sortTime - a.sortTime;
+        })
+        .slice(0, 8),
+    [liveAttendanceBlueprintRooms]
+  );
+  const liveBlueprintCheckedCount = liveAttendanceBlueprintRooms.filter((room) => room.status === "checked_in").length;
+  const liveBlueprintLateCount = liveAttendanceBlueprintRooms.filter((room) => room.status === "late").length;
+  const liveBlueprintNoShowCount = liveAttendanceBlueprintRooms.filter((room) => room.status === "no_show").length;
+  const liveBlueprintTopRooms = liveAttendanceBlueprintRooms.filter((_, index) => index % 2 === 0);
+  const liveBlueprintBottomRooms = liveAttendanceBlueprintRooms.filter((_, index) => index % 2 === 1);
   const needsOutreachCount = useMemo(
     () =>
       pollResponderEntries.filter(
@@ -7741,6 +7857,223 @@ Cory`;
                   Add delay
                 </button>
               </div>
+
+              <section
+                style={{
+                  borderRadius: "20px",
+                  border: "1px solid rgba(126, 231, 219, 0.24)",
+                  background:
+                    "radial-gradient(circle at 16% 10%, rgba(73, 168, 255, 0.14), transparent 32%), linear-gradient(180deg, rgba(2, 13, 24, 0.94) 0%, rgba(5, 23, 35, 0.92) 100%)",
+                  boxShadow: "inset 0 0 0 1px rgba(126, 231, 219, 0.05), 0 20px 40px rgba(0, 0, 0, 0.2)",
+                  padding: "14px",
+                  display: "grid",
+                  gap: "12px",
+                  overflow: "hidden",
+                  position: "relative",
+                }}
+              >
+                <div
+                  aria-hidden="true"
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    background:
+                      "linear-gradient(rgba(126, 231, 219, 0.055) 1px, transparent 1px), linear-gradient(90deg, rgba(126, 231, 219, 0.055) 1px, transparent 1px)",
+                    backgroundSize: "18px 18px",
+                    opacity: 0.42,
+                    pointerEvents: "none",
+                  }}
+                />
+                <div style={{ position: "relative", display: "grid", gap: "12px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "flex-start" }}>
+                    <div>
+                      <div style={{ ...statLabel, color: "#7ee7db" }}>Live Attendance Blueprint</div>
+                      <div style={{ marginTop: "4px", color: "#f4fbff", fontSize: "19px", fontWeight: 900 }}>
+                        Simulation Lab Occupancy
+                      </div>
+                      <div style={{ marginTop: "4px", color: "#9ed9d1", fontSize: "12px", fontWeight: 700, lineHeight: 1.45 }}>
+                        Check in SPs to populate the room wall.
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", gap: "7px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                      <span style={{ ...commandChipStyle, background: "rgba(44, 211, 173, 0.14)", color: "#86efac" }}>
+                        {liveBlueprintCheckedCount} staffed
+                      </span>
+                      <span style={{ ...commandChipStyle, background: "rgba(243, 187, 103, 0.14)", color: "#fde68a" }}>
+                        {liveBlueprintLateCount} late
+                      </span>
+                      <span style={{ ...commandChipStyle, background: "rgba(248, 113, 113, 0.14)", color: "#fecaca" }}>
+                        {liveBlueprintNoShowCount} no-show
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="cfsp-live-blueprint-wall">
+                    {[
+                      { key: "north", label: "North exam rooms", rooms: liveBlueprintTopRooms },
+                      { key: "south", label: "South exam rooms", rooms: liveBlueprintBottomRooms },
+                    ].map((bank, bankIndex) => (
+                      <Fragment key={bank.key}>
+                        {bankIndex === 1 ? (
+                          <div className="cfsp-blueprint-hallway" aria-label="Central hallway">
+                            <span>Central Hallway</span>
+                          </div>
+                        ) : null}
+                        <div
+                          aria-label={bank.label}
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: "repeat(auto-fit, minmax(92px, 1fr))",
+                            gap: "8px",
+                          }}
+                        >
+                          {bank.rooms.map((room) => {
+                            const tone =
+                              room.status === "checked_in"
+                                ? {
+                                    border: "1px solid rgba(44, 211, 173, 0.48)",
+                                    background: "rgba(6, 48, 45, 0.58)",
+                                    color: "#9ff5df",
+                                    glow: "0 0 22px rgba(44, 211, 173, 0.24)",
+                                  }
+                                : room.status === "late"
+                                  ? {
+                                      border: "1px solid rgba(243, 187, 103, 0.46)",
+                                      background: "rgba(69, 39, 8, 0.52)",
+                                      color: "#fde68a",
+                                      glow: "0 0 20px rgba(243, 187, 103, 0.18)",
+                                    }
+                                  : room.status === "no_show"
+                                    ? {
+                                        border: "1px solid rgba(248, 113, 113, 0.52)",
+                                        background: "rgba(80, 18, 25, 0.54)",
+                                        color: "#fecaca",
+                                        glow: "0 0 22px rgba(248, 113, 113, 0.2)",
+                                      }
+                                    : room.status === "awaiting"
+                                      ? {
+                                          border: "1px solid rgba(73, 168, 255, 0.34)",
+                                          background: "rgba(6, 30, 52, 0.46)",
+                                          color: "#bfdbfe",
+                                          glow: "none",
+                                        }
+                                      : {
+                                          border: "1px solid rgba(126, 231, 219, 0.2)",
+                                          background: "rgba(5, 19, 32, 0.42)",
+                                          color: "#8fb5c2",
+                                          glow: "none",
+                                        };
+                            return (
+                              <div
+                                key={room.key}
+                                className={`cfsp-blueprint-room is-${room.status.replace("_", "-")} ${room.isCurrentRotationRoom ? "is-active" : ""}`}
+                                style={{
+                                  border: tone.border,
+                                  background: tone.background,
+                                  boxShadow: tone.glow,
+                                }}
+                              >
+                                <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", alignItems: "flex-start" }}>
+                                  <div style={{ minWidth: 0 }}>
+                                    <div style={{ color: "#7ee7db", fontSize: "10px", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                                      {room.roomName}
+                                    </div>
+                                    <div style={{ marginTop: "4px", color: "#f4fbff", fontSize: "12px", fontWeight: 900, lineHeight: 1.25, overflowWrap: "anywhere" }}>
+                                      {room.spName || "Open room"}
+                                    </div>
+                                  </div>
+                                  <span
+                                    className={`cfsp-blueprint-marker is-${room.status.replace("_", "-")}`}
+                                    style={{ color: tone.color, borderColor: tone.color }}
+                                  >
+                                    {room.status === "empty" ? "--" : room.initials}
+                                  </span>
+                                </div>
+                                <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", alignItems: "center", marginTop: "10px" }}>
+                                  <span style={{ color: tone.color, fontSize: "10px", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                                    {room.statusLabel}
+                                  </span>
+                                  {room.checkedAt ? (
+                                    <span style={{ color: "#9ed9d1", fontSize: "10px", fontWeight: 800 }}>
+                                      {room.checkedAt}
+                                    </span>
+                                  ) : null}
+                                </div>
+                                {room.status !== "empty" ? (
+                                  <div className={`cfsp-blueprint-room-x is-${room.status.replace("_", "-")}`} aria-hidden="true">
+                                    X
+                                  </div>
+                                ) : null}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </Fragment>
+                    ))}
+                  </div>
+
+                  <div
+                    style={{
+                      borderTop: "1px solid rgba(126, 231, 219, 0.14)",
+                      paddingTop: "10px",
+                      display: "grid",
+                      gap: "8px",
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+                      <div style={{ ...statLabel, color: "#7ee7db" }}>Live Attendance Log</div>
+                      <span style={{ color: "#89b7c4", fontSize: "11px", fontWeight: 800 }}>
+                        {liveAttendanceLogRows.length} tracked SP{liveAttendanceLogRows.length === 1 ? "" : "s"}
+                      </span>
+                    </div>
+                    {liveAttendanceLogRows.length ? (
+                      <div style={{ display: "grid", gap: "6px" }}>
+                        {liveAttendanceLogRows.map((entry) => {
+                          const color =
+                            entry.status === "checked_in"
+                              ? "#86efac"
+                              : entry.status === "late"
+                                ? "#fde68a"
+                                : entry.status === "no_show"
+                                  ? "#fecaca"
+                                  : "#bfdbfe";
+                          return (
+                            <div
+                              key={`${entry.key}-attendance-log`}
+                              style={{
+                                display: "grid",
+                                gridTemplateColumns: "minmax(0, 1fr) auto",
+                                gap: "10px",
+                                alignItems: "center",
+                                border: "1px solid rgba(126, 231, 219, 0.12)",
+                                borderRadius: "12px",
+                                background: "rgba(255,255,255,0.035)",
+                                padding: "8px 10px",
+                              }}
+                            >
+                              <div style={{ minWidth: 0 }}>
+                                <div style={{ color: "#f4fbff", fontWeight: 900, fontSize: "12px", overflowWrap: "anywhere" }}>
+                                  {entry.spName}
+                                </div>
+                                <div style={{ marginTop: "2px", color: "#89b7c4", fontSize: "11px", fontWeight: 700 }}>
+                                  {entry.roomName}{entry.checkedAt ? ` - ${entry.checkedAt}` : ""}
+                                </div>
+                              </div>
+                              <span style={{ ...commandChipStyle, background: "rgba(255,255,255,0.04)", color, border: "1px solid rgba(255,255,255,0.1)" }}>
+                                {entry.statusLabel}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div style={{ color: "#9bb4c0", fontWeight: 700, fontSize: "13px" }}>
+                        No SPs are mapped yet. Check-ins will appear here as the room wall populates.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </section>
 
               <div style={{ display: "grid", gap: "8px" }}>
                 {currentLiveAssignmentRows.length === 0 ? (
