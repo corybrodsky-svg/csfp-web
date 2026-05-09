@@ -97,6 +97,17 @@ type EventWithMeta = {
   shortage: number;
 };
 
+type FinderResult = {
+  item: EventWithMeta;
+  score: number;
+  eventTypeLabel: string;
+  staffingLabel: string;
+  shortageLabel: string;
+  trainingLabel: string;
+  modeLabel: string;
+  dateLabel: string;
+};
+
 function asText(value: unknown) {
   if (value === null || value === undefined) return "";
   return String(value).trim();
@@ -169,6 +180,16 @@ function formatEventDate(start: Date | null, fallback?: string | null) {
   return start ? start.toLocaleString() : fallback || "Date TBD";
 }
 
+function formatFinderDate(start: Date | null, fallback?: string | null) {
+  if (!start) return fallback || "Date TBD";
+  return start.toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 function formatShortDateLabel(date: Date) {
   return date.toLocaleDateString([], {
     weekday: "short",
@@ -219,6 +240,111 @@ function getEventBadges(event: EventRecord) {
     ),
     ...getEventBadgeAppearance(kind),
   }));
+}
+
+function getPrimaryEventTypeLabel(event: EventRecord) {
+  return asText(getEventBadges(event)[0]?.label) || "Event";
+}
+
+function normalizeFinderText(value: unknown) {
+  return asText(value)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function fuzzyTokenMatches(token: string, candidate: string) {
+  if (!token) return true;
+  if (candidate.includes(token)) return true;
+
+  let tokenIndex = 0;
+  for (const char of candidate) {
+    if (char === token[tokenIndex]) tokenIndex += 1;
+    if (tokenIndex === token.length) return true;
+  }
+  return false;
+}
+
+function getEventModalityLabel(event: EventRecord) {
+  const text = normalizeFinderText([event.name, event.status, event.location, event.notes].join(" "));
+  if (/\b(zoom|virtual|telehealth|remote|online)\b/.test(text)) return "Virtual";
+  if (/\b(hybrid)\b/.test(text)) return "Hybrid";
+  return "In Person";
+}
+
+function getTrainingReadinessLabel(event: EventRecord) {
+  const text = normalizeFinderText([event.name, event.status, event.notes].join(" "));
+  if (/\b(training ready|training complete|training completed|materials ready|recording ready)\b/.test(text)) {
+    return "Training Ready";
+  }
+  if (/\b(training planned|training scheduled|training date|training link|zoom link|sp training)\b/.test(text)) {
+    return "Training Planned";
+  }
+  if (text.includes("training")) return "Training Review";
+  return "Training TBD";
+}
+
+function getFinderModeLabel(item: EventWithMeta) {
+  const status = normalizeFinderText(item.event.status);
+  if (/\b(live|in progress|running)\b/.test(status)) return "Live Mode";
+  if (item.start && getStartOfDay(item.start) === getStartOfToday()) return "Live Today";
+  return "Planning Mode";
+}
+
+function getEventFinderSearchText(item: EventWithMeta) {
+  const teamInfo = getBestEventTeamInfo({
+    notes: item.event.notes,
+    schedule_owner_text: item.event.schedule_owner_text,
+  });
+  const badges = getEventBadges(item.event).map((badge) => badge.label);
+  const sessionText = (item.event.sessions || [])
+    .map((session) => [session.session_date, session.start_time, session.end_time, session.location, session.room].map(asText).join(" "))
+    .join(" ");
+
+  return normalizeFinderText([
+    item.event.name,
+    item.event.status,
+    item.event.date_text,
+    item.event.location,
+    item.event.notes,
+    item.event.schedule_owner_text,
+    eventLocation(item.event),
+    sessionText,
+    teamInfo.teamLabel,
+    teamInfo.facultyLabel,
+    ...teamInfo.teamNames,
+    ...teamInfo.facultyNames,
+    ...badges,
+    getPrimaryEventTypeLabel(item.event),
+    getTrainingReadinessLabel(item.event),
+    getEventModalityLabel(item.event),
+    ...(item.event.assigned_sp_names || []),
+  ].join(" "));
+}
+
+function scoreFinderResult(item: EventWithMeta, query: string) {
+  const normalizedQuery = normalizeFinderText(query);
+  if (!normalizedQuery) return 0;
+
+  const tokens = normalizedQuery.split(/\s+/).filter(Boolean);
+  const name = normalizeFinderText(item.event.name);
+  const searchText = getEventFinderSearchText(item);
+  let score = 0;
+
+  for (const token of tokens) {
+    if (!fuzzyTokenMatches(token, searchText)) return 0;
+    if (name === token) score += 80;
+    else if (name.startsWith(token)) score += 42;
+    else if (name.includes(token)) score += 30;
+    else if (searchText.includes(token)) score += 18;
+    else score += 8;
+  }
+
+  if (item.shortage > 0) score += 3;
+  if (item.start) score += Math.max(0, 6 - Math.min(6, Math.floor((item.start.getTime() - Date.now()) / (7 * 24 * 60 * 60 * 1000))));
+  return score;
 }
 
 function renderAssignedPeople(names?: string[] | null) {
@@ -539,6 +665,220 @@ function WorkflowSection({
         )}
       </div>
     </section>
+  );
+}
+
+function GlobalEventFinder({
+  items,
+  onOpenEvent,
+}: {
+  items: EventWithMeta[];
+  onOpenEvent: (eventId: string) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [resultsOpen, setResultsOpen] = useState(false);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const trimmedQuery = query.trim();
+
+  const results = useMemo<FinderResult[]>(() => {
+    if (!trimmedQuery) return [];
+
+    return items
+      .map((item) => {
+        const score = scoreFinderResult(item, trimmedQuery);
+        const staffingLabel = item.needed <= 0
+          ? "No SP target"
+          : item.shortage > 0
+            ? "Staffing gap"
+            : "Coverage ready";
+        return {
+          item,
+          score,
+          eventTypeLabel: getPrimaryEventTypeLabel(item.event),
+          staffingLabel,
+          shortageLabel: item.shortage > 0
+            ? `${item.shortage} SP shortage`
+            : item.needed > 0
+              ? "Coverage met"
+              : "No shortage",
+          trainingLabel: getTrainingReadinessLabel(item.event),
+          modeLabel: getFinderModeLabel(item),
+          dateLabel: formatFinderDate(item.start, item.event.date_text),
+        };
+      })
+      .filter((result) => result.score > 0)
+      .sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        if (!a.item.start && !b.item.start) return 0;
+        if (!a.item.start) return 1;
+        if (!b.item.start) return -1;
+        return a.item.start.getTime() - b.item.start.getTime();
+      })
+      .slice(0, 7);
+  }, [items, trimmedQuery]);
+
+  function clearSearch() {
+    setQuery("");
+    setResultsOpen(false);
+    inputRef.current?.focus();
+  }
+
+  function openEvent(eventId: string) {
+    setResultsOpen(false);
+    onOpenEvent(eventId);
+  }
+
+  return (
+    <div
+      className="relative rounded-[14px] px-4 py-4"
+      style={{
+        border: "1px solid rgba(73, 168, 255, 0.24)",
+        background: "linear-gradient(180deg, rgba(8, 47, 73, 0.90) 0%, rgba(14, 70, 88, 0.82) 100%)",
+        boxShadow: "0 18px 42px rgba(14, 116, 144, 0.18)",
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          setResultsOpen(false);
+          return;
+        }
+        if (event.key === "Enter" && resultsOpen && results[0]) {
+          event.preventDefault();
+          openEvent(results[0].item.event.id);
+        }
+      }}
+    >
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="text-[0.68rem] font-black uppercase tracking-[0.16em] text-cyan-100/80">Global Event Finder</div>
+          <div className="mt-1 text-sm font-bold text-cyan-50/78">Mission lookup console</div>
+        </div>
+        <span
+          className="hidden rounded-full px-2.5 py-1 text-[0.65rem] font-black uppercase tracking-[0.12em] sm:inline-flex"
+          style={{
+            border: "1px solid rgba(125, 211, 252, 0.24)",
+            background: "rgba(14, 165, 233, 0.14)",
+            color: "#cffafe",
+          }}
+        >
+          {items.length} ops
+        </span>
+      </div>
+
+      <div className="mt-3 flex items-center gap-2 rounded-[12px] px-3 py-2"
+        style={{
+          border: "1px solid rgba(125, 211, 252, 0.28)",
+          background: "rgba(2, 24, 38, 0.48)",
+          boxShadow: resultsOpen ? "0 0 0 2px rgba(45, 212, 191, 0.12)" : "none",
+        }}
+      >
+        <span aria-hidden="true" className="h-2.5 w-2.5 shrink-0 rounded-full bg-cyan-300 shadow-[0_0_18px_rgba(103,232,249,0.78)]" />
+        <input
+          ref={inputRef}
+          value={query}
+          onChange={(event) => {
+            setQuery(event.target.value);
+            setResultsOpen(true);
+          }}
+          onFocus={() => setResultsOpen(Boolean(query.trim()))}
+          aria-label="Global Event Finder"
+          aria-expanded={resultsOpen && Boolean(trimmedQuery)}
+          aria-controls="global-event-finder-results"
+          role="combobox"
+          placeholder="Search title, faculty, course, team, location..."
+          className="min-w-0 flex-1 bg-transparent text-sm font-bold text-cyan-50 outline-none placeholder:text-cyan-100/48"
+        />
+        {query ? (
+          <button
+            type="button"
+            onClick={clearSearch}
+            className="rounded-full px-2 py-1 text-xs font-black text-cyan-100/80 transition hover:text-white"
+            aria-label="Clear Global Event Finder"
+          >
+            Clear
+          </button>
+        ) : null}
+      </div>
+
+      {resultsOpen && trimmedQuery ? (
+        <div
+          id="global-event-finder-results"
+          role="listbox"
+          className="absolute left-0 right-0 top-[calc(100%-6px)] z-30 mt-2 grid max-h-[430px] gap-2 overflow-y-auto rounded-[14px] p-2"
+          style={{
+            border: "1px solid rgba(125, 211, 252, 0.24)",
+            background: "linear-gradient(180deg, rgba(4, 25, 39, 0.98) 0%, rgba(8, 47, 73, 0.96) 100%)",
+            boxShadow: "0 24px 60px rgba(2, 24, 38, 0.34), 0 0 24px rgba(34, 211, 238, 0.12)",
+          }}
+        >
+          {results.length ? (
+            results.map((result) => (
+              <button
+                key={result.item.event.id}
+                type="button"
+                role="option"
+                aria-selected="false"
+                onClick={() => openEvent(result.item.event.id)}
+                className="w-full rounded-[12px] px-3 py-3 text-left transition hover:-translate-y-0.5"
+                style={{
+                  border: "1px solid rgba(125, 211, 252, 0.18)",
+                  background: "linear-gradient(135deg, rgba(8, 47, 73, 0.90) 0%, rgba(15, 82, 101, 0.72) 100%)",
+                  boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06)",
+                }}
+              >
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="truncate text-[0.98rem] font-black text-cyan-50">
+                      {result.item.event.name?.trim() || "Untitled Event"}
+                    </div>
+                    <div className="mt-1 flex flex-wrap gap-x-2 gap-y-1 text-xs font-bold text-cyan-100/72">
+                      <span>{result.dateLabel}</span>
+                      <span>•</span>
+                      <span>{eventLocation(result.item.event)}</span>
+                    </div>
+                  </div>
+                  <span
+                    className="rounded-full px-2.5 py-1 text-[0.68rem] font-black uppercase tracking-[0.08em]"
+                    style={{
+                      border: "1px solid rgba(45, 212, 191, 0.28)",
+                      background: "rgba(45, 212, 191, 0.12)",
+                      color: "#99f6e4",
+                    }}
+                  >
+                    {result.modeLabel}
+                  </span>
+                </div>
+
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {[
+                    result.eventTypeLabel,
+                    result.trainingLabel,
+                    result.staffingLabel,
+                    result.shortageLabel,
+                    getEventModalityLabel(result.item.event),
+                  ].map((label) => (
+                    <span
+                      key={`${result.item.event.id}-${label}`}
+                      className="rounded-full px-2 py-1 text-[0.68rem] font-black"
+                      style={{
+                        border: "1px solid rgba(186, 230, 253, 0.16)",
+                        background: label.includes("shortage") ? "rgba(248, 113, 113, 0.14)" : "rgba(186, 230, 253, 0.08)",
+                        color: label.includes("shortage") ? "#fecaca" : "#bae6fd",
+                      }}
+                    >
+                      {label}
+                    </span>
+                  ))}
+                </div>
+              </button>
+            ))
+          ) : (
+            <div className="rounded-[12px] border border-dashed border-cyan-200/18 px-3 py-5 text-sm font-bold text-cyan-100/70">
+              No matching operations found.
+            </div>
+          )}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -1006,6 +1346,13 @@ export default function DashboardPage() {
               <Link href="/me" className="cfsp-btn cfsp-btn-success">
                 {isSp ? "Update Account" : "Edit Profile"}
               </Link>
+            </div>
+
+            <div className="mt-4 max-w-3xl">
+              <GlobalEventFinder
+                items={allVisibleEvents}
+                onOpenEvent={(eventId) => router.push(`/events/${encodeURIComponent(eventId)}`)}
+              />
             </div>
           </div>
 
