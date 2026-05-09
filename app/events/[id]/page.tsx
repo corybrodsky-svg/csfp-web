@@ -5324,7 +5324,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
     }
 
     await refreshData();
-    showSuccessMessage(`Updated to ${assignmentStatusLabels[status]}.`);
+    await handleStatusChange(assignment, "invited");
     setSaving(false);
   }
 
@@ -6774,18 +6774,16 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
       setEventSaveMessage("No confirmed SPs to move back to the poll invite pool.");
       return;
     }
+for (const assignment of confirmedAssignments) {
+  await handleStatusChange(assignment, "invited");
 
-    for (const assignment of confirmedAssignments) {
-      await handleAssignmentDetailsChange(assignment, {
-  status: "invited",
-});
     }
 
     setEventSaveMessage(
-      `Moved ${confirmedAssignments.length} confirmed SP${confirmedAssignments.length === 1 ? "" : "s"} back to the poll invite pool.`
-    );
-  }}
-  disabled={saving}
+  `Moved ${confirmedAssignments.length} confirmed SP${confirmedAssignments.length === 1 ? "" : "s"} back to the poll invite pool.`
+);
+}}
+disabled={saving}
   style={{
     ...dangerButtonStyle,
     padding: "8px 12px",
