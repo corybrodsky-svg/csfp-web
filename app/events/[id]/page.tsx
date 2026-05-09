@@ -4167,6 +4167,13 @@ const summaryTimeLabel = useMemo(() => {
   const isTrainingMode = eventMeta.isTraining || activeEventTypeSet.has("training");
   const noSpStaffingRequired = activeEventTypeSet.has("skills") && !eventMeta.hasSpWorkflow;
   const staffingRelevant = eventMeta.hasSpWorkflow;
+  const isTrainingOnlyEvent =
+    isTrainingMode &&
+    !staffingRelevant &&
+    !activeEventTypeSet.has("sp") &&
+    !activeEventTypeSet.has("skills") &&
+    !activeEventTypeSet.has("hifi") &&
+    !activeEventTypeSet.has("virtual");
   const hasFaculty = hasNotesLine(event?.notes, /^(Course Faculty|Faculty)\s*:/im);
   const hasTrainingScheduled = hasNotesLine(event?.notes, /^Training Date\s*:/im);
   const hasZoomReady = hasNotesLine(event?.notes, /^(Zoom|SimIQ)\s*:/im) || /zoom|simiq|online|virtual/i.test(asText(event?.notes));
@@ -4534,6 +4541,23 @@ const summaryTimeLabel = useMemo(() => {
           border: "1px solid rgba(180, 83, 9, 0.3)",
           color: "#92400e",
         };
+  const eventSummaryTrainingValue = trainingNotRequired
+    ? "No training required"
+    : normalEventTrainingComplete
+      ? "Training completed"
+      : normalEventTrainingDate
+        ? normalEventTrainingTimelineLabel
+        : normalEventTrainingStatusLabel;
+  const eventSummaryTrainingSubvalue = trainingNotRequired
+    ? "No SP training workflow required"
+    : normalEventTrainingDate
+      ? normalEventTrainingStatusLabel
+      : getTrainingRequirementLabel(trainingRequirementValue);
+  const eventSummaryTrainingChips = [
+    trainingNotRequired ? "Not required" : getTrainingRequirementLabel(trainingRequirementValue),
+    normalEventTrainingDateText ? formatEventDateText(normalEventTrainingDateText, importedYearHint) || normalEventTrainingDateText : "",
+    trainingZoomRequired ? normalEventTrainingLink ? "Zoom ready" : "Zoom needed" : "",
+  ].filter(Boolean);
   const eventModalityChips = useMemo(() => {
     const chips = new Set<string>();
     chips.add(selectedModalityLabel);
@@ -4552,6 +4576,36 @@ const summaryTimeLabel = useMemo(() => {
     selectedModalityLabel,
     staffingRelevant,
   ]);
+  const eventIdentityChips = useMemo(() => {
+    const chips = new Set<string>();
+
+    if (isTrainingOnlyEvent) {
+      chips.add("Training-only");
+    } else {
+      if (staffingRelevant || activeEventTypeSet.has("sp")) chips.add("SP Encounter");
+      if (activeEventTypeSet.has("skills") || isWorkshop) chips.add("Skills");
+      if (activeEventTypeSet.has("hifi")) chips.add("HiFi");
+      if (activeEventTypeSet.has("virtual") || selectedModalityLabel === "Virtual") chips.add("Virtual");
+      if (selectedModalityLabel === "Hybrid") chips.add("Hybrid");
+      if (selectedModalityLabel === "In-person") chips.add("In-person");
+      if ((metadataRoomCount || 0) > 1 || rotationRounds.length > 1) chips.add("Multi-station");
+    }
+
+    if (!chips.size && eventMeta.primaryBadgeKind !== "training") chips.add(eventMeta.primaryBadgeLabel);
+    if (!chips.size) chips.add(staffingRelevant ? "SP Encounter" : "Operational event");
+
+    return Array.from(chips);
+  }, [
+    activeEventTypeSet,
+    eventMeta.primaryBadgeKind,
+    eventMeta.primaryBadgeLabel,
+    isTrainingOnlyEvent,
+    isWorkshop,
+    metadataRoomCount,
+    rotationRounds.length,
+    selectedModalityLabel,
+    staffingRelevant,
+  ]);
   const simulationModalityChips = useMemo(() => {
     const chips: string[] = [];
     const addIf = (label: string, test: boolean) => {
@@ -4561,12 +4615,12 @@ const summaryTimeLabel = useMemo(() => {
     addIf("Summative", /\bsummative\b/.test(eventSummarySourceText));
     addIf("OSCE", /\bosce\b/.test(eventSummarySourceText));
     addIf("IPE", /\bipe\b/.test(eventSummarySourceText));
-    addIf("Training", isTrainingMode || /\btraining\b/.test(eventSummarySourceText));
+    addIf("Training-only", isTrainingOnlyEvent);
     addIf("Mock Clinic", /\bmock clinic\b/.test(eventSummarySourceText));
     addIf("Assessment", /\bassessment\b/.test(eventSummarySourceText));
     addIf("Remediation", /\bremediation\b/.test(eventSummarySourceText));
     return chips.length ? chips : ["Operational Sim"];
-  }, [eventSummarySourceText, isTrainingMode]);
+  }, [eventSummarySourceText, isTrainingOnlyEvent]);
   const operationalReadinessItems = useMemo(() => {
     const materialsReadinessLabel = materialsWorkflowNeedsAction ? materialsStatusLabel : "";
     const items = [
@@ -12376,6 +12430,47 @@ Cory`;
                     chips: [trainingLocationModality].filter(Boolean).slice(0, 1),
                   },
                   {
+                    label: "Simulation Type",
+                    value: eventIdentityChips[0] || "Operational event",
+                    subvalue: isTrainingOnlyEvent
+                      ? "Training event"
+                      : [selectedModalityLabel, (metadataRoomCount || rotationRounds.length > 1) ? "multi-station capable" : ""]
+                          .filter(Boolean)
+                          .join(" · "),
+                    chips: eventIdentityChips.slice(1, 4),
+                  },
+                  {
+                    label: "Training Status",
+                    value: eventSummaryTrainingValue,
+                    subvalue: eventSummaryTrainingSubvalue,
+                    chips: eventSummaryTrainingChips.slice(0, 3),
+                  },
+                  {
+                    label: "Materials",
+                    value: materialsStatusLabel,
+                    subvalue: hasUploadedEventMaterial
+                      ? "Event material uploaded"
+                      : "Materials status is admin-set",
+                    chips: [
+                      hasUploadedEventMaterial ? "Materials available" : "",
+                      materialsWorkflowNeedsAction ? "Needs action" : "",
+                    ].filter(Boolean),
+                  },
+                  {
+                    label: "Recording",
+                    value: recordingStatus.label,
+                    chips: [recordingStatus.chip],
+                    indicator: recordingIndicatorActive ? (
+                      <RecordingStatusIndicator
+                        label={recordingIndicatorLabel}
+                        hot={recordingIndicatorHot}
+                        liveMode={!isPlanningVisualMode}
+                        planningMode={isPlanningVisualMode}
+                        compact
+                      />
+                    ) : null,
+                  },
+                  {
                     label: "Staffing",
                     value: isTrainingMode
                       ? `${selectedStaffingCount} selected / ${confirmedCount} confirmed`
@@ -12388,10 +12483,27 @@ Cory`;
                   {
                     label: "Status",
                     value: event.status || "No status",
-                    chips: activeEventTypes.slice(0, 2).map((type) => editableEventTypeLabels[type] || type),
+                    chips: [
+                      ...activeEventTypes
+                        .filter((type) => isTrainingOnlyEvent || type !== "training")
+                        .map((type) => editableEventTypeLabels[type] || type),
+                      ...simulationModalityChips,
+                    ].slice(0, 3),
                   },
                 ]
-                  .filter((card) => !isPlanningVisualMode || ["Event Name", "Date / Time", "Location", "Staffing"].includes(card.label))
+                  .filter((card) =>
+                    !isPlanningVisualMode ||
+                    [
+                      "Event Name",
+                      "Date / Time",
+                      "Location",
+                      "Simulation Type",
+                      "Training Status",
+                      "Materials",
+                      "Recording",
+                      "Staffing",
+                    ].includes(card.label)
+                  )
                   .map((card) => (
                   <div
                     key={card.label}
@@ -12411,6 +12523,9 @@ Cory`;
                       <div style={{ ...statValue, fontSize: "18px", lineHeight: 1.25, color: commandCenterVisual.textColor }}>{card.value}</div>
                       {"subvalue" in card && card.subvalue ? (
                         <div style={{ marginTop: "6px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 700 }}>{card.subvalue}</div>
+                      ) : null}
+                      {"indicator" in card && card.indicator ? (
+                        <div style={{ marginTop: "8px" }}>{card.indicator}</div>
                       ) : null}
                     </div>
                     <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
@@ -12469,8 +12584,8 @@ Cory`;
                   },
                   {
                     label: "Simulation Type",
-                    value: simulationModalityChips[0] || "Operational Sim",
-                    chips: simulationModalityChips.slice(1, 4),
+                    value: eventIdentityChips[0] || "Operational event",
+                    chips: eventIdentityChips.slice(1, 4),
                     accent: "#c4b5fd",
                   },
                   {
