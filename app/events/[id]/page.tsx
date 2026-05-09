@@ -12735,16 +12735,16 @@ Cory`;
                   </div>
                 ) : null}
                 <div
+                  className="cfsp-round-details-layout"
                   style={{
                     display: "grid",
                     gap: "12px",
                     marginTop: "8px",
-                    gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))",
                     alignItems: "start",
                     width: "100%",
                   }}
                 >
-                  <div style={{ display: "grid", gap: "6px" }}>
+                  <div className="cfsp-round-list-rail" style={{ display: "grid", gap: "8px" }}>
                     {rotationRounds.map((round, index) => {
                       const selected = selectedRotationRound?.key === round.key;
                       const roundLearnerCount =
@@ -12757,6 +12757,7 @@ Cory`;
                       return (
                         <button
                           key={round.key}
+                          className={`cfsp-round-card ${selected ? "is-selected" : ""}`}
                           type="button"
                           onClick={() => {
                             setSelectedRotationRoundKey(round.key);
@@ -12767,23 +12768,25 @@ Cory`;
                             borderRadius: "18px",
                             border: selected
                               ? isPlanningVisualMode
-                                ? "1px solid rgba(44, 211, 173, 0.32)"
-                                : "1px solid rgba(126, 231, 219, 0.42)"
+                                ? "1px solid rgba(168, 85, 247, 0.46)"
+                                : "1px solid rgba(196, 181, 253, 0.52)"
                               : isPlanningVisualMode
-                                ? "1px solid rgba(128, 167, 182, 0.22)"
-                                : "1px solid rgba(148, 163, 184, 0.22)",
+                                ? "1px solid rgba(168, 85, 247, 0.18)"
+                                : "1px solid rgba(196, 181, 253, 0.18)",
                             background: selected
                               ? isPlanningVisualMode
-                                ? "linear-gradient(180deg, rgba(236, 253, 245, 0.96) 0%, rgba(230, 245, 249, 0.96) 100%)"
-                                : "rgba(12, 45, 60, 0.96)"
+                                ? "radial-gradient(circle at 14% 0%, rgba(196, 181, 253, 0.38), transparent 40%), linear-gradient(180deg, rgba(250, 245, 255, 0.98) 0%, rgba(231, 246, 250, 0.96) 100%)"
+                                : "radial-gradient(circle at 14% 0%, rgba(168, 85, 247, 0.34), transparent 42%), rgba(12, 45, 60, 0.96)"
                               : isPlanningVisualMode
-                                ? "rgba(255, 255, 255, 0.96)"
-                                : "rgba(15, 23, 42, 0.92)",
+                                ? "linear-gradient(180deg, rgba(255, 255, 255, 0.97) 0%, rgba(248, 250, 255, 0.95) 100%)"
+                                : "linear-gradient(180deg, rgba(18, 22, 42, 0.92) 0%, rgba(15, 23, 42, 0.92) 100%)",
                             boxShadow: selected
                               ? isPlanningVisualMode
-                                ? "0 12px 28px rgba(13, 148, 136, 0.16), inset 4px 0 0 rgba(15, 118, 110, 0.72)"
-                                : "0 12px 28px rgba(16, 185, 129, 0.14), inset 4px 0 0 rgba(126, 231, 219, 0.82)"
-                              : "none",
+                                ? "0 14px 30px rgba(124, 58, 237, 0.16), 0 8px 18px rgba(42, 112, 140, 0.08), inset 4px 0 0 rgba(124, 58, 237, 0.72)"
+                                : "0 14px 30px rgba(168, 85, 247, 0.18), inset 4px 0 0 rgba(196, 181, 253, 0.82)"
+                              : isPlanningVisualMode
+                                ? "inset 3px 0 0 rgba(168, 85, 247, 0.18)"
+                                : "inset 3px 0 0 rgba(196, 181, 253, 0.16)",
                             padding: isPlanningVisualMode ? "13px 15px" : "16px 18px",
                             display: "grid",
                             gap: "8px",
@@ -12802,7 +12805,7 @@ Cory`;
                               Round {index + 1}
                             </div>
                             {selected ? (
-                              <span style={{ ...commandChipStyle, background: commandCenterVisual.activeSoftBackground, color: commandCenterVisual.activeSoftText, border: isPlanningVisualMode ? "1px solid rgba(44, 211, 173, 0.2)" : commandChipStyle.border }}>
+                              <span style={{ ...commandChipStyle, background: isPlanningVisualMode ? "rgba(168, 85, 247, 0.12)" : "rgba(196, 181, 253, 0.14)", color: isPlanningVisualMode ? "#6d28d9" : "#ddd6fe", border: isPlanningVisualMode ? "1px solid rgba(168, 85, 247, 0.24)" : "1px solid rgba(196, 181, 253, 0.26)" }}>
                                 Active detail view
                               </span>
                             ) : null}
