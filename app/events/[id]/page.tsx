@@ -6767,85 +6767,87 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
 
                     <div style={{ display: "grid", gap: "10px", marginTop: "12px" }}>
                       {[
-                        { label: "Best Matches", items: importedResponderGroups.best, tone: "rgba(16, 185, 129, 0.12)" },
-                        { label: "Good Alternates", items: importedResponderGroups.good, tone: "rgba(59, 130, 246, 0.1)" },
-                        { label: "Backup Options", items: importedResponderGroups.backup, tone: "rgba(245, 158, 11, 0.12)" },
-                        { label: "Demographic Priority Matches", items: importedResponderGroups.demographic, tone: "rgba(196, 181, 253, 0.16)" },
-                      ].map((group) =>
-                        group.items.length ? (
-                          <div key={group.label} style={{ display: "grid", gap: "8px" }}>
-                            <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
-                              <div style={{ ...statLabel, color: staffingWorkspacePalette.textStrong }}>{group.label}</div>
-                              <span style={{ ...staffingSelectedChipStyle, background: group.tone, color: staffingWorkspacePalette.textStrong }}>{group.items.length}</span>
-                            </div>
-                            {group.items.slice(0, 4).map((entry) => (
-                              <div key={`${group.label}-${entry.sp.id}`} style={staffingRowCardStyle}>
-                                <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.4fr) auto", gap: "10px", alignItems: "center" }}>
-                                  <div style={{ minWidth: 0 }}>
-                                    <div style={{ color: staffingWorkspacePalette.textStrong, fontWeight: 900 }}>{getFullName(entry.sp)}</div>
-                                    <div style={{ marginTop: "4px", color: staffingWorkspacePalette.textMuted, fontWeight: 700, fontSize: "12px" }}>
-                                      {[getEmail(entry.sp), entry.sp.phone].filter(Boolean).join(" · ") || "No contact info"}
-                                    </div>
-                                  </div>
-                                  <span style={{ ...staffingSelectedChipStyle, background: "rgba(186, 230, 253, 0.28)", color: staffingWorkspacePalette.textStrong }}>
-                                    Score {entry.score}
-                                  </span>
-                                </div>
-                                <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                                  {entry.reasons.slice(0, 6).map((reason) => (
-                                    <span
-                                      key={`${entry.sp.id}-${reason}`}
-                                      style={{
-                                        borderRadius: "999px",
-                                        padding: "4px 8px",
-                                        fontSize: "11px",
-                                        fontWeight: 900,
-                                        background: staffingWorkspacePalette.chip,
-                                        border: `1px solid ${staffingWorkspacePalette.chipBorder}`,
-                                        color: staffingWorkspacePalette.chipText,
-                                      }}
-                                    >
-                                      {reason}
-                                    </span>
-                                  ))}
-                                </div>
-                                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                                  <button
-                                    type="button"
-                                    onClick={() => void handleAddAssignment(entry.sp.id)}
-                                    disabled={saving || entry.isAssigned}
-                                    style={{ ...buttonStyle, padding: "7px 10px", opacity: saving || entry.isAssigned ? 0.65 : 1 }}
-                                  >
-                                    {entry.isAssigned ? "Assigned" : "Assign to Event"}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => addPollSelection([entry.sp.id], "Imported responder added to poll.")}
-                                    disabled={entry.excluded}
-                                    style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px", opacity: entry.excluded ? 0.65 : 1 }}
-                                  >
-                                    Add to Poll
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => void handleExcludeImportedResponder(entry.sp.id, getEmail(entry.sp))}
-                                    style={{ ...dangerButtonStyle, padding: "7px 10px" }}
-                                  >
-                                    Exclude
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => void handleMarkImportedBackup(entry.sp.id)}
-                                    style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px" }}
-                                  >
-                                    Mark Backup
-                                  </button>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        ) : null
-                      )}
+  {
+    label: "Available for Training + Event",
+    items: importedResponderEntries.filter((entry) => entry.pollResponseStatus === "available"),
+  },
+  {
+    label: "Maybe / Needs Follow-Up",
+    items: importedResponderEntries.filter((entry) => entry.pollResponseStatus === "maybe"),
+  },
+  {
+    label: "Not Available",
+    items: importedResponderEntries.filter((entry) => entry.pollResponseStatus === "not_available"),
+  },
+].map((group) =>
+  group.items.length ? (
+    <div key={group.label} style={{ display: "grid", gap: "8px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ ...statLabel, color: staffingWorkspacePalette.textStrong }}>{group.label}</div>
+        <span style={staffingSelectedChipStyle}>{group.items.length}</span>
+      </div>
+
+      {group.items.map((entry) => {
+        const importedResponse = importedPollResponsesBySpId.get(String(entry.sp.id));
+        const note = importedResponse?.responseNote || "";
+
+        return (
+          <div key={`${group.label}-${entry.sp.id}`} style={staffingRowCardStyle}>
+            <div style={{ display: "grid", gap: "4px" }}>
+              <div style={{ color: staffingWorkspacePalette.textStrong, fontWeight: 900 }}>
+                {getFullName(entry.sp)}
+              </div>
+
+              <div style={{ color: staffingWorkspacePalette.textMuted, fontWeight: 700, fontSize: "12px" }}>
+                {[getEmail(entry.sp), entry.sp.phone].filter(Boolean).join(" · ") || "No contact info"}
+              </div>
+
+              <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "4px" }}>
+                <span style={staffingSelectedChipStyle}>Imported Available</span>
+                <span style={staffingSelectedChipStyle}>Email matched</span>
+                {entry.isAssigned ? <span style={staffingSelectedChipStyle}>Already assigned</span> : null}
+              </div>
+
+              {note ? (
+                <div style={{ marginTop: "6px", color: staffingWorkspacePalette.textMuted, fontWeight: 700, fontSize: "12px" }}>
+                  Note: {note}
+                </div>
+              ) : null}
+            </div>
+
+            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "10px" }}>
+              <button
+                type="button"
+                onClick={() => void handleAddAssignment(entry.sp.id)}
+                disabled={saving || entry.isAssigned || group.label === "Not Available"}
+                style={{ ...buttonStyle, padding: "7px 10px", opacity: saving || entry.isAssigned || group.label === "Not Available" ? 0.65 : 1 }}
+              >
+                {entry.isAssigned ? "Assigned" : "Assign Primary"}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => void handleMarkImportedBackup(entry.sp.id)}
+                disabled={saving || group.label === "Not Available"}
+                style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px", opacity: saving || group.label === "Not Available" ? 0.65 : 1 }}
+              >
+                Mark Backup
+              </button>
+
+              <button
+                type="button"
+                onClick={() => void handleExcludeImportedResponder(entry.sp.id, getEmail(entry.sp))}
+                style={{ ...dangerButtonStyle, padding: "7px 10px" }}
+              >
+                Exclude
+              </button>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  ) : null
+)}
 
                       {unmatchedImportedPollResponses.length && !pollImportIgnoredUnmatched ? (
                         <div style={{ display: "grid", gap: "8px" }}>
