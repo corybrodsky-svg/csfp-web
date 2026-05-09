@@ -82,6 +82,15 @@ type LiveFlowBlock = {
   rooms: string[];
   source: "encounter" | "schedule_builder" | "fallback";
 };
+type OperationalDateTone = "scheduled" | "attention" | "ready" | "danger" | "muted";
+type OperationalDateMarker = {
+  key: string;
+  label: string;
+  value: string;
+  detail?: string;
+  countdown?: string;
+  tone: OperationalDateTone;
+};
 type SPRow = {
   id: string;
   first_name: string | null;
@@ -1652,12 +1661,46 @@ function getDateOnly(value: Date) {
   return new Date(value.getFullYear(), value.getMonth(), value.getDate());
 }
 
+function getDateDeltaDays(date: Date) {
+  const today = getDateOnly(new Date());
+  return Math.round((getDateOnly(date).getTime() - today.getTime()) / 86400000);
+}
+
+function formatOperationalDate(date: Date | null, fallback?: string | null) {
+  if (!date) return asText(fallback) || "Date TBD";
+  return date.toLocaleDateString([], {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function getOperationalCountdownLabel(
+  date: Date | null,
+  labels: {
+    today: string;
+    tomorrow: string;
+    future: (days: number) => string;
+    yesterday: string;
+    past: string;
+    missing: string;
+  }
+) {
+  if (!date) return labels.missing;
+  const diffDays = getDateDeltaDays(date);
+
+  if (diffDays < -1) return labels.past;
+  if (diffDays === -1) return labels.yesterday;
+  if (diffDays === 0) return labels.today;
+  if (diffDays === 1) return labels.tomorrow;
+  return labels.future(diffDays);
+}
+
 function getTrainingCountdownLabel(trainingDate: Date | null, trainingComplete: boolean, hasTrainingInfo: boolean) {
   if (trainingComplete) return "Training completed";
   if (!trainingDate) return hasTrainingInfo ? "Training scheduled" : "Awaiting training";
 
-  const today = getDateOnly(new Date());
-  const diffDays = Math.round((trainingDate.getTime() - today.getTime()) / 86400000);
+  const diffDays = getDateDeltaDays(trainingDate);
 
   if (diffDays < -1) return "Training date passed";
   if (diffDays === -1) return "Training was yesterday";
@@ -2606,6 +2649,106 @@ function formatTimeWindowLabel(start?: string | null, end?: string | null) {
   const endText = asText(end);
   if (startText && endText) return `${formatDisplayTime(startText)} - ${formatDisplayTime(endText)}`;
   return formatDisplayTime(startText || endText);
+}
+
+function getOperationalDateToneStyles(tone: OperationalDateTone, planningMode: boolean) {
+  if (tone === "ready") {
+    return planningMode
+      ? {
+          background: planningSuccessCardBackground,
+          border: planningSuccessBorder,
+          accent: planningSuccessText,
+          text: planningSuccessText,
+          muted: "#047857",
+          glow: "0 12px 24px rgba(16, 185, 129, 0.12)",
+        }
+      : {
+          background: "linear-gradient(180deg, rgba(6, 78, 59, 0.42) 0%, rgba(20, 83, 45, 0.28) 100%)",
+          border: "1px solid rgba(134, 239, 172, 0.34)",
+          accent: "#86efac",
+          text: "#dcfce7",
+          muted: "#bbf7d0",
+          glow: "0 0 24px rgba(34, 197, 94, 0.14)",
+        };
+  }
+
+  if (tone === "attention") {
+    return planningMode
+      ? {
+          background: "linear-gradient(180deg, rgba(255, 251, 235, 0.98) 0%, rgba(254, 243, 199, 0.86) 100%)",
+          border: "1px solid rgba(180, 83, 9, 0.34)",
+          accent: "#b45309",
+          text: "#78350f",
+          muted: "#92400e",
+          glow: "0 12px 24px rgba(217, 119, 6, 0.1)",
+        }
+      : {
+          background: "linear-gradient(180deg, rgba(120, 53, 15, 0.34) 0%, rgba(69, 26, 3, 0.24) 100%)",
+          border: "1px solid rgba(251, 191, 36, 0.34)",
+          accent: "#fde68a",
+          text: "#fef3c7",
+          muted: "#fde68a",
+          glow: "0 0 24px rgba(245, 158, 11, 0.14)",
+        };
+  }
+
+  if (tone === "danger") {
+    return planningMode
+      ? {
+          background: "linear-gradient(180deg, rgba(254, 242, 242, 0.98) 0%, rgba(254, 226, 226, 0.86) 100%)",
+          border: "1px solid rgba(185, 28, 28, 0.32)",
+          accent: "#b91c1c",
+          text: "#7f1d1d",
+          muted: "#991b1b",
+          glow: "0 12px 24px rgba(220, 38, 38, 0.1)",
+        }
+      : {
+          background: "linear-gradient(180deg, rgba(127, 29, 29, 0.34) 0%, rgba(69, 10, 10, 0.24) 100%)",
+          border: "1px solid rgba(248, 113, 113, 0.36)",
+          accent: "#fca5a5",
+          text: "#fee2e2",
+          muted: "#fecaca",
+          glow: "0 0 24px rgba(239, 68, 68, 0.16)",
+        };
+  }
+
+  if (tone === "muted") {
+    return planningMode
+      ? {
+          background: "linear-gradient(180deg, rgba(248, 250, 252, 0.98) 0%, rgba(226, 232, 240, 0.74) 100%)",
+          border: "1px solid rgba(100, 116, 139, 0.22)",
+          accent: "#475569",
+          text: "#334155",
+          muted: "#64748b",
+          glow: "0 8px 18px rgba(100, 116, 139, 0.08)",
+        }
+      : {
+          background: "rgba(15, 23, 42, 0.52)",
+          border: "1px solid rgba(148, 163, 184, 0.2)",
+          accent: "#cbd5e1",
+          text: "#e2e8f0",
+          muted: "#94a3b8",
+          glow: "none",
+        };
+  }
+
+  return planningMode
+    ? {
+        background: "linear-gradient(180deg, rgba(239, 246, 255, 0.98) 0%, rgba(224, 242, 254, 0.86) 100%)",
+        border: "1px solid rgba(14, 116, 144, 0.28)",
+        accent: "#0e7490",
+        text: "#164e63",
+        muted: "#155e75",
+        glow: "0 12px 24px rgba(14, 165, 233, 0.1)",
+      }
+    : {
+        background: "linear-gradient(180deg, rgba(8, 47, 73, 0.48) 0%, rgba(14, 116, 144, 0.22) 100%)",
+        border: "1px solid rgba(125, 211, 252, 0.32)",
+        accent: "#7dd3fc",
+        text: "#e0f2fe",
+        muted: "#bae6fd",
+        glow: "0 0 24px rgba(34, 211, 238, 0.14)",
+      };
 }
 
 function buildMailtoHref(args: {
@@ -3844,6 +3987,43 @@ const summaryTimeLabel = useMemo(() => {
 
   return "See rotation rounds below";
 }, [rotationRounds]);
+const primaryEventDate = useMemo(() => {
+  const primaryDateText =
+    asText(rotationRounds[0]?.session_date) ||
+    asText(trainingMetadata.event_session_date) ||
+    asText(event?.date_text);
+  const normalized = normalizeLooseDateToIso(primaryDateText, importedYearHint);
+  if (normalized) {
+    const parsed = new Date(`${normalized}T00:00:00`);
+    if (!Number.isNaN(parsed.getTime())) return parsed;
+  }
+  return parseOperationalDate(primaryDateText, importedYearHint);
+}, [event?.date_text, importedYearHint, rotationRounds, trainingMetadata.event_session_date]);
+const eventDateMarkerValue = useMemo(() => {
+  if (uniqueSessionDates.length > 1) {
+    return `${uniqueSessionDates[0]} + ${uniqueSessionDates.length - 1} more`;
+  }
+  return uniqueSessionDates[0] || formatOperationalDate(primaryEventDate, eventDateLabel);
+}, [eventDateLabel, primaryEventDate, uniqueSessionDates]);
+const eventDateCountdownLabel = useMemo(
+  () =>
+    getOperationalCountdownLabel(primaryEventDate, {
+      today: "Live today",
+      tomorrow: "Live tomorrow",
+      future: (days) => `Live in ${days} days`,
+      yesterday: "Event was yesterday",
+      past: "Event date passed",
+      missing: "Event date needed",
+    }),
+  [primaryEventDate]
+);
+const eventDateTone: OperationalDateTone = !primaryEventDate
+  ? "danger"
+  : getDateDeltaDays(primaryEventDate) < -1
+    ? "danger"
+    : getDateDeltaDays(primaryEventDate) === 0
+      ? "ready"
+      : "scheduled";
   const liveEventAnchorDateIso = useMemo(() => {
     if (!rotationRounds.length) return "";
     const todayIso = new Date().toISOString().slice(0, 10);
@@ -4473,6 +4653,23 @@ const summaryTimeLabel = useMemo(() => {
         : "Needs Action";
   const materialsWorkflowNeedsAction =
     materialsWorkflowStatus === "Needs Action" || materialsWorkflowStatus === "Blocked";
+  const materialDeadlineDateText = getFirstNoteValue(eventEditor.notes || event?.notes, [
+    "Material Deadline",
+    "Materials Deadline",
+    "Material Review Date",
+    "Materials Review Date",
+    "Material Due Date",
+    "Materials Due Date",
+    "Materials Due",
+  ]);
+  const materialDeadlineDate = parseOperationalDate(materialDeadlineDateText, importedYearHint);
+  const recordingAvailabilityDateText = getFirstNoteValue(eventEditor.notes || event?.notes, [
+    "Recording Availability Date",
+    "Recording Available Date",
+    "Recording Release Date",
+    "Recording Date",
+  ]);
+  const recordingAvailabilityDate = parseOperationalDate(recordingAvailabilityDateText, importedYearHint);
   const emailStatusLabel = getEmailStatusLabel(trainingMetadata);
   const facultyReadinessComplete = Boolean(
     trainingFacultyText || facultyEmailText || facultyPhoneText || trainingMetadata.sim_contact || hasFaculty
@@ -4782,6 +4979,100 @@ const summaryTimeLabel = useMemo(() => {
     normalEventTrainingDateText ? formatEventDateText(normalEventTrainingDateText, importedYearHint) || normalEventTrainingDateText : "",
     trainingZoomRequired ? normalEventTrainingLink ? "Zoom ready" : "Zoom needed" : "",
   ].filter(Boolean);
+  const trainingDateMarkerValue = normalEventTrainingDate
+    ? formatOperationalDate(normalEventTrainingDate, normalEventTrainingDateText)
+    : formatEventDateText(normalEventTrainingDateText, importedYearHint) || normalEventTrainingDateText || "Date TBD";
+  const trainingDateCountdownLabel = normalEventTrainingComplete
+    ? "Training completed"
+    : trainingNotRequired
+      ? "No training required"
+      : getOperationalCountdownLabel(normalEventTrainingDate, {
+          today: "Starts today",
+          tomorrow: "Starts tomorrow",
+          future: (days) => `Starts in ${days} days`,
+          yesterday: "Training was yesterday",
+          past: "Training date passed",
+          missing: normalEventTrainingHasInfo ? "Training date needed" : "Training not scheduled",
+        });
+  const trainingDateTone: OperationalDateTone = trainingNotRequired || normalEventTrainingComplete
+    ? "ready"
+    : normalEventTrainingDate
+      ? getDateDeltaDays(normalEventTrainingDate) < -1
+        ? "danger"
+        : "scheduled"
+      : trainingRequiredExplicit || facultyLedTraining || internalTraining
+        ? "danger"
+        : "attention";
+  const eventSummaryDateMarkers = useMemo<OperationalDateMarker[]>(() => {
+    const markers: OperationalDateMarker[] = [
+      {
+        key: "event",
+        label: "Event",
+        value: eventDateMarkerValue,
+        detail: summaryTimeLabel || "Time TBD",
+        countdown: eventDateCountdownLabel,
+        tone: eventDateTone,
+      },
+    ];
+
+    if (recordingAvailabilityDateText) {
+      const countdown = getOperationalCountdownLabel(recordingAvailabilityDate, {
+        today: "Available today",
+        tomorrow: "Available tomorrow",
+        future: (days) => `Available in ${days} days`,
+        yesterday: "Available since yesterday",
+        past: "Recording available",
+        missing: "Recording date needed",
+      });
+      markers.push({
+        key: "recording-date",
+        label: "Recording",
+        value: formatOperationalDate(recordingAvailabilityDate, recordingAvailabilityDateText),
+        detail: recordingStatus.label,
+        countdown,
+        tone: recordingAvailabilityDate && getDateDeltaDays(recordingAvailabilityDate) <= 0 ? "ready" : "scheduled",
+      });
+    }
+
+    if (materialDeadlineDateText) {
+      const deadlineDeltaDays = materialDeadlineDate ? getDateDeltaDays(materialDeadlineDate) : null;
+      markers.push({
+        key: "materials-deadline",
+        label: "Materials",
+        value: formatOperationalDate(materialDeadlineDate, materialDeadlineDateText),
+        detail: materialsStatusLabel,
+        countdown: getOperationalCountdownLabel(materialDeadlineDate, {
+          today: "Due today",
+          tomorrow: "Due tomorrow",
+          future: (days) => `Due in ${days} days`,
+          yesterday: "Due yesterday",
+          past: "Deadline passed",
+          missing: "Deadline date needed",
+        }),
+        tone: materialsReadinessComplete
+          ? "ready"
+          : deadlineDeltaDays === null
+            ? "attention"
+            : deadlineDeltaDays < 0
+              ? "danger"
+              : "attention",
+      });
+    }
+
+    return markers;
+  }, [
+    eventDateCountdownLabel,
+    eventDateMarkerValue,
+    eventDateTone,
+    materialDeadlineDate,
+    materialDeadlineDateText,
+    materialsReadinessComplete,
+    materialsStatusLabel,
+    recordingAvailabilityDate,
+    recordingAvailabilityDateText,
+    recordingStatus.label,
+    summaryTimeLabel,
+  ]);
   const eventModalityChips = useMemo(() => {
     const chips = new Set<string>();
     chips.add(selectedModalityLabel);
@@ -9414,6 +9705,7 @@ Cory`;
     rowBackground: isPlanningVisualMode ? "rgba(255, 255, 255, 0.96)" : "rgba(255,255,255,0.04)",
     rowBorder: isPlanningVisualMode ? "1px solid rgba(128, 167, 182, 0.22)" : "1px solid rgba(148, 163, 184, 0.18)",
   } as const;
+  const trainingDateMarkerToneStyle = getOperationalDateToneStyles(trainingDateTone, isPlanningVisualMode);
 
   const normalEventTrainingReadinessPanel =
     staffingRelevant && !isTrainingMode ? (
@@ -9455,6 +9747,44 @@ Cory`;
               {selectedStaffingCount} selected SP{selectedStaffingCount === 1 ? "" : "s"}
             </span>
           </div>
+        </div>
+
+        <div
+          style={{
+            borderRadius: "16px",
+            border: trainingDateMarkerToneStyle.border,
+            background: trainingDateMarkerToneStyle.background,
+            boxShadow: trainingDateMarkerToneStyle.glow,
+            padding: "12px 14px",
+            display: "flex",
+            justifyContent: "space-between",
+            gap: "12px",
+            alignItems: "center",
+            flexWrap: "wrap",
+          }}
+        >
+          <div style={{ minWidth: 0 }}>
+            <div style={{ ...statLabel, color: trainingDateMarkerToneStyle.accent }}>Training date</div>
+            <div style={{ marginTop: "3px", color: trainingDateMarkerToneStyle.text, fontSize: "18px", fontWeight: 950, lineHeight: 1.2 }}>
+              Training: {trainingDateMarkerValue}
+            </div>
+            <div style={{ marginTop: "4px", color: trainingDateMarkerToneStyle.muted, fontSize: "12px", fontWeight: 800 }}>
+              {normalEventTrainingTimeText || "Training time TBD"}
+            </div>
+          </div>
+          <span
+            style={{
+              ...commandChipStyle,
+              background: isPlanningVisualMode ? "rgba(255, 255, 255, 0.62)" : "rgba(255, 255, 255, 0.08)",
+              border: trainingDateMarkerToneStyle.border,
+              color: trainingDateMarkerToneStyle.accent,
+              fontSize: "12px",
+              padding: "7px 11px",
+              boxShadow: isPlanningVisualMode ? "0 8px 16px rgba(15, 118, 110, 0.08)" : "none",
+            }}
+          >
+            {trainingDateCountdownLabel}
+          </span>
         </div>
 
         <div
@@ -12641,6 +12971,61 @@ Cory`;
             }}
           >
             <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Event Summary</div>
+            {isPlanningVisualMode ? (
+              <div
+                style={{
+                  marginTop: "10px",
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))",
+                  gap: "10px",
+                }}
+              >
+                {eventSummaryDateMarkers.map((marker) => {
+                  const markerTone = getOperationalDateToneStyles(marker.tone, isPlanningVisualMode);
+                  return (
+                    <div
+                      key={marker.key}
+                      style={{
+                        borderRadius: "16px",
+                        border: markerTone.border,
+                        background: markerTone.background,
+                        boxShadow: markerTone.glow,
+                        padding: "12px 14px",
+                        minHeight: "104px",
+                        display: "grid",
+                        alignContent: "space-between",
+                        gap: "8px",
+                      }}
+                    >
+                      <div>
+                        <div style={{ ...statLabel, color: markerTone.accent }}>{marker.label}</div>
+                        <div style={{ marginTop: "4px", color: markerTone.text, fontSize: "19px", fontWeight: 950, lineHeight: 1.18 }}>
+                          {marker.label}: {marker.value}
+                        </div>
+                        {marker.detail ? (
+                          <div style={{ marginTop: "5px", color: markerTone.muted, fontSize: "12px", fontWeight: 800 }}>
+                            {marker.detail}
+                          </div>
+                        ) : null}
+                      </div>
+                      {marker.countdown ? (
+                        <span
+                          style={{
+                            ...commandChipStyle,
+                            width: "fit-content",
+                            background: "rgba(255, 255, 255, 0.62)",
+                            border: markerTone.border,
+                            color: markerTone.accent,
+                          }}
+                        >
+                          {marker.countdown}
+                        </span>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : null}
             <div style={{ marginTop: "10px", display: "grid", gap: "10px" }}>
               <div
                 style={{
