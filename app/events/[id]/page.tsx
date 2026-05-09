@@ -69,6 +69,19 @@ type RoundCompanionBlock = {
   audience: RotationCompanionView[];
   durationMinutes?: number;
 };
+type LiveFlowTone = "rotation" | "transition" | "break" | "support";
+type LiveFlowBlock = {
+  key: string;
+  label: string;
+  detail: string;
+  note: string;
+  startMinutes: number;
+  endMinutes: number;
+  tone: LiveFlowTone;
+  roundNumber: number | null;
+  rooms: string[];
+  source: "encounter" | "schedule_builder" | "fallback";
+};
 type SPRow = {
   id: string;
   first_name: string | null;
@@ -184,6 +197,15 @@ type ScheduleBuilderPreviewDraft = {
   learnerFileName: string;
   uploadedLearners: string[];
   originalUploadedLearners: string[];
+  startTime: string;
+  staffArrivalTime: string;
+  spArrivalTime: string;
+  facultyArrivalTime: string;
+  roomSetupMinutes: string;
+  studentPrebriefMinutes: string;
+  spPrebriefMinutes: string;
+  facultyPrebriefMinutes: string;
+  encounterMinutes: string;
   roomCapacity: string;
   dayBlocks: ScheduleBuilderPreviewDayBlock[];
   savedAt: string;
@@ -2403,6 +2425,15 @@ function parseScheduleBuilderPreviewDraft(value: string | null) {
       learnerFileName: asText(parsed.learnerFileName),
       uploadedLearners: normalizeTextArray(parsed.uploadedLearners),
       originalUploadedLearners: normalizeTextArray(parsed.originalUploadedLearners),
+      startTime: asText(parsed.startTime),
+      staffArrivalTime: asText(parsed.staffArrivalTime),
+      spArrivalTime: asText(parsed.spArrivalTime),
+      facultyArrivalTime: asText(parsed.facultyArrivalTime),
+      roomSetupMinutes: asText(parsed.roomSetupMinutes),
+      studentPrebriefMinutes: asText(parsed.studentPrebriefMinutes),
+      spPrebriefMinutes: asText(parsed.spPrebriefMinutes),
+      facultyPrebriefMinutes: asText(parsed.facultyPrebriefMinutes),
+      encounterMinutes: asText(parsed.encounterMinutes),
       roomCapacity: asText(parsed.roomCapacity),
       dayBlocks: normalizeScheduleBuilderDayBlocks(parsed.dayBlocks),
       savedAt: asText(parsed.savedAt),
@@ -2468,6 +2499,58 @@ function formatScheduleBuilderBlockDetail(block: ScheduleBuilderPreviewDayBlock)
     return [formatDisplayTime(block.specificTime) || block.specificTime, durationLabel].filter(Boolean).join(" · ");
   }
   return [durationLabel, placement].filter(Boolean).join(" · ") || "Schedule block";
+}
+
+function formatLiveFlowDurationLabel(durationMinutes: number) {
+  const minutes = Math.max(0, Math.round(durationMinutes));
+  return `${minutes} minute${minutes === 1 ? "" : "s"}`;
+}
+
+function normalizeLiveFlowBlockLabel(label: string, type?: string) {
+  const rawLabel = asText(label);
+  const normalized = `${asText(type)} ${rawLabel}`.toLowerCase();
+
+  if (/soap/.test(normalized)) return "SOAP Notes";
+  if (/checklist/.test(normalized)) return "Checklist";
+  if (/feedback/.test(normalized)) return "Feedback";
+  if (/debrief/.test(normalized)) return "Debrief";
+  if (/pre[\s-]?brief|orientation|briefing/.test(normalized)) return "Prebrief";
+  if (/lunch/.test(normalized)) return "Lunch";
+  if (/break/.test(normalized)) return "Break";
+  if (/transition|turnover|reset/.test(normalized)) return "Transition";
+  if (/encounter|rotation|case/.test(normalized)) return "Encounter";
+  if (/setup/.test(normalized)) return "Setup";
+
+  return rawLabel.replace(/\s+/g, " ") || "Event Block";
+}
+
+function getLiveFlowTone(label: string, type?: string): LiveFlowTone {
+  const normalized = `${asText(type)} ${asText(label)}`.toLowerCase();
+  if (/encounter|rotation|case/.test(normalized)) return "rotation";
+  if (/transition|turnover|reset/.test(normalized)) return "transition";
+  if (/break|lunch/.test(normalized)) return "break";
+  return "support";
+}
+
+function getLiveFlowPlacementNote(block: ScheduleBuilderPreviewDayBlock) {
+  const placement = asText(block.placement).toLowerCase();
+  if (placement === "before_rotations") return "Before encounters";
+  if (placement === "after_rotations") return "After final encounter";
+  if (placement === "specific_time") return "Scheduled time";
+  if (placement === "after_every_x_rotations") {
+    const interval = Math.max(1, parsePositiveInteger(block.placementInterval, 2));
+    return `Every ${interval} encounters`;
+  }
+  if (placement === "after_each_rotation") return "Between encounters";
+  return "";
+}
+
+function getFallbackLiveFlowLabel(gapMinutes: number, notesText: string) {
+  if (gapMinutes >= 40) return "Lunch";
+  if (/soap/i.test(notesText) && gapMinutes >= 10) return "SOAP Notes";
+  if (/checklist/i.test(notesText) && gapMinutes >= 5) return "Checklist";
+  if (gapMinutes >= 15) return "Break";
+  return "Transition";
 }
 function toTimeInputValue(value?: string | null) {
   const trimmed = asText(value);
@@ -3773,83 +3856,224 @@ const summaryTimeLabel = useMemo(() => {
     return normalizeLooseDateToIso(rotationRounds[0]?.session_date, importedYearHint) || "";
   }, [importedYearHint, rotationRounds]);
   const liveFlowBlocks = useMemo(() => {
-    if (!rotationRounds.length) return [] as Array<{
-      key: string;
-      label: string;
-      detail: string;
-      startMinutes: number;
-      endMinutes: number;
-      tone: "rotation" | "transition" | "break" | "support";
-      roundNumber: number | null;
-      rooms: string[];
-    }>;
+    if (!rotationRounds.length) return [] as LiveFlowBlock[];
 
     const notesText = [event?.notes, eventEditor.notes].map(asText).join(" ").toLowerCase();
     const eventDayRounds = rotationRounds.filter((round) => {
       const iso = normalizeLooseDateToIso(round.session_date, importedYearHint);
       return liveEventAnchorDateIso ? iso === liveEventAnchorDateIso : true;
     });
-    const blocks: Array<{
-      key: string;
-      label: string;
-      detail: string;
-      startMinutes: number;
-      endMinutes: number;
-      tone: "rotation" | "transition" | "break" | "support";
-      roundNumber: number | null;
-      rooms: string[];
-    }> = [];
+    if (!eventDayRounds.length) return [] as LiveFlowBlock[];
+
+    const dayBlocks = scheduleBuilderPreviewDraft?.dayBlocks || [];
+    const recurringDayBlocks = dayBlocks.filter((block) => {
+      const placement = asText(block.placement).toLowerCase();
+      return (
+        parsePositiveInteger(block.durationMinutes, 0) > 0 &&
+        (placement === "after_each_rotation" || placement === "after_every_x_rotations")
+      );
+    });
+    const beforeRotationBlocks = dayBlocks.filter(
+      (block) => asText(block.placement).toLowerCase() === "before_rotations" && parsePositiveInteger(block.durationMinutes, 0) > 0
+    );
+    const afterRotationBlocks = dayBlocks.filter(
+      (block) => asText(block.placement).toLowerCase() === "after_rotations" && parsePositiveInteger(block.durationMinutes, 0) > 0
+    );
+    const specificTimeBlocks = dayBlocks.filter(
+      (block) => asText(block.placement).toLowerCase() === "specific_time" && parsePositiveInteger(block.durationMinutes, 0) > 0
+    );
+    const blocks: LiveFlowBlock[] = [];
+
+    const pushLiveFlowBlock = (block: Omit<LiveFlowBlock, "detail">) => {
+      if (block.endMinutes <= block.startMinutes) return;
+      blocks.push({
+        ...block,
+        detail: formatLiveFlowDurationLabel(block.endMinutes - block.startMinutes),
+      });
+    };
+
+    const pushScheduleBuilderBlock = (
+      keyPrefix: string,
+      block: ScheduleBuilderPreviewDayBlock,
+      startMinutes: number,
+      latestEndMinutes: number
+    ) => {
+      const durationMinutes = parsePositiveInteger(block.durationMinutes, 0);
+      const endMinutes = Math.min(startMinutes + durationMinutes, latestEndMinutes);
+      if (durationMinutes <= 0 || endMinutes <= startMinutes) return startMinutes;
+
+      const label = normalizeLiveFlowBlockLabel(block.label, block.type);
+      pushLiveFlowBlock({
+        key: `${keyPrefix}-${block.id}`,
+        label,
+        note: getLiveFlowPlacementNote(block),
+        startMinutes,
+        endMinutes,
+        tone: getLiveFlowTone(label, block.type),
+        roundNumber: null,
+        rooms: [],
+        source: "schedule_builder",
+      });
+
+      return endMinutes;
+    };
+
+    const firstRoundStartMinutes = parseTimeToMinutes(eventDayRounds[0]?.start_time);
+    const configuredPrebriefMinutes = Math.max(
+      parsePositiveInteger(scheduleBuilderPreviewDraft?.studentPrebriefMinutes, 0),
+      parsePositiveInteger(scheduleBuilderPreviewDraft?.spPrebriefMinutes, 0),
+      parsePositiveInteger(scheduleBuilderPreviewDraft?.facultyPrebriefMinutes, 0)
+    );
+    const hasConfiguredPrebriefBlock = dayBlocks.some((block) =>
+      /pre[\s-]?brief|orientation|briefing/i.test(`${block.type} ${block.label}`)
+    );
+    if (firstRoundStartMinutes !== null && configuredPrebriefMinutes > 0 && !hasConfiguredPrebriefBlock) {
+      pushLiveFlowBlock({
+        key: "schedule-prebrief",
+        label: "Prebrief",
+        note: "Readiness before encounters",
+        startMinutes: firstRoundStartMinutes - configuredPrebriefMinutes,
+        endMinutes: firstRoundStartMinutes,
+        tone: "support",
+        roundNumber: null,
+        rooms: [],
+        source: "schedule_builder",
+      });
+    }
+
+    if (firstRoundStartMinutes !== null && beforeRotationBlocks.length) {
+      const totalBeforeMinutes = beforeRotationBlocks.reduce(
+        (sum, block) => sum + parsePositiveInteger(block.durationMinutes, 0),
+        0
+      );
+      let cursorMinutes = firstRoundStartMinutes - totalBeforeMinutes;
+      beforeRotationBlocks.forEach((block, index) => {
+        cursorMinutes = pushScheduleBuilderBlock(
+          `schedule-before-${index}`,
+          block,
+          cursorMinutes,
+          firstRoundStartMinutes
+        );
+      });
+    }
 
     eventDayRounds.forEach((round, index) => {
       const startMinutes = parseTimeToMinutes(round.start_time);
       const endMinutes = parseTimeToMinutes(round.end_time);
       if (startMinutes === null || endMinutes === null || endMinutes <= startMinutes) return;
 
-      blocks.push({
+      const nextRound = eventDayRounds[index + 1];
+      const nextStartMinutes = parseTimeToMinutes(nextRound?.start_time);
+      const applicableRecurringBlocks = recurringDayBlocks.filter((block) => {
+        const placement = asText(block.placement).toLowerCase();
+        if (placement === "after_each_rotation") return true;
+        if (placement === "after_every_x_rotations") {
+          const interval = Math.max(1, parsePositiveInteger(block.placementInterval, 2));
+          return (index + 1) % interval === 0;
+        }
+        return false;
+      });
+      const recurringMinutes = applicableRecurringBlocks.reduce(
+        (sum, block) => sum + parsePositiveInteger(block.durationMinutes, 0),
+        0
+      );
+      const configuredEncounterMinutes = parsePositiveInteger(scheduleBuilderPreviewDraft?.encounterMinutes, 0);
+      const gapAfterRoundMinutes =
+        typeof nextStartMinutes === "number" && nextStartMinutes > endMinutes ? nextStartMinutes - endMinutes : 0;
+      let encounterEndMinutes = endMinutes;
+      if (configuredEncounterMinutes > 0) {
+        encounterEndMinutes = Math.min(endMinutes, startMinutes + configuredEncounterMinutes);
+      } else if (recurringMinutes > 0 && gapAfterRoundMinutes < recurringMinutes && endMinutes - startMinutes > recurringMinutes) {
+        encounterEndMinutes = endMinutes - recurringMinutes;
+      }
+
+      pushLiveFlowBlock({
         key: `${round.key}-rotation`,
-        label: `Rotation ${index + 1}`,
-        detail: `${round.rooms.length} room${round.rooms.length === 1 ? "" : "s"} in use`,
+        label: "Encounter",
+        note: "",
         startMinutes,
-        endMinutes,
+        endMinutes: encounterEndMinutes,
         tone: "rotation",
         roundNumber: index + 1,
         rooms: round.rooms,
+        source: "encounter",
       });
 
-      const nextRound = eventDayRounds[index + 1];
-      const nextStartMinutes = parseTimeToMinutes(nextRound?.start_time);
-      if (typeof nextStartMinutes === "number" && nextStartMinutes > endMinutes) {
-        const gapMinutes = nextStartMinutes - endMinutes;
-        const blockLabel =
-          gapMinutes >= 40
-            ? "Lunch"
-            : /soap/i.test(notesText) && gapMinutes >= 10
-              ? "SOAP Notes"
-              : /checklist/i.test(notesText) && gapMinutes >= 5
-                ? "Checklist"
-                : gapMinutes >= 15
-                  ? "Break"
-                  : "Transition";
-        blocks.push({
-          key: `${round.key}-gap`,
+      let cursorMinutes = encounterEndMinutes;
+      const postEncounterEndLimit =
+        typeof nextStartMinutes === "number" && nextStartMinutes > cursorMinutes
+          ? nextStartMinutes
+          : Math.max(endMinutes, cursorMinutes + recurringMinutes);
+      applicableRecurringBlocks.forEach((block, blockIndex) => {
+        cursorMinutes = pushScheduleBuilderBlock(
+          `${round.key}-schedule-${blockIndex}`,
+          block,
+          cursorMinutes,
+          postEncounterEndLimit
+        );
+      });
+
+      const nextBoundaryMinutes =
+        typeof nextStartMinutes === "number" && nextStartMinutes > cursorMinutes
+          ? nextStartMinutes
+          : endMinutes;
+      if (nextBoundaryMinutes > cursorMinutes) {
+        const gapMinutes = nextBoundaryMinutes - cursorMinutes;
+        const blockLabel = getFallbackLiveFlowLabel(gapMinutes, notesText);
+        pushLiveFlowBlock({
+          key: `${round.key}-gap-${cursorMinutes}`,
           label: blockLabel,
-          detail: `${gapMinutes} minutes`,
-          startMinutes: endMinutes,
-          endMinutes: nextStartMinutes,
-          tone:
-            blockLabel === "Transition"
-              ? "transition"
-              : blockLabel === "Break" || blockLabel === "Lunch"
-                ? "break"
-                : "support",
+          note: "",
+          startMinutes: cursorMinutes,
+          endMinutes: nextBoundaryMinutes,
+          tone: getLiveFlowTone(blockLabel),
           roundNumber: null,
           rooms: [],
+          source: "fallback",
         });
       }
     });
 
-    return blocks;
-  }, [event?.notes, eventEditor.notes, importedYearHint, liveEventAnchorDateIso, rotationRounds]);
+    const rotationEndMinutes = blocks.reduce(
+      (latestEndMinutes, block) => Math.max(latestEndMinutes, block.endMinutes),
+      0
+    );
+    let afterRotationCursorMinutes = rotationEndMinutes;
+    afterRotationBlocks.forEach((block, index) => {
+      const durationMinutes = parsePositiveInteger(block.durationMinutes, 0);
+      afterRotationCursorMinutes = pushScheduleBuilderBlock(
+        `schedule-after-${index}`,
+        block,
+        afterRotationCursorMinutes,
+        afterRotationCursorMinutes + durationMinutes
+      );
+    });
+
+    specificTimeBlocks.forEach((block, index) => {
+      const startMinutes = parseTimeToMinutes(block.specificTime);
+      const durationMinutes = parsePositiveInteger(block.durationMinutes, 0);
+      if (startMinutes === null || durationMinutes <= 0) return;
+      pushScheduleBuilderBlock(
+        `schedule-specific-${index}`,
+        block,
+        startMinutes,
+        startMinutes + durationMinutes
+      );
+    });
+
+    return blocks.sort((a, b) => a.startMinutes - b.startMinutes || a.endMinutes - b.endMinutes || a.label.localeCompare(b.label));
+  }, [
+    event?.notes,
+    eventEditor.notes,
+    importedYearHint,
+    liveEventAnchorDateIso,
+    rotationRounds,
+    scheduleBuilderPreviewDraft?.dayBlocks,
+    scheduleBuilderPreviewDraft?.encounterMinutes,
+    scheduleBuilderPreviewDraft?.facultyPrebriefMinutes,
+    scheduleBuilderPreviewDraft?.spPrebriefMinutes,
+    scheduleBuilderPreviewDraft?.studentPrebriefMinutes,
+  ]);
   const simulatedLiveMinutes = useMemo(() => {
     const baseMs = livePausedAtMs ?? liveNowMs;
     const simulated = new Date(baseMs - liveDelayMinutes * 60 * 1000);
@@ -4891,7 +5115,12 @@ const summaryTimeLabel = useMemo(() => {
   const selectedRoundDayBlocks = useMemo(() => {
     if (!selectedRotationRound) return [] as RoundCompanionBlock[];
     const dayBlocks: RoundCompanionBlock[] = liveFlowBlocks
-      .filter((block) => block.key.startsWith(`${selectedRotationRound.key}-`) && block.tone !== "rotation")
+      .filter(
+        (block) =>
+          block.key.startsWith(`${selectedRotationRound.key}-`) &&
+          block.tone !== "rotation" &&
+          block.source !== "schedule_builder"
+      )
       .map((block) => ({
         label: block.label,
         detail: block.detail,
@@ -5465,7 +5694,7 @@ const summaryTimeLabel = useMemo(() => {
       if (minutesUntil >= 0 && minutesUntil <= 5) {
         alerts.push({
           tone: nextLiveBlock.tone === "rotation" ? "warning" : "info",
-          message: `${nextLiveBlock.label}${nextLiveBlock.roundNumber ? ` ${nextLiveBlock.roundNumber}` : ""} begins in ${minutesUntil} minute${minutesUntil === 1 ? "" : "s"}.`,
+          message: `${nextLiveBlock.label} begins in ${minutesUntil} minute${minutesUntil === 1 ? "" : "s"}.`,
         });
       }
     }
@@ -9010,9 +9239,11 @@ Cory`;
                   </div>
                 ) : (
                   liveFlowBlocks.map((block, index) => {
-                    const isCurrent =
-                      currentLiveBlock?.key === block.key ||
-                      (currentLiveBlock === null && index === 0 && simulatedLiveMinutes < block.startMinutes);
+                    const isCurrent = currentLiveBlock?.key === block.key;
+                    const isNext =
+                      !isCurrent &&
+                      (nextLiveBlock?.key === block.key ||
+                        (currentLiveBlock === null && index === 0 && simulatedLiveMinutes < block.startMinutes));
                     const toneColor =
                       block.tone === "rotation"
                         ? "#7dd3fc"
@@ -9039,11 +9270,14 @@ Cory`;
                         <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap" }}>
                           <div style={{ color: toneColor, fontWeight: 900 }}>
                             {block.label}
-                            {block.roundNumber ? ` ${block.roundNumber}` : ""}
                           </div>
                           {isCurrent ? (
                             <span style={{ ...commandChipStyle, background: "rgba(126, 231, 219, 0.14)", color: "#7ee7db" }}>
                               Active now
+                            </span>
+                          ) : isNext ? (
+                            <span style={{ ...commandChipStyle, background: "rgba(125, 211, 252, 0.12)", color: "#bae6fd" }}>
+                              Next
                             </span>
                           ) : null}
                         </div>
@@ -9051,6 +9285,9 @@ Cory`;
                           {formatMinuteRange(block.startMinutes, block.endMinutes)}
                         </div>
                         <div style={{ color: "#89b7c4", fontSize: "13px", fontWeight: 700 }}>{block.detail}</div>
+                        {block.note ? (
+                          <div style={{ color: "#6ea7b8", fontSize: "12px", fontWeight: 700 }}>{block.note}</div>
+                        ) : null}
                       </div>
                     );
                   })
