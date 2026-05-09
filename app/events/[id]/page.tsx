@@ -7594,75 +7594,6 @@ Cory`;
             </div>
           </div>
 
-	          <div
-	            style={{
-	              display: "grid",
-	              gap: "10px",
-	              gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
-            }}
-          >
-            {[
-              {
-                label: "Current Rotation",
-                value:
-                  currentRotationRoundNumber !== null
-                    ? `Round ${currentRotationRoundNumber}`
-                    : currentLiveBlock?.label || "Stand by",
-                tone: "#f4fbff",
-              },
-              {
-                label: "Checked-in SPs",
-                value: `${checkedInAssignedCount}/${sortedAssignments.length || 0}`,
-                tone: "var(--cfsp-green)",
-              },
-              {
-                label: "Missing SPs",
-                value: String(missingAssignedCount),
-                tone: missingAssignedCount > 0 ? "var(--cfsp-warning)" : "#d9f99d",
-              },
-              {
-                label: "Optional Backup",
-                value: String(backupAvailableCount),
-                tone: backupAvailableCount > 0 ? "#7dd3fc" : "var(--cfsp-text-muted)",
-              },
-              {
-                label: "Coverage Health",
-                value:
-                  liveStaffingHealthTone === "green"
-                    ? "Covered"
-                    : liveStaffingHealthTone === "yellow"
-                      ? "At risk"
-                      : "Understaffed",
-                tone:
-                  liveStaffingHealthTone === "green"
-                    ? "var(--cfsp-green)"
-                    : liveStaffingHealthTone === "yellow"
-                      ? "var(--cfsp-warning)"
-                      : "var(--cfsp-danger)",
-              },
-              {
-                label: "Live Clock",
-                value: formatMinutesAsClockLabel(simulatedLiveMinutes),
-                tone: "#f4fbff",
-              },
-            ].map((item) => (
-              <div
-                key={item.label}
-                style={{
-                  borderRadius: "16px",
-                  border: "1px solid rgba(126, 231, 219, 0.18)",
-                  background: "rgba(11, 24, 38, 0.88)",
-                  padding: "12px 14px",
-                  display: "grid",
-                  gap: "6px",
-                }}
-              >
-                <div style={{ ...statLabel, color: "#89b7c4" }}>{item.label}</div>
-                <div style={{ color: item.tone, fontSize: "20px", fontWeight: 900 }}>{item.value}</div>
-              </div>
-	            ))}
-	          </div>
-
 	          <section
 	            style={{
 	              borderRadius: "18px",
@@ -7893,77 +7824,121 @@ Cory`;
                 gap: "12px",
               }}
             >
-              <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap" }}>
-                <div>
-                  <div style={{ ...statLabel, color: "#7ee7db" }}>Current Rotation</div>
-                  <div style={{ marginTop: "4px", color: "#f4fbff", fontSize: "20px", fontWeight: 900 }}>
-                    {currentLiveBlock?.label || "Awaiting first live block"}
-                  </div>
-                  <div style={{ marginTop: "4px", color: "#b8d7e3", fontWeight: 700 }}>
-                    {currentLiveBlock
+              <div
+                style={{
+                  borderRadius: "16px",
+                  border: "1px solid rgba(126, 231, 219, 0.2)",
+                  background:
+                    "linear-gradient(90deg, rgba(7, 18, 31, 0.96) 0%, rgba(10, 35, 48, 0.92) 52%, rgba(5, 46, 44, 0.82) 100%)",
+                  boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.035)",
+                  padding: "9px",
+                  display: "flex",
+                  gap: "8px",
+                  flexWrap: "wrap",
+                  alignItems: "stretch",
+                }}
+              >
+                {[
+                  {
+                    label: "Current rotation",
+                    value: currentLiveBlock?.label || "Awaiting first live block",
+                    detail: currentLiveBlock
                       ? formatMinuteRange(currentLiveBlock.startMinutes, currentLiveBlock.endMinutes)
-                      : summaryTimeLabel}
-                  </div>
-                </div>
-                <div style={{ textAlign: "right" }}>
-                  <div style={{ ...statLabel, color: "#89b7c4" }}>Time Remaining</div>
-                  <div style={{ marginTop: "4px", color: "#f4fbff", fontSize: "24px", fontWeight: 900 }}>
-                    {currentLiveBlock
-                      ? formatRemainingMinutes(
-                          Math.max(currentLiveBlock.endMinutes - simulatedLiveMinutes, 0)
-                        )
+                      : summaryTimeLabel,
+                    color: "#f4fbff",
+                  },
+                  {
+                    label: "Time remaining",
+                    value: currentLiveBlock
+                      ? formatRemainingMinutes(Math.max(currentLiveBlock.endMinutes - simulatedLiveMinutes, 0))
                       : liveFlowBlocks[0]
                         ? `${Math.max(liveFlowBlocks[0].startMinutes - simulatedLiveMinutes, 0)}m to start`
-                        : "Timeline TBD"}
-                  </div>
-                  {nextLiveBlock ? (
-                    <div style={{ marginTop: "4px", color: "#9ed9d1", fontSize: "13px", fontWeight: 700 }}>
-                      Next: {nextLiveBlock.label} · {formatMinuteRange(nextLiveBlock.startMinutes, nextLiveBlock.endMinutes)}
+                        : "Timeline TBD",
+                    detail: nextLiveBlock ? `Next: ${nextLiveBlock.label}` : "Live clock",
+                    color: "#f4fbff",
+                  },
+                  {
+                    label: "Rooms in use",
+                    value: String(currentLiveBlock?.rooms.length || 0),
+                    detail: "active rooms",
+                    color: "#7dd3fc",
+                  },
+                  {
+                    label: "Checked in",
+                    value: String(checkedInAssignedCount),
+                    detail: `${sortedAssignments.length || 0} assigned`,
+                    color: "#86efac",
+                  },
+                  {
+                    label: "Late",
+                    value: String(lateAssignedCount),
+                    detail: lateAssignedCount > 0 ? "watch list" : "clear",
+                    color: lateAssignedCount > 0 ? "#fde68a" : "#9ed9d1",
+                  },
+                  {
+                    label: "No-show",
+                    value: String(noShowAssignedCount),
+                    detail: noShowAssignedCount > 0 ? "coverage risk" : "clear",
+                    color: noShowAssignedCount > 0 ? "#fecaca" : "#9ed9d1",
+                  },
+                ].map((item) => (
+                  <div
+                    key={`live-control-${item.label}`}
+                    style={{
+                      borderRadius: "13px",
+                      border: "1px solid rgba(126, 231, 219, 0.14)",
+                      background: "rgba(3, 15, 27, 0.54)",
+                      padding: "8px 10px",
+                      minWidth: item.label === "Current rotation" ? "168px" : "92px",
+                      flex: item.label === "Current rotation" || item.label === "Time remaining" ? "1 1 150px" : "0 1 96px",
+                      display: "grid",
+                      gap: "3px",
+                      alignContent: "center",
+                    }}
+                  >
+                    <div style={{ color: "#89b7c4", fontSize: "10px", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                      {item.label}
                     </div>
-                  ) : null}
-                </div>
-              </div>
-
-              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                <span style={commandChipStyle}>
-                  {currentLiveBlock?.rooms.length || 0} room{currentLiveBlock?.rooms.length === 1 ? "" : "s"} in use
-                </span>
-                <span style={commandChipStyle}>{checkedInAssignedCount} checked in</span>
-                {lateAssignedCount > 0 ? (
-                  <span style={{ ...commandChipStyle, background: "rgba(243, 187, 103, 0.14)", color: "var(--cfsp-warning)" }}>
-                    {lateAssignedCount} late
-                  </span>
-                ) : null}
-                {noShowAssignedCount > 0 ? (
-                  <span style={{ ...commandChipStyle, background: "rgba(248, 113, 113, 0.14)", color: "var(--cfsp-danger)" }}>
-                    {noShowAssignedCount} no-show
-                  </span>
-                ) : null}
-              </div>
-
-              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                {livePausedAtMs === null ? (
-                  <button type="button" onClick={handlePauseLiveSchedule} style={{ ...buttonStyle, padding: "8px 12px" }}>
-                    Pause schedule
-                  </button>
-                ) : (
-                  <button type="button" onClick={handleResumeLiveSchedule} style={{ ...buttonStyle, padding: "8px 12px" }}>
-                    Resume event
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => handleAddLiveDelay(5)}
+                    <div style={{ color: item.color, fontSize: "15px", fontWeight: 950, lineHeight: 1.15, overflowWrap: "anywhere" }}>
+                      {item.value}
+                    </div>
+                    <div style={{ color: "#9ed9d1", fontSize: "10px", fontWeight: 750, lineHeight: 1.2, overflowWrap: "anywhere" }}>
+                      {item.detail}
+                    </div>
+                  </div>
+                ))}
+                <div
                   style={{
-                    ...buttonStyle,
-                    padding: "8px 12px",
-                    background: "var(--cfsp-button-secondary-bg)",
-                    color: "var(--cfsp-button-secondary-text)",
-                    border: "1px solid var(--cfsp-button-secondary-border)",
+                    display: "flex",
+                    gap: "6px",
+                    flexWrap: "wrap",
+                    alignItems: "center",
+                    marginLeft: "auto",
                   }}
                 >
-                  Add delay
-                </button>
+                  {livePausedAtMs === null ? (
+                    <button type="button" onClick={handlePauseLiveSchedule} style={{ ...buttonStyle, padding: "7px 10px" }}>
+                      Pause schedule
+                    </button>
+                  ) : (
+                    <button type="button" onClick={handleResumeLiveSchedule} style={{ ...buttonStyle, padding: "7px 10px" }}>
+                      Resume event
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => handleAddLiveDelay(5)}
+                    style={{
+                      ...buttonStyle,
+                      padding: "7px 10px",
+                      background: "rgba(73, 168, 255, 0.12)",
+                      color: "#7dd3fc",
+                      border: "1px solid rgba(73, 168, 255, 0.24)",
+                    }}
+                  >
+                    Add delay
+                  </button>
+                </div>
               </div>
 
               <section
