@@ -33,8 +33,22 @@
   --cfsp-theme-toggle-bg: #edf4fb;
   --cfsp-theme-toggle-border: #d8e5f1;
   --cfsp-theme-toggle-text: #145b96;
+  --cfsp-theme-toggle-active-bg: #145b96;
+  --cfsp-theme-toggle-active-text: #ffffff;
+  --cfsp-account-dropdown-bg: rgba(255, 255, 255, 0.98);
+  --cfsp-account-dropdown-shadow: 0 22px 55px rgba(24, 52, 78, 0.18), 0 0 0 1px rgba(143, 194, 240, 0.14);
   --cfsp-stars-opacity: 0;
   --cfsp-card-glow: 0 10px 28px rgba(24, 52, 78, 0.07);
+  --cfsp-dashboard-hero-bg: linear-gradient(135deg, rgba(20, 91, 150, 0.08) 0%, rgba(44, 211, 173, 0.08) 42%, #ffffff 100%);
+  --cfsp-dashboard-panel-bg: linear-gradient(180deg, var(--cfsp-surface-muted) 0%, var(--cfsp-surface) 100%);
+  --cfsp-simvitals-preview-bg: linear-gradient(135deg, rgba(20, 91, 150, 0.08) 0%, rgba(25, 138, 112, 0.08) 48%, var(--cfsp-surface) 100%);
+  --cfsp-simvitals-hero-bg: linear-gradient(135deg, rgba(20, 91, 150, 0.11) 0%, rgba(44, 211, 173, 0.10) 42%, var(--cfsp-surface) 100%);
+  --cfsp-simvitals-composer-bg: linear-gradient(180deg, var(--cfsp-surface) 0%, var(--cfsp-surface-muted) 100%);
+  --cfsp-simvitals-stat-bg: rgba(255, 255, 255, 0.62);
+  --cfsp-simvitals-mark-bg: linear-gradient(145deg, rgba(15, 71, 118, 0.96), rgba(19, 98, 79, 0.92));
+  --cfsp-simvitals-mark-border: rgba(44, 211, 173, 0.36);
+  --cfsp-simvitals-mark-glow: 0 18px 34px rgba(20, 91, 150, 0.18), 0 0 30px rgba(44, 211, 173, 0.12);
+  --cfsp-simvitals-signal: #9ce9d6;
   --cfsp-panel-strong: #eef5fb;
   --cfsp-input-bg: #ffffff;
   --cfsp-input-border: #bfd0dc;
@@ -87,8 +101,22 @@ html[data-theme="dark"] {
   --cfsp-theme-toggle-bg: #111c2a;
   --cfsp-theme-toggle-border: rgba(120, 180, 255, 0.24);
   --cfsp-theme-toggle-text: #d9ebff;
+  --cfsp-theme-toggle-active-bg: linear-gradient(135deg, rgba(73, 168, 255, 0.92), rgba(44, 211, 173, 0.82));
+  --cfsp-theme-toggle-active-text: #04111b;
+  --cfsp-account-dropdown-bg: rgba(8, 15, 26, 0.96);
+  --cfsp-account-dropdown-shadow: 0 24px 60px rgba(0, 0, 0, 0.58), 0 0 36px rgba(73, 168, 255, 0.14), 0 0 0 1px rgba(120, 180, 255, 0.12);
   --cfsp-stars-opacity: 0.22;
   --cfsp-panel-strong: #101827;
+  --cfsp-dashboard-hero-bg: linear-gradient(135deg, rgba(73, 168, 255, 0.13) 0%, rgba(44, 211, 173, 0.10) 42%, rgba(13, 20, 32, 0.96) 100%);
+  --cfsp-dashboard-panel-bg: linear-gradient(180deg, rgba(17, 29, 45, 0.94) 0%, rgba(11, 18, 29, 0.96) 100%);
+  --cfsp-simvitals-preview-bg: linear-gradient(135deg, rgba(73, 168, 255, 0.12) 0%, rgba(44, 211, 173, 0.11) 46%, rgba(13, 20, 32, 0.98) 100%);
+  --cfsp-simvitals-hero-bg: linear-gradient(135deg, rgba(73, 168, 255, 0.16) 0%, rgba(44, 211, 173, 0.12) 42%, rgba(8, 15, 26, 0.98) 100%);
+  --cfsp-simvitals-composer-bg: linear-gradient(180deg, rgba(13, 20, 32, 0.96) 0%, rgba(17, 25, 39, 0.9) 100%);
+  --cfsp-simvitals-stat-bg: rgba(8, 16, 28, 0.68);
+  --cfsp-simvitals-mark-bg: linear-gradient(145deg, rgba(8, 17, 28, 0.98), rgba(10, 38, 52, 0.96));
+  --cfsp-simvitals-mark-border: rgba(120, 220, 255, 0.34);
+  --cfsp-simvitals-mark-glow: 0 20px 44px rgba(0, 0, 0, 0.42), 0 0 34px rgba(44, 211, 173, 0.22), 0 0 48px rgba(73, 168, 255, 0.12);
+  --cfsp-simvitals-signal: #8df7e2;
   --cfsp-input-bg: rgba(17, 25, 39, 0.88);
   --cfsp-input-border: rgba(120, 180, 255, 0.24);
   --cfsp-button-secondary-bg: #141d2b;
@@ -189,6 +217,81 @@ textarea {
   border-radius: 14px;
   box-shadow: var(--cfsp-card-glow);
   backdrop-filter: blur(14px);
+}
+
+.cfsp-shell-frame {
+  isolation: isolate;
+  overflow: visible;
+}
+
+.cfsp-shell-header {
+  position: relative;
+  z-index: 500;
+  overflow: visible;
+}
+
+.cfsp-shell-content {
+  position: relative;
+  z-index: 1;
+}
+
+.cfsp-account-menu {
+  position: relative;
+  z-index: 600;
+}
+
+.cfsp-account-menu[open] {
+  z-index: 1600;
+}
+
+.cfsp-account-menu summary::-webkit-details-marker {
+  display: none;
+}
+
+.cfsp-account-dropdown {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  z-index: 1700;
+  margin-top: 8px;
+  min-width: 232px;
+  overflow: hidden;
+  border: 1px solid var(--cfsp-header-border);
+  border-radius: 12px;
+  background: var(--cfsp-account-dropdown-bg);
+  box-shadow: var(--cfsp-account-dropdown-shadow);
+  backdrop-filter: blur(18px);
+}
+
+.cfsp-theme-switch {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--cfsp-theme-toggle-border);
+  border-radius: 999px;
+  background: var(--cfsp-theme-toggle-bg);
+}
+
+.cfsp-theme-choice {
+  min-height: 34px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--cfsp-theme-toggle-text);
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 900;
+  padding: 7px 12px;
+  transition:
+    background 160ms ease,
+    color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.cfsp-theme-choice.is-active {
+  background: var(--cfsp-theme-toggle-active-bg);
+  color: var(--cfsp-theme-toggle-active-text);
+  box-shadow: 0 8px 18px rgba(24, 52, 78, 0.14);
 }
 
 .cfsp-panel-muted {
@@ -396,6 +499,95 @@ textarea {
   font-weight: 800;
   letter-spacing: 0.05em;
   text-transform: uppercase;
+}
+
+.simvitals-mark {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 74px;
+  height: 74px;
+  flex: 0 0 auto;
+  overflow: hidden;
+  border: 1px solid var(--cfsp-simvitals-mark-border);
+  border-radius: 18px;
+  background: var(--cfsp-simvitals-mark-bg);
+  box-shadow: var(--cfsp-simvitals-mark-glow);
+}
+
+.simvitals-mark-compact {
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+}
+
+.simvitals-mark::before {
+  content: "";
+  position: absolute;
+  inset: -35%;
+  background:
+    linear-gradient(115deg, transparent 30%, rgba(255, 255, 255, 0.22) 45%, transparent 58%),
+    radial-gradient(circle at 78% 18%, rgba(44, 211, 173, 0.28), transparent 24%);
+  transform: translateX(-28%);
+  animation: cfspSignalSweep 7s ease-in-out infinite;
+}
+
+.simvitals-mark-logo {
+  position: relative;
+  z-index: 1;
+  width: 54%;
+  height: 54%;
+  object-fit: contain;
+  filter: drop-shadow(0 5px 10px rgba(0, 0, 0, 0.26));
+}
+
+.simvitals-mark-signal {
+  position: absolute;
+  inset: 7px;
+  z-index: 2;
+  color: var(--cfsp-simvitals-signal);
+  opacity: 0.9;
+}
+
+.simvitals-mark-signal path {
+  stroke-dasharray: 96;
+  stroke-dashoffset: 96;
+  animation: cfspSignalTrace 4.8s ease-in-out infinite;
+}
+
+@keyframes cfspSignalSweep {
+  0%,
+  100% {
+    transform: translateX(-32%) rotate(0deg);
+    opacity: 0.48;
+  }
+  50% {
+    transform: translateX(22%) rotate(4deg);
+    opacity: 0.76;
+  }
+}
+
+@keyframes cfspSignalTrace {
+  0% {
+    stroke-dashoffset: 96;
+    opacity: 0.2;
+  }
+  42%,
+  72% {
+    stroke-dashoffset: 0;
+    opacity: 0.95;
+  }
+  100% {
+    stroke-dashoffset: -96;
+    opacity: 0.18;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .simvitals-mark::before,
+  .simvitals-mark-signal path {
+    animation: none;
+  }
 }
 
 @media (max-width: 720px) {

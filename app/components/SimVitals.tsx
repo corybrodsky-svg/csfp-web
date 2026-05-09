@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { type ReactNode, useState } from "react";
 
@@ -47,15 +48,15 @@ const simVitalsFeedTypeAppearance: Record<
 > = {
   general_update: {
     label: "General Update",
-    accent: "#145b96",
-    background: "rgba(20, 91, 150, 0.09)",
-    border: "rgba(20, 91, 150, 0.25)",
+    accent: "var(--cfsp-blue)",
+    background: "rgba(73, 168, 255, 0.10)",
+    border: "rgba(73, 168, 255, 0.25)",
     color: "var(--cfsp-blue-dark)",
     signal: "Ops",
   },
   staffing_alert: {
     label: "Staffing Alert",
-    accent: "#198a70",
+    accent: "var(--cfsp-green)",
     background: "rgba(25, 138, 112, 0.12)",
     border: "rgba(25, 138, 112, 0.30)",
     color: "var(--cfsp-green-dark)",
@@ -79,10 +80,10 @@ const simVitalsFeedTypeAppearance: Record<
   },
   training_update: {
     label: "Training Update",
-    accent: "#0f766e",
+    accent: "var(--cfsp-green-dark)",
     background: "rgba(15, 118, 110, 0.11)",
     border: "rgba(15, 118, 110, 0.28)",
-    color: "#0f766e",
+    color: "var(--cfsp-green-dark)",
     signal: "Training",
   },
   system_notice: {
@@ -128,7 +129,7 @@ const simVitalsRoleAppearance: Record<
     border: "rgba(168, 100, 17, 0.25)",
     color: "var(--cfsp-warning)",
     cardBorder: "rgba(168, 100, 17, 0.23)",
-    cardBackground: "linear-gradient(180deg, rgba(255, 246, 232, 0.76) 0%, var(--cfsp-surface) 100%)",
+    cardBackground: "linear-gradient(180deg, rgba(168, 100, 17, 0.10) 0%, var(--cfsp-surface) 100%)",
   },
   sp: {
     label: "SP",
@@ -216,6 +217,41 @@ function getSimVitalsInitials(name: string) {
   const parts = asText(name).split(/\s+/).filter(Boolean);
   if (!parts.length) return "SV";
   return parts.slice(0, 2).map((part) => part[0]?.toUpperCase()).join("");
+}
+
+function SimVitalsSignalMark({ compact = false }: { compact?: boolean }) {
+  return (
+    <div
+      className={`simvitals-mark${compact ? " simvitals-mark-compact" : ""}`}
+      role="img"
+      aria-label="CFSP SimVitals signal mark"
+    >
+      <Image
+        src="/branding/cfsp-logo.svg"
+        alt=""
+        width={compact ? 34 : 48}
+        height={compact ? 34 : 48}
+        unoptimized
+        className="simvitals-mark-logo"
+      />
+      <svg className="simvitals-mark-signal" aria-hidden="true" viewBox="0 0 88 64" fill="none">
+        <path
+          d="M4 44 H15 C20 44 21 33 27 33 H34 C40 33 41 20 48 20 C56 20 57 38 65 38 H74 C79 38 80 29 84 29"
+          stroke="currentColor"
+          strokeWidth="2.6"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        <path
+          d="M12 18 H30 M58 14 H76 M16 54 H42 M58 52 H78"
+          stroke="currentColor"
+          strokeWidth="1.4"
+          strokeLinecap="round"
+          opacity="0.38"
+        />
+      </svg>
+    </div>
+  );
 }
 
 function SimVitalsAttachmentIcon() {
@@ -390,8 +426,7 @@ export function SimVitalsDashboardPreview() {
       className="relative overflow-hidden rounded-[14px] px-5 py-5"
       style={{
         border: "1px solid var(--cfsp-border)",
-        background:
-          "linear-gradient(135deg, rgba(20, 91, 150, 0.08) 0%, rgba(25, 138, 112, 0.08) 48%, var(--cfsp-surface) 100%)",
+        background: "var(--cfsp-simvitals-preview-bg)",
         boxShadow: "var(--cfsp-card-glow)",
       }}
     >
@@ -402,12 +437,15 @@ export function SimVitalsDashboardPreview() {
       />
 
       <div className="relative flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-        <div className="max-w-2xl">
-          <div className="cfsp-kicker">Check SimVitals</div>
-          <h2 className="mt-2 text-[1.35rem] leading-tight font-black text-[var(--cfsp-text)]">Latest SimVitals</h2>
-          <p className="mt-2 text-sm leading-6 text-[var(--cfsp-text-muted)]">
-            Live operational signals for staffing, rooms, faculty coordination, training, and simulation support.
-          </p>
+        <div className="flex max-w-2xl items-start gap-3">
+          <SimVitalsSignalMark compact />
+          <div className="min-w-0">
+            <div className="cfsp-kicker">Check SimVitals</div>
+            <h2 className="mt-2 text-[1.35rem] leading-tight font-black text-[var(--cfsp-text)]">Latest SimVitals</h2>
+            <p className="mt-2 text-sm leading-6 text-[var(--cfsp-text-muted)]">
+              Operational signals for staffing, rooms, faculty coordination, training, and simulation support.
+            </p>
+          </div>
         </div>
         <Link href="/simvitals" className="cfsp-btn cfsp-btn-primary shrink-0">
           Open SimVitals
@@ -472,8 +510,7 @@ export function SimVitalsFullExperience({
         className="relative overflow-hidden rounded-[14px] px-5 py-5"
         style={{
           border: "1px solid var(--cfsp-border)",
-          background:
-            "linear-gradient(135deg, rgba(20, 91, 150, 0.11) 0%, rgba(44, 211, 173, 0.10) 42%, var(--cfsp-surface) 100%)",
+          background: "var(--cfsp-simvitals-hero-bg)",
           boxShadow: "var(--cfsp-card-glow)",
         }}
       >
@@ -493,12 +530,15 @@ export function SimVitalsFullExperience({
         />
 
         <div className="relative grid gap-4 xl:grid-cols-[1.2fr_0.8fr] xl:items-end">
-          <div>
-            <div className="cfsp-kicker">Check SimVitals</div>
-            <h2 className="mt-3 text-[2rem] leading-tight font-black text-[var(--cfsp-text)]">SimVitals</h2>
-            <p className="mt-3 max-w-3xl text-[0.98rem] leading-6 text-[var(--cfsp-text-muted)]">
-              Command-center communication for simulation operations, live room telemetry, staffing signals, faculty coordination, and training readiness.
-            </p>
+          <div className="flex items-start gap-4">
+            <SimVitalsSignalMark />
+            <div className="min-w-0">
+              <div className="cfsp-kicker">Check SimVitals</div>
+              <h2 className="mt-3 text-[2rem] leading-tight font-black text-[var(--cfsp-text)]">SimVitals</h2>
+              <p className="mt-3 max-w-3xl text-[0.98rem] leading-6 text-[var(--cfsp-text-muted)]">
+                The operational nervous system of CFSP: command-center communication, live room telemetry, staffing signals, faculty coordination, and training readiness.
+              </p>
+            </div>
           </div>
           <div className="grid gap-2 sm:grid-cols-3">
             {[
@@ -511,7 +551,7 @@ export function SimVitalsFullExperience({
                 className="rounded-[12px] px-4 py-3"
                 style={{
                   border: "1px solid rgba(73, 168, 255, 0.20)",
-                  background: "rgba(255, 255, 255, 0.58)",
+                  background: "var(--cfsp-simvitals-stat-bg)",
                   backdropFilter: "blur(12px)",
                 }}
               >
@@ -527,7 +567,7 @@ export function SimVitalsFullExperience({
         className="rounded-[14px] px-4 py-4"
         style={{
           border: "1px solid rgba(73, 168, 255, 0.24)",
-          background: "linear-gradient(180deg, var(--cfsp-surface) 0%, var(--cfsp-surface-muted) 100%)",
+          background: "var(--cfsp-simvitals-composer-bg)",
           boxShadow: "0 16px 34px rgba(24, 52, 78, 0.08)",
         }}
       >

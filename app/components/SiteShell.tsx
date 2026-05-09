@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { signOutUserAndRedirect } from "../lib/clientAuth";
 
 type SiteShellProps = {
@@ -33,6 +33,10 @@ type NavItem = {
   tone?: "primary" | "default";
   roles?: Array<"sp" | "faculty" | "sim_op" | "admin" | "super_admin">;
 };
+
+type ThemeMode = "light" | "dark";
+
+let inMemoryThemeMode: ThemeMode = "light";
 
 const navItems: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", match: "exact" },
@@ -83,6 +87,33 @@ function formatRoleLabel(value: unknown) {
   return "SP";
 }
 
+function getThemeModeSnapshot(): ThemeMode {
+  if (typeof window === "undefined") return inMemoryThemeMode;
+  try {
+    inMemoryThemeMode = window.localStorage.getItem("cfsp-theme") === "dark" ? "dark" : "light";
+  } catch {
+    return inMemoryThemeMode;
+  }
+  return inMemoryThemeMode;
+}
+
+function subscribeThemeMode(onStoreChange: () => void) {
+  if (typeof window === "undefined") return () => {};
+
+  const handleStorage = (event: StorageEvent) => {
+    if (event.key === "cfsp-theme") onStoreChange();
+  };
+  const handleLocalChange = () => onStoreChange();
+
+  window.addEventListener("storage", handleStorage);
+  window.addEventListener("cfsp-theme-change", handleLocalChange);
+
+  return () => {
+    window.removeEventListener("storage", handleStorage);
+    window.removeEventListener("cfsp-theme-change", handleLocalChange);
+  };
+}
+
 function getDisplayName(me: ShellMeResponse | null) {
   const fullNameFirst = getFirstName(asText(me?.profile?.full_name));
   if (fullNameFirst) return fullNameFirst;
@@ -101,14 +132,8 @@ export default function SiteShell({ title, subtitle, children }: SiteShellProps)
   const [logoVisible, setLogoVisible] = useState(true);
   const [signingOut, setSigningOut] = useState(false);
   const [me, setMe] = useState<ShellMeResponse | null>(null);
-  const [nightMode, setNightMode] = useState(() => {
-    if (typeof window === "undefined") return false;
-    try {
-      return window.localStorage.getItem("cfsp-theme") === "dark";
-    } catch {
-      return false;
-    }
-  });
+  const themeMode = useSyncExternalStore(subscribeThemeMode, getThemeModeSnapshot, () => "light");
+  const nightMode = themeMode === "dark";
 
   const accountRole = normalizeRole(me?.profile?.role);
   const visibleNavItems = useMemo(
@@ -123,8 +148,8 @@ export default function SiteShell({ title, subtitle, children }: SiteShellProps)
   }, [pathname, visibleNavItems]);
 
   useEffect(() => {
-    document.documentElement.setAttribute("data-theme", nightMode ? "dark" : "light");
-  }, [nightMode]);
+    document.documentElement.setAttribute("data-theme", themeMode);
+  }, [themeMode]);
 
   useEffect(() => {
     let cancelled = false;
@@ -167,17 +192,15 @@ export default function SiteShell({ title, subtitle, children }: SiteShellProps)
     }
   }
 
-  function handleToggleNightMode() {
-    setNightMode((current) => {
-      const next = !current;
-      try {
-        window.localStorage.setItem("cfsp-theme", next ? "dark" : "light");
-      } catch {
-        return next;
-      }
-      document.documentElement.setAttribute("data-theme", next ? "dark" : "light");
-      return next;
-    });
+  function setThemeMode(mode: ThemeMode) {
+    inMemoryThemeMode = mode;
+    try {
+      window.localStorage.setItem("cfsp-theme", mode);
+    } catch {
+      // Local persistence is a convenience; the live theme should still switch.
+    }
+    document.documentElement.setAttribute("data-theme", mode);
+    window.dispatchEvent(new Event("cfsp-theme-change"));
   }
 
   const accountDisplayName = getDisplayName(me);
@@ -186,8 +209,8 @@ export default function SiteShell({ title, subtitle, children }: SiteShellProps)
   return (
     <main className="cfsp-page">
       <div className="cfsp-container">
-        <div className="grid gap-4">
-          <header className="cfsp-panel px-5 py-4">
+        <div className="cfsp-shell-frame grid gap-4">
+          <header className="cfsp-panel cfsp-shell-header px-5 py-4">
             <div className="flex flex-col gap-4">
               <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                 <div className="min-w-0">
@@ -244,15 +267,26 @@ export default function SiteShell({ title, subtitle, children }: SiteShellProps)
 
                 <div className="self-start lg:ml-4">
                   <div className="mb-3 flex justify-end">
-                    <button
-                      type="button"
-                      onClick={handleToggleNightMode}
-                      className="cfsp-btn cfsp-btn-subtle min-h-[40px]"
-                    >
-                      {nightMode ? "Night Mode: On" : "Night Mode"}
-                    </button>
+                    <div className="cfsp-theme-switch" role="group" aria-label="Display mode">
+                      <button
+                        type="button"
+                        onClick={() => setThemeMode("light")}
+                        className={`cfsp-theme-choice${nightMode ? "" : " is-active"}`}
+                        aria-pressed={!nightMode}
+                      >
+                        Light Mode
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setThemeMode("dark")}
+                        className={`cfsp-theme-choice${nightMode ? " is-active" : ""}`}
+                        aria-pressed={nightMode}
+                      >
+                        Night Mode
+                      </button>
+                    </div>
                   </div>
-                  <details className="relative">
+                  <details className="cfsp-account-menu">
                     <summary
                       className="flex min-h-[46px] cursor-pointer list-none items-center gap-3 rounded-[12px] px-3 py-2 text-left text-sm font-bold transition-colors"
                       style={{
@@ -289,11 +323,9 @@ export default function SiteShell({ title, subtitle, children }: SiteShellProps)
                       <span className="text-xs text-[var(--cfsp-text-muted)]">▾</span>
                     </summary>
                     <div
-                      className="absolute right-0 z-20 mt-2 min-w-[220px] overflow-hidden rounded-[12px] shadow-[0_16px_32px_rgba(15,23,42,0.12)]"
+                      className="cfsp-account-dropdown"
                       style={{
-                        top: "100%",
-                        border: "1px solid var(--cfsp-header-border)",
-                        background: "var(--cfsp-header-bg)",
+                        color: "var(--cfsp-text)",
                       }}
                     >
                       <div className="px-4 py-3" style={{ borderBottom: "1px solid var(--cfsp-border)" }}>
@@ -352,7 +384,7 @@ export default function SiteShell({ title, subtitle, children }: SiteShellProps)
             </div>
           </header>
 
-          <section className="cfsp-panel px-5 py-5">{children}</section>
+          <section className="cfsp-panel cfsp-shell-content px-5 py-5">{children}</section>
         </div>
       </div>
     </main>

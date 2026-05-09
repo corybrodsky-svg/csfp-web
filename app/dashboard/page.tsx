@@ -973,7 +973,7 @@ export default function DashboardPage() {
             className="rounded-[14px] px-5 py-5"
             style={{
               border: "1px solid var(--cfsp-border)",
-              background: "linear-gradient(180deg, var(--cfsp-surface-muted) 0%, var(--cfsp-surface) 100%)",
+              background: "var(--cfsp-dashboard-hero-bg)",
               boxShadow: "var(--cfsp-card-glow)",
             }}
           >
@@ -1116,7 +1116,7 @@ export default function DashboardPage() {
           className="rounded-[14px] px-5 py-4"
           style={{
             border: "1px solid var(--cfsp-border)",
-            background: "linear-gradient(180deg, var(--cfsp-surface-muted) 0%, var(--cfsp-surface) 100%)",
+            background: "var(--cfsp-dashboard-panel-bg)",
             boxShadow: "var(--cfsp-card-glow)",
           }}
         >
