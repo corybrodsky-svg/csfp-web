@@ -419,6 +419,16 @@ const planningSuccessCardBackground = "linear-gradient(180deg, rgba(220, 252, 23
 const planningSuccessBorder = "1px solid rgba(4, 120, 87, 0.38)";
 const planningSuccessText = "#064e3b";
 
+const recordingStatusOptions = [
+  { value: "not_recorded", label: "Not Recorded", active: false, tone: "#94a3b8", chip: "Disabled" },
+  { value: "recorded", label: "Recorded", active: true, tone: "#ff6b6b", chip: "Recorded" },
+  { value: "recording_planned", label: "Recording Planned", active: true, tone: "#49a8ff", chip: "Planned" },
+  { value: "recording_pending", label: "Recording Pending", active: true, tone: "#f59e0b", chip: "Pending" },
+  { value: "recording_not_allowed", label: "Recording Not Allowed", active: false, tone: "#ef4444", chip: "Not allowed" },
+] as const;
+
+type RecordingStatusValue = (typeof recordingStatusOptions)[number]["value"];
+
 const assignmentStatuses: AssignmentStatus[] = [
   "invited",
   "contacted",
@@ -663,6 +673,28 @@ const textareaStyle: React.CSSProperties = {
 function asText(value: unknown) {
   if (value === null || value === undefined) return "";
   return String(value).trim();
+}
+
+function normalizeRecordingStatusValue(value: unknown): RecordingStatusValue | "" {
+  const normalized = asText(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+
+  if (!normalized) return "";
+  if (normalized === "not_recorded" || normalized === "disabled") return "not_recorded";
+  if (normalized === "recorded" || normalized === "recording_enabled") return "recorded";
+  if (normalized === "recording_planned" || normalized === "planned") return "recording_planned";
+  if (normalized === "recording_pending" || normalized === "pending") return "recording_pending";
+  if (normalized === "recording_not_allowed" || normalized === "not_allowed") return "recording_not_allowed";
+  return "";
+}
+
+function getRecordingStatusOption(value: unknown) {
+  const normalized = normalizeRecordingStatusValue(value);
+  return normalized
+    ? recordingStatusOptions.find((option) => option.value === normalized) || null
+    : null;
 }
 
 function getFullName(sp: SPRow) {
@@ -3351,24 +3383,25 @@ const summaryTimeLabel = useMemo(() => {
       trainingMetadata.zoom_url,
     ]
   );
-  const recordingStatus = useMemo(() => {
+  const inferredRecordingActive = useMemo(() => {
     const hasRecordingGuide = Boolean(asText(trainingMetadata.recording_url));
     const hasZoomRecording = /\bzoom\b/.test(eventSummarySourceText) && /\brecord/i.test(eventSummarySourceText);
     const hasSimCaptureRecording = /\bsim\s*capture\b|\bsimcapture\b/.test(eventSummarySourceText);
-    if (hasZoomRecording && hasSimCaptureRecording) {
-      return { label: "Partial Recording", active: true, tone: "#ff7a7a" };
-    }
-    if (hasSimCaptureRecording) {
-      return { label: "SimCapture Recording", active: true, tone: "#ff6b6b" };
-    }
-    if (hasZoomRecording) {
-      return { label: "Zoom Recording", active: true, tone: "#ff7a7a" };
-    }
-    if (hasRecordingGuide || /\brecording enabled\b|\brecorded\b/.test(eventSummarySourceText)) {
-      return { label: "Recording Enabled", active: true, tone: "#ff6b6b" };
-    }
-    return { label: "Not Recorded", active: false, tone: "#94a3b8" };
+    return hasRecordingGuide || hasZoomRecording || hasSimCaptureRecording || /\brecording enabled\b|\brecorded\b/.test(eventSummarySourceText);
   }, [eventSummarySourceText, trainingMetadata.recording_url]);
+  const hasSavedRecordingStatus = Boolean(normalizeRecordingStatusValue(trainingMetadata.recording_status));
+  const recordingStatus = useMemo(() => {
+    const savedRecordingStatus = getRecordingStatusOption(trainingMetadata.recording_status);
+    if (savedRecordingStatus) return savedRecordingStatus;
+
+    return getRecordingStatusOption("not_recorded") || {
+      label: "Not Recorded",
+      active: false,
+      tone: "#94a3b8",
+      chip: "Disabled",
+    };
+  }, [trainingMetadata.recording_status]);
+  const recordingSupportActive = recordingStatus.active || (!hasSavedRecordingStatus && inferredRecordingActive);
   const eventModalityChips = useMemo(() => {
     const chips = new Set<string>();
     chips.add(selectedModalityLabel);
@@ -3450,11 +3483,11 @@ const summaryTimeLabel = useMemo(() => {
       { label: "Door Signs Ready", active: Boolean(trainingMetadata.doorsign_url) },
       { label: "Zoom Ready", active: Boolean(trainingMetadata.zoom_url) || selectedModalityLabel === "Virtual" || selectedModalityLabel === "Hybrid" },
       { label: "AV Ready", active: /av ready|audio visual|av support/i.test(eventSummarySourceText) || Boolean(trainingMetadata.recording_url) },
-      { label: "Recording Ready", active: Boolean(trainingMetadata.recording_url) || recordingStatus.active },
+      { label: "Recording Ready", active: recordingSupportActive },
     ],
     [
       eventSummarySourceText,
-      recordingStatus.active,
+      recordingSupportActive,
       selectedModalityLabel,
       trainingMetadata.case_file_url,
       trainingMetadata.case_name,
@@ -3488,7 +3521,7 @@ const summaryTimeLabel = useMemo(() => {
       { label: "Sim Tech Required", active: activeEventTypeSet.has("hifi") || /sim tech|simcapture|recording/i.test(eventSummarySourceText) },
       { label: "Faculty Operator Needed", active: Boolean(facultyReadinessComplete && (activeEventTypeSet.has("hifi") || activeEventTypeSet.has("virtual"))) },
       { label: "SP Educator Needed", active: staffingRelevant && isTrainingMode },
-      { label: "Recording Monitor Needed", active: recordingStatus.active },
+      { label: "Recording Monitor Needed", active: recordingSupportActive },
     ];
     return needs.filter((item) => item.active);
   }, [
@@ -3496,7 +3529,7 @@ const summaryTimeLabel = useMemo(() => {
     eventSummarySourceText,
     facultyReadinessComplete,
     isTrainingMode,
-    recordingStatus.active,
+    recordingSupportActive,
     staffingRelevant,
     trainingMetadata.recording_url,
   ]);
@@ -9105,8 +9138,8 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                   {
                     label: "Recording",
                     value: recordingStatus.label,
-                    chips: [recordingStatus.active ? "Recording active" : "Disabled"],
-                    accent: recordingStatus.active ? "#ff6b6b" : "#94a3b8",
+                    chips: [recordingStatus.chip],
+                    accent: recordingStatus.tone,
                   },
                   {
                     label: "Event Modality",
@@ -10410,6 +10443,21 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                     />
                   </label>
                   <label style={{ display: "grid", gap: "6px" }}>
+                    <span style={statLabel}>Recording Status</span>
+                    <select
+                      value={normalizeRecordingStatusValue(trainingMetadata.recording_status) || "not_recorded"}
+                      onChange={(event) => handleTrainingMetadataChange("recording_status", event.target.value)}
+                      disabled={saving}
+                      style={{ ...selectStyle, width: "100%", maxWidth: "none", boxSizing: "border-box" }}
+                    >
+                      {recordingStatusOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label style={{ display: "grid", gap: "6px" }}>
                     <span style={statLabel}>Case File URL</span>
                     <input
                       value={trainingMetadata.case_file_url}
@@ -11330,6 +11378,22 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                 <span style={compactSectionHintStyle}>
                   Saves as {sessionEditor.end_time ? formatDisplayTime(toStoredTimeValue(sessionEditor.end_time) || "") : "AM/PM"}
                 </span>
+              </label>
+
+              <label style={{ display: "grid", gap: "6px" }}>
+                <span style={statLabel}>Recording Status</span>
+                <select
+                  value={normalizeRecordingStatusValue(trainingMetadata.recording_status) || "not_recorded"}
+                  onChange={(event) => handleTrainingMetadataChange("recording_status", event.target.value)}
+                  disabled={saving}
+                  style={{ ...selectStyle, width: "100%", maxWidth: "none", boxSizing: "border-box" }}
+                >
+                  {recordingStatusOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
               </label>
 
               {isTrainingMode ? (

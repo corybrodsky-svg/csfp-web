@@ -2,6 +2,7 @@ export type TrainingEventMetadata = {
   zoom_url: string;
   training_password: string;
   recording_url: string;
+  recording_status: string;
   case_name: string;
   case_file_url: string;
   case_file_name: string;
@@ -46,6 +47,7 @@ const TRAINING_METADATA_KEYS = [
   "zoom_url",
   "training_password",
   "recording_url",
+  "recording_status",
   "case_name",
   "case_file_url",
   "case_file_name",
@@ -99,6 +101,7 @@ export function emptyTrainingEventMetadata(): TrainingEventMetadata {
     zoom_url: "",
     training_password: "",
     recording_url: "",
+    recording_status: "",
     case_name: "",
     case_file_url: "",
     case_file_name: "",
