@@ -8501,242 +8501,209 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
             }}
           >
             <div style={{ ...statLabel, color: "#7ee7db" }}>Event Summary</div>
-            <div style={{ ...detailGridStyle, marginTop: "8px", gap: "8px" }}>
-              <div style={statCard}>
-                <div style={statLabel}>Event Name</div>
-                <div style={statValue}>{event.name || "Untitled Event"}</div>
-              </div>
-              <div style={statCard}>
-                <div style={statLabel}>Status</div>
-                <div style={statValue}>{event.status || "No status"}</div>
-              </div>
-              <div style={statCard}>
-                <div style={statLabel}>Location</div>
-                <div style={statValue}>{event.location || "Location TBD"}</div>
-              </div>
-              {!isTrainingMode ? (
-                <>
-                  <div style={statCard}>
-                    <div style={statLabel}>SP Needed</div>
-                    <div style={statValue}>{needed}</div>
-                  </div>
-                  <div style={statCard}>
-                    <div style={statLabel}>Assigned</div>
-                    <div style={{ ...statValue, color: "var(--cfsp-blue)" }}>{assignedCount}</div>
-                  </div>
-                  <div style={statCard}>
-                    <div style={statLabel}>{isWorkshop ? "Workshop" : "Shortage"}</div>
-                    <div
-                      style={{
-                        ...statValue,
-                        color: isWorkshop ? "var(--cfsp-green)" : shortage > 0 ? "var(--cfsp-warning)" : "var(--cfsp-green)",
-                      }}
-                    >
-                      {isWorkshop ? "Skills Workshop" : shortageCount}
+            <div style={{ marginTop: "10px", display: "grid", gap: "10px" }}>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                  gap: "10px",
+                }}
+              >
+                {[
+                  {
+                    label: "Event Name",
+                    value: event.name || "Untitled Event",
+                    chips: [selectedModalityLabel || event.status || "Operational event"].filter(Boolean),
+                  },
+                  {
+                    label: "Date / Time",
+                    value: sessionSummaryLabel,
+                    subvalue: summaryTimeLabel,
+                    chips: [rotationRounds.length ? `${rotationRounds.length} rounds` : "Schedule pending"].slice(0, 1),
+                  },
+                  {
+                    label: "Location",
+                    value: event.location || "Location TBD",
+                    chips: [trainingLocationModality].filter(Boolean).slice(0, 1),
+                  },
+                  {
+                    label: "Staffing",
+                    value: isTrainingMode ? `${assignedCount} assigned / ${confirmedCount} confirmed` : `${assignedCount}/${needed || 0} staffed`,
+                    chips: [staffingHealthLabel, shortageCount > 0 ? `${shortageCount} open` : "Covered"].slice(0, 2),
+                  },
+                  {
+                    label: "Status",
+                    value: event.status || "No status",
+                    chips: activeEventTypes.slice(0, 2).map((type) => editableEventTypeLabels[type] || type),
+                  },
+                ].map((card) => (
+                  <div
+                    key={card.label}
+                    style={{
+                      ...statCard,
+                      minHeight: "132px",
+                      display: "grid",
+                      alignContent: "space-between",
+                      gap: "10px",
+                      background: "linear-gradient(180deg, rgba(20, 37, 54, 0.94) 0%, rgba(21, 40, 58, 0.92) 100%)",
+                      border: "1px solid rgba(126, 231, 219, 0.12)",
+                    }}
+                  >
+                    <div>
+                      <div style={statLabel}>{card.label}</div>
+                      <div style={{ ...statValue, fontSize: "18px", lineHeight: 1.25 }}>{card.value}</div>
+                      {"subvalue" in card && card.subvalue ? (
+                        <div style={{ marginTop: "6px", color: "#9cc7d3", fontSize: "12px", fontWeight: 700 }}>{card.subvalue}</div>
+                      ) : null}
+                    </div>
+                    <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                      {(card.chips || []).slice(0, 3).map((chip: string) => (
+                        <span key={`${card.label}-${chip}`} style={{ ...commandChipStyle, background: "rgba(125, 211, 252, 0.14)", color: "#7dd3fc" }}>
+                          {chip}
+                        </span>
+                      ))}
                     </div>
                   </div>
-                </>
-              ) : (
-                <div style={statCard}>
-                  <div style={statLabel}>Assigned SPs</div>
-                  <div style={statValue}>
-                    {assignedCount} assigned / {confirmedCount} confirmed
-                  </div>
-                </div>
-              )}
-              <div style={statCard}>
-                <div style={statLabel}>Date</div>
-                <div style={statValue}>{sessionSummaryLabel}</div>
-              </div>
-              <div style={statCard}>
-                <div style={statLabel}>Time</div>
-                <div style={statValue}>{summaryTimeLabel}</div>
-              </div>
-            </div>
-
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-                gap: "10px",
-                marginTop: "10px",
-              }}
-            >
-              <div
-                style={{
-                  ...statCard,
-                  background: "linear-gradient(180deg, rgba(24, 42, 61, 0.94) 0%, rgba(22, 39, 56, 0.92) 100%)",
-                  border: "1px solid rgba(255, 107, 107, 0.24)",
-                }}
-              >
-                <div style={statLabel}>Recording Status</div>
-                <div style={{ marginTop: "8px", display: "flex", alignItems: "center", gap: "8px", color: "#f8fafc", fontWeight: 900, fontSize: "18px" }}>
-                  <span
-                    style={{
-                      width: "10px",
-                      height: "10px",
-                      borderRadius: "999px",
-                      background: recordingStatus.active ? recordingStatus.tone : "#64748b",
-                      boxShadow: recordingStatus.active ? `0 0 0 6px ${recordingStatus.tone}22` : "none",
-                    }}
-                  />
-                  <span>{recordingStatus.label}</span>
-                </div>
-              </div>
-
-              <div style={statCard}>
-                <div style={statLabel}>Event Modality</div>
-                <div style={{ marginTop: "10px", display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                  {eventModalityChips.map((chip, index) => (
-                    <span
-                      key={`event-modality-${chip}-${index}`}
-                      style={{
-                        ...commandChipStyle,
-                        background: index === 0 ? "rgba(125, 211, 252, 0.16)" : "rgba(126, 231, 219, 0.12)",
-                        color: index === 0 ? "#7dd3fc" : "#99f6e4",
-                      }}
-                    >
-                      {chip}
-                    </span>
-                  ))}
-                </div>
-              </div>
-
-              <div style={statCard}>
-                <div style={statLabel}>Simulation Modality</div>
-                <div style={{ marginTop: "10px", display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                  {simulationModalityChips.map((chip, index) => (
-                    <span
-                      key={`simulation-modality-${chip}-${index}`}
-                      style={{
-                        ...commandChipStyle,
-                        background: "rgba(196, 181, 253, 0.14)",
-                        color: "#ddd6fe",
-                      }}
-                    >
-                      {chip}
-                    </span>
-                  ))}
-                </div>
-              </div>
-
-              <div style={statCard}>
-                <div style={statLabel}>Operational Readiness</div>
-                <div style={{ marginTop: "8px", color: "#f8fafc", fontWeight: 900, fontSize: "18px" }}>
-                  {operationalReadinessItems.primary}
-                </div>
-                <div style={{ marginTop: "10px", display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                  {operationalReadinessItems.items.map((item) => (
-                    <span
-                      key={item.label}
-                      style={{
-                        ...commandChipStyle,
-                        background: item.active ? "rgba(243, 187, 103, 0.16)" : "rgba(44, 211, 173, 0.12)",
-                        color: item.active ? "#fde68a" : "#86efac",
-                      }}
-                    >
-                      {item.active ? item.label : item.label.replace(/^Needs\s|^Awaiting\s/, "")}
-                    </span>
-                  ))}
-                </div>
-              </div>
-
-              <div style={statCard}>
-                <div style={statLabel}>Communication Status</div>
-                <div style={{ marginTop: "10px", display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                  {communicationStatusItems.map((item) => (
-                    <span
-                      key={item.label}
-                      style={{
-                        ...commandChipStyle,
-                        background: item.active ? "rgba(125, 211, 252, 0.14)" : "rgba(100, 116, 139, 0.18)",
-                        color: item.active ? "#7dd3fc" : "#cbd5e1",
-                      }}
-                    >
-                      {item.label}
-                    </span>
-                  ))}
-                </div>
-              </div>
-
-              <div style={statCard}>
-                <div style={statLabel}>Materials Status</div>
-                <div style={{ marginTop: "10px", display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                  {materialsStatusItems.map((item) => (
-                    <span
-                      key={item.label}
-                      style={{
-                        ...commandChipStyle,
-                        background: item.active ? "rgba(44, 211, 173, 0.12)" : "rgba(243, 187, 103, 0.14)",
-                        color: item.active ? "#86efac" : "#fde68a",
-                      }}
-                    >
-                      {item.label}
-                    </span>
-                  ))}
-                </div>
+                ))}
               </div>
 
               <div
                 style={{
-                  ...statCard,
-                  border:
-                    eventRiskLevel.tone === "green"
-                      ? "1px solid rgba(44, 211, 173, 0.22)"
-                      : eventRiskLevel.tone === "yellow"
-                        ? "1px solid rgba(243, 187, 103, 0.26)"
-                        : "1px solid rgba(255, 107, 107, 0.34)",
-                  background:
-                    eventRiskLevel.tone === "green"
-                      ? "rgba(16, 185, 129, 0.08)"
-                      : eventRiskLevel.tone === "yellow"
-                        ? "rgba(245, 158, 11, 0.1)"
-                        : "rgba(140, 35, 35, 0.14)",
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                  gap: "10px",
                 }}
               >
-                <div style={statLabel}>Event Risk Level</div>
-                <div
-                  style={{
-                    marginTop: "8px",
-                    color:
+                {[
+                  {
+                    label: "Recording",
+                    value: recordingStatus.label,
+                    chips: [recordingStatus.active ? "Recording active" : "Disabled"],
+                    accent: recordingStatus.active ? "#ff6b6b" : "#94a3b8",
+                  },
+                  {
+                    label: "Event Modality",
+                    value: eventModalityChips[0] || "Operational event",
+                    chips: eventModalityChips.slice(1, 4),
+                    accent: "#7dd3fc",
+                  },
+                  {
+                    label: "Simulation Type",
+                    value: simulationModalityChips[0] || "Operational Sim",
+                    chips: simulationModalityChips.slice(1, 4),
+                    accent: "#c4b5fd",
+                  },
+                  {
+                    label: "Readiness",
+                    value: operationalReadinessItems.primary,
+                    chips: operationalReadinessItems.items.filter((item) => item.active).slice(0, 3).map((item) => item.label),
+                    accent: operationalReadinessItems.primary === "Ready" ? "#86efac" : "#fde68a",
+                  },
+                  {
+                    label: "Risk Level",
+                    value: eventRiskLevel.label,
+                    chips: [eventRiskLevel.detail],
+                    accent:
                       eventRiskLevel.tone === "green"
                         ? "#86efac"
                         : eventRiskLevel.tone === "yellow"
                           ? "#fde68a"
                           : "#ff7a7a",
-                    fontWeight: 900,
-                    fontSize: "18px",
-                  }}
-                >
-                  {eventRiskLevel.label}
-                </div>
-                <div style={{ marginTop: "6px", color: "#cbd5e1", fontWeight: 700, fontSize: "12px", lineHeight: 1.5 }}>
-                  {eventRiskLevel.detail}
-                </div>
+                  },
+                ].map((card) => (
+                  <div
+                    key={card.label}
+                    style={{
+                      ...statCard,
+                      minHeight: "132px",
+                      display: "grid",
+                      alignContent: "space-between",
+                      gap: "10px",
+                      background: "linear-gradient(180deg, rgba(20, 37, 54, 0.94) 0%, rgba(21, 40, 58, 0.92) 100%)",
+                      border: `1px solid ${card.accent}24`,
+                    }}
+                  >
+                    <div>
+                      <div style={statLabel}>{card.label}</div>
+                      <div style={{ ...statValue, fontSize: "18px", lineHeight: 1.25, color: card.accent }}>{card.value}</div>
+                    </div>
+                    <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                      {card.chips.slice(0, 3).map((chip) => (
+                        <span
+                          key={`${card.label}-${chip}`}
+                          style={{
+                            ...commandChipStyle,
+                            background: `${card.accent}24`,
+                            color: card.accent,
+                            maxWidth: "100%",
+                          }}
+                        >
+                          {chip}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ))}
               </div>
 
-              <div style={statCard}>
-                <div style={statLabel}>Live Support Needs</div>
-                <div style={{ marginTop: "10px", display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                  {liveSupportNeeds.length ? (
-                    liveSupportNeeds.map((item) => (
-                      <span
-                        key={item.label}
-                        style={{
-                          ...commandChipStyle,
-                          background: "rgba(250, 204, 21, 0.14)",
-                          color: "#fcd34d",
-                        }}
-                      >
-                        {item.label}
-                      </span>
-                    ))
-                  ) : (
-                    <span style={{ ...commandChipStyle, background: "rgba(44, 211, 173, 0.12)", color: "#86efac" }}>
-                      No extra live support flagged
-                    </span>
-                  )}
-                </div>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                  gap: "10px",
+                }}
+              >
+                {[
+                  {
+                    label: "Communication",
+                    value:
+                      communicationStatusItems.filter((item) => item.active).length > 0
+                        ? `${communicationStatusItems.filter((item) => item.active).length} active`
+                        : "No active sends",
+                    chips: communicationStatusItems.filter((item) => item.active).slice(0, 3).map((item) => item.label),
+                    accent: "#7dd3fc",
+                  },
+                  {
+                    label: "Materials",
+                    value:
+                      materialsStatusItems.filter((item) => item.active).length >= 4
+                        ? "Operationally ready"
+                        : materialsStatusLabel,
+                    chips: materialsStatusItems.filter((item) => item.active).slice(0, 3).map((item) => item.label),
+                    accent: "#86efac",
+                  },
+                  {
+                    label: "Live Support",
+                    value: liveSupportNeeds.length ? `${liveSupportNeeds.length} support flags` : "No support flags",
+                    chips: (liveSupportNeeds.length ? liveSupportNeeds : [{ label: "No extra live support flagged" }]).slice(0, 3).map((item) => item.label),
+                    accent: "#fcd34d",
+                  },
+                ].map((card) => (
+                  <div
+                    key={card.label}
+                    style={{
+                      ...statCard,
+                      minHeight: "120px",
+                      display: "grid",
+                      alignContent: "space-between",
+                      gap: "10px",
+                      background: "linear-gradient(180deg, rgba(20, 37, 54, 0.94) 0%, rgba(21, 40, 58, 0.92) 100%)",
+                      border: `1px solid ${card.accent}24`,
+                    }}
+                  >
+                    <div>
+                      <div style={statLabel}>{card.label}</div>
+                      <div style={{ ...statValue, fontSize: "18px", lineHeight: 1.25 }}>{card.value}</div>
+                    </div>
+                    <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                      {card.chips.map((chip) => (
+                        <span key={`${card.label}-${chip}`} style={{ ...commandChipStyle, background: `${card.accent}24`, color: card.accent }}>
+                          {chip}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
 
