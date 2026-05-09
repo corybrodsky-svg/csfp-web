@@ -2422,10 +2422,15 @@ export default function EventDetailPage() {
   const [candidateQuery, setCandidateQuery] = useState("");
   const [showCandidatePool, setShowCandidatePool] = useState(false);
   const [activeOnly, setActiveOnly] = useState(false);
+  const [candidateAgeKeyword, setCandidateAgeKeyword] = useState("");
+  const [candidateSexFilter, setCandidateSexFilter] = useState("any");
+  const [candidateNotesKeyword, setCandidateNotesKeyword] = useState("");
+  const [candidateRolesKeyword, setCandidateRolesKeyword] = useState("");
   const [spanishOnly, setSpanishOnly] = useState(false);
   const [telehealthOnly, setTelehealthOnly] = useState(false);
   const [ptPreferredOnly, setPtPreferredOnly] = useState(false);
   const [availableForEventOnly, setAvailableForEventOnly] = useState(false);
+  const [selectedHiringEmailSpIds, setSelectedHiringEmailSpIds] = useState<string[]>([]);
   const [staffingOverviewOpen, setStaffingOverviewOpen] = useState(true);
   const [spFinderMatchMakerOpen, setSpFinderMatchMakerOpen] = useState(false);
   const [showMatchMakerResults, setShowMatchMakerResults] = useState(false);
@@ -2667,34 +2672,62 @@ export default function EventDetailPage() {
     return next;
   }, [availabilityBySpId, event?.notes, sessions, sps]);
 
-  const filteredCandidateSps = useMemo(
+  const uniqueCandidateSexOptions = useMemo(
     () =>
-      sps
-        .filter((sp) => {
-          const query = candidateQuery.trim().toLowerCase();
-          const availabilityMatch = availabilityMatchBySpId.get(sp.id)?.status || "unknown";
-          if (query && !getCandidateSearchText(sp).includes(query)) return false;
-          if (activeOnly && !isActiveSp(sp)) return false;
-          if (spanishOnly && !speaksSpanish(sp)) return false;
-          if (telehealthOnly && !hasTelehealth(sp)) return false;
-          if (ptPreferredOnly && !hasPtPreferred(sp)) return false;
-          if (availableForEventOnly && !["available", "partial"].includes(availabilityMatch)) {
-            return false;
-          }
-          return true;
-        })
-        .sort((a, b) => {
-          const aMatch = availabilityMatchBySpId.get(a.id)?.status || "unknown";
-          const bMatch = availabilityMatchBySpId.get(b.id)?.status || "unknown";
-          const rankDiff = getAvailabilityMatchRank(aMatch) - getAvailabilityMatchRank(bMatch);
-          if (rankDiff !== 0) return rankDiff;
-          return sortSPs(a, b);
-        }),
+      Array.from(
+        new Set(
+          sps
+            .map((sp) => asText(sp.sex))
+            .filter(Boolean)
+        )
+      ).sort((a, b) => a.localeCompare(b)),
+    [sps]
+  );
+
+  const filteredCandidateSps = useMemo(() => {
+    const query = candidateQuery.trim().toLowerCase();
+    const ageKeyword = candidateAgeKeyword.trim().toLowerCase();
+    const sexFilter = candidateSexFilter.trim().toLowerCase();
+    const notesKeyword = candidateNotesKeyword.trim().toLowerCase();
+    const rolesKeyword = candidateRolesKeyword.trim().toLowerCase();
+
+    return sps
+      .filter((sp) => {
+        const availabilityMatch = availabilityMatchBySpId.get(sp.id)?.status || "unknown";
+        if (query && !getCandidateSearchText(sp).includes(query)) return false;
+        if (activeOnly && !isActiveSp(sp)) return false;
+        if (ageKeyword && !asText(sp.portrayal_age).toLowerCase().includes(ageKeyword)) return false;
+        if (sexFilter !== "any" && asText(sp.sex).toLowerCase() !== sexFilter) return false;
+        if (notesKeyword) {
+          const notesSearchText = [sp.notes, sp.telehealth, sp.pt_preferred].map(asText).join(" ").toLowerCase();
+          if (!notesSearchText.includes(notesKeyword)) return false;
+        }
+        if (rolesKeyword && !asText(sp.other_roles).toLowerCase().includes(rolesKeyword)) return false;
+        if (spanishOnly && !speaksSpanish(sp)) return false;
+        if (telehealthOnly && !hasTelehealth(sp)) return false;
+        if (ptPreferredOnly && !hasPtPreferred(sp)) return false;
+        if (availableForEventOnly && !["available", "partial"].includes(availabilityMatch)) {
+          return false;
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        const aMatch = availabilityMatchBySpId.get(a.id)?.status || "unknown";
+        const bMatch = availabilityMatchBySpId.get(b.id)?.status || "unknown";
+        const rankDiff = getAvailabilityMatchRank(aMatch) - getAvailabilityMatchRank(bMatch);
+        if (rankDiff !== 0) return rankDiff;
+        return sortSPs(a, b);
+      });
+  },
     [
       activeOnly,
       availabilityMatchBySpId,
       availableForEventOnly,
+      candidateAgeKeyword,
       candidateQuery,
+      candidateRolesKeyword,
+      candidateNotesKeyword,
+      candidateSexFilter,
       ptPreferredOnly,
       spanishOnly,
       sps,
@@ -3654,6 +3687,34 @@ const summaryTimeLabel = useMemo(() => {
     () => Array.from(new Set(assignedEmailRecipients.map((item) => item.email))),
     [assignedEmailRecipients]
   );
+  const availableSpIds = useMemo(
+    () => new Set(availableSps.map((sp) => String(sp.id))),
+    [availableSps]
+  );
+  const selectedHiringEmailRecipients = useMemo(
+    () =>
+      selectedHiringEmailSpIds
+        .map((spId) => spsById.get(String(spId)))
+        .filter((sp): sp is SPRow => {
+          if (!sp) return false;
+          return availableSpIds.has(String(sp.id)) && Boolean(getEmail(sp));
+        })
+        .map((sp) => ({
+          sp,
+          email: getEmail(sp),
+        })),
+    [availableSpIds, selectedHiringEmailSpIds, spsById]
+  );
+  const selectedHiringEmailBccEmails = useMemo(
+    () => Array.from(new Set(selectedHiringEmailRecipients.map((item) => item.email))),
+    [selectedHiringEmailRecipients]
+  );
+  const hiringEmailBccEmails = selectedHiringEmailBccEmails.length
+    ? selectedHiringEmailBccEmails
+    : assignedBccEmails;
+  const hiringEmailRecipientMode = selectedHiringEmailBccEmails.length
+    ? "matched candidates"
+    : "selected staffing";
   const confirmationTargetAssignments = useMemo(
     () =>
       sortedAssignments.filter((assignment) => {
@@ -5675,7 +5736,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
     "CFSP Simulation Operations",
   ].join("\n");
   const mailtoHref = buildMailtoHref({
-    bcc: assignedBccEmails.length ? assignedBccEmails : bccEmails,
+    bcc: hiringEmailBccEmails.length ? hiringEmailBccEmails : bccEmails,
     subject: emailSubject,
     body: emailBody,
   });
@@ -6691,8 +6752,8 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
   }
 
   async function handleOpenAvailabilityRequest() {
-    if (!assignedBccEmails.length) {
-      setEventSaveError("No selected staffing SP emails are available for an email draft.");
+    if (!hiringEmailBccEmails.length) {
+      setEventSaveError("No selected staffing or matched candidate SP emails are available for a hiring email draft.");
       return;
     }
 
@@ -6706,7 +6767,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
     );
     window.location.href = mailtoHref;
     showSuccessMessage(
-      `Draft opened for ${assignedBccEmails.length} selected staffing SP${assignedBccEmails.length === 1 ? "" : "s"}.`
+      `Draft opened for ${hiringEmailBccEmails.length} ${hiringEmailRecipientMode} SP${hiringEmailBccEmails.length === 1 ? "" : "s"}.`
     );
   }
 
@@ -6801,6 +6862,38 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
     await assignMultipleSpIds(
       eligibleIds,
       `Added ${eligibleIds.length} SP${eligibleIds.length === 1 ? "" : "s"}.`
+    );
+  }
+
+  function handleClearSpMatchFilters() {
+    setCandidateQuery("");
+    setCandidateAgeKeyword("");
+    setCandidateSexFilter("any");
+    setCandidateNotesKeyword("");
+    setCandidateRolesKeyword("");
+    setActiveOnly(false);
+    setSpanishOnly(false);
+    setTelehealthOnly(false);
+    setPtPreferredOnly(false);
+    setAvailableForEventOnly(false);
+    setSelectedSpId("");
+    setSelectedHiringEmailSpIds([]);
+  }
+
+  function handleSelectMatchingCandidatesForHiringEmail() {
+    const matchingIds = availableSps
+      .filter((sp) => Boolean(getEmail(sp)))
+      .map((sp) => String(sp.id));
+
+    if (!matchingIds.length) {
+      setEventSaveError("No matching uncontacted SPs with email addresses are ready for the hiring email.");
+      return;
+    }
+
+    setEventSaveError("");
+    setSelectedHiringEmailSpIds(Array.from(new Set(matchingIds)));
+    showSuccessMessage(
+      `${matchingIds.length} matching candidate${matchingIds.length === 1 ? "" : "s"} selected for the hiring email.`
     );
   }
 
@@ -8276,7 +8369,8 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                 <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
                   <div style={{ display: "grid", gap: "4px" }}>
                     <div style={staffingMutedTextStyle}>
-                      {selectedStaffingCount} selected · {confirmedCount} primary confirmed · {backupCount} backup · {assignedBccEmails.length} hiring draft email{assignedBccEmails.length === 1 ? "" : "s"} ready · {confirmationBccEmails.length} confirmation email{confirmationBccEmails.length === 1 ? "" : "s"} ready
+                      {selectedStaffingCount} selected · {confirmedCount} primary confirmed · {backupCount} backup · {hiringEmailBccEmails.length} hiring draft email{hiringEmailBccEmails.length === 1 ? "" : "s"} ready · {confirmationBccEmails.length} confirmation email{confirmationBccEmails.length === 1 ? "" : "s"} ready
+                      {selectedHiringEmailBccEmails.length ? ` · ${selectedHiringEmailBccEmails.length} matched candidate${selectedHiringEmailBccEmails.length === 1 ? "" : "s"} selected for hiring email` : ""}
                     </div>
                     {confirmationMissingEmailAssignments.length ? (
                       <div style={{ color: staffingWorkspacePalette.dangerText, fontWeight: 800, fontSize: "12px" }}>
@@ -8303,8 +8397,8 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                     <button
                       type="button"
                       onClick={() => void handleOpenAvailabilityRequest()}
-                      disabled={assignedBccEmails.length === 0}
-                      style={{ ...buttonStyle, padding: "8px 11px", boxShadow: "0 8px 16px rgba(14, 165, 233, 0.16)", opacity: assignedBccEmails.length === 0 ? 0.65 : 1 }}
+                      disabled={hiringEmailBccEmails.length === 0}
+                      style={{ ...buttonStyle, padding: "8px 11px", boxShadow: "0 8px 16px rgba(14, 165, 233, 0.16)", opacity: hiringEmailBccEmails.length === 0 ? 0.65 : 1 }}
                     >
                       Draft Hiring Email
                     </button>
@@ -8398,6 +8492,127 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
 >
   Clear Poll Results
 </button>
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    border: `1px solid ${staffingWorkspacePalette.borderStrong}`,
+                    borderRadius: "14px",
+                    padding: "10px 12px",
+                    background: "linear-gradient(180deg, rgba(238, 248, 252, 0.94) 0%, rgba(255, 255, 255, 0.98) 100%)",
+                    display: "grid",
+                    gap: "10px",
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
+                    <div>
+                      <div style={{ ...statLabel, color: staffingWorkspacePalette.textStrong }}>SP Match Filters</div>
+                      <div style={{ marginTop: "4px", color: staffingWorkspacePalette.textMuted, fontWeight: 700, fontSize: "12px", lineHeight: 1.45 }}>
+                        Find best-fit uncontacted SP candidates before drafting hiring outreach.
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                      {[
+                        { label: "Total SPs loaded", value: sps.length },
+                        { label: "Matching candidates", value: availableSps.length },
+                        { label: "Selected for hiring email", value: selectedHiringEmailBccEmails.length },
+                      ].map((item) => (
+                        <span key={item.label} style={staffingSelectedChipStyle}>
+                          {item.value} {item.label}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+                      gap: "8px",
+                    }}
+                  >
+                    <input
+                      value={candidateQuery}
+                      onChange={(event) => setCandidateQuery(event.target.value)}
+                      placeholder="Name, email, phone..."
+                      style={{ ...inputStyle, width: "100%", boxSizing: "border-box", background: "rgba(255, 255, 255, 0.96)", color: staffingWorkspacePalette.textStrong, border: `1px solid ${staffingWorkspacePalette.border}` }}
+                    />
+                    <input
+                      value={candidateAgeKeyword}
+                      onChange={(event) => setCandidateAgeKeyword(event.target.value)}
+                      placeholder="Portrayal age keyword"
+                      style={{ ...inputStyle, width: "100%", boxSizing: "border-box", background: "rgba(255, 255, 255, 0.96)", color: staffingWorkspacePalette.textStrong, border: `1px solid ${staffingWorkspacePalette.border}` }}
+                    />
+                    <select
+                      value={candidateSexFilter}
+                      onChange={(event) => setCandidateSexFilter(event.target.value)}
+                      style={{ ...selectStyle, width: "100%", maxWidth: "none", background: "rgba(255, 255, 255, 0.96)", color: staffingWorkspacePalette.textStrong, border: `1px solid ${staffingWorkspacePalette.border}` }}
+                    >
+                      <option value="any">Any gender / sex</option>
+                      {uniqueCandidateSexOptions.map((option) => (
+                        <option key={`candidate-sex-${option}`} value={option.toLowerCase()}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      value={candidateNotesKeyword}
+                      onChange={(event) => setCandidateNotesKeyword(event.target.value)}
+                      placeholder="Skills / notes keyword"
+                      style={{ ...inputStyle, width: "100%", boxSizing: "border-box", background: "rgba(255, 255, 255, 0.96)", color: staffingWorkspacePalette.textStrong, border: `1px solid ${staffingWorkspacePalette.border}` }}
+                    />
+                    <input
+                      value={candidateRolesKeyword}
+                      onChange={(event) => setCandidateRolesKeyword(event.target.value)}
+                      placeholder="Other roles keyword"
+                      style={{ ...inputStyle, width: "100%", boxSizing: "border-box", background: "rgba(255, 255, 255, 0.96)", color: staffingWorkspacePalette.textStrong, border: `1px solid ${staffingWorkspacePalette.border}` }}
+                    />
+                  </div>
+
+                  <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                    {[
+                      { label: "Active only", active: activeOnly, setActive: setActiveOnly },
+                      { label: "Telehealth capable", active: telehealthOnly, setActive: setTelehealthOnly },
+                      { label: "PT preferred", active: ptPreferredOnly, setActive: setPtPreferredOnly },
+                      { label: "Spanish speaking", active: spanishOnly, setActive: setSpanishOnly },
+                    ].map((filter) => (
+                      <button
+                        key={`sp-match-${filter.label}`}
+                        type="button"
+                        onClick={() => filter.setActive((current) => !current)}
+                        style={{
+                          ...staffingSecondaryButtonStyle,
+                          background: filter.active ? "rgba(186, 230, 253, 0.28)" : staffingWorkspacePalette.buttonBg,
+                          color: filter.active ? staffingWorkspacePalette.textStrong : staffingWorkspacePalette.textMuted,
+                          padding: "7px 10px",
+                          fontSize: "12px",
+                        }}
+                      >
+                        {filter.label}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={handleClearSpMatchFilters}
+                      style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px", fontSize: "12px" }}
+                    >
+                      Clear filters
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSelectMatchingCandidatesForHiringEmail}
+                      disabled={availableSps.filter((sp) => Boolean(getEmail(sp))).length === 0}
+                      style={{
+                        ...buttonStyle,
+                        padding: "7px 10px",
+                        fontSize: "12px",
+                        boxShadow: "0 8px 16px rgba(14, 165, 233, 0.14)",
+                        opacity: availableSps.filter((sp) => Boolean(getEmail(sp))).length === 0 ? 0.65 : 1,
+                      }}
+                    >
+                      Select all matching candidates for Hiring Email
+                    </button>
                   </div>
                 </div>
 
@@ -8640,7 +8855,8 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                   <div style={{ ...staffingMetricCardStyle, padding: "12px 14px" }}>
                     <div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Email Draft Preview</div>
                     <div style={{ marginTop: "8px", color: staffingWorkspacePalette.textStrong, lineHeight: 1.7 }}>
-                      <div><strong>Recipients (BCC):</strong> {assignedBccEmails.length ? assignedBccEmails.join(", ") : "No selected staffing SP emails found."}</div>
+                      <div><strong>Recipients (BCC):</strong> {hiringEmailBccEmails.length ? hiringEmailBccEmails.join(", ") : "No selected staffing or matched candidate SP emails found."}</div>
+                      <div><strong>Recipient set:</strong> {hiringEmailRecipientMode}</div>
                       <div style={{ marginTop: "8px" }}><strong>Subject:</strong> {emailSubject}</div>
                       <div style={{ marginTop: "8px", whiteSpace: "pre-wrap" }}><strong>Body:</strong>{"\n"}{emailBody}</div>
                     </div>
@@ -13112,7 +13328,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                   {assignedBccEmails.length} selected staffing SP email{assignedBccEmails.length === 1 ? "" : "s"} ready
                 </div>
               </div>
-            ) : !noSpStaffingRequired && assignedBccEmails.length ? (
+            ) : !noSpStaffingRequired && hiringEmailBccEmails.length ? (
               <button
                 type="button"
                 onClick={() => void handleOpenAvailabilityRequest()}
@@ -13140,7 +13356,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                   fontWeight: 800,
                 }}
               >
-                No Assigned SP Emails
+                No selected staffing or matched candidate emails
               </span>
             ) : null}
             {!isTrainingMode && !noSpStaffingRequired ? (
@@ -13213,7 +13429,8 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
           <div style={{ ...statCard, marginTop: "12px" }}>
             <div style={statLabel}>Email Draft Preview</div>
             <div style={{ marginTop: "8px", color: "var(--cfsp-text)", lineHeight: 1.7 }}>
-              <div><strong>Recipients (BCC):</strong> {assignedBccEmails.length ? assignedBccEmails.join(", ") : "No selected staffing SP emails found."}</div>
+              <div><strong>Recipients (BCC):</strong> {hiringEmailBccEmails.length ? hiringEmailBccEmails.join(", ") : "No selected staffing or matched candidate SP emails found."}</div>
+              <div><strong>Recipient set:</strong> {hiringEmailRecipientMode}</div>
               <div style={{ marginTop: "8px" }}><strong>Subject:</strong> {emailSubject}</div>
               <div style={{ marginTop: "8px", whiteSpace: "pre-wrap" }}><strong>Body:</strong>{"\n"}{emailBody}</div>
             </div>
