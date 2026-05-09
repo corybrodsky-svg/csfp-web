@@ -1247,6 +1247,66 @@ function formatEventDateText(value?: string | null, fallbackYear?: number | null
   return formatHumanDate(value, fallbackYear);
 }
 
+function parseOperationalDate(value?: string | null, fallbackYear?: number | null) {
+  const text = asText(value);
+  if (!text) return null;
+
+  const numericMatch = text.match(/\b(\d{1,2})[/-](\d{1,2})(?:[/-](\d{2,4}))?\b/);
+  if (numericMatch) {
+    const month = Number(numericMatch[1]);
+    const day = Number(numericMatch[2]);
+    const yearText = numericMatch[3];
+    const year = yearText
+      ? Number(yearText.length === 2 ? `20${yearText}` : yearText)
+      : fallbackYear || new Date().getFullYear();
+
+    if (Number.isFinite(month) && Number.isFinite(day) && Number.isFinite(year)) {
+      return new Date(year, month - 1, day);
+    }
+  }
+
+  const hasExplicitYear = /\b\d{4}\b/.test(text);
+  const candidates = [
+    text,
+    !hasExplicitYear && fallbackYear ? `${text} ${fallbackYear}` : "",
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    const parsed = new Date(candidate);
+    if (!Number.isNaN(parsed.getTime())) {
+      return new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
+    }
+  }
+
+  return null;
+}
+
+function normalizeExternalHref(value?: string | null) {
+  const text = asText(value);
+  if (!text) return "";
+  if (/^(https?:|mailto:|tel:)/i.test(text)) return text;
+  if (/^[\w.-]+\.[a-z]{2,}([/:?#].*)?$/i.test(text)) return `https://${text}`;
+  return text;
+}
+
+function getDateOnly(value: Date) {
+  return new Date(value.getFullYear(), value.getMonth(), value.getDate());
+}
+
+function getTrainingCountdownLabel(trainingDate: Date | null, trainingComplete: boolean, hasTrainingInfo: boolean) {
+  if (trainingComplete) return "Training completed";
+  if (!trainingDate) return hasTrainingInfo ? "Training scheduled" : "Awaiting training";
+
+  const today = getDateOnly(new Date());
+  const diffDays = Math.round((trainingDate.getTime() - today.getTime()) / 86400000);
+
+  if (diffDays < -1) return "Training date passed";
+  if (diffDays === -1) return "Training was yesterday";
+  if (diffDays === 0) return "Training today";
+  if (diffDays === 1) return "Training tomorrow";
+  return `Training in ${diffDays} days`;
+}
+
 function parseIntegerNoteValue(notes: string | null | undefined, label: string) {
   const text = asText(notes);
   if (!text) return 0;
@@ -3747,6 +3807,70 @@ const summaryTimeLabel = useMemo(() => {
       : recordingStatus.value === "recording_pending"
         ? "REC pending"
         : "REC";
+  const normalEventTrainingDateText =
+    asText(trainingMetadata.imported_training_date) ||
+    getFirstNoteValue(event?.notes, ["Training Date", "SP Training Date", "Training Date/Time"]);
+  const normalEventTrainingTimeText =
+    asText(trainingMetadata.imported_training_time) ||
+    getFirstNoteValue(event?.notes, ["Training Time", "SP Training Time"]);
+  const normalEventTrainingInfoText =
+    asText(trainingMetadata.training_notes) ||
+    getFirstNoteValue(event?.notes, ["Training Information", "Training Info", "SP Training Information"]);
+  const normalEventTrainingLink =
+    normalizeExternalHref(
+      asText(trainingMetadata.zoom_url) ||
+        getFirstNoteValue(event?.notes, ["Training Link", "Zoom", "Zoom Link", "SimIQ", "Virtual Link"])
+    );
+  const normalEventTrainingDate = parseOperationalDate(normalEventTrainingDateText, importedYearHint);
+  const normalEventTrainingHasInfo = Boolean(
+    normalEventTrainingDateText ||
+      normalEventTrainingTimeText ||
+      normalEventTrainingInfoText ||
+      hasTrainingScheduled
+  );
+  const normalEventTrainingComplete =
+    allAssignedCheckedIn || Boolean(workflowChecks.sp_training_completed);
+  const normalEventTrainingAccessReady = Boolean(normalEventTrainingLink) || !eventMeta.isVirtualSp;
+  const normalEventTrainingReady =
+    normalEventTrainingComplete ||
+    Boolean(normalEventTrainingHasInfo && normalEventTrainingAccessReady && selectedStaffingCount > 0);
+  const normalEventTrainingStatusLabel = normalEventTrainingComplete
+    ? "Training completed"
+    : normalEventTrainingReady
+      ? "Training ready"
+      : normalEventTrainingHasInfo
+        ? "Training scheduled"
+        : "Awaiting training";
+  const normalEventTrainingCountdownLabel = getTrainingCountdownLabel(
+    normalEventTrainingDate,
+    normalEventTrainingComplete,
+    normalEventTrainingHasInfo
+  );
+  const normalEventTrainingAttendanceLabel = trainingAttendanceFieldsMissing
+    ? "Attendance tracking unavailable"
+    : selectedStaffingCount > 0
+      ? `${attendedCount} / ${selectedStaffingCount} checked in`
+      : "No selected SPs yet";
+  const normalEventTrainingRecordingLabel = trainingMetadata.recording_url
+    ? "Recording guide ready"
+    : recordingStatus.active
+      ? recordingStatus.label
+      : "No recording posted";
+  const normalEventTrainingRecordingHref = normalizeExternalHref(trainingMetadata.recording_url);
+  const normalEventTrainingPrimaryTone =
+    normalEventTrainingComplete || normalEventTrainingReady
+      ? {
+          background: planningSuccessBackground,
+          cardBackground: planningSuccessCardBackground,
+          border: planningSuccessBorder,
+          color: planningSuccessText,
+        }
+      : {
+          background: "linear-gradient(180deg, rgba(253, 230, 138, 0.42) 0%, rgba(254, 243, 199, 0.72) 100%)",
+          cardBackground: "linear-gradient(180deg, rgba(255, 251, 235, 0.98) 0%, rgba(254, 243, 199, 0.84) 100%)",
+          border: "1px solid rgba(180, 83, 9, 0.3)",
+          color: "#92400e",
+        };
   const eventModalityChips = useMemo(() => {
     const chips = new Set<string>();
     chips.add(selectedModalityLabel);
@@ -7465,6 +7589,181 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
     rowBorder: isPlanningVisualMode ? "1px solid rgba(128, 167, 182, 0.22)" : "1px solid rgba(148, 163, 184, 0.18)",
   } as const;
 
+  const normalEventTrainingReadinessPanel =
+    staffingRelevant && !isTrainingMode ? (
+      <section
+        style={{
+          borderRadius: "18px",
+          border: normalEventTrainingPrimaryTone.border,
+          background: isPlanningVisualMode
+            ? "linear-gradient(135deg, rgba(240, 253, 250, 0.98) 0%, rgba(236, 249, 255, 0.98) 52%, rgba(255, 251, 235, 0.84) 100%)"
+            : "linear-gradient(135deg, rgba(13, 37, 46, 0.96) 0%, rgba(10, 25, 41, 0.94) 60%, rgba(69, 26, 3, 0.36) 100%)",
+          boxShadow: isPlanningVisualMode ? "0 14px 32px rgba(42, 112, 140, 0.1)" : "0 18px 42px rgba(8, 20, 34, 0.32)",
+          padding: "14px",
+          display: "grid",
+          gap: "12px",
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "flex-start" }}>
+          <div>
+            <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>SP Training Readiness</div>
+            <div style={{ marginTop: "4px", color: commandCenterVisual.headingColor, fontSize: "20px", fontWeight: 900 }}>
+              {normalEventTrainingStatusLabel}
+            </div>
+            <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "13px", fontWeight: 700 }}>
+              Training stays tied to selected SPs, confirmation status, access links, recording support, and attendance check-in.
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+            <span
+              style={{
+                ...commandChipStyle,
+                background: normalEventTrainingPrimaryTone.background,
+                border: normalEventTrainingPrimaryTone.border,
+                color: normalEventTrainingPrimaryTone.color,
+              }}
+            >
+              {normalEventTrainingCountdownLabel}
+            </span>
+            <span style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText, border: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.18)" : commandChipStyle.border }}>
+              {selectedStaffingCount} selected SP{selectedStaffingCount === 1 ? "" : "s"}
+            </span>
+          </div>
+        </div>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(155px, 1fr))",
+            gap: "10px",
+          }}
+        >
+          {[
+            {
+              label: "Training Date",
+              value: formatEventDateText(normalEventTrainingDateText, importedYearHint) || normalEventTrainingDateText || "Date needed",
+              detail: normalEventTrainingCountdownLabel,
+            },
+            {
+              label: "Training Time",
+              value: normalEventTrainingTimeText || "Time needed",
+              detail: normalEventTrainingHasInfo ? "Prep timing" : "Add training time",
+            },
+            {
+              label: "Training Status",
+              value: normalEventTrainingStatusLabel,
+              detail: normalEventTrainingReady ? "SP readiness linked" : "Needs training details",
+            },
+            {
+              label: "Attendance",
+              value: normalEventTrainingAttendanceLabel,
+              detail: `${confirmedCount} primary confirmed / ${backupCount} backup`,
+            },
+            {
+              label: "Recording",
+              value: normalEventTrainingRecordingLabel,
+              detail: trainingMetadata.recording_url ? "Available for prep" : recordingStatus.active ? "Event recording state active" : "Not posted",
+            },
+          ].map((item) => (
+            <div
+              key={item.label}
+              style={{
+                ...statCard,
+                background:
+                  ["Training Date", "Training Status"].includes(item.label) && (normalEventTrainingComplete || normalEventTrainingReady)
+                    ? normalEventTrainingPrimaryTone.cardBackground
+                    : commandCenterVisual.cardBackground,
+                border:
+                  ["Training Date", "Training Status"].includes(item.label) && (normalEventTrainingComplete || normalEventTrainingReady)
+                    ? normalEventTrainingPrimaryTone.border
+                    : commandCenterVisual.cardBorder,
+                minHeight: "104px",
+              }}
+            >
+              <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>{item.label}</div>
+              <div style={{ ...statValue, marginTop: "6px", color: commandCenterVisual.textColor, fontSize: "16px", lineHeight: 1.25 }}>
+                {item.value}
+              </div>
+              <div style={{ marginTop: "6px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 700 }}>
+                {item.detail}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+          {normalEventTrainingLink ? (
+            <a
+              href={normalEventTrainingLink}
+              target="_blank"
+              rel="noreferrer"
+              style={{
+                ...buttonStyle,
+                textDecoration: "none",
+                display: "inline-flex",
+                alignItems: "center",
+                padding: "8px 12px",
+              }}
+            >
+              Open Training Link
+            </a>
+          ) : (
+            <span
+              style={{
+                ...commandChipStyle,
+                background: eventMeta.isVirtualSp ? "rgba(253, 230, 138, 0.18)" : commandCenterVisual.chipBackground,
+                color: eventMeta.isVirtualSp ? "#b45309" : commandCenterVisual.chipText,
+                border: eventMeta.isVirtualSp ? "1px solid rgba(180, 83, 9, 0.28)" : isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.18)" : commandChipStyle.border,
+              }}
+            >
+              {eventMeta.isVirtualSp ? "Training link needed" : "No training link posted"}
+            </span>
+          )}
+
+          {normalEventTrainingRecordingHref ? (
+            <a
+              href={normalEventTrainingRecordingHref}
+              target="_blank"
+              rel="noreferrer"
+              style={{
+                ...staffingSecondaryButtonStyle,
+                textDecoration: "none",
+                display: "inline-flex",
+                alignItems: "center",
+                padding: "8px 12px",
+              }}
+            >
+              Open Recording
+            </a>
+          ) : null}
+
+          <span style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText, border: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.18)" : commandChipStyle.border }}>
+            Zoom {normalEventTrainingLink ? "ready" : "pending"}
+          </span>
+          <span style={{ ...commandChipStyle, background: normalEventTrainingComplete ? normalEventTrainingPrimaryTone.background : commandCenterVisual.chipBackground, color: normalEventTrainingComplete ? normalEventTrainingPrimaryTone.color : commandCenterVisual.chipText, border: normalEventTrainingComplete ? normalEventTrainingPrimaryTone.border : isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.18)" : commandChipStyle.border }}>
+            Attendance {normalEventTrainingComplete ? "complete" : "open"}
+          </span>
+        </div>
+
+        {normalEventTrainingInfoText ? (
+          <div
+            style={{
+              borderRadius: "14px",
+              border: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.18)" : "1px solid rgba(126, 231, 219, 0.16)",
+              background: isPlanningVisualMode ? "rgba(255, 255, 255, 0.72)" : "rgba(255, 255, 255, 0.05)",
+              padding: "10px 12px",
+              color: commandCenterVisual.mutedColor,
+              fontSize: "13px",
+              fontWeight: 700,
+              lineHeight: 1.55,
+            }}
+          >
+            <strong style={{ color: commandCenterVisual.textColor }}>Training info:</strong> {normalEventTrainingInfoText}
+          </div>
+        ) : null}
+      </section>
+    ) : null;
+
   const normalEventStaffingCommandCenter =
     !isTrainingMode ? (
       <section
@@ -10066,6 +10365,8 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                   </div>
                 ))}
               </div>
+
+              {normalEventTrainingReadinessPanel}
 
               {!isPlanningVisualMode ? (
                 <>
