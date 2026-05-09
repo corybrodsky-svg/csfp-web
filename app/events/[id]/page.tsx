@@ -6765,6 +6765,36 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                     </button>
                     <button
   type="button"
+  onClick={async () => {
+    const confirmedAssignments = assignments.filter(
+      (assignment) => getAssignmentStatus(assignment) === "confirmed"
+    );
+
+    if (!confirmedAssignments.length) {
+      setEventSaveMessage("No confirmed SPs to move back to the poll invite pool.");
+      return;
+    }
+
+    for (const assignment of confirmedAssignments) {
+      await updateAssignment(assignment.id, {
+  status: "invited",
+});
+    }
+
+    setEventSaveMessage(
+      `Moved ${confirmedAssignments.length} confirmed SP${confirmedAssignments.length === 1 ? "" : "s"} back to the poll invite pool.`
+    );
+  }}
+  disabled={saving}
+  style={{
+    ...dangerButtonStyle,
+    padding: "8px 12px",
+  }}
+>
+  Move Confirmed Back to Poll Pool
+</button>
+                    <button
+  type="button"
   onClick={() =>
     void persistPollMetadata(
       {
