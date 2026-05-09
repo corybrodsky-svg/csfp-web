@@ -2705,6 +2705,7 @@ export default function EventDetailPage() {
   const [materialPreview, setMaterialPreview] = useState<MaterialPreviewState | null>(null);
   const [materialPreviewLoading, setMaterialPreviewLoading] = useState(false);
   const [materialPreviewError, setMaterialPreviewError] = useState("");
+  const [materialOpenInNewTabError, setMaterialOpenInNewTabError] = useState("");
   const [materialPreviewText, setMaterialPreviewText] = useState("");
   const [materialPreviewHtml, setMaterialPreviewHtml] = useState("");
   const [showRecordingGuideEditor, setShowRecordingGuideEditor] = useState(false);
@@ -6561,6 +6562,7 @@ Cory`;
     });
     setMaterialPreviewLoading(true);
     setMaterialPreviewError("");
+    setMaterialOpenInNewTabError("");
     setMaterialPreviewText("");
     setMaterialPreviewHtml("");
     setMaterialPreview({
@@ -6571,6 +6573,35 @@ Cory`;
       fileName: assetUrls.fileName,
       kind: getMaterialPreviewKind(assetUrls.fileName, safeUrl),
     });
+  }
+
+  function handleOpenMaterialInNewTab() {
+    if (!materialPreview) return;
+
+    const rawUrl = asText(materialPreview.openInNewTabUrl || materialPreview.previewUrl);
+    if (!rawUrl || rawUrl.toLowerCase() === "about:blank") {
+      setMaterialOpenInNewTabError("Could not prepare a new-tab view for this material.");
+      return;
+    }
+
+    let targetUrl = rawUrl;
+    try {
+      const resolvedUrl = new URL(rawUrl, window.location.origin);
+      if (!["http:", "https:", "blob:"].includes(resolvedUrl.protocol)) {
+        throw new Error("Unsupported material preview URL.");
+      }
+      targetUrl =
+        ["http:", "https:"].includes(resolvedUrl.protocol) &&
+        resolvedUrl.origin === window.location.origin
+          ? `${resolvedUrl.pathname}${resolvedUrl.search}${resolvedUrl.hash}`
+          : resolvedUrl.href;
+    } catch {
+      setMaterialOpenInNewTabError("Could not prepare a new-tab view for this material.");
+      return;
+    }
+
+    setMaterialOpenInNewTabError("");
+    window.open(targetUrl, "_blank", "noopener,noreferrer");
   }
 
   function setTrainingMaterialSavingState(kind: TrainingMaterialKind, savingState: boolean) {
@@ -16290,20 +16321,18 @@ Cory`;
                 </div>
               </div>
               <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                <a
-                  href={materialPreview.openInNewTabUrl}
-                  target="_blank"
-                  rel="noreferrer"
+                <button
+                  type="button"
+                  onClick={handleOpenMaterialInNewTab}
                   style={{
                     ...buttonStyle,
                     display: "inline-flex",
                     alignItems: "center",
-                    textDecoration: "none",
                     padding: "8px 12px",
                   }}
                 >
                   Open in New Tab
-                </a>
+                </button>
                 <a
                   href={materialPreview.downloadUrl}
                   target="_blank"
@@ -16325,6 +16354,7 @@ Cory`;
                     setMaterialPreview(null);
                     setMaterialPreviewLoading(false);
                     setMaterialPreviewError("");
+                    setMaterialOpenInNewTabError("");
                     setMaterialPreviewText("");
                     setMaterialPreviewHtml("");
                   }}
@@ -16338,6 +16368,19 @@ Cory`;
                 >
                   Close
                 </button>
+                {materialOpenInNewTabError ? (
+                  <div
+                    style={{
+                      flexBasis: "100%",
+                      color: "#ffd1d1",
+                      fontSize: "12px",
+                      fontWeight: 800,
+                      textAlign: "right",
+                    }}
+                  >
+                    {materialOpenInNewTabError}
+                  </div>
+                ) : null}
               </div>
             </div>
             <div
