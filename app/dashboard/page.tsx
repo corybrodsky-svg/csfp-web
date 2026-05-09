@@ -85,8 +85,18 @@ type EventsResponse = {
 
 type AuthState = "loading" | "authed" | "guest";
 type DashboardScope = "my" | "all";
+type FinderChipKey = "needs_staffing" | "training_soon" | "live_today" | "materials_needed" | "recording_pending";
 const MAX_ROSTER_CHIPS = 12;
 const DASHBOARD_SECTION_PAGE_SIZE = 8;
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+const FINDER_CHIPS: Array<{ key: FinderChipKey; label: string }> = [
+  { key: "needs_staffing", label: "Needs Staffing" },
+  { key: "training_soon", label: "Training Soon" },
+  { key: "live_today", label: "Live / Today" },
+  { key: "materials_needed", label: "Materials Needed" },
+  { key: "recording_pending", label: "Recording Pending" },
+];
 
 type EventWithMeta = {
   event: EventRecord;
@@ -324,26 +334,102 @@ function getEventFinderSearchText(item: EventWithMeta) {
   ].join(" "));
 }
 
-function scoreFinderResult(item: EventWithMeta, query: string) {
+function isEditableFinderTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false;
+  const editableTarget = target.closest("input, textarea, select, [contenteditable='true']");
+  return Boolean(editableTarget);
+}
+
+function isEventToday(item: EventWithMeta) {
+  return Boolean(item.start && getStartOfDay(item.start) === getStartOfToday());
+}
+
+function isEventUpcomingOrCurrent(item: EventWithMeta) {
+  const text = normalizeFinderText(item.event.status);
+  if (/\b(live|in progress|running)\b/.test(text)) return true;
+  if (!item.start) return false;
+  return item.start.getTime() >= Date.now() - 6 * 60 * 60 * 1000;
+}
+
+function isEventTrainingSoon(item: EventWithMeta) {
+  const searchText = getEventFinderSearchText(item);
+  if (!/\b(training|zoom|training planned|training scheduled|training date|sp training)\b/.test(searchText)) return false;
+  if (!item.start) return true;
+  const daysUntilEvent = Math.floor((item.start.getTime() - Date.now()) / MS_PER_DAY);
+  return daysUntilEvent >= -1 && daysUntilEvent <= 21;
+}
+
+function eventHasTrainingOrMaterialContext(item: EventWithMeta) {
+  const searchText = getEventFinderSearchText(item);
+  return (
+    getTrainingReadinessLabel(item.event) !== "Training TBD" ||
+    /\b(material|materials|zoom|training)\b/.test(searchText)
+  );
+}
+
+function eventMaterialsNeedReview(item: EventWithMeta) {
+  const searchText = getEventFinderSearchText(item);
+  return /\b(materials needed|material needed|awaiting faculty materials|awaiting materials|materials uploaded review needed|materials uploaded review)\b/.test(searchText);
+}
+
+function eventRecordingPending(item: EventWithMeta) {
+  const searchText = getEventFinderSearchText(item);
+  return /\b(recording pending|recording planned|recording status pending|recording status planned|recording review)\b/.test(searchText);
+}
+
+function eventNeedsOperationalAttention(item: EventWithMeta) {
+  return item.shortage > 0 || eventMaterialsNeedReview(item) || eventRecordingPending(item) || isEventTrainingSoon(item);
+}
+
+function eventMatchesFinderChip(item: EventWithMeta, chip: FinderChipKey) {
+  if (chip === "needs_staffing") return item.shortage > 0;
+  if (chip === "training_soon") return isEventTrainingSoon(item);
+  if (chip === "live_today") return isEventToday(item) || getFinderModeLabel(item) === "Live Mode";
+  if (chip === "materials_needed") return eventMaterialsNeedReview(item);
+  if (chip === "recording_pending") return eventRecordingPending(item);
+  return false;
+}
+
+function scoreFinderResult(
+  item: EventWithMeta,
+  query: string,
+  options: {
+    activeChip?: FinderChipKey | null;
+    myEventIds?: Set<string>;
+    scope?: DashboardScope;
+  } = {}
+) {
   const normalizedQuery = normalizeFinderText(query);
-  if (!normalizedQuery) return 0;
+  if (options.activeChip && !eventMatchesFinderChip(item, options.activeChip)) return 0;
+  if (!normalizedQuery && !options.activeChip) return 0;
 
   const tokens = normalizedQuery.split(/\s+/).filter(Boolean);
   const name = normalizeFinderText(item.event.name);
   const searchText = getEventFinderSearchText(item);
-  let score = 0;
+  let score = options.activeChip ? 100 : 0;
 
   for (const token of tokens) {
     if (!fuzzyTokenMatches(token, searchText)) return 0;
-    if (name === token) score += 80;
-    else if (name.startsWith(token)) score += 42;
-    else if (name.includes(token)) score += 30;
+    if (name === token) score += 96;
+    else if (name.startsWith(token)) score += 54;
+    else if (name.includes(token)) score += 38;
     else if (searchText.includes(token)) score += 18;
     else score += 8;
   }
 
-  if (item.shortage > 0) score += 3;
-  if (item.start) score += Math.max(0, 6 - Math.min(6, Math.floor((item.start.getTime() - Date.now()) / (7 * 24 * 60 * 60 * 1000))));
+  if (normalizedQuery) {
+    if (name === normalizedQuery) score += 520;
+    else if (name.startsWith(normalizedQuery)) score += 180;
+    else if (name.includes(normalizedQuery)) score += 120;
+  }
+
+  if (isEventUpcomingOrCurrent(item)) score += 60;
+  if (options.scope === "my" && options.myEventIds?.has(item.event.id)) score += 48;
+  if (eventNeedsOperationalAttention(item)) score += 34;
+  if (item.start) {
+    const daysUntilEvent = Math.floor((item.start.getTime() - Date.now()) / MS_PER_DAY);
+    if (daysUntilEvent >= 0) score += Math.max(0, 28 - Math.min(28, daysUntilEvent));
+  }
   return score;
 }
 
@@ -670,22 +756,28 @@ function WorkflowSection({
 
 function GlobalEventFinder({
   items,
+  myEventIds,
+  scope,
   onOpenEvent,
 }: {
   items: EventWithMeta[];
+  myEventIds: Set<string>;
+  scope: DashboardScope;
   onOpenEvent: (eventId: string) => void;
 }) {
   const [query, setQuery] = useState("");
+  const [activeChip, setActiveChip] = useState<FinderChipKey | null>(null);
   const [resultsOpen, setResultsOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const trimmedQuery = query.trim();
+  const hasActiveSearch = Boolean(trimmedQuery || activeChip);
 
   const results = useMemo<FinderResult[]>(() => {
-    if (!trimmedQuery) return [];
+    if (!hasActiveSearch) return [];
 
     return items
       .map((item) => {
-        const score = scoreFinderResult(item, trimmedQuery);
+        const score = scoreFinderResult(item, trimmedQuery, { activeChip, myEventIds, scope });
         const staffingLabel = item.needed <= 0
           ? "No SP target"
           : item.shortage > 0
@@ -715,10 +807,33 @@ function GlobalEventFinder({
         return a.item.start.getTime() - b.item.start.getTime();
       })
       .slice(0, 7);
-  }, [items, trimmedQuery]);
+  }, [activeChip, hasActiveSearch, items, myEventIds, scope, trimmedQuery]);
+
+  const chipOptions = useMemo(
+    () =>
+      FINDER_CHIPS.map((chip) => ({
+        ...chip,
+        count: items.filter((item) => eventMatchesFinderChip(item, chip.key)).length,
+      })),
+    [items]
+  );
+
+  useEffect(() => {
+    function handleSlashShortcut(event: KeyboardEvent) {
+      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+      if (event.key !== "/" || isEditableFinderTarget(event.target)) return;
+      event.preventDefault();
+      inputRef.current?.focus();
+      setResultsOpen(Boolean(trimmedQuery || activeChip));
+    }
+
+    window.addEventListener("keydown", handleSlashShortcut);
+    return () => window.removeEventListener("keydown", handleSlashShortcut);
+  }, [activeChip, trimmedQuery]);
 
   function clearSearch() {
     setQuery("");
+    setActiveChip(null);
     setResultsOpen(false);
     inputRef.current?.focus();
   }
@@ -726,6 +841,13 @@ function GlobalEventFinder({
   function openEvent(eventId: string) {
     setResultsOpen(false);
     onOpenEvent(eventId);
+  }
+
+  function toggleChip(chip: FinderChipKey) {
+    const nextChip = activeChip === chip ? null : chip;
+    setActiveChip(nextChip);
+    setResultsOpen(Boolean(trimmedQuery || nextChip));
+    window.requestAnimationFrame(() => inputRef.current?.focus());
   }
 
   return (
@@ -738,7 +860,8 @@ function GlobalEventFinder({
       }}
       onKeyDown={(event) => {
         if (event.key === "Escape") {
-          setResultsOpen(false);
+          event.preventDefault();
+          clearSearch();
           return;
         }
         if (event.key === "Enter" && resultsOpen && results[0]) {
@@ -752,16 +875,28 @@ function GlobalEventFinder({
           <div className="text-[0.68rem] font-black uppercase tracking-[0.16em] text-cyan-100/80">Global Event Finder</div>
           <div className="mt-1 text-sm font-bold text-cyan-50/78">Mission lookup console</div>
         </div>
-        <span
-          className="hidden rounded-full px-2.5 py-1 text-[0.65rem] font-black uppercase tracking-[0.12em] sm:inline-flex"
-          style={{
-            border: "1px solid rgba(125, 211, 252, 0.24)",
-            background: "rgba(14, 165, 233, 0.14)",
-            color: "#cffafe",
-          }}
-        >
-          {items.length} ops
-        </span>
+        <div className="hidden items-center gap-2 sm:flex">
+          <span
+            className="rounded-full px-2.5 py-1 text-[0.65rem] font-black uppercase tracking-[0.12em]"
+            style={{
+              border: "1px solid rgba(125, 211, 252, 0.24)",
+              background: "rgba(14, 165, 233, 0.14)",
+              color: "#cffafe",
+            }}
+          >
+            {items.length} ops
+          </span>
+          <span
+            className="rounded-[8px] px-2 py-1 text-[0.68rem] font-black"
+            style={{
+              border: "1px solid rgba(226, 232, 240, 0.16)",
+              background: "rgba(15, 23, 42, 0.34)",
+              color: "#e0f2fe",
+            }}
+          >
+            /
+          </span>
+        </div>
       </div>
 
       <div className="mt-3 flex items-center gap-2 rounded-[12px] px-3 py-2"
@@ -777,17 +912,17 @@ function GlobalEventFinder({
           value={query}
           onChange={(event) => {
             setQuery(event.target.value);
-            setResultsOpen(true);
+            setResultsOpen(Boolean(event.target.value.trim() || activeChip));
           }}
-          onFocus={() => setResultsOpen(Boolean(query.trim()))}
+          onFocus={() => setResultsOpen(hasActiveSearch)}
           aria-label="Global Event Finder"
-          aria-expanded={resultsOpen && Boolean(trimmedQuery)}
+          aria-expanded={resultsOpen && hasActiveSearch}
           aria-controls="global-event-finder-results"
           role="combobox"
           placeholder="Search title, faculty, course, team, location..."
           className="min-w-0 flex-1 bg-transparent text-sm font-bold text-cyan-50 outline-none placeholder:text-cyan-100/48"
         />
-        {query ? (
+        {query || activeChip ? (
           <button
             type="button"
             onClick={clearSearch}
@@ -799,7 +934,33 @@ function GlobalEventFinder({
         ) : null}
       </div>
 
-      {resultsOpen && trimmedQuery ? (
+      <div className="mt-3 flex flex-wrap gap-1.5" aria-label="Operational search filters">
+        {chipOptions.map((chip) => {
+          const selected = activeChip === chip.key;
+          return (
+            <button
+              key={chip.key}
+              type="button"
+              onClick={() => toggleChip(chip.key)}
+              className="rounded-full px-2.5 py-1 text-[0.68rem] font-black uppercase tracking-[0.08em] transition hover:-translate-y-0.5"
+              style={{
+                border: selected ? "1px solid rgba(45, 212, 191, 0.58)" : "1px solid rgba(186, 230, 253, 0.14)",
+                background: selected
+                  ? "linear-gradient(135deg, rgba(20, 184, 166, 0.26), rgba(14, 165, 233, 0.18))"
+                  : "rgba(186, 230, 253, 0.07)",
+                color: selected ? "#ccfbf1" : "#bae6fd",
+                boxShadow: selected ? "0 0 18px rgba(45, 212, 191, 0.14)" : "none",
+              }}
+              aria-pressed={selected}
+            >
+              {chip.label}
+              <span className="ml-1 text-cyan-50/62">{chip.count}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {resultsOpen && hasActiveSearch ? (
         <div
           id="global-event-finder-results"
           role="listbox"
@@ -811,66 +972,117 @@ function GlobalEventFinder({
           }}
         >
           {results.length ? (
-            results.map((result) => (
-              <button
-                key={result.item.event.id}
-                type="button"
-                role="option"
-                aria-selected="false"
-                onClick={() => openEvent(result.item.event.id)}
-                className="w-full rounded-[12px] px-3 py-3 text-left transition hover:-translate-y-0.5"
-                style={{
-                  border: "1px solid rgba(125, 211, 252, 0.18)",
-                  background: "linear-gradient(135deg, rgba(8, 47, 73, 0.90) 0%, rgba(15, 82, 101, 0.72) 100%)",
-                  boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06)",
-                }}
-              >
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="truncate text-[0.98rem] font-black text-cyan-50">
-                      {result.item.event.name?.trim() || "Untitled Event"}
-                    </div>
-                    <div className="mt-1 flex flex-wrap gap-x-2 gap-y-1 text-xs font-bold text-cyan-100/72">
-                      <span>{result.dateLabel}</span>
-                      <span>•</span>
-                      <span>{eventLocation(result.item.event)}</span>
-                    </div>
-                  </div>
-                  <span
-                    className="rounded-full px-2.5 py-1 text-[0.68rem] font-black uppercase tracking-[0.08em]"
-                    style={{
-                      border: "1px solid rgba(45, 212, 191, 0.28)",
-                      background: "rgba(45, 212, 191, 0.12)",
-                      color: "#99f6e4",
-                    }}
-                  >
-                    {result.modeLabel}
-                  </span>
-                </div>
+            results.map((result) => {
+              const eventId = encodeURIComponent(result.item.event.id);
+              const eventHref = `/events/${eventId}`;
+              const builderHref = `/events/${eventId}/schedule-builder`;
+              const operationalHref = `${eventHref}#coverage-actions`;
+              const showTrainingMaterialsAction = eventHasTrainingOrMaterialContext(result.item);
 
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  {[
-                    result.eventTypeLabel,
-                    result.trainingLabel,
-                    result.staffingLabel,
-                    result.shortageLabel,
-                    getEventModalityLabel(result.item.event),
-                  ].map((label) => (
-                    <span
-                      key={`${result.item.event.id}-${label}`}
-                      className="rounded-full px-2 py-1 text-[0.68rem] font-black"
+              return (
+                <div
+                  key={result.item.event.id}
+                  role="option"
+                  aria-selected="false"
+                  className="rounded-[12px] px-3 py-3 transition hover:-translate-y-0.5"
+                  style={{
+                    border: "1px solid rgba(125, 211, 252, 0.18)",
+                    background: "linear-gradient(135deg, rgba(8, 47, 73, 0.90) 0%, rgba(15, 82, 101, 0.72) 100%)",
+                    boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06)",
+                  }}
+                >
+                  <button type="button" onClick={() => openEvent(result.item.event.id)} className="w-full text-left">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="truncate text-[0.98rem] font-black text-cyan-50">
+                          {result.item.event.name?.trim() || "Untitled Event"}
+                        </div>
+                        <div className="mt-1 flex flex-wrap gap-x-2 gap-y-1 text-xs font-bold text-cyan-100/72">
+                          <span>{result.dateLabel}</span>
+                          <span>•</span>
+                          <span>{eventLocation(result.item.event)}</span>
+                        </div>
+                      </div>
+                      <span
+                        className="rounded-full px-2.5 py-1 text-[0.68rem] font-black uppercase tracking-[0.08em]"
+                        style={{
+                          border: "1px solid rgba(45, 212, 191, 0.28)",
+                          background: "rgba(45, 212, 191, 0.12)",
+                          color: "#99f6e4",
+                        }}
+                      >
+                        {result.modeLabel}
+                      </span>
+                    </div>
+
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {[
+                        result.eventTypeLabel,
+                        result.trainingLabel,
+                        result.staffingLabel,
+                        result.shortageLabel,
+                        getEventModalityLabel(result.item.event),
+                      ].map((label) => (
+                        <span
+                          key={`${result.item.event.id}-${label}`}
+                          className="rounded-full px-2 py-1 text-[0.68rem] font-black"
+                          style={{
+                            border: "1px solid rgba(186, 230, 253, 0.16)",
+                            background: label.toLowerCase().includes("shortage")
+                              ? "rgba(248, 113, 113, 0.14)"
+                              : "rgba(186, 230, 253, 0.08)",
+                            color: label.toLowerCase().includes("shortage") ? "#fecaca" : "#bae6fd",
+                          }}
+                        >
+                          {label}
+                        </span>
+                      ))}
+                    </div>
+                  </button>
+
+                  <div className="mt-3 flex flex-wrap gap-1.5">
+                    <Link
+                      href={eventHref}
+                      onClick={() => setResultsOpen(false)}
+                      className="rounded-full px-2.5 py-1 text-[0.68rem] font-black uppercase tracking-[0.08em] no-underline transition hover:-translate-y-0.5"
                       style={{
-                        border: "1px solid rgba(186, 230, 253, 0.16)",
-                        background: label.includes("shortage") ? "rgba(248, 113, 113, 0.14)" : "rgba(186, 230, 253, 0.08)",
-                        color: label.includes("shortage") ? "#fecaca" : "#bae6fd",
+                        border: "1px solid rgba(125, 211, 252, 0.22)",
+                        background: "rgba(14, 165, 233, 0.12)",
+                        color: "#e0f2fe",
                       }}
                     >
-                      {label}
-                    </span>
-                  ))}
+                      Open Event
+                    </Link>
+                    <Link
+                      href={builderHref}
+                      onClick={() => setResultsOpen(false)}
+                      className="rounded-full px-2.5 py-1 text-[0.68rem] font-black uppercase tracking-[0.08em] no-underline transition hover:-translate-y-0.5"
+                      style={{
+                        border: "1px solid rgba(45, 212, 191, 0.22)",
+                        background: "rgba(20, 184, 166, 0.12)",
+                        color: "#ccfbf1",
+                      }}
+                    >
+                      Open Builder
+                    </Link>
+                    {showTrainingMaterialsAction ? (
+                      <Link
+                        href={operationalHref}
+                        onClick={() => setResultsOpen(false)}
+                        className="rounded-full px-2.5 py-1 text-[0.68rem] font-black uppercase tracking-[0.08em] no-underline transition hover:-translate-y-0.5"
+                        style={{
+                          border: "1px solid rgba(251, 191, 36, 0.24)",
+                          background: "rgba(251, 191, 36, 0.10)",
+                          color: "#fde68a",
+                        }}
+                      >
+                        Training / Materials
+                      </Link>
+                    ) : null}
+                  </div>
                 </div>
-              </button>
-            ))
+              );
+            })
           ) : (
             <div className="rounded-[12px] border border-dashed border-cyan-200/18 px-3 py-5 text-sm font-bold text-cyan-100/70">
               No matching operations found.
@@ -1105,6 +1317,7 @@ export default function DashboardPage() {
       ),
     [currentUserId, emailUsername, eventMeta, firstName, legacyScheduleName, scheduleMatchName]
   );
+  const myEventIds = useMemo(() => new Set(myMatchedEvents.map((item) => item.event.id)), [myMatchedEvents]);
 
   const selectedEvents = isSp ? allVisibleEvents : scope === "my" ? myMatchedEvents : allVisibleEvents;
   const myAssignmentByEventId = useMemo(() => {
@@ -1351,6 +1564,8 @@ export default function DashboardPage() {
             <div className="mt-4 max-w-3xl">
               <GlobalEventFinder
                 items={allVisibleEvents}
+                myEventIds={myEventIds}
+                scope={scope}
                 onOpenEvent={(eventId) => router.push(`/events/${encodeURIComponent(eventId)}`)}
               />
             </div>
