@@ -1240,6 +1240,14 @@ function parseNoteValue(notes: string | null | undefined, label: string) {
   return match ? match[1].trim() : "";
 }
 
+function getFirstNoteValue(notes: string | null | undefined, labels: string[]) {
+  for (const label of labels) {
+    const value = parseNoteValue(notes, label);
+    if (value) return value;
+  }
+  return "";
+}
+
 const POLL_METADATA_START = "[CFSP_POLL_METADATA]";
 const POLL_METADATA_END = "[/CFSP_POLL_METADATA]";
 const POLL_METADATA_KEYS: Array<keyof PollMetadata> = [
@@ -2219,6 +2227,8 @@ export default function EventDetailPage() {
   const [relatedPushSaving, setRelatedPushSaving] = useState(false);
   const [relatedPushError, setRelatedPushError] = useState("");
   const [relatedPushSummary, setRelatedPushSummary] = useState<PushRelatedSummary | null>(null);
+  const [showConfirmationEmailPreview, setShowConfirmationEmailPreview] = useState(false);
+  const [includeBackupConfirmationEmails, setIncludeBackupConfirmationEmails] = useState(false);
   const [trainingMaterialSaving, setTrainingMaterialSaving] = useState<
     Record<TrainingMaterialKind, boolean>
   >({
@@ -3320,6 +3330,56 @@ const summaryTimeLabel = useMemo(() => {
   const assignedBccEmails = useMemo(
     () => Array.from(new Set(assignedEmailRecipients.map((item) => item.email))),
     [assignedEmailRecipients]
+  );
+  const confirmationTargetAssignments = useMemo(
+    () =>
+      sortedAssignments.filter((assignment) => {
+        const status = getAssignmentStatus(assignment);
+        return status === "confirmed" || (includeBackupConfirmationEmails && status === "backup");
+      }),
+    [includeBackupConfirmationEmails, sortedAssignments]
+  );
+  const confirmationEmailRecipients = useMemo(
+    () =>
+      confirmationTargetAssignments
+        .map((assignment) => {
+          const sp = assignment.sp_id ? spsById.get(assignment.sp_id) : undefined;
+          if (!sp) return null;
+          const email = getEmail(sp);
+          if (!email) return null;
+          return {
+            assignment,
+            sp,
+            email,
+            name: getFullName(sp),
+          };
+        })
+        .filter(
+          (
+            item
+          ): item is {
+            assignment: AssignmentRow;
+            sp: SPRow;
+            email: string;
+            name: string;
+          } => Boolean(item)
+        ),
+    [confirmationTargetAssignments, spsById]
+  );
+  const confirmationBccEmails = useMemo(
+    () => Array.from(new Set(confirmationEmailRecipients.map((item) => item.email))),
+    [confirmationEmailRecipients]
+  );
+  const confirmationMissingEmailAssignments = useMemo(
+    () =>
+      confirmationTargetAssignments
+        .map((assignment) => {
+          const sp = assignment.sp_id ? spsById.get(assignment.sp_id) : undefined;
+          if (!sp || getEmail(sp)) return null;
+          return getFullName(sp);
+        })
+        .filter((name): name is string => Boolean(name)),
+    [confirmationTargetAssignments, spsById]
   );
   const shortageCount = isWorkshop ? 0 : shortage;
   const isTrainingMode = eventMeta.isTraining || activeEventTypeSet.has("training");
@@ -4901,6 +4961,73 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
           (workflowReportItems.filter((item) => item.complete).length / workflowReportItems.length) * 100
         )
       : 0;
+  const eventMaterialUrl = asText(trainingMetadata.staffing_doc_url);
+  const eventMaterialName =
+    asText(trainingMetadata.staffing_doc_name) ||
+    getFilenameFromUrl(eventMaterialUrl) ||
+    "Event Material";
+  const eventMaterialStoragePath = asText(trainingMetadata.staffing_doc_storage_path);
+  const eventMaterialBusy = trainingMaterialSaving.staffing_doc;
+  const arrivalInstructions = getFirstNoteValue(eventEditor.notes || event?.notes, [
+    "Arrival Instructions",
+    "Arrival",
+    "Report Instructions",
+    "Reporting Instructions",
+    "Report Time",
+    "Call Time",
+  ]);
+  const confirmationTrainingDetails = [
+    trainingMetadata.imported_training_date
+      ? `Training Date: ${trainingMetadata.imported_training_date}`
+      : "",
+    trainingMetadata.imported_training_time
+      ? `Training Time: ${trainingMetadata.imported_training_time}`
+      : "",
+    trainingMetadata.zoom_url ? `Zoom/Virtual Link: ${trainingMetadata.zoom_url}` : "",
+    trainingMetadata.training_password ? `Zoom Password: ${trainingMetadata.training_password}` : "",
+    trainingMetadata.case_name ? `Case: ${trainingMetadata.case_name}` : "",
+    trainingMetadata.training_notes ? `Training Notes: ${trainingMetadata.training_notes}` : "",
+  ].filter(Boolean);
+  const confirmationContactLine = [
+    trainingSimContact && `Sim Staff/Event Lead: ${trainingSimContact}`,
+    trainingFacultyText && `Faculty: ${trainingFacultyText}`,
+    facultyEmailText && `Faculty Email: ${facultyEmailText}`,
+    facultyPhoneText && `Faculty Phone: ${facultyPhoneText}`,
+  ].filter(Boolean);
+  const confirmationEmailSubject = `CONFIRMED: ${event?.name || "CFSP Event"} - ${sessionSummaryLabel || eventDateLabel || "Date TBD"}`;
+  const confirmationEmailBody = [
+    "Hello,",
+    "",
+    "You are confirmed for the following CFSP simulation event:",
+    "",
+    `Event: ${event?.name || "TBD"}`,
+    `Date(s): ${sessionSummaryLabel || eventDateLabel || "TBD"}`,
+    `Time: ${summaryTimeLabel || "TBD"}`,
+    `Location: ${event?.location || "TBD"}`,
+    "",
+    ...confirmationContactLine,
+    ...(confirmationTrainingDetails.length
+      ? ["Training / Preparation:", ...confirmationTrainingDetails.map((line) => `- ${line}`), ""]
+      : []),
+    arrivalInstructions ? `Arrival / Report Instructions: ${arrivalInstructions}` : "",
+    eventMaterialUrl ? `Event Material: ${eventMaterialName} - ${eventMaterialUrl}` : "",
+    "",
+    includeBackupConfirmationEmails
+      ? "This confirmation draft includes confirmed primary SPs and backup SPs. If you are listed as backup coverage, Sim Ops will confirm activation details directly if needed."
+      : "This confirmation draft is intended for confirmed primary SPs.",
+    "",
+    "Please reply as soon as possible if your availability has changed or if any details above look incorrect.",
+    "",
+    "Thank you,",
+    me?.fullName || me?.scheduleName || me?.email || "CFSP Simulation Operations",
+  ].filter((line, index, lines) => line !== "" || lines[index - 1] !== "").join("\n");
+  const confirmationMailtoHref = buildMailtoHref({
+    to: me?.email || "",
+    cc: facultyEmails,
+    bcc: confirmationBccEmails,
+    subject: confirmationEmailSubject,
+    body: confirmationEmailBody,
+  });
   const emailSubject = `[CFSP] ${event?.name || "CFSP Event"} - ${eventDateLabel}`;
   const emailBody = [
     "Hello,",
@@ -5944,6 +6071,34 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
     );
   }
 
+  async function handleOpenConfirmationEmailDraft() {
+    if (!confirmationBccEmails.length) {
+      setShowConfirmationEmailPreview(true);
+      setEventSaveError(
+        includeBackupConfirmationEmails
+          ? "No confirmed primary or backup SP emails are ready for a confirmation draft."
+          : "No confirmed primary SP emails are ready for a confirmation draft."
+      );
+      return;
+    }
+
+    setEventSaveError("");
+    setShowConfirmationEmailPreview(true);
+    // TODO confirmation_email_tracking: persist resend tracking, sent timestamps, and email delivery history when CFSP adds a staffing email log.
+    // TODO confirmation_email_attachments: attach Event Materials automatically when a delivery provider supports file attachments.
+    await persistTrainingMetadataFields(
+      {
+        email_status: "draft_opened",
+        email_draft_opened_at: new Date().toISOString(),
+      },
+      "Confirmation draft opened."
+    );
+    window.location.href = confirmationMailtoHref;
+    showSuccessMessage(
+      `Confirmation draft opened for ${confirmationBccEmails.length} SP email${confirmationBccEmails.length === 1 ? "" : "s"}.`
+    );
+  }
+
   async function handleToggleWorkflowCheck(itemId: string, complete: boolean) {
     const nextChecks = {
       ...workflowChecks,
@@ -6900,13 +7055,6 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
     fontWeight: 700,
     fontSize: "13px",
   };
-  const staffingDocUrl = asText(trainingMetadata.staffing_doc_url);
-  const staffingDocName =
-    asText(trainingMetadata.staffing_doc_name) ||
-    getFilenameFromUrl(staffingDocUrl) ||
-    "Event Material";
-  const staffingDocStoragePath = asText(trainingMetadata.staffing_doc_storage_path);
-  const staffingDocBusy = trainingMaterialSaving.staffing_doc;
   const isPlanningVisualMode = commandCenterMode === "planning";
   const commandCenterVisual = {
     shellBorder: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.2)" : "1px solid rgba(73, 168, 255, 0.24)",
@@ -7161,20 +7309,20 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                       overflowWrap: "anywhere",
                     }}
                   >
-                    {staffingDocUrl ? staffingDocName : "Quick utility for PDF, DOCX, XLSX, or CSV event materials."}
+                    {eventMaterialUrl ? eventMaterialName : "Quick utility for PDF, DOCX, XLSX, or CSV event materials."}
                   </div>
                 </div>
                 <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
-                  {staffingDocUrl ? (
+                  {eventMaterialUrl ? (
                     <>
                       <button
                         type="button"
                         onClick={() =>
                           openMaterialPreview({
                             title: "Event Material",
-                            rawUrl: staffingDocUrl,
-                            storagePath: staffingDocStoragePath,
-                            fileName: staffingDocName,
+                            rawUrl: eventMaterialUrl,
+                            storagePath: eventMaterialStoragePath,
+                            fileName: eventMaterialName,
                           })
                         }
                         style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px", fontSize: "12px" }}
@@ -7185,14 +7333,14 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                         href={
                           buildTrainingMaterialAssetUrls({
                             eventId: id,
-                            rawUrl: staffingDocUrl,
-                            storagePath: staffingDocStoragePath,
-                            fileName: staffingDocName,
+                            rawUrl: eventMaterialUrl,
+                            storagePath: eventMaterialStoragePath,
+                            fileName: eventMaterialName,
                           }).downloadUrl
                         }
                         target="_blank"
                         rel="noreferrer"
-                        download={staffingDocName}
+                        download={eventMaterialName}
                         style={{
                           ...staffingSecondaryButtonStyle,
                           display: "inline-flex",
@@ -7209,17 +7357,17 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                   <button
                     type="button"
                     onClick={() => openTrainingMaterialPicker("staffing_doc")}
-                    disabled={staffingDocBusy}
+                    disabled={eventMaterialBusy}
                     style={{
                       ...buttonStyle,
                       padding: "7px 10px",
                       fontSize: "12px",
                       boxShadow: "0 8px 16px rgba(14, 165, 233, 0.14)",
-                      opacity: staffingDocBusy ? 0.65 : 1,
+                      opacity: eventMaterialBusy ? 0.65 : 1,
                       whiteSpace: "nowrap",
                     }}
                   >
-                    {staffingDocBusy ? "Uploading..." : staffingDocUrl ? "Replace" : "Upload Event Material"}
+                    {eventMaterialBusy ? "Uploading..." : eventMaterialUrl ? "Replace" : "Upload Event Material"}
                   </button>
                 </div>
               </div>
@@ -7310,8 +7458,15 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                 </div>
 
                 <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
-                  <div style={staffingMutedTextStyle}>
-                    {selectedStaffingCount} selected · {confirmedCount} primary confirmed · {backupCount} backup · {assignedBccEmails.length} email{assignedBccEmails.length === 1 ? "" : "s"} ready
+                  <div style={{ display: "grid", gap: "4px" }}>
+                    <div style={staffingMutedTextStyle}>
+                      {selectedStaffingCount} selected · {confirmedCount} primary confirmed · {backupCount} backup · {assignedBccEmails.length} hiring draft email{assignedBccEmails.length === 1 ? "" : "s"} ready · {confirmationBccEmails.length} confirmation email{confirmationBccEmails.length === 1 ? "" : "s"} ready
+                    </div>
+                    {confirmationMissingEmailAssignments.length ? (
+                      <div style={{ color: staffingWorkspacePalette.dangerText, fontWeight: 800, fontSize: "12px" }}>
+                        Missing confirmation email: {confirmationMissingEmailAssignments.join(", ")}
+                      </div>
+                    ) : null}
                   </div>
                   <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                     <input
@@ -7339,6 +7494,38 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                     </button>
                     <button
                       type="button"
+                      onClick={() => void handleOpenConfirmationEmailDraft()}
+                      disabled={confirmationBccEmails.length === 0}
+                      style={{ ...buttonStyle, padding: "8px 11px", boxShadow: "0 8px 16px rgba(14, 165, 233, 0.16)", opacity: confirmationBccEmails.length === 0 ? 0.65 : 1 }}
+                    >
+                      Confirm Staffing Email
+                    </button>
+                    <label
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "6px",
+                        borderRadius: "999px",
+                        padding: "8px 10px",
+                        border: `1px solid ${staffingWorkspacePalette.buttonBorder}`,
+                        background: staffingWorkspacePalette.buttonBg,
+                        color: staffingWorkspacePalette.textMuted,
+                        fontSize: "12px",
+                        fontWeight: 900,
+                        cursor: "pointer",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={includeBackupConfirmationEmails}
+                        onChange={(event) => setIncludeBackupConfirmationEmails(event.target.checked)}
+                        style={{ width: "14px", height: "14px", accentColor: "#0f766e" }}
+                      />
+                      Include backups
+                    </label>
+                    <button
+                      type="button"
                       onClick={() => setShowEmailDraft((current) => !current)}
                       style={{
                         ...staffingSecondaryButtonStyle,
@@ -7346,6 +7533,16 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                       }}
                     >
                       {showEmailDraft ? "Hide Email Preview" : "Show Email Preview"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowConfirmationEmailPreview((current) => !current)}
+                      style={{
+                        ...staffingSecondaryButtonStyle,
+                        padding: "8px 11px",
+                      }}
+                    >
+                      {showConfirmationEmailPreview ? "Hide Confirmation Preview" : "Show Confirmation Preview"}
                     </button>
                     <button
                       type="button"
@@ -7627,6 +7824,32 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                       <div><strong>Recipients (BCC):</strong> {assignedBccEmails.length ? assignedBccEmails.join(", ") : "No selected staffing SP emails found."}</div>
                       <div style={{ marginTop: "8px" }}><strong>Subject:</strong> {emailSubject}</div>
                       <div style={{ marginTop: "8px", whiteSpace: "pre-wrap" }}><strong>Body:</strong>{"\n"}{emailBody}</div>
+                    </div>
+                  </div>
+                ) : null}
+
+                {showConfirmationEmailPreview ? (
+                  <div style={{ ...staffingMetricCardStyle, padding: "12px 14px" }}>
+                    <div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Confirmation Email Preview</div>
+                    <div style={{ marginTop: "8px", color: staffingWorkspacePalette.textStrong, lineHeight: 1.7 }}>
+                      <div><strong>To:</strong> {me?.email || "Current logged-in user"}</div>
+                      <div><strong>CC:</strong> {facultyEmails.length ? facultyEmails.join(", ") : "No faculty CC parsed."}</div>
+                      <div><strong>BCC:</strong> {confirmationBccEmails.length ? confirmationBccEmails.join(", ") : "No confirmed SP emails found."}</div>
+                      <div>
+                        <strong>Recipients:</strong>{" "}
+                        {confirmationEmailRecipients.length
+                          ? confirmationEmailRecipients
+                              .map((recipient) => `${recipient.name} (${getAssignmentStatus(recipient.assignment) === "backup" ? "backup" : "primary"})`)
+                              .join(", ")
+                          : "No confirmed recipients selected."}
+                      </div>
+                      {confirmationMissingEmailAssignments.length ? (
+                        <div style={{ color: staffingWorkspacePalette.dangerText, fontWeight: 800 }}>
+                          Missing email: {confirmationMissingEmailAssignments.join(", ")}
+                        </div>
+                      ) : null}
+                      <div style={{ marginTop: "8px" }}><strong>Subject:</strong> {confirmationEmailSubject}</div>
+                      <div style={{ marginTop: "8px", whiteSpace: "pre-wrap" }}><strong>Body:</strong>{"\n"}{confirmationEmailBody}</div>
                     </div>
                   </div>
                 ) : null}
