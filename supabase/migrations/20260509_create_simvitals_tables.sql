@@ -10,6 +10,7 @@ create table if not exists public.simvitals_posts (
   linked_event_id uuid null references public.events(id) on delete set null,
   linked_event_name text null,
   tags text[] not null default '{}',
+  attachment jsonb null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );

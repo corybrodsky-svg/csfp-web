@@ -34,6 +34,13 @@ type SimVitalsPostRow = {
   updated_at: string | null;
 };
 
+type SimVitalsLinkedEventRow = {
+  id: string;
+  name: string | null;
+  date_text: string | null;
+  status: string | null;
+};
+
 const POST_SELECT_BASE =
   "id,author_user_id,author_name,author_role,post_type,body,linked_event_id,linked_event_name,tags,created_at,updated_at";
 const POST_SELECT_WITH_ATTACHMENT =
@@ -69,8 +76,10 @@ function toPostResponse(
     reactionsByPostId: Map<string, number>;
     commentsByPostId: Map<string, number>;
     acknowledgedPostIds: Set<string>;
-  }
+  },
+  linkedEventsById = new Map<string, SimVitalsLinkedEventRow>()
 ) {
+  const linkedEvent = linkedEventsById.get(asText(row.linked_event_id));
   return {
     id: row.id,
     authorUserId: asText(row.author_user_id),
@@ -79,7 +88,9 @@ function toPostResponse(
     type: normalizePostType(row.post_type),
     body: asText(row.body),
     linkedEventId: asText(row.linked_event_id) || null,
-    linkedEventName: asText(row.linked_event_name) || null,
+    linkedEventName: asText(linkedEvent?.name) || asText(row.linked_event_name) || null,
+    linkedEventDateText: asText(linkedEvent?.date_text),
+    linkedEventStatus: asText(linkedEvent?.status),
     tags: Array.isArray(row.tags) ? row.tags.map(asText).filter(Boolean) : [],
     attachment: normalizeSimVitalsAttachmentMetadata(row.attachment),
     reactionCount: counts.reactionsByPostId.get(row.id) || 0,
@@ -141,6 +152,42 @@ async function getPostCounts(
   return { reactionsByPostId, commentsByPostId, acknowledgedPostIds, warnings };
 }
 
+async function getLinkedEventsById(
+  context: NonNullable<Awaited<ReturnType<typeof getAuthenticatedSimVitalsContext>>>,
+  eventIds: string[]
+) {
+  const uniqueIds = Array.from(new Set(eventIds.map(asText).filter(Boolean)));
+  if (!uniqueIds.length) return new Map<string, SimVitalsLinkedEventRow>();
+
+  const { data, error } = await context.db
+    .from("events")
+    .select("id,name,date_text,status")
+    .in("id", uniqueIds);
+
+  if (error) throw error;
+
+  return new Map(
+    ((data || []) as SimVitalsLinkedEventRow[]).map((event) => [event.id, event])
+  );
+}
+
+async function resolveLinkedEvent(
+  context: NonNullable<Awaited<ReturnType<typeof getAuthenticatedSimVitalsContext>>>,
+  eventId: string | null,
+  fallbackName: string | null
+) {
+  if (!eventId) return { id: null as string | null, name: fallbackName };
+  const linkedEvents = await getLinkedEventsById(context, [eventId]);
+  const event = linkedEvents.get(eventId);
+  if (!event) {
+    throw new Error("Linked event could not be found.");
+  }
+  return {
+    id: event.id,
+    name: asText(event.name) || fallbackName || "Linked event",
+  };
+}
+
 function buildPostsQuery(
   context: NonNullable<Awaited<ReturnType<typeof getAuthenticatedSimVitalsContext>>>,
   limit: number,
@@ -186,6 +233,10 @@ export async function GET(request: Request) {
     if (error) throw error;
 
     const posts = (data || []) as unknown as SimVitalsPostRow[];
+    const linkedEventsById = await getLinkedEventsById(
+      context,
+      posts.map((post) => post.linked_event_id).filter(Boolean) as string[]
+    );
     const counts = await getPostCounts(
       context,
       posts.map((post) => post.id).filter(Boolean)
@@ -197,7 +248,7 @@ export async function GET(request: Request) {
       attachmentSupportReady,
       attachmentWarning,
       warning: counts.warnings.join(" "),
-      posts: posts.map((post) => toPostResponse(post, counts)),
+      posts: posts.map((post) => toPostResponse(post, counts, linkedEventsById)),
     });
 
     return applySimVitalsAuthCookies(response, context);
@@ -275,6 +326,7 @@ export async function POST(request: Request) {
     const tags = normalizeTags(body?.tags);
     const linkedEventId = asText(body?.linkedEventId ?? body?.linked_event_id) || null;
     const linkedEventName = asText(body?.linkedEventName ?? body?.linked_event_name) || null;
+    const resolvedLinkedEvent = await resolveLinkedEvent(context, linkedEventId, linkedEventName);
     const attachment = normalizeSimVitalsAttachmentMetadata(body?.attachment, context.viewer.id);
     if (body?.attachment && !attachment) {
       return applySimVitalsAuthCookies(
@@ -289,8 +341,8 @@ export async function POST(request: Request) {
       author_role: context.viewer.role,
       post_type: postType,
       body: postBody.slice(0, 5000),
-      linked_event_id: linkedEventId,
-      linked_event_name: linkedEventName,
+      linked_event_id: resolvedLinkedEvent.id,
+      linked_event_name: resolvedLinkedEvent.name,
       tags: tags.length ? tags : [DEFAULT_TAG_BY_TYPE[postType]],
     };
 
@@ -317,12 +369,13 @@ export async function POST(request: Request) {
         throw error;
       }
 
+      const linkedEventsById = await getLinkedEventsById(context, [asText(data.linked_event_id)].filter(Boolean));
       const counts = await getPostCounts(context, [data.id]);
       const response = jsonNoStore(
         {
           ok: true,
           warning: counts.warnings.join(" "),
-          post: toPostResponse(data as unknown as SimVitalsPostRow, counts),
+          post: toPostResponse(data as unknown as SimVitalsPostRow, counts, linkedEventsById),
         },
         { status: 201 }
       );
@@ -338,12 +391,13 @@ export async function POST(request: Request) {
 
     if (error) throw error;
 
+    const linkedEventsById = await getLinkedEventsById(context, [asText(data.linked_event_id)].filter(Boolean));
     const counts = await getPostCounts(context, [data.id]);
     const response = jsonNoStore(
       {
         ok: true,
         warning: counts.warnings.join(" "),
-        post: toPostResponse(data as unknown as SimVitalsPostRow, counts),
+        post: toPostResponse(data as unknown as SimVitalsPostRow, counts, linkedEventsById),
       },
       { status: 201 }
     );

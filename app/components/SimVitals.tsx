@@ -24,6 +24,8 @@ export type SimVitalsPost = {
   updatedAt?: string;
   linkedEventId?: string | null;
   linkedEventName?: string;
+  linkedEventDateText?: string;
+  linkedEventStatus?: string;
   body: string;
   tags: string[];
   attachment?: SimVitalsAttachment | null;
@@ -36,8 +38,14 @@ export type SimVitalsAttachment = {
   fileName: string;
   path: string;
   url: string;
+  previewUrl?: string;
+  downloadUrl?: string;
   mimeType: string;
   size: number;
+  uploadedAt?: string;
+  uploadedBy?: string;
+  linkedEventId?: string | null;
+  linkedEventName?: string;
 };
 
 export type SimVitalsComment = {
@@ -50,6 +58,21 @@ export type SimVitalsComment = {
   createdAt?: string;
   updatedAt?: string;
 };
+
+type SimVitalsEventReference = {
+  id: string;
+  name: string;
+  dateLabel: string;
+  status: string;
+};
+
+type SimVitalsReferenceKind =
+  | "event"
+  | "training"
+  | "staffing_issue"
+  | "live_issue"
+  | "room"
+  | "faculty_coordination";
 
 const simVitalsFeedTypeOrder: SimVitalsFeedType[] = [
   "general_update",
@@ -72,12 +95,12 @@ const simVitalsFeedTypeAppearance: Record<
   }
 > = {
   general_update: {
-    label: "General Update",
+    label: "Ops Signal",
     accent: "var(--cfsp-blue)",
     background: "rgba(73, 168, 255, 0.10)",
     border: "rgba(73, 168, 255, 0.25)",
     color: "var(--cfsp-blue-dark)",
-    signal: "Ops",
+    signal: "Ops Signal",
   },
   staffing_alert: {
     label: "Staffing Alert",
@@ -88,7 +111,7 @@ const simVitalsFeedTypeAppearance: Record<
     signal: "Staffing",
   },
   faculty_note: {
-    label: "Faculty Note",
+    label: "Faculty Coordination",
     accent: "#a86411",
     background: "rgba(168, 100, 17, 0.10)",
     border: "rgba(168, 100, 17, 0.27)",
@@ -180,12 +203,71 @@ function asText(value: unknown) {
 }
 
 const SIMVITALS_ATTACHMENT_ACCEPT = ".pdf,.docx,.xlsx,.csv,.png,.jpg,.jpeg";
+const SIMVITALS_REFERENCE_KIND_LABELS: Record<SimVitalsReferenceKind, string> = {
+  event: "Event",
+  training: "Training",
+  staffing_issue: "Staffing Issue",
+  live_issue: "Live Issue",
+  room: "Room",
+  faculty_coordination: "Faculty Coordination",
+};
 
 function formatSimVitalsFileSize(size: number) {
   if (!Number.isFinite(size) || size <= 0) return "";
   if (size < 1024) return `${size} B`;
   if (size < 1024 * 1024) return `${Math.round(size / 1024)} KB`;
   return `${(size / (1024 * 1024)).toFixed(size >= 10 * 1024 * 1024 ? 0 : 1)} MB`;
+}
+
+function formatSimVitalsAttachmentTimestamp(value?: string | null) {
+  const timestamp = Date.parse(asText(value));
+  if (Number.isNaN(timestamp)) return "";
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(timestamp));
+}
+
+function formatSimVitalsEventDate(value?: string | null) {
+  const text = asText(value);
+  if (!text) return "Date TBD";
+  const parsed = Date.parse(text);
+  if (!Number.isNaN(parsed)) {
+    return new Intl.DateTimeFormat(undefined, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    }).format(new Date(parsed));
+  }
+  return text;
+}
+
+function getSimVitalsEventStatusLabel(value?: string | null) {
+  const normalized = asText(value).replace(/[_-]+/g, " ");
+  if (!normalized) return "Planning";
+  return normalized.replace(/\b\w/g, (match) => match.toUpperCase());
+}
+
+function normalizeSimVitalsEventReference(value: unknown): SimVitalsEventReference | null {
+  if (!value || typeof value !== "object") return null;
+  const source = value as {
+    id?: unknown;
+    name?: unknown;
+    date_text?: unknown;
+    earliest_session_date?: unknown;
+    status?: unknown;
+  };
+  const id = asText(source.id);
+  const name = asText(source.name);
+  if (!id || !name) return null;
+  return {
+    id,
+    name,
+    dateLabel: formatSimVitalsEventDate(asText(source.earliest_session_date) || asText(source.date_text)),
+    status: getSimVitalsEventStatusLabel(asText(source.status)),
+  };
 }
 
 function normalizeSimVitalsAttachment(value: unknown): SimVitalsAttachment | null {
@@ -199,8 +281,14 @@ function normalizeSimVitalsAttachment(value: unknown): SimVitalsAttachment | nul
     fileName,
     path,
     url,
+    previewUrl: asText(source.previewUrl) || url,
+    downloadUrl: asText(source.downloadUrl) || url,
     mimeType: asText(source.mimeType) || "application/octet-stream",
     size: Math.max(0, Number(source.size) || 0),
+    uploadedAt: asText(source.uploadedAt),
+    uploadedBy: asText(source.uploadedBy),
+    linkedEventId: asText(source.linkedEventId) || null,
+    linkedEventName: asText(source.linkedEventName),
   };
 }
 
@@ -226,6 +314,8 @@ function normalizeSimVitalsPost(value: unknown): SimVitalsPost | null {
     updatedAt: asText(source.updatedAt),
     linkedEventId: asText(source.linkedEventId) || null,
     linkedEventName: asText(source.linkedEventName),
+    linkedEventDateText: asText(source.linkedEventDateText),
+    linkedEventStatus: asText(source.linkedEventStatus),
     body: asText(source.body),
     tags: Array.isArray(source.tags) ? source.tags.map(asText).filter(Boolean) : [],
     attachment: normalizeSimVitalsAttachment(source.attachment),
@@ -307,6 +397,22 @@ async function fetchSimVitalsPosts(limit: number, type: SimVitalsFeedType | "all
     warning: asText(body?.warning),
     attachmentWarning: body?.attachmentSupportReady === false ? asText(body.attachmentWarning) : "",
   };
+}
+
+async function fetchSimVitalsEventReferences() {
+  const response = await fetch("/api/events", {
+    cache: "no-store",
+    credentials: "include",
+  });
+  const body = (await response.json().catch(() => null)) as { events?: unknown[]; error?: string } | null;
+  if (!response.ok) {
+    throw new Error(body?.error || (await parseSimVitalsApiError(response)));
+  }
+  return Array.isArray(body?.events)
+    ? body.events
+        .map(normalizeSimVitalsEventReference)
+        .filter((event): event is SimVitalsEventReference => Boolean(event))
+    : [];
 }
 
 export function getSimVitalsRoleFromProfile(role: string): SimVitalsRole {
@@ -432,16 +538,28 @@ export function SimVitalsPostCard({
   compact = false,
   interactive = false,
   onPostUpdate,
+  eventReference,
 }: {
   post: SimVitalsPost;
   compact?: boolean;
   interactive?: boolean;
   onPostUpdate?: (postId: string, patch: Partial<SimVitalsPost>) => void;
+  eventReference?: SimVitalsEventReference | null;
 }) {
   const typeLook = simVitalsFeedTypeAppearance[post.type];
   const roleLook = simVitalsRoleAppearance[post.authorRole];
   const initials = getSimVitalsInitials(post.authorName);
   const timestampLabel = post.timestampLabel || formatSimVitalsTimestamp(post.createdAt);
+  const linkedEvent = eventReference || (
+    post.linkedEventId || post.linkedEventName
+      ? {
+          id: post.linkedEventId || "",
+          name: post.linkedEventName || "Linked event",
+          dateLabel: asText(post.linkedEventDateText) || "Date TBD",
+          status: getSimVitalsEventStatusLabel(post.linkedEventStatus),
+        }
+      : null
+  );
   const [ackSaving, setAckSaving] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [commentsLoaded, setCommentsLoaded] = useState(false);
@@ -474,7 +592,7 @@ export function SimVitalsPostCard({
       );
       setCommentsLoaded(true);
     } catch (error) {
-      setCommentError(error instanceof Error ? error.message : "Could not load comments.");
+      setCommentError(error instanceof Error ? error.message : "Could not load ops thread.");
     } finally {
       setCommentsLoading(false);
     }
@@ -547,7 +665,7 @@ export function SimVitalsPostCard({
         commentCount: Number(responseBody?.commentCount) || post.commentCount + 1,
       });
     } catch (error) {
-      setCommentError(error instanceof Error ? error.message : "Could not post comment.");
+      setCommentError(error instanceof Error ? error.message : "Could not add to ops thread.");
     } finally {
       setCommentSaving(false);
     }
@@ -559,7 +677,7 @@ export function SimVitalsPostCard({
       style={{
         border: `1px solid ${roleLook.cardBorder}`,
         background: roleLook.cardBackground,
-        boxShadow: compact ? "0 8px 18px rgba(24, 52, 78, 0.06)" : "0 12px 26px rgba(24, 52, 78, 0.08)",
+        boxShadow: compact ? "0 10px 20px rgba(24, 52, 78, 0.07)" : "0 16px 34px rgba(24, 52, 78, 0.10)",
       }}
     >
       <div
@@ -605,27 +723,46 @@ export function SimVitalsPostCard({
         </span>
       </div>
 
-      {post.linkedEventName ? (
+      {linkedEvent ? (
         <div className="mt-3">
-          <span
-            className="inline-flex min-h-[28px] max-w-full items-center rounded-full px-3 py-1 text-xs font-black"
-            style={{
-              background: "var(--cfsp-surface)",
-              border: "1px solid var(--cfsp-border)",
-              color: "var(--cfsp-blue-dark)",
-            }}
-          >
-            <span className="truncate">Event: {post.linkedEventName}</span>
-          </span>
+          {linkedEvent.id ? (
+            <Link
+              href={`/events/${encodeURIComponent(linkedEvent.id)}`}
+              className="inline-flex max-w-full items-center gap-2 rounded-[12px] px-3 py-2 text-xs font-black no-underline"
+              style={{
+                background: "linear-gradient(90deg, rgba(73, 168, 255, 0.12), rgba(44, 211, 173, 0.10))",
+                border: "1px solid rgba(73, 168, 255, 0.24)",
+                color: "var(--cfsp-blue-dark)",
+              }}
+            >
+              <SimVitalsEventLinkIcon />
+              <span className="truncate">Operations Link: {linkedEvent.name}</span>
+              <span className="shrink-0 text-[var(--cfsp-text-muted)]">{linkedEvent.dateLabel}</span>
+              {linkedEvent.status ? (
+                <span className="shrink-0 text-[var(--cfsp-green-dark)]">{linkedEvent.status}</span>
+              ) : null}
+            </Link>
+          ) : (
+            <span
+              className="inline-flex min-h-[28px] max-w-full items-center rounded-full px-3 py-1 text-xs font-black"
+              style={{
+                background: "var(--cfsp-surface)",
+                border: "1px solid var(--cfsp-border)",
+                color: "var(--cfsp-blue-dark)",
+              }}
+            >
+              <span className="truncate">Operations Link: {linkedEvent.name}</span>
+            </span>
+          )}
         </div>
       ) : null}
 
-      <p className={`${compact ? "mt-2 text-[0.88rem] leading-5" : "mt-3 text-[0.95rem] leading-6"} text-[var(--cfsp-text)]`}>{post.body}</p>
+      <p className={`${compact ? "mt-2 text-[0.88rem] leading-5" : "mt-3 text-[0.96rem] leading-6"} font-semibold text-[var(--cfsp-text)]`}>{post.body}</p>
 
       {post.attachment ? (
-        <div className="mt-3">
+        <div className="mt-3 flex flex-wrap gap-2">
           <a
-            href={post.attachment.url}
+            href={post.attachment.previewUrl || post.attachment.url}
             target="_blank"
             rel="noreferrer"
             className="inline-flex max-w-full items-center gap-2 rounded-[12px] px-3 py-2 text-xs font-black no-underline"
@@ -642,7 +779,29 @@ export function SimVitalsPostCard({
                 {formatSimVitalsFileSize(post.attachment.size)}
               </span>
             ) : null}
+            <span className="shrink-0 text-[var(--cfsp-blue-dark)]">Preview</span>
           </a>
+          <a
+            href={post.attachment.downloadUrl || post.attachment.url}
+            className="inline-flex items-center rounded-[12px] px-3 py-2 text-xs font-black no-underline"
+            style={{
+              border: "1px solid var(--cfsp-border)",
+              background: "var(--cfsp-surface)",
+              color: "var(--cfsp-text-muted)",
+            }}
+          >
+            Download
+          </a>
+          {post.attachment.uploadedAt || post.attachment.uploadedBy ? (
+            <span className="inline-flex items-center rounded-[12px] px-3 py-2 text-xs font-bold text-[var(--cfsp-text-muted)]">
+              {[post.attachment.uploadedBy, formatSimVitalsAttachmentTimestamp(post.attachment.uploadedAt)].filter(Boolean).join(" • ")}
+            </span>
+          ) : null}
+          {post.attachment.linkedEventName ? (
+            <span className="inline-flex items-center rounded-[12px] px-3 py-2 text-xs font-bold text-[var(--cfsp-text-muted)]">
+              Attached to {post.attachment.linkedEventName}
+            </span>
+          ) : null}
         </div>
       ) : null}
 
@@ -678,7 +837,7 @@ export function SimVitalsPostCard({
           onClick={() => void handleToggleComments()}
           style={{ opacity: interactive ? 1 : 0.65 }}
         >
-          {commentsOpen ? "Hide Comments" : `Comments ${post.commentCount}`}
+          {commentsOpen ? "Hide Thread" : `Ops Thread ${post.commentCount}`}
         </button>
       </div>
 
@@ -697,7 +856,7 @@ export function SimVitalsPostCard({
           }}
         >
           {commentsLoading ? (
-            <div className="text-xs font-bold text-[var(--cfsp-text-muted)]">Loading comments...</div>
+            <div className="text-xs font-bold text-[var(--cfsp-text-muted)]">Loading ops thread...</div>
           ) : comments.length ? (
             <div className="grid gap-2">
               {comments.map((comment) => (
@@ -714,7 +873,7 @@ export function SimVitalsPostCard({
               ))}
             </div>
           ) : (
-            <div className="text-xs font-bold text-[var(--cfsp-text-muted)]">No comments yet.</div>
+            <div className="text-xs font-bold text-[var(--cfsp-text-muted)]">No thread notes yet.</div>
           )}
 
           <div className="flex flex-col gap-2 sm:flex-row">
@@ -728,8 +887,8 @@ export function SimVitalsPostCard({
                 }
               }}
               className="cfsp-input"
-              placeholder="Add a comment..."
-              aria-label="SimVitals comment"
+              placeholder="Add an ops thread note..."
+              aria-label="SimVitals ops thread note"
               disabled={commentSaving}
             />
             <button
@@ -739,7 +898,7 @@ export function SimVitalsPostCard({
               className="cfsp-btn cfsp-btn-primary min-h-[38px] px-3 py-2 text-xs"
               style={{ opacity: !commentDraft.trim() || commentSaving ? 0.62 : 1 }}
             >
-              {commentSaving ? "Posting..." : "Comment"}
+              {commentSaving ? "Adding..." : "Add Note"}
             </button>
           </div>
         </div>
@@ -799,9 +958,9 @@ export function SimVitalsDashboardPreview() {
           <SimVitalsSignalMark compact />
           <div className="min-w-0">
             <div className="cfsp-kicker">Check SimVitals</div>
-            <h2 className="mt-2 text-[1.35rem] leading-tight font-black text-[var(--cfsp-text)]">Latest SimVitals</h2>
+            <h2 className="mt-2 text-[1.35rem] leading-tight font-black text-[var(--cfsp-text)]">Latest Signals</h2>
             <p className="mt-2 text-sm leading-6 text-[var(--cfsp-text-muted)]">
-              Operational signals for staffing, rooms, faculty coordination, training, and simulation support.
+              Operational awareness for staffing, rooms, faculty coordination, training, and simulation support.
             </p>
           </div>
         </div>
@@ -812,7 +971,7 @@ export function SimVitalsDashboardPreview() {
 
       {loading ? (
         <div className="relative mt-4 rounded-[14px] border border-dashed border-[var(--cfsp-border)] bg-[var(--cfsp-surface)] px-5 py-7 text-sm font-bold text-[var(--cfsp-text-muted)]">
-          Loading SimVitals...
+          Loading SimVitals signals...
         </div>
       ) : previewPosts.length ? (
         <div className="relative mt-4 grid gap-3 xl:grid-cols-3">
@@ -822,7 +981,7 @@ export function SimVitalsDashboardPreview() {
         </div>
       ) : (
         <div className="relative mt-4 rounded-[14px] border border-dashed border-[var(--cfsp-border)] bg-[var(--cfsp-surface)] px-5 py-7 text-sm font-bold text-[var(--cfsp-text-muted)]">
-          {warning || "No SimVitals updates yet."}
+          {warning || "No SimVitals signals yet."}
         </div>
       )}
     </section>
@@ -847,17 +1006,39 @@ export function SimVitalsFullExperience({
   const [composerError, setComposerError] = useState("");
   const [attachmentSupportWarning, setAttachmentSupportWarning] = useState("");
   const [selectedAttachmentFile, setSelectedAttachmentFile] = useState<File | null>(null);
+  const [eventReferences, setEventReferences] = useState<SimVitalsEventReference[]>([]);
+  const [eventReferenceError, setEventReferenceError] = useState("");
+  const [referencePanelOpen, setReferencePanelOpen] = useState(false);
+  const [referenceKind, setReferenceKind] = useState<SimVitalsReferenceKind>("event");
+  const [selectedEventId, setSelectedEventId] = useState("");
+  const [eventReferenceQuery, setEventReferenceQuery] = useState("");
+  const [referenceDetail, setReferenceDetail] = useState("");
   const attachmentInputRef = useRef<HTMLInputElement | null>(null);
   const authorInitials = getSimVitalsInitials(displayName);
   const selectedTypeLook = simVitalsFeedTypeAppearance[postType];
   const authorRoleLook = simVitalsRoleAppearance[authorRole];
+  const eventReferenceById = useMemo(
+    () => new Map(eventReferences.map((event) => [event.id, event])),
+    [eventReferences]
+  );
+  const selectedEventReference = selectedEventId ? eventReferenceById.get(selectedEventId) || null : null;
+  const filteredEventReferences = useMemo(() => {
+    const query = asText(eventReferenceQuery).toLowerCase();
+    const ranked = [...eventReferences].sort((a, b) => a.dateLabel.localeCompare(b.dateLabel) || a.name.localeCompare(b.name));
+    if (!query) return ranked.slice(0, 8);
+    return ranked
+      .filter((event) =>
+        [event.name, event.dateLabel, event.status].some((value) => value.toLowerCase().includes(query))
+      )
+      .slice(0, 8);
+  }, [eventReferenceQuery, eventReferences]);
   const filteredPosts = useMemo(
     () => (activeFilter === "all" ? posts : posts.filter((post) => post.type === activeFilter)),
     [activeFilter, posts]
   );
   const stats = useMemo(
     () => [
-      { label: "Open signals", value: posts.length },
+      { label: "Active signals", value: posts.length },
       { label: "Staffing alerts", value: posts.filter((post) => post.type === "staffing_alert").length },
       { label: "Live issues", value: posts.filter((post) => post.type === "live_issue").length },
     ],
@@ -871,9 +1052,16 @@ export function SimVitalsFullExperience({
       setFeedLoading(true);
       setFeedError("");
       try {
-        const result = await fetchSimVitalsPosts(50);
+        const [result, eventResult] = await Promise.all([
+          fetchSimVitalsPosts(50),
+          fetchSimVitalsEventReferences().catch((error) => {
+            setEventReferenceError(error instanceof Error ? error.message : "Could not load event references.");
+            return [] as SimVitalsEventReference[];
+          }),
+        ]);
         if (cancelled) return;
         setPosts(result.posts);
+        setEventReferences(eventResult);
         setFeedError(result.warning);
         setAttachmentSupportWarning(result.attachmentWarning);
       } catch (error) {
@@ -961,7 +1149,19 @@ export function SimVitalsFullExperience({
           throw new Error(`Attachment upload failed: ${attachmentSupportWarning}`);
         }
         attachment = await uploadSelectedAttachment(selectedAttachmentFile);
+        if (selectedEventReference) {
+          attachment = {
+            ...attachment,
+            linkedEventId: selectedEventReference.id,
+            linkedEventName: selectedEventReference.name,
+          };
+        }
       }
+      const referenceTags = [
+        referencePanelOpen ? `Reference: ${SIMVITALS_REFERENCE_KIND_LABELS[referenceKind]}` : "",
+        referenceDetail ? `Context: ${referenceDetail}` : "",
+        selectedEventReference ? "Event-linked" : "",
+      ].filter(Boolean);
       const response = await fetch("/api/simvitals/posts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -970,7 +1170,9 @@ export function SimVitalsFullExperience({
         body: JSON.stringify({
           body,
           postType,
-          tags: [selectedTypeLook.signal, authorRoleLook.label],
+          linkedEventId: selectedEventReference?.id || null,
+          linkedEventName: selectedEventReference?.name || null,
+          tags: [selectedTypeLook.signal, authorRoleLook.label, ...referenceTags],
           attachment,
         }),
       });
@@ -983,13 +1185,16 @@ export function SimVitalsFullExperience({
       setPosts((current) => [post, ...current]);
       setDraft("");
       setSelectedAttachmentFile(null);
+      setReferenceDetail("");
+      setSelectedEventId("");
+      setEventReferenceQuery("");
       setFeedError(asText(responseBody?.warning));
       if (attachmentInputRef.current) attachmentInputRef.current.value = "";
       if (activeFilter !== "all" && activeFilter !== post.type) {
         setActiveFilter("all");
       }
     } catch (error) {
-      setComposerError(error instanceof Error ? error.message : "Could not post SimVitals update.");
+      setComposerError(error instanceof Error ? error.message : "Could not send SimVitals signal.");
     } finally {
       setSavingPost(false);
     }
@@ -1025,9 +1230,9 @@ export function SimVitalsFullExperience({
             <SimVitalsSignalMark />
             <div className="min-w-0">
               <div className="cfsp-kicker">Check SimVitals</div>
-              <h2 className="mt-3 text-[2rem] leading-tight font-black text-[var(--cfsp-text)]">SimVitals</h2>
+              <h2 className="mt-3 text-[2.15rem] leading-tight font-black tracking-tight text-[var(--cfsp-text)]">SimVitals</h2>
               <p className="mt-3 max-w-3xl text-[0.98rem] leading-6 text-[var(--cfsp-text-muted)]">
-                The operational nervous system of CFSP: command-center communication, live room telemetry, staffing signals, faculty coordination, and training readiness.
+                The operational nervous system of CFSP: calm signal flow for staffing, rooms, faculty coordination, training readiness, and live simulation support.
               </p>
             </div>
           </div>
@@ -1088,8 +1293,8 @@ export function SimVitalsFullExperience({
               }
             }}
             className="cfsp-input"
-            placeholder="What's happening?"
-            aria-label="SimVitals update"
+            placeholder="Send an operations signal..."
+            aria-label="SimVitals operations signal"
             disabled={savingPost}
           />
 
@@ -1109,8 +1314,12 @@ export function SimVitalsFullExperience({
             >
               <SimVitalsAttachmentIcon />
             </SimVitalsIconButton>
-            {/* TODO linked_events: store event_id references and hydrate event chips from Supabase. */}
-            <SimVitalsIconButton label="Link event" disabled title="Link event coming soon">
+            <SimVitalsIconButton
+              label="Add operations link"
+              title={selectedEventReference ? `Linked to ${selectedEventReference.name}` : "Reference event, training, room, staffing, or faculty coordination"}
+              disabled={savingPost}
+              onClick={() => setReferencePanelOpen((current) => !current)}
+            >
               <SimVitalsEventLinkIcon />
             </SimVitalsIconButton>
             <button
@@ -1124,10 +1333,134 @@ export function SimVitalsFullExperience({
                 boxShadow: draft.trim() && !savingPost ? "0 10px 26px rgba(20, 91, 150, 0.20)" : undefined,
               }}
             >
-              {savingPost ? (selectedAttachmentFile ? "Uploading..." : "Posting...") : "Post"}
+              {savingPost ? (selectedAttachmentFile ? "Uploading..." : "Sending...") : "Send Signal"}
             </button>
           </div>
         </div>
+
+        {referencePanelOpen ? (
+          <div
+            className="mt-3 grid gap-3 rounded-[14px] px-3 py-3"
+            style={{
+              border: "1px solid rgba(73, 168, 255, 0.22)",
+              background: "linear-gradient(180deg, rgba(255,255,255,0.72), rgba(232, 247, 252, 0.62))",
+            }}
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <div className="cfsp-label">Operations Link</div>
+                <div className="mt-1 text-xs font-bold text-[var(--cfsp-text-muted)]">
+                  Attach this signal to an event, training, staffing issue, live room, or faculty coordination item.
+                </div>
+              </div>
+              <button
+                type="button"
+                className="cfsp-btn cfsp-btn-secondary min-h-[32px] px-3 py-1.5 text-xs"
+                onClick={() => {
+                  setReferencePanelOpen(false);
+                  setSelectedEventId("");
+                  setReferenceDetail("");
+                }}
+              >
+                Clear Link
+              </button>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              {(Object.keys(SIMVITALS_REFERENCE_KIND_LABELS) as SimVitalsReferenceKind[]).map((kind) => {
+                const active = referenceKind === kind;
+                return (
+                  <button
+                    key={kind}
+                    type="button"
+                    onClick={() => setReferenceKind(kind)}
+                    className="inline-flex min-h-[30px] items-center rounded-full px-3 py-1 text-xs font-black transition"
+                    style={{
+                      background: active ? "rgba(73, 168, 255, 0.13)" : "var(--cfsp-surface)",
+                      border: active ? "1px solid rgba(73, 168, 255, 0.28)" : "1px solid var(--cfsp-border)",
+                      color: active ? "var(--cfsp-blue-dark)" : "var(--cfsp-text-muted)",
+                    }}
+                  >
+                    {SIMVITALS_REFERENCE_KIND_LABELS[kind]}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="grid gap-2 lg:grid-cols-[1fr_0.8fr]">
+              <div className="grid gap-2">
+                <input
+                  className="cfsp-input"
+                  value={eventReferenceQuery}
+                  onChange={(event) => setEventReferenceQuery(event.target.value)}
+                  placeholder="Find event to reference..."
+                  aria-label="Find event to reference"
+                  disabled={savingPost}
+                />
+                {eventReferenceError ? (
+                  <div className="rounded-[10px] border border-[var(--cfsp-warning-border)] bg-[var(--cfsp-warning-soft)] px-3 py-2 text-xs font-bold text-[var(--cfsp-warning)]">
+                    {eventReferenceError}
+                  </div>
+                ) : null}
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {filteredEventReferences.length ? (
+                    filteredEventReferences.map((event) => {
+                      const active = selectedEventId === event.id;
+                      return (
+                        <button
+                          key={event.id}
+                          type="button"
+                          onClick={() => setSelectedEventId(active ? "" : event.id)}
+                          className="rounded-[12px] px-3 py-2 text-left transition"
+                          style={{
+                            border: active ? "1px solid rgba(44, 211, 173, 0.36)" : "1px solid var(--cfsp-border)",
+                            background: active ? "rgba(44, 211, 173, 0.12)" : "var(--cfsp-surface)",
+                          }}
+                        >
+                          <div className="truncate text-xs font-black text-[var(--cfsp-text)]">{event.name}</div>
+                          <div className="mt-1 flex flex-wrap gap-2 text-[0.72rem] font-bold text-[var(--cfsp-text-muted)]">
+                            <span>{event.dateLabel}</span>
+                            <span>{event.status}</span>
+                          </div>
+                        </button>
+                      );
+                    })
+                  ) : (
+                    <div className="rounded-[12px] border border-dashed border-[var(--cfsp-border)] bg-[var(--cfsp-surface)] px-3 py-3 text-xs font-bold text-[var(--cfsp-text-muted)] sm:col-span-2">
+                      No matching event references.
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="grid content-start gap-2">
+                <input
+                  className="cfsp-input"
+                  value={referenceDetail}
+                  onChange={(event) => setReferenceDetail(event.target.value)}
+                  placeholder={referenceKind === "room" ? "Room or station, e.g. Exam Room 3" : "Optional context, e.g. faculty availability"}
+                  aria-label="Operations link context"
+                  disabled={savingPost}
+                />
+                {selectedEventReference ? (
+                  <div
+                    className="rounded-[12px] px-3 py-3 text-xs font-bold"
+                    style={{
+                      border: "1px solid rgba(44, 211, 173, 0.26)",
+                      background: "rgba(44, 211, 173, 0.10)",
+                      color: "var(--cfsp-green-dark)",
+                    }}
+                  >
+                    Linked to {selectedEventReference.name} • {selectedEventReference.dateLabel}
+                  </div>
+                ) : (
+                  <div className="rounded-[12px] border border-dashed border-[var(--cfsp-border)] bg-[var(--cfsp-surface)] px-3 py-3 text-xs font-bold text-[var(--cfsp-text-muted)]">
+                    Event link optional. The reference type still tags the signal for operational scanning.
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        ) : null}
 
         {selectedAttachmentFile ? (
           <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -1206,7 +1539,7 @@ export function SimVitalsFullExperience({
         }}
       >
         <div className="flex flex-wrap items-center gap-2">
-          <span className="cfsp-label mr-1">Feed filter</span>
+          <span className="cfsp-label mr-1">Signal filter</span>
           {(["all", ...simVitalsFeedTypeOrder] as Array<SimVitalsFeedType | "all">).map((type) => {
             const active = activeFilter === type;
             const typeLook = type === "all" ? null : simVitalsFeedTypeAppearance[type];
@@ -1240,17 +1573,23 @@ export function SimVitalsFullExperience({
 
       {feedLoading ? (
         <section className="rounded-[14px] border border-dashed border-[var(--cfsp-border)] bg-[var(--cfsp-surface)] px-5 py-7 text-sm font-bold text-[var(--cfsp-text-muted)]">
-          Loading SimVitals...
+          Loading SimVitals signals...
         </section>
       ) : filteredPosts.length ? (
-        <section className="grid gap-3 xl:grid-cols-2" aria-label="SimVitals feed">
+        <section className="grid gap-3 xl:grid-cols-2" aria-label="SimVitals signals">
           {filteredPosts.map((post) => (
-            <SimVitalsPostCard key={post.id} post={post} interactive onPostUpdate={handlePostUpdate} />
+            <SimVitalsPostCard
+              key={post.id}
+              post={post}
+              eventReference={post.linkedEventId ? eventReferenceById.get(post.linkedEventId) || null : null}
+              interactive
+              onPostUpdate={handlePostUpdate}
+            />
           ))}
         </section>
       ) : (
         <section className="rounded-[14px] border border-dashed border-[var(--cfsp-border)] bg-[var(--cfsp-surface)] px-5 py-7 text-sm font-bold text-[var(--cfsp-text-muted)]">
-          {posts.length ? "No SimVitals updates match this filter." : "No SimVitals updates yet."}
+          {posts.length ? "No SimVitals signals match this filter." : "No SimVitals signals yet."}
         </section>
       )}
     </div>

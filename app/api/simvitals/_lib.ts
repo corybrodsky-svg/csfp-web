@@ -41,10 +41,14 @@ export type SimVitalsAttachmentMetadata = {
   fileName: string;
   path: string;
   url: string;
+  previewUrl?: string;
+  downloadUrl?: string;
   mimeType: string;
   size: number;
   uploadedAt?: string;
   uploadedBy?: string;
+  linkedEventId?: string | null;
+  linkedEventName?: string;
 };
 
 export type SimVitalsViewer = {
@@ -179,10 +183,14 @@ export function normalizeSimVitalsAttachmentMetadata(
     fileName,
     path,
     url: getSimVitalsAttachmentUrl(path, fileName),
+    previewUrl: getSimVitalsAttachmentUrl(path, fileName, "preview"),
+    downloadUrl: getSimVitalsAttachmentUrl(path, fileName),
     mimeType,
     size,
     uploadedAt: asText(source.uploadedAt),
     uploadedBy: asText(source.uploadedBy),
+    linkedEventId: asText(source.linkedEventId) || null,
+    linkedEventName: asText(source.linkedEventName),
   };
 }
 

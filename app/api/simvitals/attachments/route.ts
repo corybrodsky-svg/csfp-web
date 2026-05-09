@@ -151,6 +151,8 @@ export async function POST(request: Request) {
       fileName,
       path: storagePath,
       url: getSimVitalsAttachmentUrl(storagePath, fileName),
+      previewUrl: getSimVitalsAttachmentUrl(storagePath, fileName, "preview"),
+      downloadUrl: getSimVitalsAttachmentUrl(storagePath, fileName),
       mimeType: uploadContentType,
       size: file.size,
       uploadedAt: new Date().toISOString(),

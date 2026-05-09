@@ -81,7 +81,7 @@ export default function SimVitalsPage() {
   return (
     <SiteShell
       title="SimVitals"
-      subtitle="Check SimVitals for simulation-native communication, operational telemetry, staffing alerts, faculty notes, and live lab coordination."
+      subtitle="Check SimVitals for simulation-native signals, operational telemetry, staffing alerts, faculty coordination, and live lab support."
     >
       <SimVitalsFullExperience displayName={displayName} profileRole={role} />
     </SiteShell>
