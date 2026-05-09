@@ -1062,6 +1062,86 @@ function sortItemsByRoomLabel<T>(items: T[], getRoomLabel: (item: T) => string |
     .map(({ item }) => item);
 }
 
+function getHighestRoomDisplayNumber(labels: Array<string | null | undefined>) {
+  return labels.reduce((highest, label) => {
+    const number = getRoomDisplayNumber(label);
+    return number !== null ? Math.max(highest, number) : highest;
+  }, 0);
+}
+
+function buildRoomLabelFromTemplate(template: string, roomNumber: number, fallbackPrefix = "Exam Room") {
+  const text = asText(template);
+  if (/\d+/.test(text)) return text.replace(/\d+/, String(roomNumber));
+  return `${fallbackPrefix} ${roomNumber}`;
+}
+
+function buildFullNumericRoomDisplayEntries(
+  roomLabels: Array<string | null | undefined>,
+  expectedRoomCount: number,
+  fallbackPrefix = "Exam Room"
+): RoomDisplayEntry[] {
+  const seen = new Set<string>();
+  const cleanedLabels = roomLabels
+    .map(asText)
+    .filter(Boolean)
+    .filter((label) => {
+      const key = label.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  const sortedLabels = sortRoomLabelsForDisplay(cleanedLabels);
+  const labelsByNumber = new Map<number, string>();
+  const unnumberedLabels: string[] = [];
+
+  sortedLabels.forEach((label) => {
+    const number = getRoomDisplayNumber(label);
+    if (number !== null && number > 0) {
+      if (!labelsByNumber.has(number)) labelsByNumber.set(number, label);
+      return;
+    }
+    unnumberedLabels.push(label);
+  });
+
+  if (!labelsByNumber.size && sortedLabels.length >= expectedRoomCount && expectedRoomCount > 0) {
+    return sortedLabels.map((roomName, sourceIndex) => ({ roomName, sourceIndex }));
+  }
+
+  if (!labelsByNumber.size) {
+    const fallbackCount = Math.max(expectedRoomCount, sortedLabels.length, 1);
+    return Array.from({ length: fallbackCount }, (_, index) => ({
+      roomName: sortedLabels[index] || `${fallbackPrefix} ${index + 1}`,
+      sourceIndex: index,
+    }));
+  }
+
+  const numericRoomCount = Math.max(expectedRoomCount, ...Array.from(labelsByNumber.keys()), 0);
+  if (numericRoomCount <= 0) {
+    const fallbackCount = Math.max(expectedRoomCount, sortedLabels.length, 1);
+    return Array.from({ length: fallbackCount }, (_, index) => ({
+      roomName: sortedLabels[index] || `${fallbackPrefix} ${index + 1}`,
+      sourceIndex: index,
+    }));
+  }
+
+  const template = sortedLabels.find((label) => getRoomDisplayNumber(label) !== null) || `${fallbackPrefix} 1`;
+  const numericEntries = Array.from({ length: numericRoomCount }, (_, index) => {
+    const roomNumber = index + 1;
+    return {
+      roomName: labelsByNumber.get(roomNumber) || buildRoomLabelFromTemplate(template, roomNumber, fallbackPrefix),
+      sourceIndex: index,
+    };
+  });
+
+  return [
+    ...numericEntries,
+    ...unnumberedLabels.map((roomName, index) => ({
+      roomName,
+      sourceIndex: numericRoomCount + index,
+    })),
+  ];
+}
+
 function getEmail(sp: SPRow) {
   return asText(sp.working_email) || asText(sp.email);
 }
@@ -3703,15 +3783,15 @@ const summaryTimeLabel = useMemo(() => {
     currentLiveBlock?.tone === "rotation" ? currentLiveBlock.roundNumber : null;
   const currentLiveRoomDisplayEntries = useMemo(() => {
     if (!currentLiveBlock?.rooms.length) return [] as RoomDisplayEntry[];
-
-    return sortItemsByRoomLabel(
-      currentLiveBlock.rooms.map((roomName, sourceIndex) => ({
-        roomName,
-        sourceIndex,
-      })),
-      (entry) => entry.roomName
+    const expectedRoomCount = Math.max(
+      metadataRoomCount || 0,
+      needed || 0,
+      currentLiveBlock.rooms.length,
+      getHighestRoomDisplayNumber(currentLiveBlock.rooms)
     );
-  }, [currentLiveBlock]);
+
+    return buildFullNumericRoomDisplayEntries(currentLiveBlock.rooms, expectedRoomCount);
+  }, [currentLiveBlock, metadataRoomCount, needed]);
   const defaultSelectedRotationRoundKey = useMemo(() => {
     if (!rotationRounds.length) return "";
     if (
@@ -4765,8 +4845,92 @@ const summaryTimeLabel = useMemo(() => {
     selectedRoundScheduleRows.length > 0 ||
     visibleSelectedRoundScheduleBlocks.length > 0;
   const selectedRoundTacticalBoardRows = useMemo(
-    () => sortItemsByRoomLabel(selectedRoundScheduleRows, (row) => row.roomName),
-    [selectedRoundScheduleRows]
+    () => {
+      if (!selectedRotationRound) return [] as typeof selectedRoundScheduleRows;
+
+      const roomLabels = [
+        ...selectedRotationRound.rooms,
+        ...selectedRoundScheduleRows.map((row) => row.roomName),
+      ];
+      const expectedRoomCount = Math.max(
+        metadataRoomCount || 0,
+        needed || 0,
+        selectedRotationRound.rooms.length,
+        selectedRoundScheduleRows.length,
+        getHighestRoomDisplayNumber(roomLabels)
+      );
+      const roomSlotEntries = buildFullNumericRoomDisplayEntries(roomLabels, expectedRoomCount);
+      const rowsByRoomNumber = new Map<number, (typeof selectedRoundScheduleRows)[number]>();
+      const rowsByRoomName = new Map<string, (typeof selectedRoundScheduleRows)[number]>();
+
+      selectedRoundScheduleRows.forEach((row) => {
+        const roomNumber = getRoomDisplayNumber(row.roomName);
+        if (roomNumber !== null && !rowsByRoomNumber.has(roomNumber)) {
+          rowsByRoomNumber.set(roomNumber, row);
+        }
+        rowsByRoomName.set(asText(row.roomName).toLowerCase(), row);
+      });
+
+      const learnersPerRow = scheduleBuilderLearnerNames.length ? scheduleBuilderRoomCapacity : 1;
+      const learnersPerRound = Math.max(roomSlotEntries.length, 1) * Math.max(learnersPerRow, 1);
+      const firstLearnerIndex = activeSelectedRotationRoundIndex * learnersPerRound;
+
+      return roomSlotEntries.map((entry, index) => {
+        const roomNumber = getRoomDisplayNumber(entry.roomName);
+        const existingRow =
+          (roomNumber !== null ? rowsByRoomNumber.get(roomNumber) : null) ||
+          rowsByRoomName.get(asText(entry.roomName).toLowerCase()) ||
+          null;
+        const assignment = sortedAssignments[entry.sourceIndex] || existingRow?.assignment || null;
+        const sp = assignment?.sp_id ? spsById.get(assignment.sp_id) || null : null;
+        const learnerLabels = existingRow?.learnerLabels.length
+          ? existingRow.learnerLabels
+          : Array.from({ length: Math.max(learnersPerRow, 1) }, (_, learnerOffset) => {
+              const learnerIndex = firstLearnerIndex + entry.sourceIndex * Math.max(learnersPerRow, 1) + learnerOffset;
+              if (scheduleBuilderLearnerNames[learnerIndex]) return scheduleBuilderLearnerNames[learnerIndex];
+              if (metadataStudentCount > 0 && learnerIndex < metadataStudentCount) return `Learner slot ${learnerIndex + 1}`;
+              return "";
+            }).filter(Boolean);
+        const flags = Array.from(
+          new Set(
+            [
+              ...(existingRow?.flags || []).filter((flag) => flag !== "Missing SP"),
+              assignment && !sp ? "Missing SP profile" : "",
+              staffingRelevant && !assignment ? "Empty" : "",
+              staffingRelevant && !assignment ? "Unassigned" : "",
+            ].filter(Boolean)
+          )
+        );
+
+        return {
+          key: `${selectedRotationRound.key}-room-slot-${entry.sourceIndex}-${index}`,
+          roomName: entry.roomName,
+          location: existingRow?.location || asText(event?.location),
+          learnerLabels,
+          assignment,
+          sp,
+          caseLabel: existingRow?.caseLabel || selectedRoundCaseLabel,
+          stationLabel: existingRow?.stationLabel || selectedRoundStationLabel,
+          flags,
+        };
+      });
+    },
+    [
+      activeSelectedRotationRoundIndex,
+      event?.location,
+      metadataRoomCount,
+      metadataStudentCount,
+      needed,
+      scheduleBuilderLearnerNames,
+      scheduleBuilderRoomCapacity,
+      selectedRotationRound,
+      selectedRoundCaseLabel,
+      selectedRoundScheduleRows,
+      selectedRoundStationLabel,
+      sortedAssignments,
+      spsById,
+      staffingRelevant,
+    ]
   );
   const rotationSurfaceRoomCount =
     selectedRoundScheduleRows.length ||
@@ -4785,12 +4949,13 @@ const summaryTimeLabel = useMemo(() => {
     selectedRotationRound ? `Selected Round ${activeSelectedRotationRoundIndex + 1}` : "No round selected",
   ];
   const tacticalRoomBoardRoomCount =
+    selectedRoundTacticalBoardRows.length ||
     selectedRoundScheduleRows.length ||
     selectedRotationRound?.rooms.length ||
     metadataRoomCount ||
     0;
-  const tacticalRoomBoardCoverageCount = selectedRoundScheduleRows.length
-    ? selectedRoundScheduleRows.filter((row) => Boolean(row.assignment)).length
+  const tacticalRoomBoardCoverageCount = selectedRoundTacticalBoardRows.length
+    ? selectedRoundTacticalBoardRows.filter((row) => Boolean(row.assignment)).length
     : Math.min(sortedAssignments.length, tacticalRoomBoardRoomCount || sortedAssignments.length);
   const tacticalRoomBoardSummary = [
     `${tacticalRoomBoardRoomCount} room${tacticalRoomBoardRoomCount === 1 ? "" : "s"}`,
@@ -5204,24 +5369,22 @@ const summaryTimeLabel = useMemo(() => {
     simulatedLiveMinutes,
   ]);
   const liveBlueprintRoomEntries = useMemo(() => {
-    const sourceEntries = currentLiveRoomDisplayEntries.length
-      ? currentLiveRoomDisplayEntries
-      : (selectedRotationRound?.rooms.length
-          ? selectedRotationRound.rooms
-          : rotationRounds[0]?.rooms || []
-        ).map((roomName, sourceIndex) => ({
-          roomName,
-          sourceIndex,
-        }));
-    const sortedSourceEntries = sortItemsByRoomLabel(sourceEntries, (entry) => entry.roomName);
-    const fallbackRoomCount = Math.max(metadataRoomCount || 0, sortedAssignments.length || 0, 8);
-    const roomCount = sortedSourceEntries.length || fallbackRoomCount;
+    if (currentLiveRoomDisplayEntries.length) return currentLiveRoomDisplayEntries;
 
-    return Array.from({ length: Math.max(roomCount, 1) }, (_, index) => ({
-      roomName: asText(sortedSourceEntries[index]?.roomName) || `Room ${index + 1}`,
-      sourceIndex: sortedSourceEntries[index]?.sourceIndex ?? index,
-    }));
-  }, [currentLiveRoomDisplayEntries, metadataRoomCount, rotationRounds, selectedRotationRound, sortedAssignments.length]);
+    const fallbackRoomLabels = selectedRotationRound?.rooms.length
+      ? selectedRotationRound.rooms
+      : rotationRounds[0]?.rooms || [];
+    const fallbackRoomCount = Math.max(
+      metadataRoomCount || 0,
+      needed || 0,
+      sortedAssignments.length || 0,
+      fallbackRoomLabels.length,
+      getHighestRoomDisplayNumber(fallbackRoomLabels),
+      8
+    );
+
+    return buildFullNumericRoomDisplayEntries(fallbackRoomLabels, fallbackRoomCount);
+  }, [currentLiveRoomDisplayEntries, metadataRoomCount, needed, rotationRounds, selectedRotationRound, sortedAssignments.length]);
   const liveAttendanceBlueprintRooms = useMemo(
     () =>
       liveBlueprintRoomEntries.map(({ roomName, sourceIndex }, index) => {
@@ -12444,7 +12607,7 @@ Cory`;
                           <div style={{ ...statCard, background: commandCenterVisual.rowBackground, border: commandCenterVisual.rowBorder }}>
                             <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Rooms in Use</div>
                             <div style={{ ...statValue, color: commandCenterVisual.textColor, fontSize: "16px" }}>
-                              {selectedRotationRound.rooms.length || metadataRoomCount || 0}
+                              {tacticalRoomBoardRoomCount || selectedRotationRound.rooms.length || metadataRoomCount || 0}
                             </div>
                           </div>
                           {roundCompanionView !== "sp" && selectedRoundLearnerCount !== null ? (
@@ -12606,13 +12769,13 @@ Cory`;
                             {[
                               {
                                 label: "Rooms Mapped",
-                                value: selectedRoundScheduleRows.length || selectedRotationRound.rooms.length || metadataRoomCount || 0,
+                                value: selectedRoundTacticalBoardRows.length || selectedRoundScheduleRows.length || selectedRotationRound.rooms.length || metadataRoomCount || 0,
                                 detail: "encounter slots",
                               },
                               {
                                 label: "SP Coverage",
                                 value: staffingRelevant
-                                  ? `${selectedRoundScheduleRows.filter((row) => Boolean(row.assignment)).length}/${selectedRoundScheduleRows.length || selectedRotationRound.rooms.length || metadataRoomCount || 0}`
+                                  ? `${selectedRoundTacticalBoardRows.filter((row) => Boolean(row.assignment)).length}/${selectedRoundTacticalBoardRows.length || selectedRoundScheduleRows.length || selectedRotationRound.rooms.length || metadataRoomCount || 0}`
                                   : "Optional",
                                 detail: staffingRelevant ? "assigned to canvas" : "no SP workflow",
                               },
@@ -12653,8 +12816,10 @@ Cory`;
                             >
                               {selectedRoundTacticalBoardRows.map((row, index) => {
                                 const hasFlags = row.flags.length > 0;
-                                const statusLabel = hasFlags
-                                  ? "Needs attention"
+                                const statusLabel = !row.assignment && staffingRelevant
+                                  ? "Needs SP"
+                                  : hasFlags
+                                    ? "Needs attention"
                                   : row.assignment
                                     ? "Covered"
                                     : staffingRelevant
@@ -12720,7 +12885,7 @@ Cory`;
 
                                     <div style={{ display: "grid", gap: "8px" }}>
                                       {[
-                                        { label: "SP", value: row.sp ? getFullName(row.sp) : staffingRelevant ? "SP TBD" : "No SP required" },
+                                        { label: "SP", value: row.sp ? getFullName(row.sp) : staffingRelevant ? "Unassigned" : "No SP required" },
                                         { label: "Learner / Group", value: row.learnerLabels.length ? row.learnerLabels.join(", ") : "Learner TBD" },
                                         { label: "Encounter", value: encounterLabel },
                                         {
