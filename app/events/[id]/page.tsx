@@ -3197,8 +3197,8 @@ export default function EventDetailPage() {
   const selectedStaffingCount = staffedCount;
   const contactedAssignmentCount = pollInviteOnlyAssignments.length;
   const needed = Number(event?.sp_needed || 0);
-  const shortage = Math.max(needed - staffedCount, 0);
-  const workflowTone = getCoverageWorkflowTone(needed, selectedStaffingCount, contactedAssignmentCount);
+  const shortage = Math.max(needed - confirmedCount, 0);
+  const workflowTone = getCoverageWorkflowTone(needed, confirmedCount, contactedAssignmentCount);
   const eventMeta = classifyEventPresentation({
     name: event?.name,
     status: event?.status,
@@ -3207,7 +3207,7 @@ export default function EventDetailPage() {
     visibility: event?.visibility,
     spNeeded: needed,
     assignmentCount: hiredAssignments.length,
-    confirmedCount: staffedCount,
+    confirmedCount: selectedStaffingCount,
     isWorkshop: isSkillsWorkshopEvent(needed, hiredAssignments.length, staffedCount),
   });
   const badgeAppearance = getEventBadgeAppearance(eventMeta.primaryBadgeKind);
@@ -3240,13 +3240,13 @@ export default function EventDetailPage() {
             color: planningSuccessText,
           }
         : {
-            message: `${shortage} SP${shortage === 1 ? "" : "s"} still needed`,
+            message: `${shortage} primary SP${shortage === 1 ? "" : "s"} still needed`,
             background: shortage <= 2 ? "#fff7ed" : "#fff5f5",
             border: shortage <= 2 ? "1px solid #fed7aa" : "1px solid #fecaca",
             color: shortage <= 2 ? "#9a3412" : "#991b1b",
           };
   const coveragePercent =
-    needed > 0 ? Math.min(100, Math.round((staffedCount / needed) * 100)) : 0;
+    needed > 0 ? Math.min(100, Math.round((confirmedCount / needed) * 100)) : 0;
   const importedYearHint = getImportedYearHint(event?.notes);
   const metadataStudentCount = useMemo(
     () => parseIntegerNoteValue(event?.notes, "Student Count"),
@@ -4026,7 +4026,7 @@ const summaryTimeLabel = useMemo(() => {
           ? "Materials not reviewed"
           : "";
     const items = [
-      { label: "Needs Staffing", active: staffingRelevant && selectedStaffingCount < Math.max(needed, 1) },
+      { label: "Needs Staffing", active: staffingRelevant && confirmedCount < Math.max(needed, 1) },
       { label: "Needs Faculty", active: !facultyReadinessComplete },
       { label: materialsReadinessLabel, active: Boolean(materialsReadinessLabel) },
       { label: "Awaiting Schedule", active: !rotationRounds.length || summaryTimeLabel === "Time TBD" },
@@ -4038,6 +4038,7 @@ const summaryTimeLabel = useMemo(() => {
     };
   }, [
     facultyReadinessComplete,
+    confirmedCount,
     hasAnyMaterialEvidence,
     hasRoomsBuilt,
     hasSavedMaterialsReadiness,
@@ -4046,7 +4047,6 @@ const summaryTimeLabel = useMemo(() => {
     materialsStatusLabel,
     needed,
     rotationRounds.length,
-    selectedStaffingCount,
     staffingRelevant,
     summaryTimeLabel,
   ]);
@@ -4676,14 +4676,14 @@ const summaryTimeLabel = useMemo(() => {
   const pollResponseRate = pollResponderEntries.length
     ? Math.round(((availablePollResponders.length + maybePollResponders.length + unavailablePollResponders.length) / pollResponderEntries.length) * 100)
     : 0;
-  const coverageGap = Math.max(needed - staffedCount, 0);
+  const coverageGap = Math.max(needed - confirmedCount, 0);
   const availableCoverageCount = availablePollResponders.filter(
     (entry) => entry.isActive && entry.pollResponseStatus === "available" && entry.assignmentStatus !== "declined"
   ).length;
   const coverageRiskTone =
-    needed <= 0 || selectedStaffingCount >= needed
+    needed <= 0 || confirmedCount >= needed
       ? "green"
-      : selectedStaffingCount + availableCoverageCount >= needed
+      : confirmedCount + availableCoverageCount >= needed
         ? "yellow"
         : "red";
   const staffingHealthLabel =
@@ -4694,8 +4694,8 @@ const summaryTimeLabel = useMemo(() => {
       : coverageRiskTone === "green"
         ? "Coverage met"
       : coverageRiskTone === "yellow"
-        ? `Short by ${coverageGap}`
-        : `Understaffed by ${coverageGap}`;
+        ? `Short by ${coverageGap} primary`
+        : `Understaffed by ${coverageGap} primary`;
   const firstLiveRotationStartMinutes = liveFlowBlocks.find((block) => block.tone === "rotation")?.startMinutes ?? null;
   const checkedInAssignedCount = attendedCount;
   const missingAssignedCount = useMemo(
@@ -4774,7 +4774,7 @@ const summaryTimeLabel = useMemo(() => {
     if (shortageCount > 0) {
       alerts.push({
         tone: liveStaffingHealthTone === "yellow" ? "warning" : "danger",
-        message: `Staffing still short by ${shortageCount}.`,
+        message: `Primary staffing still short by ${shortageCount}.`,
       });
     }
     return alerts.slice(0, 4);
@@ -5378,10 +5378,10 @@ Cory`;
           {
             id: "sp_confirmations_complete",
             label: "SP staffing complete",
-            autoComplete: noSpStaffingRequired || (needed > 0 && selectedStaffingCount >= needed),
+            autoComplete: noSpStaffingRequired || (needed > 0 && confirmedCount >= needed),
             detail: noSpStaffingRequired
               ? "No confirmations required."
-              : `${selectedStaffingCount} selected of ${needed} needed (${confirmedCount} primary, ${backupCount} backup).`,
+              : `${confirmedCount} primary confirmed of ${needed} needed (${backupCount} backup optional).`,
           },
           {
             id: "sp_training_scheduled",
@@ -5520,17 +5520,17 @@ Cory`;
         value: noSpStaffingRequired
           ? "Not required"
           : needed > 0
-            ? `${selectedStaffingCount} selected / ${needed} needed`
+            ? `${confirmedCount} primary / ${needed} needed`
             : `${selectedStaffingCount} selected`,
-        complete: noSpStaffingRequired || (needed > 0 ? selectedStaffingCount >= needed : selectedStaffingCount > 0),
+        complete: noSpStaffingRequired || (needed > 0 ? confirmedCount >= needed : selectedStaffingCount > 0),
         detail: noSpStaffingRequired
           ? "No SP staffing required."
           : needed > 0
-            ? selectedStaffingCount >= needed
-              ? `${confirmedCount} confirmed primary / ${backupCount} backup`
-              : `${Math.max(needed - selectedStaffingCount, 0)} selected staffing slot${Math.max(needed - selectedStaffingCount, 0) === 1 ? "" : "s"} open`
+            ? confirmedCount >= needed
+              ? `${backupCount} backup selected · backup optional`
+              : `${Math.max(needed - confirmedCount, 0)} primary slot${Math.max(needed - confirmedCount, 0) === 1 ? "" : "s"} open · ${backupCount} backup selected`
             : selectedStaffingCount > 0
-              ? `${confirmedCount} confirmed primary / ${backupCount} backup`
+              ? `${confirmedCount} primary / ${backupCount} backup selected`
               : contactedAssignmentCount > 0
                 ? `${contactedAssignmentCount} contacted, none selected for staffing`
                 : "No selected roster yet",
@@ -7015,7 +7015,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                 tone: missingAssignedCount > 0 ? "var(--cfsp-warning)" : "#d9f99d",
               },
               {
-                label: "Backup Available",
+                label: "Optional Backup",
                 value: String(backupAvailableCount),
                 tone: backupAvailableCount > 0 ? "#7dd3fc" : "var(--cfsp-text-muted)",
               },
@@ -8206,8 +8206,8 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                   {[
                     { label: "Needed", value: needed, tone: "var(--cfsp-text)" },
                     { label: "Confirmed", value: confirmedCount, tone: "#047857" },
-                    { label: "Backup", value: backupCount, tone: "#2563eb" },
-                    { label: "Shortage", value: shortageCount, tone: shortageCount > 0 ? "var(--cfsp-danger)" : "var(--cfsp-text-muted)" },
+                    { label: "Backup Optional", value: backupCount, tone: "#2563eb" },
+                    { label: "Primary Open", value: shortageCount, tone: shortageCount > 0 ? "var(--cfsp-danger)" : "var(--cfsp-text-muted)" },
                     { label: "Available", value: availablePollResponders.length, tone: "#047857" },
                     { label: "Maybe", value: maybePollResponders.length, tone: "var(--cfsp-warning)" },
                   ].map((item) => (
@@ -8258,12 +8258,14 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                   <div style={staffingMetricCardStyle}>
                     <div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Operational Summary</div>
                     <div style={{ marginTop: "4px", color: coverageRiskTone === "green" ? planningSuccessText : staffingWorkspacePalette.textStrong, fontWeight: 800, fontSize: "13px" }}>
-                      {coverageRiskTone === "green" ? staffingHealthLabel : `Short by ${Math.max(needed - selectedStaffingCount, 0)}`}
+                      {coverageRiskTone === "green" ? staffingHealthLabel : `Short by ${Math.max(needed - confirmedCount, 0)} primary`}
                     </div>
                     <div style={{ marginTop: "4px", color: staffingWorkspacePalette.textMuted, fontWeight: 700, fontSize: "12px" }}>
-                      {maybePollResponders.length
-                        ? `Backup coverage available from ${maybePollResponders.length} maybe responder${maybePollResponders.length === 1 ? "" : "s"}.`
-                        : "No backup responses yet."}
+                      {backupCount > 0
+                        ? `${backupCount} backup selected as optional support.`
+                        : maybePollResponders.length
+                          ? `${maybePollResponders.length} maybe responder${maybePollResponders.length === 1 ? "" : "s"} available for optional backup.`
+                          : "Backup optional. Most events use 0-1 backup depending on size."}
                     </div>
                     <div style={{ marginTop: "4px", color: staffingWorkspacePalette.textMuted, fontWeight: 700, fontSize: "12px" }}>
                       Poll response rate: {pollResponseRate}%
@@ -8338,6 +8340,9 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                       />
                       Include backups
                     </label>
+                    <span style={{ ...staffingMutedTextStyle, alignSelf: "center" }}>
+                      Backup emails are optional support.
+                    </span>
                     <button
                       type="button"
                       onClick={() => setShowEmailDraft((current) => !current)}
@@ -8516,7 +8521,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                                             disabled={saving || entry.assignmentStatus === "backup"}
                                             style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px", opacity: saving || entry.assignmentStatus === "backup" ? 0.65 : 1 }}
                                           >
-                                            {entry.assignmentStatus === "backup" ? "Backup Confirmed" : "Confirm Backup"}
+                                            {entry.assignmentStatus === "backup" ? "Backup Selected" : "Select Backup"}
                                           </button>
                                         </>
                                       ) : (
@@ -8526,7 +8531,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                                           disabled={saving || entry.assignmentStatus === "backup"}
                                           style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px", opacity: saving || entry.assignmentStatus === "backup" ? 0.65 : 1 }}
                                         >
-                                          {entry.assignmentStatus === "backup" ? "Backup Confirmed" : "Move to Backup"}
+                                          {entry.assignmentStatus === "backup" ? "Backup Selected" : "Move to Backup"}
                                         </button>
                                       )}
 
@@ -8677,7 +8682,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                     },
                     {
                       value: "backup",
-                      label: `Backup (${sortedAssignments.filter((item) => getAssignmentStatus(item) === "backup").length})`,
+                      label: `Optional Backup (${sortedAssignments.filter((item) => getAssignmentStatus(item) === "backup").length})`,
                     },
                   ].map((filter) => (
                     <button
@@ -8918,7 +8923,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                     <div>
                       <div style={{ ...statLabel, color: staffingWorkspacePalette.textStrong }}>Candidate SP Pool</div>
                       <div style={{ marginTop: "4px", color: staffingWorkspacePalette.textMuted, fontWeight: 700, fontSize: "13px" }}>
-                        Browse addable candidates only when you need more selected staffing coverage.
+                        Browse addable candidates when you need more primary coverage or optional backup support.
                       </div>
                     </div>
                   </div>
@@ -9447,7 +9452,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                         { value: "available", label: `Available only (${availablePollResponders.length})` },
                         { value: "confirmed", label: `Confirmed only (${availablePollResponders.filter((entry) => entry.isConfirmed).length})` },
                         { value: "needs_outreach", label: `Needs outreach (${needsOutreachCount})` },
-                        { value: "backup", label: `Backup candidates (${maybePollResponders.length})` },
+                        { value: "backup", label: `Optional backup candidates (${maybePollResponders.length})` },
                       ].map((filter) => (
                         <button
                           key={filter.value}
@@ -10445,8 +10450,11 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                     label: "Staffing",
                     value: isTrainingMode
                       ? `${selectedStaffingCount} selected / ${confirmedCount} confirmed`
-                      : `${selectedStaffingCount}/${needed || 0} selected`,
-                    chips: [staffingHealthLabel, shortageCount > 0 ? `${shortageCount} open` : "Covered"].slice(0, 2),
+                      : needed > 0
+                        ? `${confirmedCount} primary / ${needed} needed`
+                        : `${selectedStaffingCount} selected`,
+                    subvalue: !isTrainingMode && staffingRelevant ? `${backupCount} backup selected` : "",
+                    chips: [staffingHealthLabel, backupCount > 0 ? "Extra coverage" : "Backup optional"].slice(0, 2),
                   },
                   {
                     label: "Status",
@@ -12126,7 +12134,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                 <div>
                   <h2 style={compactSectionTitleStyle}>Selected SPs</h2>
                   <p style={compactSectionHintStyle}>
-                    {selectedStaffingCount} selected / {confirmedCount} confirmed
+                    {confirmedCount} primary confirmed / {backupCount} backup selected
                   </p>
                 </div>
                 <div
@@ -12735,7 +12743,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                   : isWorkshop
                   ? "No SP staffing required for this event"
                   : needed > 0
-                    ? `${coveragePercent}% selected staffing coverage`
+                    ? `${coveragePercent}% primary coverage · ${backupCount} backup selected`
                     : "No SP target set"}
               </div>
             </div>
@@ -13161,7 +13169,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                   {needed} SPs needed / {confirmedCount} confirmed
                 </div>
                 <div style={{ color: "var(--cfsp-warning)", fontWeight: 800 }}>
-                  {Math.max(needed - selectedStaffingCount, 0)} selected staffing slot{Math.max(needed - selectedStaffingCount, 0) === 1 ? "" : "s"} still open
+                  {Math.max(needed - confirmedCount, 0)} primary slot{Math.max(needed - confirmedCount, 0) === 1 ? "" : "s"} still open
                 </div>
               </div>
             ) : null}
@@ -13604,14 +13612,16 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                 <div style={{ ...statCard, padding: "12px 14px", background: "var(--cfsp-surface)" }}>
                   <div style={statLabel}>Operational Staffing</div>
                   <div style={{ marginTop: "4px", color: "var(--cfsp-text)", fontWeight: 800 }}>
-                    {selectedStaffingCount >= needed
+                    {confirmedCount >= needed
                       ? "Coverage met"
-                      : `Short by ${Math.max(needed - selectedStaffingCount, 0)}`}
+                      : `Short by ${Math.max(needed - confirmedCount, 0)} primary`}
                   </div>
                   <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
-                    {maybePollResponders.length
-                      ? `Backup coverage available from ${maybePollResponders.length} maybe responder${maybePollResponders.length === 1 ? "" : "s"}.`
-                      : "No backup responses yet."}
+                    {backupCount > 0
+                      ? `${backupCount} backup selected as optional support.`
+                      : maybePollResponders.length
+                        ? `${maybePollResponders.length} maybe responder${maybePollResponders.length === 1 ? "" : "s"} available for optional backup.`
+                        : "Backup optional. Most events use 0-1 backup depending on size."}
                   </div>
                   <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
                     Poll response rate: {pollResponseRate}%
@@ -13907,11 +13917,11 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                         empty: "No top matches yet.",
                       },
                       {
-                        title: `Backup Matches (${matchMakerBackupMatches.length})`,
+                        title: `Optional Backup Matches (${matchMakerBackupMatches.length})`,
                         tone: "rgba(243, 187, 103, 0.12)",
                         border: "1px solid rgba(243, 187, 103, 0.24)",
                         rows: matchMakerBackupMatches.slice(0, Math.max(needed, 4)),
-                        empty: "No backup matches yet.",
+                        empty: "No optional backup matches yet.",
                       },
                       {
                         title: `Avoid (${matchMakerAvoidList.length})`,
@@ -14051,7 +14061,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                   { value: "available", label: `Available only (${availablePollResponders.length})` },
                   { value: "confirmed", label: `Confirmed only (${availablePollResponders.filter((entry) => entry.isConfirmed).length})` },
                   { value: "needs_outreach", label: `Needs outreach (${needsOutreachCount})` },
-                  { value: "backup", label: `Backup candidates (${maybePollResponders.length})` },
+                  { value: "backup", label: `Optional backup candidates (${maybePollResponders.length})` },
                 ].map((filter) => (
                   <button
                     key={filter.value}
