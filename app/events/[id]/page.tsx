@@ -466,6 +466,47 @@ const recordingStatusOptions = [
 
 type RecordingStatusValue = (typeof recordingStatusOptions)[number]["value"];
 
+const materialsReadinessOptions = [
+  {
+    value: "materials_not_reviewed",
+    label: "Materials Not Reviewed",
+    reportLabel: "Not reviewed",
+    complete: false,
+  },
+  {
+    value: "materials_needed",
+    label: "Materials Needed",
+    reportLabel: "Materials needed",
+    complete: false,
+  },
+  {
+    value: "awaiting_faculty_materials",
+    label: "Awaiting Faculty Materials",
+    reportLabel: "Awaiting faculty materials",
+    complete: false,
+  },
+  {
+    value: "materials_uploaded",
+    label: "Materials Uploaded",
+    reportLabel: "Materials uploaded",
+    complete: false,
+  },
+  {
+    value: "materials_ready",
+    label: "Materials Ready",
+    reportLabel: "Materials ready",
+    complete: true,
+  },
+  {
+    value: "materials_not_required",
+    label: "Materials Not Required",
+    reportLabel: "Not required",
+    complete: true,
+  },
+] as const;
+
+type MaterialsReadinessValue = (typeof materialsReadinessOptions)[number]["value"];
+
 const assignmentStatuses: AssignmentStatus[] = [
   "invited",
   "contacted",
@@ -754,6 +795,35 @@ function getRecordingStatusOption(value: unknown) {
   const normalized = normalizeRecordingStatusValue(value);
   return normalized
     ? recordingStatusOptions.find((option) => option.value === normalized) || null
+    : null;
+}
+
+function normalizeMaterialsReadinessValue(value: unknown): MaterialsReadinessValue | "" {
+  const normalized = asText(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  const aliases: Record<string, MaterialsReadinessValue> = {
+    not_reviewed: "materials_not_reviewed",
+    materials_not_reviewed: "materials_not_reviewed",
+    materials_needed: "materials_needed",
+    needs_materials: "materials_needed",
+    awaiting_faculty_materials: "awaiting_faculty_materials",
+    faculty_materials_pending: "awaiting_faculty_materials",
+    materials_uploaded: "materials_uploaded",
+    uploaded: "materials_uploaded",
+    materials_ready: "materials_ready",
+    ready: "materials_ready",
+    materials_not_required: "materials_not_required",
+    not_required: "materials_not_required",
+  };
+  return aliases[normalized] || "";
+}
+
+function getMaterialsReadinessOption(value: unknown) {
+  const normalized = normalizeMaterialsReadinessValue(value);
+  return normalized
+    ? materialsReadinessOptions.find((option) => option.value === normalized) || null
     : null;
 }
 
@@ -1324,6 +1394,19 @@ function parseNoteValue(notes: string | null | undefined, label: string) {
   const escapedLabel = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const match = text.match(new RegExp(`^${escapedLabel}\\s*:\\s*(.+)$`, "im"));
   return match ? match[1].trim() : "";
+}
+
+function upsertNoteValue(notes: string | null | undefined, label: string, value: string) {
+  const text = asText(notes);
+  const escapedLabel = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const linePattern = new RegExp(`^${escapedLabel}\\s*:\\s*.*$`, "im");
+  const nextLine = `${label}: ${value}`;
+
+  if (linePattern.test(text)) {
+    return text.replace(linePattern, nextLine);
+  }
+
+  return text ? `${text}\n${nextLine}` : nextLine;
 }
 
 function getFirstNoteValue(notes: string | null | undefined, labels: string[]) {
@@ -2216,14 +2299,13 @@ function inferEventModalityLabel(eventTypeSet: Set<EditableEventType>, metadata:
   return "In-person";
 }
 
-function getMaterialStatusLabel(metadata: TrainingEventMetadata) {
-  const materialsReady = [
+function hasMaterialEvidence(metadata: TrainingEventMetadata) {
+  return [
     metadata.case_file_url,
     metadata.doorsign_url,
     metadata.supplemental_doc_url,
     metadata.case_name,
   ].some((value) => Boolean(asText(value)));
-  return materialsReady ? "Ready" : "Needs materials";
 }
 
 function getEmailStatusLabel(metadata: TrainingEventMetadata) {
@@ -3640,7 +3722,42 @@ const summaryTimeLabel = useMemo(() => {
   const facultyPhoneText = trainingMetadata.faculty_phone;
   const trainingSimContact =
     trainingMetadata.sim_contact || simStaffNames.join(", ") || "Sim Team Assigned";
-  const materialsStatusLabel = getMaterialStatusLabel(trainingMetadata);
+  const eventMaterialUrl = asText(trainingMetadata.staffing_doc_url);
+  const eventMaterialName =
+    asText(trainingMetadata.staffing_doc_name) ||
+    getFilenameFromUrl(eventMaterialUrl) ||
+    "Event Material";
+  const eventMaterialStoragePath = asText(trainingMetadata.staffing_doc_storage_path);
+  const eventMaterialBusy = trainingMaterialSaving.staffing_doc;
+  const materialsReadinessRaw = getFirstNoteValue(eventEditor.notes || event?.notes, [
+    "Materials Readiness",
+    "Materials Status",
+  ]);
+  const savedMaterialsReadinessValue = normalizeMaterialsReadinessValue(materialsReadinessRaw);
+  const hasSavedMaterialsReadiness = Boolean(savedMaterialsReadinessValue);
+  const materialsReadinessOption =
+    getMaterialsReadinessOption(savedMaterialsReadinessValue || "materials_not_reviewed") ||
+    materialsReadinessOptions[0];
+  const hasUploadedEventMaterial = Boolean(eventMaterialUrl);
+  const hasAnyMaterialEvidence = hasUploadedEventMaterial || hasMaterialEvidence(trainingMetadata);
+  const materialsStatusLabel = hasSavedMaterialsReadiness
+    ? materialsReadinessOption.reportLabel
+    : hasUploadedEventMaterial
+      ? "Materials uploaded — review needed"
+      : "Not reviewed";
+  const materialsReadinessComplete = hasSavedMaterialsReadiness && materialsReadinessOption.complete;
+  const materialsReadinessNeedsAttention =
+    savedMaterialsReadinessValue === "materials_needed" ||
+    savedMaterialsReadinessValue === "awaiting_faculty_materials";
+  const materialsReadinessReviewNeeded =
+    !hasSavedMaterialsReadiness && hasUploadedEventMaterial;
+  const materialsReadinessDetail = hasSavedMaterialsReadiness
+    ? materialsReadinessOption.label
+    : hasUploadedEventMaterial
+      ? "Event material uploaded; admin review still needed."
+      : hasAnyMaterialEvidence
+        ? "Materials evidence exists; readiness has not been reviewed."
+        : "No materials requirement has been reviewed yet.";
   const emailStatusLabel = getEmailStatusLabel(trainingMetadata);
   const facultyReadinessComplete = Boolean(
     trainingFacultyText || facultyEmailText || facultyPhoneText || trainingMetadata.sim_contact || hasFaculty
@@ -3691,10 +3808,6 @@ const summaryTimeLabel = useMemo(() => {
     ],
     [trainingMetadata.case_name]
   );
-  const trainingCaseStatus =
-    trainingMetadata.case_name || trainingMetadata.case_file_url || trainingMetadata.case_file_name
-      ? "Ready"
-      : "Needs case";
   const trainingRosterPreview = useMemo(
     () => (showAllTrainingRoster ? sortedAssignments : sortedAssignments.slice(0, 8)),
     [showAllTrainingRoster, sortedAssignments]
@@ -3905,10 +4018,17 @@ const summaryTimeLabel = useMemo(() => {
     return chips.length ? chips : ["Operational Sim"];
   }, [eventSummarySourceText, isTrainingMode]);
   const operationalReadinessItems = useMemo(() => {
+    const materialsReadinessLabel = materialsReadinessNeedsAttention
+      ? materialsStatusLabel
+      : materialsReadinessReviewNeeded
+        ? "Materials review needed"
+        : !hasSavedMaterialsReadiness && hasAnyMaterialEvidence
+          ? "Materials not reviewed"
+          : "";
     const items = [
       { label: "Needs Staffing", active: staffingRelevant && selectedStaffingCount < Math.max(needed, 1) },
       { label: "Needs Faculty", active: !facultyReadinessComplete },
-      { label: "Needs Materials", active: materialsStatusLabel !== "Ready" },
+      { label: materialsReadinessLabel, active: Boolean(materialsReadinessLabel) },
       { label: "Awaiting Schedule", active: !rotationRounds.length || summaryTimeLabel === "Time TBD" },
       { label: "Awaiting Rooms", active: !hasRoomsBuilt },
     ];
@@ -3918,7 +4038,11 @@ const summaryTimeLabel = useMemo(() => {
     };
   }, [
     facultyReadinessComplete,
+    hasAnyMaterialEvidence,
     hasRoomsBuilt,
+    hasSavedMaterialsReadiness,
+    materialsReadinessNeedsAttention,
+    materialsReadinessReviewNeeded,
     materialsStatusLabel,
     needed,
     rotationRounds.length,
@@ -3948,6 +4072,8 @@ const summaryTimeLabel = useMemo(() => {
   );
   const materialsStatusItems = useMemo(
     () => [
+      { label: materialsStatusLabel, active: true },
+      { label: "Event Material Uploaded", active: hasUploadedEventMaterial },
       { label: "Case Uploaded", active: Boolean(trainingMetadata.case_file_url || trainingMetadata.case_name) },
       { label: "Door Signs Ready", active: Boolean(trainingMetadata.doorsign_url) },
       { label: "Zoom Ready", active: Boolean(trainingMetadata.zoom_url) || selectedModalityLabel === "Virtual" || selectedModalityLabel === "Hybrid" },
@@ -3956,6 +4082,8 @@ const summaryTimeLabel = useMemo(() => {
     ],
     [
       eventSummarySourceText,
+      hasUploadedEventMaterial,
+      materialsStatusLabel,
       recordingSupportActive,
       selectedModalityLabel,
       trainingMetadata.case_file_url,
@@ -3971,14 +4099,14 @@ const summaryTimeLabel = useMemo(() => {
     if (!facultyReadinessComplete) score += 2;
     if (!rotationRounds.length || summaryTimeLabel === "Time TBD") score += 2;
     if (!hasRoomsBuilt) score += 1;
-    if (materialsStatusLabel !== "Ready") score += 2;
+    if (materialsReadinessNeedsAttention) score += 2;
     if (score <= 1) return { label: "Stable", tone: "green", detail: "Operational plan is in good shape." };
     if (score <= 4) return { label: "Moderate Risk", tone: "yellow", detail: "A few planning dependencies still need follow-through." };
     return { label: "High Risk", tone: "red", detail: "Critical planning gaps could disrupt simulation flow." };
   }, [
     facultyReadinessComplete,
     hasRoomsBuilt,
-    materialsStatusLabel,
+    materialsReadinessNeedsAttention,
     rotationRounds.length,
     shortageCount,
     staffingRelevant,
@@ -5418,8 +5546,8 @@ Cory`;
         id: "materials",
         label: "Materials readiness",
         value: materialsStatusLabel,
-        complete: materialsStatusLabel === "Ready",
-        detail: trainingCaseStatus,
+        complete: materialsReadinessComplete,
+        detail: materialsReadinessDetail,
       },
       {
         id: "schedule",
@@ -5451,6 +5579,8 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
       facultyProgramText,
       facultyReadinessComplete,
       facultyReadinessLabel,
+      materialsReadinessComplete,
+      materialsReadinessDetail,
       materialsStatusLabel,
       needed,
       noSpStaffingRequired,
@@ -5458,7 +5588,6 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
       rotationRounds.length,
       selectedStaffingCount,
       summaryTimeLabel,
-      trainingCaseStatus,
       trainingMetadata.sim_contact,
     ]
   );
@@ -5468,13 +5597,6 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
           (workflowReportItems.filter((item) => item.complete).length / workflowReportItems.length) * 100
         )
       : 0;
-  const eventMaterialUrl = asText(trainingMetadata.staffing_doc_url);
-  const eventMaterialName =
-    asText(trainingMetadata.staffing_doc_name) ||
-    getFilenameFromUrl(eventMaterialUrl) ||
-    "Event Material";
-  const eventMaterialStoragePath = asText(trainingMetadata.staffing_doc_storage_path);
-  const eventMaterialBusy = trainingMaterialSaving.staffing_doc;
   const arrivalInstructions = getFirstNoteValue(eventEditor.notes || event?.notes, [
     "Arrival Instructions",
     "Arrival",
@@ -5763,6 +5885,16 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
     setEventEditor((current) => ({
       ...current,
       notes: upsertTrainingEventMetadata(current.notes, { [key]: value }),
+    }));
+  }
+
+  function handleMaterialsReadinessChange(value: string) {
+    const nextValue = normalizeMaterialsReadinessValue(value) || "materials_not_reviewed";
+    setEventSaveMessage("");
+    setEventSaveError("");
+    setEventEditor((current) => ({
+      ...current,
+      notes: upsertNoteValue(current.notes, "Materials Readiness", nextValue),
     }));
   }
 
@@ -10479,12 +10611,9 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                   },
                   {
                     label: "Materials",
-                    value:
-                      materialsStatusItems.filter((item) => item.active).length >= 4
-                        ? "Operationally ready"
-                        : materialsStatusLabel,
+                    value: materialsStatusLabel,
                     chips: materialsStatusItems.filter((item) => item.active).slice(0, 3).map((item) => item.label),
-                    accent: "#86efac",
+                    accent: materialsReadinessComplete ? "#86efac" : "#fcd34d",
                   },
                   {
                     label: "Live Support",
@@ -12254,7 +12383,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                         fontWeight: 900,
                       }}
                     >
-                      {item.complete ? "Ready" : "Pending"}
+                      {item.complete ? "Ready" : item.id === "materials" ? item.value : "Pending"}
                     </span>
                   </div>
                   <div style={{ marginTop: "5px", color: "var(--cfsp-text)", fontWeight: 900, fontSize: "13px" }}>{item.value}</div>
@@ -12411,7 +12540,7 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                         fontWeight: 900,
                       }}
                     >
-                      {item.complete ? "Ready" : "Pending"}
+                      {item.complete ? "Ready" : item.id === "materials" ? item.value : "Pending"}
                     </span>
                   </div>
                   <div style={{ marginTop: "5px", color: "var(--cfsp-text)", fontWeight: 900, fontSize: "13px" }}>{item.value}</div>
@@ -12756,6 +12885,25 @@ detail: rotationRounds.length ? summaryTimeLabel : "Date/time still incomplete",
                     </option>
                   ))}
                 </select>
+              </label>
+
+              <label style={{ display: "grid", gap: "6px" }}>
+                <span style={statLabel}>Materials Readiness</span>
+                <select
+                  value={materialsReadinessOption.value}
+                  onChange={(event) => handleMaterialsReadinessChange(event.target.value)}
+                  disabled={saving}
+                  style={{ ...selectStyle, width: "100%", maxWidth: "none", boxSizing: "border-box" }}
+                >
+                  {materialsReadinessOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <span style={compactSectionHintStyle}>
+                  Current workflow label: {materialsStatusLabel}
+                </span>
               </label>
 
               {isTrainingMode ? (
