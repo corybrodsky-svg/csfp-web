@@ -1312,21 +1312,30 @@ function parseImportedPollResponses(value?: string | null): ImportedPollResponse
 
 function classifyImportedAvailabilityResponse(value: string) {
   const normalized = asText(value).toLowerCase();
+
   if (!normalized) return { status: "no_response" as const, label: "No clear response" };
+
   if (
-    /\b(not available|unavailable|cannot|can not|can't|decline|declined|no,? not available|not attending|unable)\b/.test(
-      normalized
-    )
+    /\b(not available|unavailable|cannot|can not|can't|decline|declined|no,? not available|not attending|unable)\b/.test(normalized) ||
+    normalized === "no"
   ) {
     return { status: "not_available" as const, label: "Not Available" };
   }
-  if (/\b(maybe|need to discuss|depends|unsure|not sure|possibly|can discuss)\b/.test(normalized)) {
+
+  if (
+    /\b(maybe|need to discuss|depends|unsure|not sure|possibly|can discuss)\b/.test(normalized)
+  ) {
     return { status: "maybe" as const, label: "Maybe / Need to discuss" };
   }
-  if (/\b(available|yes|i am available|i'm available|can do|works for me|attend|attending)\b/.test(normalized)) {
+
+  if (
+    /\b(available|yes|i am available|i'm available|can do|works for me|attend|attending)\b/.test(normalized) ||
+    normalized === "available"
+  ) {
     return { status: "available" as const, label: "Available" };
   }
-  return { status: "no_response" as const, label: "No clear response" };
+
+  return { status: "no_response" as const, label: value || "No clear response" };
 }
 
 function normalizeImportHeader(value: unknown) {
@@ -3953,8 +3962,7 @@ const response = responseKey ? asText(row[responseKey]) : "";
           const emailMatch = normalizedEmail ? spByEmail.get(normalizedEmail) : undefined;
           const nameMatch = !emailMatch && cleanedName ? spByNormalizedName.get(normalizeMatchName(name)) : undefined;
           const matchedSp = emailMatch || nameMatch;
-          const classified = classifyImportedAvailabilityResponse([availability, response, notes].filter(Boolean).join(" "));
-
+const classified = classifyImportedAvailabilityResponse([availability, response].filter(Boolean).join(" ") || notes);
           return {
            name: cleanedName,
 email: cleanedEmail,
