@@ -168,6 +168,30 @@ function formatEventDate(start: Date | null, fallback?: string | null) {
   return start ? start.toLocaleString() : fallback || "Date TBD";
 }
 
+function formatShortDateLabel(date: Date) {
+  return date.toLocaleDateString([], {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function toDateInputValue(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function getStartOfWeek(date: Date) {
+  const next = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const day = next.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  next.setDate(next.getDate() + diff);
+  return new Date(next.getFullYear(), next.getMonth(), next.getDate());
+}
+
 function getEventBadges(event: EventRecord) {
   const presentation = classifyEventPresentation({
     name: event.name,
@@ -362,6 +386,8 @@ function WorkflowSection({
   visibleCount,
   onLoadMore,
   browseHref,
+  highlightedEventId,
+  registerEventRef,
 }: {
   sectionKey: "needsAttention" | "inProgress" | "ready";
   title: string;
@@ -371,6 +397,8 @@ function WorkflowSection({
   visibleCount: number;
   onLoadMore: (sectionKey: "needsAttention" | "inProgress" | "ready") => void;
   browseHref: string;
+  highlightedEventId?: string | null;
+  registerEventRef: (eventId: string, node: HTMLElement | null) => void;
 }) {
   const visibleItems = items.slice(0, visibleCount);
   const remainingCount = Math.max(items.length - visibleItems.length, 0);
@@ -420,11 +448,22 @@ function WorkflowSection({
               return (
                 <article
                   key={item.event.id}
+                  ref={(node) => registerEventRef(item.event.id, node)}
                   className="rounded-[12px] px-4 py-4"
                   style={{
-                    border: `1px solid ${visualTone.cardBorder}`,
-                    background: visualTone.cardBackground,
-                    boxShadow: visualTone.cardShadow,
+                    border:
+                      highlightedEventId === item.event.id
+                        ? "1px solid rgba(59, 130, 246, 0.55)"
+                        : `1px solid ${visualTone.cardBorder}`,
+                    background:
+                      highlightedEventId === item.event.id
+                        ? "linear-gradient(180deg, rgba(239, 246, 255, 0.98) 0%, rgba(219, 234, 254, 0.96) 100%)"
+                        : visualTone.cardBackground,
+                    boxShadow:
+                      highlightedEventId === item.event.id
+                        ? "0 0 0 2px rgba(96, 165, 250, 0.18), 0 16px 36px rgba(59, 130, 246, 0.14)"
+                        : visualTone.cardShadow,
+                    transition: "box-shadow 180ms ease, border-color 180ms ease, background 180ms ease",
                   }}
                 >
                   <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
@@ -511,12 +550,21 @@ export default function DashboardPage() {
   const [assignments, setAssignments] = useState<EventsResponse["assignments"]>([]);
   const [error, setError] = useState("");
   const [scope, setScope] = useState<DashboardScope>("my");
+  const [jumpDate, setJumpDate] = useState(() => toDateInputValue(new Date()));
+  const [planningJumpMessage, setPlanningJumpMessage] = useState("");
+  const [highlightedEventId, setHighlightedEventId] = useState<string | null>(null);
+  const [pendingJumpEventId, setPendingJumpEventId] = useState<string | null>(null);
   const [sectionVisibleCounts, setSectionVisibleCounts] = useState({
     needsAttention: DASHBOARD_SECTION_PAGE_SIZE,
     inProgress: DASHBOARD_SECTION_PAGE_SIZE,
     ready: DASHBOARD_SECTION_PAGE_SIZE,
   });
   const hasValidatedSessionRef = useRef(false);
+  const eventCardRefs = useRef<Record<string, HTMLElement | null>>({});
+
+  function registerEventRef(eventId: string, node: HTMLElement | null) {
+    eventCardRefs.current[eventId] = node;
+  }
 
   function resetSectionVisibleCounts() {
     setSectionVisibleCounts({
@@ -753,6 +801,16 @@ export default function DashboardPage() {
         .filter((item) => item.needed <= 0 || item.assigned >= item.needed),
     [selectedEvents]
   );
+  const monthEventCount = useMemo(() => {
+    const selected = jumpDate ? new Date(`${jumpDate}T00:00:00`) : new Date();
+    const year = selected.getFullYear();
+    const month = selected.getMonth();
+    return selectedEvents.filter((item) => item.start && item.start.getFullYear() === year && item.start.getMonth() === month).length;
+  }, [jumpDate, selectedEvents]);
+  const selectedJumpMonthLabel = useMemo(() => {
+    const selected = jumpDate ? new Date(`${jumpDate}T00:00:00`) : new Date();
+    return selected.toLocaleDateString([], { month: "long", year: "numeric" });
+  }, [jumpDate]);
   const spConfirmedEvents = useMemo(
     () => selectedEvents.filter((item) => ["confirmed", "hired"].includes((myAssignmentByEventId.get(item.event.id) || "").toLowerCase())),
     [myAssignmentByEventId, selectedEvents]
@@ -772,6 +830,83 @@ export default function DashboardPage() {
       [sectionKey]: current[sectionKey] + DASHBOARD_SECTION_PAGE_SIZE,
     }));
   }
+
+  function jumpToEventDate(date: Date) {
+    const targetDayStart = getStartOfDay(date);
+    const target = selectedEvents.find((item) => item.start && getStartOfDay(item.start) >= targetDayStart);
+
+    if (!target) {
+      setPlanningJumpMessage("No events found after this date.");
+      setPendingJumpEventId(null);
+      setHighlightedEventId(null);
+      return;
+    }
+
+    let sectionKey: "needsAttention" | "inProgress" | "ready" = "ready";
+    let sectionIndex = ready.findIndex((item) => item.event.id === target.event.id);
+
+    const needsIndex = needsAttention.findIndex((item) => item.event.id === target.event.id);
+    if (needsIndex >= 0) {
+      sectionKey = "needsAttention";
+      sectionIndex = needsIndex;
+    } else {
+      const progressIndex = inProgress.findIndex((item) => item.event.id === target.event.id);
+      if (progressIndex >= 0) {
+        sectionKey = "inProgress";
+        sectionIndex = progressIndex;
+      }
+    }
+
+    if (sectionIndex >= 0) {
+      setSectionVisibleCounts((current) => ({
+        ...current,
+        [sectionKey]: Math.max(current[sectionKey], sectionIndex + 1),
+      }));
+    }
+
+    setPlanningJumpMessage(`Jumped to ${target.event.name?.trim() || "event"} on ${formatShortDateLabel(target.start || date)}.`);
+    setPendingJumpEventId(target.event.id);
+    setHighlightedEventId(target.event.id);
+  }
+
+  function handlePlanningJump(dateText: string) {
+    setJumpDate(dateText);
+    if (!dateText) return;
+    jumpToEventDate(new Date(`${dateText}T00:00:00`));
+  }
+
+  function handleQuickDateJump(mode: "today" | "thisWeek" | "nextWeek" | "thisMonth" | "nextMonth") {
+    const now = new Date();
+    let target = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+    if (mode === "thisWeek") {
+      target = getStartOfWeek(now);
+    } else if (mode === "nextWeek") {
+      const nextWeek = getStartOfWeek(now);
+      nextWeek.setDate(nextWeek.getDate() + 7);
+      target = nextWeek;
+    } else if (mode === "thisMonth") {
+      target = new Date(now.getFullYear(), now.getMonth(), 1);
+    } else if (mode === "nextMonth") {
+      target = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    }
+
+    const nextValue = toDateInputValue(target);
+    setJumpDate(nextValue);
+    jumpToEventDate(target);
+  }
+
+  useEffect(() => {
+    if (!pendingJumpEventId) return;
+    const node = eventCardRefs.current[pendingJumpEventId];
+    if (!node) return;
+    node.scrollIntoView({ behavior: "smooth", block: "start" });
+    const clearTimer = window.setTimeout(() => {
+      setHighlightedEventId((current) => (current === pendingJumpEventId ? null : current));
+      setPendingJumpEventId((current) => (current === pendingJumpEventId ? null : current));
+    }, 2600);
+    return () => window.clearTimeout(clearTimer);
+  }, [pendingJumpEventId, sectionVisibleCounts]);
 
   if (authState === "loading") {
     return (
@@ -958,6 +1093,67 @@ export default function DashboardPage() {
           </div>
         </section>
 
+        <section
+          className="rounded-[14px] px-5 py-4"
+          style={{
+            border: "1px solid var(--cfsp-border)",
+            background: "linear-gradient(180deg, var(--cfsp-surface-muted) 0%, var(--cfsp-surface) 100%)",
+            boxShadow: "var(--cfsp-card-glow)",
+          }}
+        >
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+            <div>
+              <div className="cfsp-kicker">Planning Calendar</div>
+              <div className="mt-2 text-[1.2rem] font-black text-[var(--cfsp-text)]">
+                {new Date().toLocaleDateString([], { weekday: "long", month: "long", day: "numeric", year: "numeric" })}
+              </div>
+              <div className="mt-1 text-sm font-semibold text-[var(--cfsp-text-muted)]">
+                {selectedJumpMonthLabel} · {monthEventCount} upcoming event{monthEventCount === 1 ? "" : "s"}
+              </div>
+            </div>
+
+            <div className="grid gap-3 xl:min-w-[520px]">
+              <div className="flex flex-wrap gap-2">
+                {[
+                  { key: "today", label: "Today" },
+                  { key: "thisWeek", label: "This Week" },
+                  { key: "nextWeek", label: "Next Week" },
+                  { key: "thisMonth", label: "This Month" },
+                  { key: "nextMonth", label: "Next Month" },
+                ].map((button) => (
+                  <button
+                    key={button.key}
+                    type="button"
+                    onClick={() => handleQuickDateJump(button.key as "today" | "thisWeek" | "nextWeek" | "thisMonth" | "nextMonth")}
+                    className="cfsp-btn cfsp-btn-secondary"
+                  >
+                    {button.label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+                <label className="grid min-w-[220px] gap-2">
+                  <span className="cfsp-label">Jump to date</span>
+                  <input
+                    type="date"
+                    value={jumpDate}
+                    onChange={(event) => handlePlanningJump(event.target.value)}
+                    className="cfsp-input"
+                  />
+                </label>
+                <div className="text-sm font-semibold text-[var(--cfsp-text-muted)]">
+                  Jump to the first event on or after the selected date.
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {planningJumpMessage ? (
+            <div className="mt-3 text-sm font-semibold text-[var(--cfsp-text-muted)]">{planningJumpMessage}</div>
+          ) : null}
+        </section>
+
         {error ? <div className="cfsp-alert cfsp-alert-error">{error}</div> : null}
 
         {!error && eventMeta.length === 0 && events.length > 0 ? (
@@ -1006,6 +1202,8 @@ export default function DashboardPage() {
               visibleCount={sectionVisibleCounts.needsAttention}
               onLoadMore={handleLoadMore}
               browseHref={scope === "my" ? "/events" : "/events?view=all"}
+              highlightedEventId={highlightedEventId}
+              registerEventRef={registerEventRef}
               emptyMessage={
                 scope === "my"
                   ? "No high-priority staffing gaps are surfaced in your matched events right now."
@@ -1020,6 +1218,8 @@ export default function DashboardPage() {
               visibleCount={sectionVisibleCounts.inProgress}
               onLoadMore={handleLoadMore}
               browseHref={scope === "my" ? "/events" : "/events?view=all"}
+              highlightedEventId={highlightedEventId}
+              registerEventRef={registerEventRef}
               emptyMessage={
                 scope === "my"
                   ? "No partially staffed events are currently matched to your profile."
@@ -1034,6 +1234,8 @@ export default function DashboardPage() {
               visibleCount={sectionVisibleCounts.ready}
               onLoadMore={handleLoadMore}
               browseHref={scope === "my" ? "/events" : "/events?view=all"}
+              highlightedEventId={highlightedEventId}
+              registerEventRef={registerEventRef}
               emptyMessage={
                 scope === "my"
                   ? "No fully staffed matched events are ready yet."
