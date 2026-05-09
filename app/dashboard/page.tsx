@@ -887,9 +887,9 @@ function GlobalEventFinder({
       <div
         className="relative rounded-[12px] px-3 py-2"
         style={{
-          border: "1px solid rgba(73, 168, 255, 0.18)",
-          background: "linear-gradient(135deg, rgba(8, 47, 73, 0.82) 0%, rgba(14, 70, 88, 0.62) 100%)",
-          boxShadow: "0 10px 24px rgba(14, 116, 144, 0.10)",
+          border: "1px solid var(--cfsp-border)",
+          background: "var(--cfsp-dashboard-panel-bg)",
+          boxShadow: "var(--cfsp-card-glow)",
         }}
       >
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -899,24 +899,29 @@ function GlobalEventFinder({
             className="flex min-w-0 items-center gap-2 text-left"
             aria-expanded="false"
           >
-            <span aria-hidden="true" className="h-2 w-2 shrink-0 rounded-full bg-cyan-300 shadow-[0_0_14px_rgba(103,232,249,0.68)]" />
-            <span className="truncate text-[0.72rem] font-black uppercase tracking-[0.14em] text-cyan-100/82">
-              Mission Lookup
+            <span
+              aria-hidden="true"
+              className="h-2.5 w-2.5 shrink-0 rounded-full"
+              style={{ background: "var(--cfsp-green)", boxShadow: "0 0 12px rgba(44, 211, 173, 0.5)" }}
+            />
+            <span className="truncate text-[0.72rem] font-black uppercase tracking-[0.14em] text-[var(--cfsp-text)]">
+              Operations Console
             </span>
-            <span className="hidden text-xs font-bold text-cyan-100/55 sm:inline">
-              {quickStats.operations} ops · {quickStats.attention} attention
+            <span className="hidden text-xs font-semibold text-[var(--cfsp-text-muted)] sm:inline">
+              {quickStats.operations} events · {quickStats.attention} attention
             </span>
           </button>
           <button
             type="button"
             onClick={toggleCollapsed}
-            className="rounded-full px-2.5 py-1 text-[0.68rem] font-black uppercase tracking-[0.08em] text-cyan-100/80 transition hover:text-white"
+            className="rounded-full px-2.5 py-1 text-[0.68rem] font-bold transition"
             style={{
-              border: "1px solid rgba(186, 230, 253, 0.14)",
-              background: "rgba(186, 230, 253, 0.07)",
+              border: "1px solid var(--cfsp-input-border)",
+              background: "var(--cfsp-surface-muted)",
+              color: "var(--cfsp-text)",
             }}
           >
-            Open
+            Open Console
           </button>
         </div>
       </div>
@@ -927,9 +932,9 @@ function GlobalEventFinder({
     <div
       className="relative rounded-[13px] px-3 py-2.5"
       style={{
-        border: "1px solid rgba(73, 168, 255, 0.22)",
-        background: "linear-gradient(135deg, rgba(8, 47, 73, 0.90) 0%, rgba(14, 70, 88, 0.72) 100%)",
-        boxShadow: "0 12px 30px rgba(14, 116, 144, 0.14)",
+        border: "1px solid var(--cfsp-border)",
+        background: "var(--cfsp-dashboard-panel-bg)",
+        boxShadow: "var(--cfsp-card-glow)",
       }}
       onKeyDown={(event) => {
         if (event.key === "Escape") {
@@ -945,19 +950,23 @@ function GlobalEventFinder({
     >
       <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
         <div className="flex shrink-0 items-center gap-2 lg:w-[150px]">
-          <span aria-hidden="true" className="h-2 w-2 shrink-0 rounded-full bg-cyan-300 shadow-[0_0_14px_rgba(103,232,249,0.72)]" />
+          <span
+            aria-hidden="true"
+            className="h-2.5 w-2.5 shrink-0 rounded-full"
+            style={{ background: "var(--cfsp-green)", boxShadow: "0 0 12px rgba(44, 211, 173, 0.5)" }}
+          />
           <div className="min-w-0">
-            <div className="truncate text-[0.66rem] font-black uppercase tracking-[0.14em] text-cyan-100/82">Mission Lookup</div>
-            <div className="text-[0.68rem] font-bold text-cyan-50/55">Global finder</div>
+            <div className="truncate text-[0.66rem] font-black uppercase tracking-[0.14em] text-[var(--cfsp-text)]">Operations Console</div>
+            <div className="text-[0.68rem] font-semibold text-[var(--cfsp-text-muted)]">Event command lookup</div>
           </div>
         </div>
 
         <div
           className="flex min-h-[38px] min-w-0 flex-1 items-center gap-2 rounded-[11px] px-3 py-1.5"
           style={{
-            border: "1px solid rgba(125, 211, 252, 0.25)",
-            background: "rgba(2, 24, 38, 0.46)",
-            boxShadow: resultsOpen ? "0 0 0 2px rgba(45, 212, 191, 0.10)" : "none",
+            border: "1px solid var(--cfsp-input-border)",
+            background: "var(--cfsp-input-bg)",
+            boxShadow: resultsOpen ? "0 0 0 2px rgba(73, 168, 255, 0.18)" : "none",
           }}
         >
           <input
@@ -968,18 +977,19 @@ function GlobalEventFinder({
               setResultsOpen(Boolean(event.target.value.trim() || activeChip));
             }}
             onFocus={() => setResultsOpen(hasActiveSearch)}
-            aria-label="Global Event Finder"
+            aria-label="Operations Console search"
             aria-expanded={resultsOpen && hasActiveSearch}
             aria-controls="global-event-finder-results"
             role="combobox"
-            placeholder="Search events, faculty, locations, courses..."
-            className="min-w-0 flex-1 bg-transparent text-sm font-bold text-cyan-50 outline-none placeholder:text-cyan-100/44"
+            placeholder="Find events, staffing, readiness, or live operations..."
+            className="min-w-0 flex-1 bg-transparent text-sm font-bold outline-none text-[var(--cfsp-text)] placeholder:text-[var(--cfsp-text-muted)]"
           />
           <span
-            className="hidden rounded-[7px] px-2 py-1 text-[0.62rem] font-black text-cyan-100/70 sm:inline"
+            className="hidden rounded-[7px] px-2 py-1 text-[0.62rem] font-black sm:inline"
             style={{
-              border: "1px solid rgba(226, 232, 240, 0.12)",
-              background: "rgba(15, 23, 42, 0.32)",
+              border: "1px solid var(--cfsp-input-border)",
+              background: "var(--cfsp-theme-toggle-bg)",
+              color: "var(--cfsp-text-muted)",
             }}
           >
             /
@@ -988,41 +998,46 @@ function GlobalEventFinder({
             <button
               type="button"
               onClick={clearSearch}
-              className="rounded-full px-2 py-1 text-[0.68rem] font-black text-cyan-100/78 transition hover:text-white"
-              aria-label="Clear Global Event Finder"
+              className="rounded-[8px] px-2 py-1 text-[0.66rem] font-bold transition"
+              style={{ color: "var(--cfsp-text-muted)" }}
+              aria-label="Clear Operations Console"
             >
               Clear
             </button>
           ) : null}
         </div>
 
-        <div className="flex shrink-0 flex-wrap items-center gap-1.5 text-[0.66rem] font-black uppercase tracking-[0.08em]">
-          <span className="rounded-full px-2 py-1 text-cyan-50/78" style={{ border: "1px solid rgba(125, 211, 252, 0.16)", background: "rgba(14, 165, 233, 0.10)" }}>
-            {quickStats.operations} ops
+        <div className="flex shrink-0 flex-wrap items-center gap-1.5 text-[0.63rem] font-semibold">
+          <span className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1" style={{ border: "1px solid var(--cfsp-input-border)", background: "var(--cfsp-surface-muted)", color: "var(--cfsp-text)" }}>
+            <span className="inline-block h-1.5 w-1.5 rounded-full bg-[var(--cfsp-blue)]" />
+            {quickStats.operations} events
           </span>
-          <span className="rounded-full px-2 py-1 text-amber-100/82" style={{ border: "1px solid rgba(251, 191, 36, 0.18)", background: "rgba(251, 191, 36, 0.08)" }}>
+          <span className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1" style={{ border: "1px solid rgba(251, 191, 36, 0.35)", background: "rgba(251, 191, 36, 0.1)", color: "var(--cfsp-warning)" }}>
+            <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-400" />
             {quickStats.attention} attention
           </span>
-          <span className="rounded-full px-2 py-1 text-teal-100/82" style={{ border: "1px solid rgba(45, 212, 191, 0.18)", background: "rgba(20, 184, 166, 0.09)" }}>
-            {quickStats.today} live/today
+          <span className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1" style={{ border: "1px solid rgba(44, 211, 173, 0.28)", background: "rgba(44, 211, 173, 0.12)", color: "var(--cfsp-text)" }}>
+            <span className="inline-block h-1.5 w-1.5 rounded-full bg-[var(--cfsp-green)]" />
+            {quickStats.today} live / today
           </span>
         </div>
 
         <button
           type="button"
           onClick={toggleCollapsed}
-          className="shrink-0 rounded-full px-2.5 py-1 text-[0.66rem] font-black uppercase tracking-[0.08em] text-cyan-100/76 transition hover:text-white"
+          className="shrink-0 rounded-[10px] px-2.5 py-1 text-[0.66rem] font-bold transition"
           style={{
-            border: "1px solid rgba(186, 230, 253, 0.14)",
-            background: "rgba(186, 230, 253, 0.06)",
+            border: "1px solid var(--cfsp-input-border)",
+            background: "var(--cfsp-theme-toggle-bg)",
+            color: "var(--cfsp-text-muted)",
           }}
           aria-expanded="true"
         >
-          Minimize
+          Hide Console
         </button>
       </div>
 
-      <div className="mt-2 flex flex-wrap gap-1" aria-label="Operational search filters">
+      <div className="mt-2 flex flex-wrap gap-1.5" aria-label="Operational search toggles">
         {chipOptions.map((chip) => {
           const selected = activeChip === chip.key;
           return (
@@ -1030,19 +1045,20 @@ function GlobalEventFinder({
               key={chip.key}
               type="button"
               onClick={() => toggleChip(chip.key)}
-              className="rounded-full px-2 py-0.5 text-[0.62rem] font-black uppercase tracking-[0.07em] transition hover:-translate-y-0.5"
+              className="inline-flex h-8 items-center gap-1 rounded-lg border px-2.5 py-1 text-[0.66rem] font-semibold transition"
               style={{
-                border: selected ? "1px solid rgba(45, 212, 191, 0.52)" : "1px solid rgba(186, 230, 253, 0.13)",
-                background: selected
-                  ? "linear-gradient(135deg, rgba(20, 184, 166, 0.24), rgba(14, 165, 233, 0.16))"
-                  : "rgba(186, 230, 253, 0.055)",
-                color: selected ? "#ccfbf1" : "#bae6fd",
-                boxShadow: selected ? "0 0 14px rgba(45, 212, 191, 0.12)" : "none",
+                borderColor: selected ? "var(--cfsp-blue)" : "var(--cfsp-input-border)",
+                background: selected ? "var(--cfsp-surface-muted)" : "var(--cfsp-dashboard-panel-bg)",
+                color: selected ? "var(--cfsp-blue)" : "var(--cfsp-text-muted)",
+                boxShadow: selected ? "0 0 0 2px rgba(73, 168, 255, 0.18)" : "none",
               }}
               aria-pressed={selected}
             >
+              {selected ? <span className="h-1.5 w-1.5 rounded-full bg-[var(--cfsp-green)]" /> : <span className="h-1.5 w-1.5 rounded-full bg-[var(--cfsp-text-muted)]" />}
               {chip.label}
-              <span className="ml-1 text-cyan-50/62">{chip.count}</span>
+              <span className="rounded-full border border-transparent px-1.5 py-0.5 text-[0.62rem]" style={{ background: selected ? "rgba(73, 168, 255, 0.18)" : "rgba(120, 130, 150, 0.12)" }}>
+                {chip.count}
+              </span>
             </button>
           );
         })}
@@ -1054,9 +1070,9 @@ function GlobalEventFinder({
           role="listbox"
           className="absolute left-0 right-0 top-[calc(100%+4px)] z-30 grid max-h-[360px] gap-1.5 overflow-y-auto rounded-[14px] p-2"
           style={{
-            border: "1px solid rgba(125, 211, 252, 0.24)",
-            background: "linear-gradient(180deg, rgba(4, 25, 39, 0.98) 0%, rgba(8, 47, 73, 0.96) 100%)",
-            boxShadow: "0 24px 60px rgba(2, 24, 38, 0.34), 0 0 24px rgba(34, 211, 238, 0.12)",
+            border: "1px solid var(--cfsp-border)",
+            background: "var(--cfsp-surface)",
+            boxShadow: "var(--cfsp-card-glow)",
           }}
         >
           {results.length ? (
@@ -1072,31 +1088,31 @@ function GlobalEventFinder({
                   key={result.item.event.id}
                   role="option"
                   aria-selected="false"
-                  className="rounded-[12px] px-3 py-2.5 transition hover:-translate-y-0.5"
+                  className="rounded-[11px] border px-3 py-2.5 transition"
                   style={{
-                    border: "1px solid rgba(125, 211, 252, 0.18)",
-                    background: "linear-gradient(135deg, rgba(8, 47, 73, 0.90) 0%, rgba(15, 82, 101, 0.72) 100%)",
-                    boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06)",
+                    border: "1px solid var(--cfsp-border)",
+                    background: "var(--cfsp-surface-muted)",
+                    boxShadow: "0 10px 24px rgba(0, 0, 0, 0.05)",
                   }}
                 >
                   <button type="button" onClick={() => openEvent(result.item.event.id)} className="w-full text-left">
                     <div className="flex flex-wrap items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <div className="truncate text-[0.98rem] font-black text-cyan-50">
+                        <div className="truncate text-[0.98rem] font-black text-[var(--cfsp-text)]">
                           {result.item.event.name?.trim() || "Untitled Event"}
                         </div>
-                        <div className="mt-1 flex flex-wrap gap-x-2 gap-y-1 text-xs font-bold text-cyan-100/72">
+                        <div className="mt-1 flex flex-wrap gap-x-2 gap-y-1 text-xs font-semibold text-[var(--cfsp-text-muted)]">
                           <span>{result.dateLabel}</span>
                           <span>•</span>
                           <span>{eventLocation(result.item.event)}</span>
                         </div>
                       </div>
                       <span
-                        className="rounded-full px-2.5 py-1 text-[0.68rem] font-black uppercase tracking-[0.08em]"
+                        className="rounded-lg px-2.5 py-1 text-[0.68rem] font-semibold"
                         style={{
-                          border: "1px solid rgba(45, 212, 191, 0.28)",
-                          background: "rgba(45, 212, 191, 0.12)",
-                          color: "#99f6e4",
+                          border: "1px solid rgba(44, 211, 173, 0.3)",
+                          background: "rgba(44, 211, 173, 0.16)",
+                          color: "var(--cfsp-green-dark)",
                         }}
                       >
                         {result.modeLabel}
@@ -1113,13 +1129,13 @@ function GlobalEventFinder({
                       ].map((label) => (
                         <span
                           key={`${result.item.event.id}-${label}`}
-                          className="rounded-full px-2 py-1 text-[0.68rem] font-black"
+                          className="rounded-lg px-2 py-1 text-[0.68rem] font-medium"
                           style={{
-                            border: "1px solid rgba(186, 230, 253, 0.16)",
+                            border: "1px solid var(--cfsp-border)",
                             background: label.toLowerCase().includes("shortage")
                               ? "rgba(248, 113, 113, 0.14)"
                               : "rgba(186, 230, 253, 0.08)",
-                            color: label.toLowerCase().includes("shortage") ? "#fecaca" : "#bae6fd",
+                            color: label.toLowerCase().includes("shortage") ? "#fecaca" : "var(--cfsp-text)",
                           }}
                         >
                           {label}
@@ -1132,11 +1148,11 @@ function GlobalEventFinder({
                     <Link
                       href={eventHref}
                       onClick={() => setResultsOpen(false)}
-                      className="rounded-full px-2.5 py-1 text-[0.68rem] font-black uppercase tracking-[0.08em] no-underline transition hover:-translate-y-0.5"
+                      className="rounded-lg px-2.5 py-1 text-[0.66rem] font-semibold no-underline transition"
                       style={{
-                        border: "1px solid rgba(125, 211, 252, 0.22)",
-                        background: "rgba(14, 165, 233, 0.12)",
-                        color: "#e0f2fe",
+                        border: "1px solid var(--cfsp-blue)",
+                        background: "rgba(20, 91, 150, 0.08)",
+                        color: "var(--cfsp-blue)",
                       }}
                     >
                       Open Event
@@ -1144,11 +1160,11 @@ function GlobalEventFinder({
                     <Link
                       href={builderHref}
                       onClick={() => setResultsOpen(false)}
-                      className="rounded-full px-2.5 py-1 text-[0.68rem] font-black uppercase tracking-[0.08em] no-underline transition hover:-translate-y-0.5"
+                      className="rounded-lg px-2.5 py-1 text-[0.66rem] font-semibold no-underline transition"
                       style={{
-                        border: "1px solid rgba(45, 212, 191, 0.22)",
-                        background: "rgba(20, 184, 166, 0.12)",
-                        color: "#ccfbf1",
+                        border: "1px solid rgba(44, 211, 173, 0.35)",
+                        background: "rgba(44, 211, 173, 0.08)",
+                        color: "var(--cfsp-green-dark)",
                       }}
                     >
                       Open Builder
@@ -1157,11 +1173,11 @@ function GlobalEventFinder({
                       <Link
                         href={operationalHref}
                         onClick={() => setResultsOpen(false)}
-                        className="rounded-full px-2.5 py-1 text-[0.68rem] font-black uppercase tracking-[0.08em] no-underline transition hover:-translate-y-0.5"
+                        className="rounded-lg px-2.5 py-1 text-[0.66rem] font-semibold no-underline transition"
                         style={{
-                          border: "1px solid rgba(251, 191, 36, 0.24)",
-                          background: "rgba(251, 191, 36, 0.10)",
-                          color: "#fde68a",
+                          border: "1px solid rgba(243, 187, 103, 0.44)",
+                          background: "rgba(243, 187, 103, 0.12)",
+                          color: "var(--cfsp-warning)",
                         }}
                       >
                         Training / Materials
@@ -1172,7 +1188,7 @@ function GlobalEventFinder({
               );
             })
           ) : (
-            <div className="rounded-[12px] border border-dashed border-cyan-200/18 px-3 py-5 text-sm font-bold text-cyan-100/70">
+            <div className="rounded-[12px] border border-dashed border-[var(--cfsp-border)] px-3 py-5 text-sm font-semibold text-[var(--cfsp-text-muted)]">
               No matching operations found.
             </div>
           )}
