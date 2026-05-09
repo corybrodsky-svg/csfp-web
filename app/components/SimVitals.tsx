@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 
 export type SimVitalsRole = "sim_ops" | "admin" | "faculty" | "sp" | "system";
 export type SimVitalsFeedType =
@@ -15,15 +15,31 @@ export type SimVitalsFeedType =
 
 export type SimVitalsPost = {
   id: string;
+  authorUserId?: string;
   authorName: string;
   authorRole: SimVitalsRole;
   type: SimVitalsFeedType;
-  timestampLabel: string;
+  timestampLabel?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  linkedEventId?: string | null;
   linkedEventName?: string;
   body: string;
   tags: string[];
   reactionCount: number;
   commentCount: number;
+  acknowledgedByViewer?: boolean;
+};
+
+export type SimVitalsComment = {
+  id: string;
+  postId: string;
+  authorUserId?: string;
+  authorName: string;
+  authorRole: SimVitalsRole;
+  body: string;
+  createdAt?: string;
+  updatedAt?: string;
 };
 
 const simVitalsFeedTypeOrder: SimVitalsFeedType[] = [
@@ -149,59 +165,103 @@ const simVitalsRoleAppearance: Record<
   },
 };
 
-export const simVitalsSeedPosts: SimVitalsPost[] = [
-  {
-    id: "simvitals-seed-staffing",
-    authorName: "Maya Chen",
-    authorRole: "admin",
-    type: "staffing_alert",
-    timestampLabel: "12 min ago",
-    linkedEventName: "Center City OSCE Block",
-    body: "Backup coverage needed for the afternoon rotation. Poll responders are triaged; two available candidates are ready for confirmation.",
-    tags: ["Coverage", "Backup queue", "Today"],
-    reactionCount: 4,
-    commentCount: 2,
-  },
-  {
-    id: "simvitals-seed-live",
-    authorName: "Sim Ops Desk",
-    authorRole: "sim_ops",
-    type: "live_issue",
-    timestampLabel: "28 min ago",
-    linkedEventName: "Interprofessional Sim Lab",
-    body: "Room 3 telemetry station is back online. Scenario timing remains stable; keep the debrief handoff at the original mark.",
-    tags: ["Room 3", "Telemetry restored", "Live flow"],
-    reactionCount: 7,
-    commentCount: 3,
-  },
-  {
-    id: "simvitals-seed-faculty",
-    authorName: "Dr. Lena Ortiz",
-    authorRole: "faculty",
-    type: "faculty_note",
-    timestampLabel: "1 hr ago",
-    linkedEventName: "Telehealth Communication Practice",
-    body: "Faculty preference confirmed: keep SP feedback concise and reserve five minutes at the end for learner reflection.",
-    tags: ["Faculty guidance", "Debrief", "Telehealth"],
-    reactionCount: 5,
-    commentCount: 1,
-  },
-  {
-    id: "simvitals-seed-system",
-    authorName: "SimVitals",
-    authorRole: "system",
-    type: "system_notice",
-    timestampLabel: "2 hrs ago",
-    body: "SimVitals initialized for operational updates. Event links, attachments, reactions, comments, and Supabase persistence are staged for the next data pass.",
-    tags: ["System", "Local mock state"],
-    reactionCount: 0,
-    commentCount: 0,
-  },
-];
-
 function asText(value: unknown) {
   if (value === null || value === undefined) return "";
   return String(value).trim();
+}
+
+async function parseSimVitalsApiError(response: Response) {
+  const body = (await response.json().catch(() => null)) as { error?: string; warning?: string } | null;
+  return body?.error || body?.warning || `${response.status} ${response.statusText}`;
+}
+
+function normalizeSimVitalsPost(value: unknown): SimVitalsPost | null {
+  if (!value || typeof value !== "object") return null;
+  const source = value as Partial<SimVitalsPost>;
+  const type = asText(source.type) as SimVitalsFeedType;
+  const authorRole = asText(source.authorRole) as SimVitalsRole;
+  if (!simVitalsFeedTypeOrder.includes(type)) return null;
+  return {
+    id: asText(source.id),
+    authorUserId: asText(source.authorUserId),
+    authorName: asText(source.authorName) || "CFSP Team",
+    authorRole: simVitalsRoleAppearance[authorRole] ? authorRole : "sp",
+    type,
+    timestampLabel: asText(source.timestampLabel),
+    createdAt: asText(source.createdAt),
+    updatedAt: asText(source.updatedAt),
+    linkedEventId: asText(source.linkedEventId) || null,
+    linkedEventName: asText(source.linkedEventName),
+    body: asText(source.body),
+    tags: Array.isArray(source.tags) ? source.tags.map(asText).filter(Boolean) : [],
+    reactionCount: Number(source.reactionCount) || 0,
+    commentCount: Number(source.commentCount) || 0,
+    acknowledgedByViewer: Boolean(source.acknowledgedByViewer),
+  };
+}
+
+function normalizeSimVitalsComment(value: unknown): SimVitalsComment | null {
+  if (!value || typeof value !== "object") return null;
+  const source = value as Partial<SimVitalsComment>;
+  const authorRole = asText(source.authorRole) as SimVitalsRole;
+  const id = asText(source.id);
+  const body = asText(source.body);
+  if (!id || !body) return null;
+  return {
+    id,
+    postId: asText(source.postId),
+    authorUserId: asText(source.authorUserId),
+    authorName: asText(source.authorName) || "CFSP Team",
+    authorRole: simVitalsRoleAppearance[authorRole] ? authorRole : "sp",
+    body,
+    createdAt: asText(source.createdAt),
+    updatedAt: asText(source.updatedAt),
+  };
+}
+
+function formatSimVitalsTimestamp(value?: string | null) {
+  const timestamp = Date.parse(asText(value));
+  if (Number.isNaN(timestamp)) return "Just now";
+
+  const diffSeconds = Math.max(0, Math.round((Date.now() - timestamp) / 1000));
+  if (diffSeconds < 45) return "Just now";
+  const diffMinutes = Math.round(diffSeconds / 60);
+  if (diffMinutes < 60) return `${diffMinutes} min ago`;
+  const diffHours = Math.round(diffMinutes / 60);
+  if (diffHours < 24) return `${diffHours} hr${diffHours === 1 ? "" : "s"} ago`;
+  const diffDays = Math.round(diffHours / 24);
+  if (diffDays < 7) return `${diffDays} day${diffDays === 1 ? "" : "s"} ago`;
+  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(new Date(timestamp));
+}
+
+async function fetchSimVitalsPosts(limit: number, type: SimVitalsFeedType | "all" = "all") {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (type !== "all") params.set("type", type);
+  const response = await fetch(`/api/simvitals/posts?${params.toString()}`, {
+    cache: "no-store",
+    credentials: "include",
+  });
+  const body = (await response.json().catch(() => null)) as
+    | { ok?: boolean; posts?: unknown[]; schemaReady?: boolean; warning?: string; error?: string }
+    | null;
+
+  if (!response.ok || body?.ok === false) {
+    throw new Error(body?.error || body?.warning || (await parseSimVitalsApiError(response)));
+  }
+
+  if (body?.schemaReady === false) {
+    return {
+      posts: [] as SimVitalsPost[],
+      warning: body.warning || "SimVitals storage is not ready yet.",
+    };
+  }
+
+  return {
+    posts: Array.isArray(body?.posts)
+      ? body.posts.map(normalizeSimVitalsPost).filter((post): post is SimVitalsPost => Boolean(post))
+      : [],
+    warning: "",
+  };
 }
 
 export function getSimVitalsRoleFromProfile(role: string): SimVitalsRole {
@@ -317,13 +377,128 @@ function SimVitalsIconButton({
 export function SimVitalsPostCard({
   post,
   compact = false,
+  interactive = false,
+  onPostUpdate,
 }: {
   post: SimVitalsPost;
   compact?: boolean;
+  interactive?: boolean;
+  onPostUpdate?: (postId: string, patch: Partial<SimVitalsPost>) => void;
 }) {
   const typeLook = simVitalsFeedTypeAppearance[post.type];
   const roleLook = simVitalsRoleAppearance[post.authorRole];
   const initials = getSimVitalsInitials(post.authorName);
+  const timestampLabel = post.timestampLabel || formatSimVitalsTimestamp(post.createdAt);
+  const [ackSaving, setAckSaving] = useState(false);
+  const [commentsOpen, setCommentsOpen] = useState(false);
+  const [commentsLoaded, setCommentsLoaded] = useState(false);
+  const [commentsLoading, setCommentsLoading] = useState(false);
+  const [commentSaving, setCommentSaving] = useState(false);
+  const [commentDraft, setCommentDraft] = useState("");
+  const [commentError, setCommentError] = useState("");
+  const [comments, setComments] = useState<SimVitalsComment[]>([]);
+
+  async function loadComments() {
+    if (!interactive || commentsLoading) return;
+    setCommentsLoading(true);
+    setCommentError("");
+
+    try {
+      const response = await fetch(`/api/simvitals/posts/${encodeURIComponent(post.id)}/comments`, {
+        cache: "no-store",
+        credentials: "include",
+      });
+      const body = (await response.json().catch(() => null)) as { comments?: unknown[]; error?: string } | null;
+      if (!response.ok) {
+        throw new Error(body?.error || (await parseSimVitalsApiError(response)));
+      }
+      setComments(
+        Array.isArray(body?.comments)
+          ? body.comments
+              .map(normalizeSimVitalsComment)
+              .filter((comment): comment is SimVitalsComment => Boolean(comment))
+          : []
+      );
+      setCommentsLoaded(true);
+    } catch (error) {
+      setCommentError(error instanceof Error ? error.message : "Could not load comments.");
+    } finally {
+      setCommentsLoading(false);
+    }
+  }
+
+  async function handleToggleAck() {
+    if (!interactive || ackSaving) return;
+    setAckSaving(true);
+    setCommentError("");
+
+    try {
+      const response = await fetch(`/api/simvitals/posts/${encodeURIComponent(post.id)}/ack`, {
+        method: "POST",
+        cache: "no-store",
+        credentials: "include",
+      });
+      const body = (await response.json().catch(() => null)) as
+        | { acknowledged?: boolean; reactionCount?: number; error?: string }
+        | null;
+      if (!response.ok) {
+        throw new Error(body?.error || (await parseSimVitalsApiError(response)));
+      }
+      onPostUpdate?.(post.id, {
+        acknowledgedByViewer: Boolean(body?.acknowledged),
+        reactionCount: Number(body?.reactionCount) || 0,
+      });
+    } catch (error) {
+      setCommentError(error instanceof Error ? error.message : "Could not update acknowledgement.");
+    } finally {
+      setAckSaving(false);
+    }
+  }
+
+  async function handleToggleComments() {
+    if (!interactive) return;
+    const nextOpen = !commentsOpen;
+    setCommentsOpen(nextOpen);
+    if (nextOpen && !commentsLoaded) {
+      await loadComments();
+    }
+  }
+
+  async function handleCreateComment() {
+    const body = commentDraft.trim();
+    if (!interactive || !body || commentSaving) return;
+    setCommentSaving(true);
+    setCommentError("");
+
+    try {
+      const response = await fetch(`/api/simvitals/posts/${encodeURIComponent(post.id)}/comments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        credentials: "include",
+        body: JSON.stringify({ body }),
+      });
+      const responseBody = (await response.json().catch(() => null)) as
+        | { comment?: unknown; commentCount?: number; error?: string }
+        | null;
+      if (!response.ok) {
+        throw new Error(responseBody?.error || (await parseSimVitalsApiError(response)));
+      }
+      const comment = normalizeSimVitalsComment(responseBody?.comment);
+      if (comment) {
+        setComments((current) => [...current, comment]);
+        setCommentsLoaded(true);
+      }
+      setCommentDraft("");
+      onPostUpdate?.(post.id, {
+        commentCount: Number(responseBody?.commentCount) || post.commentCount + 1,
+      });
+    } catch (error) {
+      setCommentError(error instanceof Error ? error.message : "Could not post comment.");
+    } finally {
+      setCommentSaving(false);
+    }
+  }
 
   return (
     <article
@@ -359,7 +534,7 @@ export function SimVitalsPostCard({
               <SimVitalsRoleBadge role={post.authorRole} />
             </div>
             <div className="mt-1 flex flex-wrap items-center gap-2 text-xs font-bold text-[var(--cfsp-text-muted)]">
-              <span>{post.timestampLabel}</span>
+              <span>{timestampLabel}</span>
               <span>{typeLook.signal}</span>
             </div>
           </div>
@@ -405,21 +580,127 @@ export function SimVitalsPostCard({
       ) : null}
 
       <div className="mt-4 flex flex-wrap items-center gap-2">
-        {/* TODO reactions: persist per-user acknowledgements once SimVitals tables exist. */}
-        <button type="button" className="cfsp-btn cfsp-btn-secondary min-h-[34px] px-3 py-1.5 text-xs" disabled>
-          Ack {post.reactionCount}
+        <button
+          type="button"
+          className="cfsp-btn cfsp-btn-secondary min-h-[34px] px-3 py-1.5 text-xs"
+          disabled={!interactive || ackSaving}
+          onClick={() => void handleToggleAck()}
+          style={{
+            opacity: !interactive || ackSaving ? 0.65 : 1,
+            background: post.acknowledgedByViewer ? typeLook.background : undefined,
+            borderColor: post.acknowledgedByViewer ? typeLook.border : undefined,
+            color: post.acknowledgedByViewer ? typeLook.color : undefined,
+          }}
+        >
+          {ackSaving ? "Saving..." : post.acknowledgedByViewer ? `Acked ${post.reactionCount}` : `Ack ${post.reactionCount}`}
         </button>
-        {/* TODO comments: hydrate comment counts and threaded replies from the future SimVitals comments API. */}
-        <button type="button" className="cfsp-btn cfsp-btn-secondary min-h-[34px] px-3 py-1.5 text-xs" disabled>
-          Comments {post.commentCount}
+        <button
+          type="button"
+          className="cfsp-btn cfsp-btn-secondary min-h-[34px] px-3 py-1.5 text-xs"
+          disabled={!interactive}
+          onClick={() => void handleToggleComments()}
+          style={{ opacity: interactive ? 1 : 0.65 }}
+        >
+          {commentsOpen ? "Hide Comments" : `Comments ${post.commentCount}`}
         </button>
       </div>
+
+      {commentError ? (
+        <div className="mt-3 rounded-[12px] border border-[var(--cfsp-danger-border)] bg-[var(--cfsp-danger-soft)] px-3 py-2 text-xs font-bold text-[var(--cfsp-danger)]">
+          {commentError}
+        </div>
+      ) : null}
+
+      {commentsOpen ? (
+        <div
+          className="mt-3 grid gap-3 rounded-[12px] px-3 py-3"
+          style={{
+            border: "1px solid var(--cfsp-border)",
+            background: "var(--cfsp-surface-muted)",
+          }}
+        >
+          {commentsLoading ? (
+            <div className="text-xs font-bold text-[var(--cfsp-text-muted)]">Loading comments...</div>
+          ) : comments.length ? (
+            <div className="grid gap-2">
+              {comments.map((comment) => (
+                <div key={comment.id} className="rounded-[10px] bg-[var(--cfsp-surface)] px-3 py-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs font-black text-[var(--cfsp-text)]">{comment.authorName}</span>
+                    <SimVitalsRoleBadge role={comment.authorRole} />
+                    <span className="text-[0.72rem] font-bold text-[var(--cfsp-text-muted)]">
+                      {formatSimVitalsTimestamp(comment.createdAt)}
+                    </span>
+                  </div>
+                  <div className="mt-1 text-sm leading-5 text-[var(--cfsp-text)]">{comment.body}</div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-xs font-bold text-[var(--cfsp-text-muted)]">No comments yet.</div>
+          )}
+
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <input
+              value={commentDraft}
+              onChange={(event) => setCommentDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  void handleCreateComment();
+                }
+              }}
+              className="cfsp-input"
+              placeholder="Add a comment..."
+              aria-label="SimVitals comment"
+              disabled={commentSaving}
+            />
+            <button
+              type="button"
+              onClick={() => void handleCreateComment()}
+              disabled={!commentDraft.trim() || commentSaving}
+              className="cfsp-btn cfsp-btn-primary min-h-[38px] px-3 py-2 text-xs"
+              style={{ opacity: !commentDraft.trim() || commentSaving ? 0.62 : 1 }}
+            >
+              {commentSaving ? "Posting..." : "Comment"}
+            </button>
+          </div>
+        </div>
+      ) : null}
     </article>
   );
 }
 
 export function SimVitalsDashboardPreview() {
-  const previewPosts = simVitalsSeedPosts.slice(0, 3);
+  const [previewPosts, setPreviewPosts] = useState<SimVitalsPost[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [warning, setWarning] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadPreview() {
+      setLoading(true);
+      try {
+        const result = await fetchSimVitalsPosts(3);
+        if (cancelled) return;
+        setPreviewPosts(result.posts);
+        setWarning(result.warning);
+      } catch (error) {
+        if (cancelled) return;
+        setWarning(error instanceof Error ? error.message : "Could not load SimVitals.");
+        setPreviewPosts([]);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    void loadPreview();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <section
@@ -452,7 +733,11 @@ export function SimVitalsDashboardPreview() {
         </Link>
       </div>
 
-      {previewPosts.length ? (
+      {loading ? (
+        <div className="relative mt-4 rounded-[14px] border border-dashed border-[var(--cfsp-border)] bg-[var(--cfsp-surface)] px-5 py-7 text-sm font-bold text-[var(--cfsp-text-muted)]">
+          Loading SimVitals...
+        </div>
+      ) : previewPosts.length ? (
         <div className="relative mt-4 grid gap-3 xl:grid-cols-3">
           {previewPosts.map((post) => (
             <SimVitalsPostCard key={post.id} post={post} compact />
@@ -460,7 +745,7 @@ export function SimVitalsDashboardPreview() {
         </div>
       ) : (
         <div className="relative mt-4 rounded-[14px] border border-dashed border-[var(--cfsp-border)] bg-[var(--cfsp-surface)] px-5 py-7 text-sm font-bold text-[var(--cfsp-text-muted)]">
-          No SimVitals updates yet.
+          {warning || "No SimVitals updates yet."}
         </div>
       )}
     </section>
@@ -477,31 +762,96 @@ export function SimVitalsFullExperience({
   const authorRole = getSimVitalsRoleFromProfile(profileRole);
   const [draft, setDraft] = useState("");
   const [postType, setPostType] = useState<SimVitalsFeedType>("general_update");
-  const [posts, setPosts] = useState<SimVitalsPost[]>(() => simVitalsSeedPosts);
+  const [activeFilter, setActiveFilter] = useState<SimVitalsFeedType | "all">("all");
+  const [posts, setPosts] = useState<SimVitalsPost[]>([]);
+  const [feedLoading, setFeedLoading] = useState(true);
+  const [feedError, setFeedError] = useState("");
+  const [savingPost, setSavingPost] = useState(false);
+  const [composerError, setComposerError] = useState("");
   const authorInitials = getSimVitalsInitials(displayName);
   const selectedTypeLook = simVitalsFeedTypeAppearance[postType];
   const authorRoleLook = simVitalsRoleAppearance[authorRole];
+  const filteredPosts = useMemo(
+    () => (activeFilter === "all" ? posts : posts.filter((post) => post.type === activeFilter)),
+    [activeFilter, posts]
+  );
+  const stats = useMemo(
+    () => [
+      { label: "Open signals", value: posts.length },
+      { label: "Staffing alerts", value: posts.filter((post) => post.type === "staffing_alert").length },
+      { label: "Live issues", value: posts.filter((post) => post.type === "live_issue").length },
+    ],
+    [posts]
+  );
 
-  function handleCreatePost() {
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadFeed() {
+      setFeedLoading(true);
+      setFeedError("");
+      try {
+        const result = await fetchSimVitalsPosts(50);
+        if (cancelled) return;
+        setPosts(result.posts);
+        setFeedError(result.warning);
+      } catch (error) {
+        if (cancelled) return;
+        setFeedError(error instanceof Error ? error.message : "Could not load SimVitals.");
+        setPosts([]);
+      } finally {
+        if (!cancelled) setFeedLoading(false);
+      }
+    }
+
+    void loadFeed();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  function handlePostUpdate(postId: string, patch: Partial<SimVitalsPost>) {
+    setPosts((current) =>
+      current.map((post) => (post.id === postId ? { ...post, ...patch } : post))
+    );
+  }
+
+  async function handleCreatePost() {
     const body = draft.trim();
-    if (!body) return;
+    if (!body || savingPost) return;
 
-    // TODO create_post: replace this local prepend with an authenticated Supabase insert.
-    setPosts((current) => [
-      {
-        id: `simvitals-local-${Date.now()}`,
-        authorName: displayName,
-        authorRole,
-        type: postType,
-        timestampLabel: "Just now",
-        body,
-        tags: [selectedTypeLook.signal, authorRoleLook.label],
-        reactionCount: 0,
-        commentCount: 0,
-      },
-      ...current,
-    ]);
-    setDraft("");
+    setSavingPost(true);
+    setComposerError("");
+
+    try {
+      const response = await fetch("/api/simvitals/posts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        credentials: "include",
+        body: JSON.stringify({
+          body,
+          postType,
+          tags: [selectedTypeLook.signal, authorRoleLook.label],
+        }),
+      });
+      const responseBody = (await response.json().catch(() => null)) as { post?: unknown; error?: string } | null;
+      if (!response.ok) {
+        throw new Error(responseBody?.error || (await parseSimVitalsApiError(response)));
+      }
+      const post = normalizeSimVitalsPost(responseBody?.post);
+      if (!post) throw new Error("The new SimVitals post could not be read.");
+      setPosts((current) => [post, ...current]);
+      setDraft("");
+      if (activeFilter !== "all" && activeFilter !== post.type) {
+        setActiveFilter("all");
+      }
+    } catch (error) {
+      setComposerError(error instanceof Error ? error.message : "Could not post SimVitals update.");
+    } finally {
+      setSavingPost(false);
+    }
   }
 
   return (
@@ -541,11 +891,7 @@ export function SimVitalsFullExperience({
             </div>
           </div>
           <div className="grid gap-2 sm:grid-cols-3">
-            {[
-              { label: "Open signals", value: posts.length },
-              { label: "Staffing alerts", value: posts.filter((post) => post.type === "staffing_alert").length },
-              { label: "Live issues", value: posts.filter((post) => post.type === "live_issue").length },
-            ].map((item) => (
+            {stats.map((item) => (
               <div
                 key={item.label}
                 className="rounded-[12px] px-4 py-3"
@@ -597,12 +943,13 @@ export function SimVitalsFullExperience({
             onKeyDown={(event) => {
               if (event.key === "Enter") {
                 event.preventDefault();
-                handleCreatePost();
+                void handleCreatePost();
               }
             }}
             className="cfsp-input"
             placeholder="What's happening?"
             aria-label="SimVitals update"
+            disabled={savingPost}
           />
 
           <div className="flex shrink-0 items-center gap-2">
@@ -616,19 +963,25 @@ export function SimVitalsFullExperience({
             </SimVitalsIconButton>
             <button
               type="button"
-              onClick={handleCreatePost}
-              disabled={!draft.trim()}
+              onClick={() => void handleCreatePost()}
+              disabled={!draft.trim() || savingPost}
               className="cfsp-btn cfsp-btn-primary"
               style={{
                 minWidth: "104px",
-                opacity: draft.trim() ? 1 : 0.62,
-                boxShadow: draft.trim() ? "0 10px 26px rgba(20, 91, 150, 0.20)" : undefined,
+                opacity: draft.trim() && !savingPost ? 1 : 0.62,
+                boxShadow: draft.trim() && !savingPost ? "0 10px 26px rgba(20, 91, 150, 0.20)" : undefined,
               }}
             >
-              Post
+              {savingPost ? "Posting..." : "Post"}
             </button>
           </div>
         </div>
+
+        {composerError ? (
+          <div className="mt-3 rounded-[12px] border border-[var(--cfsp-danger-border)] bg-[var(--cfsp-danger-soft)] px-3 py-2 text-sm font-bold text-[var(--cfsp-danger)]">
+            {composerError}
+          </div>
+        ) : null}
 
         <div className="mt-3 flex flex-wrap gap-2">
           {simVitalsFeedTypeOrder.map((type) => {
@@ -654,15 +1007,59 @@ export function SimVitalsFullExperience({
         </div>
       </section>
 
-      {posts.length ? (
+      <section
+        className="rounded-[14px] px-4 py-4"
+        style={{
+          border: "1px solid var(--cfsp-border)",
+          background: "var(--cfsp-surface-muted)",
+        }}
+      >
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="cfsp-label mr-1">Feed filter</span>
+          {(["all", ...simVitalsFeedTypeOrder] as Array<SimVitalsFeedType | "all">).map((type) => {
+            const active = activeFilter === type;
+            const typeLook = type === "all" ? null : simVitalsFeedTypeAppearance[type];
+            return (
+              <button
+                key={`filter-${type}`}
+                type="button"
+                onClick={() => setActiveFilter(type)}
+                className="inline-flex min-h-[30px] items-center rounded-full px-3 py-1 text-xs font-black transition"
+                style={{
+                  background: active
+                    ? typeLook?.background || "rgba(73, 168, 255, 0.12)"
+                    : "var(--cfsp-surface)",
+                  border: `1px solid ${active ? typeLook?.border || "rgba(73, 168, 255, 0.24)" : "var(--cfsp-border)"}`,
+                  color: active ? typeLook?.color || "var(--cfsp-blue-dark)" : "var(--cfsp-text-muted)",
+                  boxShadow: active && typeLook ? `0 0 18px ${typeLook.border}` : "none",
+                }}
+              >
+                {type === "all" ? `All (${posts.length})` : `${typeLook?.label} (${posts.filter((post) => post.type === type).length})`}
+              </button>
+            );
+          })}
+        </div>
+      </section>
+
+      {feedError ? (
+        <section className="rounded-[14px] border border-[var(--cfsp-border)] bg-[var(--cfsp-surface)] px-5 py-4 text-sm font-bold text-[var(--cfsp-text-muted)]">
+          {feedError}
+        </section>
+      ) : null}
+
+      {feedLoading ? (
+        <section className="rounded-[14px] border border-dashed border-[var(--cfsp-border)] bg-[var(--cfsp-surface)] px-5 py-7 text-sm font-bold text-[var(--cfsp-text-muted)]">
+          Loading SimVitals...
+        </section>
+      ) : filteredPosts.length ? (
         <section className="grid gap-3 xl:grid-cols-2" aria-label="SimVitals feed">
-          {posts.map((post) => (
-            <SimVitalsPostCard key={post.id} post={post} />
+          {filteredPosts.map((post) => (
+            <SimVitalsPostCard key={post.id} post={post} interactive onPostUpdate={handlePostUpdate} />
           ))}
         </section>
       ) : (
         <section className="rounded-[14px] border border-dashed border-[var(--cfsp-border)] bg-[var(--cfsp-surface)] px-5 py-7 text-sm font-bold text-[var(--cfsp-text-muted)]">
-          No SimVitals updates yet.
+          {posts.length ? "No SimVitals updates match this filter." : "No SimVitals updates yet."}
         </section>
       )}
     </div>
