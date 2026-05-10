@@ -1088,6 +1088,10 @@ function isMetadataYes(value: unknown) {
   return ["yes", "true", "1", "required", "planned"].includes(asText(value).toLowerCase());
 }
 
+function isMetadataNo(value: unknown) {
+  return ["no", "false", "0", "not_required", "not required", "none"].includes(asText(value).toLowerCase());
+}
+
 function normalizeMaterialsReadinessValue(value: unknown): MaterialsReadinessValue | "" {
   const normalized = asText(value)
     .toLowerCase()
@@ -6147,11 +6151,13 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     .map(asText)
     .join(" ")
     .toLowerCase();
+  const trainingZoomExplicitlyDisabled = isMetadataNo(trainingMetadata.training_zoom_required);
   const isTrainingVirtual =
     isMetadataYes(trainingMetadata.training_zoom_required) ||
-    /\b(zoom|virtual|telehealth|online|remote|simiq)\b/.test(trainingAccessSourceText);
+    (!trainingZoomExplicitlyDisabled && /\b(zoom|virtual|telehealth|online|remote|simiq)\b/.test(trainingAccessSourceText));
   const trainingZoomRequired =
-    isMetadataYes(trainingMetadata.training_zoom_required) || isTrainingVirtual;
+    isMetadataYes(trainingMetadata.training_zoom_required) ||
+    (!trainingZoomExplicitlyDisabled && isTrainingVirtual);
   const normalEventTrainingDate = parseOperationalDate(normalEventTrainingDateText, importedYearHint);
   const normalEventTrainingCountdownStartTimeText =
     asText(trainingMetadata.preferred_training_time) ||
@@ -6516,26 +6522,47 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     staffingRelevant,
     summaryTimeLabel,
   ]);
+  const operationalSupportSettings = useMemo(() => {
+    const avSupportRequired =
+      isMetadataYes(trainingMetadata.av_support_required) ||
+      (!isMetadataNo(trainingMetadata.av_support_required) && /av|audio visual|projector|mic/.test(eventSummarySourceText));
+    const simTechRequired =
+      isMetadataYes(trainingMetadata.sim_tech_required) ||
+      (!isMetadataNo(trainingMetadata.sim_tech_required) && (activeEventTypeSet.has("hifi") || /sim tech|simcapture|recording/i.test(eventSummarySourceText)));
+    const recordingMonitorNeeded =
+      isMetadataYes(trainingMetadata.recording_monitor_needed) ||
+      (!isMetadataNo(trainingMetadata.recording_monitor_needed) && recordingSupportActive);
+
+    return {
+      avSupportRequired,
+      simTechRequired,
+      recordingMonitorNeeded,
+    };
+  }, [
+    activeEventTypeSet,
+    eventSummarySourceText,
+    recordingSupportActive,
+    trainingMetadata.av_support_required,
+    trainingMetadata.sim_tech_required,
+    trainingMetadata.recording_monitor_needed,
+  ]);
   const liveSupportNeeds = useMemo(() => {
     const needs = [
-      { label: "AV Support Required", active: isMetadataYes(trainingMetadata.av_support_required) || /av|audio visual|projector|mic/.test(eventSummarySourceText) || Boolean(trainingMetadata.recording_url) },
-      { label: "Sim Tech Required", active: isMetadataYes(trainingMetadata.sim_tech_required) || activeEventTypeSet.has("hifi") || /sim tech|simcapture|recording/i.test(eventSummarySourceText) },
+      { label: "AV Support Required", active: operationalSupportSettings.avSupportRequired },
+      { label: "Sim Tech Required", active: operationalSupportSettings.simTechRequired },
       { label: "Faculty Operator Needed", active: Boolean(facultyReadinessComplete && (activeEventTypeSet.has("hifi") || activeEventTypeSet.has("virtual"))) },
       { label: "SP Educator Needed", active: staffingRelevant && isTrainingMode },
-      { label: "Recording Monitor Needed", active: isMetadataYes(trainingMetadata.recording_monitor_needed) || recordingSupportActive },
+      { label: "Recording Monitor Needed", active: operationalSupportSettings.recordingMonitorNeeded },
     ];
     return needs.filter((item) => item.active);
   }, [
     activeEventTypeSet,
-    eventSummarySourceText,
     facultyReadinessComplete,
     isTrainingMode,
-    recordingSupportActive,
+    operationalSupportSettings.avSupportRequired,
+    operationalSupportSettings.recordingMonitorNeeded,
+    operationalSupportSettings.simTechRequired,
     staffingRelevant,
-    trainingMetadata.recording_url,
-    trainingMetadata.av_support_required,
-    trainingMetadata.sim_tech_required,
-    trainingMetadata.recording_monitor_needed,
   ]);
   const selectedRotationRoundIndex = useMemo(
     () => rotationRounds.findIndex((round) => round.key === selectedRotationRoundKey),
@@ -8592,7 +8619,7 @@ Cory`;
     tone?: OperationalStatusTone;
     actions?: React.ReactNode;
   }> = [
-    ...(recordingSupportActive || Boolean(recordingGuideUrl)
+    ...(recordingSupportActive || trainingRecordingPlanned || operationalSupportSettings.recordingMonitorNeeded
       ? [
           {
             key: "recording",
@@ -8608,7 +8635,7 @@ Cory`;
           },
         ]
       : []),
-    ...(trainingZoomRequired || Boolean(trainingAccessUrl) || selectedModalityLabel === "Virtual" || selectedModalityLabel === "Hybrid"
+    ...(trainingZoomRequired || (!trainingZoomExplicitlyDisabled && (selectedModalityLabel === "Virtual" || selectedModalityLabel === "Hybrid"))
       ? [
           {
             key: "zoom",
@@ -17283,8 +17310,8 @@ Cory`;
                     summary: supportRequirementRows.length ? `${supportRequirementRows.length} active support signal${supportRequirementRows.length === 1 ? "" : "s"}` : "No active support flags",
                     styles: operationsSupportWindowStyles,
                     actions: supportRequirementRows.length ? (
-                      <button type="button" onClick={scrollToAdminTools} style={{ ...buttonStyle, padding: "7px 10px" }}>
-                        Open Admin Controls
+                      <button type="button" onClick={() => focusAdminEditField("operational_support_settings")} style={{ ...buttonStyle, padding: "7px 10px" }}>
+                        Manage Support Settings
                       </button>
                     ) : null,
                   },
@@ -17400,7 +17427,7 @@ Cory`;
                             fontWeight: 700,
                           }}
                         >
-                          No active support needs are surfaced here yet.
+                          Support clear - no active support needs.
                         </div>
                       )
                     ) : null}
@@ -20806,6 +20833,94 @@ Cory`;
                   Current workflow label: {materialsStatusLabel}
                 </span>
               </label>
+
+              <section
+                data-admin-field="operational_support_settings"
+                tabIndex={-1}
+                style={{
+                  gridColumn: "1 / -1",
+                  border: "1px solid rgba(99, 181, 217, 0.18)",
+                  borderRadius: "16px",
+                  padding: "12px 14px",
+                  background: "var(--cfsp-surface-muted)",
+                  display: "grid",
+                  gap: "12px",
+                  outline: "none",
+                }}
+              >
+                <div>
+                  <div style={statLabel}>Operational Support Settings</div>
+                  <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 700 }}>
+                    These saved metadata toggles drive the Operations & Support window. Turn off imported or inferred needs when they do not apply.
+                  </div>
+                </div>
+
+                <div style={{ display: "grid", gap: "8px", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))" }}>
+                  {[
+                    { key: "av_support_required" as const, label: "AV support required", checked: operationalSupportSettings.avSupportRequired },
+                    { key: "sim_tech_required" as const, label: "Sim tech required", checked: operationalSupportSettings.simTechRequired },
+                    { key: "recording_monitor_needed" as const, label: "Recording monitor needed", checked: operationalSupportSettings.recordingMonitorNeeded },
+                    { key: "training_zoom_required" as const, label: "Training / Zoom link needed", checked: trainingZoomRequired },
+                    { key: "training_recording_planned" as const, label: "Recording planned", checked: trainingRecordingPlanned },
+                  ].map((item) => (
+                    <label
+                      key={item.key}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "8px",
+                        borderRadius: "12px",
+                        border: "1px solid rgba(99, 181, 217, 0.14)",
+                        background: "rgba(255,255,255,0.78)",
+                        padding: "10px 12px",
+                        color: "var(--cfsp-text)",
+                        fontSize: "13px",
+                        fontWeight: 850,
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={item.checked}
+                        onChange={(event) => handleTrainingMetadataChange(item.key, event.target.checked ? "yes" : "no")}
+                        disabled={saving}
+                        data-admin-field={item.key}
+                        style={{ width: "15px", height: "15px", accentColor: "var(--cfsp-blue)" }}
+                      />
+                      {item.label}
+                    </label>
+                  ))}
+                </div>
+
+                <div style={{ display: "grid", gap: "10px", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))" }}>
+                  <label style={{ display: "grid", gap: "6px" }}>
+                    <span style={statLabel}>Training / Zoom Link</span>
+                    <input
+                      value={trainingMetadata.zoom_url || trainingMetadata.training_zoom_link}
+                      onChange={(event) =>
+                        handleTrainingMetadataFieldsChange({
+                          zoom_url: event.target.value,
+                          training_zoom_link: event.target.value,
+                        })
+                      }
+                      disabled={saving}
+                      data-admin-field="zoom_url"
+                      placeholder="https://..."
+                      style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                    />
+                  </label>
+                  <label style={{ display: "grid", gap: "6px" }}>
+                    <span style={statLabel}>Support Notes</span>
+                    <input
+                      value={trainingMetadata.contact_internal_notes}
+                      onChange={(event) => handleTrainingMetadataChange("contact_internal_notes", event.target.value)}
+                      disabled={saving}
+                      data-admin-field="support_notes"
+                      placeholder="AV setup, sim tech, room logistics, recording notes..."
+                      style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                    />
+                  </label>
+                </div>
+              </section>
 
               {isTrainingMode ? (
                 <>
