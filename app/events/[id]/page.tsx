@@ -2986,6 +2986,38 @@ function getRotationRoundKeyFromSession(session: EventSessionRow) {
   return getRotationRoundKeyFromParts(session.session_date, session.start_time, session.end_time);
 }
 
+function getRotationRoundDurationMinutes(round: RotationRound) {
+  const startMinutes = parseTimeToMinutes(round.start_time);
+  const endMinutes = parseTimeToMinutes(round.end_time);
+  if (startMinutes === null || endMinutes === null) return null;
+  const adjustedEndMinutes = endMinutes < startMinutes ? endMinutes + 24 * 60 : endMinutes;
+  return Math.max(adjustedEndMinutes - startMinutes, 0);
+}
+
+function shouldKeepRotationRound(round: RotationRound, sameDateRounds: RotationRound[]) {
+  const hasRooms = round.rooms.length > 0;
+  const hasRoomedPeer = sameDateRounds.some((peer) => peer.key !== round.key && peer.rooms.length > 0);
+
+  if (!hasRooms && hasRoomedPeer) {
+    return false;
+  }
+
+  const durationMinutes = getRotationRoundDurationMinutes(round);
+  const hasEncounterPeer = sameDateRounds.some((peer) => {
+    if (peer.key === round.key || !peer.rooms.length) return false;
+    const peerDuration = getRotationRoundDurationMinutes(peer);
+    return peerDuration !== null && peerDuration > 0 && peerDuration <= 120;
+  });
+
+  // Imported event/session-wide rows can share a start time with true encounter rounds.
+  // Keep those day-wide blocks out of the selectable Rotation Plan so details stay round-scoped.
+  if (durationMinutes !== null && durationMinutes > 120 && hasEncounterPeer) {
+    return false;
+  }
+
+  return true;
+}
+
 function buildRotationRounds(sessions: EventSessionRow[]): RotationRound[] {
   const rounds = new Map<string, RotationRound>();
 
@@ -3009,13 +3041,33 @@ function buildRotationRounds(sessions: EventSessionRow[]): RotationRound[] {
     });
   });
 
-  return Array.from(rounds.values()).map((round) => ({
+  const sortedRounds = Array.from(rounds.values()).map((round) => ({
     ...round,
     rooms: sortRoomLabelsForDisplay(round.rooms),
-  })).sort((a, b) => {
+  }));
+  const roundsByDate = sortedRounds.reduce<Map<string, RotationRound[]>>((map, round) => {
+    const dateKey = asText(round.session_date) || "date-tbd";
+    map.set(dateKey, [...(map.get(dateKey) || []), round]);
+    return map;
+  }, new Map());
+  const filteredRounds = sortedRounds.filter((round) => {
+    const dateKey = asText(round.session_date) || "date-tbd";
+    return shouldKeepRotationRound(round, roundsByDate.get(dateKey) || sortedRounds);
+  });
+  const displayRounds = filteredRounds.length ? filteredRounds : sortedRounds;
+
+  return displayRounds.sort((a, b) => {
     const dateCompare = asText(a.session_date).localeCompare(asText(b.session_date));
     if (dateCompare !== 0) return dateCompare;
-    return asText(a.start_time).localeCompare(asText(b.start_time));
+    const aStart = parseTimeToMinutes(a.start_time);
+    const bStart = parseTimeToMinutes(b.start_time);
+    if (aStart !== null && bStart !== null && aStart !== bStart) return aStart - bStart;
+    const startCompare = asText(a.start_time).localeCompare(asText(b.start_time));
+    if (startCompare !== 0) return startCompare;
+    const aDuration = getRotationRoundDurationMinutes(a);
+    const bDuration = getRotationRoundDurationMinutes(b);
+    if (aDuration !== null && bDuration !== null && aDuration !== bDuration) return aDuration - bDuration;
+    return b.rooms.length - a.rooms.length;
   });
 }
 
