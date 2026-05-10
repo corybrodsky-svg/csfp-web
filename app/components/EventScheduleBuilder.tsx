@@ -620,7 +620,7 @@ function buildTimePrefill(event: EventRow | null, savedDraft: ScheduleBuilderDra
 function hasPhysicalEventLocation(value?: string | null) {
   const text = asText(value).toLowerCase();
   if (!text) return false;
-  if (/\b(zoom|virtual|telehealth|breakout|online|remote|simiq)\b/.test(text)) return false;
+  if (/\b(virtual|telehealth|breakout|online|remote)\b/.test(text)) return false;
   return /\b(campus|center|centre|building|room|suite|lab|hospital|clinic|hall|floor|site|onsite|on-site|in person|in-person|elkins park)\b/.test(text);
 }
 
@@ -1927,7 +1927,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         ? "in_person"
         : hasPhysicalEventLocation(selectedEvent?.location)
           ? "in_person"
-          : /\b(virtual|vir|telehealth|breakout|online|remote|simiq)\b/.test(
+          : /\b(virtual|vir|telehealth|breakout|online|remote)\b/.test(
                 [selectedEvent?.name, selectedEvent?.location, selectedEvent?.status]
                   .map((value) => asText(value))
                   .join(" ")

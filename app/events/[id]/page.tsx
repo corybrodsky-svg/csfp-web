@@ -249,6 +249,11 @@ type LiveRoomAdjustment = {
 
 type LiveRoomAdjustmentsMap = Record<string, LiveRoomAdjustment>;
 
+type LiveFlowPreviewEntry = {
+  block: LiveFlowBlock;
+  relation: "previous" | "current" | "next";
+};
+
 type ScheduleBuilderPreviewDayBlock = {
   id: string;
   type: string;
@@ -2315,6 +2320,10 @@ function parseLiveRoomAdjustments(value: string | null | undefined) {
   }
 }
 
+function getFacultyContactPanelStorageKey(eventId: string) {
+  return `cfsp:faculty-contact-panel:${eventId || "global"}`;
+}
+
 const eventSchedulePreviewOptions: Array<{ value: EventSchedulePreviewKind; label: string }> = [
   { value: "timeline", label: "Day Flow" },
   { value: "rotation", label: "Rotation Schedule" },
@@ -3288,7 +3297,7 @@ function serializeWorkflowManualChecks(ids: string[]) {
 function hasPhysicalEventLocation(value: string | null | undefined) {
   const text = asText(value).toLowerCase();
   if (!text) return false;
-  if (/\b(zoom|virtual|telehealth|breakout|online|remote|simiq)\b/.test(text)) return false;
+  if (/\b(virtual|telehealth|breakout|online|remote)\b/.test(text)) return false;
   return /\b(campus|center|centre|building|room|suite|lab|hospital|clinic|hall|floor|site|onsite|on-site|in person|in-person|elkins park)\b/.test(text);
 }
 
@@ -3306,7 +3315,7 @@ function inferEventModalityLabel(
   if (explicitEventTypeSet.has("virtual")) return "Virtual";
 
   const source = [event?.name, event?.location, event?.status, event?.visibility].map(asText).join(" ").toLowerCase();
-  if (/\b(virtual|vir|telehealth|breakout|online|remote|simiq)\b/.test(source)) return "Virtual";
+  if (/\b(virtual|vir|telehealth|breakout|online|remote)\b/.test(source)) return "Virtual";
   return "In-person";
 }
 
@@ -3526,6 +3535,7 @@ export default function EventDetailPage() {
   const [showRecordingGuideEditor, setShowRecordingGuideEditor] = useState(false);
   const [contactPanelSaving, setContactPanelSaving] = useState(false);
   const [contactPanelSavedAt, setContactPanelSavedAt] = useState("");
+  const [contactPanelExpanded, setContactPanelExpanded] = useState(true);
   const [showPushRelatedPanel, setShowPushRelatedPanel] = useState(false);
   const [relatedKeyword, setRelatedKeyword] = useState("");
   const schedulePreviewFrameRef = useRef<HTMLIFrameElement | null>(null);
@@ -4881,6 +4891,30 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     currentLiveBlockIndex >= 0
       ? liveFlowBlocks[currentLiveBlockIndex + 1] || null
       : liveFlowBlocks.find((block) => block.startMinutes > simulatedLiveMinutes) || null;
+  const liveFlowPreviewEntries = useMemo(() => {
+    if (!liveFlowBlocks.length) return [] as LiveFlowPreviewEntry[];
+
+    const currentIndex =
+      currentLiveBlockIndex >= 0
+        ? currentLiveBlockIndex
+        : liveFlowBlocks.findIndex((block) => block.startMinutes > simulatedLiveMinutes);
+    const resolvedCurrentIndex = currentIndex >= 0 ? currentIndex : liveFlowBlocks.length - 1;
+    const entries: LiveFlowPreviewEntry[] = [];
+
+    if (resolvedCurrentIndex > 0) {
+      entries.push({ block: liveFlowBlocks[resolvedCurrentIndex - 1], relation: "previous" });
+    }
+    if (liveFlowBlocks[resolvedCurrentIndex]) {
+      entries.push({ block: liveFlowBlocks[resolvedCurrentIndex], relation: "current" });
+    }
+    for (let offset = 1; offset <= 3; offset += 1) {
+      const nextBlock = liveFlowBlocks[resolvedCurrentIndex + offset];
+      if (!nextBlock) break;
+      entries.push({ block: nextBlock, relation: "next" });
+    }
+
+    return entries;
+  }, [currentLiveBlockIndex, liveFlowBlocks, simulatedLiveMinutes]);
   const currentRotationRoundNumber =
     currentLiveBlock?.tone === "rotation" ? currentLiveBlock.roundNumber : null;
   const currentLiveReferenceRound = useMemo(() => {
@@ -5349,6 +5383,14 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
         .filter(Boolean)
         .join(" · ")
     : "Needs contact";
+  const facultyContactSummary = [
+    trainingFacultyText || "Faculty contact",
+    trainingMetadata.faculty_program,
+    trainingMetadata.sim_contact,
+  ]
+    .map(asText)
+    .filter(Boolean)
+    .join(" · ");
   const outreachProgressLabel = assignments.some(
     (assignment) =>
       Boolean(assignment.last_contacted_at) || ["contacted", "confirmed", "declined"].includes(getAssignmentStatus(assignment))
@@ -9506,6 +9548,16 @@ Cory`;
     await persistLiveRoomAdjustments(nextAdjustments);
   }
 
+  function handleContactPanelExpandedChange(nextExpanded: boolean) {
+    setContactPanelExpanded(nextExpanded);
+    if (typeof window !== "undefined" && id) {
+      window.localStorage.setItem(
+        getFacultyContactPanelStorageKey(id),
+        nextExpanded ? "expanded" : "collapsed"
+      );
+    }
+  }
+
   function handleClearSuggestedAssignments() {
     setSuggestedAssignmentFilter("all");
     showSuccessMessage("Suggested assignments reset.");
@@ -10592,68 +10644,152 @@ Cory`;
                   background: "rgba(9, 20, 33, 0.94)",
                   padding: "14px",
                   display: "grid",
-                  gap: "10px",
+                  gap: "12px",
                 }}
               >
-                <div style={{ ...statLabel, color: "#7ee7db" }}>Today&apos;s Flow</div>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
+                  <div style={{ ...statLabel, color: "#7ee7db" }}>Live Flow</div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEventSchedulePreviewKind("timeline");
+                      setShowEventSchedulePreview(true);
+                    }}
+                    style={{ ...buttonStyle, padding: "7px 10px" }}
+                  >
+                    View Full Flow
+                  </button>
+                </div>
                 {liveFlowBlocks.length === 0 ? (
                   <div style={{ color: "#9bb4c0", fontWeight: 700 }}>
-                    Build a schedule to unlock the live flow timeline.
+                    Build a schedule to unlock the live flow rail.
                   </div>
                 ) : (
-                  liveFlowBlocks.map((block, index) => {
-                    const isCurrent = currentLiveBlock?.key === block.key;
-                    const isNext =
-                      !isCurrent &&
-                      (nextLiveBlock?.key === block.key ||
-                        (currentLiveBlock === null && index === 0 && simulatedLiveMinutes < block.startMinutes));
-                    const toneColor =
-                      block.tone === "rotation"
-                        ? "#7dd3fc"
-                        : block.tone === "support"
-                          ? "#a7f3d0"
-                          : block.tone === "break"
-                            ? "#fde68a"
-                            : "#c4b5fd";
-                    return (
-                      <div
-                        key={block.key}
-                        style={{
-                          borderRadius: "14px",
-                          padding: "10px 12px",
-                          border: isCurrent
-                            ? "1px solid rgba(126, 231, 219, 0.3)"
-                            : "1px solid rgba(148, 163, 184, 0.16)",
-                          background: isCurrent ? "rgba(16, 44, 59, 0.92)" : "rgba(13, 27, 42, 0.82)",
-                          boxShadow: isCurrent ? "0 0 0 1px rgba(126, 231, 219, 0.12)" : "none",
-                          display: "grid",
-                          gap: "4px",
-                        }}
-                      >
-                        <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap" }}>
-                          <div style={{ color: toneColor, fontWeight: 900 }}>
-                            {block.label}
-                          </div>
-                          {isCurrent ? (
-                            <span style={{ ...commandChipStyle, background: "rgba(126, 231, 219, 0.14)", color: "#7ee7db" }}>
-                              Active now
-                            </span>
-                          ) : isNext ? (
-                            <span style={{ ...commandChipStyle, background: "rgba(125, 211, 252, 0.12)", color: "#bae6fd" }}>
-                              Next
-                            </span>
-                          ) : null}
-                        </div>
-                        <div style={{ color: "#d6edf4", fontWeight: 700 }}>
-                          {formatMinuteRange(block.startMinutes, block.endMinutes)}
-                        </div>
-                        <div style={{ color: "#89b7c4", fontSize: "13px", fontWeight: 700 }}>{block.detail}</div>
-                        {block.note ? (
-                          <div style={{ color: "#6ea7b8", fontSize: "12px", fontWeight: 700 }}>{block.note}</div>
-                        ) : null}
+                  <>
+                    <div
+                      style={{
+                        borderRadius: "16px",
+                        border: "1px solid rgba(126, 231, 219, 0.28)",
+                        background: "linear-gradient(180deg, rgba(14, 42, 58, 0.96) 0%, rgba(9, 27, 42, 0.94) 100%)",
+                        padding: "12px 14px",
+                        display: "grid",
+                        gap: "6px",
+                        boxShadow: "0 0 0 1px rgba(126, 231, 219, 0.08), 0 14px 28px rgba(4, 14, 26, 0.22)",
+                      }}
+                    >
+                      <div style={{ color: "#7ee7db", fontSize: "11px", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                        Now
                       </div>
-                    );
-                  })
+                      <div style={{ color: "#f4fbff", fontSize: "20px", fontWeight: 900 }}>
+                        {currentLiveBlock?.label || "Awaiting first live block"}
+                      </div>
+                      <div style={{ color: "#d6edf4", fontWeight: 800 }}>
+                        {currentLiveBlock ? formatMinuteRange(currentLiveBlock.startMinutes, currentLiveBlock.endMinutes) : summaryTimeLabel}
+                      </div>
+                      <div style={{ color: "#9ed9d1", fontSize: "13px", fontWeight: 800 }}>
+                        {currentLiveBlock
+                          ? `${formatRemainingMinutes(Math.max(currentLiveBlock.endMinutes - simulatedLiveMinutes, 0))} remaining`
+                          : "Stand by for the first scheduled block"}
+                      </div>
+                    </div>
+
+                    <div style={{ display: "grid", gap: "8px" }}>
+                      {liveFlowPreviewEntries.map(({ block, relation }) => {
+                        const isCurrent = relation === "current";
+                        const toneColor =
+                          block.tone === "rotation"
+                            ? "#7dd3fc"
+                            : block.tone === "support"
+                              ? "#a7f3d0"
+                              : block.tone === "break"
+                                ? "#fde68a"
+                                : "#c4b5fd";
+                        return (
+                          <div
+                            key={`${block.key}-${relation}`}
+                            title={[formatMinuteRange(block.startMinutes, block.endMinutes), block.detail, block.note].filter(Boolean).join(" • ")}
+                            style={{
+                              borderRadius: "13px",
+                              padding: "9px 11px",
+                              border: isCurrent
+                                ? "1px solid rgba(126, 231, 219, 0.24)"
+                                : relation === "next"
+                                  ? "1px solid rgba(125, 211, 252, 0.16)"
+                                  : "1px solid rgba(148, 163, 184, 0.14)",
+                              background: isCurrent ? "rgba(16, 44, 59, 0.78)" : "rgba(13, 27, 42, 0.72)",
+                              display: "grid",
+                              gap: "3px",
+                            }}
+                          >
+                            <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+                              <div style={{ color: toneColor, fontWeight: 900 }}>
+                                {relation === "previous" ? "Previous" : relation === "current" ? "Current" : "Up Next"}: {block.label}
+                              </div>
+                              <span style={{ ...commandChipStyle, background: "rgba(255,255,255,0.04)", color: toneColor }}>
+                                {formatMinuteRange(block.startMinutes, block.endMinutes)}
+                              </span>
+                            </div>
+                            <div style={{ color: "#89b7c4", fontSize: "12px", fontWeight: 700 }}>
+                              {block.detail}{block.note ? ` • ${block.note}` : ""}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    <div style={{ display: "grid", gap: "8px" }}>
+                      <div style={{ color: "#89b7c4", fontSize: "11px", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                        Day Rhythm
+                      </div>
+                      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                        {liveFlowBlocks.map((block) => {
+                          const duration = Math.max(block.endMinutes - block.startMinutes, 1);
+                          const isCurrent = currentLiveBlock?.key === block.key;
+                          const background =
+                            block.tone === "rotation"
+                              ? "linear-gradient(135deg, rgba(59, 130, 246, 0.22) 0%, rgba(125, 211, 252, 0.26) 100%)"
+                              : block.tone === "break"
+                                ? "linear-gradient(135deg, rgba(245, 158, 11, 0.22) 0%, rgba(253, 230, 138, 0.28) 100%)"
+                                : block.tone === "support"
+                                  ? "linear-gradient(135deg, rgba(16, 185, 129, 0.2) 0%, rgba(167, 243, 208, 0.24) 100%)"
+                                  : "linear-gradient(135deg, rgba(168, 85, 247, 0.2) 0%, rgba(221, 214, 254, 0.24) 100%)";
+                          const color =
+                            block.tone === "rotation"
+                              ? "#7dd3fc"
+                              : block.tone === "break"
+                                ? "#fde68a"
+                                : block.tone === "support"
+                                  ? "#9ff5df"
+                                  : "#d8b4fe";
+                          return (
+                            <div
+                              key={`live-rhythm-${block.key}`}
+                              title={`${block.label} • ${formatMinuteRange(block.startMinutes, block.endMinutes)} • ${block.detail}${block.note ? ` • ${block.note}` : ""}`}
+                              style={{
+                                flex: `${Math.max(duration, 6)} 1 58px`,
+                                minHeight: "42px",
+                                borderRadius: "12px",
+                                border: isCurrent ? "1px solid rgba(126, 231, 219, 0.34)" : "1px solid rgba(255,255,255,0.08)",
+                                background,
+                                boxShadow: isCurrent ? "0 0 0 1px rgba(126, 231, 219, 0.08), 0 0 22px rgba(126, 231, 219, 0.14)" : "none",
+                                padding: "7px 8px",
+                                display: "grid",
+                                alignContent: "space-between",
+                                gap: "4px",
+                              }}
+                            >
+                              <div style={{ color, fontSize: "10px", fontWeight: 900, lineHeight: 1.2, overflowWrap: "anywhere" }}>
+                                {block.label}
+                              </div>
+                              <div style={{ color: "#d6edf4", fontSize: "10px", fontWeight: 800 }}>
+                                {block.detail}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </>
                 )}
               </div>
             </section>
@@ -15581,6 +15717,11 @@ Cory`;
                 <div style={{ marginTop: "4px", color: commandCenterVisual.headingColor, fontSize: "18px", fontWeight: 900 }}>
                   {trainingFacultyText || "Add faculty contact"}
                 </div>
+                {facultyReadinessComplete && !contactPanelExpanded ? (
+                  <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "13px", fontWeight: 700 }}>
+                    {facultyContactSummary || facultyReadinessLabel}
+                  </div>
+                ) : null}
               </div>
               <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
                 <span style={commandChipStyle}>
@@ -15592,6 +15733,15 @@ Cory`;
                         ? "Ready"
                         : "Needs setup"}
                 </span>
+                {facultyReadinessComplete ? (
+                  <button
+                    type="button"
+                    onClick={() => handleContactPanelExpandedChange(!contactPanelExpanded)}
+                    style={{ ...buttonStyle, padding: "8px 12px" }}
+                  >
+                    {contactPanelExpanded ? "Collapse" : "Edit / Expand"}
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   onClick={() =>
@@ -15615,6 +15765,7 @@ Cory`;
               </div>
             </div>
 
+            {(!facultyReadinessComplete || contactPanelExpanded) ? (
             <div style={{ display: "grid", gap: "10px", marginTop: "12px", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))" }}>
               <label style={{ display: "grid", gap: "6px" }}>
                 <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Faculty name</span>
@@ -15683,6 +15834,37 @@ Cory`;
                 />
               </label>
             </div>
+            ) : (
+              <div
+                style={{
+                  display: "grid",
+                  gap: "8px",
+                  marginTop: "12px",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                }}
+              >
+                {[
+                  { label: "Faculty", value: trainingFacultyText || "Faculty recorded" },
+                  { label: "Program / course", value: trainingMetadata.faculty_program || "Program recorded" },
+                  { label: "Sim team / event lead", value: trainingMetadata.sim_contact || simStaffNames.join(", ") || "Lead recorded" },
+                ].map((item) => (
+                  <div
+                    key={`faculty-summary-${item.label}`}
+                    style={{
+                      ...statCard,
+                      minHeight: "92px",
+                      background: commandCenterVisual.cardBackground,
+                      border: commandCenterVisual.cardBorder,
+                    }}
+                  >
+                    <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>{item.label}</div>
+                    <div style={{ ...statValue, marginTop: "8px", color: commandCenterVisual.textColor, fontSize: "15px", lineHeight: 1.3 }}>
+                      {item.value}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </section>
         </div>
         </div>

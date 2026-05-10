@@ -83,7 +83,7 @@ export function classifyEventPresentation(input: EventClassificationInput) {
     );
   const hasTrainingTitleSignal =
     /\btraining\b/.test(titleText) || titleText.includes("orientation") || titleText.includes("onboarding");
-  const hasVirtualKeyword = /\b(vir|virtual|telehealth|zoom|simiq)\b/.test(modalityContextText);
+  const hasVirtualKeyword = /\b(vir|virtual|telehealth|breakout|online|remote)\b/.test(modalityContextText);
 
   const isTraining =
     explicitTypeSet.has("training") ||
