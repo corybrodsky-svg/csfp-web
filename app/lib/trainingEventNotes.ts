@@ -74,6 +74,7 @@ export type TrainingEventMetadata = {
   schedule_round_count: string;
   schedule_preview_enabled_for_sps: string;
   live_room_adjustments: string;
+  live_learner_attendance: string;
   live_mode_started_at: string;
   live_mode_ended_at: string;
   live_alerts_acknowledged: string;
@@ -190,6 +191,7 @@ const TRAINING_METADATA_KEYS = [
   "schedule_round_count",
   "schedule_preview_enabled_for_sps",
   "live_room_adjustments",
+  "live_learner_attendance",
   "live_mode_started_at",
   "live_mode_ended_at",
   "live_alerts_acknowledged",
@@ -315,6 +317,7 @@ export function emptyTrainingEventMetadata(): TrainingEventMetadata {
     schedule_round_count: "",
     schedule_preview_enabled_for_sps: "",
     live_room_adjustments: "",
+    live_learner_attendance: "",
     live_mode_started_at: "",
     live_mode_ended_at: "",
     live_alerts_acknowledged: "",

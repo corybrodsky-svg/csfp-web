@@ -235,6 +235,17 @@ type LiveRoomLocalState = {
   issueNote?: string;
 };
 
+type LearnerAttendanceStatus = "expected" | "arrived" | "late" | "absent" | "in_room" | "completed";
+
+type LearnerAttendanceRecord = {
+  status: LearnerAttendanceStatus;
+  updatedAt: string;
+  roomName: string;
+  roundKey: string;
+};
+
+type LearnerAttendanceMap = Record<string, LearnerAttendanceRecord>;
+
 type EventSchedulePreviewKind =
   | "timeline"
   | "rotation"
@@ -2461,6 +2472,60 @@ function parseLiveRoomAdjustments(value: string | null | undefined) {
   }
 }
 
+function getLearnerAttendanceKey(roundKey: string | null | undefined, roomName: string | null | undefined, learnerName: string) {
+  return [
+    asText(roundKey) || "round-tbd",
+    asText(roomName).toLowerCase() || "room-tbd",
+    asText(learnerName).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "learner",
+  ].join(":");
+}
+
+function normalizeLearnerAttendanceStatus(value: unknown): LearnerAttendanceStatus {
+  const normalized = asText(value).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  if (normalized === "arrived") return "arrived";
+  if (normalized === "late") return "late";
+  if (normalized === "absent" || normalized === "no_show" || normalized === "no_show_absent") return "absent";
+  if (normalized === "in_room" || normalized === "roomed") return "in_room";
+  if (normalized === "completed" || normalized === "complete") return "completed";
+  return "expected";
+}
+
+function parseLearnerAttendanceMetadata(value: string | null | undefined) {
+  const text = asText(value);
+  if (!text) return {} as LearnerAttendanceMap;
+
+  try {
+    const parsed = JSON.parse(text);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {} as LearnerAttendanceMap;
+    return Object.fromEntries(
+      Object.entries(parsed as Record<string, unknown>).flatMap(([key, rawRecord]) => {
+        if (!rawRecord || typeof rawRecord !== "object") return [];
+        const record = rawRecord as Record<string, unknown>;
+        return [
+          [
+            key,
+            {
+              status: normalizeLearnerAttendanceStatus(record.status),
+              updatedAt: asText(record.updatedAt),
+              roomName: asText(record.roomName),
+              roundKey: asText(record.roundKey),
+            } satisfies LearnerAttendanceRecord,
+          ],
+        ];
+      })
+    ) as LearnerAttendanceMap;
+  } catch {
+    return {} as LearnerAttendanceMap;
+  }
+}
+
+function serializeLearnerAttendanceMetadata(records: LearnerAttendanceMap) {
+  const compactRecords = Object.fromEntries(
+    Object.entries(records).filter(([, record]) => record.status && record.status !== "expected")
+  );
+  return Object.keys(compactRecords).length ? JSON.stringify(compactRecords) : "";
+}
+
 function getFacultyContactPanelStorageKey(eventId: string) {
   return `cfsp:faculty-contact-panel:${eventId || "global"}`;
 }
@@ -3825,6 +3890,8 @@ export default function EventDetailPage() {
   const [attendanceError, setAttendanceError] = useState("");
   const [attendanceSuccess, setAttendanceSuccess] = useState("");
   const [activeBlueprintRoomKey, setActiveBlueprintRoomKey] = useState("");
+  const [collapsedBlueprintRoomKeys, setCollapsedBlueprintRoomKeys] = useState<Record<string, boolean>>({});
+  const [activeLearnerAttendanceKey, setActiveLearnerAttendanceKey] = useState("");
   const [blueprintActionSavingKey, setBlueprintActionSavingKey] = useState("");
   const [blueprintRestoreAssignmentIdByRoom, setBlueprintRestoreAssignmentIdByRoom] = useState<Record<string, string>>({});
   const [liveAttendanceToolsExpanded, setLiveAttendanceToolsExpanded] = useState(true);
@@ -6623,6 +6690,10 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     () => parseLiveRoomAdjustments(trainingMetadata.live_room_adjustments),
     [trainingMetadata.live_room_adjustments]
   );
+  const liveLearnerAttendanceRecords = useMemo(
+    () => parseLearnerAttendanceMetadata(trainingMetadata.live_learner_attendance),
+    [trainingMetadata.live_learner_attendance]
+  );
   const liveBoardAdjustment = liveRoomAdjustments[LIVE_ROOM_BOARD_ADJUSTMENT_KEY] || {};
   const liveExtraRoomCount = Math.max(0, liveBoardAdjustment.extraRoomCount || 0);
   const expandedScheduleBuilderHref = useMemo(() => {
@@ -7818,27 +7889,68 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     () =>
       liveAttendanceBlueprintRooms
         .filter((room) => room.learnerLabel && room.learnerLabel !== "Learner not assigned" && room.learnerLabel !== "Overflow / standby")
-        .map((room, index) => {
-          const learnerName = room.learnerLabel.split(",")[0]?.trim() || room.learnerLabel;
-          const initialSeed = learnerName.replace(/[^A-Za-z0-9]/g, "");
-          const initials = (initialSeed.slice(0, 2) || String(index + 1)).toUpperCase();
-          const state =
-            currentLiveBlock?.tone === "rotation" && room.isCurrentRotationRoom
-              ? "roomed"
-              : nextLiveBlock && nextLiveBlock.rooms.some((label) => compareRoomLabels(label, room.roomName) === 0)
-                ? "next"
-                : "queued";
-          return {
-            key: `${room.key}-learner-token`,
-            roomKey: room.key,
-            roomName: room.roomName,
-            learnerName,
-            initials,
-            state,
-          };
-        }),
-    [currentLiveBlock?.tone, liveAttendanceBlueprintRooms, nextLiveBlock]
+        .flatMap((room, roomIndex) =>
+          room.learnerLabel
+            .split(",")
+            .map((name) => name.trim())
+            .filter(Boolean)
+            .map((learnerName, learnerIndex) => {
+              const attendanceKey = getLearnerAttendanceKey(currentLiveReferenceRound?.key, room.roomName, learnerName);
+              const record = liveLearnerAttendanceRecords[attendanceKey] || null;
+              const initialSeed = learnerName.replace(/[^A-Za-z0-9]/g, "");
+              const initials = (initialSeed.slice(0, 2) || String(roomIndex + learnerIndex + 1)).toUpperCase();
+              const isCurrentRoom = currentLiveBlock?.tone === "rotation" && room.isCurrentRotationRoom;
+              const nextRoom =
+                nextLiveBlock && nextLiveBlock.rooms.some((label) => compareRoomLabels(label, room.roomName) === 0);
+              const storedStatus = record?.status || "expected";
+              const displayStatus: LearnerAttendanceStatus =
+                storedStatus === "arrived" && isCurrentRoom
+                  ? "in_room"
+                  : storedStatus === "expected" && isCurrentRoom
+                    ? "expected"
+                    : storedStatus;
+              const state =
+                displayStatus === "in_room" || displayStatus === "completed"
+                  ? "roomed"
+                  : displayStatus === "arrived"
+                    ? "arrived"
+                    : displayStatus === "late"
+                      ? "late"
+                      : displayStatus === "absent"
+                        ? "absent"
+                        : nextRoom
+                          ? "next"
+                          : "queued";
+              return {
+                key: `${room.key}-learner-token-${learnerIndex}`,
+                attendanceKey,
+                roomKey: room.key,
+                roomName: room.roomName,
+                learnerName,
+                initials,
+                state,
+                status: displayStatus,
+                storedStatus,
+                updatedAt: record?.updatedAt || "",
+                isCurrentRoom,
+              };
+            })
+        ),
+    [
+      currentLiveBlock?.tone,
+      currentLiveReferenceRound?.key,
+      liveAttendanceBlueprintRooms,
+      liveLearnerAttendanceRecords,
+      nextLiveBlock,
+    ]
   );
+  const liveLearnerArrivedCount = liveLearnerPresenceTokens.filter((token) =>
+    ["arrived", "in_room", "completed"].includes(token.status)
+  ).length;
+  const liveLearnerInRoomCount = liveLearnerPresenceTokens.filter((token) => token.status === "in_room").length;
+  const liveLearnerMissingCount = liveLearnerPresenceTokens.filter((token) =>
+    token.status === "late" || token.status === "absent" || (token.isCurrentRoom && token.status === "expected")
+  ).length;
   const liveAnnouncementQueue = useMemo(() => {
     const nextIndex = nextLiveBlock ? liveFlowBlocks.findIndex((block) => block.key === nextLiveBlock.key) : -1;
     const queueStartIndex = nextIndex >= 0 ? nextIndex : Math.max(liveFlowBlocks.findIndex((block) => block.startMinutes > simulatedLiveMinutes), 0);
@@ -7856,6 +7968,7 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
   }, [liveFlowBlocks, nextLiveBlock, simulatedLiveMinutes]);
   const liveCloseoutItems = [
     { label: "Checked in", value: String(liveBlueprintCheckedCount), detail: `${liveBlueprintStaffedCount} staffed` },
+    { label: "Learners arrived", value: `${liveLearnerArrivedCount}/${liveLearnerPresenceTokens.length}`, detail: `${liveLearnerInRoomCount} in rooms · ${liveLearnerMissingCount} alerts` },
     { label: "No-show", value: String(liveBlueprintNoShowCount), detail: liveBlueprintNoShowCount > 0 ? "Needs follow-up" : "No active no-show flags" },
     { label: "Payroll ready", value: `${payrollReadyCount}/${Math.max(confirmedCount, payrollReadyCount)}`, detail: "Confirmed attendance ready for payroll review" },
   ];
@@ -11212,6 +11325,79 @@ Cory`;
     }
   }
 
+  async function handleLiveLearnerAttendanceAction(
+    token: {
+      attendanceKey: string;
+      learnerName: string;
+      roomName: string;
+      status: LearnerAttendanceStatus;
+    },
+    action: LearnerAttendanceStatus | "clear"
+  ) {
+    if (!id || !token.attendanceKey) return;
+
+    const now = new Date().toISOString();
+    const nextRecords: LearnerAttendanceMap = { ...liveLearnerAttendanceRecords };
+    if (action === "clear" || action === "expected") {
+      delete nextRecords[token.attendanceKey];
+    } else {
+      nextRecords[token.attendanceKey] = {
+        status: action,
+        updatedAt: now,
+        roomName: token.roomName,
+        roundKey: asText(currentLiveReferenceRound?.key) || asText(selectedRotationRound?.key),
+      };
+    }
+
+    const nextNotes = upsertEventMetadata(eventEditor.notes, {
+      training: {
+        live_learner_attendance: serializeLearnerAttendanceMetadata(nextRecords),
+      } as Partial<TrainingEventMetadata>,
+    });
+
+    setAttendanceSaving(true);
+    setBlueprintActionSavingKey(`${token.attendanceKey}:${action}`);
+    setAttendanceError("");
+    setAttendanceSuccess("");
+
+    try {
+      const response = await fetch(`/api/events/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          event_updates: {
+            notes: nextNotes,
+          },
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(await parseApiError(response));
+      }
+
+      setEventEditor((current) => ({ ...current, notes: nextNotes }));
+      setEvent((current) => (current ? { ...current, notes: nextNotes } : current));
+      setAttendanceSuccess(
+        action === "arrived"
+          ? `${token.learnerName} marked arrived.`
+          : action === "late"
+            ? `${token.learnerName} marked late.`
+            : action === "absent"
+              ? `${token.learnerName} marked absent.`
+              : action === "in_room"
+                ? `${token.learnerName} moved to room.`
+                : action === "completed"
+                  ? `${token.learnerName} marked complete.`
+                  : `${token.learnerName} attendance reset.`
+      );
+    } catch (error) {
+      setAttendanceError(error instanceof Error ? error.message : "Could not update learner attendance.");
+    } finally {
+      setBlueprintActionSavingKey("");
+      setAttendanceSaving(false);
+    }
+  }
+
   async function handleBulkTrainingAttendance(action: "confirm_all" | "clear_all") {
     if (!sortedAssignments.length) return;
 
@@ -12020,7 +12206,7 @@ Cory`;
                         Simulation Lab Occupancy
                       </div>
                       <div style={{ marginTop: "4px", color: "#9ed9d1", fontSize: "12px", fontWeight: 700, lineHeight: 1.45 }}>
-                        Check in SPs to populate the room wall.
+                        Track SP check-in and learner arrival from prebrief into active exam rooms.
                       </div>
                       <div style={{ marginTop: "4px", color: "#7da4b5", fontSize: "11px", fontWeight: 800 }}>
                         schedule rows loaded: {currentLiveReferenceScheduleRows.length} · selected round learners:{" "}
@@ -12070,6 +12256,15 @@ Cory`;
                       </span>
                       <span style={{ ...commandChipStyle, background: "rgba(248, 113, 113, 0.14)", color: "#fecaca" }}>
                         {liveBlueprintNoShowCount} no-show
+                      </span>
+                      <span style={{ ...commandChipStyle, background: "rgba(125, 211, 252, 0.12)", color: "#bfdbfe" }}>
+                        {liveLearnerArrivedCount}/{liveLearnerPresenceTokens.length} learners arrived
+                      </span>
+                      <span style={{ ...commandChipStyle, background: "rgba(25, 138, 112, 0.14)", color: "#9ff5df" }}>
+                        {liveLearnerInRoomCount} learners in rooms
+                      </span>
+                      <span style={{ ...commandChipStyle, background: liveLearnerMissingCount ? "rgba(243, 187, 103, 0.14)" : "rgba(25, 138, 112, 0.14)", color: liveLearnerMissingCount ? "#f3bb67" : "#9ff5df" }}>
+                        {liveLearnerMissingCount} learner alerts
                       </span>
                     </div>
                   </div>
@@ -12184,6 +12379,21 @@ Cory`;
                                           glow: "none",
                                         };
                             const isActionMenuOpen = activeBlueprintRoomKey === room.key;
+                            const isRoomCollapsed = collapsedBlueprintRoomKeys[room.key] ?? true;
+                            const roomExpanded = isActionMenuOpen || !isRoomCollapsed;
+                            const roomLearnerTokens = liveLearnerPresenceTokens.filter((token) => token.roomKey === room.key);
+                            const primaryLearnerToken = roomLearnerTokens[0] || null;
+                            const learnerReady =
+                              !primaryLearnerToken ||
+                              ["arrived", "in_room", "completed"].includes(primaryLearnerToken.status);
+                            const learnerStateColor =
+                              primaryLearnerToken?.status === "late"
+                                ? "#f3bb67"
+                                : primaryLearnerToken?.status === "absent"
+                                  ? "#fecaca"
+                                  : learnerReady
+                                    ? "#9ff5df"
+                                    : "#bfdbfe";
                             const selectedRestoreAssignmentId =
                               blueprintRestoreAssignmentIdByRoom[room.adjustmentKey] ||
                               liveUnmappedConfirmedAssignments[0]?.id ||
@@ -12203,19 +12413,21 @@ Cory`;
                                 key={room.key}
                                 role="button"
                                 tabIndex={0}
-                                aria-expanded={isActionMenuOpen}
+                                aria-expanded={roomExpanded}
                                 aria-label={`${room.roomName} live attendance controls`}
-                                onClick={() =>
-                                  setActiveBlueprintRoomKey((current) => (current === room.key ? "" : room.key))
-                                }
+                                onClick={() => {
+                                  setCollapsedBlueprintRoomKeys((current) => ({ ...current, [room.key]: !isRoomCollapsed }));
+                                  if (!isRoomCollapsed) setActiveBlueprintRoomKey("");
+                                }}
                                 onKeyDown={(event) => {
                                   if (event.key === "Enter" || event.key === " ") {
                                     event.preventDefault();
-                                    setActiveBlueprintRoomKey((current) => (current === room.key ? "" : room.key));
+                                    setCollapsedBlueprintRoomKeys((current) => ({ ...current, [room.key]: !isRoomCollapsed }));
+                                    if (!isRoomCollapsed) setActiveBlueprintRoomKey("");
                                   }
                                   if (event.key === "Escape") setActiveBlueprintRoomKey("");
                                 }}
-                                className={`cfsp-blueprint-room is-interactive is-${room.status.replace("_", "-")} ${room.isCurrentRotationRoom ? "is-active" : ""} ${isActionMenuOpen ? "is-selected" : ""}`}
+                                className={`cfsp-blueprint-room is-interactive is-${room.status.replace("_", "-")} ${room.isCurrentRotationRoom ? "is-active" : ""} ${isActionMenuOpen ? "is-selected" : ""} ${isRoomCollapsed ? "is-collapsed" : ""}`}
                                 style={{
                                   border: tone.border,
                                   background: tone.background,
@@ -12239,6 +12451,29 @@ Cory`;
                                   </div>
                                   <div style={{ display: "grid", gap: "6px", justifyItems: "end" }}>
                                     <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+                                      <button
+                                        type="button"
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          setCollapsedBlueprintRoomKeys((current) => ({ ...current, [room.key]: !isRoomCollapsed }));
+                                          if (!isRoomCollapsed) setActiveBlueprintRoomKey("");
+                                        }}
+                                        style={{
+                                          ...buttonStyle,
+                                          minWidth: "32px",
+                                          height: "24px",
+                                          padding: "0 6px",
+                                          fontSize: "10px",
+                                          lineHeight: 1,
+                                          borderRadius: "999px",
+                                          background: roomExpanded ? "rgba(126, 231, 219, 0.1)" : "rgba(255,255,255,0.06)",
+                                          color: roomExpanded ? "#9ff5df" : "#d6edf4",
+                                          border: roomExpanded ? "1px solid rgba(126, 231, 219, 0.24)" : "1px solid rgba(255,255,255,0.12)",
+                                        }}
+                                        aria-label={`${roomExpanded ? "Collapse" : "Expand"} ${room.roomName}`}
+                                      >
+                                        {roomExpanded ? "Less" : "More"}
+                                      </button>
                                       <button
                                         type="button"
                                         onClick={(event) => {
@@ -12362,18 +12597,74 @@ Cory`;
 	                                        <span>Assign</span>
 	                                      </button>
 	                                    )}
+                                    {primaryLearnerToken ? (
+                                      <button
+                                        type="button"
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          setActiveLearnerAttendanceKey((current) =>
+                                            current === primaryLearnerToken.attendanceKey ? "" : primaryLearnerToken.attendanceKey
+                                          );
+                                          setCollapsedBlueprintRoomKeys((current) => ({ ...current, [room.key]: false }));
+                                        }}
+                                        style={{
+                                          width: "46px",
+                                          minHeight: "52px",
+                                          borderRadius: "16px",
+                                          border: `1px solid ${learnerStateColor}`,
+                                          background: primaryLearnerToken.status === "absent"
+                                            ? "rgba(80, 18, 25, 0.18)"
+                                            : primaryLearnerToken.status === "late"
+                                              ? "rgba(69, 39, 8, 0.18)"
+                                              : "rgba(125, 211, 252, 0.08)",
+                                          color: learnerStateColor,
+                                          display: "grid",
+                                          placeItems: "center",
+                                          gap: "1px",
+                                          fontSize: "9px",
+                                          fontWeight: 900,
+                                          cursor: "pointer",
+                                          ["--presence-ring" as string]: learnerStateColor,
+                                          ["--presence-fill" as string]: "rgba(191, 219, 254, 0.1)",
+                                        }}
+                                        className={`cfsp-presence-token cfsp-presence-token-learner is-${primaryLearnerToken.state}`}
+                                        aria-label={`Open learner attendance controls for ${primaryLearnerToken.learnerName}`}
+                                        title={`${primaryLearnerToken.learnerName} • ${primaryLearnerToken.status.replace("_", " ")}`}
+                                      >
+                                        <span className={`cfsp-presence-figure cfsp-presence-figure-learner is-${primaryLearnerToken.state}`} aria-hidden="true">
+                                          <span className="cfsp-presence-head" />
+                                          <span className="cfsp-presence-core" />
+                                          <span className="cfsp-presence-arm cfsp-presence-arm-front" />
+                                          <span className="cfsp-presence-arm cfsp-presence-arm-back" />
+                                          <span className="cfsp-presence-leg cfsp-presence-leg-front" />
+                                          <span className="cfsp-presence-leg cfsp-presence-leg-back" />
+                                          <span className="cfsp-presence-step" />
+                                        </span>
+                                        <span style={{ fontSize: "8px", fontWeight: 950, lineHeight: 1 }}>{primaryLearnerToken.initials}</span>
+                                      </button>
+                                    ) : null}
                                   </div>
                                 </div>
                                 <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", alignItems: "center", marginTop: "10px" }}>
                                   <span style={{ color: tone.color, fontSize: "10px", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.06em" }}>
                                     {room.statusLabel}
                                   </span>
+                                  {primaryLearnerToken ? (
+                                    <span style={{ color: learnerStateColor, fontSize: "10px", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                                      Learner {primaryLearnerToken.status.replace("_", " ")}
+                                    </span>
+                                  ) : null}
+                                  {room.status === "checked_in" && learnerReady ? (
+                                    <span style={{ color: "#9ff5df", fontSize: "10px", fontWeight: 900 }}>Ready</span>
+                                  ) : null}
                                   {room.checkedAt ? (
                                     <span style={{ color: "#9ed9d1", fontSize: "10px", fontWeight: 800 }}>
                                       {room.checkedAt}
                                     </span>
                                   ) : null}
                                 </div>
+                                {roomExpanded ? (
+                                  <>
                                 {room.learnerLabel &&
                                 room.learnerLabel !== "Learner not assigned" &&
                                 room.learnerLabel !== "Overflow / standby" ? (
@@ -12445,7 +12736,7 @@ Cory`;
                                     </div>
                                   </div>
                                 ) : null}
-                                {isActionMenuOpen ? (
+                                {roomExpanded ? (
                                   <div
                                     onClick={(event) => event.stopPropagation()}
                                     onKeyDown={(event) => event.stopPropagation()}
@@ -12472,6 +12763,102 @@ Cory`;
                                         Learner: {room.learnerLabel || "Learner not assigned"} · Case: {room.encounterLabel || "Case not assigned"}
                                       </div>
                                     </div>
+                                    {roomLearnerTokens.length ? (
+                                      <div
+                                        style={{
+                                          display: "grid",
+                                          gap: "6px",
+                                          border: "1px solid rgba(125, 211, 252, 0.16)",
+                                          borderRadius: "12px",
+                                          background: "rgba(10, 33, 52, 0.28)",
+                                          padding: "7px",
+                                        }}
+                                      >
+                                        <div style={{ color: "#bfdbfe", fontSize: "10px", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                                          Learner Attendance
+                                        </div>
+                                        {roomLearnerTokens.map((token) => {
+                                          const isLearnerActive = activeLearnerAttendanceKey === token.attendanceKey;
+                                          const tokenColor =
+                                            token.status === "late"
+                                              ? "#f3bb67"
+                                              : token.status === "absent"
+                                                ? "#fecaca"
+                                                : ["arrived", "in_room", "completed"].includes(token.status)
+                                                  ? "#9ff5df"
+                                                  : "#bfdbfe";
+                                          return (
+                                            <div key={`${token.attendanceKey}-room-controls`} style={{ display: "grid", gap: "6px" }}>
+                                              <button
+                                                type="button"
+                                                onClick={() =>
+                                                  setActiveLearnerAttendanceKey((current) =>
+                                                    current === token.attendanceKey ? "" : token.attendanceKey
+                                                  )
+                                                }
+                                                style={{
+                                                  display: "flex",
+                                                  alignItems: "center",
+                                                  justifyContent: "space-between",
+                                                  gap: "8px",
+                                                  borderRadius: "10px",
+                                                  border: `1px solid ${tokenColor}`,
+                                                  background: "rgba(255,255,255,0.04)",
+                                                  color: "#f4fbff",
+                                                  padding: "6px 7px",
+                                                  fontSize: "11px",
+                                                  fontWeight: 850,
+                                                  cursor: "pointer",
+                                                }}
+                                              >
+                                                <span>{token.learnerName}</span>
+                                                <span style={{ color: tokenColor, textTransform: "uppercase", letterSpacing: "0.05em", fontSize: "9px", fontWeight: 950 }}>
+                                                  {token.status.replace("_", " ")}
+                                                </span>
+                                              </button>
+                                              {isLearnerActive ? (
+                                                <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                                                  {[
+                                                    { action: "arrived" as const, label: "Mark Arrived" },
+                                                    { action: "late" as const, label: "Mark Late" },
+                                                    { action: "absent" as const, label: "Mark Absent" },
+                                                    { action: "in_room" as const, label: "Move to Room" },
+                                                    { action: "completed" as const, label: "Complete Round" },
+                                                    { action: "clear" as const, label: "Clear" },
+                                                  ].map((button) => (
+                                                    <button
+                                                      key={`${token.attendanceKey}-${button.action}`}
+                                                      type="button"
+                                                      onClick={() => void handleLiveLearnerAttendanceAction(token, button.action)}
+                                                      disabled={attendanceSaving}
+                                                      style={{
+                                                        ...buttonStyle,
+                                                        padding: "6px 8px",
+                                                        fontSize: "10px",
+                                                        background: button.action === "late"
+                                                          ? "rgba(243, 187, 103, 0.14)"
+                                                          : button.action === "absent"
+                                                            ? "rgba(248, 113, 113, 0.14)"
+                                                            : "rgba(20, 91, 150, 0.12)",
+                                                        color: button.action === "late"
+                                                          ? "#f3bb67"
+                                                          : button.action === "absent"
+                                                            ? "#fecaca"
+                                                            : "#bfdbfe",
+                                                        border: "1px solid rgba(125, 211, 252, 0.18)",
+                                                        opacity: attendanceSaving ? 0.6 : 1,
+                                                      }}
+                                                    >
+                                                      {blueprintActionSavingKey === `${token.attendanceKey}:${button.action}` ? "Saving..." : button.label}
+                                                    </button>
+                                                  ))}
+                                                </div>
+                                              ) : null}
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    ) : null}
                                     {!room.assignment ? (
                                       <div
                                         style={{
@@ -12697,6 +13084,8 @@ Cory`;
                                     </div>
                                   </div>
                                 ) : null}
+                                  </>
+                                ) : null}
                               </div>
                             );
                           })}
@@ -12723,7 +13112,28 @@ Cory`;
                       <div style={{ display: "flex", gap: "7px", flexWrap: "wrap" }}>
                         {liveLearnerPresenceTokens.map((token) => {
                           const tone =
-                            token.state === "roomed"
+                            token.status === "absent"
+                              ? {
+                                  background: "rgba(80, 18, 25, 0.2)",
+                                  border: "1px solid rgba(248, 113, 113, 0.26)",
+                                  color: "#fecaca",
+                                  label: "Absent",
+                                }
+                              : token.status === "late"
+                                ? {
+                                    background: "rgba(69, 39, 8, 0.2)",
+                                    border: "1px solid rgba(243, 187, 103, 0.26)",
+                                    color: "#f3bb67",
+                                    label: "Late",
+                                  }
+                                : token.status === "arrived"
+                                  ? {
+                                      background: "rgba(25, 138, 112, 0.14)",
+                                      border: "1px solid rgba(25, 138, 112, 0.24)",
+                                      color: "#9ff5df",
+                                      label: "Arrived",
+                                    }
+                                  : token.state === "roomed"
                               ? {
                                   background: "rgba(25, 138, 112, 0.14)",
                                   border: "1px solid rgba(25, 138, 112, 0.24)",
@@ -12736,49 +13146,82 @@ Cory`;
                                     border: "1px solid rgba(125, 211, 252, 0.22)",
                                     color: "#bfdbfe",
                                     label: "Up next",
-                                  }
-                                : {
+	                                }
+	                                : {
                                     background: "rgba(255,255,255,0.05)",
                                     border: "1px solid rgba(255,255,255,0.1)",
                                     color: "#d6edf4",
-                                    label: "Queued",
+                                    label: "Expected",
                                   };
                           return (
-	                            <button
-                                type="button"
-                                onClick={() => setActiveBlueprintRoomKey((current) => (current === token.roomKey ? "" : token.roomKey))}
-	                              key={token.key}
-	                              style={{
-	                                borderRadius: "16px",
-	                                padding: "6px 9px 6px 7px",
-	                                display: "inline-flex",
-                                alignItems: "center",
-	                                gap: "7px",
-	                                background: tone.background,
-	                                border: tone.border,
-                                  cursor: "pointer",
-                                  ["--presence-ring" as string]: tone.color,
-                                  ["--presence-fill" as string]: token.state === "roomed" ? "rgba(25, 138, 112, 0.12)" : token.state === "next" ? "rgba(191, 219, 254, 0.1)" : "rgba(255,255,255,0.05)",
-	                              }}
-                                aria-label={`Open ${token.learnerName} room flow controls`}
-	                              title={`${token.learnerName} • ${token.roomName}`}
-	                            >
-	                              <span className={`cfsp-presence-figure cfsp-presence-figure-learner is-${token.state}`} aria-hidden="true">
-                                  <span className="cfsp-presence-head" />
-                                  <span className="cfsp-presence-core" />
-                                  <span className="cfsp-presence-arm cfsp-presence-arm-front" />
-                                  <span className="cfsp-presence-arm cfsp-presence-arm-back" />
-                                  <span className="cfsp-presence-leg cfsp-presence-leg-front" />
-                                  <span className="cfsp-presence-leg cfsp-presence-leg-back" />
-                                  <span className="cfsp-presence-step" />
-                                </span>
-	                              <span style={{ color: "#f4fbff", fontSize: "11px", fontWeight: 800 }}>
-	                                {token.learnerName}
-	                              </span>
-	                              <span style={{ color: tone.color, fontSize: "10px", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.06em" }}>
-	                                {tone.label}
-	                              </span>
-	                            </button>
+                            <div key={token.key} style={{ display: "grid", gap: "5px" }}>
+  	                            <button
+                                  type="button"
+                                  onClick={() => {
+                                    setActiveLearnerAttendanceKey((current) => (current === token.attendanceKey ? "" : token.attendanceKey));
+                                    setActiveBlueprintRoomKey("");
+                                  }}
+  	                              style={{
+  	                                borderRadius: "16px",
+  	                                padding: "6px 9px 6px 7px",
+  	                                display: "inline-flex",
+                                  alignItems: "center",
+  	                                gap: "7px",
+  	                                background: tone.background,
+  	                                border: tone.border,
+                                    cursor: "pointer",
+                                    ["--presence-ring" as string]: tone.color,
+                                    ["--presence-fill" as string]: token.state === "roomed" || token.status === "arrived" ? "rgba(25, 138, 112, 0.12)" : token.state === "next" ? "rgba(191, 219, 254, 0.1)" : "rgba(255,255,255,0.05)",
+  	                              }}
+                                  aria-label={`Open ${token.learnerName} attendance controls`}
+  	                              title={`${token.learnerName} • ${token.roomName}`}
+  	                            >
+  	                              <span className={`cfsp-presence-figure cfsp-presence-figure-learner is-${token.state}`} aria-hidden="true">
+                                    <span className="cfsp-presence-head" />
+                                    <span className="cfsp-presence-core" />
+                                    <span className="cfsp-presence-arm cfsp-presence-arm-front" />
+                                    <span className="cfsp-presence-arm cfsp-presence-arm-back" />
+                                    <span className="cfsp-presence-leg cfsp-presence-leg-front" />
+                                    <span className="cfsp-presence-leg cfsp-presence-leg-back" />
+                                    <span className="cfsp-presence-step" />
+                                  </span>
+  	                              <span style={{ color: "#f4fbff", fontSize: "11px", fontWeight: 800 }}>
+  	                                {token.learnerName}
+  	                              </span>
+  	                              <span style={{ color: tone.color, fontSize: "10px", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+  	                                {tone.label}
+  	                              </span>
+  	                            </button>
+                              {activeLearnerAttendanceKey === token.attendanceKey ? (
+                                <div style={{ display: "flex", gap: "5px", flexWrap: "wrap", maxWidth: "360px" }}>
+                                  {[
+                                    { action: "arrived" as const, label: "Arrived" },
+                                    { action: "late" as const, label: "Late" },
+                                    { action: "absent" as const, label: "Absent" },
+                                    { action: "in_room" as const, label: "Move to Room" },
+                                    { action: "clear" as const, label: "Reset" },
+                                  ].map((button) => (
+                                    <button
+                                      key={`${token.attendanceKey}-rail-${button.action}`}
+                                      type="button"
+                                      onClick={() => void handleLiveLearnerAttendanceAction(token, button.action)}
+                                      disabled={attendanceSaving}
+                                      style={{
+                                        ...buttonStyle,
+                                        padding: "5px 7px",
+                                        fontSize: "10px",
+                                        background: "rgba(20, 91, 150, 0.12)",
+                                        color: "#bfdbfe",
+                                        border: "1px solid rgba(125, 211, 252, 0.18)",
+                                        opacity: attendanceSaving ? 0.6 : 1,
+                                      }}
+                                    >
+                                      {blueprintActionSavingKey === `${token.attendanceKey}:${button.action}` ? "Saving..." : button.label}
+                                    </button>
+                                  ))}
+                                </div>
+                              ) : null}
+                            </div>
                           );
                         })}
                       </div>
