@@ -2,10 +2,12 @@
 
 import * as XLSX from "xlsx";
 import Link from "next/link";
+import { createPortal } from "react-dom";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { formatHumanDate, getImportedYearHint } from "../lib/eventDateUtils";
 import { parseTrainingEventMetadata } from "../lib/trainingEventNotes";
+import { getRoomDisplayLabel, getRoomTypeLabel } from "../lib/roomNaming";
 
 type EventRow = {
   id: string;
@@ -621,14 +623,14 @@ function getToneStyles(tone: TimelineBlock["tone"]) {
   return { background: "#f4f7fb", border: "#d6e0e8", color: "#4f677d" };
 }
 
-function formatRoomName(roomName: string, roomType: "exam" | "flex", roomLabel: string) {
-  if (roomType === "exam") {
-    return roomName.replace(/^Exam\b/i, roomLabel);
-  }
-  if (roomLabel === "Breakout Room") {
-    return roomName.replace(/^Flex\b/i, "Overflow Room");
-  }
-  return roomName;
+function formatRoomName(
+  roomName: string,
+  roomType: "exam" | "flex",
+  roomNumber: number,
+  roomContext: Parameters<typeof getRoomDisplayLabel>[2]
+) {
+  const resolvedHint = roomType === "exam" ? "exam" : "flex";
+  return getRoomDisplayLabel(roomName, roomNumber, roomContext, resolvedHint);
 }
 
 type ScheduleTimingVisibility = "all" | DayBlockVisibility;
@@ -1090,7 +1092,7 @@ function buildSchedulePreviewData(args: {
   event: EventRow | null;
   timeline: TimelineBlock[];
   rounds: ScheduledRound[];
-  roomLabel: string;
+  roomContext: Parameters<typeof getRoomDisplayLabel>[2];
   caseName?: string;
   assignedSpNames?: string[];
   generated: {
@@ -1101,7 +1103,17 @@ function buildSchedulePreviewData(args: {
   };
   selectedEventSummaryTime?: string;
 }) {
-  const { kind, event, timeline, rounds, roomLabel, caseName, assignedSpNames, generated, selectedEventSummaryTime } = args;
+  const {
+    kind,
+    event,
+    timeline,
+    rounds,
+    roomContext,
+    caseName,
+    assignedSpNames,
+    generated,
+    selectedEventSummaryTime,
+  } = args;
 
   const isOperations = kind === "operations" || kind === "rotation";
   const titleMap: Record<SchedulePreviewKind, string> = {
@@ -1147,13 +1159,13 @@ function buildSchedulePreviewData(args: {
           lines.push(`  ${subBlock.label}: ${formatRange(subBlock.start, subBlock.end)}`);
         });
       }
-      round.roomSlots.forEach((slot) => {
-        const displayRoomName = formatRoomName(slot.roomName, slot.roomType, roomLabel);
-        const slotIndex = round.roomSlots.findIndex((item) => item.roomName === slot.roomName);
+      round.roomSlots.forEach((slot, slotIndex) => {
+        const displayRoomName = formatRoomName(slot.roomName, slot.roomType, slotIndex + 1, roomContext);
+        const assignmentIndex = round.roomSlots.findIndex((item) => item.roomName === slot.roomName);
         const learnerText = slot.learnerLabels.length ? slot.learnerLabels.join(", ") : "No learner assigned";
         lines.push(`  ${displayRoomName}: ${learnerText}`);
         if (isOperations) {
-          const spName = assignedSpNames?.[slotIndex] || "Unassigned";
+          const spName = assignedSpNames?.[assignmentIndex] || "Unassigned";
           lines.push(`    SP: ${spName}`);
           if (caseName) lines.push(`    Case: ${caseName}`);
         }
@@ -1173,14 +1185,14 @@ function buildSchedulePreviewData(args: {
           lines.push(`  ${subBlock.label}: ${formatRange(subBlock.start, subBlock.end)}`);
         });
       }
-      round.roomSlots.forEach((slot) => {
-        const displayRoomName = formatRoomName(slot.roomName, slot.roomType, roomLabel);
-        const slotIndex = round.roomSlots.findIndex((item) => item.roomName === slot.roomName);
+      round.roomSlots.forEach((slot, slotIndex) => {
+        const displayRoomName = formatRoomName(slot.roomName, slot.roomType, slotIndex + 1, roomContext);
+        const assignmentIndex = round.roomSlots.findIndex((item) => item.roomName === slot.roomName);
         const learnerText = slot.learnerLabels.length ? slot.learnerLabels.join(", ") : "No learner assigned";
         lines.push(`  ${displayRoomName}`);
         lines.push(`    Learner: ${learnerText}`);
         if (includeOperationsContext) {
-          lines.push(`    SP: ${assignedSpNames?.[slotIndex] || "Unassigned"}`);
+          lines.push(`    SP: ${assignedSpNames?.[assignmentIndex] || "Unassigned"}`);
           if (caseName) lines.push(`    Case: ${caseName}`);
         }
       });
@@ -1378,6 +1390,18 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const autosaveTimeoutRef = useRef<number | null>(null);
   const [showSchedulePreview, setShowSchedulePreview] = useState(false);
   const [previewKind, setPreviewKind] = useState<SchedulePreviewKind>("timeline");
+
+  useEffect(() => {
+    if (!showSchedulePreview || typeof document === "undefined") return;
+
+    const { body } = document;
+    const previousOverflow = body.style.overflow;
+    body.style.overflow = "hidden";
+
+    return () => {
+      body.style.overflow = previousOverflow;
+    };
+  }, [showSchedulePreview]);
 
   const applyDraft = useCallback((draft: ScheduleBuilderDraft) => {
     setBuilderMode(props.expandedWorkspace && !draft.savedAt ? "advanced" : draft.builderMode);
@@ -1667,9 +1691,25 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         ? "virtual"
         : "in_person";
   const isVirtualEvent = selectedEventModality === "virtual";
-  const roomLabel = isVirtualEvent ? "Breakout Room" : "Exam Room";
-  const roomCountLabel = isVirtualEvent ? "Number of breakout rooms" : "Number of exam rooms";
-  const roomCapacityLabel = isVirtualEvent ? "Students per breakout room" : "Students per room";
+  const roomNamingContext = useMemo(
+    () => ({
+      modalityLabel:
+        selectedEventModality === "virtual"
+          ? "Virtual"
+          : selectedEventModality === "hybrid"
+            ? "Hybrid"
+            : "In-person",
+      telehealthOrZoomEnabled:
+        selectedEventModality === "virtual" ||
+        /\b(virtual|vir|zoom|breakout)\b/.test(selectedEventText),
+    }),
+    [selectedEventModality, selectedEventText]
+  );
+  const roomLabel = getRoomTypeLabel(roomNamingContext);
+  const roomCountLabel =
+    roomLabel === "Breakout Room" ? "Number of breakout rooms" : "Number of exam rooms";
+  const roomCapacityLabel =
+    roomLabel === "Breakout Room" ? "Students per breakout room" : "Students per room";
 
   const parsedStartMinutes = toMinutes(startTime);
   const parsedRounds = parseNumber(roundCount, 4);
@@ -1849,13 +1889,18 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   }, [generated.timeline]);
   const roomColumns = useMemo(
     () =>
-      (scheduledRounds[0]?.roomSlots || []).map((slot) => ({
+      (scheduledRounds[0]?.roomSlots || []).map((slot, index) => ({
         roomName: slot.roomName,
-        displayRoomName: formatRoomName(slot.roomName, slot.roomType, roomLabel),
+        displayRoomName: getRoomDisplayLabel(
+          slot.roomName,
+          index + 1,
+          roomNamingContext,
+          slot.roomType === "exam" ? "exam" : "flex"
+        ),
         roomType: slot.roomType,
         capacityLabel: slot.capacityLabel,
       })),
-    [roomLabel, scheduledRounds]
+    [roomNamingContext, scheduledRounds]
   );
   const learnerCapacitySummary =
     uploadedLearners.length && slotsPerRound > 0
@@ -1874,7 +1919,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       event: selectedEvent,
       timeline: generated.timeline,
       rounds: visibleScheduledRounds,
-      roomLabel,
+      roomContext: roomNamingContext,
       caseName: selectedEventMetadata.case_name,
       assignedSpNames: selectedEvent?.assigned_sp_names || [],
       generated,
@@ -1885,7 +1930,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       event: selectedEvent,
       timeline: generated.timeline,
       rounds: visibleScheduledRounds,
-      roomLabel,
+      roomContext: roomNamingContext,
       caseName: selectedEventMetadata.case_name,
       assignedSpNames: selectedEvent?.assigned_sp_names || [],
       generated,
@@ -1896,7 +1941,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       event: selectedEvent,
       timeline: generated.timeline,
       rounds: scheduledRounds,
-      roomLabel,
+      roomContext: roomNamingContext,
       caseName: selectedEventMetadata.case_name,
       assignedSpNames: selectedEvent?.assigned_sp_names || [],
       generated,
@@ -1907,7 +1952,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       event: selectedEvent,
       timeline: generated.timeline,
       rounds: scheduledRounds,
-      roomLabel,
+      roomContext: roomNamingContext,
       caseName: selectedEventMetadata.case_name,
       assignedSpNames: selectedEvent?.assigned_sp_names || [],
       generated,
@@ -1920,7 +1965,15 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       operations: operationsPreview,
       rotation: rotationPreview,
     };
-  }, [generated, roomLabel, scheduledRounds, selectedEvent, selectedEventMetadata.case_name, selectedEventSummaryTime, visibleScheduledRounds]);
+  }, [
+    generated,
+    roomNamingContext,
+    scheduledRounds,
+    selectedEvent,
+    selectedEventMetadata.case_name,
+    selectedEventSummaryTime,
+    visibleScheduledRounds,
+  ]);
   const schedulePreview = schedulePreviews[previewKind];
   const selectedPreviewFileName = `${getSafeFileName(schedulePreview.title)}.html`;
   const saveStateAppearance = getSaveStateAppearance(saveState);
@@ -2817,7 +2870,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                               ))}
                             </div>
                           </td>
-                          {round.roomSlots.map((slot) => (
+                          {round.roomSlots.map((slot, index) => (
                             <td key={`${round.round}-${slot.roomName}`} className="px-3 py-4">
                               <div
                                 style={{
@@ -2836,7 +2889,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                                     textTransform: "uppercase",
                                   }}
                                 >
-                                  {formatRoomName(slot.roomName, slot.roomType, roomLabel)} · {slot.capacityLabel}
+                                  {formatRoomName(slot.roomName, slot.roomType, index + 1, roomNamingContext)} · {slot.capacityLabel}
                                 </div>
                                 {scheduleViewMode === "operations" ? (
                                   <div style={{ marginTop: "6px", fontSize: "12px", fontWeight: 700, color: "#4f677d", lineHeight: 1.5 }}>
@@ -2876,87 +2929,89 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         </>
       )}
 
-      {showSchedulePreview ? (
-        <div
-          role="dialog"
-          aria-modal="true"
-          style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 70,
-            background: "rgba(3, 9, 17, 0.8)",
-            display: "grid",
-            alignItems: "center",
-            justifyItems: "center",
-            padding: 20,
-          }}
-        >
-          <div
-            style={{
-              width: "min(1024px, 100%)",
-              maxHeight: "calc(100vh - 56px)",
-              borderRadius: 18,
-              border: "1px solid rgba(148, 184, 218, 0.32)",
-              background: "#0f2335",
-              boxShadow: "0 26px 60px rgba(3, 9, 17, 0.55)",
-              display: "grid",
-              gridTemplateRows: "auto 1fr",
-              overflow: "hidden",
-            }}
-          >
+      {showSchedulePreview && typeof document !== "undefined"
+        ? createPortal(
             <div
+              role="dialog"
+              aria-modal="true"
               style={{
-                borderBottom: "1px solid rgba(120, 180, 255, 0.16)",
-                padding: "14px 16px",
-                display: "flex",
-                gap: 10,
-                flexWrap: "wrap",
-                alignItems: "center",
-                justifyContent: "space-between",
+                position: "fixed",
+                inset: 0,
+                zIndex: 2000,
+                background: "rgba(3, 9, 17, 0.8)",
+                display: "grid",
+                placeItems: "center",
+                padding: 20,
               }}
             >
-              <div>
-                <div style={{ color: "var(--cfsp-info)", fontSize: 12, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase" }}>
-                  Schedule Preview
-                </div>
-                <div style={{ color: "#ffffff", fontWeight: 900, fontSize: 19, marginTop: 4 }}>{schedulePreview.title}</div>
-                <div style={{ color: "rgba(220, 239, 255, 0.7)", fontSize: 12, marginTop: 3 }}>
-                  {schedulePreview.summary}
-                </div>
-              </div>
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                <button type="button" onClick={() => void handleCopyPreview()} className="cfsp-btn" style={{ background: "var(--cfsp-button-secondary-bg)", border: "1px solid var(--cfsp-button-secondary-border)", color: "var(--cfsp-button-secondary-text)" }}>
-                  Copy
-                </button>
-                <button type="button" onClick={handleOpenPreviewInNewTab} className="cfsp-btn">
-                  Open in New Tab
-                </button>
-                <button type="button" onClick={handleDownloadPreview} className="cfsp-btn">
-                  Download
-                </button>
-                <button type="button" onClick={handlePrintPreview} className="cfsp-btn" style={{ background: "var(--cfsp-button-secondary-bg)", border: "1px solid var(--cfsp-button-secondary-border)", color: "var(--cfsp-button-secondary-text)" }}>
-                  Print
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowSchedulePreview(false)}
-                  className="cfsp-btn"
-                  style={{ background: "var(--cfsp-button-secondary-bg)", border: "1px solid var(--cfsp-button-secondary-border)", color: "var(--cfsp-button-secondary-text)" }}
+              <div
+                style={{
+                  width: "min(1024px, 100%)",
+                  maxHeight: "calc(100vh - 56px)",
+                  borderRadius: 18,
+                  border: "1px solid rgba(148, 184, 218, 0.32)",
+                  background: "#0f2335",
+                  boxShadow: "0 26px 60px rgba(3, 9, 17, 0.55)",
+                  display: "grid",
+                  gridTemplateRows: "auto minmax(0, 1fr)",
+                  overflow: "hidden",
+                }}
+              >
+                <div
+                  style={{
+                    borderBottom: "1px solid rgba(120, 180, 255, 0.16)",
+                    padding: "14px 16px",
+                    display: "flex",
+                    gap: 10,
+                    flexWrap: "wrap",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                  }}
                 >
-                  Close
-                </button>
+                  <div>
+                    <div style={{ color: "var(--cfsp-info)", fontSize: 12, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                      Schedule Preview
+                    </div>
+                    <div style={{ color: "#ffffff", fontWeight: 900, fontSize: 19, marginTop: 4 }}>{schedulePreview.title}</div>
+                    <div style={{ color: "rgba(220, 239, 255, 0.7)", fontSize: 12, marginTop: 3 }}>
+                      {schedulePreview.summary}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <button type="button" onClick={() => void handleCopyPreview()} className="cfsp-btn" style={{ background: "var(--cfsp-button-secondary-bg)", border: "1px solid var(--cfsp-button-secondary-border)", color: "var(--cfsp-button-secondary-text)" }}>
+                      Copy
+                    </button>
+                    <button type="button" onClick={handleOpenPreviewInNewTab} className="cfsp-btn">
+                      Open in New Tab
+                    </button>
+                    <button type="button" onClick={handleDownloadPreview} className="cfsp-btn">
+                      Download
+                    </button>
+                    <button type="button" onClick={handlePrintPreview} className="cfsp-btn" style={{ background: "var(--cfsp-button-secondary-bg)", border: "1px solid var(--cfsp-button-secondary-border)", color: "var(--cfsp-button-secondary-text)" }}>
+                      Print
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowSchedulePreview(false)}
+                      className="cfsp-btn"
+                      style={{ background: "var(--cfsp-button-secondary-bg)", border: "1px solid var(--cfsp-button-secondary-border)", color: "var(--cfsp-button-secondary-text)" }}
+                    >
+                      Close
+                    </button>
+                  </div>
+                </div>
+                <div style={{ minHeight: 0, background: "#ffffff", overflow: "auto" }}>
+                  <iframe
+                    title={schedulePreview.title}
+                    srcDoc={schedulePreview.html}
+                    style={{ width: "100%", height: "min(76vh, 860px)", border: "none", background: "#fff", display: "block" }}
+                  />
+                </div>
               </div>
-            </div>
-            <div style={{ minHeight: "min(76vh, 860px)", background: "#ffffff", overflow: "auto" }}>
-              <iframe
-                title={schedulePreview.title}
-                srcDoc={schedulePreview.html}
-                style={{ width: "100%", minHeight: "min(76vh, 860px)", border: "none", background: "#fff" }}
-              />
-            </div>
-          </div>
-        </div>
-      ) : null}
+            </div>,
+            document.body
+          )
+        : null}
 
       {showClearRosterDialog ? (
         <div
