@@ -13907,34 +13907,6 @@ Cory`;
               >
                 {eventMeta.primaryBadgeLabel}
               </span>
-              {!isTrainingMode ? (
-                <Link
-                  href={expandedScheduleBuilderHref}
-                  style={{
-                    ...buttonStyle,
-                    display: "inline-flex",
-                    alignItems: "center",
-                    textDecoration: "none",
-                  }}
-                >
-                  Schedule Builder
-                </Link>
-              ) : null}
-              {!isTrainingMode ? (
-                <span
-                  style={{
-                    fontSize: "11px",
-                    color: commandCenterVisual.mutedColor,
-                    display: "inline-flex",
-                    alignItems: "center",
-                    marginLeft: "4px",
-                    whiteSpace: "nowrap",
-                    fontWeight: 700,
-                  }}
-                >
-                  {effectiveRotationCountSource.label}
-                </span>
-              ) : null}
               <button
                 type="button"
                 onClick={() => {
