@@ -5762,11 +5762,11 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
   const trainingLocationModality =
     selectedModalityLabel === "Hybrid"
       ? event?.location
-        ? `${event.location} · Hybrid`
+        ? `${event?.location || "Location TBD"} · Hybrid`
         : "Hybrid"
       : selectedModalityLabel === "Virtual"
         ? event?.location
-          ? `${event.location} · Virtual`
+          ? `${event?.location || "Location TBD"} · Virtual`
           : "Virtual"
         : event?.location || "Location TBD";
   const trainingMaterialCards = useMemo(
@@ -9348,7 +9348,7 @@ Cory`;
   async function handleDeleteEvent() {
     if (!id || !event) return;
 
-    const eventTitle = event.name || "this event";
+    const eventTitle = event?.name || "this event";
     const confirmed = window.confirm(
       `Delete "${eventTitle}"?\n\nThis will remove the event and its related sessions and SP assignments.`
     );
@@ -15745,7 +15745,7 @@ Cory`;
         timeLabel,
         location: roundRoomCount
           ? `${roundRoomCount} room${roundRoomCount === 1 ? "" : "s"}`
-          : event.location || "Rooms TBD",
+          : event?.location || "Rooms TBD",
       };
     });
 
@@ -15775,9 +15775,9 @@ Cory`;
 
           <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "center", marginTop: "14px" }}>
             <div>
-              <h1 style={{ margin: 0, fontSize: "28px", color: "var(--cfsp-text)" }}>{event.name || "Assigned Event"}</h1>
+              <h1 style={{ margin: 0, fontSize: "28px", color: "var(--cfsp-text)" }}>{event?.name || "Assigned Event"}</h1>
               <div style={{ marginTop: "8px", display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
-                <span className="cfsp-chip">{event.status || "Status pending"}</span>
+                <span className="cfsp-chip">{event?.status || "Status pending"}</span>
                 {assignmentStatus ? (
                   <span style={{ ...assignmentStatusStyles[assignmentStatus], borderRadius: "999px", padding: "6px 10px", fontSize: "12px", fontWeight: 900 }}>
                     {assignmentStatusLabels[assignmentStatus]}
@@ -15992,12 +15992,12 @@ Cory`;
 
             <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
               <h1 style={{ margin: 0, fontSize: "28px", color: "var(--cfsp-text)", lineHeight: 1.05 }}>
-                {event.name || "Untitled Event"}
+                {event?.name || "Untitled Event"}
               </h1>
               <span
                 style={{
                   ...assignmentStatusStyles[
-                    (event.status || "").toLowerCase() === "confirmed" ? "confirmed" : "invited"
+                    (event?.status || "").toLowerCase() === "confirmed" ? "confirmed" : "invited"
                   ],
                   borderRadius: "999px",
                   padding: "6px 10px",
@@ -16005,7 +16005,7 @@ Cory`;
                   fontSize: "12px",
                 }}
               >
-                {event.status || "No status"}
+                {event?.status || "No status"}
               </span>
               <span
                 style={{
@@ -16450,10 +16450,10 @@ Cory`;
                   <div style={{ minWidth: 0, display: "grid", gap: "7px" }}>
                     <div style={{ ...statLabel, color: eventStatusWindowStyles.accent }}>Event Status Window</div>
                     <div style={{ color: commandCenterVisual.headingColor, fontSize: "24px", fontWeight: 950, lineHeight: 1.15 }}>
-                      {event.name || "Untitled Event"}
+                      {event?.name || "Untitled Event"}
                     </div>
                     <div style={{ color: commandCenterVisual.mutedColor, fontSize: "13px", fontWeight: 800 }}>
-                      {[sessionSummaryLabel, summaryTimeLabel, event.location || "Location TBD"].filter(Boolean).join(" · ")}
+                      {[sessionSummaryLabel, summaryTimeLabel, event?.location || "Location TBD"].filter(Boolean).join(" · ")}
                     </div>
                   </div>
                   <div style={{ display: "grid", gap: "8px", justifyItems: "end" }}>
@@ -16533,7 +16533,7 @@ Cory`;
                     </div>
 
                     <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                      {[event.status || "No status", ...eventIdentityChips.slice(0, 2), selectedModalityLabel]
+                      {[event?.status || "No status", ...eventIdentityChips.slice(0, 2), selectedModalityLabel]
                         .filter(Boolean)
                         .map((chip) => (
                           <span key={`summary-identity-${chip}`} style={commandChipStyle}>
@@ -17570,7 +17570,7 @@ Cory`;
                       {isPlanningVisualMode ? "Rotation Plan" : "Rotation Command Surface"}
                     </div>
                     <div style={{ marginTop: "4px", color: commandCenterVisual.headingColor, fontWeight: 900, fontSize: "16px" }}>
-                      {event.name || "Untitled Event"}
+                      {event?.name || "Untitled Event"}
                     </div>
                     <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontWeight: 700, fontSize: "12px" }}>
                       {[sessionSummaryLabel, summaryTimeLabel].filter(Boolean).join(" · ")}
