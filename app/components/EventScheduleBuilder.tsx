@@ -1388,104 +1388,230 @@ function buildSchedulePreviewData(args: {
       `
     : "";
 
-  const renderTimelineBlocks = (blocks: TimelineBlock[]) =>
+  const timelineStripBlocks = timeline.filter((block) => !isPrimaryScheduleWideTimelineBlock(block));
+  const scheduleWideBlocks = timeline.filter((block) => isPrimaryScheduleWideTimelineBlock(block));
+  const scheduleRoomHeaders = rounds[0]?.roomSlots || [];
+  const renderTimelineRail = (blocks: TimelineBlock[]) =>
     blocks.length
-      ? blocks
-          .map((block) => {
-            const tone = getToneStyles(block.tone);
-            return `
-              <div class="timeline-card" style="background:${tone.background}; border-color:${tone.border}; color:${tone.color};">
-                <div class="timeline-range">${escapeHtml(formatRange(block.start, block.end))}</div>
-                <div class="timeline-title">${escapeHtml(block.label)}</div>
-                <div class="timeline-detail">${escapeHtml(block.detail || formatDurationCompact(getBlockDurationMinutes(block.start, block.end)))}</div>
-              </div>
-            `;
-          })
-          .join("")
+      ? `
+          <div class="timeline-rail">
+            ${blocks
+              .map((block) => {
+                const tone = getFlowRhythmSegmentStyles(block.label);
+                const durationMinutes = Math.max(getBlockDurationMinutes(block.start, block.end), 1);
+                return `
+                  <div class="timeline-segment" style="flex:${Math.max(durationMinutes, 6)} 1 84px; background:${tone.background}; border-color:${tone.borderColor}; color:${tone.color};">
+                    <div class="timeline-segment-title">${escapeHtml(block.label)}</div>
+                    <div class="timeline-segment-detail">${escapeHtml(formatRange(block.start, block.end))}</div>
+                    <div class="timeline-segment-detail">${escapeHtml(formatDurationCompact(durationMinutes))}</div>
+                  </div>
+                `;
+              })
+              .join("")}
+          </div>
+        `
       : `<div class="empty-state">No timing blocks are configured yet.</div>`;
 
-  const renderRoundSections = (mode: "ticket" | "schedule") =>
+  const renderRoundRhythmRows = () =>
     rounds.length
       ? rounds
           .map((round) => {
-            const subBlockHtml = round.subBlocks.length
+            const rhythmSegments = round.subBlocks.length
               ? round.subBlocks
                   .map((subBlock) => {
-                    const segmentTone = getFlowRhythmSegmentStyles(subBlock.label);
+                    const tone = getFlowRhythmSegmentStyles(subBlock.label);
+                    const durationMinutes = Math.max(getBlockDurationMinutes(subBlock.start, subBlock.end), 1);
                     return `
-                      <span class="subblock-chip" style="background:${segmentTone.background}; border-color:${segmentTone.borderColor}; color:${segmentTone.color};">
-                        ${escapeHtml(subBlock.label)} ${escapeHtml(formatDurationCompact(getBlockDurationMinutes(subBlock.start, subBlock.end)))}
+                      <span class="rhythm-chip" style="flex:${Math.max(durationMinutes, 5)} 1 84px; background:${tone.background}; border-color:${tone.borderColor}; color:${tone.color};">
+                        ${escapeHtml(subBlock.label)}
+                        <small>${escapeHtml(formatDurationCompact(durationMinutes))}</small>
                       </span>
                     `;
                   })
                   .join("")
-              : `<span class="subblock-chip muted">Encounter flow only</span>`;
-
-            const roomRows = round.roomSlots.length
-              ? round.roomSlots
-                  .map((slot, slotIndex) => {
-                    const displayRoomName = formatRoomName(slot.roomName, slot.roomType, slotIndex + 1, roomContext);
-                    const assignmentIndex = round.roomSlots.findIndex((item) => item.roomName === slot.roomName);
-                    const learnerText = slot.learnerLabels.length ? slot.learnerLabels.join(", ") : "No learner assigned";
-                    const spName = assignedSpNames?.[assignmentIndex] || "Unassigned";
-
-                    return `
-                      <div class="room-row">
-                        <div class="room-row-head">
-                          <span class="room-name">${escapeHtml(displayRoomName)}</span>
-                          <span class="room-capacity">${escapeHtml(slot.capacityLabel)}</span>
-                        </div>
-                        ${
-                          mode === "ticket"
-                            ? `
-                              <div class="room-row-detail">${escapeHtml(kind === "sp" ? `Assignment: ${spName}` : learnerText)}</div>
-                            `
-                            : `
-                              <div class="room-row-grid">
-                                ${
-                                  kind !== "sp"
-                                    ? `<div><span class="detail-label">Learner</span><span class="detail-value">${escapeHtml(learnerText)}</span></div>`
-                                    : ""
-                                }
-                                ${
-                                  kind === "sp"
-                                    ? `<div><span class="detail-label">Assignment</span><span class="detail-value">${escapeHtml(spName)}</span></div>`
-                                    : ""
-                                }
-                                ${
-                                  mode === "schedule" && isOperations
-                                    ? `<div><span class="detail-label">SP</span><span class="detail-value">${escapeHtml(spName)}</span></div>`
-                                    : ""
-                                }
-                                ${
-                                  mode === "schedule" && caseName
-                                    ? `<div><span class="detail-label">Case</span><span class="detail-value">${escapeHtml(caseName)}</span></div>`
-                                    : ""
-                                }
-                              </div>
-                            `
-                        }
-                      </div>
-                    `;
-                  })
-                  .join("")
-              : `<div class="empty-state">No room assignments generated for this round yet.</div>`;
+              : `<span class="rhythm-chip muted">Encounter flow only</span>`;
 
             return `
-              <section class="round-section">
-                <div class="round-header">
+              <section class="rhythm-row">
+                <div class="rhythm-row-head">
                   <div>
                     <div class="round-kicker">Round ${round.round}</div>
                     <h2>${escapeHtml(formatRange(round.start, round.end))}</h2>
                   </div>
-                  <div class="round-summary">${subBlockHtml}</div>
+                  <div class="rhythm-row-summary">${escapeHtml(getFlowRhythmSummary(round))}</div>
                 </div>
-                <div class="room-grid">${roomRows}</div>
+                <div class="rhythm-strip">${rhythmSegments}</div>
               </section>
             `;
           })
           .join("")
       : `<div class="empty-state">No rotation schedule has been generated yet.</div>`;
+
+  const renderTicketRoomSummary = () =>
+    rounds.length
+      ? rounds
+          .map((round) => `
+            <section class="round-section">
+              <div class="round-header">
+                <div>
+                  <div class="round-kicker">Round ${round.round}</div>
+                  <h2>${escapeHtml(formatRange(round.start, round.end))}</h2>
+                </div>
+              </div>
+              <div class="room-grid">
+                ${
+                  round.roomSlots.length
+                    ? round.roomSlots
+                        .map((slot, slotIndex) => {
+                          const displayRoomName = formatRoomName(slot.roomName, slot.roomType, slotIndex + 1, roomContext);
+                          const assignmentIndex = round.roomSlots.findIndex((item) => item.roomName === slot.roomName);
+                          const learnerText = slot.learnerLabels.length ? slot.learnerLabels.join(", ") : "No learner assigned";
+                          const spName = assignedSpNames?.[assignmentIndex] || "Unassigned";
+                          const ticketDetail =
+                            kind === "sp"
+                              ? `Assignment: ${spName}`
+                              : kind === "operations"
+                                ? `${learnerText} · SP: ${spName}`
+                                : learnerText;
+                          return `
+                            <div class="room-row">
+                              <div class="room-row-head">
+                                <span class="room-name">${escapeHtml(displayRoomName)}</span>
+                                <span class="room-capacity">${escapeHtml(slot.capacityLabel)}</span>
+                              </div>
+                              <div class="room-row-detail">${escapeHtml(ticketDetail)}</div>
+                            </div>
+                          `;
+                        })
+                        .join("")
+                    : `<div class="empty-state">No room assignments generated for this round yet.</div>`
+                }
+              </div>
+            </section>
+          `)
+          .join("")
+      : "";
+
+  const renderScheduleGrid = () => {
+    if (!rounds.length || !scheduleRoomHeaders.length) {
+      return `<div class="empty-state">No rotation schedule has been generated yet.</div>`;
+    }
+
+    const gridRows = [
+      ...scheduleWideBlocks.map((block) => ({
+        key: `wide-${block.label}-${block.start}-${block.end}`,
+        kind: "wide" as const,
+        start: block.start,
+        end: block.end,
+        block,
+      })),
+      ...rounds.map((round) => ({
+        key: `round-${round.round}`,
+        kind: "round" as const,
+        start: round.start,
+        end: round.end,
+        round,
+      })),
+    ].sort((a, b) => a.start - b.start || a.end - b.end);
+
+    return `
+      <div class="schedule-grid-shell">
+        <table class="schedule-grid-table">
+          <thead>
+            <tr>
+              <th>Round</th>
+              <th>Time</th>
+              ${scheduleRoomHeaders
+                .map((slot, slotIndex) => {
+                  const displayRoomName = formatRoomName(slot.roomName, slot.roomType, slotIndex + 1, roomContext);
+                  return `<th>${escapeHtml(displayRoomName)}</th>`;
+                })
+                .join("")}
+            </tr>
+          </thead>
+          <tbody>
+            ${gridRows
+              .map((entry) => {
+                if (entry.kind === "wide") {
+                  const durationMinutes = Math.max(getBlockDurationMinutes(entry.block.start, entry.block.end), 1);
+                  return `
+                    <tr class="wide-row">
+                      <td colspan="${scheduleRoomHeaders.length + 2}">
+                        <div class="wide-band">
+                          <div class="wide-band-title">${escapeHtml(entry.block.label)}</div>
+                          <div class="wide-band-meta">${escapeHtml(formatRange(entry.block.start, entry.block.end))} · ${escapeHtml(
+                            formatDurationCompact(durationMinutes)
+                          )}</div>
+                          ${entry.block.detail ? `<div class="wide-band-note">${escapeHtml(entry.block.detail)}</div>` : ""}
+                        </div>
+                      </td>
+                    </tr>
+                  `;
+                }
+
+                const round = entry.round;
+                const subBlockSummary = round.subBlocks.length
+                  ? round.subBlocks
+                      .map(
+                        (subBlock) =>
+                          `${subBlock.label} ${formatDurationCompact(getBlockDurationMinutes(subBlock.start, subBlock.end))}`
+                      )
+                      .join(" · ")
+                  : "Encounter flow only";
+
+                return `
+                  <tr class="round-grid-row">
+                    <td class="round-index-cell">
+                      <div class="round-index">Round ${round.round}</div>
+                    </td>
+                    <td class="round-time-cell">
+                      <div class="round-time">${escapeHtml(formatRange(round.start, round.end))}</div>
+                      <div class="round-time-summary">${escapeHtml(subBlockSummary)}</div>
+                    </td>
+                    ${round.roomSlots
+                      .map((slot) => {
+                        const assignmentIndex = round.roomSlots.findIndex((item) => item.roomName === slot.roomName);
+                        const learnerText = slot.learnerLabels.length ? slot.learnerLabels.join(", ") : "No learner assigned";
+                        const spName = assignedSpNames?.[assignmentIndex] || "Unassigned";
+
+                        return `
+                          <td class="schedule-room-cell">
+                            <div class="schedule-room-card">
+                              ${
+                                kind !== "sp"
+                                  ? `<div><span class="detail-label">Learner</span><span class="detail-value">${escapeHtml(learnerText)}</span></div>`
+                                  : ""
+                              }
+                              ${
+                                kind === "sp"
+                                  ? `<div><span class="detail-label">SP</span><span class="detail-value">${escapeHtml(spName)}</span></div>`
+                                  : ""
+                              }
+                              ${
+                                isOperations
+                                  ? `<div><span class="detail-label">SP</span><span class="detail-value">${escapeHtml(spName)}</span></div>`
+                                  : ""
+                              }
+                              ${
+                                isOperations && caseName
+                                  ? `<div><span class="detail-label">Case</span><span class="detail-value">${escapeHtml(caseName)}</span></div>`
+                                  : ""
+                              }
+                              <div><span class="detail-label">Seat</span><span class="detail-value">${escapeHtml(slot.capacityLabel)}</span></div>
+                            </div>
+                          </td>
+                        `;
+                      })
+                      .join("")}
+                  </tr>
+                `;
+              })
+              .join("")}
+          </tbody>
+        </table>
+      </div>
+    `;
+  };
 
   const previewBody =
     kind === "announcements"
@@ -1504,7 +1630,7 @@ function buildSchedulePreviewData(args: {
                 <h2>Operational prompts and pacing</h2>
               </div>
             </div>
-            <div class="timeline-grid">${renderTimelineBlocks(timeline)}</div>
+            ${renderTimelineRail(timeline)}
           </section>
         </div>
       `
@@ -1524,9 +1650,18 @@ function buildSchedulePreviewData(args: {
                   <h2>Day flow at a glance</h2>
                 </div>
               </div>
-              <div class="timeline-grid">${renderTimelineBlocks(timeline)}</div>
+              ${renderTimelineRail(timelineStripBlocks)}
             </section>
-            ${renderRoundSections("ticket")}
+            ${scheduleWideBlocks.length ? `<div class="divider-stack">${scheduleWideBlocks
+              .map((block) => {
+                const durationMinutes = Math.max(getBlockDurationMinutes(block.start, block.end), 1);
+                return `<div class="divider-band"><strong>${escapeHtml(block.label)}</strong><span>${escapeHtml(
+                  formatRange(block.start, block.end)
+                )} · ${escapeHtml(formatDurationCompact(durationMinutes))}</span></div>`;
+              })
+              .join("")}</div>` : ""}
+            ${renderRoundRhythmRows()}
+            ${renderTicketRoomSummary()}
           </div>
         `
         : `
@@ -1541,12 +1676,28 @@ function buildSchedulePreviewData(args: {
               <div class="round-header">
                 <div>
                   <div class="round-kicker">Schedule rhythm</div>
-                  <h2>Operational day flow</h2>
+                  <h2>Operational cadence</h2>
                 </div>
               </div>
-              <div class="timeline-grid">${renderTimelineBlocks(timeline)}</div>
+              ${renderTimelineRail(timelineStripBlocks)}
             </section>
-            ${renderRoundSections("schedule")}
+            ${scheduleWideBlocks.length ? `<div class="divider-stack">${scheduleWideBlocks
+              .map((block) => {
+                const durationMinutes = Math.max(getBlockDurationMinutes(block.start, block.end), 1);
+                return `<div class="divider-band"><strong>${escapeHtml(block.label)}</strong><span>${escapeHtml(
+                  formatRange(block.start, block.end)
+                )} · ${escapeHtml(formatDurationCompact(durationMinutes))}</span></div>`;
+              })
+              .join("")}</div>` : ""}
+            <section class="round-section">
+              <div class="round-header">
+                <div>
+                  <div class="round-kicker">Schedule grid</div>
+                  <h2>Builder layout preview</h2>
+                </div>
+              </div>
+              ${renderScheduleGrid()}
+            </section>
           </div>
         `;
 
@@ -1579,11 +1730,19 @@ function buildSchedulePreviewData(args: {
             .round-summary { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
             .subblock-chip { border: 1px solid #d6e0e8; border-radius: 999px; padding: 6px 10px; font-size: 12px; font-weight: 700; }
             .subblock-chip.muted { background: #f8fafc; color: #64748b; border-color: #dbe4ee; }
-            .timeline-grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
-            .timeline-card { border: 1px solid #dce6ee; border-radius: 14px; padding: 12px; display: grid; gap: 6px; }
-            .timeline-range { font-size: 12px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; }
-            .timeline-title { font-size: 15px; font-weight: 800; }
-            .timeline-detail { font-size: 12px; color: inherit; opacity: 0.88; }
+            .timeline-rail { display: flex; gap: 8px; overflow: hidden; align-items: stretch; }
+            .timeline-segment { min-width: 84px; border: 1px solid #dce6ee; border-radius: 14px; padding: 10px 12px; display: grid; gap: 4px; }
+            .timeline-segment-title { font-size: 14px; font-weight: 800; }
+            .timeline-segment-detail { font-size: 11px; opacity: 0.82; }
+            .rhythm-row { border: 1px solid #dce6ee; border-radius: 14px; background: #fff; padding: 14px; display: grid; gap: 12px; }
+            .rhythm-row-head { display: flex; gap: 12px; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; }
+            .rhythm-row-summary { color: #5e7388; font-size: 13px; font-weight: 700; }
+            .rhythm-strip { display: flex; gap: 8px; flex-wrap: wrap; }
+            .rhythm-chip { border: 1px solid #d6e0e8; border-radius: 999px; padding: 8px 10px; font-size: 12px; font-weight: 800; display: inline-flex; gap: 6px; align-items: center; justify-content: space-between; }
+            .rhythm-chip small { font-size: 11px; opacity: 0.75; font-weight: 700; }
+            .rhythm-chip.muted { background: #f8fafc; color: #64748b; border-color: #dbe4ee; }
+            .divider-stack { display: grid; gap: 10px; }
+            .divider-band { border: 1px solid #f1d1a7; border-radius: 14px; background: #fff6e8; color: #a86411; padding: 12px 14px; display: flex; justify-content: space-between; gap: 12px; align-items: center; flex-wrap: wrap; }
             .room-grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }
             .room-row { border: 1px solid #dce6ee; border-radius: 12px; padding: 12px; background: #f8fbfd; display: grid; gap: 8px; }
             .room-row-head { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
@@ -1591,7 +1750,25 @@ function buildSchedulePreviewData(args: {
             .room-capacity { font-size: 11px; font-weight: 700; color: #5e7388; text-transform: uppercase; letter-spacing: 0.06em; }
             .room-row-detail { font-size: 13px; color: #35526f; line-height: 1.5; }
             .room-row-grid { display: grid; gap: 8px; }
+            .schedule-grid-shell { overflow-x: auto; border: 1px solid #dce6ee; border-radius: 14px; background: #f8fbfd; }
+            .schedule-grid-table { width: 100%; border-collapse: collapse; min-width: 880px; }
+            .schedule-grid-table th { text-align: left; padding: 12px; border-bottom: 1px solid #dce6ee; color: #5e7388; font-size: 12px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; background: #f8fbfd; }
+            .schedule-grid-table td { padding: 12px; border-bottom: 1px solid #eef3f7; vertical-align: top; background: #ffffff; }
+            .round-index { font-size: 13px; font-weight: 900; color: #14304f; white-space: nowrap; }
+            .round-time { font-size: 13px; font-weight: 900; color: #14304f; }
+            .round-time-summary { margin-top: 6px; font-size: 12px; line-height: 1.45; color: #5e7388; }
+            .schedule-room-cell { background: #fdfefe; min-width: 180px; }
+            .schedule-room-card { border: 1px solid #dce6ee; border-radius: 12px; background: #f8fbfd; padding: 10px; display: grid; gap: 8px; }
+            .wide-row td { background: #f8fbfd; }
+            .wide-band { border: 1px solid #f1d1a7; border-radius: 14px; background: #fff6e8; color: #a86411; padding: 12px 14px; display: grid; gap: 6px; }
+            .wide-band-title { font-size: 15px; font-weight: 900; }
+            .wide-band-meta, .wide-band-note { font-size: 12px; font-weight: 700; opacity: 0.9; }
             .empty-state { border: 1px dashed #cbd5e1; border-radius: 12px; padding: 14px; color: #64748b; background: #fff; font-size: 13px; font-weight: 600; }
+            @media print {
+              body { background: #ffffff; padding: 0; }
+              .preview-shell { gap: 12px; }
+              .schedule-grid-shell { border: none; }
+            }
           </style>
         </head>
         <body>
@@ -3502,11 +3679,27 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
             ) : (
               <div className="mt-5 grid gap-4">
                 <div className="grid gap-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <div className="text-[0.72rem] font-black uppercase tracking-[0.08em] text-[#5e7388]">
+                        Day Rhythm
+                      </div>
+                      <div className="mt-1 text-sm font-semibold text-[#5e7388]">
+                        A compact operational rail for pacing, transitions, and major pauses.
+                      </div>
+                    </div>
+                    {selectedBuilderRoundContext ? (
+                      <div className="rounded-full border border-[#c7dcee] bg-[#edf5fb] px-3 py-1 text-[0.72rem] font-black uppercase tracking-[0.08em] text-[#165a96]">
+                        Focused on Round {selectedBuilderRoundContext.round}
+                      </div>
+                    ) : null}
+                  </div>
+
                   {compactFlowEntries.map((entry) =>
                     entry.kind === "wide" ? (
                       <div
                         key={entry.key}
-                        className="rounded-[16px] border px-4 py-4"
+                        className="rounded-[14px] border px-4 py-3"
                         style={{
                           background:
                             entry.block.tone === "prebrief"
@@ -3528,136 +3721,145 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                                 : "#165a96",
                         }}
                       >
-                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                          <div className="text-base font-black">{entry.block.label}</div>
-                          <div className="text-sm font-bold">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="text-sm font-black uppercase tracking-[0.08em]">{entry.block.label}</div>
+                          <div className="text-xs font-bold">
                             {formatRange(entry.block.start, entry.block.end)} ·{" "}
                             {formatDurationCompact(getBlockDurationMinutes(entry.block.start, entry.block.end))}
                           </div>
                         </div>
                         {entry.block.detail ? (
-                          <div className="mt-1 text-sm font-semibold opacity-90">{entry.block.detail}</div>
+                          <div className="mt-1 text-xs font-semibold opacity-90">{entry.block.detail}</div>
                         ) : null}
                       </div>
                     ) : (
-                      <div
+                      <button
                         key={entry.key}
-                        className="rounded-[16px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-4 shadow-[0_10px_24px_rgba(20,48,79,0.06)]"
-                        role="button"
-                        tabIndex={0}
+                        type="button"
+                        className="w-full rounded-[14px] border px-4 py-3 text-left transition"
                         onClick={() => setSelectedBuilderRound(entry.round.round)}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter" || event.key === " ") {
-                            event.preventDefault();
-                            setSelectedBuilderRound(entry.round.round);
-                          }
-                        }}
                         style={{
                           borderColor: selectedBuilderRound === entry.round.round ? "#0f766e" : "#dce6ee",
-                          background: selectedBuilderRound === entry.round.round ? "rgba(209, 250, 229, 0.34)" : "#f8fbfd",
+                          background: selectedBuilderRound === entry.round.round ? "rgba(209, 250, 229, 0.26)" : "#f8fbfd",
                           boxShadow:
                             selectedBuilderRound === entry.round.round
-                              ? "0 12px 24px rgba(15,118,110,0.12)"
-                              : "0 8px 20px rgba(20,48,79,0.06)",
+                              ? "0 10px 24px rgba(15,118,110,0.10)"
+                              : "0 6px 18px rgba(20,48,79,0.05)",
                         }}
                       >
-                        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                          <div>
+                        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                          <div className="min-w-0">
                             <div className="text-[0.72rem] font-black uppercase tracking-[0.08em] text-[#5e7388]">
                               Round {entry.round.round}
                             </div>
-                            <div className="mt-2 text-base font-black text-[#14304f]">
+                            <div className="mt-1 text-sm font-black text-[#14304f]">
                               {formatRange(entry.round.start, entry.round.end)}
                             </div>
-                            <div className="mt-2 text-sm font-semibold text-[#5e7388]">
+                            <div className="mt-1 text-xs font-semibold text-[#5e7388]">
                               {getFlowRhythmSummary(entry.round)}
                             </div>
                           </div>
-                          <div className="flex flex-wrap gap-2">
-                            <div
-                              className="rounded-full border px-3 py-1 text-[0.72rem] font-black uppercase tracking-[0.08em] text-[#165a96]"
-                              style={{ borderColor: "#c7dcee", background: "#edf5fb" }}
-                            >
-                              {formatDurationCompact(getBlockDurationMinutes(entry.round.start, entry.round.end))}
-                            </div>
-                            {selectedBuilderRound === entry.round.round ? (
-                              <div
-                                className="rounded-full border px-3 py-1 text-[0.72rem] font-black uppercase tracking-[0.08em]"
-                                style={{ borderColor: "rgba(15,118,110,0.2)", background: "rgba(209, 250, 229, 0.52)", color: "#0f766e" }}
-                              >
-                                Active round
-                              </div>
-                            ) : null}
+                          <div className="flex flex-1 flex-wrap gap-2 lg:justify-end">
+                            {entry.round.subBlocks.map((subBlock) => {
+                              const durationMinutes = Math.max(getBlockDurationMinutes(subBlock.start, subBlock.end), 1);
+                              const rhythmStyles = getFlowRhythmSegmentStyles(subBlock.label);
+                              return (
+                                <span
+                                  key={`${entry.round.round}-${subBlock.label}-${subBlock.start}`}
+                                  className="rounded-full border px-3 py-2 text-[0.72rem] font-black uppercase tracking-[0.08em]"
+                                  style={{
+                                    flex: `${Math.max(durationMinutes, 5)} 1 92px`,
+                                    borderColor: rhythmStyles.borderColor,
+                                    background: rhythmStyles.background,
+                                    color: rhythmStyles.color,
+                                  }}
+                                >
+                                  {subBlock.label} · {formatDurationCompact(durationMinutes)}
+                                </span>
+                              );
+                            })}
                           </div>
                         </div>
-                        <div className="mt-4 flex flex-wrap gap-2">
-                          {entry.round.subBlocks.map((subBlock) => (
-                            <button
-                              key={`${entry.round.round}-${subBlock.label}-${subBlock.start}`}
-                              type="button"
-                              className="min-w-[132px] rounded-[12px] border px-3 py-2 text-left text-xs font-bold transition"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                setActiveFlowDetailKey((current) =>
-                                  current === `${entry.key}-${subBlock.label}-${subBlock.start}` ? "" : `${entry.key}-${subBlock.label}-${subBlock.start}`
-                                );
-                              }}
-                              onKeyDown={(event) => {
-                                if (event.key === "Enter" || event.key === " ") {
-                                  event.preventDefault();
-                                  event.stopPropagation();
-                                  setActiveFlowDetailKey((current) =>
-                                    current === `${entry.key}-${subBlock.label}-${subBlock.start}` ? "" : `${entry.key}-${subBlock.label}-${subBlock.start}`
-                                  );
-                                }
-                              }}
-                              style={(() => {
-                                const durationMinutes = Math.max(getBlockDurationMinutes(subBlock.start, subBlock.end), 1);
-                                const rhythmStyles = getFlowRhythmSegmentStyles(subBlock.label);
-                                return {
-                                  flex: `${Math.max(durationMinutes, 6)} 1 132px`,
-                                  minHeight: "62px",
-                                  borderColor: rhythmStyles.borderColor,
-                                  background: rhythmStyles.background,
-                                  color: rhythmStyles.color,
-                                  cursor: "pointer",
-                                  boxShadow:
-                                    activeFlowDetailKey === `${entry.key}-${subBlock.label}-${subBlock.start}`
-                                      ? "0 0 0 1px rgba(15,118,110,0.12), 0 12px 20px rgba(20,48,79,0.08)"
-                                      : "none",
-                                };
-                              })()}
-                            >
-                              <div className="text-[0.72rem] font-black uppercase tracking-[0.08em] opacity-70">
-                                {formatDurationCompact(getBlockDurationMinutes(subBlock.start, subBlock.end))}
-                              </div>
-                              <div className="mt-1 text-sm font-black leading-5">{subBlock.label}</div>
-                            </button>
-                          ))}
-                        </div>
-                        {entry.round.subBlocks.map((subBlock) => {
-                          const detailKey = `${entry.key}-${subBlock.label}-${subBlock.start}`;
-                          if (activeFlowDetailKey !== detailKey) return null;
-                          return (
-                            <div
-                              key={`${detailKey}-detail`}
-                              className="mt-3 rounded-[12px] border border-[#c7dcee] bg-white px-3 py-3 text-sm"
-                            >
-                              <div className="font-black text-[#14304f]">{subBlock.label}</div>
-                              <div className="mt-1 font-semibold text-[#5e7388]">
-                                {formatRange(subBlock.start, subBlock.end)} · {getBlockDurationMinutes(subBlock.start, subBlock.end)} minutes
-                              </div>
-                              <div className="mt-1 font-semibold text-[#5e7388]">Round {entry.round.round}</div>
-                              <div className="mt-1 font-semibold text-[#5e7388]">
-                                Visibility: {subBlock.visibleTo === "both" || !subBlock.visibleTo ? "Both" : subBlock.visibleTo === "student" ? "Student" : "Operations"}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
+                      </button>
                     )
                   )}
                 </div>
+
+                {selectedBuilderRoundContext ? (
+                  <div className="rounded-[16px] border border-[#c7dcee] bg-white px-4 py-4 shadow-[0_10px_22px_rgba(20,48,79,0.06)]">
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                      <div>
+                        <div className="text-[0.72rem] font-black uppercase tracking-[0.08em] text-[#5e7388]">
+                          Selected round
+                        </div>
+                        <div className="mt-2 text-base font-black text-[#14304f]">
+                          Round {selectedBuilderRoundContext.round} · {formatRange(selectedBuilderRoundContext.start, selectedBuilderRoundContext.end)}
+                        </div>
+                        <div className="mt-2 text-sm font-semibold text-[#5e7388]">
+                          {getFlowRhythmSummary(selectedBuilderRoundContext)}
+                        </div>
+                      </div>
+                      <div className="rounded-full border border-[#dce6ee] bg-[#f8fbfd] px-3 py-1 text-[0.72rem] font-black uppercase tracking-[0.08em] text-[#165a96]">
+                        {selectedBuilderRoundContext.roomSlots.length} room
+                        {selectedBuilderRoundContext.roomSlots.length === 1 ? "" : "s"}
+                      </div>
+                    </div>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {selectedBuilderRoundContext.subBlocks.map((subBlock) => (
+                        <button
+                          key={`${selectedBuilderRoundContext.round}-${subBlock.label}-${subBlock.start}`}
+                          type="button"
+                          className="min-w-[128px] rounded-[12px] border px-3 py-2 text-left text-xs font-bold transition"
+                          onClick={() =>
+                            setActiveFlowDetailKey((current) =>
+                              current === `selected-round-${subBlock.label}-${subBlock.start}`
+                                ? ""
+                                : `selected-round-${subBlock.label}-${subBlock.start}`
+                            )
+                          }
+                          style={(() => {
+                            const durationMinutes = Math.max(getBlockDurationMinutes(subBlock.start, subBlock.end), 1);
+                            const rhythmStyles = getFlowRhythmSegmentStyles(subBlock.label);
+                            return {
+                              flex: `${Math.max(durationMinutes, 6)} 1 128px`,
+                              borderColor: rhythmStyles.borderColor,
+                              background: rhythmStyles.background,
+                              color: rhythmStyles.color,
+                              boxShadow:
+                                activeFlowDetailKey === `selected-round-${subBlock.label}-${subBlock.start}`
+                                  ? "0 0 0 1px rgba(15,118,110,0.12), 0 10px 18px rgba(20,48,79,0.08)"
+                                  : "none",
+                            };
+                          })()}
+                        >
+                          <div className="text-[0.72rem] font-black uppercase tracking-[0.08em] opacity-70">
+                            {formatDurationCompact(getBlockDurationMinutes(subBlock.start, subBlock.end))}
+                          </div>
+                          <div className="mt-1 text-sm font-black leading-5">{subBlock.label}</div>
+                        </button>
+                      ))}
+                    </div>
+                    {selectedBuilderRoundContext.subBlocks.map((subBlock) => {
+                      const detailKey = `selected-round-${subBlock.label}-${subBlock.start}`;
+                      if (activeFlowDetailKey !== detailKey) return null;
+                      return (
+                        <div
+                          key={`${detailKey}-detail`}
+                          className="mt-3 rounded-[12px] border border-[#c7dcee] bg-[#f8fbfd] px-3 py-3 text-sm"
+                        >
+                          <div className="font-black text-[#14304f]">{subBlock.label}</div>
+                          <div className="mt-1 font-semibold text-[#5e7388]">
+                            {formatRange(subBlock.start, subBlock.end)} · {getBlockDurationMinutes(subBlock.start, subBlock.end)} minutes
+                          </div>
+                          <div className="mt-1 font-semibold text-[#5e7388]">Round {selectedBuilderRoundContext.round}</div>
+                          <div className="mt-1 font-semibold text-[#5e7388]">
+                            Visibility: {subBlock.visibleTo === "both" || !subBlock.visibleTo ? "Both" : subBlock.visibleTo === "student" ? "Student" : "Operations"}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : null}
 
                 {showExpandedFlowDetails ? (
                   <div className="grid gap-3">
