@@ -5391,6 +5391,21 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     .map(asText)
     .filter(Boolean)
     .join(" · ");
+  useEffect(() => {
+    if (typeof window === "undefined" || !id) return;
+
+    const storageKey = getFacultyContactPanelStorageKey(id);
+    const savedState = window.localStorage.getItem(storageKey);
+    if (savedState === "expanded") {
+      setContactPanelExpanded(true);
+      return;
+    }
+    if (savedState === "collapsed") {
+      setContactPanelExpanded(false);
+      return;
+    }
+    setContactPanelExpanded(!facultyReadinessComplete);
+  }, [facultyReadinessComplete, id]);
   const outreachProgressLabel = assignments.some(
     (assignment) =>
       Boolean(assignment.last_contacted_at) || ["contacted", "confirmed", "declined"].includes(getAssignmentStatus(assignment))

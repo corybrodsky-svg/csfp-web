@@ -84,7 +84,7 @@ export function upsertEventTypesInNotes(
   if (!text) return nextLine;
 
   if (/^(Event Types?|Event Category)\s*:/im.test(text)) {
-    return text.replace(/^(Event Types?|Event Category)\s*:.*$/im, nextLine);
+    return text.replace(/^(Event Types?|Event Category)\s*:.*$/gim, nextLine);
   }
 
   return `${nextLine}\n${text}`;
