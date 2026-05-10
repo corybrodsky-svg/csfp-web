@@ -1417,7 +1417,7 @@ function buildSchedulePreviewData(args: {
           lines.push(`    Assignment: ${assignedSpNames?.[assignmentIndex] || "Unassigned"}`);
         }
         if (includeOperationsContext) {
-          lines.push(`    SP: ${assignedSpNames?.[assignmentIndex] || "Unassigned"}`);
+          lines.push(`    SP: ${assignedSpNames?.[assignmentIndex] || "Unassigned SP"}`);
           if (caseName) lines.push(`    Case: ${caseName}`);
         }
       });
@@ -1546,7 +1546,7 @@ function buildSchedulePreviewData(args: {
                             kind === "sp"
                               ? `Assignment: ${spName}`
                               : kind === "operations"
-                                ? `${learnerText} · SP: ${spName}`
+                                ? `${learnerText} · SP: ${spName || "Unassigned SP"}`
                                 : learnerText;
                           return `
                             <div class="room-row">
@@ -1638,12 +1638,12 @@ function buildSchedulePreviewData(args: {
                               }
                               ${
                                 kind === "sp"
-                                  ? `<div><span class="detail-label">SP</span><span class="detail-value">${escapeHtml(spName)}</span></div>`
+                                  ? `<div><span class="detail-label">SP</span><span class="detail-value">${escapeHtml(spName || "Unassigned SP")}</span></div>`
                                   : ""
                               }
                               ${
                                 isOperations
-                                  ? `<div><span class="detail-label">SP</span><span class="detail-value">${escapeHtml(spName)}</span></div>`
+                                  ? `<div><span class="detail-label">SP</span><span class="detail-value">${escapeHtml(spName || "Unassigned SP")}</span></div>`
                                   : ""
                               }
                               ${
@@ -3265,7 +3265,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                         </span>
                       ))
                     ) : (
-                      <span className="text-sm font-semibold text-[#6a7e91]">No assigned SPs yet</span>
+                      <span className="text-sm font-semibold text-[#6a7e91]">No confirmed event SPs yet</span>
                     )}
                   </div>
                 </div>
@@ -4121,7 +4121,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                                 </div>
                                 {scheduleViewMode === "operations" ? (
                                   <div style={{ marginTop: "6px", fontSize: "12px", fontWeight: 700, color: "#4f677d", lineHeight: 1.5 }}>
-                                    <div>SP: {selectedEvent?.assigned_sp_names?.[round.roomSlots.findIndex((item) => item.roomName === slot.roomName)] || "Unassigned"}</div>
+                                    <div>SP: {selectedEvent?.assigned_sp_names?.[round.roomSlots.findIndex((item) => item.roomName === slot.roomName)] || "Unassigned SP"}</div>
                                     {selectedEventMetadata.case_name ? <div>Case: {selectedEventMetadata.case_name}</div> : null}
                                   </div>
                                 ) : null}

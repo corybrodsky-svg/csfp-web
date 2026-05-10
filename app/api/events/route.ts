@@ -381,7 +381,8 @@ export async function GET() {
     );
     const eventsWithCoverage = (data || []).map((event) => {
       const eventAssignments = assignmentRows.filter((assignment) => assignment.event_id === event.id);
-      const confirmedAssignments = eventAssignments.filter(isConfirmedAssignment).length;
+      const confirmedEventAssignments = eventAssignments.filter(isConfirmedAssignment);
+      const confirmedAssignments = confirmedEventAssignments.length;
       const needed = parseNumber(event.sp_needed);
       const eventSessions = sessionRows.filter((session) => session.event_id === event.id);
       const fallbackYear = getImportedYearHint(event.notes);
@@ -393,10 +394,10 @@ export async function GET() {
         normalizedSessionDates[0] || null;
       const latestSessionDate =
         normalizedSessionDates[normalizedSessionDates.length - 1] || null;
-      const assignedNames = eventAssignments
+      const assignedNames = confirmedEventAssignments
         .map((assignment) => spNameById.get(asText(assignment.sp_id)) || "")
         .filter(Boolean);
-      const assignedEmails = eventAssignments
+      const assignedEmails = confirmedEventAssignments
         .map((assignment) => spEmailById.get(asText(assignment.sp_id)) || "")
         .filter(Boolean);
       const sessionLocations = Array.from(

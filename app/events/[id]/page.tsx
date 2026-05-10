@@ -5036,20 +5036,20 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     }>;
     return currentLiveRoomDisplayEntries
       .map(({ roomName, sourceIndex }, index) => {
-        const assignment = sourceIndex >= 0 ? sortedAssignments[sourceIndex] : null;
+        const assignment = sourceIndex >= 0 ? confirmedAssignments[sourceIndex] : null;
         const sp = assignment?.sp_id ? spsById.get(assignment.sp_id) : undefined;
         if (!assignment || !sp) return null;
         const resolvedRoomName = roomName || getFallbackRoomLabel(index, roomNamingContext);
         return { assignment, sp, roomName: resolvedRoomName };
       })
       .filter(Boolean) as Array<{ assignment: AssignmentRow; sp: SPRow; roomName: string }>;
-  }, [currentLiveRoomDisplayEntries, roomNamingContext, sortedAssignments, spsById]);
+  }, [confirmedAssignments, currentLiveRoomDisplayEntries, roomNamingContext, spsById]);
   const currentLiveRoomExplicitAssignments = useMemo(
     () =>
       currentLiveRoomDisplayEntries.map(({ sourceIndex }) =>
-        sourceIndex >= 0 ? sortedAssignments[sourceIndex] || null : null
+        sourceIndex >= 0 ? confirmedAssignments[sourceIndex] || null : null
       ),
-    [currentLiveRoomDisplayEntries, sortedAssignments]
+    [confirmedAssignments, currentLiveRoomDisplayEntries]
   );
   const currentLiveRoomAssignmentPlan = useMemo(
     () =>
@@ -6442,7 +6442,7 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
           asText(selectedRoundRoomSlotEntries[slotIndex]?.roomName) ||
           "";
         const displayRoomName = rawRoomName || getFallbackRoomLabel(slotIndex, roomNamingContext);
-        const assignment = sourceIndex >= 0 ? sortedAssignments[sourceIndex] || null : null;
+        const assignment = sourceIndex >= 0 ? confirmedAssignments[sourceIndex] || null : null;
         const sp = assignment?.sp_id ? spsById.get(assignment.sp_id) || null : null;
         const learnerLabels = Array.from({ length: Math.max(learnersPerRow, 1) }, (_, learnerOffset) => {
           const learnerIndex = firstLearnerIndex + slotIndex * Math.max(learnersPerRow, 1) + learnerOffset;
@@ -6482,7 +6482,7 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     selectedRoundCaseLabel,
     selectedRoundSessions,
     selectedRoundStationLabel,
-    sortedAssignments,
+    confirmedAssignments,
     spsById,
     staffingRelevant,
   ]);
@@ -7212,9 +7212,9 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
   const liveBlueprintExplicitAssignments = useMemo(
     () =>
       liveBlueprintRoomEntries.map(({ sourceIndex }) =>
-        sourceIndex >= 0 ? sortedAssignments[sourceIndex] || null : null
+        sourceIndex >= 0 ? confirmedAssignments[sourceIndex] || null : null
       ),
-    [liveBlueprintRoomEntries, sortedAssignments]
+    [confirmedAssignments, liveBlueprintRoomEntries]
   );
   const liveBlueprintRoomAssignmentPlan = useMemo(
     () =>
@@ -12652,58 +12652,68 @@ Cory`;
                     >
                       Confirm All Selected SPs
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => void handleOpenAvailabilityRequest()}
-                      disabled={hiringEmailBccEmails.length === 0}
-                      style={{ ...buttonStyle, padding: "8px 11px", boxShadow: "0 8px 16px rgba(14, 165, 233, 0.16)", opacity: hiringEmailBccEmails.length === 0 ? 0.65 : 1 }}
-                    >
-                      Draft Hiring Email
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void handleOpenConfirmationEmailDraft()}
-                      disabled={confirmationBccEmails.length === 0}
-                      style={{ ...buttonStyle, padding: "8px 11px", boxShadow: "0 8px 16px rgba(14, 165, 233, 0.16)", opacity: confirmationBccEmails.length === 0 ? 0.65 : 1 }}
-                    >
-                      Confirm Staffing Email
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void handleMarkStaffingEmailSent("hiring")}
-                      style={
-                        hiringEmailSent
-                          ? {
-                              ...staffingSecondaryButtonStyle,
-                              padding: "8px 11px",
-                              background: planningSuccessCardBackground,
-                              border: planningSuccessBorder,
-                              color: planningSuccessText,
-                              boxShadow: "0 8px 18px rgba(16, 185, 129, 0.16)",
-                            }
-                          : { ...staffingSecondaryButtonStyle, padding: "8px 11px" }
-                      }
-                    >
-                      {hiringEmailSent ? "Hiring Email Sent" : "Mark Hiring Email Sent"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void handleMarkStaffingEmailSent("confirmation")}
-                      style={
-                        confirmationEmailSent
-                          ? {
-                              ...staffingSecondaryButtonStyle,
-                              padding: "8px 11px",
-                              background: planningSuccessCardBackground,
-                              border: planningSuccessBorder,
-                              color: planningSuccessText,
-                              boxShadow: "0 8px 18px rgba(16, 185, 129, 0.16)",
-                            }
-                          : { ...staffingSecondaryButtonStyle, padding: "8px 11px" }
-                      }
-                    >
-                      {confirmationEmailSent ? "Confirmation Sent" : "Mark Confirmation Sent"}
-                    </button>
+                    {!hiringEmailSent ? (
+                      <button
+                        type="button"
+                        onClick={() => void handleOpenAvailabilityRequest()}
+                        disabled={hiringEmailBccEmails.length === 0}
+                        style={{ ...buttonStyle, padding: "8px 11px", boxShadow: "0 8px 16px rgba(14, 165, 233, 0.16)", opacity: hiringEmailBccEmails.length === 0 ? 0.65 : 1 }}
+                      >
+                        Draft Hiring Email
+                      </button>
+                    ) : (
+                      <span
+                        style={{
+                          ...commandChipStyle,
+                          background: planningSuccessCardBackground,
+                          border: planningSuccessBorder,
+                          color: planningSuccessText,
+                          padding: "8px 11px",
+                        }}
+                      >
+                        Hiring Email Sent
+                      </span>
+                    )}
+                    {!confirmationEmailSent ? (
+                      <button
+                        type="button"
+                        onClick={() => void handleOpenConfirmationEmailDraft()}
+                        disabled={confirmationBccEmails.length === 0}
+                        style={{ ...buttonStyle, padding: "8px 11px", boxShadow: "0 8px 16px rgba(14, 165, 233, 0.16)", opacity: confirmationBccEmails.length === 0 ? 0.65 : 1 }}
+                      >
+                        Confirm Staffing Email
+                      </button>
+                    ) : (
+                      <span
+                        style={{
+                          ...commandChipStyle,
+                          background: planningSuccessCardBackground,
+                          border: planningSuccessBorder,
+                          color: planningSuccessText,
+                          padding: "8px 11px",
+                        }}
+                      >
+                        Confirmation Sent
+                      </span>
+                    )}
+                    {!hiringEmailSent ? (
+                      <button
+                        type="button"
+                        onClick={() => void handleMarkStaffingEmailSent("hiring")}
+                        style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px" }}
+                      >
+                        Mark Hiring Email Sent
+                      </button>
+                    ) : null}
+                    {!confirmationEmailSent ? (
+                      <button
+                        type="button"
+                        onClick={() => void handleMarkStaffingEmailSent("confirmation")}
+                        style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px" }}
+                      >
+                        Mark Confirmation Sent
+                      </button>
+                    ) : null}
                     <label
                       style={{
                         display: "inline-flex",
@@ -12731,26 +12741,30 @@ Cory`;
                     <span style={{ ...staffingMutedTextStyle, alignSelf: "center" }}>
                       Backup emails are optional support.
                     </span>
-                    <button
-                      type="button"
-                      onClick={() => setShowEmailDraft((current) => !current)}
-                      style={{
-                        ...staffingSecondaryButtonStyle,
-                        padding: "8px 11px",
-                      }}
-                    >
-                      {showEmailDraft ? "Hide Email Preview" : "Show Email Preview"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setShowConfirmationEmailPreview((current) => !current)}
-                      style={{
-                        ...staffingSecondaryButtonStyle,
-                        padding: "8px 11px",
-                      }}
-                    >
-                      {showConfirmationEmailPreview ? "Hide Confirmation Preview" : "Show Confirmation Preview"}
-                    </button>
+                    {!hiringEmailSent ? (
+                      <button
+                        type="button"
+                        onClick={() => setShowEmailDraft((current) => !current)}
+                        style={{
+                          ...staffingSecondaryButtonStyle,
+                          padding: "8px 11px",
+                        }}
+                      >
+                        {showEmailDraft ? "Hide Email Preview" : "Show Email Preview"}
+                      </button>
+                    ) : null}
+                    {!confirmationEmailSent ? (
+                      <button
+                        type="button"
+                        onClick={() => setShowConfirmationEmailPreview((current) => !current)}
+                        style={{
+                          ...staffingSecondaryButtonStyle,
+                          padding: "8px 11px",
+                        }}
+                      >
+                        {showConfirmationEmailPreview ? "Hide Confirmation Preview" : "Show Confirmation Preview"}
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       onClick={() => setShowCandidatePool((current) => !current)}
@@ -12787,13 +12801,15 @@ Cory`;
   Clear Poll Results
 </button>
                     </div>
-                    <div style={{ display: "grid", gap: "4px", fontSize: "12px", fontWeight: 800, color: staffingWorkspacePalette.textMuted }}>
-                      <div>hiring_email_sent_at: {hiringEmailSentAt || "missing"}</div>
-                      <div>confirmation_email_sent_at: {confirmationEmailSentAt || "missing"}</div>
-                      {eventSaveError.includes("Could not save email sent status") ? (
-                        <div style={{ color: staffingWorkspacePalette.dangerText }}>Could not save email sent status</div>
-                      ) : null}
-                    </div>
+                    {viewerRole !== "sp" ? (
+                      <div style={{ display: "grid", gap: "4px", fontSize: "12px", fontWeight: 800, color: staffingWorkspacePalette.textMuted }}>
+                        <div>hiring_email_sent_at: {hiringEmailSentAt || "missing"}</div>
+                        <div>confirmation_email_sent_at: {confirmationEmailSentAt || "missing"}</div>
+                        {eventSaveError.includes("Could not save email sent status") ? (
+                          <div style={{ color: staffingWorkspacePalette.dangerText }}>Could not save email sent status</div>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </div>
                 </div>
 
@@ -13153,7 +13169,7 @@ Cory`;
                   </div>
                 ) : null}
 
-                {showEmailDraft ? (
+                {showEmailDraft && !hiringEmailSent ? (
                   <div style={{ ...staffingMetricCardStyle, padding: "12px 14px" }}>
                     <div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Email Draft Preview</div>
                     <div style={{ marginTop: "8px", color: staffingWorkspacePalette.textStrong, lineHeight: 1.7 }}>
@@ -13165,7 +13181,7 @@ Cory`;
                   </div>
                 ) : null}
 
-                {showConfirmationEmailPreview ? (
+                {showConfirmationEmailPreview && !confirmationEmailSent ? (
                   <div style={{ ...staffingMetricCardStyle, padding: "12px 14px" }}>
                     <div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Confirmation Email Preview</div>
                     <div style={{ marginTop: "8px", color: staffingWorkspacePalette.textStrong, lineHeight: 1.7 }}>
