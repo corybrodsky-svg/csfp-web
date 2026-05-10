@@ -541,9 +541,10 @@ const statCard: React.CSSProperties = {
 
 const statLabel: React.CSSProperties = {
   fontSize: "12px",
-  fontWeight: 700,
+  fontWeight: 800,
   color: "var(--cfsp-text-muted)",
   textTransform: "uppercase",
+  letterSpacing: "0.035em",
 };
 
 const statValue: React.CSSProperties = {
@@ -598,8 +599,9 @@ const compactSectionTitleStyle: React.CSSProperties = {
 const compactSectionHintStyle: React.CSSProperties = {
   margin: "4px 0 0",
   color: "var(--cfsp-text-muted)",
-  fontWeight: 700,
+  fontWeight: 750,
   fontSize: "13px",
+  lineHeight: 1.45,
 };
 
 const segmentedGroupStyle: React.CSSProperties = {
@@ -9087,26 +9089,26 @@ Cory`;
     shellBorder: isPlanningVisualMode ? "1px solid rgba(20, 91, 150, 0.16)" : "1px solid rgba(143, 194, 240, 0.22)",
     shellBackground: isPlanningVisualMode
       ? "linear-gradient(180deg, rgba(255, 255, 255, 0.99) 0%, rgba(247, 250, 252, 0.98) 100%)"
-      : "linear-gradient(180deg, rgba(17, 31, 48, 0.94) 0%, rgba(20, 43, 62, 0.9) 100%)",
+      : "linear-gradient(180deg, rgba(21, 38, 55, 0.98) 0%, rgba(19, 35, 51, 0.96) 100%)",
     shellShadow: isPlanningVisualMode ? "0 14px 32px rgba(24, 52, 78, 0.08)" : "none",
-    labelColor: isPlanningVisualMode ? "#145b96" : "#b9d7ef",
-    headingColor: isPlanningVisualMode ? "#0f2940" : "#f4fbff",
-    textColor: isPlanningVisualMode ? "#18364a" : "#f8fafc",
-    mutedColor: isPlanningVisualMode ? "#597b8e" : "#9cc7d3",
+    labelColor: isPlanningVisualMode ? "#145b96" : "#d7efff",
+    headingColor: isPlanningVisualMode ? "#0f2940" : "#ffffff",
+    textColor: isPlanningVisualMode ? "#18364a" : "#f7fbff",
+    mutedColor: isPlanningVisualMode ? "#4f6d82" : "#c9d7e2",
     cardBackground: isPlanningVisualMode
       ? "linear-gradient(180deg, rgba(255, 255, 255, 0.99) 0%, rgba(247, 250, 252, 0.98) 100%)"
-      : "linear-gradient(180deg, rgba(20, 37, 54, 0.94) 0%, rgba(21, 40, 58, 0.92) 100%)",
-    cardBorder: isPlanningVisualMode ? "1px solid rgba(20, 91, 150, 0.12)" : "1px solid rgba(143, 194, 240, 0.14)",
-    chipBackground: isPlanningVisualMode ? "rgba(255, 255, 255, 0.86)" : "rgba(143, 194, 240, 0.12)",
-    chipText: isPlanningVisualMode ? "#145b96" : "#d9ebff",
+      : "linear-gradient(180deg, rgba(23, 40, 56, 0.97) 0%, rgba(19, 34, 49, 0.96) 100%)",
+    cardBorder: isPlanningVisualMode ? "1px solid rgba(20, 91, 150, 0.12)" : "1px solid rgba(203, 213, 225, 0.2)",
+    chipBackground: isPlanningVisualMode ? "rgba(255, 255, 255, 0.86)" : "rgba(219, 234, 254, 0.13)",
+    chipText: isPlanningVisualMode ? "#145b96" : "#eef6ff",
     activeSoftBackground: isPlanningVisualMode ? planningSuccessBackground : "rgba(126, 231, 219, 0.14)",
     activeSoftText: isPlanningVisualMode ? planningSuccessText : "#b8f1e1",
     panelBackground: isPlanningVisualMode
       ? "linear-gradient(180deg, rgba(255,255,255,0.99) 0%, rgba(247,250,252,0.97) 100%)"
-      : "linear-gradient(180deg, rgba(9, 26, 39, 0.98) 0%, rgba(12, 27, 41, 0.94) 100%)",
-    panelBorder: isPlanningVisualMode ? "1px solid rgba(20, 91, 150, 0.16)" : "1px solid rgba(143, 194, 240, 0.22)",
-    rowBackground: isPlanningVisualMode ? "rgba(255, 255, 255, 0.96)" : "rgba(255,255,255,0.04)",
-    rowBorder: isPlanningVisualMode ? "1px solid rgba(128, 167, 182, 0.22)" : "1px solid rgba(148, 163, 184, 0.18)",
+      : "linear-gradient(180deg, rgba(15, 30, 44, 0.98) 0%, rgba(14, 29, 43, 0.97) 100%)",
+    panelBorder: isPlanningVisualMode ? "1px solid rgba(20, 91, 150, 0.16)" : "1px solid rgba(203, 213, 225, 0.24)",
+    rowBackground: isPlanningVisualMode ? "rgba(255, 255, 255, 0.96)" : "rgba(255,255,255,0.075)",
+    rowBorder: isPlanningVisualMode ? "1px solid rgba(128, 167, 182, 0.22)" : "1px solid rgba(203, 213, 225, 0.2)",
   } as const;
   function getDominantOperationalTone(tones: OperationalStatusTone[]) {
     return tones.reduce<OperationalStatusTone>((current, tone) =>
@@ -9119,13 +9121,13 @@ Cory`;
         border: "1px solid rgba(25, 138, 112, 0.22)",
         background: isPlanningVisualMode
           ? "linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(239, 253, 250, 0.94) 100%)"
-          : "linear-gradient(180deg, rgba(14, 34, 50, 0.94) 0%, rgba(9, 42, 42, 0.88) 100%)",
+          : "linear-gradient(180deg, rgba(20, 48, 52, 0.97) 0%, rgba(17, 43, 46, 0.96) 100%)",
         glow: isPlanningVisualMode
           ? "inset 4px 0 0 rgba(25, 138, 112, 0.6), 0 12px 30px rgba(25, 138, 112, 0.1)"
-          : "inset 4px 0 0 rgba(25, 138, 112, 0.68), 0 16px 34px rgba(25, 138, 112, 0.08)",
-        accent: "#0f766e",
+          : "inset 4px 0 0 rgba(126, 231, 219, 0.62), 0 16px 34px rgba(25, 138, 112, 0.08)",
+        accent: isPlanningVisualMode ? "#0f766e" : "#b8f1e1",
         chipBg: "rgba(25, 138, 112, 0.12)",
-        chipColor: "#0f766e",
+        chipColor: isPlanningVisualMode ? "#0f766e" : "#d8fff6",
       };
     }
     if (tone === "attention") {
@@ -9133,11 +9135,11 @@ Cory`;
         border: "1px solid rgba(245, 158, 11, 0.22)",
         background: isPlanningVisualMode
           ? "linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(255, 251, 235, 0.62) 100%)"
-          : "linear-gradient(180deg, rgba(17, 31, 48, 0.94) 0%, rgba(40, 33, 21, 0.86) 100%)",
+          : "linear-gradient(180deg, rgba(37, 44, 50, 0.97) 0%, rgba(35, 39, 43, 0.96) 100%)",
         glow: isPlanningVisualMode ? "inset 4px 0 0 rgba(245, 158, 11, 0.62), 0 12px 28px rgba(245, 158, 11, 0.08)" : "inset 4px 0 0 rgba(245, 158, 11, 0.58), 0 14px 30px rgba(245, 158, 11, 0.06)",
-        accent: "#a16207",
+        accent: isPlanningVisualMode ? "#a16207" : "#fde68a",
         chipBg: "rgba(245, 158, 11, 0.12)",
-        chipColor: "#a16207",
+        chipColor: isPlanningVisualMode ? "#a16207" : "#ffefb0",
       };
     }
     if (tone === "critical") {
@@ -9145,11 +9147,11 @@ Cory`;
         border: "1px solid rgba(244, 114, 182, 0.24)",
         background: isPlanningVisualMode
           ? "linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(255, 241, 242, 0.58) 100%)"
-          : "linear-gradient(180deg, rgba(17, 31, 48, 0.94) 0%, rgba(47, 25, 39, 0.86) 100%)",
+          : "linear-gradient(180deg, rgba(49, 31, 42, 0.97) 0%, rgba(42, 29, 39, 0.96) 100%)",
         glow: isPlanningVisualMode ? "inset 4px 0 0 rgba(244, 114, 182, 0.58), 0 12px 28px rgba(244, 114, 182, 0.08)" : "inset 4px 0 0 rgba(244, 114, 182, 0.58), 0 14px 30px rgba(244, 114, 182, 0.06)",
-        accent: "#be185d",
+        accent: isPlanningVisualMode ? "#be185d" : "#fecdd3",
         chipBg: "rgba(244, 114, 182, 0.12)",
-        chipColor: "#be185d",
+        chipColor: isPlanningVisualMode ? "#be185d" : "#ffd7df",
       };
     }
     return {
@@ -9158,7 +9160,7 @@ Cory`;
       glow: isPlanningVisualMode ? "inset 4px 0 0 rgba(20, 91, 150, 0.42), 0 10px 24px rgba(42, 112, 140, 0.06)" : "inset 4px 0 0 rgba(125, 211, 252, 0.38)",
       accent: commandCenterVisual.labelColor,
       chipBg: "rgba(20, 91, 150, 0.12)",
-      chipColor: "#145b96",
+      chipColor: isPlanningVisualMode ? "#145b96" : "#e8f6ff",
     };
   }
   const eventStatusWindowTone: OperationalStatusTone =
@@ -12183,7 +12185,7 @@ Cory`;
                   borderRadius: "20px",
                   border: "1px solid rgba(126, 231, 219, 0.24)",
                   background:
-                    "radial-gradient(circle at 16% 10%, rgba(20, 91, 150, 0.14), transparent 32%), linear-gradient(180deg, rgba(2, 13, 24, 0.94) 0%, rgba(5, 23, 35, 0.92) 100%)",
+                    "radial-gradient(circle at 16% 10%, rgba(20, 91, 150, 0.12), transparent 32%), linear-gradient(180deg, rgba(11, 28, 42, 0.97) 0%, rgba(12, 31, 45, 0.96) 100%)",
                   boxShadow: "inset 0 0 0 1px rgba(126, 231, 219, 0.05), 0 20px 40px rgba(0, 0, 0, 0.2)",
                   padding: "14px",
                   display: "grid",
@@ -12211,10 +12213,10 @@ Cory`;
                       <div style={{ marginTop: "4px", color: "#f4fbff", fontSize: "19px", fontWeight: 900 }}>
                         Simulation Lab Occupancy
                       </div>
-                      <div style={{ marginTop: "4px", color: "#9ed9d1", fontSize: "12px", fontWeight: 700, lineHeight: 1.45 }}>
+                      <div style={{ marginTop: "4px", color: "#dbeafe", fontSize: "12px", fontWeight: 750, lineHeight: 1.45 }}>
                         Track SP check-in and learner arrival from prebrief into active exam rooms.
                       </div>
-                      <div style={{ marginTop: "4px", color: "#7da4b5", fontSize: "11px", fontWeight: 800 }}>
+                      <div style={{ marginTop: "4px", color: "#cbd5e1", fontSize: "11px", fontWeight: 800 }}>
                         schedule rows loaded: {currentLiveReferenceScheduleRows.length} · selected round learners:{" "}
                         {currentLiveReferenceScheduleRows.reduce((total, row) => total + row.learnerLabels.length, 0)}
                       </div>
@@ -12421,7 +12423,7 @@ Cory`;
                                     ? { ring: "#f87171", glow: "0 0 16px rgba(248, 113, 113, 0.28)", fill: "rgba(248, 113, 113, 0.12)" }
                                     : room.status === "awaiting"
                                       ? { ring: "#145b96", glow: "0 0 14px rgba(20, 91, 150, 0.2)", fill: "rgba(20, 91, 150, 0.13)" }
-                                      : { ring: "#7da4b5", glow: "none", fill: "rgba(255,255,255,0.04)" };
+                                      : { ring: "#cbd5e1", glow: "none", fill: "rgba(255,255,255,0.08)" };
                             return (
                               <div
                                 key={room.key}
@@ -12456,7 +12458,7 @@ Cory`;
                                     <div style={{ marginTop: "4px", color: "#f4fbff", fontSize: "12px", fontWeight: 900, lineHeight: 1.25, overflowWrap: "anywhere" }}>
                                       {room.spName || "Open room"}
                                     </div>
-                                    <div style={{ marginTop: "4px", color: "#9ed9d1", fontSize: "10px", fontWeight: 800, lineHeight: 1.35, overflowWrap: "anywhere" }}>
+                                    <div style={{ marginTop: "4px", color: "#dbeafe", fontSize: "10px", fontWeight: 800, lineHeight: 1.35, overflowWrap: "anywhere" }}>
                                       {room.isTemporaryRoom ? "Extra Room · Standby / Overflow" : room.learnerLabel || "Learner not assigned"}
                                     </div>
                                     <div style={{ marginTop: "4px", color: "#d9ebff", fontSize: "10px", fontWeight: 800, lineHeight: 1.35, overflowWrap: "anywhere" }}>

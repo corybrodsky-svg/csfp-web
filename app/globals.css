@@ -907,7 +907,7 @@ textarea {
   background:
     linear-gradient(rgba(126, 231, 219, 0.035) 1px, transparent 1px),
     linear-gradient(90deg, rgba(126, 231, 219, 0.035) 1px, transparent 1px),
-    rgba(2, 11, 20, 0.52);
+    rgba(11, 28, 42, 0.78);
   background-size: 14px 14px;
   box-shadow: inset -26px 0 24px rgba(2, 11, 20, 0.34);
   overflow-x: auto;
@@ -950,10 +950,10 @@ textarea {
   border: 1px dashed rgba(126, 231, 219, 0.24);
   background:
     linear-gradient(90deg, transparent, rgba(20, 91, 150, 0.12), transparent),
-    rgba(5, 20, 33, 0.66);
+    rgba(13, 31, 46, 0.78);
   display: grid;
   place-items: center;
-  color: rgba(190, 245, 238, 0.72);
+  color: rgba(232, 246, 255, 0.92);
   font-size: 0.68rem;
   font-weight: 950;
   letter-spacing: 0.16em;
@@ -987,6 +987,8 @@ textarea {
   padding: 9px;
   overflow: hidden;
   isolation: isolate;
+  color: #f8fafc;
+  text-shadow: none;
   transition:
     transform 180ms ease,
     border-color 180ms ease,
