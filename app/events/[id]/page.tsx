@@ -8605,11 +8605,6 @@ Cory`;
                   ? "attention"
                   : "info") as OperationalStatusTone,
             detail: recordingIndicatorLabel,
-            actions: (
-              <button type="button" onClick={() => focusAdminEditField("recording_status")} style={{ ...buttonStyle, padding: "7px 10px" }}>
-                Admin Edit
-              </button>
-            ),
           },
         ]
       : []),
@@ -8621,34 +8616,16 @@ Cory`;
             value: trainingAccessUrl ? `${trainingModalityLabel} link ready` : trainingZoomRequired ? "Training link needed" : trainingModalityLabel,
             tone: (trainingAccessUrl ? "ready" : trainingZoomRequired ? "attention" : "info") as OperationalStatusTone,
             detail: trainingZoomRequired ? "Training logistics depend on the access link." : "Virtual logistics are optional for this event.",
-            actions: (
-              <button type="button" onClick={() => focusAdminEditField("zoom_url")} style={{ ...buttonStyle, padding: "7px 10px" }}>
-                Admin Edit
-              </button>
-            ),
           },
         ]
       : []),
     ...liveSupportNeeds.map((item, index) => {
-      const normalizedSupportLabel = item.label.toLowerCase();
-      const adminField = normalizedSupportLabel.includes("av")
-        ? "av_support_required"
-        : normalizedSupportLabel.includes("tech")
-          ? "sim_tech_required"
-          : normalizedSupportLabel.includes("recording")
-            ? "recording_monitor_needed"
-            : "training_notes";
       return {
         key: `support-${index}`,
         label: "Support need",
         value: item.label,
         tone: "attention" as OperationalStatusTone,
         detail: "Surface this only because it affects live execution or staffing support.",
-        actions: (
-          <button type="button" onClick={() => focusAdminEditField(adminField)} style={{ ...buttonStyle, padding: "7px 10px" }}>
-            Admin Edit
-          </button>
-        ),
       };
     }),
     ...(eventRiskLevel.tone !== "green"
@@ -8659,11 +8636,6 @@ Cory`;
             value: eventRiskLevel.label,
             tone: (eventRiskLevel.tone === "red" ? "critical" : "attention") as OperationalStatusTone,
             detail: eventRiskLevel.detail,
-            actions: (
-              <button type="button" onClick={() => focusAdminEditField("training_notes")} style={{ ...buttonStyle, padding: "7px 10px" }}>
-                Admin Edit
-              </button>
-            ),
           },
         ]
       : []),
@@ -8715,7 +8687,7 @@ Cory`;
             onClick={() => focusAdminEditField("materials_readiness")}
             style={{ ...buttonStyle, padding: "7px 10px" }}
           >
-            Admin Edit
+            Manage Materials
           </button>
         </>
       ),
@@ -8763,7 +8735,7 @@ Cory`;
                   onClick={() => focusAdminEditField("case_files")}
                   style={{ ...buttonStyle, padding: "7px 10px" }}
                 >
-                  Admin Edit
+                  Manage Cases
                 </button>
               </>
             ),
@@ -8794,10 +8766,10 @@ Cory`;
                 </button>
                 <button
                   type="button"
-                  onClick={() => focusAdminEditField("hiring_email_sent_at")}
+                  onClick={scrollToAdminTools}
                   style={{ ...buttonStyle, padding: "7px 10px" }}
                 >
-                  Admin Edit
+                  Open Admin Controls
                 </button>
               </>
             ),
@@ -8824,10 +8796,10 @@ Cory`;
                 </button>
                 <button
                   type="button"
-                  onClick={() => focusAdminEditField("confirmation_email_sent_at")}
+                  onClick={scrollToAdminTools}
                   style={{ ...buttonStyle, padding: "7px 10px" }}
                 >
-                  Admin Edit
+                  Open Admin Controls
                 </button>
               </>
             ),
@@ -8866,13 +8838,6 @@ Cory`;
                   >
                     Request Faculty Availability
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => focusAdminEditField("faculty_training_coordination_status")}
-                    style={{ ...buttonStyle, padding: "7px 10px" }}
-                  >
-                    Admin Edit
-                  </button>
                 </>
               ),
           },
@@ -8910,13 +8875,6 @@ Cory`;
                     Open Recording
                   </a>
                 ) : null}
-                <button
-                  type="button"
-                  onClick={() => focusAdminEditField("zoom_url")}
-                  style={{ ...buttonStyle, padding: "7px 10px" }}
-                >
-                  Admin Edit
-                </button>
               </>
             ),
           },
@@ -17324,6 +17282,11 @@ Cory`;
                     tone: operationsSupportWindowTone,
                     summary: supportRequirementRows.length ? `${supportRequirementRows.length} active support signal${supportRequirementRows.length === 1 ? "" : "s"}` : "No active support flags",
                     styles: operationsSupportWindowStyles,
+                    actions: supportRequirementRows.length ? (
+                      <button type="button" onClick={scrollToAdminTools} style={{ ...buttonStyle, padding: "7px 10px" }}>
+                        Open Admin Controls
+                      </button>
+                    ) : null,
                   },
                   {
                     key: "materials-communications",
@@ -17391,6 +17354,9 @@ Cory`;
                     {planningWindowExpanded[windowCard.key as PlanningWindowKey] ? (
                       windowCard.rows.length ? (
                         <div style={{ display: "grid", gap: "10px" }}>
+                          {"actions" in windowCard && windowCard.actions ? (
+                            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>{windowCard.actions}</div>
+                          ) : null}
                           {windowCard.rows.map((row) => {
                             const rowStyles = getOperationalWindowStyles(row.tone || "info");
                             return (
