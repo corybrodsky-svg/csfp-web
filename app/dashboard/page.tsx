@@ -952,7 +952,7 @@ function GlobalEventFinder({
 
   return (
     <div
-      className="relative rounded-[13px] px-3 py-2.5"
+      className="relative rounded-[13px] px-3 py-2"
       style={{
         border: "1px solid var(--cfsp-border)",
         background: "var(--cfsp-dashboard-panel-bg)",
@@ -970,21 +970,21 @@ function GlobalEventFinder({
         }
       }}
     >
-      <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
-        <div className="flex shrink-0 items-center gap-2 lg:w-[150px]">
+      <div className="flex flex-col gap-1.5 lg:flex-row lg:items-center">
+        <div className="flex shrink-0 items-center gap-2 lg:w-[144px]">
           <span
             aria-hidden="true"
             className="h-2.5 w-2.5 shrink-0 rounded-full"
             style={{ background: "var(--cfsp-green)", boxShadow: "0 0 12px rgba(44, 211, 173, 0.5)" }}
           />
           <div className="min-w-0">
-            <div className="truncate text-[0.66rem] font-black uppercase tracking-[0.14em] text-[var(--cfsp-text)]">Operations Console</div>
-            <div className="text-[0.68rem] font-semibold text-[var(--cfsp-text-muted)]">Event command lookup</div>
+            <div className="truncate text-[0.64rem] font-black uppercase tracking-[0.13em] text-[var(--cfsp-text)]">Operations Console</div>
+            <div className="text-[0.64rem] font-semibold text-[var(--cfsp-text-muted)]">Event command lookup</div>
           </div>
         </div>
 
         <div
-          className="flex min-h-[38px] min-w-0 flex-1 items-center gap-2 rounded-[11px] px-3 py-1.5"
+          className="flex min-h-[36px] min-w-0 flex-1 items-center gap-2 rounded-[10px] px-2.5 py-1.5"
           style={{
             border: "1px solid var(--cfsp-input-border)",
             background: "var(--cfsp-input-bg)",
@@ -1004,10 +1004,10 @@ function GlobalEventFinder({
             aria-controls="global-event-finder-results"
             role="combobox"
             placeholder="Find events, staffing, readiness, or live operations..."
-            className="min-w-0 flex-1 bg-transparent text-sm font-bold outline-none text-[var(--cfsp-text)] placeholder:text-[var(--cfsp-text-muted)]"
+            className="min-w-0 flex-1 bg-transparent text-[0.92rem] font-bold outline-none text-[var(--cfsp-text)] placeholder:text-[var(--cfsp-text-muted)]"
           />
           <span
-            className="hidden rounded-[7px] px-2 py-1 text-[0.62rem] font-black sm:inline"
+            className="hidden rounded-[6px] px-1.5 py-0.5 text-[0.58rem] font-black sm:inline"
             style={{
               border: "1px solid var(--cfsp-input-border)",
               background: "var(--cfsp-theme-toggle-bg)",
@@ -1020,7 +1020,7 @@ function GlobalEventFinder({
             <button
               type="button"
               onClick={clearSearch}
-              className="rounded-[8px] px-2 py-1 text-[0.66rem] font-bold transition"
+              className="rounded-[7px] px-2 py-0.5 text-[0.62rem] font-bold transition"
               style={{ color: "var(--cfsp-text-muted)" }}
               aria-label="Clear Operations Console"
             >
@@ -1029,16 +1029,16 @@ function GlobalEventFinder({
           ) : null}
         </div>
 
-        <div className="flex shrink-0 flex-wrap items-center gap-1.5 text-[0.63rem] font-semibold">
-          <span className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1" style={{ border: "1px solid var(--cfsp-input-border)", background: "var(--cfsp-surface-muted)", color: "var(--cfsp-text)" }}>
+        <div className="flex shrink-0 flex-wrap items-center gap-1 text-[0.6rem] font-semibold">
+          <span className="inline-flex items-center gap-1 rounded-[8px] px-2 py-0.5" style={{ border: "1px solid var(--cfsp-input-border)", background: "var(--cfsp-surface-muted)", color: "var(--cfsp-text)" }}>
             <span className="inline-block h-1.5 w-1.5 rounded-full bg-[var(--cfsp-blue)]" />
             {quickStats.operations} events
           </span>
-          <span className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1" style={{ border: "1px solid rgba(251, 191, 36, 0.35)", background: "rgba(251, 191, 36, 0.1)", color: "var(--cfsp-warning)" }}>
+          <span className="inline-flex items-center gap-1 rounded-[8px] px-2 py-0.5" style={{ border: "1px solid rgba(251, 191, 36, 0.35)", background: "rgba(251, 191, 36, 0.1)", color: "var(--cfsp-warning)" }}>
             <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-400" />
             {quickStats.attention} attention
           </span>
-          <span className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1" style={{ border: "1px solid rgba(44, 211, 173, 0.28)", background: "rgba(44, 211, 173, 0.12)", color: "var(--cfsp-text)" }}>
+          <span className="inline-flex items-center gap-1 rounded-[8px] px-2 py-0.5" style={{ border: "1px solid rgba(44, 211, 173, 0.28)", background: "rgba(44, 211, 173, 0.12)", color: "var(--cfsp-text)" }}>
             <span className="inline-block h-1.5 w-1.5 rounded-full bg-[var(--cfsp-green)]" />
             {quickStats.today} live / today
           </span>
@@ -1047,7 +1047,7 @@ function GlobalEventFinder({
         <button
           type="button"
           onClick={toggleCollapsed}
-          className="shrink-0 rounded-[10px] px-2.5 py-1 text-[0.66rem] font-bold transition"
+          className="shrink-0 rounded-[8px] px-2 py-0.5 text-[0.62rem] font-bold transition"
           style={{
             border: "1px solid var(--cfsp-input-border)",
             background: "var(--cfsp-theme-toggle-bg)",
@@ -1059,7 +1059,7 @@ function GlobalEventFinder({
         </button>
       </div>
 
-      <div className="mt-2 flex flex-wrap gap-1.5" aria-label="Operational search toggles">
+      <div className="mt-1.5 flex flex-wrap items-center gap-1" aria-label="Operational search toggles">
         {chipOptions.map((chip) => {
           const selected = activeChip === chip.key;
           return (
@@ -1067,18 +1067,18 @@ function GlobalEventFinder({
               key={chip.key}
               type="button"
               onClick={() => toggleChip(chip.key)}
-              className="inline-flex h-8 items-center gap-1 rounded-lg border px-2.5 py-1 text-[0.66rem] font-semibold transition"
+              className="inline-flex h-7 items-center gap-1 rounded-[8px] border px-2 py-0.5 text-[0.61rem] font-semibold transition"
               style={{
-                borderColor: selected ? "var(--cfsp-blue)" : "var(--cfsp-input-border)",
-                background: selected ? "var(--cfsp-surface-muted)" : "var(--cfsp-dashboard-panel-bg)",
+                borderColor: selected ? "rgba(73, 168, 255, 0.5)" : "rgba(120, 130, 150, 0.18)",
+                background: selected ? "rgba(73, 168, 255, 0.1)" : "rgba(255, 255, 255, 0.02)",
                 color: selected ? "var(--cfsp-blue)" : "var(--cfsp-text-muted)",
-                boxShadow: selected ? "0 0 0 2px rgba(73, 168, 255, 0.18)" : "none",
+                boxShadow: selected ? "inset 0 0 0 1px rgba(73, 168, 255, 0.12)" : "none",
               }}
               aria-pressed={selected}
             >
               {selected ? <span className="h-1.5 w-1.5 rounded-full bg-[var(--cfsp-green)]" /> : <span className="h-1.5 w-1.5 rounded-full bg-[var(--cfsp-text-muted)]" />}
               {chip.label}
-              <span className="rounded-full border border-transparent px-1.5 py-0.5 text-[0.62rem]" style={{ background: selected ? "rgba(73, 168, 255, 0.18)" : "rgba(120, 130, 150, 0.12)" }}>
+              <span className="rounded-full border border-transparent px-1.5 py-0 text-[0.58rem] font-bold" style={{ background: selected ? "rgba(73, 168, 255, 0.18)" : "rgba(120, 130, 150, 0.12)" }}>
                 {chip.count}
               </span>
             </button>
