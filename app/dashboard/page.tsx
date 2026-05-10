@@ -616,17 +616,37 @@ function WorkflowSection({
 }) {
   const visibleItems = items.slice(0, visibleCount);
   const remainingCount = Math.max(items.length - visibleItems.length, 0);
+  const needsAttentionSection = sectionKey === "needsAttention";
+  const sectionPanelStyle = needsAttentionSection
+    ? {
+        background:
+          "linear-gradient(180deg, rgba(62, 36, 7, 0.96) 0%, rgba(34, 23, 12, 0.97) 18%, rgba(20, 20, 23, 0.98) 100%)",
+        border: "1px solid rgba(245, 158, 11, 0.22)",
+        boxShadow: "0 18px 42px rgba(120, 74, 15, 0.2), inset 0 1px 0 rgba(255, 231, 179, 0.08)",
+      }
+    : undefined;
+  const sectionHeaderStyle = needsAttentionSection
+    ? {
+        borderBottom: "1px solid rgba(245, 158, 11, 0.16)",
+        background:
+          "linear-gradient(90deg, rgba(245, 158, 11, 0.13) 0%, rgba(234, 179, 8, 0.07) 42%, rgba(255, 255, 255, 0) 100%)",
+      }
+    : { borderBottom: "1px solid var(--cfsp-border)" };
+  const sectionTitleStyle = needsAttentionSection ? { color: "#fff2cf", textShadow: "0 0 18px rgba(245, 158, 11, 0.14)" } : undefined;
+  const sectionDescriptionStyle = needsAttentionSection ? { color: "rgba(255, 241, 204, 0.78)" } : undefined;
+  const sectionMetaStyle = needsAttentionSection ? { color: "rgba(255, 232, 191, 0.72)" } : { color: "var(--cfsp-text-muted)" };
+  const sectionLinkStyle = needsAttentionSection ? { color: "#fbbf24" } : { color: "var(--cfsp-blue)" };
 
   return (
-    <section className="cfsp-panel overflow-hidden">
-      <div className="px-5 py-4" style={{ borderBottom: "1px solid var(--cfsp-border)" }}>
-        <h2 className="cfsp-section-title text-[1.25rem]">{title}</h2>
-        <p className="cfsp-section-copy">{description}</p>
+    <section className="cfsp-panel overflow-hidden" style={sectionPanelStyle}>
+      <div className="px-5 py-4" style={sectionHeaderStyle}>
+        <h2 className="cfsp-section-title text-[1.25rem]" style={sectionTitleStyle}>{title}</h2>
+        <p className="cfsp-section-copy" style={sectionDescriptionStyle}>{description}</p>
         <div className="mt-3 flex flex-wrap items-center gap-3 text-sm font-bold">
-          <span style={{ color: "var(--cfsp-text-muted)" }}>
+          <span style={sectionMetaStyle}>
             Showing {Math.min(visibleItems.length, items.length)} of {items.length}
           </span>
-          <Link href={browseHref} className="no-underline hover:underline" style={{ color: "var(--cfsp-blue)" }}>
+          <Link href={browseHref} className="no-underline hover:underline" style={sectionLinkStyle}>
             View all matching events
           </Link>
         </div>
@@ -676,7 +696,9 @@ function WorkflowSection({
                     boxShadow:
                       highlightedEventId === item.event.id
                         ? "0 0 0 2px rgba(96, 165, 250, 0.18), 0 16px 36px rgba(59, 130, 246, 0.14)"
-                        : visualTone.cardShadow,
+                        : needsAttentionSection
+                          ? "0 14px 30px rgba(120, 74, 15, 0.16)"
+                          : visualTone.cardShadow,
                     transition: "box-shadow 180ms ease, border-color 180ms ease, background 180ms ease",
                   }}
                 >

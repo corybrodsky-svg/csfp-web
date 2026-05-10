@@ -12997,7 +12997,9 @@ Cory`;
                 <div>
                   <div style={{ ...statLabel, color: staffingWorkspacePalette.textStrong }}>Quick Add SP</div>
                   <div style={{ marginTop: "4px", color: staffingWorkspacePalette.textMuted, fontWeight: 700, fontSize: "13px" }}>
-                    Fast primary or backup staffing without opening the full finder.
+                    {isPlanningVisualMode
+                      ? "Fast primary or backup staffing without opening the full finder."
+                      : "Add relief coverage or backup support without reopening planning workflows."}
                   </div>
                 </div>
                 <span style={{ ...staffingSelectedChipStyle, background: planningSuccessBackground, color: planningSuccessText, border: planningSuccessBorder }}>
@@ -13263,322 +13265,326 @@ Cory`;
                   </div>
                 </div>
 
-                <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
-                  <div style={{ display: "grid", gap: "4px" }}>
-                    <div style={staffingMutedTextStyle}>
-                      {selectedStaffingCount} selected · {confirmedCount} primary confirmed · {backupCount} backup · {hiringEmailBccEmails.length} hiring draft email{hiringEmailBccEmails.length === 1 ? "" : "s"} ready · {confirmationBccEmails.length} confirmation email{confirmationBccEmails.length === 1 ? "" : "s"} ready
-                      {selectedHiringEmailBccEmails.length ? ` · ${selectedHiringEmailBccEmails.length} matched candidate${selectedHiringEmailBccEmails.length === 1 ? "" : "s"} selected for hiring email` : ""}
-                    </div>
-                    {confirmationMissingEmailAssignments.length ? (
-                      <div style={{ color: staffingWorkspacePalette.dangerText, fontWeight: 800, fontSize: "12px" }}>
-                        Missing confirmation email: {confirmationMissingEmailAssignments.join(", ")}
-                      </div>
-                    ) : null}
-                  </div>
-                  <div style={{ display: "grid", gap: "8px", justifyItems: "start" }}>
-                    <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                    <input
-                      ref={pollImportInputRef}
-                      type="file"
-                      accept=".csv,.xlsx,.xls"
-                      onChange={(event) => void handlePollImportFile(event.target.files?.[0] || null)}
-                      style={{ display: "none" }}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => void handleConfirmAllAssignments()}
-                      disabled={saving || sortedAssignments.length === 0}
-                      style={{ ...buttonStyle, padding: "8px 11px", boxShadow: "0 8px 16px rgba(14, 165, 233, 0.16)", opacity: saving || sortedAssignments.length === 0 ? 0.65 : 1 }}
-                    >
-                      Confirm All Selected SPs
-                    </button>
-                    {!hiringEmailSent ? (
-                      <button
-                        type="button"
-                        onClick={() => void handleOpenAvailabilityRequest()}
-                        disabled={hiringEmailBccEmails.length === 0}
-                        style={{ ...buttonStyle, padding: "8px 11px", boxShadow: "0 8px 16px rgba(14, 165, 233, 0.16)", opacity: hiringEmailBccEmails.length === 0 ? 0.65 : 1 }}
-                      >
-                        Draft Hiring Email
-                      </button>
-                    ) : (
-                      <span
-                        style={{
-                          ...commandChipStyle,
-                          background: planningSuccessCardBackground,
-                          border: planningSuccessBorder,
-                          color: planningSuccessText,
-                          padding: "8px 11px",
-                        }}
-                      >
-                        Hiring Email Sent
-                      </span>
-                    )}
-                    {!confirmationEmailSent ? (
-                      <button
-                        type="button"
-                        onClick={() => void handleOpenConfirmationEmailDraft()}
-                        disabled={confirmationBccEmails.length === 0}
-                        style={{ ...buttonStyle, padding: "8px 11px", boxShadow: "0 8px 16px rgba(14, 165, 233, 0.16)", opacity: confirmationBccEmails.length === 0 ? 0.65 : 1 }}
-                      >
-                        Confirm Staffing Email
-                      </button>
-                    ) : (
-                      <span
-                        style={{
-                          ...commandChipStyle,
-                          background: planningSuccessCardBackground,
-                          border: planningSuccessBorder,
-                          color: planningSuccessText,
-                          padding: "8px 11px",
-                        }}
-                      >
-                        Confirmation Sent
-                      </span>
-                    )}
-                    {!hiringEmailSent ? (
-                      <button
-                        type="button"
-                        onClick={() => void handleMarkStaffingEmailSent("hiring")}
-                        style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px" }}
-                      >
-                        Mark Hiring Email Sent
-                      </button>
-                    ) : null}
-                    {!confirmationEmailSent ? (
-                      <button
-                        type="button"
-                        onClick={() => void handleMarkStaffingEmailSent("confirmation")}
-                        style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px" }}
-                      >
-                        Mark Confirmation Sent
-                      </button>
-                    ) : null}
-                    <label
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: "6px",
-                        borderRadius: "999px",
-                        padding: "8px 10px",
-                        border: `1px solid ${staffingWorkspacePalette.buttonBorder}`,
-                        background: staffingWorkspacePalette.buttonBg,
-                        color: staffingWorkspacePalette.textMuted,
-                        fontSize: "12px",
-                        fontWeight: 900,
-                        cursor: "pointer",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={includeBackupConfirmationEmails}
-                        onChange={(event) => setIncludeBackupConfirmationEmails(event.target.checked)}
-                        style={{ width: "14px", height: "14px", accentColor: "#0f766e" }}
-                      />
-                      Include backups
-                    </label>
-                    <span style={{ ...staffingMutedTextStyle, alignSelf: "center" }}>
-                      Backup emails are optional support.
-                    </span>
-                    {!hiringEmailSent ? (
-                      <button
-                        type="button"
-                        onClick={() => setShowEmailDraft((current) => !current)}
-                        style={{
-                          ...staffingSecondaryButtonStyle,
-                          padding: "8px 11px",
-                        }}
-                      >
-                        {showEmailDraft ? "Hide Email Preview" : "Show Email Preview"}
-                      </button>
-                    ) : null}
-                    {!confirmationEmailSent ? (
-                      <button
-                        type="button"
-                        onClick={() => setShowConfirmationEmailPreview((current) => !current)}
-                        style={{
-                          ...staffingSecondaryButtonStyle,
-                          padding: "8px 11px",
-                        }}
-                      >
-                        {showConfirmationEmailPreview ? "Hide Confirmation Preview" : "Show Confirmation Preview"}
-                      </button>
-                    ) : null}
-                    <button
-                      type="button"
-                      onClick={() => setShowCandidatePool((current) => !current)}
-                      style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px", opacity: saving ? 0.65 : 1 }}
-                    >
-                      {showCandidatePool ? "Hide Candidate SPs" : "Browse Candidate SPs"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => pollImportInputRef.current?.click()}
-                      disabled={pollImportSaving}
-                      style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px", opacity: pollImportSaving ? 0.65 : 1 }}
-                    >
-                      {pollImportSaving ? "Uploading..." : "Upload Poll Results"}
-                    </button>
-<button
-  type="button"
-  onClick={() => {
-    setPollImportDebugInfo(null);
-    void persistPollMetadata(
-      {
-        importedPollResponses: "",
-        pollImportCreatedAt: "",
-        pollImportSource: "",
-      },
-      "Cleared imported poll results."
-    );
-  }}
-  style={{
-    ...dangerButtonStyle,
-    padding: "8px 11px",
-  }}
->
-  Clear Poll Results
-</button>
-                    </div>
-                    {viewerRole !== "sp" ? (
-                      <div style={{ display: "grid", gap: "4px", fontSize: "12px", fontWeight: 800, color: staffingWorkspacePalette.textMuted }}>
-                        <div>hiring_email_sent_at: {hiringEmailSentAt || "missing"}</div>
-                        <div>confirmation_email_sent_at: {confirmationEmailSentAt || "missing"}</div>
-                        {eventSaveError.includes("Could not save email sent status") ? (
-                          <div style={{ color: staffingWorkspacePalette.dangerText }}>Could not save email sent status</div>
+                {isPlanningVisualMode ? (
+                  <>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+                      <div style={{ display: "grid", gap: "4px" }}>
+                        <div style={staffingMutedTextStyle}>
+                          {selectedStaffingCount} selected · {confirmedCount} primary confirmed · {backupCount} backup · {hiringEmailBccEmails.length} hiring draft email{hiringEmailBccEmails.length === 1 ? "" : "s"} ready · {confirmationBccEmails.length} confirmation email{confirmationBccEmails.length === 1 ? "" : "s"} ready
+                          {selectedHiringEmailBccEmails.length ? ` · ${selectedHiringEmailBccEmails.length} matched candidate${selectedHiringEmailBccEmails.length === 1 ? "" : "s"} selected for hiring email` : ""}
+                        </div>
+                        {confirmationMissingEmailAssignments.length ? (
+                          <div style={{ color: staffingWorkspacePalette.dangerText, fontWeight: 800, fontSize: "12px" }}>
+                            Missing confirmation email: {confirmationMissingEmailAssignments.join(", ")}
+                          </div>
                         ) : null}
                       </div>
-                    ) : null}
-                  </div>
-                </div>
-
-                <div
-                  style={{
-                    border: `1px solid ${staffingWorkspacePalette.borderStrong}`,
-                    borderRadius: "14px",
-                    padding: "10px 12px",
-                    background: "linear-gradient(180deg, rgba(238, 248, 252, 0.94) 0%, rgba(255, 255, 255, 0.98) 100%)",
-                    display: "grid",
-                    gap: "10px",
-                  }}
-                >
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
-                    <div>
-                      <div style={{ ...statLabel, color: staffingWorkspacePalette.textStrong }}>SP Match Filters</div>
-                      <div style={{ marginTop: "4px", color: staffingWorkspacePalette.textMuted, fontWeight: 700, fontSize: "12px", lineHeight: 1.45 }}>
-                        Find best-fit uncontacted SP candidates before drafting hiring outreach.
+                      <div style={{ display: "grid", gap: "8px", justifyItems: "start" }}>
+                        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                          <input
+                            ref={pollImportInputRef}
+                            type="file"
+                            accept=".csv,.xlsx,.xls"
+                            onChange={(event) => void handlePollImportFile(event.target.files?.[0] || null)}
+                            style={{ display: "none" }}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => void handleConfirmAllAssignments()}
+                            disabled={saving || sortedAssignments.length === 0}
+                            style={{ ...buttonStyle, padding: "8px 11px", boxShadow: "0 8px 16px rgba(14, 165, 233, 0.16)", opacity: saving || sortedAssignments.length === 0 ? 0.65 : 1 }}
+                          >
+                            Confirm All Selected SPs
+                          </button>
+                          {!hiringEmailSent ? (
+                            <button
+                              type="button"
+                              onClick={() => void handleOpenAvailabilityRequest()}
+                              disabled={hiringEmailBccEmails.length === 0}
+                              style={{ ...buttonStyle, padding: "8px 11px", boxShadow: "0 8px 16px rgba(14, 165, 233, 0.16)", opacity: hiringEmailBccEmails.length === 0 ? 0.65 : 1 }}
+                            >
+                              Draft Hiring Email
+                            </button>
+                          ) : (
+                            <span
+                              style={{
+                                ...commandChipStyle,
+                                background: planningSuccessCardBackground,
+                                border: planningSuccessBorder,
+                                color: planningSuccessText,
+                                padding: "8px 11px",
+                              }}
+                            >
+                              Hiring Email Sent
+                            </span>
+                          )}
+                          {!confirmationEmailSent ? (
+                            <button
+                              type="button"
+                              onClick={() => void handleOpenConfirmationEmailDraft()}
+                              disabled={confirmationBccEmails.length === 0}
+                              style={{ ...buttonStyle, padding: "8px 11px", boxShadow: "0 8px 16px rgba(14, 165, 233, 0.16)", opacity: confirmationBccEmails.length === 0 ? 0.65 : 1 }}
+                            >
+                              Confirm Staffing Email
+                            </button>
+                          ) : (
+                            <span
+                              style={{
+                                ...commandChipStyle,
+                                background: planningSuccessCardBackground,
+                                border: planningSuccessBorder,
+                                color: planningSuccessText,
+                                padding: "8px 11px",
+                              }}
+                            >
+                              Confirmation Sent
+                            </span>
+                          )}
+                          {!hiringEmailSent ? (
+                            <button
+                              type="button"
+                              onClick={() => void handleMarkStaffingEmailSent("hiring")}
+                              style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px" }}
+                            >
+                              Mark Hiring Email Sent
+                            </button>
+                          ) : null}
+                          {!confirmationEmailSent ? (
+                            <button
+                              type="button"
+                              onClick={() => void handleMarkStaffingEmailSent("confirmation")}
+                              style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px" }}
+                            >
+                              Mark Confirmation Sent
+                            </button>
+                          ) : null}
+                          <label
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: "6px",
+                              borderRadius: "999px",
+                              padding: "8px 10px",
+                              border: `1px solid ${staffingWorkspacePalette.buttonBorder}`,
+                              background: staffingWorkspacePalette.buttonBg,
+                              color: staffingWorkspacePalette.textMuted,
+                              fontSize: "12px",
+                              fontWeight: 900,
+                              cursor: "pointer",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={includeBackupConfirmationEmails}
+                              onChange={(event) => setIncludeBackupConfirmationEmails(event.target.checked)}
+                              style={{ width: "14px", height: "14px", accentColor: "#0f766e" }}
+                            />
+                            Include backups
+                          </label>
+                          <span style={{ ...staffingMutedTextStyle, alignSelf: "center" }}>
+                            Backup emails are optional support.
+                          </span>
+                          {!hiringEmailSent ? (
+                            <button
+                              type="button"
+                              onClick={() => setShowEmailDraft((current) => !current)}
+                              style={{
+                                ...staffingSecondaryButtonStyle,
+                                padding: "8px 11px",
+                              }}
+                            >
+                              {showEmailDraft ? "Hide Email Preview" : "Show Email Preview"}
+                            </button>
+                          ) : null}
+                          {!confirmationEmailSent ? (
+                            <button
+                              type="button"
+                              onClick={() => setShowConfirmationEmailPreview((current) => !current)}
+                              style={{
+                                ...staffingSecondaryButtonStyle,
+                                padding: "8px 11px",
+                              }}
+                            >
+                              {showConfirmationEmailPreview ? "Hide Confirmation Preview" : "Show Confirmation Preview"}
+                            </button>
+                          ) : null}
+                          <button
+                            type="button"
+                            onClick={() => setShowCandidatePool((current) => !current)}
+                            style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px", opacity: saving ? 0.65 : 1 }}
+                          >
+                            {showCandidatePool ? "Hide Candidate SPs" : "Browse Candidate SPs"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => pollImportInputRef.current?.click()}
+                            disabled={pollImportSaving}
+                            style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px", opacity: pollImportSaving ? 0.65 : 1 }}
+                          >
+                            {pollImportSaving ? "Uploading..." : "Upload Poll Results"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPollImportDebugInfo(null);
+                              void persistPollMetadata(
+                                {
+                                  importedPollResponses: "",
+                                  pollImportCreatedAt: "",
+                                  pollImportSource: "",
+                                },
+                                "Cleared imported poll results."
+                              );
+                            }}
+                            style={{
+                              ...dangerButtonStyle,
+                              padding: "8px 11px",
+                            }}
+                          >
+                            Clear Poll Results
+                          </button>
+                        </div>
+                        {viewerRole !== "sp" ? (
+                          <div style={{ display: "grid", gap: "4px", fontSize: "12px", fontWeight: 800, color: staffingWorkspacePalette.textMuted }}>
+                            <div>hiring_email_sent_at: {hiringEmailSentAt || "missing"}</div>
+                            <div>confirmation_email_sent_at: {confirmationEmailSentAt || "missing"}</div>
+                            {eventSaveError.includes("Could not save email sent status") ? (
+                              <div style={{ color: staffingWorkspacePalette.dangerText }}>Could not save email sent status</div>
+                            ) : null}
+                          </div>
+                        ) : null}
                       </div>
                     </div>
-                    <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                      {[
-                        { label: "Total SPs loaded", value: sps.length },
-                        { label: "Matching candidates", value: availableSps.length },
-                        { label: "Selected for hiring email", value: selectedHiringEmailBccEmails.length },
-                      ].map((item) => (
-                        <span key={item.label} style={staffingSelectedChipStyle}>
-                          {item.value} {item.label}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
 
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
-                      gap: "8px",
-                    }}
-                  >
-                    <input
-                      value={candidateQuery}
-                      onChange={(event) => setCandidateQuery(event.target.value)}
-                      placeholder="Name, email, phone..."
-                      style={{ ...inputStyle, width: "100%", boxSizing: "border-box", background: "rgba(255, 255, 255, 0.96)", color: staffingWorkspacePalette.textStrong, border: `1px solid ${staffingWorkspacePalette.border}` }}
-                    />
-                    <input
-                      value={candidateAgeKeyword}
-                      onChange={(event) => setCandidateAgeKeyword(event.target.value)}
-                      placeholder="Portrayal age keyword"
-                      style={{ ...inputStyle, width: "100%", boxSizing: "border-box", background: "rgba(255, 255, 255, 0.96)", color: staffingWorkspacePalette.textStrong, border: `1px solid ${staffingWorkspacePalette.border}` }}
-                    />
-                    <select
-                      value={candidateSexFilter}
-                      onChange={(event) => setCandidateSexFilter(event.target.value)}
-                      style={{ ...selectStyle, width: "100%", maxWidth: "none", background: "rgba(255, 255, 255, 0.96)", color: staffingWorkspacePalette.textStrong, border: `1px solid ${staffingWorkspacePalette.border}` }}
-                    >
-                      <option value="any">Any gender / sex</option>
-                      {uniqueCandidateSexOptions.map((option) => (
-                        <option key={`candidate-sex-${option}`} value={option.toLowerCase()}>
-                          {option}
-                        </option>
-                      ))}
-                    </select>
-                    <input
-                      value={candidateNotesKeyword}
-                      onChange={(event) => setCandidateNotesKeyword(event.target.value)}
-                      placeholder="Skills / notes keyword"
-                      style={{ ...inputStyle, width: "100%", boxSizing: "border-box", background: "rgba(255, 255, 255, 0.96)", color: staffingWorkspacePalette.textStrong, border: `1px solid ${staffingWorkspacePalette.border}` }}
-                    />
-                    <input
-                      value={candidateRolesKeyword}
-                      onChange={(event) => setCandidateRolesKeyword(event.target.value)}
-                      placeholder="Other roles keyword"
-                      style={{ ...inputStyle, width: "100%", boxSizing: "border-box", background: "rgba(255, 255, 255, 0.96)", color: staffingWorkspacePalette.textStrong, border: `1px solid ${staffingWorkspacePalette.border}` }}
-                    />
-                  </div>
-
-                  <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
-                    {[
-                      { label: "Active only", active: activeOnly, setActive: setActiveOnly },
-                      { label: "Telehealth capable", active: telehealthOnly, setActive: setTelehealthOnly },
-                      { label: "PT preferred", active: ptPreferredOnly, setActive: setPtPreferredOnly },
-                      { label: "Spanish speaking", active: spanishOnly, setActive: setSpanishOnly },
-                    ].map((filter) => (
-                      <button
-                        key={`sp-match-${filter.label}`}
-                        type="button"
-                        onClick={() => filter.setActive((current) => !current)}
-                        style={{
-                          ...staffingSecondaryButtonStyle,
-                          background: filter.active ? "rgba(186, 230, 253, 0.28)" : staffingWorkspacePalette.buttonBg,
-                          color: filter.active ? staffingWorkspacePalette.textStrong : staffingWorkspacePalette.textMuted,
-                          padding: "7px 10px",
-                          fontSize: "12px",
-                        }}
-                      >
-                        {filter.label}
-                      </button>
-                    ))}
-                    <button
-                      type="button"
-                      onClick={handleClearSpMatchFilters}
-                      style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px", fontSize: "12px" }}
-                    >
-                      Clear filters
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleSelectMatchingCandidatesForHiringEmail}
-                      disabled={availableSps.filter((sp) => Boolean(getEmail(sp))).length === 0}
+                    <div
                       style={{
-                        ...buttonStyle,
-                        padding: "7px 10px",
-                        fontSize: "12px",
-                        boxShadow: "0 8px 16px rgba(14, 165, 233, 0.14)",
-                        opacity: availableSps.filter((sp) => Boolean(getEmail(sp))).length === 0 ? 0.65 : 1,
+                        border: `1px solid ${staffingWorkspacePalette.borderStrong}`,
+                        borderRadius: "14px",
+                        padding: "10px 12px",
+                        background: "linear-gradient(180deg, rgba(238, 248, 252, 0.94) 0%, rgba(255, 255, 255, 0.98) 100%)",
+                        display: "grid",
+                        gap: "10px",
                       }}
                     >
-                      Select all matching candidates for Hiring Email
-                    </button>
-                  </div>
-                </div>
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
+                        <div>
+                          <div style={{ ...statLabel, color: staffingWorkspacePalette.textStrong }}>SP Match Filters</div>
+                          <div style={{ marginTop: "4px", color: staffingWorkspacePalette.textMuted, fontWeight: 700, fontSize: "12px", lineHeight: 1.45 }}>
+                            Find best-fit uncontacted SP candidates before drafting hiring outreach.
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                          {[
+                            { label: "Total SPs loaded", value: sps.length },
+                            { label: "Matching candidates", value: availableSps.length },
+                            { label: "Selected for hiring email", value: selectedHiringEmailBccEmails.length },
+                          ].map((item) => (
+                            <span key={item.label} style={staffingSelectedChipStyle}>
+                              {item.value} {item.label}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
 
-                {pollImportError ? (
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+                          gap: "8px",
+                        }}
+                      >
+                        <input
+                          value={candidateQuery}
+                          onChange={(event) => setCandidateQuery(event.target.value)}
+                          placeholder="Name, email, phone..."
+                          style={{ ...inputStyle, width: "100%", boxSizing: "border-box", background: "rgba(255, 255, 255, 0.96)", color: staffingWorkspacePalette.textStrong, border: `1px solid ${staffingWorkspacePalette.border}` }}
+                        />
+                        <input
+                          value={candidateAgeKeyword}
+                          onChange={(event) => setCandidateAgeKeyword(event.target.value)}
+                          placeholder="Portrayal age keyword"
+                          style={{ ...inputStyle, width: "100%", boxSizing: "border-box", background: "rgba(255, 255, 255, 0.96)", color: staffingWorkspacePalette.textStrong, border: `1px solid ${staffingWorkspacePalette.border}` }}
+                        />
+                        <select
+                          value={candidateSexFilter}
+                          onChange={(event) => setCandidateSexFilter(event.target.value)}
+                          style={{ ...selectStyle, width: "100%", maxWidth: "none", background: "rgba(255, 255, 255, 0.96)", color: staffingWorkspacePalette.textStrong, border: `1px solid ${staffingWorkspacePalette.border}` }}
+                        >
+                          <option value="any">Any gender / sex</option>
+                          {uniqueCandidateSexOptions.map((option) => (
+                            <option key={`candidate-sex-${option}`} value={option.toLowerCase()}>
+                              {option}
+                            </option>
+                          ))}
+                        </select>
+                        <input
+                          value={candidateNotesKeyword}
+                          onChange={(event) => setCandidateNotesKeyword(event.target.value)}
+                          placeholder="Skills / notes keyword"
+                          style={{ ...inputStyle, width: "100%", boxSizing: "border-box", background: "rgba(255, 255, 255, 0.96)", color: staffingWorkspacePalette.textStrong, border: `1px solid ${staffingWorkspacePalette.border}` }}
+                        />
+                        <input
+                          value={candidateRolesKeyword}
+                          onChange={(event) => setCandidateRolesKeyword(event.target.value)}
+                          placeholder="Other roles keyword"
+                          style={{ ...inputStyle, width: "100%", boxSizing: "border-box", background: "rgba(255, 255, 255, 0.96)", color: staffingWorkspacePalette.textStrong, border: `1px solid ${staffingWorkspacePalette.border}` }}
+                        />
+                      </div>
+
+                      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                        {[
+                          { label: "Active only", active: activeOnly, setActive: setActiveOnly },
+                          { label: "Telehealth capable", active: telehealthOnly, setActive: setTelehealthOnly },
+                          { label: "PT preferred", active: ptPreferredOnly, setActive: setPtPreferredOnly },
+                          { label: "Spanish speaking", active: spanishOnly, setActive: setSpanishOnly },
+                        ].map((filter) => (
+                          <button
+                            key={`sp-match-${filter.label}`}
+                            type="button"
+                            onClick={() => filter.setActive((current) => !current)}
+                            style={{
+                              ...staffingSecondaryButtonStyle,
+                              background: filter.active ? "rgba(186, 230, 253, 0.28)" : staffingWorkspacePalette.buttonBg,
+                              color: filter.active ? staffingWorkspacePalette.textStrong : staffingWorkspacePalette.textMuted,
+                              padding: "7px 10px",
+                              fontSize: "12px",
+                            }}
+                          >
+                            {filter.label}
+                          </button>
+                        ))}
+                        <button
+                          type="button"
+                          onClick={handleClearSpMatchFilters}
+                          style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px", fontSize: "12px" }}
+                        >
+                          Clear filters
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleSelectMatchingCandidatesForHiringEmail}
+                          disabled={availableSps.filter((sp) => Boolean(getEmail(sp))).length === 0}
+                          style={{
+                            ...buttonStyle,
+                            padding: "7px 10px",
+                            fontSize: "12px",
+                            boxShadow: "0 8px 16px rgba(14, 165, 233, 0.14)",
+                            opacity: availableSps.filter((sp) => Boolean(getEmail(sp))).length === 0 ? 0.65 : 1,
+                          }}
+                        >
+                          Select all matching candidates for Hiring Email
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                ) : null}
+
+                {isPlanningVisualMode && pollImportError ? (
                   <div className="cfsp-alert cfsp-alert-error">{pollImportError}</div>
                 ) : null}
 
-                {importedPollResponses.length ? (
+                {isPlanningVisualMode && importedPollResponses.length ? (
                   <div
                     style={{
                       ...staffingMetricCardStyle,
@@ -13809,7 +13815,7 @@ Cory`;
                   </div>
                 ) : null}
 
-                {showEmailDraft && !hiringEmailSent ? (
+                {isPlanningVisualMode && showEmailDraft && !hiringEmailSent ? (
                   <div style={{ ...staffingMetricCardStyle, padding: "12px 14px" }}>
                     <div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Email Draft Preview</div>
                     <div style={{ marginTop: "8px", color: staffingWorkspacePalette.textStrong, lineHeight: 1.7 }}>
@@ -13821,7 +13827,7 @@ Cory`;
                   </div>
                 ) : null}
 
-                {showConfirmationEmailPreview && !confirmationEmailSent ? (
+                {isPlanningVisualMode && showConfirmationEmailPreview && !confirmationEmailSent ? (
                   <div style={{ ...staffingMetricCardStyle, padding: "12px 14px" }}>
                     <div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Confirmation Email Preview</div>
                     <div style={{ marginTop: "8px", color: staffingWorkspacePalette.textStrong, lineHeight: 1.7 }}>
@@ -14083,97 +14089,100 @@ Cory`;
                   </details>
                 ) : null}
 
-                <div
-                  style={{
-                    border: `1px solid ${staffingWorkspacePalette.borderStrong}`,
-                    borderRadius: "14px",
-                    padding: "10px 12px",
-                    background: "linear-gradient(180deg, rgba(238, 248, 252, 0.96) 0%, rgba(246, 250, 255, 0.98) 100%)",
-                    display: "grid",
-                    gap: "10px",
-                  }}
-                >
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
-                    <div>
-                      <div style={{ ...statLabel, color: staffingWorkspacePalette.textStrong }}>Candidate SP Pool</div>
-                      <div style={{ marginTop: "4px", color: staffingWorkspacePalette.textMuted, fontWeight: 700, fontSize: "13px" }}>
-                        Browse uncontacted SP candidates when you need more primary coverage or optional backup support.
+                {isPlanningVisualMode ? (
+                  <div
+                    style={{
+                      border: `1px solid ${staffingWorkspacePalette.borderStrong}`,
+                      borderRadius: "14px",
+                      padding: "10px 12px",
+                      background: "linear-gradient(180deg, rgba(238, 248, 252, 0.96) 0%, rgba(246, 250, 255, 0.98) 100%)",
+                      display: "grid",
+                      gap: "10px",
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
+                      <div>
+                        <div style={{ ...statLabel, color: staffingWorkspacePalette.textStrong }}>Candidate SP Pool</div>
+                        <div style={{ marginTop: "4px", color: staffingWorkspacePalette.textMuted, fontWeight: 700, fontSize: "13px" }}>
+                          Browse uncontacted SP candidates when you need more primary coverage or optional backup support.
+                        </div>
                       </div>
                     </div>
-                  </div>
 
-                  {showCandidatePool ? (
-                    <div style={{ display: "grid", gap: "12px" }}>
-                      <input
-                        value={candidateQuery}
-                        onChange={(event) => setCandidateQuery(event.target.value)}
-                        placeholder="Search by name, email, phone, notes, roles, or preferences..."
-                        style={{ ...inputStyle, width: "100%", boxSizing: "border-box", background: "rgba(255, 255, 255, 0.96)", color: staffingWorkspacePalette.textStrong, border: `1px solid ${staffingWorkspacePalette.border}` }}
-                      />
-                      <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-                        {[
-                          { label: "Active only", active: activeOnly, setActive: setActiveOnly },
-                          { label: "Spanish-speaking", active: spanishOnly, setActive: setSpanishOnly },
-                          { label: "Telehealth", active: telehealthOnly, setActive: setTelehealthOnly },
-                          { label: "PT preferred", active: ptPreferredOnly, setActive: setPtPreferredOnly },
-                          { label: "Available for event", active: availableForEventOnly, setActive: setAvailableForEventOnly },
-                        ].map((filter) => (
-                          <button
-                            key={filter.label}
-                            type="button"
-                            onClick={() => filter.setActive((current) => !current)}
-                            style={{
-                              ...staffingSecondaryButtonStyle,
-                              background: filter.active ? "rgba(186, 230, 253, 0.28)" : staffingWorkspacePalette.buttonBg,
-                              color: filter.active ? staffingWorkspacePalette.textStrong : staffingWorkspacePalette.textMuted,
-                              padding: "8px 12px",
-                            }}
-                          >
-                            {filter.label}
-                          </button>
-                        ))}
-                      </div>
-                      <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
-                        <select
-                          value={selectedSpId}
-                          onChange={(e) => setSelectedSpId(e.target.value)}
-                          style={{ ...selectStyle, background: "rgba(255, 255, 255, 0.96)", color: staffingWorkspacePalette.textStrong, border: `1px solid ${staffingWorkspacePalette.border}` }}
-                          disabled={saving || availableSps.length === 0}
-                        >
-                          <option value="">
-                            {availableSps.length === 0 ? "No matching uncontacted SPs" : "Quick select an SP"}
-                          </option>
-                          {availableSps.map((sp) => (
-                            <option key={sp.id} value={sp.id}>
-                              {getFullName(sp)}
-                              {getEmail(sp) ? ` — ${getEmail(sp)}` : ""}
-                            </option>
+                    {showCandidatePool ? (
+                      <div style={{ display: "grid", gap: "12px" }}>
+                        <input
+                          value={candidateQuery}
+                          onChange={(event) => setCandidateQuery(event.target.value)}
+                          placeholder="Search by name, email, phone, notes, roles, or preferences..."
+                          style={{ ...inputStyle, width: "100%", boxSizing: "border-box", background: "rgba(255, 255, 255, 0.96)", color: staffingWorkspacePalette.textStrong, border: `1px solid ${staffingWorkspacePalette.border}` }}
+                        />
+                        <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                          {[
+                            { label: "Active only", active: activeOnly, setActive: setActiveOnly },
+                            { label: "Spanish-speaking", active: spanishOnly, setActive: setSpanishOnly },
+                            { label: "Telehealth", active: telehealthOnly, setActive: setTelehealthOnly },
+                            { label: "PT preferred", active: ptPreferredOnly, setActive: setPtPreferredOnly },
+                            { label: "Available for event", active: availableForEventOnly, setActive: setAvailableForEventOnly },
+                          ].map((filter) => (
+                            <button
+                              key={filter.label}
+                              type="button"
+                              onClick={() => filter.setActive((current) => !current)}
+                              style={{
+                                ...staffingSecondaryButtonStyle,
+                                background: filter.active ? "rgba(186, 230, 253, 0.28)" : staffingWorkspacePalette.buttonBg,
+                                color: filter.active ? staffingWorkspacePalette.textStrong : staffingWorkspacePalette.textMuted,
+                                padding: "8px 12px",
+                              }}
+                            >
+                              {filter.label}
+                            </button>
                           ))}
-                        </select>
-                        <button
-                          type="button"
-                          onClick={() => void handleAddAssignment()}
-                          disabled={saving || !selectedSpId}
-                          style={{ ...buttonStyle, boxShadow: "0 8px 16px rgba(14, 165, 233, 0.16)", opacity: saving || !selectedSpId ? 0.65 : 1 }}
-                        >
-                          {assigningSpId && assigningSpId === selectedSpId ? "Assigning..." : "Add Selected SP"}
-                        </button>
+                        </div>
+                        <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
+                          <select
+                            value={selectedSpId}
+                            onChange={(e) => setSelectedSpId(e.target.value)}
+                            style={{ ...selectStyle, background: "rgba(255, 255, 255, 0.96)", color: staffingWorkspacePalette.textStrong, border: `1px solid ${staffingWorkspacePalette.border}` }}
+                            disabled={saving || availableSps.length === 0}
+                          >
+                            <option value="">
+                              {availableSps.length === 0 ? "No matching uncontacted SPs" : "Quick select an SP"}
+                            </option>
+                            {availableSps.map((sp) => (
+                              <option key={sp.id} value={sp.id}>
+                                {getFullName(sp)}
+                                {getEmail(sp) ? ` — ${getEmail(sp)}` : ""}
+                              </option>
+                            ))}
+                          </select>
+                          <button
+                            type="button"
+                            onClick={() => void handleAddAssignment()}
+                            disabled={saving || !selectedSpId}
+                            style={{ ...buttonStyle, boxShadow: "0 8px 16px rgba(14, 165, 233, 0.16)", opacity: saving || !selectedSpId ? 0.65 : 1 }}
+                          >
+                            {assigningSpId && assigningSpId === selectedSpId ? "Assigning..." : "Add Selected SP"}
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  ) : null}
-                </div>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
             </details>
 
-            <details
-              open={spFinderMatchMakerOpen}
-              onToggle={(event) => setSpFinderMatchMakerOpen(event.currentTarget.open)}
-              style={staffingPanelStyle}
-            >
-              <summary style={staffingSummaryStyle}>
-                SP Finder & Match Maker
-              </summary>
-              <div style={{ display: "grid", gap: "12px", marginTop: "12px" }}>
+            {isPlanningVisualMode ? (
+              <details
+                open={spFinderMatchMakerOpen}
+                onToggle={(event) => setSpFinderMatchMakerOpen(event.currentTarget.open)}
+                style={staffingPanelStyle}
+              >
+                <summary style={staffingSummaryStyle}>
+                  SP Finder & Match Maker
+                </summary>
+                <div style={{ display: "grid", gap: "12px", marginTop: "12px" }}>
                 <div style={staffingMutedTextStyle}>
                   Match Maker helps narrow who to poll. It does not select SPs for staffing until you choose them.
                 </div>
@@ -14737,8 +14746,9 @@ Cory`;
                   </>
                   )
                 ) : null}
-              </div>
-            </details>
+                </div>
+              </details>
+            ) : null}
           </>
         )}
       </section>
