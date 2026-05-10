@@ -623,6 +623,12 @@ function getToneStyles(tone: TimelineBlock["tone"]) {
   return { background: "#f4f7fb", border: "#d6e0e8", color: "#4f677d" };
 }
 
+function formatOperationalList(items: string[]) {
+  if (items.length <= 1) return items[0] || "";
+  if (items.length === 2) return `${items[0]} and ${items[1]}`;
+  return `${items.slice(0, -1).join(", ")}, and ${items[items.length - 1]}`;
+}
+
 function formatRoomName(
   roomName: string,
   roomType: "exam" | "flex",
@@ -1754,6 +1760,19 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     () => getTimingDayBlocksByVisibility(normalizedDayBlocks, timingVisibility),
     [normalizedDayBlocks, timingVisibility]
   );
+  const scheduleExtensionBlockLabels = useMemo(() => {
+    const labels = normalizedDayBlocks
+      .filter((block) => shouldTimingBlockApply(block, timingVisibility))
+      .filter((block) => parseNumber(block.durationMinutes, 0) > 0)
+      .map((block) => {
+        const defaultLabel = getDefaultDayBlockLabel(block.type).toLowerCase();
+        const customLabel = asText(block.label).toLowerCase();
+        return customLabel || defaultLabel;
+      })
+      .filter(Boolean);
+
+    return Array.from(new Set(labels));
+  }, [normalizedDayBlocks, timingVisibility]);
 
   const generated = useMemo(() => {
     if (parsedStartMinutes === null) {
@@ -1829,6 +1848,19 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       timingVisibility,
       specificTimeDayBlocks,
     ]);
+  const scheduleOverrunAdvisory = useMemo(() => {
+    if (!(parsedSessionLength > 0 && generated.overrunMinutes > 0)) return "";
+
+    const blockSummary = scheduleExtensionBlockLabels.length
+      ? `${formatOperationalList(scheduleExtensionBlockLabels)} block${
+          scheduleExtensionBlockLabels.length === 1 ? "" : "s"
+        }`
+      : "configured timing blocks";
+
+    return `Operational schedule adjusted to fit configured timing blocks. Added ${blockSummary} increased the scheduled round length by ${generated.overrunMinutes} minute${
+      generated.overrunMinutes === 1 ? "" : "s"
+    }.`;
+  }, [generated.overrunMinutes, parsedSessionLength, scheduleExtensionBlockLabels]);
 
   const learnerRoster = useMemo(
     () => buildLearnerRoster(uploadedLearners, Math.max(slotsPerRound, 1), generated.rounds.length),
@@ -2477,9 +2509,9 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                   Each round includes {generated.bufferMinutes} minutes of open buffer so the generated timeline matches the {parsedSessionLength}-minute session target.
                 </div>
               ) : null}
-              {parsedSessionLength > 0 && generated.overrunMinutes > 0 ? (
+              {scheduleOverrunAdvisory ? (
                 <div className="cfsp-alert cfsp-alert-error mt-4">
-                  The configured round blocks exceed the target session length by {generated.overrunMinutes} minutes, so the preview expands each round to fit the real timing.
+                  {scheduleOverrunAdvisory}
                 </div>
               ) : null}
             </section>
