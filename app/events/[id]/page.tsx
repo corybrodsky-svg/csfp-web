@@ -3494,7 +3494,7 @@ export default function EventDetailPage() {
   const [ptPreferredOnly, setPtPreferredOnly] = useState(false);
   const [availableForEventOnly, setAvailableForEventOnly] = useState(false);
   const [selectedHiringEmailSpIds, setSelectedHiringEmailSpIds] = useState<string[]>([]);
-  const [staffingOverviewOpen, setStaffingOverviewOpen] = useState(true);
+  const [staffingOverviewOpen, setStaffingOverviewOpen] = useState(false);
   const [spFinderMatchMakerOpen, setSpFinderMatchMakerOpen] = useState(false);
   const [showMatchMakerResults, setShowMatchMakerResults] = useState(false);
   const [matchMakerMode, setMatchMakerMode] = useState<"finder" | "poll" | "responders">("finder");
@@ -13080,7 +13080,26 @@ Cory`;
               style={staffingPanelStyle}
             >
               <summary style={staffingSummaryStyle}>
-                Staffing Overview
+                <span
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    gap: "10px",
+                    flexWrap: "wrap",
+                    alignItems: "center",
+                  }}
+                >
+                  <span>Staffing Overview</span>
+                  <span
+                    style={{
+                      color: staffingWorkspacePalette.textMuted,
+                      fontSize: "12px",
+                      fontWeight: 800,
+                    }}
+                  >
+                    {coverageRiskTone === "green" ? "Coverage met" : staffingHealthLabel} • {confirmedCount}/{needed || confirmedCount} confirmed • {backupCount} backup
+                  </span>
+                </span>
               </summary>
               <div style={{ display: "grid", gap: "12px", marginTop: "12px" }}>
                 <div
