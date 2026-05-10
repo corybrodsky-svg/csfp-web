@@ -687,6 +687,22 @@ function getAssignedNames(event: EventRow) {
   return (event.assigned_sp_names || []).filter(Boolean);
 }
 
+function getCaseLabelFromBuilderEvent(event: EventRow | null, caseName?: string | null) {
+  const explicit = asText(caseName);
+  if (explicit) return explicit;
+
+  const noteMatch = asText(event?.notes).match(/(?:^|\n)(?:Case|Case Name|Station Case)\s*:\s*(.+?)(?:\n|$)/i);
+  const noteValue = asText(noteMatch?.[1]);
+  if (noteValue) return noteValue;
+
+  const parsedTraining = parseEventMetadata(event?.notes).training;
+  const caseFileLabel =
+    asText(parsedTraining.case_name) ||
+    asText(parsedTraining.case_file_url).split("/").pop()?.replace(/\.[^.]+$/, "") ||
+    "";
+  return caseFileLabel;
+}
+
 function getToneStyles(tone: TimelineBlock["tone"]) {
   if (tone === "setup") return { background: "#edf5fb", border: "#c7dcee", color: "#165a96" };
   if (tone === "prebrief") return { background: "#eefbf6", border: "#bfe4d6", color: "#196b57" };
@@ -2642,6 +2658,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     uploadedLearners.length > 0 ? Math.max(uploadedLearners.length - totalScheduleCapacity, 0) : 0;
 
   const assignedNames = selectedEvent ? getAssignedNames(selectedEvent) : [];
+  const selectedEventEncounterLabel = useMemo(
+    () => getCaseLabelFromBuilderEvent(selectedEvent, selectedEventMetadata.case_name),
+    [selectedEvent, selectedEventMetadata.case_name]
+  );
   const rotationEnd = generated.rotationEnd;
   const totalEventEnd = useMemo(() => {
     const lastTimeline = generated.timeline[generated.timeline.length - 1];
@@ -2696,7 +2716,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       scheduleGridRows: operationsScheduleGridRows,
       roomColumns,
       roomContext: roomNamingContext,
-      caseName: selectedEventMetadata.case_name,
+      caseName: selectedEventEncounterLabel,
       assignedSpNames: selectedEvent?.assigned_sp_names || [],
       learnerCount: learnerRoster.length,
       generated,
@@ -2711,7 +2731,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       scheduleGridRows: operationsScheduleGridRows,
       roomColumns,
       roomContext: roomNamingContext,
-      caseName: selectedEventMetadata.case_name,
+      caseName: selectedEventEncounterLabel,
       assignedSpNames: selectedEvent?.assigned_sp_names || [],
       learnerCount: learnerRoster.length,
       generated,
@@ -2726,7 +2746,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       scheduleGridRows: studentScheduleGridRows,
       roomColumns,
       roomContext: roomNamingContext,
-      caseName: selectedEventMetadata.case_name,
+      caseName: selectedEventEncounterLabel,
       assignedSpNames: selectedEvent?.assigned_sp_names || [],
       learnerCount: learnerRoster.length,
       generated,
@@ -2741,7 +2761,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       scheduleGridRows: operationsScheduleGridRows,
       roomColumns,
       roomContext: roomNamingContext,
-      caseName: selectedEventMetadata.case_name,
+      caseName: selectedEventEncounterLabel,
       assignedSpNames: selectedEvent?.assigned_sp_names || [],
       learnerCount: learnerRoster.length,
       generated,
@@ -2756,7 +2776,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       scheduleGridRows: operationsScheduleGridRows,
       roomColumns,
       roomContext: roomNamingContext,
-      caseName: selectedEventMetadata.case_name,
+      caseName: selectedEventEncounterLabel,
       assignedSpNames: selectedEvent?.assigned_sp_names || [],
       learnerCount: learnerRoster.length,
       generated,
@@ -2771,7 +2791,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       scheduleGridRows: operationsScheduleGridRows,
       roomColumns,
       roomContext: roomNamingContext,
-      caseName: selectedEventMetadata.case_name,
+      caseName: selectedEventEncounterLabel,
       assignedSpNames: selectedEvent?.assigned_sp_names || [],
       learnerCount: learnerRoster.length,
       generated,
@@ -2795,7 +2815,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     roomNamingContext,
     roomColumns,
     selectedEvent,
-    selectedEventMetadata.case_name,
+    selectedEventEncounterLabel,
     selectedEventSummaryTime,
     props.previewFamily,
     studentPreviewRounds,
@@ -3257,6 +3277,12 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
 
                 <div className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
                   <div className="cfsp-label">Assigned SPs</div>
+                  <div className="mt-2 text-[11px] font-extrabold uppercase tracking-[0.12em] text-[#6a7e91]">
+                    builder SP source: event_sps confirmed primary
+                  </div>
+                  <div className="mt-1 text-[12px] font-semibold text-[#547189]">
+                    confirmed SP count: {assignedNames.length}
+                  </div>
                   <div className="mt-3 flex flex-wrap gap-2">
                     {assignedNames.length ? (
                       assignedNames.map((name) => (
@@ -4122,7 +4148,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                                 {scheduleViewMode === "operations" ? (
                                   <div style={{ marginTop: "6px", fontSize: "12px", fontWeight: 700, color: "#4f677d", lineHeight: 1.5 }}>
                                     <div>SP: {selectedEvent?.assigned_sp_names?.[round.roomSlots.findIndex((item) => item.roomName === slot.roomName)] || "Unassigned SP"}</div>
-                                    {selectedEventMetadata.case_name ? <div>Case: {selectedEventMetadata.case_name}</div> : null}
+                                    <div>Case: {selectedEventEncounterLabel || "Case not assigned"}</div>
                                   </div>
                                 ) : null}
                                 <div style={{ marginTop: "8px", display: "grid", gap: "6px" }}>

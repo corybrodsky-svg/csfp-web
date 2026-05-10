@@ -144,6 +144,7 @@ type AssignmentApiRow = {
   sp_id: string | null;
   status: string | null;
   confirmed: boolean | null;
+  created_at?: string | null;
 };
 
 type AssignedSpApiRow = {
@@ -319,7 +320,8 @@ export async function GET() {
 
     const { data: assignments, error: assignmentError } = await supabaseServer
       .from("event_sps")
-      .select("id,event_id,sp_id,status,confirmed");
+      .select("id,event_id,sp_id,status,confirmed,created_at")
+      .order("created_at", { ascending: true });
 
     if (assignmentError) {
       return NextResponse.json(
@@ -381,7 +383,14 @@ export async function GET() {
     );
     const eventsWithCoverage = (data || []).map((event) => {
       const eventAssignments = assignmentRows.filter((assignment) => assignment.event_id === event.id);
-      const confirmedEventAssignments = eventAssignments.filter(isConfirmedAssignment);
+      const confirmedEventAssignments = eventAssignments
+        .filter(isConfirmedAssignment)
+        .sort((a, b) => {
+          const aTime = Date.parse(asText(a.created_at));
+          const bTime = Date.parse(asText(b.created_at));
+          if (Number.isFinite(aTime) && Number.isFinite(bTime) && aTime !== bTime) return aTime - bTime;
+          return asText(a.id).localeCompare(asText(b.id));
+        });
       const confirmedAssignments = confirmedEventAssignments.length;
       const needed = parseNumber(event.sp_needed);
       const eventSessions = sessionRows.filter((session) => session.event_id === event.id);

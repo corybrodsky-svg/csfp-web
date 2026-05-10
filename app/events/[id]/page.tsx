@@ -1547,6 +1547,10 @@ function getFilenameFromUrl(value: string) {
   }
 }
 
+function getDisplayFileStem(value: string | null | undefined) {
+  return getFilenameFromUrl(asText(value)).replace(/\.[^.]+$/, "");
+}
+
 function getFileExtension(value: string) {
   const fileName = getFilenameFromUrl(value).toLowerCase();
   const dotIndex = fileName.lastIndexOf(".");
@@ -5070,6 +5074,7 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
         assignment: AssignmentRow | null;
         sp: SPRow | null;
         learnerLabel: string;
+        encounterLabel: string;
         defaultStatus: LiveRoomStatusValue;
         status: LiveRoomStatusValue;
         delayMinutes: number;
@@ -5153,6 +5158,17 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
         (resolvedRoomNumber !== null ? liveReferenceRowsByRoomNumber.get(resolvedRoomNumber) : null) ||
         liveReferenceRowsByRoomName.get(asText(resolvedRoomName).toLowerCase()) ||
         null;
+      const encounterCaseLabel =
+        getFirstNoteValue(eventEditor.notes || event?.notes, ["Case", "Case Name", "Station Case"]) ||
+        asText(trainingMetadata.case_name) ||
+        getDisplayFileStem(trainingMetadata.case_file_url) ||
+        "";
+      const encounterStationLabel = getFirstNoteValue(eventEditor.notes || event?.notes, [
+        "Station",
+        "Station Label",
+        "Station Labels",
+      ]);
+      const encounterLabel = [encounterStationLabel, encounterCaseLabel].filter(Boolean).join(" · ") || "Case not assigned";
       const liveKey = `${currentLiveBlock.key}|${resolvedRoomName}`;
       const localState = liveRoomStates[liveKey] || {};
       const assignmentStatus = assignment ? getAssignmentStatus(assignment) : null;
@@ -5186,6 +5202,7 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
         assignment,
         sp,
         learnerLabel,
+        encounterLabel,
         defaultStatus,
         status: localState.status || defaultStatus,
         delayMinutes: localState.delayMinutes || 0,
@@ -5212,6 +5229,10 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     currentLiveRoomAssignmentPlan.assignments,
     spsById,
     roomNamingContext,
+    event?.notes,
+    eventEditor.notes,
+    trainingMetadata.case_file_url,
+    trainingMetadata.case_name,
     trainingMetadata.schedule_status,
   ]);
   const liveRoomDelayedCount = currentLiveRoomBoardRows.filter((row) => row.status === "delayed" || row.delayMinutes > 0).length;
@@ -5967,12 +5988,6 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     : normalEventTrainingDate
       ? `${normalEventTrainingStatusLabel} · ${trainingAttendanceReady && !normalEventTrainingComplete ? "Attendance Ready" : trainingModalityLabel}`
       : getTrainingRequirementLabel(trainingRequirementValue);
-  const eventSummaryTrainingChips = [
-    trainingNotRequired ? "Not required" : getTrainingRequirementLabel(trainingRequirementValue),
-    !trainingNotRequired ? trainingModalityLabel : "",
-    normalEventTrainingDateText ? formatEventDateText(normalEventTrainingDateText, importedYearHint) || normalEventTrainingDateText : "",
-    trainingZoomRequired ? normalEventTrainingLink ? "Zoom ready" : "Zoom needed" : "",
-  ].filter(Boolean);
   const trainingDateMarkerValue = normalEventTrainingDate
     ? formatOperationalDate(normalEventTrainingDate, normalEventTrainingDateText)
     : formatEventDateText(normalEventTrainingDateText, importedYearHint) || normalEventTrainingDateText || "Date TBD";
@@ -6118,21 +6133,6 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     selectedModalityLabel,
     staffingRelevant,
   ]);
-  const simulationModalityChips = useMemo(() => {
-    const chips: string[] = [];
-    const addIf = (label: string, test: boolean) => {
-      if (test && !chips.includes(label)) chips.push(label);
-    };
-    addIf("Formative", /\bformative\b/.test(eventSummarySourceText));
-    addIf("Summative", /\bsummative\b/.test(eventSummarySourceText));
-    addIf("OSCE", /\bosce\b/.test(eventSummarySourceText));
-    addIf("IPE", /\bipe\b/.test(eventSummarySourceText));
-    addIf("Training-only", isTrainingOnlyEvent);
-    addIf("Mock Clinic", /\bmock clinic\b/.test(eventSummarySourceText));
-    addIf("Assessment", /\bassessment\b/.test(eventSummarySourceText));
-    addIf("Remediation", /\bremediation\b/.test(eventSummarySourceText));
-    return chips.length ? chips : ["Operational Sim"];
-  }, [eventSummarySourceText, isTrainingOnlyEvent]);
   const operationalReadinessItems = useMemo(() => {
     const materialsReadinessLabel = materialsWorkflowNeedsAction ? materialsStatusLabel : "";
     const items = [
@@ -6369,8 +6369,11 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
   const selectedRoundCaseLabel = useMemo(
     () =>
       getFirstNoteValue(eventEditor.notes || event?.notes, ["Case", "Case Name", "Station Case"]) ||
-      asText(trainingMetadata.case_name),
-    [event?.notes, eventEditor.notes, trainingMetadata.case_name]
+      asText(trainingMetadata.case_name) ||
+      getDisplayFileStem(trainingMetadata.case_file_url) ||
+      getDisplayFileStem(eventMaterialUrl) ||
+      "",
+    [event?.notes, eventEditor.notes, eventMaterialUrl, trainingMetadata.case_file_url, trainingMetadata.case_name]
   );
   const selectedRoundStationLabel = useMemo(
     () => getFirstNoteValue(eventEditor.notes || event?.notes, ["Station", "Station Label", "Station Labels"]),
@@ -7321,7 +7324,8 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
           isCurrentRotationRoom: Boolean(currentLiveRoomDisplayEntries.length && index < currentLiveRoomDisplayEntries.length),
           issueNote: boardRow?.issueNote || "",
           delayMinutes: boardRow?.delayMinutes || 0,
-          learnerLabel: boardRow?.learnerLabel || "Learner TBD",
+          learnerLabel: boardRow?.learnerLabel || "Learner not assigned",
+          encounterLabel: boardRow?.encounterLabel || "Case not assigned",
           standbyAssignment,
           standbySp,
           standbySpName: standbySp ? getFullName(standbySp) : "",
@@ -7363,6 +7367,7 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
         issueNote: "Temporary extra room",
         delayMinutes: 0,
         learnerLabel: "Overflow / standby",
+        encounterLabel: "Case not assigned",
         standbyAssignment: null,
         standbySp: null,
         standbySpName: "",
@@ -10825,6 +10830,9 @@ Cory`;
                                     </div>
                                     <div style={{ marginTop: "4px", color: "#9ed9d1", fontSize: "10px", fontWeight: 800, lineHeight: 1.35, overflowWrap: "anywhere" }}>
                                       {room.isTemporaryRoom ? "Extra Room · Standby / Overflow" : room.learnerLabel || "Learner not assigned"}
+                                    </div>
+                                    <div style={{ marginTop: "4px", color: "#7dd3fc", fontSize: "10px", fontWeight: 800, lineHeight: 1.35, overflowWrap: "anywhere" }}>
+                                      {room.encounterLabel}
                                     </div>
                                   </div>
                                   <div style={{ display: "grid", gap: "6px", justifyItems: "end" }}>
@@ -15136,61 +15144,6 @@ Cory`;
             }}
           >
             <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Event Summary</div>
-            {isPlanningVisualMode ? (
-              <div
-                style={{
-                  marginTop: "10px",
-                  display: "grid",
-                  gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))",
-                  gap: "10px",
-                }}
-              >
-                {eventSummaryDateMarkers.map((marker) => {
-                  const markerTone = getOperationalDateToneStyles(marker.tone, isPlanningVisualMode);
-                  return (
-                    <div
-                      key={marker.key}
-                      style={{
-                        borderRadius: "16px",
-                        border: markerTone.border,
-                        background: markerTone.background,
-                        boxShadow: markerTone.glow,
-                        padding: "12px 14px",
-                        minHeight: "104px",
-                        display: "grid",
-                        alignContent: "space-between",
-                        gap: "8px",
-                      }}
-                    >
-                      <div>
-                        <div style={{ ...statLabel, color: markerTone.accent }}>{marker.label}</div>
-                        <div style={{ marginTop: "4px", color: markerTone.text, fontSize: "19px", fontWeight: 950, lineHeight: 1.18 }}>
-                          {marker.label}: {marker.value}
-                        </div>
-                        {marker.detail ? (
-                          <div style={{ marginTop: "5px", color: markerTone.muted, fontSize: "12px", fontWeight: 800 }}>
-                            {marker.detail}
-                          </div>
-                        ) : null}
-                      </div>
-                      {marker.countdown ? (
-                        <span
-                          style={{
-                            ...commandChipStyle,
-                            width: "fit-content",
-                            background: "rgba(255, 255, 255, 0.62)",
-                            border: markerTone.border,
-                            color: markerTone.accent,
-                          }}
-                        >
-                          {marker.countdown}
-                        </span>
-                      ) : null}
-                    </div>
-                  );
-                })}
-              </div>
-            ) : null}
             <div style={{ marginTop: "10px", display: "grid", gap: "10px" }}>
               <div
                 style={{
@@ -15280,165 +15233,104 @@ Cory`;
 
               <div
                 style={{
+                  borderRadius: "16px",
+                  border: commandCenterVisual.cardBorder,
+                  background: commandCenterVisual.cardBackground,
+                  boxShadow: isPlanningVisualMode ? "0 8px 18px rgba(42, 112, 140, 0.06)" : "none",
+                  padding: "12px 14px",
                   display: "grid",
-                  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
                   gap: "10px",
                 }}
               >
-                {[
-                  {
-                    label: "Event Name",
-                    value: event.name || "Untitled Event",
-                    chips: [selectedModalityLabel || event.status || "Operational event"].filter(Boolean),
-                  },
-                  {
-                    label: "Date / Time",
-                    value: sessionSummaryLabel,
-                    subvalue: summaryTimeLabel,
-                    chips: [rotationRounds.length ? `${rotationRounds.length} rounds` : "Schedule pending"].slice(0, 1),
-                  },
-                  {
-                    label: "Location",
-                    value: event.location || "Location TBD",
-                    chips: [trainingLocationModality].filter(Boolean).slice(0, 1),
-                  },
-                  {
-                    label: "Learners",
-                    value: effectiveLearnerCount > 0 ? `${effectiveLearnerCount}` : "Not set",
-                    subvalue: scheduleBuilderDraftLearnerRoster.length
-                      ? "Uploaded roster"
-                      : effectiveLearnerCount > 0
-                        ? "Event metadata"
-                        : "Add learner roster for auto-counting",
-                    chips: [effectiveLearnerCount > 0 ? "Learner count set" : "Needs learner count"],
-                  },
-                  {
-                    label: "Rounds",
-                    value: `${activeRotationCount} round${activeRotationCount === 1 ? "" : "s"}`,
-                    subvalue: effectiveRotationCountSource.label,
-                    chips: [effectiveRotationCountSource.mode === "manual" ? "Manual override" : "Auto-calculated"],
-                  },
-                  {
-                    label: "Simulation Type",
-                    value: eventIdentityChips[0] || "Operational event",
-                    subvalue: isTrainingOnlyEvent
-                      ? "Training event"
-                      : [selectedModalityLabel, (effectiveRoomCount || rotationRounds.length > 1) ? "multi-station capable" : ""]
-                          .filter(Boolean)
-                          .join(" · "),
-                    chips: eventIdentityChips.slice(1, 4),
-                  },
-                  {
-                    label: "Training Status",
-                    value: eventSummaryTrainingValue,
-                    subvalue: eventSummaryTrainingSubvalue,
-                    chips: eventSummaryTrainingChips.slice(0, 3),
-                  },
-                  {
-                    label: "Materials",
-                    value: materialsStatusLabel,
-                    subvalue: hasUploadedEventMaterial
-                      ? "Event material uploaded"
-                      : "Materials status is admin-set",
-                    chips: [
-                      hasUploadedEventMaterial ? "Materials available" : "",
-                      materialsWorkflowNeedsAction ? "Needs action" : "",
-                    ].filter(Boolean),
-                  },
-                  {
-                    label: "Recording",
-                    value: recordingStatus.label,
-                    chips: [recordingStatus.chip],
-                    indicator: recordingIndicatorActive ? (
-                      <RecordingStatusIndicator
-                        label={recordingIndicatorLabel}
-                        hot={recordingIndicatorHot}
-                        liveMode={!isPlanningVisualMode}
-                        planningMode={isPlanningVisualMode}
-                        compact
-                      />
-                    ) : null,
-                  },
-                  {
-                    label: "Staffing",
-                    value: isTrainingMode
-                      ? `${selectedStaffingCount} selected / ${confirmedCount} confirmed`
-                      : needed > 0
-                        ? `${confirmedCount} primary / ${needed} needed`
-                        : `${selectedStaffingCount} selected`,
-                    subvalue: !isTrainingMode && staffingRelevant ? `${backupCount} backup selected` : "",
-                    chips: [staffingHealthLabel, backupCount > 0 ? "Extra coverage" : "Backup optional"].slice(0, 2),
-                  },
-                  {
-                    label: "Status",
-                    value: event.status || "No status",
-                    chips: [
-                      ...activeEventTypes
-                        .filter((type) => isTrainingOnlyEvent || type !== "training")
-                        .map((type) => editableEventTypeLabels[type] || type),
-                      ...simulationModalityChips,
-                    ].slice(0, 3),
-                  },
-                ]
-                  .filter((card) =>
-                    !isPlanningVisualMode ||
-                    [
-                      "Event Name",
-                      "Date / Time",
-                      "Location",
-                      "Learners",
-                      "Rounds",
-                      "Simulation Type",
-                      "Training Status",
-                      "Materials",
-                      "Recording",
-                      "Staffing",
-                    ].includes(card.label)
-                  )
-                  .map((card) => (
-                  <div
-                    key={card.label}
-                    style={{
-                      ...statCard,
-                      minHeight: isPlanningVisualMode ? "104px" : "132px",
-                      display: "grid",
-                      alignContent: "space-between",
-                      gap: isPlanningVisualMode ? "8px" : "10px",
-                      background: commandCenterVisual.cardBackground,
-                      border: commandCenterVisual.cardBorder,
-                      boxShadow: isPlanningVisualMode ? "0 8px 18px rgba(42, 112, 140, 0.06)" : "none",
-                    }}
-                  >
-                    <div>
-                      <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>{card.label}</div>
-                      <div style={{ ...statValue, fontSize: "18px", lineHeight: 1.25, color: commandCenterVisual.textColor }}>{card.value}</div>
-                      {"subvalue" in card && card.subvalue ? (
-                        <div style={{ marginTop: "6px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 700 }}>{card.subvalue}</div>
-                      ) : null}
-                      {"indicator" in card && card.indicator ? (
-                        <div style={{ marginTop: "8px" }}>{card.indicator}</div>
-                      ) : null}
+                <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "flex-start" }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ color: commandCenterVisual.headingColor, fontSize: "20px", fontWeight: 950, lineHeight: 1.2 }}>
+                      {event.name || "Untitled Event"}
                     </div>
-                    <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                      {(card.chips || []).slice(0, 3).map((chip: string) => {
-                        const successChip = isPlanningVisualMode && /\b(covered|coverage met|ready|stable)\b/i.test(chip);
-                        return (
-                          <span
-                            key={`${card.label}-${chip}`}
-                            style={{
-                              ...commandChipStyle,
-                              background: successChip ? commandCenterVisual.activeSoftBackground : commandCenterVisual.chipBackground,
-                              color: successChip ? commandCenterVisual.activeSoftText : commandCenterVisual.chipText,
-                              border: successChip ? planningSuccessBorder : isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.18)" : commandChipStyle.border,
-                            }}
-                          >
-                            {chip}
-                          </span>
-                        );
-                      })}
+                    <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "13px", fontWeight: 700 }}>
+                      {[sessionSummaryLabel, summaryTimeLabel, event.location || "Location TBD"].filter(Boolean).join(" · ")}
                     </div>
                   </div>
-                ))}
+                  <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                    {[
+                      event.status || "No status",
+                      selectedModalityLabel,
+                      staffingHealthLabel,
+                      scheduleStatusLabel,
+                    ]
+                      .filter(Boolean)
+                      .slice(0, 4)
+                      .map((chip) => (
+                        <span key={`summary-primary-${chip}`} style={commandChipStyle}>
+                          {chip}
+                        </span>
+                      ))}
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                  <span style={commandChipStyle}>Learners {effectiveLearnerCount > 0 ? effectiveLearnerCount : "TBD"}</span>
+                  <span style={commandChipStyle}>Rooms {effectiveRoomCount || "TBD"}</span>
+                  <span style={commandChipStyle}>Rounds {activeRotationCount || 0}</span>
+                  <span style={commandChipStyle}>
+                    Staffing {needed > 0 ? `${confirmedCount}/${needed}` : `${confirmedCount} confirmed`}
+                  </span>
+                  {eventSummaryDateMarkers.map((marker) => {
+                    const markerTone = getOperationalDateToneStyles(marker.tone, true);
+                    return (
+                      <span
+                        key={`summary-marker-${marker.key}`}
+                        style={{
+                          ...commandChipStyle,
+                          background: markerTone.background,
+                          border: markerTone.border,
+                          color: markerTone.accent,
+                          boxShadow: markerTone.glow,
+                        }}
+                      >
+                        {marker.label}: {marker.value}
+                        {marker.countdown ? ` · ${marker.countdown}` : ""}
+                      </span>
+                    );
+                  })}
+                </div>
+
+                <details>
+                  <summary style={{ cursor: "pointer", color: commandCenterVisual.textColor, fontWeight: 800 }}>
+                    Show full event details
+                  </summary>
+                  <div style={{ marginTop: "10px", display: "grid", gap: "8px" }}>
+                    {[
+                      { label: "Simulation Type", value: eventIdentityChips[0] || "Operational event", detail: isTrainingOnlyEvent ? "Training event" : [selectedModalityLabel, (effectiveRoomCount || rotationRounds.length > 1) ? "multi-station capable" : ""].filter(Boolean).join(" · ") },
+                      { label: "Training", value: eventSummaryTrainingValue, detail: eventSummaryTrainingSubvalue },
+                      { label: "Materials", value: materialsStatusLabel, detail: hasUploadedEventMaterial ? "Event material uploaded" : "Materials status is admin-set" },
+                      { label: "Recording", value: recordingStatus.label, detail: recordingIndicatorLabel },
+                      { label: "Coverage", value: needed > 0 ? `${confirmedCount} primary / ${needed} needed` : `${selectedStaffingCount} selected`, detail: !isTrainingMode && staffingRelevant ? `${backupCount} backup selected` : "" },
+                    ].map((item) => (
+                      <div
+                        key={`summary-detail-${item.label}`}
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "minmax(140px, 180px) minmax(0, 1fr)",
+                          gap: "10px",
+                          alignItems: "start",
+                          borderTop: "1px solid rgba(99, 181, 217, 0.12)",
+                          paddingTop: "8px",
+                        }}
+                      >
+                        <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>{item.label}</div>
+                        <div>
+                          <div style={{ color: commandCenterVisual.textColor, fontWeight: 900 }}>{item.value}</div>
+                          {item.detail ? (
+                            <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 700 }}>
+                              {item.detail}
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </details>
               </div>
 
               {normalEventTrainingReadinessPanel}
@@ -16212,7 +16104,7 @@ Cory`;
                                           ? "#0f766e"
                                           : "#86efac"
                                         : staffingWorkspacePalette.dangerText;
-                                const encounterLabel = [row.stationLabel, row.caseLabel].filter(Boolean).join(" · ") || "Encounter TBD";
+                                const encounterLabel = [row.stationLabel, row.caseLabel].filter(Boolean).join(" · ") || "Case not assigned";
                                 return (
                                   <article
                                     key={`${row.key}-canvas`}
@@ -16577,7 +16469,7 @@ Cory`;
                                       <div>
                                         <div style={{ color: commandCenterVisual.textColor, fontWeight: 900 }}>{row.roomName || `Room ${index + 1}`}</div>
                                         <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 700 }}>
-                                          {[row.stationLabel, row.caseLabel].filter(Boolean).join(" · ") || "Station/case TBD"}
+                                          {[row.stationLabel, row.caseLabel].filter(Boolean).join(" · ") || "Case not assigned"}
                                         </div>
                                       </div>
                                       <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
