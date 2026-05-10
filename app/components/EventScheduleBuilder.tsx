@@ -42,6 +42,8 @@ type EventScheduleBuilderProps = {
   initialRoundKey?: string;
   initialCompanionView?: ScheduleCompanionView | null;
   initialScheduleViewMode?: ScheduleBuilderViewMode | null;
+  initialPreviewKind?: SchedulePreviewKind | null;
+  previewOnly?: boolean;
 };
 
 type DayBlockType =
@@ -626,6 +628,16 @@ function toDisplayTime(totalMinutes: number) {
 
 function formatRange(start: number, end: number) {
   return `${toDisplayTime(start)} - ${toDisplayTime(end)}`;
+}
+
+function getPreviewDocumentParts(html: string) {
+  const styleMatches = Array.from(html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/gi));
+  const styles = styleMatches.map((match) => match[1]).join("\n");
+  const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+  return {
+    styles,
+    body: bodyMatch?.[1] || html,
+  };
 }
 
 function formatEventDate(event: EventRow) {
@@ -1512,7 +1524,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const autosaveTimeoutRef = useRef<number | null>(null);
   const workflowSyncTimeoutRef = useRef<number | null>(null);
   const [showSchedulePreview, setShowSchedulePreview] = useState(false);
-  const [previewKind, setPreviewKind] = useState<SchedulePreviewKind>("timeline");
+  const [previewKind, setPreviewKind] = useState<SchedulePreviewKind>(props.initialPreviewKind || "timeline");
   const [showExpandedFlowDetails, setShowExpandedFlowDetails] = useState(false);
   const [activeFlowDetailKey, setActiveFlowDetailKey] = useState("");
   const [me, setMe] = useState<BuilderMeResponse | null>(null);
@@ -1528,6 +1540,12 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       body.style.overflow = previousOverflow;
     };
   }, [showSchedulePreview]);
+
+  useEffect(() => {
+    if (props.initialPreviewKind) {
+      setPreviewKind(props.initialPreviewKind);
+    }
+  }, [props.initialPreviewKind]);
 
   const applyDraft = useCallback((draft: ScheduleBuilderDraft) => {
     setBuilderMode(props.expandedWorkspace && !draft.savedAt ? "advanced" : draft.builderMode);
@@ -2290,6 +2308,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   ]);
   const schedulePreview = schedulePreviews[previewKind];
   const selectedPreviewFileName = `${getSafeFileName(schedulePreview.title)}.html`;
+  const previewDocumentParts = useMemo(
+    () => getPreviewDocumentParts(schedulePreview.html),
+    [schedulePreview.html]
+  );
   const saveStateAppearance = getSaveStateAppearance(saveState);
   const lastSavedLabel = formatSavedTimestamp(lastSavedAt);
   const advancedSettingsActive =
@@ -2506,6 +2528,22 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     });
   }
 
+  if (props.previewOnly) {
+    return (
+      <div
+        style={{
+          minHeight: "100vh",
+          background: "#ffffff",
+        }}
+      >
+        {previewDocumentParts.styles ? (
+          <style dangerouslySetInnerHTML={{ __html: previewDocumentParts.styles }} />
+        ) : null}
+        <div dangerouslySetInnerHTML={{ __html: previewDocumentParts.body }} />
+      </div>
+    );
+  }
+
   return (
     <div className="grid gap-5">
       {errorMessage ? <div className="cfsp-alert cfsp-alert-error">{errorMessage}</div> : null}
@@ -2717,12 +2755,22 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                   <div className="mt-2 text-sm font-semibold text-[#5e7388]">
                     {learnerFileName && uploadedLearners.length ? `Source: ${learnerFileName}` : "Using builder-generated fallback learner names."}
                   </div>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {uploadedLearners.length ? (
-                      <button type="button" onClick={() => setShowClearRosterDialog(true)} className="cfsp-btn cfsp-btn-secondary">
-                        Clear Roster
-                      </button>
-                    ) : null}
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {learnerRoster.length > 1 ? (
+                    <button type="button" onClick={handleRandomizeLearners} className="cfsp-btn cfsp-btn-secondary">
+                      Randomize Learner Spread
+                    </button>
+                  ) : null}
+                  {originalUploadedLearners.length ? (
+                    <button type="button" onClick={handleResetLearnerOrder} className="cfsp-btn cfsp-btn-secondary">
+                      Reset Uploaded Order
+                    </button>
+                  ) : null}
+                  {uploadedLearners.length ? (
+                    <button type="button" onClick={() => setShowClearRosterDialog(true)} className="cfsp-btn cfsp-btn-secondary">
+                      Clear Roster
+                    </button>
+                  ) : null}
                   </div>
                   <div className="mt-3 flex flex-wrap gap-2">
                     {learnerRoster.slice(0, 10).map((learner) => (
@@ -3008,11 +3056,11 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <button type="button" onClick={handleRandomizeLearners} className="cfsp-btn cfsp-btn-secondary">
-                      Randomize Student Order
+                      Randomize Learner Spread
                     </button>
                     {originalUploadedLearners.length ? (
                       <button type="button" onClick={handleResetLearnerOrder} className="cfsp-btn cfsp-btn-secondary">
-                        Reset to Uploaded Order
+                        Reset Uploaded Order
                       </button>
                     ) : null}
                   </div>

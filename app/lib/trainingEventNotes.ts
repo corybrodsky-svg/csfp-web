@@ -52,6 +52,7 @@ export type TrainingEventMetadata = {
   schedule_completed_at: string;
   schedule_status: string;
   schedule_completed_by: string;
+  live_room_adjustments: string;
   modality: string;
   workflow_manual_checks: string;
   email_status: string;
@@ -125,6 +126,7 @@ const TRAINING_METADATA_KEYS = [
   "schedule_completed_at",
   "schedule_status",
   "schedule_completed_by",
+  "live_room_adjustments",
   "modality",
   "workflow_manual_checks",
   "email_status",
@@ -207,6 +209,7 @@ export function emptyTrainingEventMetadata(): TrainingEventMetadata {
     schedule_completed_at: "",
     schedule_status: "",
     schedule_completed_by: "",
+    live_room_adjustments: "",
     modality: "",
     workflow_manual_checks: "",
     email_status: "",

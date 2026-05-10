@@ -234,6 +234,21 @@ type LiveRoomLocalState = {
   issueNote?: string;
 };
 
+type EventSchedulePreviewKind =
+  | "timeline"
+  | "rotation"
+  | "student"
+  | "sp"
+  | "operations"
+  | "announcements";
+
+type LiveRoomAdjustment = {
+  standbyAssignmentId?: string;
+  expanded?: boolean;
+};
+
+type LiveRoomAdjustmentsMap = Record<string, LiveRoomAdjustment>;
+
 type ScheduleBuilderPreviewDayBlock = {
   id: string;
   type: string;
@@ -2275,6 +2290,40 @@ function upsertLiveAttendanceMetadata(
   return withoutExisting ? `${withoutExisting}\n\n${block}` : block;
 }
 
+function parseLiveRoomAdjustments(value: string | null | undefined) {
+  const text = asText(value);
+  if (!text) return {} as LiveRoomAdjustmentsMap;
+  try {
+    const parsed = JSON.parse(text);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return {} as LiveRoomAdjustmentsMap;
+    }
+    return Object.fromEntries(
+      Object.entries(parsed).map(([key, adjustment]) => {
+        const record = adjustment && typeof adjustment === "object" ? adjustment : {};
+        return [
+          key,
+          {
+            standbyAssignmentId: asText((record as LiveRoomAdjustment).standbyAssignmentId),
+            expanded: Boolean((record as LiveRoomAdjustment).expanded),
+          } satisfies LiveRoomAdjustment,
+        ];
+      })
+    ) as LiveRoomAdjustmentsMap;
+  } catch {
+    return {} as LiveRoomAdjustmentsMap;
+  }
+}
+
+const eventSchedulePreviewOptions: Array<{ value: EventSchedulePreviewKind; label: string }> = [
+  { value: "timeline", label: "Day Flow" },
+  { value: "rotation", label: "Rotation Schedule" },
+  { value: "student", label: "Student Schedule" },
+  { value: "sp", label: "SP Schedule" },
+  { value: "operations", label: "Operations Schedule" },
+  { value: "announcements", label: "Announcement Schedule" },
+];
+
 function getEffectivePollResponseStatus(
   notes: string | null | undefined,
   imported?: ImportedPollResponseRecord | null
@@ -3453,6 +3502,8 @@ export default function EventDetailPage() {
   const [trainingImporting, setTrainingImporting] = useState(false);
   const [showWorkflowAdvanced, setShowWorkflowAdvanced] = useState(false);
   const [materialPreview, setMaterialPreview] = useState<MaterialPreviewState | null>(null);
+  const [showEventSchedulePreview, setShowEventSchedulePreview] = useState(false);
+  const [eventSchedulePreviewKind, setEventSchedulePreviewKind] = useState<EventSchedulePreviewKind>("timeline");
   const [materialPreviewLoading, setMaterialPreviewLoading] = useState(false);
   const [materialPreviewError, setMaterialPreviewError] = useState("");
   const [materialOpenInNewTabError, setMaterialOpenInNewTabError] = useState("");
@@ -3463,6 +3514,7 @@ export default function EventDetailPage() {
   const [contactPanelSavedAt, setContactPanelSavedAt] = useState("");
   const [showPushRelatedPanel, setShowPushRelatedPanel] = useState(false);
   const [relatedKeyword, setRelatedKeyword] = useState("");
+  const schedulePreviewFrameRef = useRef<HTMLIFrameElement | null>(null);
   const [relatedMustInclude, setRelatedMustInclude] = useState("");
   const [relatedExclude, setRelatedExclude] = useState("");
   const [relatedExcludeCurrent, setRelatedExcludeCurrent] = useState(true);
@@ -4180,6 +4232,10 @@ export default function EventDetailPage() {
   ).length;
   const confirmedAssignments = useMemo(
     () => assignments.filter((assignment) => getAssignmentStatus(assignment) === "confirmed"),
+    [assignments]
+  );
+  const backupAssignments = useMemo(
+    () => assignments.filter((assignment) => getAssignmentStatus(assignment) === "backup"),
     [assignments]
   );
   const backupCount = assignments.filter(
@@ -5011,6 +5067,15 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [id]);
+  useEffect(() => {
+    if (!showEventSchedulePreview || typeof document === "undefined") return;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [showEventSchedulePreview]);
   useEffect(() => {
     if (typeof window === "undefined" || !id) return;
 
@@ -5867,6 +5932,10 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
   const activeSelectedRotationRoundIndex = selectedRotationRoundIndex >= 0 ? selectedRotationRoundIndex : 0;
   const selectedRotationRound =
     selectedRotationRoundIndex >= 0 ? rotationRounds[selectedRotationRoundIndex] : rotationRounds[0] || null;
+  const liveRoomAdjustments = useMemo(
+    () => parseLiveRoomAdjustments(trainingMetadata.live_room_adjustments),
+    [trainingMetadata.live_room_adjustments]
+  );
   const expandedScheduleBuilderHref = useMemo(() => {
     const params = new URLSearchParams();
     params.set("source", "rotation-command");
@@ -5879,6 +5948,26 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
 
     return `/events/${encodeURIComponent(id)}/schedule-builder?${params.toString()}`;
   }, [activeSelectedRotationRoundIndex, id, roundCompanionView, selectedRotationRound]);
+  const schedulePreviewHref = useMemo(() => {
+    const params = new URLSearchParams();
+    params.set("source", "event-preview");
+    params.set("view", roundCompanionView);
+    params.set("preview", eventSchedulePreviewKind);
+    params.set("previewMode", "1");
+
+    if (selectedRotationRound) {
+      params.set("round", selectedRotationRound.key);
+      params.set("roundIndex", String(activeSelectedRotationRoundIndex + 1));
+    }
+
+    return `/events/${encodeURIComponent(id)}/schedule-builder?${params.toString()}`;
+  }, [
+    activeSelectedRotationRoundIndex,
+    eventSchedulePreviewKind,
+    id,
+    roundCompanionView,
+    selectedRotationRound,
+  ]);
   const scheduleBuilderLearnerNames = useMemo(
     () =>
       scheduleBuilderPreviewDraft?.uploadedLearners.length
@@ -6758,9 +6847,20 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       ),
     [confirmedAssignments, roomNamingContext, liveBlueprintExplicitAssignments, liveBlueprintRoomEntries]
   );
+  const liveAdjustmentAssignedStandbyIds = useMemo(
+    () =>
+      new Set(
+        Object.values(liveRoomAdjustments)
+          .map((adjustment) => asText(adjustment.standbyAssignmentId))
+          .filter(Boolean)
+      ),
+    [liveRoomAdjustments]
+  );
   const liveAttendanceBlueprintRooms = useMemo(
     () =>
       liveBlueprintRoomEntries.map(({ roomName, sourceIndex }, index) => {
+        const adjustmentKey = asText(roomName).toLowerCase();
+        const adjustment = liveRoomAdjustments[adjustmentKey] || {};
         const boardRow =
           currentLiveRoomBoardRows.find((row) => asText(row.roomName).toLowerCase() === asText(roomName).toLowerCase()) ||
           (sourceIndex >= 0 ? currentLiveRoomBoardRows.find((row) => row.sourceIndex === sourceIndex) : null) ||
@@ -6768,6 +6868,11 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
           null;
         const assignment = boardRow?.assignment || liveBlueprintRoomAssignmentPlan.assignments[index]?.assignment || null;
         const sp = boardRow?.sp || (assignment?.sp_id ? spsById.get(assignment.sp_id) || null : null);
+        const standbyAssignment =
+          asText(adjustment.standbyAssignmentId)
+            ? backupAssignments.find((item) => item.id === adjustment.standbyAssignmentId) || null
+            : null;
+        const standbySp = standbyAssignment?.sp_id ? spsById.get(standbyAssignment.sp_id) || null : null;
         const assignmentStatus = assignment ? getAssignmentStatus(assignment) : null;
         const liveAttendanceMetadata = assignment ? parseLiveAttendanceMetadata(assignment.notes) : emptyLiveAttendanceMetadata();
         const manualStatus = asText(liveAttendanceMetadata.status).toLowerCase();
@@ -6833,14 +6938,22 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
           isCurrentRotationRoom: Boolean(currentLiveRoomDisplayEntries.length && index < currentLiveRoomDisplayEntries.length),
           issueNote: boardRow?.issueNote || "",
           delayMinutes: boardRow?.delayMinutes || 0,
+          learnerLabel: boardRow?.learnerLabel || "Learner TBD",
+          standbyAssignment,
+          standbySp,
+          standbySpName: standbySp ? getFullName(standbySp) : "",
+          standbyExpanded: Boolean(adjustment.expanded || standbyAssignment),
+          adjustmentKey,
         };
       }),
       [
+      backupAssignments,
       currentLiveRoomDisplayEntries.length,
       currentLiveRoomBoardRows,
       firstLiveRotationStartMinutes,
       liveBlueprintRoomEntries,
       liveBlueprintRoomAssignmentPlan.assignments,
+      liveRoomAdjustments,
       simulatedLiveMinutes,
       spsById,
     ]
@@ -7537,7 +7650,11 @@ Cory`;
         : sessions.length
           ? `${sessions.length} structured session${sessions.length === 1 ? "" : "s"} exist, but rotation rounds still need QA.`
           : "Open the scheduling workspace to build or import the learner/SP flow.",
-      actions: [{ label: "Open Schedule Builder", href: expandedScheduleBuilderHref }],
+      actions: [
+        { label: "Open Schedule Builder", href: expandedScheduleBuilderHref },
+        { label: "Preview Schedule", onClick: () => setShowEventSchedulePreview(true) },
+        ...(scheduleCompleted ? [] : [{ label: "Mark Schedule Complete", onClick: () => void handleMarkScheduleComplete(), disabled: saving }]),
+      ],
     },
     {
       id: "email",
@@ -8086,6 +8203,66 @@ Cory`;
   ) {
     const nextNotes = upsertTrainingEventMetadata(eventEditor.notes, partial);
     return persistTrainingNotes(nextNotes, successMessage);
+  }
+
+  async function handleMarkScheduleComplete() {
+    const confirmed = window.confirm("Mark this schedule complete?");
+    if (!confirmed) return;
+    const now = new Date().toISOString();
+    await persistTrainingMetadataFields(
+      {
+        schedule_status: "complete",
+        schedule_started_at: trainingMetadata.schedule_started_at || now,
+        schedule_updated_at: now,
+        schedule_completed_at: now,
+        schedule_completed_by: me?.fullName || me?.scheduleName || me?.email || "",
+        rotation_schedule_status: "complete",
+      },
+      "Schedule marked complete."
+    );
+  }
+
+  async function persistLiveRoomAdjustments(nextAdjustments: LiveRoomAdjustmentsMap) {
+    const cleaned = Object.fromEntries(
+      Object.entries(nextAdjustments).filter(([, adjustment]) => adjustment.expanded || adjustment.standbyAssignmentId)
+    );
+    await persistTrainingMetadataFields(
+      {
+        live_room_adjustments: Object.keys(cleaned).length ? JSON.stringify(cleaned) : "",
+      },
+      "Live room controls updated."
+    );
+  }
+
+  async function handleDownloadEventSchedulePreview() {
+    try {
+      const response = await fetch(schedulePreviewHref, { credentials: "same-origin" });
+      if (!response.ok) throw new Error(`Preview download failed (${response.status}).`);
+      const html = await response.text();
+      const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+      const downloadUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = downloadUrl;
+      anchor.download = `cfsp-${id || "event"}-${eventSchedulePreviewKind}-preview.html`;
+      anchor.rel = "noreferrer";
+      anchor.style.display = "none";
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(downloadUrl);
+    } catch (error) {
+      setEventSaveError(error instanceof Error ? error.message : "Could not download schedule preview.");
+    }
+  }
+
+  function handlePrintEventSchedulePreview() {
+    const frameWindow = schedulePreviewFrameRef.current?.contentWindow;
+    if (!frameWindow) {
+      setEventSaveError("Schedule preview is still loading.");
+      return;
+    }
+    frameWindow.focus();
+    frameWindow.print();
   }
 
   async function saveFacultyContactFields(
@@ -9255,6 +9432,51 @@ Cory`;
     }
   }
 
+  async function handleLiveBlueprintExpandRoom(room: {
+    adjustmentKey: string;
+    roomName: string;
+    standbyAssignment: AssignmentRow | null;
+  }) {
+    const nextAdjustments = { ...liveRoomAdjustments };
+    const currentAdjustment = nextAdjustments[room.adjustmentKey] || {};
+    const nextAdjustment: LiveRoomAdjustment = { ...currentAdjustment };
+
+    if (!nextAdjustment.standbyAssignmentId) {
+      const availableStandby = backupAssignments.find(
+        (assignment) =>
+          !liveAdjustmentAssignedStandbyIds.has(assignment.id) &&
+          assignment.id !== room.standbyAssignment?.id
+      );
+      if (availableStandby) {
+        nextAdjustment.standbyAssignmentId = availableStandby.id;
+      } else {
+        nextAdjustment.expanded = true;
+      }
+    } else {
+      nextAdjustment.expanded = true;
+    }
+
+    nextAdjustments[room.adjustmentKey] = nextAdjustment;
+    await persistLiveRoomAdjustments(nextAdjustments);
+  }
+
+  async function handleLiveBlueprintCollapseRoom(room: {
+    adjustmentKey: string;
+    standbyAssignment: AssignmentRow | null;
+    standbyExpanded: boolean;
+  }) {
+    if (!room.standbyAssignment && !room.standbyExpanded) return;
+
+    const requiresConfirmation = Boolean(room.standbyAssignment || room.standbyExpanded);
+    if (requiresConfirmation && !window.confirm("Remove the temporary standby room view for this room?")) {
+      return;
+    }
+
+    const nextAdjustments = { ...liveRoomAdjustments };
+    delete nextAdjustments[room.adjustmentKey];
+    await persistLiveRoomAdjustments(nextAdjustments);
+  }
+
   function handleClearSuggestedAssignments() {
     setSuggestedAssignmentFilter("all");
     showSuccessMessage("Suggested assignments reset.");
@@ -9903,13 +10125,66 @@ Cory`;
                                     <div style={{ marginTop: "4px", color: "#f4fbff", fontSize: "12px", fontWeight: 900, lineHeight: 1.25, overflowWrap: "anywhere" }}>
                                       {room.spName || "Open room"}
                                     </div>
+                                    <div style={{ marginTop: "4px", color: "#9ed9d1", fontSize: "10px", fontWeight: 800, lineHeight: 1.35, overflowWrap: "anywhere" }}>
+                                      {room.learnerLabel || "Learner TBD"}
+                                    </div>
                                   </div>
-                                  <span
-                                    className={`cfsp-blueprint-marker is-${room.status.replace("_", "-")}`}
-                                    style={{ color: tone.color, borderColor: tone.color }}
-                                  >
-                                    {room.status === "empty" ? "--" : room.initials}
-                                  </span>
+                                  <div style={{ display: "grid", gap: "6px", justifyItems: "end" }}>
+                                    <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+                                      <button
+                                        type="button"
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          void handleLiveBlueprintExpandRoom(room);
+                                        }}
+                                        style={{
+                                          ...buttonStyle,
+                                          minWidth: "24px",
+                                          height: "24px",
+                                          padding: "0",
+                                          fontSize: "14px",
+                                          lineHeight: 1,
+                                          borderRadius: "999px",
+                                          background: "rgba(73, 168, 255, 0.14)",
+                                          color: "#bfdbfe",
+                                          border: "1px solid rgba(73, 168, 255, 0.28)",
+                                        }}
+                                        aria-label={`Add standby to ${room.roomName}`}
+                                      >
+                                        +
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          void handleLiveBlueprintCollapseRoom(room);
+                                        }}
+                                        disabled={!room.standbyAssignment && !room.standbyExpanded}
+                                        style={{
+                                          ...buttonStyle,
+                                          minWidth: "24px",
+                                          height: "24px",
+                                          padding: "0",
+                                          fontSize: "14px",
+                                          lineHeight: 1,
+                                          borderRadius: "999px",
+                                          background: "rgba(255,255,255,0.06)",
+                                          color: "#d6edf4",
+                                          border: "1px solid rgba(255,255,255,0.12)",
+                                          opacity: !room.standbyAssignment && !room.standbyExpanded ? 0.4 : 1,
+                                        }}
+                                        aria-label={`Remove standby from ${room.roomName}`}
+                                      >
+                                        -
+                                      </button>
+                                    </div>
+                                    <span
+                                      className={`cfsp-blueprint-marker is-${room.status.replace("_", "-")}`}
+                                      style={{ color: tone.color, borderColor: tone.color }}
+                                    >
+                                      {room.status === "empty" ? "--" : room.initials}
+                                    </span>
+                                  </div>
                                 </div>
                                 <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", alignItems: "center", marginTop: "10px" }}>
                                   <span style={{ color: tone.color, fontSize: "10px", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.06em" }}>
@@ -9924,6 +10199,26 @@ Cory`;
                                 {room.status !== "empty" ? (
                                   <div className={`cfsp-blueprint-room-x is-${room.status.replace("_", "-")}`} aria-hidden="true">
                                     {room.status === "checked_in" ? "✓" : "X"}
+                                  </div>
+                                ) : null}
+                                {room.standbyAssignment || room.standbyExpanded ? (
+                                  <div
+                                    style={{
+                                      marginTop: "8px",
+                                      borderRadius: "12px",
+                                      border: "1px solid rgba(191, 219, 254, 0.22)",
+                                      background: "rgba(8, 29, 46, 0.44)",
+                                      padding: "7px 8px",
+                                      display: "grid",
+                                      gap: "3px",
+                                    }}
+                                  >
+                                    <div style={{ color: "#bfdbfe", fontSize: "10px", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                                      Backup / Standby
+                                    </div>
+                                    <div style={{ color: "#e0f2fe", fontSize: "11px", fontWeight: 800, overflowWrap: "anywhere" }}>
+                                      {room.standbySpName || "Standby slot open"}
+                                    </div>
                                   </div>
                                 ) : null}
                                 {isActionMenuOpen ? (
@@ -13952,6 +14247,70 @@ Cory`;
                     </div>
                   </div>
                 ))}
+              </div>
+
+              <div
+                style={{
+                  marginTop: "12px",
+                  borderRadius: "18px",
+                  border: scheduleCompleted
+                    ? "1px solid rgba(44, 211, 173, 0.24)"
+                    : scheduleInProgress
+                      ? "1px solid rgba(73, 168, 255, 0.24)"
+                      : "1px solid rgba(148, 163, 184, 0.18)",
+                  background: isPlanningVisualMode
+                    ? scheduleCompleted
+                      ? "linear-gradient(180deg, rgba(236, 253, 245, 0.94) 0%, rgba(220, 252, 231, 0.94) 100%)"
+                      : scheduleInProgress
+                        ? "linear-gradient(180deg, rgba(239, 246, 255, 0.96) 0%, rgba(219, 234, 254, 0.94) 100%)"
+                        : "linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(241, 249, 252, 0.96) 100%)"
+                    : "linear-gradient(180deg, rgba(8, 22, 36, 0.94) 0%, rgba(8, 28, 38, 0.9) 100%)",
+                  boxShadow: isPlanningVisualMode ? "0 12px 24px rgba(42, 112, 140, 0.08)" : "0 14px 34px rgba(0, 0, 0, 0.2)",
+                  padding: "14px 16px",
+                  display: "grid",
+                  gap: "10px",
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
+                  <div>
+                    <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Schedule Workflow</div>
+                    <div style={{ color: commandCenterVisual.headingColor, fontSize: "18px", fontWeight: 900 }}>
+                      {scheduleCompleted ? "Schedule Complete" : scheduleInProgress ? "Schedule In Progress" : "Schedule not finalized"}
+                    </div>
+                    <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "13px", fontWeight: 700 }}>
+                      {scheduleCompleted
+                        ? "Preview or reopen the builder any time."
+                        : scheduleInProgress
+                          ? "Builder progress is saved and ready for review."
+                          : "Open the builder to finish the learner and room flow."}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                    <Link href={expandedScheduleBuilderHref} style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "8px 12px" }}>
+                      Open Schedule Builder
+                    </Link>
+                    <button type="button" onClick={() => setShowEventSchedulePreview(true)} style={{ ...buttonStyle, padding: "8px 12px" }}>
+                      Preview Schedule
+                    </button>
+                    {!scheduleCompleted ? (
+                      <button
+                        type="button"
+                        onClick={() => void handleMarkScheduleComplete()}
+                        disabled={saving}
+                        style={{
+                          ...buttonStyle,
+                          padding: "8px 12px",
+                          background: "rgba(44, 211, 173, 0.14)",
+                          color: "#0f766e",
+                          border: "1px solid rgba(44, 211, 173, 0.24)",
+                          opacity: saving ? 0.65 : 1,
+                        }}
+                      >
+                        Mark Schedule Complete
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
               </div>
 
               {normalEventTrainingReadinessPanel}
@@ -18329,6 +18688,104 @@ Cory`;
     </div>
   </div>
 ) : null}
+      {showEventSchedulePreview ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 69,
+            background: "rgba(3, 9, 17, 0.78)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "24px",
+          }}
+        >
+          <div
+            style={{
+              width: "min(1120px, 100%)",
+              maxHeight: "calc(100vh - 40px)",
+              borderRadius: "20px",
+              overflow: "hidden",
+              border: "1px solid rgba(61, 201, 184, 0.28)",
+              background: "#0f2335",
+              boxShadow: "0 24px 60px rgba(0, 0, 0, 0.42)",
+              display: "grid",
+              gridTemplateRows: "auto 1fr",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                gap: "12px",
+                alignItems: "center",
+                padding: "14px 16px",
+                borderBottom: "1px solid rgba(120, 180, 255, 0.16)",
+                background: "rgba(8, 20, 34, 0.88)",
+                flexWrap: "wrap",
+              }}
+            >
+              <div>
+                <div style={{ ...statLabel, color: "#7ee7db" }}>Schedule Preview</div>
+                <div style={{ color: "#ffffff", fontWeight: 900, fontSize: "18px" }}>
+                  {scheduleCompleted ? "Schedule Complete" : scheduleInProgress ? "Schedule In Progress" : "Schedule Preview"}
+                </div>
+                <div style={{ marginTop: "4px", color: "rgba(220, 239, 255, 0.68)", fontSize: "12px", fontWeight: 700 }}>
+                  Preview the current event schedule without leaving the event page.
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                <select
+                  value={eventSchedulePreviewKind}
+                  onChange={(event) => setEventSchedulePreviewKind(event.target.value as EventSchedulePreviewKind)}
+                  className="cfsp-input"
+                  style={{ minWidth: "190px", height: "40px" }}
+                  aria-label="Event schedule preview type"
+                >
+                  {eventSchedulePreviewOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <button type="button" onClick={() => window.open(schedulePreviewHref, "_blank", "noopener,noreferrer")} style={{ ...buttonStyle, padding: "8px 12px" }}>
+                  Open in New Tab
+                </button>
+                <button type="button" onClick={() => void handleDownloadEventSchedulePreview()} style={{ ...buttonStyle, padding: "8px 12px" }}>
+                  Download
+                </button>
+                <button type="button" onClick={handlePrintEventSchedulePreview} style={{ ...buttonStyle, padding: "8px 12px" }}>
+                  Print
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowEventSchedulePreview(false)}
+                  style={{
+                    ...buttonStyle,
+                    padding: "8px 12px",
+                    background: "var(--cfsp-button-secondary-bg)",
+                    color: "var(--cfsp-button-secondary-text)",
+                    border: "1px solid var(--cfsp-button-secondary-border)",
+                  }}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+            <div style={{ minHeight: "min(74vh, 860px)", background: "#ffffff" }}>
+              <iframe
+                ref={schedulePreviewFrameRef}
+                title="Event schedule preview"
+                src={schedulePreviewHref}
+                style={{ width: "100%", height: "100%", minHeight: "min(74vh, 860px)", border: "none", display: "block", background: "#fff" }}
+              />
+            </div>
+          </div>
+        </div>
+      ) : null}
       {materialPreview ? (
         <div
           role="dialog"
