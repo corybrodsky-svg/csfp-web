@@ -3324,6 +3324,14 @@ function hasMaterialEvidence(metadata: TrainingEventMetadata) {
 }
 
 function getEmailStatusLabel(metadata: TrainingEventMetadata) {
+  const hiringSent = Boolean(asText(metadata.hiring_email_sent_or_marked_at));
+  const confirmationSent = Boolean(asText(metadata.confirmation_email_sent_or_marked_at));
+  const hiringDrafted = Boolean(asText(metadata.hiring_email_drafted_at));
+  const confirmationDrafted = Boolean(asText(metadata.confirmation_email_drafted_at));
+
+  if (hiringSent && confirmationSent) return "Sent";
+  if (hiringSent || confirmationSent || hiringDrafted || confirmationDrafted) return "In progress";
+
   const status = asText(metadata.email_status).toLowerCase();
   if (status === "sent") return "Sent";
   if (status === "draft_opened") return "Draft opened";
@@ -5382,6 +5390,16 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
   ]);
   const recordingAvailabilityDate = parseOperationalDate(recordingAvailabilityDateText, importedYearHint);
   const emailStatusLabel = getEmailStatusLabel(trainingMetadata);
+  const hiringEmailDrafted = Boolean(asText(trainingMetadata.hiring_email_drafted_at));
+  const hiringEmailSent = Boolean(asText(trainingMetadata.hiring_email_sent_or_marked_at));
+  const confirmationEmailDrafted = Boolean(asText(trainingMetadata.confirmation_email_drafted_at));
+  const confirmationEmailSent = Boolean(asText(trainingMetadata.confirmation_email_sent_or_marked_at));
+  const staffingEmailWorkflowDetail = [
+    hiringEmailSent ? "Hiring sent" : hiringEmailDrafted ? "Hiring drafted" : "",
+    confirmationEmailSent ? "Confirmation sent" : confirmationEmailDrafted ? "Confirmation drafted" : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
   const facultyReadinessComplete = Boolean(
     trainingFacultyText || facultyEmailText || facultyPhoneText || trainingMetadata.sim_contact || hasFaculty
   );
@@ -5409,7 +5427,7 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       ? "Builder progress is saved. Review the Time Ticket or reopen the builder to finish details."
       : "Open the builder to set learner flow, room spread, and timing blocks.";
   const staffingCoverageMet = staffingRelevant && (needed > 0 ? confirmedCount >= needed : selectedStaffingCount > 0);
-  const staffingCommunicationComplete = emailStatusLabel === "Sent";
+  const staffingCommunicationComplete = hiringEmailSent && confirmationEmailSent;
   const staffingCommandCenterCanCollapse =
     staffingRelevant && staffingCoverageMet && staffingCommunicationComplete;
   useEffect(() => {
@@ -5447,11 +5465,13 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       Boolean(assignment.last_contacted_at) || ["contacted", "confirmed", "declined"].includes(getAssignmentStatus(assignment))
   )
     ? "In progress"
-    : emailStatusLabel === "Sent"
-      ? "Sent"
-      : emailStatusLabel === "Draft opened"
-        ? "Draft opened"
-        : "Not started";
+    : hiringEmailSent && confirmationEmailSent
+      ? "Ready"
+      : hiringEmailSent || confirmationEmailSent || hiringEmailDrafted || confirmationEmailDrafted
+        ? "In progress"
+        : emailStatusLabel === "Draft opened"
+          ? "Draft opened"
+          : "Not started";
   const trainingLocationModality =
     selectedModalityLabel === "Hybrid"
       ? event?.location
@@ -5970,7 +5990,8 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
   const communicationStatusItems = useMemo(
     () => [
       { label: "SP Poll Sent", active: asText(pollMetadata.pollStatus).toLowerCase() === "sent" },
-      { label: "Hiring Email Sent", active: outreachProgressLabel === "Sent" || outreachProgressLabel === "In progress" },
+      { label: "Hiring Email Sent", active: hiringEmailSent },
+      { label: "Confirmation Sent", active: confirmationEmailSent },
       { label: "Faculty Confirmed", active: facultyReadinessComplete && Boolean(facultyEmailText || facultyPhoneText || trainingFacultyText) },
       { label: "Training Complete", active: Boolean(hasTrainingScheduled && trainingImportResult) || sortedAssignments.some((assignment) => assignment.training_attended) },
       { label: "Reminder Needed", active: asText(pollMetadata.pollStatus).toLowerCase() === "draft_ready" || outreachProgressLabel === "Draft opened" },
@@ -5979,7 +6000,9 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       facultyEmailText,
       facultyPhoneText,
       facultyReadinessComplete,
+      confirmationEmailSent,
       hasTrainingScheduled,
+      hiringEmailSent,
       outreachProgressLabel,
       pollMetadata.pollStatus,
       sortedAssignments,
@@ -7639,7 +7662,7 @@ Cory`;
         ? "Needs Action"
         : "Not Started";
   const emailReadinessStatus: WorkflowReadinessStatus =
-    outreachProgressLabel === "Sent"
+    hiringEmailSent && confirmationEmailSent
       ? "Ready"
       : outreachProgressLabel === "In progress" || outreachProgressLabel === "Draft opened"
         ? "In Progress"
@@ -7756,9 +7779,9 @@ Cory`;
         { label: "Open Schedule Builder", href: expandedScheduleBuilderHref },
         {
           label: "Open Time Ticket",
-          onClick: () => handleOpenEventScheduleRouteInNewTab("timeline"),
+          onClick: () => handleOpenEventScheduleRouteInNewTab("timeline", "ticket"),
         },
-        { label: "Preview Full Schedule", onClick: () => handleOpenEventScheduleRouteInNewTab("rotation") },
+        { label: "Preview Full Schedule", onClick: () => handleOpenEventScheduleRouteInNewTab("rotation", "schedule") },
         ...(scheduleCompleted ? [] : [{ label: "Mark Schedule Complete", onClick: () => void handleMarkScheduleComplete(), disabled: saving }]),
       ],
     },
@@ -7766,15 +7789,17 @@ Cory`;
       id: "email",
       label: "Email / contact",
       status: emailReadinessStatus,
-      value: outreachProgressLabel,
+      value: staffingEmailWorkflowDetail || outreachProgressLabel,
       explanation:
-        outreachProgressLabel === "Sent"
-          ? "Hiring or staffing communication is marked sent."
-          : outreachProgressLabel === "In progress"
-            ? "SP contact activity exists; finalize any remaining hiring communication in the staffing workflow."
-            : outreachProgressLabel === "Draft opened"
-              ? "A draft was opened, but final sending is not tracked in CFSP yet."
-              : "Hiring communication has not been finalized from this event page.",
+        hiringEmailSent && confirmationEmailSent
+          ? "Hiring and confirmation emails are both marked sent."
+          : hiringEmailSent || confirmationEmailSent
+            ? "One staffing email workflow is complete. Send the remaining hiring or confirmation email to finish communications."
+            : outreachProgressLabel === "In progress"
+              ? "SP contact activity exists; finalize both hiring and confirmation communication in the staffing workflow."
+              : outreachProgressLabel === "Draft opened"
+                ? "A staffing email draft has been prepared, but the send step is still waiting for confirmation."
+                : "Hiring communication has not been finalized from this event page.",
       actions: [
         {
           label: "Open Hiring Email",
@@ -8340,12 +8365,15 @@ Cory`;
     );
   }
 
-  function handleOpenEventScheduleRouteInNewTab(kind: EventSchedulePreviewKind) {
+  function handleOpenEventScheduleRouteInNewTab(kind: EventSchedulePreviewKind, previewFamily?: "ticket" | "schedule") {
     const params = new URLSearchParams();
     params.set("source", "event-preview");
     params.set("view", roundCompanionView);
     params.set("preview", kind);
     params.set("previewMode", "1");
+    if (previewFamily) {
+      params.set("previewFamily", previewFamily);
+    }
 
     if (selectedRotationRound) {
       params.set("round", selectedRotationRound.key);
@@ -9175,6 +9203,9 @@ Cory`;
       {
         email_status: "draft_opened",
         email_draft_opened_at: new Date().toISOString(),
+        hiring_email_drafted_at: new Date().toISOString(),
+        last_email_workflow_type: "hiring",
+        last_email_recipient_count: String(hiringEmailBccEmails.length),
       },
       "Draft opened."
     );
@@ -9266,6 +9297,9 @@ Cory`;
       {
         email_status: "draft_opened",
         email_draft_opened_at: new Date().toISOString(),
+        confirmation_email_drafted_at: new Date().toISOString(),
+        last_email_workflow_type: "confirmation",
+        last_email_recipient_count: String(confirmationBccEmails.length),
       },
       "Confirmation draft opened."
     );
@@ -9598,11 +9632,23 @@ Cory`;
   }
 
   async function handleMarkStaffingEmailSent(kind: "hiring" | "confirmation") {
+    const sentAt = new Date().toISOString();
     await persistTrainingMetadataFields(
-      {
-        email_status: "sent",
-        email_sent_at: new Date().toISOString(),
-      },
+      kind === "hiring"
+        ? {
+            email_status: confirmationEmailSent ? "sent" : "draft_opened",
+            email_sent_at: sentAt,
+            hiring_email_sent_or_marked_at: sentAt,
+            last_email_workflow_type: "hiring",
+            last_email_recipient_count: String(hiringEmailBccEmails.length),
+          }
+        : {
+            email_status: hiringEmailSent ? "sent" : "draft_opened",
+            email_sent_at: sentAt,
+            confirmation_email_sent_or_marked_at: sentAt,
+            last_email_workflow_type: "confirmation",
+            last_email_recipient_count: String(confirmationBccEmails.length),
+          },
       kind === "hiring" ? "Hiring email marked sent." : "Confirmation email marked sent."
     );
   }
@@ -10701,7 +10747,7 @@ Cory`;
                   <button
                     type="button"
                     onClick={() => {
-                      handleOpenEventScheduleRouteInNewTab("timeline");
+                      handleOpenEventScheduleRouteInNewTab("timeline", "ticket");
                     }}
                     style={{ ...buttonStyle, padding: "7px 10px" }}
                   >
@@ -11474,7 +11520,7 @@ Cory`;
                   {needed} needed · {confirmedCount} confirmed · Coverage met
                 </div>
                 <div style={{ marginTop: "6px", color: "#166534", fontWeight: 700, fontSize: "13px" }}>
-                  {emailStatusLabel === "Sent" ? "Hiring complete · Confirmation sent" : "Coverage complete"}
+                  {staffingEmailWorkflowDetail || "Coverage complete"}
                 </div>
               </div>
               <button
@@ -14362,7 +14408,7 @@ Cory`;
                     <button
                       type="button"
                       onClick={() => {
-                        handleOpenEventScheduleRouteInNewTab("timeline");
+                        handleOpenEventScheduleRouteInNewTab("timeline", "ticket");
                       }}
                       style={{ ...buttonStyle, padding: "9px 12px" }}
                     >
@@ -14370,7 +14416,7 @@ Cory`;
                     </button>
                     <button
                       type="button"
-                      onClick={() => handleOpenEventScheduleRouteInNewTab("rotation")}
+                      onClick={() => handleOpenEventScheduleRouteInNewTab("rotation", "schedule")}
                       style={{ ...buttonStyle, padding: "9px 12px" }}
                     >
                       Preview Full Schedule

@@ -58,6 +58,12 @@ export type TrainingEventMetadata = {
   email_status: string;
   email_sent_at: string;
   email_draft_opened_at: string;
+  hiring_email_drafted_at: string;
+  hiring_email_sent_or_marked_at: string;
+  confirmation_email_drafted_at: string;
+  confirmation_email_sent_or_marked_at: string;
+  last_email_workflow_type: string;
+  last_email_recipient_count: string;
   imported_event_info_at: string;
   imported_event_info_count: string;
   imported_training_date: string;
@@ -132,6 +138,12 @@ const TRAINING_METADATA_KEYS = [
   "email_status",
   "email_sent_at",
   "email_draft_opened_at",
+  "hiring_email_drafted_at",
+  "hiring_email_sent_or_marked_at",
+  "confirmation_email_drafted_at",
+  "confirmation_email_sent_or_marked_at",
+  "last_email_workflow_type",
+  "last_email_recipient_count",
   "imported_event_info_at",
   "imported_event_info_count",
   "imported_training_date",
@@ -215,6 +227,12 @@ export function emptyTrainingEventMetadata(): TrainingEventMetadata {
     email_status: "",
     email_sent_at: "",
     email_draft_opened_at: "",
+    hiring_email_drafted_at: "",
+    hiring_email_sent_or_marked_at: "",
+    confirmation_email_drafted_at: "",
+    confirmation_email_sent_or_marked_at: "",
+    last_email_workflow_type: "",
+    last_email_recipient_count: "",
     imported_event_info_at: "",
     imported_event_info_count: "",
     imported_training_date: "",

@@ -39,6 +39,11 @@ function getInitialPreviewKind(raw: string | null) {
   return null;
 }
 
+function getPreviewFamily(raw: string | null) {
+  if (raw === "ticket" || raw === "schedule") return raw;
+  return null;
+}
+
 export default function EventScopedScheduleBuilderPage() {
   const params = useParams();
   const searchParams = useSearchParams();
@@ -48,6 +53,7 @@ export default function EventScopedScheduleBuilderPage() {
   const initialCompanionView = getInitialCompanionView(searchParams.get("view"));
   const initialScheduleViewMode = getInitialScheduleView(searchParams.get("view"));
   const initialPreviewKind = getInitialPreviewKind(searchParams.get("preview"));
+  const previewFamily = getPreviewFamily(searchParams.get("previewFamily"));
   const previewOnly = searchParams.get("previewMode") === "1";
 
   if (previewOnly) {
@@ -60,6 +66,7 @@ export default function EventScopedScheduleBuilderPage() {
         initialCompanionView={initialCompanionView}
         initialScheduleViewMode={initialScheduleViewMode}
         initialPreviewKind={initialPreviewKind}
+        previewFamily={previewFamily}
         previewOnly
       />
     );
@@ -80,6 +87,7 @@ export default function EventScopedScheduleBuilderPage() {
         initialCompanionView={initialCompanionView}
         initialScheduleViewMode={initialScheduleViewMode}
         initialPreviewKind={initialPreviewKind}
+        previewFamily={previewFamily}
       />
     </SiteShell>
   );

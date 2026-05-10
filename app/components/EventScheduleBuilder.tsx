@@ -32,6 +32,7 @@ type EventsResponse = {
 
 type ScheduleCompanionView = "announcements" | "student" | "sp" | "operations";
 type ScheduleBuilderViewMode = "student" | "operations";
+type SchedulePreviewFamily = "ticket" | "schedule";
 
 type EventScheduleBuilderProps = {
   fixedEventId?: string;
@@ -43,6 +44,7 @@ type EventScheduleBuilderProps = {
   initialCompanionView?: ScheduleCompanionView | null;
   initialScheduleViewMode?: ScheduleBuilderViewMode | null;
   initialPreviewKind?: SchedulePreviewKind | null;
+  previewFamily?: SchedulePreviewFamily | null;
   previewOnly?: boolean;
 };
 
@@ -241,6 +243,11 @@ const schedulePreviewKindOptions: Array<{ value: SchedulePreviewKind; label: str
   { value: "rotation", label: "Full Operations Schedule" },
   { value: "announcements", label: "Announcement Schedule" },
 ];
+
+function getPreviewFamilyForKind(kind: SchedulePreviewKind, preferredFamily?: SchedulePreviewFamily | null) {
+  if (preferredFamily) return preferredFamily;
+  return kind === "rotation" || kind === "announcements" ? "schedule" : "ticket";
+}
 
 function getScheduleCompanionViewLabel(view: ScheduleCompanionView | null | undefined) {
   return view ? scheduleCompanionViewLabels[view] : "Command Surface";
@@ -1213,6 +1220,7 @@ function escapeHtml(text: string) {
 
 function buildSchedulePreviewData(args: {
   kind: SchedulePreviewKind;
+  previewFamily?: SchedulePreviewFamily | null;
   event: EventRow | null;
   timeline: TimelineBlock[];
   rounds: ScheduledRound[];
@@ -1229,6 +1237,7 @@ function buildSchedulePreviewData(args: {
 }) {
   const {
     kind,
+    previewFamily,
     event,
     timeline,
     rounds,
@@ -1240,13 +1249,14 @@ function buildSchedulePreviewData(args: {
   } = args;
 
   const isOperations = kind === "operations" || kind === "rotation";
+  const effectivePreviewFamily = getPreviewFamilyForKind(kind, previewFamily);
   const titleMap: Record<SchedulePreviewKind, string> = {
     timeline: "Faculty Time Ticket",
     announcements: "Announcement Schedule",
-    student: "Student Time Ticket",
-    sp: "SP Time Ticket",
-    operations: "Sim Ops Time Ticket",
-    rotation: "Full Operations Schedule",
+    student: effectivePreviewFamily === "schedule" ? "Student Schedule" : "Student Time Ticket",
+    sp: effectivePreviewFamily === "schedule" ? "SP Schedule" : "SP Time Ticket",
+    operations: effectivePreviewFamily === "schedule" ? "Operations Schedule" : "Sim Ops Time Ticket",
+    rotation: "Rotation Schedule",
   };
 
   const lines: string[] = [];
@@ -1349,6 +1359,197 @@ function buildSchedulePreviewData(args: {
     ? `${timeline.length} timeline block${timeline.length === 1 ? "" : "s"} · ${Math.max(generated.rotationEnd - generated.rotationStart, 0)} min planned`
     : "No timeline blocks configured";
 
+  const eventMetaHtml = event
+    ? `
+        <div class="event-meta">
+          <div class="event-meta-card">
+            <div class="event-meta-label">Event</div>
+            <div class="event-meta-value">${escapeHtml(event.name || "Untitled Event")}</div>
+          </div>
+          <div class="event-meta-card">
+            <div class="event-meta-label">Date / Location</div>
+            <div class="event-meta-value">${escapeHtml(`${formatEventDate(event)}${event.location ? ` · ${event.location}` : ""}`)}</div>
+          </div>
+          ${
+            selectedEventSummaryTime
+              ? `
+                <div class="event-meta-card">
+                  <div class="event-meta-label">Time Window</div>
+                  <div class="event-meta-value">${escapeHtml(selectedEventSummaryTime)}</div>
+                </div>
+              `
+              : ""
+          }
+          <div class="event-meta-card">
+            <div class="event-meta-label">Rooms in Rotation</div>
+            <div class="event-meta-value">${generated.rounds[0]?.roomSlots.length || 0}</div>
+          </div>
+        </div>
+      `
+    : "";
+
+  const renderTimelineBlocks = (blocks: TimelineBlock[]) =>
+    blocks.length
+      ? blocks
+          .map((block) => {
+            const tone = getToneStyles(block.tone);
+            return `
+              <div class="timeline-card" style="background:${tone.background}; border-color:${tone.border}; color:${tone.color};">
+                <div class="timeline-range">${escapeHtml(formatRange(block.start, block.end))}</div>
+                <div class="timeline-title">${escapeHtml(block.label)}</div>
+                <div class="timeline-detail">${escapeHtml(block.detail || formatDurationCompact(getBlockDurationMinutes(block.start, block.end)))}</div>
+              </div>
+            `;
+          })
+          .join("")
+      : `<div class="empty-state">No timing blocks are configured yet.</div>`;
+
+  const renderRoundSections = (mode: "ticket" | "schedule") =>
+    rounds.length
+      ? rounds
+          .map((round) => {
+            const subBlockHtml = round.subBlocks.length
+              ? round.subBlocks
+                  .map((subBlock) => {
+                    const segmentTone = getFlowRhythmSegmentStyles(subBlock.label);
+                    return `
+                      <span class="subblock-chip" style="background:${segmentTone.background}; border-color:${segmentTone.borderColor}; color:${segmentTone.color};">
+                        ${escapeHtml(subBlock.label)} ${escapeHtml(formatDurationCompact(getBlockDurationMinutes(subBlock.start, subBlock.end)))}
+                      </span>
+                    `;
+                  })
+                  .join("")
+              : `<span class="subblock-chip muted">Encounter flow only</span>`;
+
+            const roomRows = round.roomSlots.length
+              ? round.roomSlots
+                  .map((slot, slotIndex) => {
+                    const displayRoomName = formatRoomName(slot.roomName, slot.roomType, slotIndex + 1, roomContext);
+                    const assignmentIndex = round.roomSlots.findIndex((item) => item.roomName === slot.roomName);
+                    const learnerText = slot.learnerLabels.length ? slot.learnerLabels.join(", ") : "No learner assigned";
+                    const spName = assignedSpNames?.[assignmentIndex] || "Unassigned";
+
+                    return `
+                      <div class="room-row">
+                        <div class="room-row-head">
+                          <span class="room-name">${escapeHtml(displayRoomName)}</span>
+                          <span class="room-capacity">${escapeHtml(slot.capacityLabel)}</span>
+                        </div>
+                        ${
+                          mode === "ticket"
+                            ? `
+                              <div class="room-row-detail">${escapeHtml(kind === "sp" ? `Assignment: ${spName}` : learnerText)}</div>
+                            `
+                            : `
+                              <div class="room-row-grid">
+                                ${
+                                  kind !== "sp"
+                                    ? `<div><span class="detail-label">Learner</span><span class="detail-value">${escapeHtml(learnerText)}</span></div>`
+                                    : ""
+                                }
+                                ${
+                                  kind === "sp"
+                                    ? `<div><span class="detail-label">Assignment</span><span class="detail-value">${escapeHtml(spName)}</span></div>`
+                                    : ""
+                                }
+                                ${
+                                  mode === "schedule" && isOperations
+                                    ? `<div><span class="detail-label">SP</span><span class="detail-value">${escapeHtml(spName)}</span></div>`
+                                    : ""
+                                }
+                                ${
+                                  mode === "schedule" && caseName
+                                    ? `<div><span class="detail-label">Case</span><span class="detail-value">${escapeHtml(caseName)}</span></div>`
+                                    : ""
+                                }
+                              </div>
+                            `
+                        }
+                      </div>
+                    `;
+                  })
+                  .join("")
+              : `<div class="empty-state">No room assignments generated for this round yet.</div>`;
+
+            return `
+              <section class="round-section">
+                <div class="round-header">
+                  <div>
+                    <div class="round-kicker">Round ${round.round}</div>
+                    <h2>${escapeHtml(formatRange(round.start, round.end))}</h2>
+                  </div>
+                  <div class="round-summary">${subBlockHtml}</div>
+                </div>
+                <div class="room-grid">${roomRows}</div>
+              </section>
+            `;
+          })
+          .join("")
+      : `<div class="empty-state">No rotation schedule has been generated yet.</div>`;
+
+  const previewBody =
+    kind === "announcements"
+      ? `
+        <div class="preview-shell">
+          <div class="preview-header">
+            <h1>${escapeHtml(titleMap[kind])}</h1>
+            <div class="meta">${escapeHtml(event ? `Generated from ${event.name || "Untitled Event"}` : "Schedule Builder")}</div>
+            <div class="meta">${escapeHtml(timelineSummary)}</div>
+          </div>
+          ${eventMetaHtml}
+          <section class="round-section">
+            <div class="round-header">
+              <div>
+                <div class="round-kicker">Announcement flow</div>
+                <h2>Operational prompts and pacing</h2>
+              </div>
+            </div>
+            <div class="timeline-grid">${renderTimelineBlocks(timeline)}</div>
+          </section>
+        </div>
+      `
+      : effectivePreviewFamily === "ticket"
+        ? `
+          <div class="preview-shell">
+            <div class="preview-header">
+              <h1>${escapeHtml(titleMap[kind])}</h1>
+              <div class="meta">${escapeHtml(event ? `Generated from ${event.name || "Untitled Event"}` : "Schedule Builder")}</div>
+              <div class="meta">${escapeHtml(timelineSummary)}</div>
+            </div>
+            ${eventMetaHtml}
+            <section class="round-section">
+              <div class="round-header">
+                <div>
+                  <div class="round-kicker">Time Ticket</div>
+                  <h2>Day flow at a glance</h2>
+                </div>
+              </div>
+              <div class="timeline-grid">${renderTimelineBlocks(timeline)}</div>
+            </section>
+            ${renderRoundSections("ticket")}
+          </div>
+        `
+        : `
+          <div class="preview-shell">
+            <div class="preview-header">
+              <h1>${escapeHtml(titleMap[kind])}</h1>
+              <div class="meta">${escapeHtml(event ? `Generated from ${event.name || "Untitled Event"}` : "Schedule Builder")}</div>
+              <div class="meta">${escapeHtml(timelineSummary)}</div>
+            </div>
+            ${eventMetaHtml}
+            <section class="round-section">
+              <div class="round-header">
+                <div>
+                  <div class="round-kicker">Schedule rhythm</div>
+                  <h2>Operational day flow</h2>
+                </div>
+              </div>
+              <div class="timeline-grid">${renderTimelineBlocks(timeline)}</div>
+            </section>
+            ${renderRoundSections("schedule")}
+          </div>
+        `;
+
   return {
     kind,
     title: titleMap[kind],
@@ -1361,20 +1562,40 @@ function buildSchedulePreviewData(args: {
           <meta charSet="UTF-8" />
           <title>${titleMap[kind]}</title>
           <style>
-            body { margin: 0; padding: 24px; font-family: Arial, Helvetica, sans-serif; color: #17304f; background: #fff; }
-            .meta { color: #5e7388; font-size: 12px; margin-bottom: 12px; }
-            h1 { margin: 0 0 6px; font-size: 24px; }
-            pre { margin: 0; padding: 12px; border: 1px solid #dce6ee; border-radius: 10px; background: #f7fafc; overflow: auto; white-space: pre-wrap; }
-            .line { line-height: 1.5; }
+            body { margin: 0; padding: 24px; font-family: Arial, Helvetica, sans-serif; color: #17304f; background: #f7fafc; }
+            .preview-shell { display: grid; gap: 16px; }
+            .preview-header { display: grid; gap: 6px; }
+            .meta { color: #5e7388; font-size: 12px; }
+            h1 { margin: 0; font-size: 24px; }
+            h2 { margin: 0; font-size: 18px; color: #14304f; }
+            .event-meta { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+            .event-meta-card, .round-section { border: 1px solid #dce6ee; border-radius: 14px; background: #ffffff; }
+            .event-meta-card { padding: 12px 14px; }
+            .event-meta-label, .detail-label { display: block; color: #5e7388; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+            .event-meta-value, .detail-value { display: block; margin-top: 6px; color: #14304f; font-size: 14px; font-weight: 700; }
+            .round-section { padding: 16px; display: grid; gap: 14px; }
+            .round-header { display: flex; gap: 12px; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; }
+            .round-kicker { color: #5e7388; font-size: 11px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 6px; }
+            .round-summary { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+            .subblock-chip { border: 1px solid #d6e0e8; border-radius: 999px; padding: 6px 10px; font-size: 12px; font-weight: 700; }
+            .subblock-chip.muted { background: #f8fafc; color: #64748b; border-color: #dbe4ee; }
+            .timeline-grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
+            .timeline-card { border: 1px solid #dce6ee; border-radius: 14px; padding: 12px; display: grid; gap: 6px; }
+            .timeline-range { font-size: 12px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; }
+            .timeline-title { font-size: 15px; font-weight: 800; }
+            .timeline-detail { font-size: 12px; color: inherit; opacity: 0.88; }
+            .room-grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }
+            .room-row { border: 1px solid #dce6ee; border-radius: 12px; padding: 12px; background: #f8fbfd; display: grid; gap: 8px; }
+            .room-row-head { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+            .room-name { font-size: 14px; font-weight: 800; color: #14304f; }
+            .room-capacity { font-size: 11px; font-weight: 700; color: #5e7388; text-transform: uppercase; letter-spacing: 0.06em; }
+            .room-row-detail { font-size: 13px; color: #35526f; line-height: 1.5; }
+            .room-row-grid { display: grid; gap: 8px; }
+            .empty-state { border: 1px dashed #cbd5e1; border-radius: 12px; padding: 14px; color: #64748b; background: #fff; font-size: 13px; font-weight: 600; }
           </style>
         </head>
         <body>
-          <div>
-            <h1>${escapeHtml(titleMap[kind])}</h1>
-            <div class="meta">${escapeHtml(event ? `Generated from ${event.name || "Untitled Event"}` : "Schedule Builder")}</div>
-            <div class="meta">${escapeHtml(timelineSummary)}</div>
-            <pre class="line">${escapeHtml(lines.join("\n"))}</pre>
-          </div>
+          ${previewBody}
         </body>
       </html>
     `,
@@ -2234,6 +2455,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const schedulePreviews = useMemo(() => {
     const timelinePreview = buildSchedulePreviewData({
       kind: "timeline",
+      previewFamily: props.previewFamily,
       event: selectedEvent,
       timeline: generated.timeline,
       rounds: contextualPreviewRounds,
@@ -2245,6 +2467,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     });
     const announcementPreview = buildSchedulePreviewData({
       kind: "announcements",
+      previewFamily: props.previewFamily,
       event: selectedEvent,
       timeline: visibleTimeline,
       rounds: contextualPreviewRounds,
@@ -2256,6 +2479,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     });
     const studentPreview = buildSchedulePreviewData({
       kind: "student",
+      previewFamily: props.previewFamily,
       event: selectedEvent,
       timeline: generated.timeline,
       rounds: contextualPreviewRounds,
@@ -2267,6 +2491,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     });
     const spPreview = buildSchedulePreviewData({
       kind: "sp",
+      previewFamily: props.previewFamily,
       event: selectedEvent,
       timeline: generated.timeline,
       rounds: contextualPreviewRounds,
@@ -2278,6 +2503,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     });
     const operationsPreview = buildSchedulePreviewData({
       kind: "operations",
+      previewFamily: props.previewFamily,
       event: selectedEvent,
       timeline: generated.timeline,
       rounds: contextualOperationsRounds,
@@ -2289,6 +2515,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     });
     const rotationPreview = buildSchedulePreviewData({
       kind: "rotation",
+      previewFamily: props.previewFamily,
       event: selectedEvent,
       timeline: generated.timeline,
       rounds: contextualOperationsRounds,
@@ -2316,6 +2543,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     selectedEventMetadata.case_name,
     selectedEventSummaryTime,
     visibleTimeline,
+    props.previewFamily,
   ]);
   const schedulePreview = schedulePreviews[previewKind];
   const selectedPreviewFileName = `${getSafeFileName(schedulePreview.title)}.html`;
