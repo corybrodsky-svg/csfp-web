@@ -3285,14 +3285,28 @@ function serializeWorkflowManualChecks(ids: string[]) {
   return Array.from(new Set(ids.map((item) => item.trim()).filter(Boolean))).join("|");
 }
 
-function inferEventModalityLabel(eventTypeSet: Set<EditableEventType>, metadata: TrainingEventMetadata, event?: EventDetailRow | null) {
+function hasPhysicalEventLocation(value: string | null | undefined) {
+  const text = asText(value).toLowerCase();
+  if (!text) return false;
+  if (/\b(zoom|virtual|telehealth|breakout|online|remote|simiq)\b/.test(text)) return false;
+  return /\b(campus|center|centre|building|room|suite|lab|hospital|clinic|hall|floor|site|onsite|on-site|in person|in-person|elkins park)\b/.test(text);
+}
+
+function inferEventModalityLabel(
+  explicitEventTypeSet: Set<EditableEventType>,
+  metadata: TrainingEventMetadata,
+  event?: EventDetailRow | null
+) {
   const explicit = asText(metadata.modality).toLowerCase();
   if (explicit === "virtual") return "Virtual";
   if (explicit === "hybrid") return "Hybrid";
   if (explicit === "in_person" || explicit === "in-person" || explicit === "in person") return "In-person";
 
-  const source = [event?.name, event?.location, event?.notes].map(asText).join(" ").toLowerCase();
-  if (eventTypeSet.has("virtual") || /\b(virtual|vir|zoom|breakout)\b/.test(source)) return "Virtual";
+  if (hasPhysicalEventLocation(event?.location)) return "In-person";
+  if (explicitEventTypeSet.has("virtual")) return "Virtual";
+
+  const source = [event?.name, event?.location, event?.status, event?.visibility].map(asText).join(" ").toLowerCase();
+  if (/\b(virtual|vir|telehealth|breakout|online|remote|simiq)\b/.test(source)) return "Virtual";
   return "In-person";
 }
 
@@ -4260,6 +4274,7 @@ export default function EventDetailPage() {
   const badgeAppearance = getEventBadgeAppearance(eventMeta.primaryBadgeKind);
   const isWorkshop = eventMeta.isSkillsWorkshop;
   const explicitEventTypes = getExplicitEventTypes(eventEditor.notes);
+  const explicitEventTypeSet = useMemo(() => new Set(explicitEventTypes), [explicitEventTypes]);
   const activeEventTypes = (explicitEventTypes.length
     ? explicitEventTypes
     : eventMeta.activeEventTypes) as EditableEventType[];
@@ -4425,16 +4440,15 @@ export default function EventDetailPage() {
     () => parseTrainingEventMetadata(eventEditor.notes),
     [eventEditor.notes]
   );
-  const selectedModalityLabel = inferEventModalityLabel(activeEventTypeSet, trainingMetadata, event);
+  const selectedModalityLabel = inferEventModalityLabel(explicitEventTypeSet, trainingMetadata, event);
+  const isEventVirtual = selectedModalityLabel === "Virtual";
+  const isEventHybrid = selectedModalityLabel === "Hybrid";
   const roomNamingContext = useMemo(
     () => ({
       modalityLabel: selectedModalityLabel,
-      telehealthOrZoomEnabled:
-        selectedModalityLabel === "Virtual" ||
-        selectedModalityLabel === "Hybrid" ||
-        /zoom|telehealth|virtual/i.test(asText(event?.location)),
+      telehealthOrZoomEnabled: isEventVirtual || isEventHybrid,
     }),
-    [event?.location, selectedModalityLabel]
+    [isEventHybrid, isEventVirtual, selectedModalityLabel]
   );
   const roomSlotEntriesByRoundKey = useMemo(() => {
     const next = new Map<string, RoomDisplayEntry[]>();
@@ -5507,11 +5521,6 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
   const facultyLedTraining = trainingOwnershipValue === "faculty_led" || trainingOwnershipValue === "shared";
   const internalTraining = trainingOwnershipValue === "internal_sim";
   const facultyAvailabilityUnknown = isMetadataYes(trainingMetadata.faculty_availability_unknown);
-  const trainingZoomRequired =
-    isMetadataYes(trainingMetadata.training_zoom_required) ||
-    eventMeta.isVirtualSp ||
-    selectedModalityLabel === "Virtual" ||
-    selectedModalityLabel === "Hybrid";
   const trainingRecordingPlanned = isMetadataYes(trainingMetadata.training_recording_planned);
   const facultyTrainingCoordinationRequested =
     isMetadataYes(trainingMetadata.faculty_training_coordination_requested) ||
@@ -5549,6 +5558,20 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       asText(trainingMetadata.zoom_url) ||
         getFirstNoteValue(event?.notes, ["Training Link", "Zoom", "Zoom Link", "SimIQ", "Virtual Link"])
     );
+  const trainingAccessSourceText = [
+    trainingMetadata.zoom_url,
+    normalEventTrainingLink,
+    trainingMetadata.training_notes,
+    getFirstNoteValue(event?.notes, ["Training Link", "Zoom", "Zoom Link", "SimIQ", "Virtual Link"]),
+  ]
+    .map(asText)
+    .join(" ")
+    .toLowerCase();
+  const isTrainingVirtual =
+    isMetadataYes(trainingMetadata.training_zoom_required) ||
+    /\b(zoom|virtual|telehealth|online|remote|simiq)\b/.test(trainingAccessSourceText);
+  const trainingZoomRequired =
+    isMetadataYes(trainingMetadata.training_zoom_required) || isTrainingVirtual;
   const normalEventTrainingDate = parseOperationalDate(normalEventTrainingDateText, importedYearHint);
   const normalEventTrainingCountdownStartTimeText =
     asText(trainingMetadata.preferred_training_time) ||
@@ -5607,6 +5630,11 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
               : trainingRequiredExplicit
                 ? "Training ownership TBD"
                 : "Training planning TBD";
+  const trainingModalityLabel = trainingNotRequired
+    ? "Training not required"
+    : isTrainingVirtual
+      ? "Virtual Training"
+      : "In-person Training";
   const normalEventTrainingCountdownLabel =
     normalEventTrainingComplete || trainingNotRequired
       ? getTrainingCountdownLabel(normalEventTrainingDate, normalEventTrainingComplete, normalEventTrainingHasInfo)

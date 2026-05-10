@@ -49,7 +49,7 @@ function buildTitleText(input: EventClassificationInput) {
 }
 
 function buildLocationContextText(input: EventClassificationInput) {
-  return [input.location, input.notes]
+  return [input.location]
     .map(asText)
     .join(" ")
     .toLowerCase();
@@ -67,6 +67,10 @@ export function classifyEventPresentation(input: EventClassificationInput) {
   const eventText = buildEventText(input);
   const titleText = buildTitleText(input);
   const locationContextText = buildLocationContextText(input);
+  const modalityContextText = [input.name, input.status, input.location, input.visibility]
+    .map(asText)
+    .join(" ")
+    .toLowerCase();
   const spNeeded = Number(input.spNeeded || 0);
   const assignmentCount = Number(input.assignmentCount || 0);
   const confirmedCount = Number(input.confirmedCount || 0);
@@ -79,7 +83,7 @@ export function classifyEventPresentation(input: EventClassificationInput) {
     );
   const hasTrainingTitleSignal =
     /\btraining\b/.test(titleText) || titleText.includes("orientation") || titleText.includes("onboarding");
-  const hasVirtualKeyword = /\b(vir|virtual|telehealth|zoom|simiq)\b/.test(eventText);
+  const hasVirtualKeyword = /\b(vir|virtual|telehealth|zoom|simiq)\b/.test(modalityContextText);
 
   const isTraining =
     explicitTypeSet.has("training") ||
