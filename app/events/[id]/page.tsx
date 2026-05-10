@@ -12482,35 +12482,75 @@ Cory`;
                         {currentLiveReferenceScheduleRows.reduce((total, row) => total + row.learnerLabels.length, 0)}
                       </div>
                     </div>
-                    <div style={{ display: "flex", gap: "7px", flexWrap: "wrap", justifyContent: "flex-end" }}>
-                      <button
-                        type="button"
-                        onClick={() => void handleAddLiveBlueprintRoom()}
+                    <div style={{ display: "flex", gap: "7px", flexWrap: "wrap", justifyContent: "flex-end", alignItems: "center" }}>
+                      <div
+                        aria-label="Temporary room controls"
                         style={{
-                          ...buttonStyle,
-                          padding: "7px 10px",
-                          background: "rgba(20, 91, 150, 0.12)",
-                          color: "#bfdbfe",
-                          border: "1px solid rgba(20, 91, 150, 0.28)",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "4px",
+                          padding: "3px",
+                          borderRadius: "12px",
+                          border: "1px solid rgba(126, 231, 219, 0.18)",
+                          background: "rgba(6, 28, 43, 0.52)",
+                          boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06), 0 0 18px rgba(126, 231, 219, 0.06)",
                         }}
                       >
-                        + Add Room
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void handleRemoveLiveBlueprintRoom()}
-                        disabled={!liveExtraRoomCount}
-                        style={{
-                          ...buttonStyle,
-                          padding: "7px 10px",
-                          background: "rgba(255,255,255,0.06)",
-                          color: "#d6edf4",
-                          border: "1px solid rgba(255,255,255,0.12)",
-                          opacity: liveExtraRoomCount ? 1 : 0.4,
-                        }}
-                      >
-                        - Remove Extra Room
-                      </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleAddLiveBlueprintRoom()}
+                          aria-label="Add Room"
+                          title="Add Room"
+                          style={{
+                            ...buttonStyle,
+                            width: "30px",
+                            height: "30px",
+                            minWidth: "30px",
+                            padding: 0,
+                            borderRadius: "9px",
+                            display: "inline-flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            background: "rgba(20, 91, 150, 0.16)",
+                            color: "#dffbff",
+                            border: "1px solid rgba(126, 231, 219, 0.28)",
+                            boxShadow: "0 0 14px rgba(126, 231, 219, 0.1)",
+                            fontSize: "18px",
+                            lineHeight: 1,
+                            fontWeight: 950,
+                          }}
+                        >
+                          +
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleRemoveLiveBlueprintRoom()}
+                          disabled={!liveExtraRoomCount}
+                          aria-label="Remove Room"
+                          title="Remove Room"
+                          style={{
+                            ...buttonStyle,
+                            width: "30px",
+                            height: "30px",
+                            minWidth: "30px",
+                            padding: 0,
+                            borderRadius: "9px",
+                            display: "inline-flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            background: liveExtraRoomCount ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.035)",
+                            color: liveExtraRoomCount ? "#d6edf4" : "rgba(214, 237, 244, 0.45)",
+                            border: liveExtraRoomCount ? "1px solid rgba(191, 219, 254, 0.18)" : "1px solid rgba(255,255,255,0.08)",
+                            boxShadow: liveExtraRoomCount ? "0 0 12px rgba(191, 219, 254, 0.06)" : "none",
+                            opacity: liveExtraRoomCount ? 1 : 0.48,
+                            fontSize: "18px",
+                            lineHeight: 1,
+                            fontWeight: 950,
+                          }}
+                        >
+                          −
+                        </button>
+                      </div>
                       <span style={{ ...commandChipStyle, background: "rgba(25, 138, 112, 0.14)", color: "#b8e4d4" }}>
                         {liveBlueprintStaffedCount} staffed
                       </span>
