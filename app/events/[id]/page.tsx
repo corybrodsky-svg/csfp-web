@@ -2466,6 +2466,8 @@ function getFacultyContactPanelStorageKey(eventId: string) {
 }
 
 const LIVE_ROOM_BOARD_ADJUSTMENT_KEY = "__board__";
+const RECENT_EVENTS_STORAGE_KEY = "cfsp:recent-events";
+const RECENT_EVENTS_LIMIT = 8;
 
 function getStaffingCommandCenterStorageKey(eventId: string) {
   return `cfsp:staffing-command-center:${eventId || "global"}`;
@@ -4790,6 +4792,52 @@ export default function EventDetailPage() {
   const selectedModalityLabel = inferEventModalityLabel(explicitEventTypeSet, trainingMetadata, event);
   const isEventVirtual = selectedModalityLabel === "Virtual";
   const isEventHybrid = selectedModalityLabel === "Hybrid";
+  useEffect(() => {
+    if (typeof window === "undefined" || !event?.id) return;
+
+    const firstSession = sessions[0] || null;
+    const sessionTime =
+      firstSession?.start_time || firstSession?.end_time
+        ? [formatDisplayTime(firstSession.start_time), formatDisplayTime(firstSession.end_time)]
+            .filter(Boolean)
+            .join(" - ")
+        : "";
+    const dateText = [asText(event.date_text) || asText(firstSession?.session_date), sessionTime]
+      .filter(Boolean)
+      .join(" · ");
+    const nextEntry = {
+      id: event.id,
+      name: asText(event.name) || "Untitled Event",
+      dateText,
+      location: asText(event.location) || asText(firstSession?.location) || asText(firstSession?.room),
+      status: asText(event.status),
+      typeLabel: selectedModalityLabel,
+      openedAt: new Date().toISOString(),
+    };
+
+    try {
+      const parsed = JSON.parse(window.localStorage.getItem(RECENT_EVENTS_STORAGE_KEY) || "[]");
+      const existingEntries = Array.isArray(parsed) ? parsed : [];
+      const dedupedEntries = existingEntries.filter((entry) => {
+        if (!entry || typeof entry !== "object") return false;
+        return asText((entry as { id?: unknown }).id) !== event.id;
+      });
+      window.localStorage.setItem(
+        RECENT_EVENTS_STORAGE_KEY,
+        JSON.stringify([nextEntry, ...dedupedEntries].slice(0, RECENT_EVENTS_LIMIT))
+      );
+    } catch {
+      window.localStorage.setItem(RECENT_EVENTS_STORAGE_KEY, JSON.stringify([nextEntry]));
+    }
+  }, [
+    event?.date_text,
+    event?.id,
+    event?.location,
+    event?.name,
+    event?.status,
+    selectedModalityLabel,
+    sessions,
+  ]);
   const roomNamingContext = useMemo(
     () => ({
       modalityLabel: selectedModalityLabel,

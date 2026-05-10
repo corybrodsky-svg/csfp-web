@@ -90,6 +90,8 @@ const MAX_ROSTER_CHIPS = 12;
 const DASHBOARD_SECTION_PAGE_SIZE = 8;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const GLOBAL_EVENT_FINDER_COLLAPSED_KEY = "cfsp:dashboard-global-event-finder:collapsed";
+const RECENT_EVENTS_STORAGE_KEY = "cfsp:recent-events";
+const RECENT_EVENTS_LIMIT = 8;
 
 const FINDER_CHIPS: Array<{ key: FinderChipKey; label: string }> = [
   { key: "needs_staffing", label: "Needs Staffing" },
@@ -117,6 +119,16 @@ type FinderResult = {
   trainingLabel: string;
   modeLabel: string;
   dateLabel: string;
+};
+
+type RecentEventEntry = {
+  id: string;
+  name: string;
+  dateText: string;
+  location: string;
+  status: string;
+  typeLabel: string;
+  openedAt: string;
 };
 
 function asText(value: unknown) {
@@ -215,6 +227,57 @@ function toDateInputValue(date: Date) {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+function getRecentEventString(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function normalizeRecentEventEntry(value: unknown): RecentEventEntry | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  const id = getRecentEventString(record.id);
+  if (!id) return null;
+
+  return {
+    id,
+    name: getRecentEventString(record.name) || "Untitled Event",
+    dateText: getRecentEventString(record.dateText),
+    location: getRecentEventString(record.location),
+    status: getRecentEventString(record.status),
+    typeLabel: getRecentEventString(record.typeLabel),
+    openedAt: getRecentEventString(record.openedAt),
+  };
+}
+
+function readRecentEventsFromStorage() {
+  if (typeof window === "undefined") return [] as RecentEventEntry[];
+
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(RECENT_EVENTS_STORAGE_KEY) || "[]");
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map(normalizeRecentEventEntry)
+      .filter((entry): entry is RecentEventEntry => Boolean(entry))
+      .slice(0, RECENT_EVENTS_LIMIT);
+  } catch {
+    return [];
+  }
+}
+
+function formatRecentOpenedAt(value: string) {
+  const openedAt = value ? new Date(value) : null;
+  if (!openedAt || Number.isNaN(openedAt.getTime())) return "";
+
+  const elapsedMs = Date.now() - openedAt.getTime();
+  if (elapsedMs < 60_000) return "Just now";
+  const elapsedMinutes = Math.floor(elapsedMs / 60_000);
+  if (elapsedMinutes < 60) return `${elapsedMinutes}m ago`;
+  const elapsedHours = Math.floor(elapsedMinutes / 60);
+  if (elapsedHours < 24) return `${elapsedHours}h ago`;
+  const elapsedDays = Math.floor(elapsedHours / 24);
+  if (elapsedDays < 7) return `${elapsedDays}d ago`;
+  return openedAt.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
 function getStartOfWeek(date: Date) {
@@ -1260,6 +1323,113 @@ function GlobalEventFinder({
   );
 }
 
+function RecentEventsPanel({
+  recentEvents,
+  eventsById,
+  onClear,
+}: {
+  recentEvents: RecentEventEntry[];
+  eventsById: Map<string, EventRecord>;
+  onClear: () => void;
+}) {
+  return (
+    <section
+      className="cfsp-panel rounded-[14px] px-4 py-4"
+      style={{
+        border: "1px solid rgba(20, 91, 150, 0.12)",
+        background: "linear-gradient(180deg, rgba(255,255,255,0.95) 0%, rgba(247,250,252,0.92) 100%)",
+        boxShadow: "0 10px 26px rgba(24, 52, 78, 0.06)",
+      }}
+      aria-label="Recent Events"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="cfsp-label">Recent Events</div>
+          <p className="mt-1 text-xs font-semibold text-[var(--cfsp-text-muted)]">
+            Your last opened event workspaces on this device.
+          </p>
+        </div>
+        {recentEvents.length ? (
+          <button
+            type="button"
+            onClick={onClear}
+            className="rounded-[8px] px-2 py-1 text-[0.68rem] font-bold"
+            style={{
+              border: "1px solid rgba(20, 91, 150, 0.12)",
+              background: "rgba(255,255,255,0.74)",
+              color: "var(--cfsp-text-muted)",
+            }}
+          >
+            Clear recent
+          </button>
+        ) : null}
+      </div>
+
+      <div className="mt-3 grid gap-2">
+        {recentEvents.length ? (
+          recentEvents.map((recent) => {
+            const freshEvent = eventsById.get(recent.id);
+            const eventName = freshEvent?.name?.trim() || recent.name || "Untitled Event";
+            const eventDate = freshEvent?.date_text || recent.dateText;
+            const locationLabel = freshEvent ? eventLocation(freshEvent) : recent.location;
+            const statusLabel = freshEvent?.status || recent.status || recent.typeLabel || "Event";
+            const openedLabel = formatRecentOpenedAt(recent.openedAt);
+
+            return (
+              <article
+                key={recent.id}
+                className="rounded-[12px] px-3 py-3"
+                style={{
+                  border: "1px solid rgba(20, 91, 150, 0.1)",
+                  background: "rgba(255,255,255,0.72)",
+                }}
+              >
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="m-0 truncate text-sm font-black text-[var(--cfsp-text)]">
+                        {eventName}
+                      </h3>
+                      <span
+                        className="rounded-full px-2 py-0.5 text-[0.62rem] font-black uppercase tracking-[0.08em]"
+                        style={{
+                          border: "1px solid rgba(20, 91, 150, 0.14)",
+                          background: "rgba(20, 91, 150, 0.07)",
+                          color: "var(--cfsp-blue)",
+                        }}
+                      >
+                        {statusLabel}
+                      </span>
+                    </div>
+                    <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs font-semibold text-[var(--cfsp-text-muted)]">
+                      <span>{eventDate || "Date TBD"}</span>
+                      {locationLabel ? <span>{locationLabel}</span> : null}
+                      {openedLabel ? <span>Opened {openedLabel}</span> : null}
+                    </div>
+                  </div>
+                  <Link href={`/events/${encodeURIComponent(recent.id)}`} className="cfsp-btn cfsp-btn-secondary shrink-0 px-3 py-1.5 text-xs">
+                    Open
+                  </Link>
+                </div>
+              </article>
+            );
+          })
+        ) : (
+          <div
+            className="rounded-[12px] px-3 py-4 text-sm font-semibold text-[var(--cfsp-text-muted)]"
+            style={{
+              border: "1px dashed rgba(20, 91, 150, 0.18)",
+              background: "rgba(255,255,255,0.58)",
+            }}
+          >
+            Recently opened events will appear here.
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
 export default function DashboardPage() {
   const router = useRouter();
 
@@ -1273,6 +1443,7 @@ export default function DashboardPage() {
   const [planningJumpMessage, setPlanningJumpMessage] = useState("");
   const [highlightedEventId, setHighlightedEventId] = useState<string | null>(null);
   const [pendingJumpEventId, setPendingJumpEventId] = useState<string | null>(null);
+  const [recentEvents, setRecentEvents] = useState<RecentEventEntry[]>([]);
   const [sectionVisibleCounts, setSectionVisibleCounts] = useState({
     needsAttention: DASHBOARD_SECTION_PAGE_SIZE,
     inProgress: DASHBOARD_SECTION_PAGE_SIZE,
@@ -1297,6 +1468,32 @@ export default function DashboardPage() {
     setScope(nextScope);
     resetSectionVisibleCounts();
   }
+
+  function handleClearRecentEvents() {
+    setRecentEvents([]);
+    if (typeof window !== "undefined") {
+      window.localStorage.removeItem(RECENT_EVENTS_STORAGE_KEY);
+    }
+  }
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const restoreTimer = window.setTimeout(() => {
+      setRecentEvents(readRecentEventsFromStorage());
+    }, 0);
+
+    function handleStorage(event: StorageEvent) {
+      if (event.key === RECENT_EVENTS_STORAGE_KEY) {
+        setRecentEvents(readRecentEventsFromStorage());
+      }
+    }
+
+    window.addEventListener("storage", handleStorage);
+    return () => {
+      window.clearTimeout(restoreTimer);
+      window.removeEventListener("storage", handleStorage);
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -1470,6 +1667,7 @@ export default function DashboardPage() {
   );
 
   const allVisibleEvents = eventMeta;
+  const eventsById = useMemo(() => new Map(events.map((event) => [event.id, event])), [events]);
 
   const myMatchedEvents = useMemo(
     () =>
@@ -1809,6 +2007,12 @@ export default function DashboardPage() {
                 </p>
               </div>
             )}
+
+            <RecentEventsPanel
+              recentEvents={recentEvents}
+              eventsById={eventsById}
+              onClear={handleClearRecentEvents}
+            />
           </div>
         </section>
 
