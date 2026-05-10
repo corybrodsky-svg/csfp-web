@@ -52,6 +52,10 @@ const navItems: NavItem[] = [
 ];
 
 function isNavActive(pathname: string, item: NavItem) {
+  if (item.href === "/schedule-builder") {
+    return pathname.includes("/schedule-builder");
+  }
+  if (item.href === "/events" && pathname.includes("/schedule-builder")) return false;
   if (item.href === "/events" && pathname.startsWith("/events/")) return true;
   if (item.match === "prefix") return pathname === item.href || pathname.startsWith(`${item.href}/`);
   return pathname === item.href;
