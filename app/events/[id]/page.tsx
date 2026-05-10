@@ -5720,6 +5720,17 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     () => getOperationalCountdownClock(normalEventTrainingCountdownTarget, countdownNowMs),
     [countdownNowMs, normalEventTrainingCountdownTarget]
   );
+  const trainingWindowStarted =
+    Boolean(normalEventTrainingCountdownTarget) &&
+    countdownNowMs !== null &&
+    countdownNowMs >= (normalEventTrainingCountdownTarget?.start.getTime() ?? Number.POSITIVE_INFINITY);
+  const trainingWindowEnded =
+    Boolean(normalEventTrainingCountdownTarget) &&
+    countdownNowMs !== null &&
+    countdownNowMs >=
+      (normalEventTrainingCountdownTarget?.end?.getTime() ??
+        normalEventTrainingCountdownTarget?.start.getTime() ??
+        Number.POSITIVE_INFINITY);
   const normalEventTrainingHasInfo = Boolean(
     normalEventTrainingDateText ||
       normalEventTrainingTimeText ||
@@ -5728,8 +5739,10 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       trainingMarkedScheduled ||
       trainingMarkedComplete
   );
+  const trainingAttendanceReady = !trainingAttendanceFieldsMissing && selectedStaffingCount > 0 && allAssignedCheckedIn;
+  const trainingCompleteMarkedManually = trainingMarkedComplete || Boolean(workflowChecks.sp_training_completed);
   const normalEventTrainingComplete =
-    !trainingNotRequired && (trainingMarkedComplete || allAssignedCheckedIn || Boolean(workflowChecks.sp_training_completed));
+    !trainingNotRequired && (trainingCompleteMarkedManually || (Boolean(trainingWindowEnded) && trainingAttendanceReady));
   const normalEventTrainingAccessReady = !trainingZoomRequired || Boolean(normalEventTrainingLink);
   const normalEventTrainingReady =
     trainingNotRequired ||
@@ -5739,6 +5752,10 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     ? "Training not required"
     : normalEventTrainingComplete
       ? "Training completed"
+      : trainingWindowStarted
+        ? trainingAttendanceReady
+          ? "Training live"
+          : "Training in progress"
       : trainingZoomRequired && !normalEventTrainingLink
         ? "Training logistics incomplete"
         : normalEventTrainingHasInfo && normalEventTrainingAccessReady
@@ -5765,7 +5782,9 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
   const normalEventTrainingAttendanceLabel = trainingAttendanceFieldsMissing
     ? "Attendance tracking unavailable"
     : selectedStaffingCount > 0
-      ? `${attendedCount} / ${selectedStaffingCount} checked in`
+      ? trainingAttendanceReady && !normalEventTrainingComplete
+        ? `Attendance ready · ${attendedCount} / ${selectedStaffingCount} checked in`
+        : `${attendedCount} / ${selectedStaffingCount} checked in`
       : "No selected SPs yet";
   const normalEventTrainingRecordingLabel = trainingRecordingPlanned
     ? trainingMetadata.recording_url
@@ -5801,7 +5820,7 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
   const eventSummaryTrainingSubvalue = trainingNotRequired
     ? "No SP training workflow required"
     : normalEventTrainingDate
-      ? `${normalEventTrainingStatusLabel} · ${trainingModalityLabel}`
+      ? `${normalEventTrainingStatusLabel} · ${trainingAttendanceReady && !normalEventTrainingComplete ? "Attendance Ready" : trainingModalityLabel}`
       : getTrainingRequirementLabel(trainingRequirementValue);
   const eventSummaryTrainingChips = [
     trainingNotRequired ? "Not required" : getTrainingRequirementLabel(trainingRequirementValue),
@@ -6000,7 +6019,7 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       { label: "Hiring Email Sent", active: hiringEmailSent },
       { label: "Confirmation Sent", active: confirmationEmailSent },
       { label: "Faculty Confirmed", active: facultyReadinessComplete && Boolean(facultyEmailText || facultyPhoneText || trainingFacultyText) },
-      { label: "Training Complete", active: Boolean(hasTrainingScheduled && trainingImportResult) || sortedAssignments.some((assignment) => assignment.training_attended) },
+      { label: "Training Complete", active: normalEventTrainingComplete },
       { label: "Reminder Needed", active: asText(pollMetadata.pollStatus).toLowerCase() === "draft_ready" || outreachProgressLabel === "Draft opened" },
     ],
     [
@@ -6008,13 +6027,11 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       facultyPhoneText,
       facultyReadinessComplete,
       confirmationEmailSent,
-      hasTrainingScheduled,
       hiringEmailSent,
+      normalEventTrainingComplete,
       outreachProgressLabel,
       pollMetadata.pollStatus,
-      sortedAssignments,
       trainingFacultyText,
-      trainingImportResult,
     ]
   );
   const materialsStatusItems = useMemo(
@@ -6088,6 +6105,8 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     () => parseLiveRoomAdjustments(trainingMetadata.live_room_adjustments),
     [trainingMetadata.live_room_adjustments]
   );
+  const liveBoardAdjustment = liveRoomAdjustments[LIVE_ROOM_BOARD_ADJUSTMENT_KEY] || {};
+  const liveExtraRoomCount = Math.max(0, liveBoardAdjustment.extraRoomCount || 0);
   const expandedScheduleBuilderHref = useMemo(() => {
     const params = new URLSearchParams();
     params.set("source", "rotation-command");
@@ -6923,8 +6942,15 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     }
     if (activeCoverageRiskRooms.length > 0) {
       alerts.push({
-        tone: "danger",
-        message: `Coverage risk in ${activeCoverageRiskRooms.join(", ")}.`,
+        tone: shortageCount > 0 ? "danger" : "warning",
+        message:
+          activeCoverageRiskRooms.length === 1
+            ? shortageCount > 0
+              ? `${activeCoverageRiskRooms[0]} needs staffing attention.`
+              : `${activeCoverageRiskRooms[0]} needs room mapping review.`
+            : shortageCount > 0
+              ? `Review room coverage in ${activeCoverageRiskRooms.join(", ")}.`
+              : `Review room mapping for ${activeCoverageRiskRooms.join(", ")}.`,
       });
     }
     if (shortageCount > 0) {
@@ -6979,6 +7005,10 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       ),
     [confirmedAssignments, roomNamingContext, liveBlueprintExplicitAssignments, liveBlueprintRoomEntries]
   );
+  const liveBlueprintBaseHighestRoomNumber = useMemo(
+    () => getHighestRoomDisplayNumber(liveBlueprintRoomEntries.map((entry) => entry.roomName)),
+    [liveBlueprintRoomEntries]
+  );
   const liveAdjustmentAssignedStandbyIds = useMemo(
     () =>
       new Set(
@@ -6988,7 +7018,7 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       ),
     [liveRoomAdjustments]
   );
-  const liveAttendanceBlueprintRooms = useMemo(
+  const liveBlueprintBaseRooms = useMemo(
     () =>
       liveBlueprintRoomEntries.map(({ roomName, sourceIndex }, index) => {
         const adjustmentKey = asText(roomName).toLowerCase();
@@ -7076,9 +7106,10 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
           standbySpName: standbySp ? getFullName(standbySp) : "",
           standbyExpanded: Boolean(adjustment.expanded || standbyAssignment),
           adjustmentKey,
+          isTemporaryRoom: false,
         };
       }),
-      [
+    [
       backupAssignments,
       currentLiveRoomDisplayEntries.length,
       currentLiveRoomBoardRows,
@@ -7090,6 +7121,37 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       spsById,
     ]
   );
+  const liveAttendanceBlueprintRooms = useMemo(() => {
+    if (!liveExtraRoomCount) return liveBlueprintBaseRooms;
+    const extraRooms = Array.from({ length: liveExtraRoomCount }, (_, extraIndex) => {
+      const roomNumber = liveBlueprintBaseHighestRoomNumber + extraIndex + 1;
+      const roomName = buildRoomLabelFromTemplate(getRoomTypeLabel(roomNamingContext), roomNumber, roomNamingContext);
+      const adjustmentKey = `${LIVE_ROOM_BOARD_ADJUSTMENT_KEY}:${roomNumber}`;
+      return {
+        key: `blueprint-extra-room-${roomNumber}`,
+        roomName,
+        assignment: null,
+        sp: null,
+        spName: "",
+        initials: String(roomNumber),
+        checkedAt: "",
+        actionTimestamp: "",
+        status: "empty" as const,
+        statusLabel: "Standby / Overflow",
+        isCurrentRotationRoom: false,
+        issueNote: "Temporary extra room",
+        delayMinutes: 0,
+        learnerLabel: "Overflow / standby",
+        standbyAssignment: null,
+        standbySp: null,
+        standbySpName: "",
+        standbyExpanded: false,
+        adjustmentKey,
+        isTemporaryRoom: true,
+      };
+    });
+    return [...liveBlueprintBaseRooms, ...extraRooms];
+  }, [liveBlueprintBaseHighestRoomNumber, liveBlueprintBaseRooms, liveExtraRoomCount, roomNamingContext]);
   const liveAttendanceLogRows = useMemo(
     () =>
       liveAttendanceBlueprintRooms
@@ -7848,12 +7910,18 @@ Cory`;
         {
           id: "training",
           label: "SP training",
-          status: trainingReadinessStatus,
-          value: trainingModalityLabel,
+          status: normalEventTrainingComplete ? "Ready" : trainingReadinessStatus,
+          value: normalEventTrainingComplete
+            ? "Training completed"
+            : trainingAttendanceReady && normalEventTrainingDate
+              ? `Training scheduled · Attendance Ready`
+              : trainingModalityLabel,
           explanation: trainingNotRequired
             ? "SP training is marked not required for this event."
             : normalEventTrainingComplete
               ? "Training is marked complete for this event."
+              : trainingAttendanceReady && !normalEventTrainingComplete && normalEventTrainingDate
+                ? "Training is scheduled and the attendance roster is ready, but the training window has not finished yet."
               : normalEventTrainingReady
                 ? "Training ownership, scheduling, and access details are visible for the SP workflow."
                 : trainingZoomRequired && !normalEventTrainingLink
@@ -8362,7 +8430,12 @@ Cory`;
 
   async function persistLiveRoomAdjustments(nextAdjustments: LiveRoomAdjustmentsMap) {
     const cleaned = Object.fromEntries(
-      Object.entries(nextAdjustments).filter(([, adjustment]) => adjustment.expanded || adjustment.standbyAssignmentId)
+      Object.entries(nextAdjustments).filter(
+        ([key, adjustment]) =>
+          adjustment.expanded ||
+          adjustment.standbyAssignmentId ||
+          (key === LIVE_ROOM_BOARD_ADJUSTMENT_KEY && Number(adjustment.extraRoomCount || 0) > 0)
+      )
     );
     await persistTrainingMetadataFields(
       {
@@ -8370,6 +8443,30 @@ Cory`;
       },
       "Live room controls updated."
     );
+  }
+
+  async function handleAddLiveBlueprintRoom() {
+    const nextAdjustments = { ...liveRoomAdjustments };
+    nextAdjustments[LIVE_ROOM_BOARD_ADJUSTMENT_KEY] = {
+      ...nextAdjustments[LIVE_ROOM_BOARD_ADJUSTMENT_KEY],
+      extraRoomCount: liveExtraRoomCount + 1,
+    };
+    await persistLiveRoomAdjustments(nextAdjustments);
+  }
+
+  async function handleRemoveLiveBlueprintRoom() {
+    if (!liveExtraRoomCount) return;
+    const nextAdjustments = { ...liveRoomAdjustments };
+    const nextCount = Math.max(0, liveExtraRoomCount - 1);
+    if (nextCount > 0) {
+      nextAdjustments[LIVE_ROOM_BOARD_ADJUSTMENT_KEY] = {
+        ...nextAdjustments[LIVE_ROOM_BOARD_ADJUSTMENT_KEY],
+        extraRoomCount: nextCount,
+      };
+    } else {
+      delete nextAdjustments[LIVE_ROOM_BOARD_ADJUSTMENT_KEY];
+    }
+    await persistLiveRoomAdjustments(nextAdjustments);
   }
 
   function handleOpenEventScheduleRouteInNewTab(kind: EventSchedulePreviewKind, previewFamily?: "ticket" | "schedule") {
@@ -10177,6 +10274,34 @@ Cory`;
                       </div>
                     </div>
                     <div style={{ display: "flex", gap: "7px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                      <button
+                        type="button"
+                        onClick={() => void handleAddLiveBlueprintRoom()}
+                        style={{
+                          ...buttonStyle,
+                          padding: "7px 10px",
+                          background: "rgba(73, 168, 255, 0.12)",
+                          color: "#bfdbfe",
+                          border: "1px solid rgba(73, 168, 255, 0.28)",
+                        }}
+                      >
+                        + Add Room
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleRemoveLiveBlueprintRoom()}
+                        disabled={!liveExtraRoomCount}
+                        style={{
+                          ...buttonStyle,
+                          padding: "7px 10px",
+                          background: "rgba(255,255,255,0.06)",
+                          color: "#d6edf4",
+                          border: "1px solid rgba(255,255,255,0.12)",
+                          opacity: liveExtraRoomCount ? 1 : 0.4,
+                        }}
+                      >
+                        - Remove Extra Room
+                      </button>
                       <span style={{ ...commandChipStyle, background: "rgba(44, 211, 173, 0.14)", color: "#86efac" }}>
                         {liveBlueprintStaffedCount} staffed
                       </span>
@@ -10309,7 +10434,7 @@ Cory`;
                                       {room.spName || "Open room"}
                                     </div>
                                     <div style={{ marginTop: "4px", color: "#9ed9d1", fontSize: "10px", fontWeight: 800, lineHeight: 1.35, overflowWrap: "anywhere" }}>
-                                      {room.learnerLabel || "Learner TBD"}
+                                      {room.isTemporaryRoom ? "Extra Room · Standby / Overflow" : room.learnerLabel || "Learner TBD"}
                                     </div>
                                   </div>
                                   <div style={{ display: "grid", gap: "6px", justifyItems: "end" }}>
@@ -10692,16 +10817,16 @@ Cory`;
               <div
                 style={{
                   borderRadius: "18px",
-                  border: "1px solid rgba(126, 231, 219, 0.18)",
+                  border: "1px solid rgba(126, 231, 219, 0.14)",
                   background: "rgba(9, 20, 33, 0.94)",
-                  padding: "14px",
+                  padding: "12px",
                   display: "grid",
-                  gap: "10px",
+                  gap: "8px",
                 }}
               >
                 <div style={{ ...statLabel, color: "#7ee7db" }}>Operational Alerts</div>
                 {liveAlerts.length === 0 ? (
-                  <div style={{ color: "#9bb4c0", fontWeight: 700 }}>
+                  <div style={{ color: "#9bb4c0", fontWeight: 700, fontSize: "12px", lineHeight: 1.4 }}>
                     No live alerts. Timeline and staffing are stable right now.
                   </div>
                 ) : (
@@ -10710,19 +10835,19 @@ Cory`;
                       key={`${alert.message}-${index}`}
                       style={{
                         borderRadius: "12px",
-                        padding: "10px 12px",
+                        padding: "8px 10px",
                         border:
                           alert.tone === "danger"
-                            ? "1px solid rgba(248, 113, 113, 0.28)"
+                            ? "1px solid rgba(248, 113, 113, 0.2)"
                             : alert.tone === "warning"
-                              ? "1px solid rgba(243, 187, 103, 0.28)"
-                              : "1px solid rgba(73, 168, 255, 0.24)",
+                              ? "1px solid rgba(243, 187, 103, 0.2)"
+                              : "1px solid rgba(73, 168, 255, 0.18)",
                         background:
                           alert.tone === "danger"
-                            ? "rgba(127, 29, 29, 0.2)"
+                            ? "rgba(127, 29, 29, 0.12)"
                             : alert.tone === "warning"
-                              ? "rgba(120, 53, 15, 0.18)"
-                              : "rgba(8, 47, 73, 0.2)",
+                              ? "rgba(120, 53, 15, 0.12)"
+                              : "rgba(8, 47, 73, 0.14)",
                         color:
                           alert.tone === "danger"
                             ? "#fecaca"
@@ -10730,7 +10855,8 @@ Cory`;
                               ? "#fde68a"
                               : "#bfdbfe",
                         fontWeight: 800,
-                        lineHeight: 1.45,
+                        fontSize: "12px",
+                        lineHeight: 1.35,
                       }}
                     >
                       {alert.message}
@@ -11216,7 +11342,7 @@ Cory`;
             Zoom {trainingZoomRequired ? normalEventTrainingLink ? "ready" : "needed" : "optional"}
           </span>
           <span style={{ ...commandChipStyle, background: normalEventTrainingComplete ? normalEventTrainingPrimaryTone.background : commandCenterVisual.chipBackground, color: normalEventTrainingComplete ? normalEventTrainingPrimaryTone.color : commandCenterVisual.chipText, border: normalEventTrainingComplete ? normalEventTrainingPrimaryTone.border : isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.18)" : commandChipStyle.border }}>
-            Attendance {normalEventTrainingComplete ? "complete" : "open"}
+            Attendance {normalEventTrainingComplete ? "complete" : trainingAttendanceReady ? "ready" : "open"}
           </span>
           {facultyLedTraining ? (
             facultyEmails.length ? (
