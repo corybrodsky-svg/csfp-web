@@ -5681,10 +5681,11 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
   const eventSummaryTrainingSubvalue = trainingNotRequired
     ? "No SP training workflow required"
     : normalEventTrainingDate
-      ? normalEventTrainingStatusLabel
+      ? `${normalEventTrainingStatusLabel} · ${trainingModalityLabel}`
       : getTrainingRequirementLabel(trainingRequirementValue);
   const eventSummaryTrainingChips = [
     trainingNotRequired ? "Not required" : getTrainingRequirementLabel(trainingRequirementValue),
+    !trainingNotRequired ? trainingModalityLabel : "",
     normalEventTrainingDateText ? formatEventDateText(normalEventTrainingDateText, importedYearHint) || normalEventTrainingDateText : "",
     trainingZoomRequired ? normalEventTrainingLink ? "Zoom ready" : "Zoom needed" : "",
   ].filter(Boolean);
@@ -7739,7 +7740,7 @@ Cory`;
           id: "training",
           label: "SP training",
           status: trainingReadinessStatus,
-          value: normalEventTrainingStatusLabel,
+          value: trainingModalityLabel,
           explanation: trainingNotRequired
             ? "SP training is marked not required for this event."
             : normalEventTrainingComplete
@@ -10884,7 +10885,7 @@ Cory`;
             {
               label: "Zoom",
               value: trainingZoomRequired ? normalEventTrainingLink ? "Zoom ready" : "Zoom needed" : "Zoom optional",
-              detail: trainingZoomRequired ? "Required for training logistics" : "Not required unless training changes",
+              detail: `${trainingModalityLabel}${trainingZoomRequired ? " • required for training logistics" : " • not required unless training changes"}`,
             },
             {
               label: "Recording",

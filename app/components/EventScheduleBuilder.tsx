@@ -617,6 +617,13 @@ function buildTimePrefill(event: EventRow | null, savedDraft: ScheduleBuilderDra
   return defaultPrefill;
 }
 
+function hasPhysicalEventLocation(value?: string | null) {
+  const text = asText(value).toLowerCase();
+  if (!text) return false;
+  if (/\b(zoom|virtual|telehealth|breakout|online|remote|simiq)\b/.test(text)) return false;
+  return /\b(campus|center|centre|building|room|suite|lab|hospital|clinic|hall|floor|site|onsite|on-site|in person|in-person|elkins park)\b/.test(text);
+}
+
 function toDisplayTime(totalMinutes: number) {
   const normalized = ((totalMinutes % (24 * 60)) + 24 * 60) % (24 * 60);
   const hours = Math.floor(normalized / 60);
@@ -1912,17 +1919,22 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     selectedEvent?.id,
     selectedEventMetadata.schedule_started_at,
   ]);
-  const selectedEventText = [selectedEvent?.name, selectedEvent?.location, selectedEvent?.notes]
-    .map((value) => asText(value))
-    .join(" ")
-    .toLowerCase();
+  const explicitEventModality = asText(selectedEventMetadata.modality).toLowerCase();
   const selectedEventModality =
-    asText(selectedEventMetadata.modality).toLowerCase() === "virtual" ||
-    asText(selectedEventMetadata.modality).toLowerCase() === "hybrid"
-      ? asText(selectedEventMetadata.modality).toLowerCase()
-      : /\b(virtual|vir|zoom|breakout)\b/.test(selectedEventText)
-        ? "virtual"
-        : "in_person";
+    explicitEventModality === "virtual" || explicitEventModality === "hybrid"
+      ? explicitEventModality
+      : explicitEventModality === "in_person" || explicitEventModality === "in-person" || explicitEventModality === "in person"
+        ? "in_person"
+        : hasPhysicalEventLocation(selectedEvent?.location)
+          ? "in_person"
+          : /\b(virtual|vir|telehealth|breakout|online|remote|simiq)\b/.test(
+                [selectedEvent?.name, selectedEvent?.location, selectedEvent?.status]
+                  .map((value) => asText(value))
+                  .join(" ")
+                  .toLowerCase()
+              )
+            ? "virtual"
+            : "in_person";
   const isVirtualEvent = selectedEventModality === "virtual";
   const roomNamingContext = useMemo(
     () => ({
@@ -1933,10 +1945,9 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
             ? "Hybrid"
             : "In-person",
       telehealthOrZoomEnabled:
-        selectedEventModality === "virtual" ||
-        /\b(virtual|vir|zoom|breakout)\b/.test(selectedEventText),
+        selectedEventModality === "virtual" || selectedEventModality === "hybrid",
     }),
-    [selectedEventModality, selectedEventText]
+    [selectedEventModality]
   );
   const roomLabel = getRoomTypeLabel(roomNamingContext);
   const roomCountLabel =
