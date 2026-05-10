@@ -367,6 +367,16 @@ type WorkflowReadinessGroup = {
 
 type PlanningWindowKey = "event-status" | "staffing-training" | "operations-support" | "materials-communications";
 type OperationalStatusTone = "ready" | "attention" | "critical" | "info";
+type CommandFileCabinetView = "command" | "simple";
+type CommandFileCabinetModuleKey =
+  | "case"
+  | "schedule"
+  | "student_schedule"
+  | "sp_schedule"
+  | "time_ticket"
+  | "materials"
+  | "recording"
+  | "training_access";
 
 type TrainingImportResult = {
   eventTitle: string;
@@ -2371,6 +2381,101 @@ function getLiveAttendancePanelStorageKey(eventId: string) {
   return `cfsp:live-attendance-panel:${eventId || "global"}`;
 }
 
+function getCommandFileCabinetViewStorageKey(eventId: string) {
+  return `cfsp:command-file-cabinet-view:${eventId || "global"}`;
+}
+
+function renderCommandFileCabinetIcon(
+  moduleKey: CommandFileCabinetModuleKey,
+  color: string,
+  simpleView = false
+) {
+  const sharedProps = {
+    width: 18,
+    height: 18,
+    viewBox: "0 0 24 24",
+    fill: "none",
+    xmlns: "http://www.w3.org/2000/svg",
+    stroke: color,
+    strokeWidth: simpleView ? 1.6 : 1.8,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+  };
+
+  switch (moduleKey) {
+    case "case":
+      return (
+        <svg {...sharedProps} aria-hidden="true">
+          <path d="M4.5 7.5h5l1.4 1.8h8.6v8.2a2 2 0 0 1-2 2H6.5a2 2 0 0 1-2-2z" />
+          <path d="M8 13.2h5.2" />
+          <path d="M8 16.2h7.2" />
+          <path d="M15.2 7.5v3.1" />
+        </svg>
+      );
+    case "schedule":
+      return (
+        <svg {...sharedProps} aria-hidden="true">
+          <rect x="4.5" y="5" width="15" height="14" rx="2.4" />
+          <path d="M4.5 10h15" />
+          <path d="M9.5 10v9" />
+          <path d="M14.5 10v9" />
+          <path d="M4.5 14.5h15" />
+        </svg>
+      );
+    case "student_schedule":
+      return (
+        <svg {...sharedProps} aria-hidden="true">
+          <circle cx="9" cy="9" r="2.5" />
+          <circle cx="16.5" cy="10.5" r="2" />
+          <path d="M5.8 17.5c.7-2.2 2.2-3.4 4.7-3.4s4 1.2 4.7 3.4" />
+          <path d="M15.2 17.5c.3-1.1 1.1-1.9 2.4-2.3" />
+        </svg>
+      );
+    case "sp_schedule":
+      return (
+        <svg {...sharedProps} aria-hidden="true">
+          <rect x="4.5" y="5" width="6" height="5.4" rx="1.6" />
+          <rect x="13.5" y="5" width="6" height="5.4" rx="1.6" />
+          <rect x="4.5" y="13.1" width="6" height="5.4" rx="1.6" />
+          <rect x="13.5" y="13.1" width="6" height="5.4" rx="1.6" />
+        </svg>
+      );
+    case "time_ticket":
+      return (
+        <svg {...sharedProps} aria-hidden="true">
+          <path d="M6 6.5h12a1.8 1.8 0 0 1 1.8 1.8v2.1a2.2 2.2 0 0 0-1.9 2.1c0 1 .8 1.9 1.9 2.1v2.1a1.8 1.8 0 0 1-1.8 1.8H6a1.8 1.8 0 0 1-1.8-1.8v-2.1c1.1-.2 1.9-1 1.9-2.1s-.8-1.9-1.9-2.1V8.3A1.8 1.8 0 0 1 6 6.5Z" />
+          <path d="M12 9.2v3.3l2.2 1.3" />
+        </svg>
+      );
+    case "materials":
+      return (
+        <svg {...sharedProps} aria-hidden="true">
+          <path d="M4.5 8.1h15v9.2a2 2 0 0 1-2 2H6.5a2 2 0 0 1-2-2z" />
+          <path d="M4.5 8.1 7.2 5h4.1l2 2.1" />
+          <path d="M8.2 12.2h7.4" />
+          <path d="M8.2 15.2h5.8" />
+        </svg>
+      );
+    case "recording":
+      return (
+        <svg {...sharedProps} aria-hidden="true">
+          <rect x="4.8" y="7" width="10.7" height="10" rx="2" />
+          <path d="m15.5 10 3.7-2.2v8.4L15.5 14" />
+          <circle cx="9.7" cy="12" r="1.8" />
+        </svg>
+      );
+    case "training_access":
+    default:
+      return (
+        <svg {...sharedProps} aria-hidden="true">
+          <path d="M10.2 13.8 7.8 16.2a3 3 0 0 1-4.2-4.2L6 9.6" />
+          <path d="m13.8 10.2 2.4-2.4a3 3 0 1 1 4.2 4.2L18 14.4" />
+          <path d="m8.8 15.2 6.4-6.4" />
+        </svg>
+      );
+  }
+}
+
 function getEffectivePollResponseStatus(
   notes: string | null | undefined,
   imported?: ImportedPollResponseRecord | null
@@ -3507,6 +3612,7 @@ export default function EventDetailPage() {
   const [assignmentFilter, setAssignmentFilter] = useState<AssignmentFilterStatus>("all");
   const [suggestedAssignmentFilter, setSuggestedAssignmentFilter] = useState<SuggestedAssignmentFilter>("all");
   const [commandCenterMode, setCommandCenterMode] = useState<CommandCenterMode>("planning");
+  const [commandFileCabinetView, setCommandFileCabinetView] = useState<CommandFileCabinetView>("command");
   const [selectedRotationRoundKey, setSelectedRotationRoundKey] = useState("");
   const [roundCompanionView, setRoundCompanionView] = useState<RotationCompanionView>("announcements");
   const [roundAnnouncementDrafts, setRoundAnnouncementDrafts] = useState<Record<string, string>>({});
@@ -5633,6 +5739,14 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     }
     setStaffingCommandCenterExpanded(commandCenterMode === "planning" ? !staffingCommandCenterCanCollapse : false);
   }, [commandCenterMode, id, staffingCommandCenterCanCollapse]);
+  useEffect(() => {
+    if (typeof window === "undefined" || !id) return;
+
+    const savedState = window.localStorage.getItem(getCommandFileCabinetViewStorageKey(id));
+    if (savedState === "simple" || savedState === "command") {
+      setCommandFileCabinetView(savedState);
+    }
+  }, [id]);
   const outreachProgressLabel = assignments.some(
     (assignment) =>
       Boolean(assignment.last_contacted_at) || ["contacted", "confirmed", "declined"].includes(getAssignmentStatus(assignment))
@@ -7470,6 +7584,7 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     });
     return [...liveBlueprintBaseRooms, ...extraRooms];
   }, [liveBlueprintBaseHighestRoomNumber, liveBlueprintBaseRooms, liveExtraRoomCount, roomNamingContext]);
+  const liveVisibleRoomCount = liveAttendanceBlueprintRooms.length;
   const liveAttendanceLogRows = useMemo(
     () =>
       liveAttendanceBlueprintRooms
@@ -7499,6 +7614,45 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
   const liveBlueprintLateCount = liveAttendanceBlueprintRooms.filter((room) => room.status === "late").length;
   const liveBlueprintNoShowCount = liveAttendanceBlueprintRooms.filter((room) => room.status === "no_show").length;
   const liveBlueprintAwaitingCount = liveAttendanceBlueprintRooms.filter((room) => room.status === "awaiting").length;
+  const liveLearnerPresenceTokens = useMemo(
+    () =>
+      liveAttendanceBlueprintRooms
+        .filter((room) => room.learnerLabel && room.learnerLabel !== "Learner not assigned" && room.learnerLabel !== "Overflow / standby")
+        .map((room, index) => {
+          const learnerName = room.learnerLabel.split(",")[0]?.trim() || room.learnerLabel;
+          const initialSeed = learnerName.replace(/[^A-Za-z0-9]/g, "");
+          const initials = (initialSeed.slice(0, 2) || String(index + 1)).toUpperCase();
+          const state =
+            currentLiveBlock?.tone === "rotation" && room.isCurrentRotationRoom
+              ? "roomed"
+              : nextLiveBlock && nextLiveBlock.rooms.some((label) => compareRoomLabels(label, room.roomName) === 0)
+                ? "next"
+                : "queued";
+          return {
+            key: `${room.key}-learner-token`,
+            roomName: room.roomName,
+            learnerName,
+            initials,
+            state,
+          };
+        }),
+    [currentLiveBlock?.tone, liveAttendanceBlueprintRooms, nextLiveBlock]
+  );
+  const liveAnnouncementQueue = useMemo(() => {
+    const nextIndex = nextLiveBlock ? liveFlowBlocks.findIndex((block) => block.key === nextLiveBlock.key) : -1;
+    const queueStartIndex = nextIndex >= 0 ? nextIndex : Math.max(liveFlowBlocks.findIndex((block) => block.startMinutes > simulatedLiveMinutes), 0);
+    return liveFlowBlocks.slice(queueStartIndex, queueStartIndex + 4).map((block, index) => ({
+      ...block,
+      countdownLabel:
+        simulatedLiveMinutes < block.startMinutes
+          ? `${Math.max(block.startMinutes - simulatedLiveMinutes, 0)}m to call`
+          : simulatedLiveMinutes >= block.endMinutes
+            ? "Complete"
+            : `${Math.max(block.endMinutes - simulatedLiveMinutes, 0)}m remaining`,
+      queueRole: index === 0 ? "next" : "queued",
+      announcementText: getLiveFlowAnnouncementCopy(block),
+    }));
+  }, [liveFlowBlocks, nextLiveBlock, simulatedLiveMinutes]);
   const liveCloseoutItems = [
     { label: "Checked in", value: String(liveBlueprintCheckedCount), detail: `${liveBlueprintStaffedCount} staffed` },
     { label: "No-show", value: String(liveBlueprintNoShowCount), detail: liveBlueprintNoShowCount > 0 ? "Needs follow-up" : "No active no-show flags" },
@@ -7511,7 +7665,7 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     liveBlueprintNoShowCount === 0 &&
     liveBlueprintAwaitingCount === 0 &&
     liveRoomMissingCount === 0;
-  const liveBlueprintHallwaySplitIndex = Math.ceil(liveAttendanceBlueprintRooms.length / 2);
+  const liveBlueprintHallwaySplitIndex = Math.ceil(liveVisibleRoomCount / 2);
   const liveBlueprintTopRooms = liveAttendanceBlueprintRooms.slice(0, liveBlueprintHallwaySplitIndex);
   const liveBlueprintBottomRooms = liveAttendanceBlueprintRooms.slice(liveBlueprintHallwaySplitIndex);
   const compactLiveFlowRailBlocks = useMemo(() => {
@@ -8163,6 +8317,23 @@ Cory`;
       storagePath: eventMaterialStoragePath,
       fileName: eventMaterialName || getFilenameFromUrl(eventMaterialUrl) || "event-material",
     });
+  }
+  function openCaseFilePreview() {
+    if (caseFileUrl) {
+      openMaterialPreview({
+        title: "Case File",
+        rawUrl: caseFileUrl,
+        storagePath: caseFileStoragePath,
+        fileName: caseFileDisplayName || "case-file",
+      });
+      return;
+    }
+    if (eventMaterialUrl) {
+      openEventMaterialPreview();
+      return;
+    }
+    setEventSaveError("No case packet is assigned to this event yet.");
+    window.setTimeout(() => setEventSaveError(""), 2400);
   }
   const scheduleSummaryActions: Array<{
     label: string;
@@ -10999,6 +11170,9 @@ Cory`;
 	                  {livePausedAtMs !== null ? "Paused" : "Live"}
 	                </span>
 	                <span style={{ ...commandChipStyle, background: "rgba(73, 168, 255, 0.12)", color: "#7dd3fc" }}>
+	                  {liveVisibleRoomCount} visible rooms
+	                </span>
+	                <span style={{ ...commandChipStyle, background: "rgba(73, 168, 255, 0.12)", color: "#7dd3fc" }}>
 	                  {liveRoomActiveCount} active
 	                </span>
 	                <span style={{ ...commandChipStyle, background: "rgba(243, 187, 103, 0.14)", color: "#fde68a" }}>
@@ -11050,19 +11224,39 @@ Cory`;
 	                            {row.sp ? getFullName(row.sp) : "SP TBD"}
 	                          </div>
 	                        </div>
-	                        <span
-	                          style={{
-	                            borderRadius: "999px",
-	                            padding: "5px 9px",
-	                            background: statusAppearance.background,
-	                            color: statusAppearance.color,
-	                            border: statusAppearance.border,
-	                            fontSize: "11px",
-	                            fontWeight: 900,
-	                          }}
-	                        >
-	                          {statusAppearance.label}
-	                        </span>
+	                        <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+	                          <span
+	                            style={{
+	                              width: "32px",
+	                              height: "32px",
+	                              borderRadius: "999px",
+	                              display: "inline-flex",
+	                              alignItems: "center",
+	                              justifyContent: "center",
+	                              border: statusAppearance.border,
+	                              background: statusAppearance.background,
+	                              color: statusAppearance.color,
+	                              fontSize: "11px",
+	                              fontWeight: 900,
+	                              boxShadow: row.checkedAt ? "0 0 14px rgba(44, 211, 173, 0.18)" : "none",
+	                            }}
+	                          >
+	                            {row.sp ? getInitials(getFullName(row.sp)) : "--"}
+	                          </span>
+	                          <span
+	                            style={{
+	                              borderRadius: "999px",
+	                              padding: "5px 9px",
+	                              background: statusAppearance.background,
+	                              color: statusAppearance.color,
+	                              border: statusAppearance.border,
+	                              fontSize: "11px",
+	                              fontWeight: 900,
+	                            }}
+	                          >
+	                            {statusAppearance.label}
+	                          </span>
+	                        </div>
 	                      </div>
 
 	                      <div
@@ -11155,6 +11349,21 @@ Cory`;
 	                        >
 	                          Flag Issue
 	                        </button>
+	                        {(caseFileUrl || eventMaterialUrl) ? (
+	                          <button
+	                            type="button"
+	                            onClick={openCaseFilePreview}
+	                            style={{
+	                              ...buttonStyle,
+	                              padding: "7px 10px",
+	                              background: "rgba(125, 211, 252, 0.12)",
+	                              color: "#bae6fd",
+	                              border: "1px solid rgba(125, 211, 252, 0.24)",
+	                            }}
+	                          >
+	                            Preview Case
+	                          </button>
+	                        ) : null}
 	                        {hasIssue ? (
 	                          <button
 	                            type="button"
@@ -11226,13 +11435,13 @@ Cory`;
                   },
                   {
                     label: "Rooms in use",
-                    value: String(liveAttendanceBlueprintRooms.length || 0),
+                    value: String(liveVisibleRoomCount || 0),
                     detail: "active rooms",
                     color: "#7dd3fc",
                   },
                   {
                     label: "Staffed",
-                    value: `${liveBlueprintStaffedCount}/${liveAttendanceBlueprintRooms.length || 0}`,
+                    value: `${liveBlueprintStaffedCount}/${liveVisibleRoomCount || 0}`,
                     detail: "mapped SPs",
                     color: liveBlueprintStaffedCount > 0 ? "#9ff5df" : "#9ed9d1",
                   },
@@ -11698,6 +11907,45 @@ Cory`;
                                       >
                                         {blueprintActionSavingKey === `${room.key}:clear` ? "Saving..." : "Clear Status"}
                                       </button>
+                                      {(caseFileUrl || eventMaterialUrl) ? (
+                                        <button
+                                          type="button"
+                                          onClick={openCaseFilePreview}
+                                          style={{
+                                            ...buttonStyle,
+                                            padding: "6px 8px",
+                                            fontSize: "11px",
+                                            background: "rgba(73, 168, 255, 0.12)",
+                                            color: "#bfdbfe",
+                                            border: "1px solid rgba(73, 168, 255, 0.28)",
+                                          }}
+                                        >
+                                          Preview Case
+                                        </button>
+                                      ) : (
+                                        <span style={{ color: "#7da4b5", fontSize: "10px", fontWeight: 800 }}>
+                                          No case assigned
+                                        </span>
+                                      )}
+                                      {currentLiveReferenceRound ? (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setSelectedRotationRoundKey(currentLiveReferenceRound.key);
+                                            setHasTouchedRoundCompanion(true);
+                                          }}
+                                          style={{
+                                            ...buttonStyle,
+                                            padding: "6px 8px",
+                                            fontSize: "11px",
+                                            background: "rgba(126, 231, 219, 0.12)",
+                                            color: "#9ff5df",
+                                            border: "1px solid rgba(126, 231, 219, 0.24)",
+                                          }}
+                                        >
+                                          Open Room Ops
+                                        </button>
+                                      ) : null}
                                     </div>
                                   </div>
                                 ) : null}
@@ -11708,6 +11956,87 @@ Cory`;
                       </Fragment>
                     ))}
                   </div>
+
+                  {liveLearnerPresenceTokens.length ? (
+                    <div
+                      style={{
+                        borderTop: "1px solid rgba(126, 231, 219, 0.14)",
+                        paddingTop: "10px",
+                        display: "grid",
+                        gap: "8px",
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+                        <div style={{ ...statLabel, color: "#7ee7db" }}>Learner Arrival Rail</div>
+                        <span style={{ color: "#89b7c4", fontSize: "11px", fontWeight: 800 }}>
+                          {liveLearnerPresenceTokens.length} learner assignment{liveLearnerPresenceTokens.length === 1 ? "" : "s"} in active flow
+                        </span>
+                      </div>
+                      <div style={{ display: "flex", gap: "7px", flexWrap: "wrap" }}>
+                        {liveLearnerPresenceTokens.map((token) => {
+                          const tone =
+                            token.state === "roomed"
+                              ? {
+                                  background: "rgba(44, 211, 173, 0.14)",
+                                  border: "1px solid rgba(44, 211, 173, 0.24)",
+                                  color: "#9ff5df",
+                                  label: "In room",
+                                }
+                              : token.state === "next"
+                                ? {
+                                    background: "rgba(125, 211, 252, 0.12)",
+                                    border: "1px solid rgba(125, 211, 252, 0.22)",
+                                    color: "#bfdbfe",
+                                    label: "Up next",
+                                  }
+                                : {
+                                    background: "rgba(255,255,255,0.05)",
+                                    border: "1px solid rgba(255,255,255,0.1)",
+                                    color: "#d6edf4",
+                                    label: "Queued",
+                                  };
+                          return (
+                            <div
+                              key={token.key}
+                              style={{
+                                borderRadius: "999px",
+                                padding: "6px 9px",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "7px",
+                                background: tone.background,
+                                border: tone.border,
+                              }}
+                              title={`${token.learnerName} • ${token.roomName}`}
+                            >
+                              <span
+                                style={{
+                                  width: "22px",
+                                  height: "22px",
+                                  borderRadius: "999px",
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                  background: "rgba(4, 15, 26, 0.5)",
+                                  color: tone.color,
+                                  fontSize: "10px",
+                                  fontWeight: 900,
+                                }}
+                              >
+                                {token.initials}
+                              </span>
+                              <span style={{ color: "#f4fbff", fontSize: "11px", fontWeight: 800 }}>
+                                {token.learnerName}
+                              </span>
+                              <span style={{ color: tone.color, fontSize: "10px", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                                {tone.label}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : null}
 
                   <div
                     style={{
@@ -11721,7 +12050,7 @@ Cory`;
                       <div style={{ ...statLabel, color: "#7ee7db" }}>Live Attendance Log</div>
                       <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
                         <span style={{ color: "#89b7c4", fontSize: "11px", fontWeight: 800 }}>
-                          {liveAttendanceBlueprintRooms.length} rooms • {liveAttendanceLogRows.length} staffed SP{liveAttendanceLogRows.length === 1 ? "" : "s"} • {liveBlueprintCheckedCount} checked in
+                          {liveVisibleRoomCount} rooms • {liveBlueprintStaffedCount} staffed SP{liveBlueprintStaffedCount === 1 ? "" : "s"} • {liveBlueprintCheckedCount} checked in
                         </span>
                         <button
                           type="button"
@@ -11929,6 +12258,99 @@ Cory`;
             </section>
 
             <section style={{ display: "grid", gap: "12px" }}>
+              <div
+                style={{
+                  borderRadius: "18px",
+                  border: "1px solid rgba(126, 231, 219, 0.16)",
+                  background: "linear-gradient(180deg, rgba(9, 20, 33, 0.96) 0%, rgba(8, 25, 40, 0.94) 100%)",
+                  padding: "12px",
+                  display: "grid",
+                  gap: "8px",
+                  boxShadow: "inset 0 0 0 1px rgba(126, 231, 219, 0.05)",
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
+                  <div style={{ ...statLabel, color: "#7ee7db" }}>Next Announcement</div>
+                  {liveAnnouncementQueue[0] ? (
+                    <span style={{ ...commandChipStyle, background: "rgba(126, 231, 219, 0.14)", color: "#9ff5df" }}>
+                      {liveAnnouncementQueue[0].countdownLabel}
+                    </span>
+                  ) : null}
+                </div>
+                {liveAnnouncementQueue.length ? (
+                  <>
+                    {currentLiveBlock ? (
+                      <div
+                        style={{
+                          borderRadius: "12px",
+                          border: "1px solid rgba(73, 168, 255, 0.18)",
+                          background: "rgba(8, 47, 73, 0.14)",
+                          padding: "8px 10px",
+                          display: "grid",
+                          gap: "3px",
+                        }}
+                      >
+                        <div style={{ color: "#89b7c4", fontSize: "10px", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                          Current Callout
+                        </div>
+                        <div style={{ color: "#d6edf4", fontSize: "11px", fontWeight: 800 }}>
+                          {getLiveFlowAnnouncementCopy(currentLiveBlock)}
+                        </div>
+                      </div>
+                    ) : null}
+                    <div
+                      style={{
+                        borderRadius: "14px",
+                        border: "1px solid rgba(126, 231, 219, 0.2)",
+                        background: "linear-gradient(180deg, rgba(10, 33, 49, 0.96) 0%, rgba(10, 24, 38, 0.94) 100%)",
+                        padding: "10px 12px",
+                        display: "grid",
+                        gap: "4px",
+                      }}
+                    >
+                      <div style={{ color: "#f4fbff", fontWeight: 900, fontSize: "14px" }}>
+                        {liveAnnouncementQueue[0].announcementText}
+                      </div>
+                      <div style={{ color: "#9ed9d1", fontSize: "11px", fontWeight: 800 }}>
+                        {liveAnnouncementQueue[0].label} • {formatMinuteRange(liveAnnouncementQueue[0].startMinutes, liveAnnouncementQueue[0].endMinutes)}
+                      </div>
+                    </div>
+                    <div style={{ display: "grid", gap: "6px" }}>
+                      {liveAnnouncementQueue.slice(1).map((item) => (
+                        <button
+                          key={`${item.key}-announcement-queue`}
+                          type="button"
+                          onClick={() => setSelectedLiveFlowBlockKey(item.key)}
+                          style={{
+                            ...buttonStyle,
+                            padding: "8px 10px",
+                            borderRadius: "12px",
+                            justifyContent: "space-between",
+                            display: "flex",
+                            gap: "8px",
+                            alignItems: "center",
+                            textAlign: "left",
+                            background: "rgba(255,255,255,0.035)",
+                            border: "1px solid rgba(255,255,255,0.08)",
+                          }}
+                        >
+                          <span style={{ color: "#d6edf4", fontSize: "11px", fontWeight: 800 }}>
+                            {item.announcementText}
+                          </span>
+                          <span style={{ color: "#89b7c4", fontSize: "10px", fontWeight: 900, whiteSpace: "nowrap" }}>
+                            {item.countdownLabel}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <div style={{ color: "#9bb4c0", fontWeight: 700, fontSize: "12px", lineHeight: 1.4 }}>
+                    Build a schedule to generate live operational announcements.
+                  </div>
+                )}
+              </div>
+
               <div
                 style={{
                   borderRadius: "18px",
@@ -12247,9 +12669,10 @@ Cory`;
                                 Open Round {selectedLiveFlowBlock.roundNumber}
                               </button>
                             ) : null}
-                            {selectedLiveFlowBlock.rooms.length ? (
+                            {(selectedLiveFlowBlock.rooms.length || liveVisibleRoomCount) ? (
                               <span style={{ ...commandChipStyle, background: "rgba(73, 168, 255, 0.12)", color: "#7dd3fc" }}>
-                                {selectedLiveFlowBlock.rooms.length} room{selectedLiveFlowBlock.rooms.length === 1 ? "" : "s"}
+                                {(selectedLiveFlowBlock.rooms.length || liveVisibleRoomCount)} room
+                                {(selectedLiveFlowBlock.rooms.length || liveVisibleRoomCount) === 1 ? "" : "s"}
                               </span>
                             ) : (
                               <span style={{ ...commandChipStyle, background: "rgba(255,255,255,0.04)", color: "#9bb4c0" }}>
@@ -12359,6 +12782,7 @@ Cory`;
     fontSize: "13px",
   };
   const isPlanningVisualMode = commandCenterMode === "planning";
+  const isCommandFileCabinetSimpleView = commandFileCabinetView === "simple";
   const commandCenterVisual = {
     shellBorder: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.2)" : "1px solid rgba(73, 168, 255, 0.24)",
     shellBackground: isPlanningVisualMode
@@ -16377,47 +16801,100 @@ Cory`;
                       gap: "10px",
                     }}
                   >
-                    <div>
-                      <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Simulation Command File Cabinet</div>
-                      <div style={{ marginTop: "4px", color: commandCenterVisual.textColor, fontWeight: 900, fontSize: "18px", letterSpacing: "0.01em" }}>
-                        Command File Cabinet
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "flex-start" }}>
+                      <div>
+                        <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Simulation Command File Cabinet</div>
+                        <div style={{ marginTop: "4px", color: commandCenterVisual.textColor, fontWeight: 900, fontSize: "18px", letterSpacing: "0.01em" }}>
+                          Simulation Command File Cabinet
+                        </div>
+                        <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 700 }}>
+                          Keep the mission packet, exports, timing tickets, materials, and live-access links together in one tactical rack.
+                        </div>
                       </div>
-                      <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 700 }}>
-                        Keep the mission packet, exports, timing tickets, materials, and live-access links together in one tactical rack.
+                      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center", justifyContent: "flex-end" }}>
+                        <div
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "4px",
+                            padding: "4px",
+                            borderRadius: "999px",
+                            border: isCommandFileCabinetSimpleView ? "1px solid rgba(148, 163, 184, 0.24)" : "1px solid rgba(125, 211, 252, 0.16)",
+                            background: isCommandFileCabinetSimpleView ? "rgba(255,255,255,0.86)" : "rgba(6, 17, 29, 0.68)",
+                          }}
+                        >
+                          {[
+                            { key: "command" as const, label: "Command View" },
+                            { key: "simple" as const, label: "Simple View" },
+                          ].map((option) => {
+                            const isActive = commandFileCabinetView === option.key;
+                            return (
+                              <button
+                                key={option.key}
+                                type="button"
+                                onClick={() => {
+                                  setCommandFileCabinetView(option.key);
+                                  if (typeof window !== "undefined" && id) {
+                                    window.localStorage.setItem(getCommandFileCabinetViewStorageKey(id), option.key);
+                                  }
+                                }}
+                                style={{
+                                  ...buttonStyle,
+                                  padding: "6px 10px",
+                                  borderRadius: "999px",
+                                  background: isActive
+                                    ? isCommandFileCabinetSimpleView
+                                      ? "rgba(14, 165, 233, 0.12)"
+                                      : "rgba(126, 231, 219, 0.16)"
+                                    : "transparent",
+                                  border: isActive
+                                    ? isCommandFileCabinetSimpleView
+                                      ? "1px solid rgba(14, 165, 233, 0.22)"
+                                      : "1px solid rgba(126, 231, 219, 0.22)"
+                                    : "1px solid transparent",
+                                  color: isActive
+                                    ? isCommandFileCabinetSimpleView
+                                      ? "#0f4c81"
+                                      : "#dffbff"
+                                    : commandCenterVisual.mutedColor,
+                                  boxShadow: isActive && !isCommandFileCabinetSimpleView ? "0 0 16px rgba(126, 231, 219, 0.12)" : "none",
+                                }}
+                              >
+                                {option.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <button type="button" onClick={scrollToAdminTools} style={{ ...buttonStyle, padding: "7px 10px" }}>
+                          Admin Tools
+                        </button>
                       </div>
                     </div>
 
                     <div
                       style={{
                         display: "grid",
-                        gap: "10px",
+                        gap: "8px",
                         gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
                       }}
                     >
                       {[
                         {
                           key: "case",
-                          icon: "◫",
                           title: "CASE FILE",
                           detail: caseFileDisplayName || "Case not assigned",
                           status: caseFileUrl ? "available" : caseFileDisplayName ? "draft" : "missing",
                           featured: true,
                           accent: "#7dd3fc",
+                          primaryAction: openCaseFilePreview,
                           metadata: [caseFileUrl ? "Ready for live ops" : "", caseFileDisplayName ? "Packet attached" : "Case not assigned"].filter(Boolean),
                           actions: (
                             <>
                               <button
                                 type="button"
-                                onClick={() =>
-                                  openMaterialPreview({
-                                    title: "Case File",
-                                    rawUrl: caseFileUrl,
-                                    storagePath: caseFileStoragePath,
-                                    fileName: caseFileDisplayName || "case-file",
-                                  })
-                                }
-                                disabled={!caseFileUrl}
-                                style={{ ...buttonStyle, padding: "7px 10px", opacity: caseFileUrl ? 1 : 0.55 }}
+                                onClick={openCaseFilePreview}
+                                disabled={!caseFileUrl && !eventMaterialUrl}
+                                style={{ ...buttonStyle, padding: "6px 9px", opacity: caseFileUrl || eventMaterialUrl ? 1 : 0.55 }}
                               >
                                 Preview
                               </button>
@@ -16426,7 +16903,7 @@ Cory`;
                                   href={caseFileDownloadUrl}
                                   target="_blank"
                                   rel="noreferrer"
-                                  style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "7px 10px" }}
+                                  style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "6px 9px" }}
                                 >
                                   Download
                                 </a>
@@ -16436,12 +16913,12 @@ Cory`;
                         },
                         {
                           key: "schedule",
-                          icon: "▣",
                           title: "ROTATION BLUEPRINT",
                           detail: scheduleStatusLabel,
                           status: scheduleCompleted ? "complete" : scheduleInProgress ? "draft" : "missing",
                           featured: true,
                           accent: scheduleCompleted ? "#86efac" : scheduleInProgress ? "#7dd3fc" : "#fcd34d",
+                          primaryHref: expandedScheduleBuilderHref,
                           metadata: [
                             scheduleCompleted ? "Export ready" : "",
                             scheduleCompleted ? "Print ready" : "",
@@ -16451,21 +16928,21 @@ Cory`;
                             <>
                               <Link
                                 href={expandedScheduleBuilderHref}
-                                style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "7px 10px" }}
+                                style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "6px 9px" }}
                               >
                                 Open
                               </Link>
                               <button
                                 type="button"
                                 onClick={() => handleOpenEventScheduleRouteInNewTab("rotation", "schedule")}
-                                style={{ ...buttonStyle, padding: "7px 10px" }}
+                                style={{ ...buttonStyle, padding: "6px 9px" }}
                               >
                                 Preview
                               </button>
                               <button
                                 type="button"
                                 onClick={() => handlePrintEventSchedulePreview("rotation", "schedule")}
-                                style={{ ...buttonStyle, padding: "7px 10px" }}
+                                style={{ ...buttonStyle, padding: "6px 9px" }}
                               >
                                 Print
                               </button>
@@ -16474,25 +16951,25 @@ Cory`;
                         },
                         {
                           key: "student_schedule",
-                          icon: "◩",
                           title: "STUDENT EXPORT",
                           detail: "Learner-safe export view",
                           status: scheduleCompleted ? "complete" : scheduleInProgress ? "draft" : "missing",
                           accent: "#c4b5fd",
+                          primaryAction: () => handleOpenEventScheduleRouteInNewTab("student", "schedule"),
                           metadata: ["Learner-safe", scheduleCompleted ? "Print ready" : "Draft only"].filter(Boolean),
                           actions: (
                             <>
                               <button
                                 type="button"
                                 onClick={() => handleOpenEventScheduleRouteInNewTab("student", "schedule")}
-                                style={{ ...buttonStyle, padding: "7px 10px" }}
+                                style={{ ...buttonStyle, padding: "6px 9px" }}
                               >
                                 Open
                               </button>
                               <button
                                 type="button"
                                 onClick={() => handlePrintEventSchedulePreview("student", "schedule")}
-                                style={{ ...buttonStyle, padding: "7px 10px" }}
+                                style={{ ...buttonStyle, padding: "6px 9px" }}
                               >
                                 Print
                               </button>
@@ -16501,25 +16978,25 @@ Cory`;
                         },
                         {
                           key: "sp_schedule",
-                          icon: "◎",
                           title: "SP ASSIGNMENT GRID",
                           detail: "Staff-facing room assignment view",
                           status: scheduleCompleted ? "complete" : scheduleInProgress ? "draft" : "missing",
                           accent: "#5eead4",
+                          primaryAction: () => handleOpenEventScheduleRouteInNewTab("sp", "schedule"),
                           metadata: ["Staffing ops", scheduleCompleted ? "Ready for live ops" : "Builder-linked"].filter(Boolean),
                           actions: (
                             <>
                               <button
                                 type="button"
                                 onClick={() => handleOpenEventScheduleRouteInNewTab("sp", "schedule")}
-                                style={{ ...buttonStyle, padding: "7px 10px" }}
+                                style={{ ...buttonStyle, padding: "6px 9px" }}
                               >
                                 Open
                               </button>
                               <button
                                 type="button"
                                 onClick={() => handlePrintEventSchedulePreview("sp", "schedule")}
-                                style={{ ...buttonStyle, padding: "7px 10px" }}
+                                style={{ ...buttonStyle, padding: "6px 9px" }}
                               >
                                 Print
                               </button>
@@ -16528,25 +17005,25 @@ Cory`;
                         },
                         {
                           key: "time_ticket",
-                          icon: "⌁",
                           title: "FACULTY / SIMOPS TIME TICKET",
                           detail: "Compact timing and flow view",
                           status: scheduleCompleted ? "complete" : scheduleInProgress ? "draft" : "missing",
                           accent: "#f9a8d4",
+                          primaryAction: () => handleOpenEventScheduleRouteInNewTab("timeline", "ticket"),
                           metadata: ["Flow brief", scheduleCompleted ? "Print ready" : "Draft timing"].filter(Boolean),
                           actions: (
                             <>
                               <button
                                 type="button"
                                 onClick={() => handleOpenEventScheduleRouteInNewTab("timeline", "ticket")}
-                                style={{ ...buttonStyle, padding: "7px 10px" }}
+                                style={{ ...buttonStyle, padding: "6px 9px" }}
                               >
                                 Open
                               </button>
                               <button
                                 type="button"
                                 onClick={() => handlePrintEventSchedulePreview("timeline", "ticket")}
-                                style={{ ...buttonStyle, padding: "7px 10px" }}
+                                style={{ ...buttonStyle, padding: "6px 9px" }}
                               >
                                 Print
                               </button>
@@ -16555,11 +17032,11 @@ Cory`;
                         },
                         {
                           key: "materials",
-                          icon: "⎘",
                           title: "MATERIALS CACHE",
                           detail: eventMaterialName || "Event materials not uploaded",
                           status: eventMaterialUrl ? "available" : "missing",
                           accent: eventMaterialUrl ? "#fcd34d" : "#94a3b8",
+                          primaryAction: openEventMaterialPreview,
                           metadata: [eventMaterialUrl ? "Packet loaded" : "Upload needed", materialsStatusLabel].filter(Boolean),
                           actions: (
                             <>
@@ -16567,7 +17044,7 @@ Cory`;
                                 type="button"
                                 onClick={openEventMaterialPreview}
                                 disabled={!eventMaterialUrl}
-                                style={{ ...buttonStyle, padding: "7px 10px", opacity: eventMaterialUrl ? 1 : 0.55 }}
+                                style={{ ...buttonStyle, padding: "6px 9px", opacity: eventMaterialUrl ? 1 : 0.55 }}
                               >
                                 Preview
                               </button>
@@ -16576,7 +17053,7 @@ Cory`;
                                   href={eventMaterialDownloadUrl}
                                   target="_blank"
                                   rel="noreferrer"
-                                  style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "7px 10px" }}
+                                  style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "6px 9px" }}
                                 >
                                   Download
                                 </a>
@@ -16586,11 +17063,11 @@ Cory`;
                         },
                         {
                           key: "recording",
-                          icon: "◉",
                           title: "RECORDING CHANNEL",
                           detail: recordingGuideUrl ? getFilenameFromUrl(recordingGuideUrl) || "Recording link ready" : "No recording link posted",
                           status: recordingGuideUrl ? "available" : "missing",
                           accent: recordingGuideUrl ? "#f59e0b" : "#94a3b8",
+                          primaryHref: recordingGuideUrl || "",
                           metadata: [recordingStatus.label, recordingGuideUrl ? "Support posted" : "Awaiting link"].filter(Boolean),
                           actions: (
                             <>
@@ -16599,7 +17076,7 @@ Cory`;
                                   href={recordingGuideUrl}
                                   target="_blank"
                                   rel="noreferrer"
-                                  style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "7px 10px" }}
+                                  style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "6px 9px" }}
                                 >
                                   Open
                                 </a>
@@ -16609,11 +17086,11 @@ Cory`;
                         },
                         {
                           key: "training_access",
-                          icon: "⟡",
                           title: "TRAINING ACCESS NODE",
                           detail: trainingAccessUrl ? trainingModalityLabel : "Training link missing",
                           status: trainingAccessUrl ? "available" : trainingZoomRequired ? "missing" : "draft",
                           accent: trainingAccessUrl ? "#7dd3fc" : trainingZoomRequired ? "#fcd34d" : "#94a3b8",
+                          primaryHref: trainingAccessUrl || "",
                           metadata: [
                             trainingAccessUrl ? "Training linked" : "",
                             trainingZoomRequired ? "Zoom required" : "Optional access",
@@ -16625,7 +17102,7 @@ Cory`;
                                   href={trainingAccessUrl}
                                   target="_blank"
                                   rel="noreferrer"
-                                  style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "7px 10px" }}
+                                  style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "6px 9px" }}
                                 >
                                   Open
                                 </a>
@@ -16663,16 +17140,20 @@ Cory`;
                           <div
                             key={resource.key}
                             style={{
-                              borderRadius: "18px",
-                              border: `1px solid ${resource.accent}24`,
-                              background: isPlanningVisualMode
-                                ? `linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(247, 251, 254, 0.97) 36%, ${resource.accent}10 100%)`
-                                : `linear-gradient(180deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.02) 48%, ${resource.accent}12 100%)`,
-                              padding: resource.featured ? "14px 14px 13px" : "12px",
+                              borderRadius: "16px",
+                              border: isCommandFileCabinetSimpleView
+                                ? `1px solid ${resource.accent}22`
+                                : `1px solid ${resource.accent}28`,
+                              background: isCommandFileCabinetSimpleView
+                                ? "linear-gradient(180deg, rgba(255,255,255,0.99) 0%, rgba(248, 251, 254, 0.98) 100%)"
+                                : `linear-gradient(180deg, rgba(255,255,255,0.05) 0%, rgba(10, 20, 34, 0.84) 42%, ${resource.accent}14 100%)`,
+                              padding: resource.featured ? "12px 12px 11px" : "10px",
                               display: "grid",
-                              gap: "10px",
+                              gap: "8px",
                               boxShadow: isPlanningVisualMode
-                                ? `0 18px 34px ${resource.accent}14, inset 0 1px 0 rgba(255,255,255,0.32)`
+                                ? isCommandFileCabinetSimpleView
+                                  ? `0 10px 22px rgba(15, 23, 42, 0.06), inset 0 1px 0 rgba(255,255,255,0.48)`
+                                  : `0 18px 34px ${resource.accent}14, inset 0 1px 0 rgba(255,255,255,0.32)`
                                 : `0 18px 34px rgba(0,0,0,0.22), inset 0 1px 0 ${resource.accent}18`,
                               gridColumn: resource.featured ? "span 2" : undefined,
                               position: "relative",
@@ -16692,43 +17173,88 @@ Cory`;
                             />
                             <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "flex-start" }}>
                               <div style={{ display: "flex", gap: "10px", alignItems: "flex-start", minWidth: 0 }}>
-                                <span
-                                  style={{
-                                    width: resource.featured ? "38px" : "32px",
-                                    height: resource.featured ? "38px" : "32px",
-                                    borderRadius: "12px",
-                                    display: "inline-flex",
-                                    alignItems: "center",
-                                    justifyContent: "center",
-                                    background: `${resource.accent}18`,
-                                    border: `1px solid ${resource.accent}26`,
-                                    color: resource.accent,
-                                    fontWeight: 900,
-                                    fontSize: resource.featured ? "15px" : "13px",
-                                    flexShrink: 0,
-                                    boxShadow: `0 10px 22px ${resource.accent}18`,
-                                  }}
-                                >
-                                  {resource.icon}
-                                </span>
+                                {resource.primaryHref ? (
+                                  <a
+                                    href={resource.primaryHref}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    style={{
+                                      width: resource.featured ? "36px" : "30px",
+                                      height: resource.featured ? "36px" : "30px",
+                                      borderRadius: "11px",
+                                      display: "inline-flex",
+                                      alignItems: "center",
+                                      justifyContent: "center",
+                                      background: isCommandFileCabinetSimpleView ? `${resource.accent}12` : `${resource.accent}18`,
+                                      border: `1px solid ${resource.accent}26`,
+                                      color: resource.accent,
+                                      flexShrink: 0,
+                                      boxShadow: isCommandFileCabinetSimpleView ? "none" : `0 10px 22px ${resource.accent}18`,
+                                      cursor: "pointer",
+                                    }}
+                                  >
+                                    {renderCommandFileCabinetIcon(resource.key as CommandFileCabinetModuleKey, resource.accent, isCommandFileCabinetSimpleView)}
+                                  </a>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={resource.primaryAction}
+                                    disabled={!resource.primaryAction}
+                                    style={{
+                                      ...buttonStyle,
+                                      width: resource.featured ? "36px" : "30px",
+                                      height: resource.featured ? "36px" : "30px",
+                                      padding: "0",
+                                      borderRadius: "11px",
+                                      display: "inline-flex",
+                                      alignItems: "center",
+                                      justifyContent: "center",
+                                      background: isCommandFileCabinetSimpleView ? `${resource.accent}12` : `${resource.accent}18`,
+                                      border: `1px solid ${resource.accent}26`,
+                                      color: resource.accent,
+                                      boxShadow: isCommandFileCabinetSimpleView ? "none" : `0 10px 22px ${resource.accent}18`,
+                                      opacity: resource.primaryAction ? 1 : 0.75,
+                                    }}
+                                  >
+                                    {renderCommandFileCabinetIcon(resource.key as CommandFileCabinetModuleKey, resource.accent, isCommandFileCabinetSimpleView)}
+                                  </button>
+                                )}
                                 <div style={{ minWidth: 0 }}>
                                   <div style={{ color: commandCenterVisual.mutedColor, fontWeight: 900, fontSize: "10px", letterSpacing: "0.16em" }}>
                                     MODULE {String(index + 1).padStart(2, "0")}
                                   </div>
-                                  <div style={{ marginTop: "4px", color: commandCenterVisual.textColor, fontWeight: 900, fontSize: resource.featured ? "15px" : "14px", letterSpacing: "0.04em" }}>
+                                  <div
+                                    style={{
+                                      marginTop: "4px",
+                                      color: isCommandFileCabinetSimpleView ? "#0f2940" : "#f8fcff",
+                                      fontWeight: 900,
+                                      fontSize: resource.featured ? "14px" : "13px",
+                                      letterSpacing: "0.04em",
+                                      textShadow: isCommandFileCabinetSimpleView ? "0 1px 0 rgba(255,255,255,0.72)" : "0 1px 0 rgba(6, 12, 20, 0.95), 0 0 1px rgba(6, 12, 20, 0.9)",
+                                    }}
+                                  >
                                     {resource.title}
                                   </div>
-                                  <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 700, lineHeight: 1.45 }}>
+                                  <div
+                                    style={{
+                                      marginTop: "4px",
+                                      color: isCommandFileCabinetSimpleView ? "#456377" : "#d9edf6",
+                                      fontSize: "11px",
+                                      fontWeight: 800,
+                                      lineHeight: 1.42,
+                                      textShadow: isCommandFileCabinetSimpleView ? "none" : "0 1px 0 rgba(6, 12, 20, 0.9)",
+                                    }}
+                                  >
                                     {resource.detail}
                                   </div>
                                   {resource.metadata?.length ? (
-                                    <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "8px" }}>
+                                    <div style={{ display: "flex", gap: "5px", flexWrap: "wrap", marginTop: "7px" }}>
                                       {resource.metadata.map((item) => (
                                         <span
                                           key={`${resource.key}-${item}`}
                                           style={{
                                             ...commandChipStyle,
-                                            background: `${resource.accent}12`,
+                                            background: isCommandFileCabinetSimpleView ? `${resource.accent}10` : `${resource.accent}12`,
                                             border: `1px solid ${resource.accent}20`,
                                             color: resource.accent,
                                             fontSize: "10px",
@@ -16754,7 +17280,7 @@ Cory`;
                                 {resource.status}
                               </span>
                             </div>
-                            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
                               {resource.actions}
                             </div>
                           </div>
