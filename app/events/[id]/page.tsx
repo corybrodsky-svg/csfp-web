@@ -379,7 +379,6 @@ type WorkflowReadinessGroup = {
 
 type PlanningWindowKey = "event-status" | "staffing-training" | "operations-support" | "materials-communications";
 type OperationalStatusTone = "ready" | "attention" | "critical" | "info";
-type CommandFileCabinetView = "command" | "simple";
 type CommandFileCabinetModuleKey =
   | "case"
   | "schedule"
@@ -2597,8 +2596,8 @@ function getLiveAttendancePanelStorageKey(eventId: string) {
   return `cfsp:live-attendance-panel:${eventId || "global"}`;
 }
 
-function getCommandFileCabinetViewStorageKey(eventId: string) {
-  return `cfsp:command-file-cabinet-view:${eventId || "global"}`;
+function getCommandFileCabinetStorageKey(eventId: string) {
+  return `cfsp:command-file-cabinet:${eventId || "global"}`;
 }
 
 function renderCommandFileCabinetIcon(
@@ -3927,7 +3926,8 @@ export default function EventDetailPage() {
   const [assignmentFilter, setAssignmentFilter] = useState<AssignmentFilterStatus>("all");
   const [suggestedAssignmentFilter, setSuggestedAssignmentFilter] = useState<SuggestedAssignmentFilter>("all");
   const [commandCenterMode, setCommandCenterMode] = useState<CommandCenterMode>("planning");
-  const [commandFileCabinetView, setCommandFileCabinetView] = useState<CommandFileCabinetView>("command");
+  const [commandFileCabinetExpanded, setCommandFileCabinetExpanded] = useState(false);
+  const [expandedCommandFileCabinetModules, setExpandedCommandFileCabinetModules] = useState<Record<string, boolean>>({});
   const [selectedRotationRoundKey, setSelectedRotationRoundKey] = useState("");
   const [roundCompanionView, setRoundCompanionView] = useState<RotationCompanionView>("announcements");
   const [roundAnnouncementDrafts, setRoundAnnouncementDrafts] = useState<Record<string, string>>({});
@@ -6113,10 +6113,9 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
   useEffect(() => {
     if (typeof window === "undefined" || !id) return;
 
-    const savedState = window.localStorage.getItem(getCommandFileCabinetViewStorageKey(id));
-    if (savedState === "simple" || savedState === "command") {
-      setCommandFileCabinetView(savedState);
-    }
+    const savedState = window.localStorage.getItem(getCommandFileCabinetStorageKey(id));
+    if (savedState === "expanded") setCommandFileCabinetExpanded(true);
+    if (savedState === "collapsed") setCommandFileCabinetExpanded(false);
   }, [id]);
   const outreachProgressLabel = assignments.some(
     (assignment) =>
@@ -9282,7 +9281,6 @@ Cory`;
     critical: 3,
   };
   const isPlanningVisualMode = commandCenterMode === "planning";
-  const isCommandFileCabinetSimpleView = commandFileCabinetView === "simple";
   const commandCenterVisual = {
     shellBorder: isPlanningVisualMode ? "1px solid rgba(20, 91, 150, 0.16)" : "1px solid rgba(143, 194, 240, 0.22)",
     shellBackground: isPlanningVisualMode
@@ -9308,61 +9306,53 @@ Cory`;
     rowBackground: isPlanningVisualMode ? "rgba(255, 255, 255, 0.96)" : "rgba(255,255,255,0.075)",
     rowBorder: isPlanningVisualMode ? "1px solid rgba(128, 167, 182, 0.22)" : "1px solid rgba(203, 213, 225, 0.2)",
   } as const;
-  const commandFileCabinetVisual = isCommandFileCabinetSimpleView
-    ? {
-        shellBackground: "linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(248, 251, 254, 0.98) 100%)",
-        shellBorder: "1px solid rgba(148, 163, 184, 0.2)",
-        shellShadow: "0 10px 24px rgba(15, 23, 42, 0.05)",
-        topRule: "1px solid rgba(148, 163, 184, 0.16)",
-        titleColor: "#0f2940",
-        eyebrowColor: "#145b96",
-        detailColor: "#526b7c",
-        segmentedBackground: "rgba(248, 251, 254, 0.92)",
-        segmentedBorder: "1px solid rgba(148, 163, 184, 0.22)",
-        inactiveToggleText: "#526b7c",
-        activeToggleBackground: "linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(229, 246, 255, 0.82) 100%)",
-        activeToggleBorder: "1px solid rgba(14, 116, 144, 0.18)",
-        activeToggleText: "#0f4c81",
-        activeToggleShadow: "0 8px 18px rgba(14, 116, 144, 0.08)",
-        cardBackground: "linear-gradient(180deg, rgba(255,255,255,0.99) 0%, rgba(248, 251, 254, 0.98) 100%)",
-        cardBorder: "1px solid rgba(125, 154, 174, 0.18)",
-        cardShadow: "0 10px 22px rgba(15, 23, 42, 0.06), inset 0 1px 0 rgba(255,255,255,0.54)",
-        rowBackground: "rgba(255,255,255,0.82)",
-        rowBorder: "1px solid rgba(125, 154, 174, 0.16)",
-        iconBackground: "rgba(255,255,255,0.86)",
-        iconShadow: "inset 0 1px 0 rgba(255,255,255,0.68)",
-        moduleTextColor: "#0f2940",
-        moduleMetaColor: "#4f6d82",
-        moduleLabelColor: "#5b7890",
-      }
-    : {
-        shellBackground:
-          "linear-gradient(135deg, rgba(248, 252, 255, 0.95) 0%, rgba(236, 247, 250, 0.92) 52%, rgba(242, 246, 255, 0.9) 100%)",
-        shellBorder: "1px solid rgba(95, 140, 168, 0.2)",
-        shellShadow: "0 18px 36px rgba(15, 56, 86, 0.1), inset 0 1px 0 rgba(255,255,255,0.62)",
-        topRule: "1px solid rgba(99, 181, 217, 0.14)",
-        titleColor: "#102d44",
-        eyebrowColor: "#12617f",
-        detailColor: "#4d6678",
-        segmentedBackground: "rgba(255,255,255,0.66)",
-        segmentedBorder: "1px solid rgba(80, 132, 163, 0.18)",
-        inactiveToggleText: "#567287",
-        activeToggleBackground: "linear-gradient(135deg, rgba(230, 249, 252, 0.96) 0%, rgba(235, 244, 255, 0.94) 100%)",
-        activeToggleBorder: "1px solid rgba(20, 91, 150, 0.2)",
-        activeToggleText: "#0f4c81",
-        activeToggleShadow: "0 9px 20px rgba(20, 91, 150, 0.1), inset 0 1px 0 rgba(255,255,255,0.78)",
-        cardBackground:
-          "linear-gradient(180deg, rgba(255,255,255,0.88) 0%, rgba(245, 250, 253, 0.9) 100%)",
-        cardBorder: "1px solid rgba(96, 137, 164, 0.18)",
-        cardShadow: "0 14px 28px rgba(20, 65, 95, 0.08), inset 0 1px 0 rgba(255,255,255,0.72)",
-        rowBackground: "rgba(255,255,255,0.62)",
-        rowBorder: "1px solid rgba(96, 137, 164, 0.14)",
-        iconBackground: "linear-gradient(135deg, rgba(255,255,255,0.9) 0%, rgba(235, 248, 251, 0.82) 100%)",
-        iconShadow: "0 8px 18px rgba(20, 91, 150, 0.08), inset 0 1px 0 rgba(255,255,255,0.82)",
-        moduleTextColor: "#122f46",
-        moduleMetaColor: "#496678",
-        moduleLabelColor: "#57768a",
-      };
+  const commandFileCabinetVisual = {
+    shellBackground:
+      "radial-gradient(circle at 18% 0%, rgba(126, 231, 219, 0.16), transparent 34%), radial-gradient(circle at 86% 12%, rgba(20, 91, 150, 0.12), transparent 32%), linear-gradient(135deg, rgba(248, 252, 255, 0.96) 0%, rgba(236, 247, 250, 0.94) 52%, rgba(242, 246, 255, 0.92) 100%)",
+    shellBorder: "1px solid rgba(95, 140, 168, 0.2)",
+    shellShadow: "0 18px 36px rgba(15, 56, 86, 0.1), inset 0 1px 0 rgba(255,255,255,0.7)",
+    topRule: "1px solid rgba(99, 181, 217, 0.14)",
+    titleColor: "#102d44",
+    eyebrowColor: "#12617f",
+    detailColor: "#4d6678",
+    cardBackground:
+      "linear-gradient(180deg, rgba(255,255,255,0.78) 0%, rgba(245, 250, 253, 0.86) 100%)",
+    cardBorder: "1px solid rgba(96, 137, 164, 0.18)",
+    cardShadow: "0 14px 28px rgba(20, 65, 95, 0.08), inset 0 1px 0 rgba(255,255,255,0.78)",
+    rowBackground: "rgba(255,255,255,0.62)",
+    rowBorder: "1px solid rgba(96, 137, 164, 0.14)",
+    iconBackground: "linear-gradient(135deg, rgba(255,255,255,0.92) 0%, rgba(235, 248, 251, 0.84) 100%)",
+    iconShadow: "0 8px 18px rgba(20, 91, 150, 0.08), inset 0 1px 0 rgba(255,255,255,0.84)",
+    moduleTextColor: "#122f46",
+    moduleMetaColor: "#496678",
+    moduleLabelColor: "#57768a",
+  } as const;
+  const commandFileCabinetModuleStatuses = [
+    uploadedCaseFileCount ? "available" : caseFileCount ? "draft" : "missing",
+    scheduleCompleted ? "complete" : scheduleInProgress ? "draft" : "missing",
+    scheduleCompleted ? "complete" : scheduleInProgress ? "draft" : "missing",
+    scheduleCompleted ? "complete" : scheduleInProgress ? "draft" : "missing",
+    scheduleCompleted ? "complete" : scheduleInProgress ? "draft" : "missing",
+    eventMaterialUrl ? "available" : "missing",
+    recordingGuideUrl ? "available" : "missing",
+    trainingAccessUrl ? "available" : trainingZoomRequired ? "missing" : "draft",
+  ];
+  const commandFileCabinetStatusCounts = commandFileCabinetModuleStatuses.reduce(
+    (counts, status) => ({
+      ...counts,
+      [status]: (counts[status as keyof typeof counts] || 0) + 1,
+    }),
+    { complete: 0, available: 0, draft: 0, missing: 0 }
+  );
+  const commandFileCabinetReadyCount =
+    commandFileCabinetStatusCounts.complete + commandFileCabinetStatusCounts.available;
+  const commandFileCabinetSummaryLabel = `${commandFileCabinetReadyCount}/${commandFileCabinetModuleStatuses.length} modules ready`;
+  function handleCommandFileCabinetExpandedChange(nextExpanded: boolean) {
+    setCommandFileCabinetExpanded(nextExpanded);
+    if (typeof window !== "undefined" && id) {
+      window.localStorage.setItem(getCommandFileCabinetStorageKey(id), nextExpanded ? "expanded" : "collapsed");
+    }
+  }
   function getDominantOperationalTone(tones: OperationalStatusTone[]) {
     return tones.reduce<OperationalStatusTone>((current, tone) =>
       windowTonePriority[tone] > windowTonePriority[current] ? tone : current
@@ -18450,8 +18440,23 @@ Cory`;
                       padding: "14px",
                       display: "grid",
                       gap: "12px",
+                      position: "relative",
+                      overflow: "hidden",
                     }}
                   >
+                    <div
+                      aria-hidden="true"
+                      style={{
+                        position: "absolute",
+                        inset: 0,
+                        background:
+                          "linear-gradient(rgba(20, 91, 150, 0.045) 1px, transparent 1px), linear-gradient(90deg, rgba(20, 91, 150, 0.04) 1px, transparent 1px)",
+                        backgroundSize: "22px 22px",
+                        opacity: 0.42,
+                        pointerEvents: "none",
+                      }}
+                    />
+                    <div style={{ position: "relative", display: "grid", gap: "12px" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "flex-start" }}>
                       <div>
                         <div style={{ ...statLabel, color: commandFileCabinetVisual.eyebrowColor }}>Simulation Command File Cabinet</div>
@@ -18463,55 +18468,70 @@ Cory`;
                         </div>
                       </div>
                       <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center", justifyContent: "flex-end" }}>
-                        <div
-                          style={{
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: "4px",
-                            padding: "3px",
-                            borderRadius: "999px",
-                            border: commandFileCabinetVisual.segmentedBorder,
-                            background: commandFileCabinetVisual.segmentedBackground,
-                            boxShadow: "inset 0 1px 0 rgba(255,255,255,0.48)",
-                          }}
+                        <span style={{ ...commandChipStyle, background: "rgba(25, 138, 112, 0.12)", border: "1px solid rgba(25, 138, 112, 0.2)", color: "#0f766e" }}>
+                          {commandFileCabinetSummaryLabel}
+                        </span>
+                        <span style={{ ...commandChipStyle, background: commandFileCabinetStatusCounts.missing ? "rgba(237, 233, 254, 0.64)" : "rgba(232, 244, 255, 0.72)", border: "1px solid rgba(20, 91, 150, 0.16)", color: commandFileCabinetStatusCounts.missing ? "#5b21b6" : "#145b96" }}>
+                          {commandFileCabinetStatusCounts.missing} missing
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleCommandFileCabinetExpandedChange(!commandFileCabinetExpanded)}
+                          style={{ ...buttonStyle, padding: "7px 10px" }}
+                          aria-expanded={commandFileCabinetExpanded}
                         >
-                          {[
-                            { key: "command" as const, label: "Command View" },
-                            { key: "simple" as const, label: "Simple View" },
-                          ].map((option) => {
-                            const isActive = commandFileCabinetView === option.key;
-                            return (
-                              <button
-                                key={option.key}
-                                type="button"
-                                onClick={() => {
-                                  setCommandFileCabinetView(option.key);
-                                  if (typeof window !== "undefined" && id) {
-                                    window.localStorage.setItem(getCommandFileCabinetViewStorageKey(id), option.key);
-                                  }
-                                }}
-                                style={{
-                                  ...buttonStyle,
-                                  padding: "6px 11px",
-                                  borderRadius: "999px",
-                                  background: isActive ? commandFileCabinetVisual.activeToggleBackground : "transparent",
-                                  border: isActive ? commandFileCabinetVisual.activeToggleBorder : "1px solid transparent",
-                                  color: isActive ? commandFileCabinetVisual.activeToggleText : commandFileCabinetVisual.inactiveToggleText,
-                                  boxShadow: isActive ? commandFileCabinetVisual.activeToggleShadow : "none",
-                                  fontWeight: isActive ? 900 : 800,
-                                }}
-                              >
-                                {option.label}
-                              </button>
-                            );
-                          })}
-                        </div>
-                        <button type="button" onClick={scrollToAdminTools} style={{ ...buttonStyle, padding: "7px 10px" }}>
+                          {commandFileCabinetExpanded ? "Collapse" : "Expand"}
+                        </button>
+                        <button type="button" onClick={scrollToAdminTools} style={{ ...buttonStyle, padding: "7px 10px", background: "rgba(255,255,255,0.72)", border: "1px solid rgba(20, 91, 150, 0.14)" }}>
                           Admin Tools
                         </button>
                       </div>
                     </div>
 
+                    <input
+                      ref={caseFileInputRef}
+                      type="file"
+                      accept={staffingDocumentAccept}
+                      onChange={(event) => {
+                        void handleTrainingMaterialUpload("case_file", event.target.files?.[0] || null);
+                        event.currentTarget.value = "";
+                      }}
+                      style={{ display: "none" }}
+                    />
+
+                    {!commandFileCabinetExpanded ? (
+                      <div
+                        style={{
+                          borderRadius: "16px",
+                          border: "1px solid rgba(96, 137, 164, 0.14)",
+                          background: "rgba(255,255,255,0.62)",
+                          padding: "10px 11px",
+                          display: "flex",
+                          gap: "8px",
+                          flexWrap: "wrap",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                        }}
+                      >
+                        <div style={{ color: commandFileCabinetVisual.moduleMetaColor, fontSize: "12px", fontWeight: 800 }}>
+                          {commandFileCabinetStatusCounts.complete} complete · {commandFileCabinetStatusCounts.available} available · {commandFileCabinetStatusCounts.draft} draft
+                        </div>
+                        <div style={{ display: "flex", gap: "7px", flexWrap: "wrap" }}>
+                          {!uploadedCaseFileCount ? (
+                            <button type="button" onClick={() => openCaseFilePicker({ mode: "add" })} style={{ ...buttonStyle, padding: "6px 9px" }}>
+                              Upload Case
+                            </button>
+                          ) : null}
+                          {!scheduleCompleted ? (
+                            <Link href={expandedScheduleBuilderHref} style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "6px 9px" }}>
+                              Open Schedule Builder
+                            </Link>
+                          ) : null}
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {commandFileCabinetExpanded ? (
                     <div
                       style={{
                         display: "grid",
@@ -18519,16 +18539,6 @@ Cory`;
                         gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))",
                       }}
                     >
-                      <input
-                        ref={caseFileInputRef}
-                        type="file"
-                        accept={staffingDocumentAccept}
-                        onChange={(event) => {
-                          void handleTrainingMaterialUpload("case_file", event.target.files?.[0] || null);
-                          event.currentTarget.value = "";
-                        }}
-                        style={{ display: "none" }}
-                      />
                       {[
                         {
                           key: "case",
@@ -18564,12 +18574,8 @@ Cory`;
                                         key={`${caseEntry.id}-${caseIndex}`}
                                         style={{
                                           borderRadius: "12px",
-                                          border: isCommandFileCabinetSimpleView
-                                            ? "1px solid rgba(14, 116, 144, 0.14)"
-                                            : commandFileCabinetVisual.rowBorder,
-                                          background: isCommandFileCabinetSimpleView
-                                            ? "rgba(255,255,255,0.78)"
-                                            : commandFileCabinetVisual.rowBackground,
+                                          border: commandFileCabinetVisual.rowBorder,
+                                          background: commandFileCabinetVisual.rowBackground,
                                           padding: "8px",
                                           display: "grid",
                                           gap: "6px",
@@ -18856,7 +18862,7 @@ Cory`;
                               }
                             : resource.status === "available"
                               ? {
-                                  background: isCommandFileCabinetSimpleView ? "rgba(219, 234, 254, 0.72)" : "rgba(232, 244, 255, 0.76)",
+                                  background: "rgba(232, 244, 255, 0.76)",
                                   border: "1px solid rgba(20, 91, 150, 0.18)",
                                   color: "#145b96",
                                 }
@@ -18871,6 +18877,8 @@ Cory`;
                                     border: "1px solid rgba(100, 116, 139, 0.16)",
                                     color: "#475569",
                                   };
+
+                        const moduleExpanded = Boolean(expandedCommandFileCabinetModules[resource.key]);
 
                         return (
                           <div
@@ -18913,7 +18921,7 @@ Cory`;
                                 width: resource.featured ? "46%" : "52%",
                                 height: "1px",
                                 background: `linear-gradient(90deg, ${resource.accent}99 0%, ${resource.accent}30 48%, transparent 100%)`,
-                                opacity: isCommandFileCabinetSimpleView ? 0.5 : 0.58,
+                                opacity: 0.58,
                               }}
                             />
                             <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "flex-start" }}>
@@ -18938,7 +18946,7 @@ Cory`;
                                       cursor: "pointer",
                                     }}
                                   >
-                                    {renderCommandFileCabinetIcon(resource.key as CommandFileCabinetModuleKey, resource.accent, isCommandFileCabinetSimpleView)}
+                                    {renderCommandFileCabinetIcon(resource.key as CommandFileCabinetModuleKey, resource.accent)}
                                   </a>
                                 ) : (
                                   <button
@@ -18961,7 +18969,7 @@ Cory`;
                                       opacity: resource.primaryAction ? 1 : 0.75,
                                     }}
                                   >
-                                    {renderCommandFileCabinetIcon(resource.key as CommandFileCabinetModuleKey, resource.accent, isCommandFileCabinetSimpleView)}
+                                    {renderCommandFileCabinetIcon(resource.key as CommandFileCabinetModuleKey, resource.accent)}
                                   </button>
                                 )}
                                 <div style={{ minWidth: 0 }}>
@@ -18992,7 +19000,7 @@ Cory`;
                                   >
                                     {resource.detail}
                                   </div>
-                                  {resource.metadata?.length ? (
+                                  {moduleExpanded && resource.metadata?.length ? (
                                     <div style={{ display: "flex", gap: "5px", flexWrap: "wrap", marginTop: "7px" }}>
                                       {resource.metadata.map((item) => (
                                         <span
@@ -19013,24 +19021,50 @@ Cory`;
                                   ) : null}
                                 </div>
                               </div>
-                              <span
-                                style={{
-                                  ...commandChipStyle,
-                                  ...statusStyle,
-                                  textTransform: "uppercase",
-                                  letterSpacing: "0.08em",
-                                  fontSize: "10px",
-                                }}
-                              >
-                                {resource.status}
-                              </span>
+                              <div style={{ display: "grid", gap: "6px", justifyItems: "end", flexShrink: 0 }}>
+                                <span
+                                  style={{
+                                    ...commandChipStyle,
+                                    ...statusStyle,
+                                    textTransform: "uppercase",
+                                    letterSpacing: "0.08em",
+                                    fontSize: "10px",
+                                  }}
+                                >
+                                  {resource.status}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setExpandedCommandFileCabinetModules((current) => ({
+                                      ...current,
+                                      [resource.key]: !moduleExpanded,
+                                    }))
+                                  }
+                                  style={{
+                                    ...buttonStyle,
+                                    padding: "4px 7px",
+                                    fontSize: "10px",
+                                    background: moduleExpanded ? "rgba(20, 91, 150, 0.1)" : "rgba(255,255,255,0.68)",
+                                    border: "1px solid rgba(20, 91, 150, 0.14)",
+                                    color: "#145b96",
+                                  }}
+                                  aria-expanded={moduleExpanded}
+                                >
+                                  {moduleExpanded ? "Hide" : "Details"}
+                                </button>
+                              </div>
                             </div>
-                            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
-                              {resource.actions}
-                            </div>
+                            {moduleExpanded ? (
+                              <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
+                                {resource.actions}
+                              </div>
+                            ) : null}
                           </div>
                         );
                       })}
+                    </div>
+                    ) : null}
                     </div>
                   </div>
                 </div>
