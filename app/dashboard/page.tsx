@@ -905,14 +905,21 @@ function GlobalEventFinder({
   }
 
   const consoleShellStyle = {
-    border: "1px solid var(--cfsp-console-border)",
-    background: "var(--cfsp-console-bg)",
-    boxShadow: "var(--cfsp-console-shadow)",
+    border: "1px solid rgba(44, 211, 173, 0.32)",
+    background:
+      "radial-gradient(circle at 3% 0%, rgba(125, 211, 252, 0.28), transparent 34%), linear-gradient(135deg, rgba(249, 254, 255, 0.96) 0%, rgba(232, 255, 249, 0.92) 42%, rgba(238, 250, 255, 0.9) 72%, rgba(245, 241, 255, 0.84) 100%)",
+    boxShadow:
+      "0 18px 46px rgba(44, 211, 173, 0.14), 0 0 30px rgba(73, 168, 255, 0.12), inset 0 1px 0 rgba(255,255,255,0.86)",
     backdropFilter: "blur(18px)",
+    "--cfsp-attention-title": "#0f4268",
+    "--cfsp-attention-meta": "rgba(42, 82, 110, 0.78)",
+    "--cfsp-attention-chip-bg": "rgba(255, 247, 212, 0.82)",
+    "--cfsp-attention-chip-border": "rgba(243, 187, 103, 0.34)",
+    "--cfsp-attention-chip-text": "#94600c",
   };
   const consoleChipStyle = {
-    border: "1px solid var(--cfsp-console-chip-border)",
-    background: "var(--cfsp-console-chip-bg)",
+    border: "1px solid rgba(44, 211, 173, 0.18)",
+    background: "rgba(255, 255, 255, 0.62)",
     color: "var(--cfsp-attention-title)",
   };
 
@@ -935,7 +942,7 @@ function GlobalEventFinder({
               style={{ background: "var(--cfsp-green)", boxShadow: "0 0 12px rgba(44, 211, 173, 0.5)" }}
             />
             <span className="truncate text-[0.72rem] font-black uppercase tracking-[0.14em] text-[var(--cfsp-attention-title)]">
-              Operations Console
+              CFSP Command Console
             </span>
             <span className="hidden text-xs font-semibold text-[var(--cfsp-attention-meta)] sm:inline">
               {quickStats.operations} events · {quickStats.attention} attention
@@ -946,8 +953,8 @@ function GlobalEventFinder({
             onClick={toggleCollapsed}
             className="rounded-full px-2.5 py-1 text-[0.68rem] font-bold transition"
             style={{
-              border: "1px solid var(--cfsp-console-chip-border)",
-              background: "var(--cfsp-console-chip-bg)",
+              border: "1px solid rgba(44, 211, 173, 0.18)",
+              background: "rgba(255, 255, 255, 0.62)",
               color: "var(--cfsp-attention-title)",
             }}
           >
@@ -960,7 +967,7 @@ function GlobalEventFinder({
 
   return (
     <div
-      className="relative rounded-[13px] px-3 py-2"
+      className="relative rounded-[16px] px-3.5 py-3"
       style={consoleShellStyle}
       onKeyDown={(event) => {
         if (event.key === "Escape") {
@@ -974,8 +981,8 @@ function GlobalEventFinder({
         }
       }}
     >
-      <div className="flex flex-col gap-1.5 lg:flex-row lg:items-center">
-        <div className="flex shrink-0 items-center gap-2 lg:w-[144px]">
+      <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
+        <div className="flex shrink-0 items-center gap-2 lg:w-[190px]">
           <div className="cfsp-command-mark is-compact" aria-hidden="true">
             <span
               style={{
@@ -1004,16 +1011,16 @@ function GlobalEventFinder({
             </svg>
           </div>
           <div className="min-w-0">
-            <div className="truncate text-[0.64rem] font-black uppercase tracking-[0.13em] text-[var(--cfsp-attention-title)]">Operations Console</div>
-            <div className="text-[0.64rem] font-semibold text-[var(--cfsp-attention-meta)]">Event command lookup</div>
+            <div className="truncate text-[0.68rem] font-black uppercase tracking-[0.13em] text-[var(--cfsp-attention-title)]">CFSP Command Console</div>
+            <div className="text-[0.66rem] font-semibold text-[var(--cfsp-attention-meta)]">Event signal lookup</div>
           </div>
         </div>
 
         <div
           className="flex min-h-[36px] min-w-0 flex-1 items-center gap-2 rounded-[10px] px-2.5 py-1.5"
           style={{
-            border: "1px solid var(--cfsp-console-chip-border)",
-            background: "var(--cfsp-console-control-bg)",
+            border: "1px solid rgba(44, 211, 173, 0.22)",
+            background: "rgba(255, 255, 255, 0.76)",
             boxShadow: resultsOpen ? "0 0 0 2px rgba(73, 168, 255, 0.2), 0 0 24px rgba(44, 211, 173, 0.12)" : "inset 0 1px 0 rgba(255,255,255,0.08)",
           }}
         >
@@ -1025,11 +1032,11 @@ function GlobalEventFinder({
               setResultsOpen(Boolean(event.target.value.trim() || activeChip));
             }}
             onFocus={() => setResultsOpen(hasActiveSearch)}
-            aria-label="Operations Console search"
+            aria-label="CFSP Command Console search"
             aria-expanded={resultsOpen && hasActiveSearch}
             aria-controls="global-event-finder-results"
             role="combobox"
-            placeholder="Find events, staffing, readiness, or live operations..."
+            placeholder="Search events, staffing, readiness, locations..."
             className="min-w-0 flex-1 bg-transparent text-[0.92rem] font-bold outline-none text-[var(--cfsp-attention-title)] placeholder:text-[var(--cfsp-attention-meta)]"
           />
           <span
@@ -1048,7 +1055,7 @@ function GlobalEventFinder({
               onClick={clearSearch}
               className="rounded-[7px] px-2 py-0.5 text-[0.62rem] font-bold transition"
               style={{ color: "var(--cfsp-attention-meta)" }}
-              aria-label="Clear Operations Console"
+              aria-label="Clear CFSP Command Console"
             >
               Clear
             </button>
@@ -1075,8 +1082,8 @@ function GlobalEventFinder({
           onClick={toggleCollapsed}
           className="shrink-0 rounded-[8px] px-2 py-0.5 text-[0.62rem] font-bold transition"
           style={{
-            border: "1px solid var(--cfsp-console-chip-border)",
-            background: "var(--cfsp-console-chip-bg)",
+            border: "1px solid rgba(44, 211, 173, 0.18)",
+            background: "rgba(255, 255, 255, 0.58)",
             color: "var(--cfsp-attention-meta)",
           }}
           aria-expanded="true"
@@ -1089,8 +1096,8 @@ function GlobalEventFinder({
         className="mt-1.5 flex flex-wrap items-center gap-1 rounded-[10px] px-1.5 py-1"
         aria-label="Operational search toggles"
         style={{
-          border: "1px solid var(--cfsp-console-chip-border)",
-          background: "linear-gradient(90deg, rgba(73, 168, 255, 0.09) 0%, rgba(44, 211, 173, 0.08) 48%, rgba(196, 181, 253, 0.06) 100%)",
+          border: "1px solid rgba(44, 211, 173, 0.18)",
+          background: "linear-gradient(90deg, rgba(73, 168, 255, 0.1) 0%, rgba(44, 211, 173, 0.1) 48%, rgba(196, 181, 253, 0.07) 100%)",
         }}
       >
         {chipOptions.map((chip) => {
@@ -1102,8 +1109,8 @@ function GlobalEventFinder({
               onClick={() => toggleChip(chip.key)}
               className="inline-flex h-6.5 items-center gap-1 rounded-[7px] border px-2 py-0 text-[0.6rem] font-semibold transition"
               style={{
-                borderColor: selected ? "rgba(44, 211, 173, 0.46)" : "var(--cfsp-console-chip-border)",
-                background: selected ? "linear-gradient(135deg, rgba(73, 168, 255, 0.2), rgba(44, 211, 173, 0.16))" : "var(--cfsp-console-chip-bg)",
+                borderColor: selected ? "rgba(44, 211, 173, 0.46)" : "rgba(44, 211, 173, 0.18)",
+                background: selected ? "linear-gradient(135deg, rgba(73, 168, 255, 0.2), rgba(44, 211, 173, 0.18))" : "rgba(255, 255, 255, 0.58)",
                 color: selected ? "var(--cfsp-attention-title)" : "var(--cfsp-attention-meta)",
                 boxShadow: selected ? "inset 0 0 0 1px rgba(255,255,255,0.1), 0 0 14px rgba(44, 211, 173, 0.16)" : "none",
               }}
@@ -1719,15 +1726,6 @@ export default function DashboardPage() {
                 {isSp ? "Update Account" : "Edit Profile"}
               </Link>
             </div>
-
-            <div className="mt-3 max-w-none">
-              <GlobalEventFinder
-                items={allVisibleEvents}
-                myEventIds={myEventIds}
-                scope={scope}
-                onOpenEvent={(eventId) => router.push(`/events/${encodeURIComponent(eventId)}`)}
-              />
-            </div>
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
@@ -1814,23 +1812,43 @@ export default function DashboardPage() {
           </div>
         </section>
 
-        <section className="cfsp-grid-stats">
-          <div className="cfsp-stat-card">
-            <div className="cfsp-label">{isSp ? "Assigned Events" : scope === "my" ? "My Events" : "All Events"}</div>
-            <div className="cfsp-stat-value">{selectedEvents.length}</div>
-          </div>
-          <div className="cfsp-stat-card">
-            <div className="cfsp-label">{isSp ? "Confirmed / Hired" : "Needs Attention"}</div>
-            <div className="cfsp-stat-value">{isSp ? spConfirmedEvents.length : needsAttention.length}</div>
-          </div>
-          <div className="cfsp-stat-card">
-            <div className="cfsp-label">{isSp ? "Trainings" : "In Progress"}</div>
-            <div className="cfsp-stat-value">{isSp ? spTrainingEvents.length : inProgress.length}</div>
-          </div>
-          <div className="cfsp-stat-card">
-            <div className="cfsp-label">{isSp ? "Upcoming Access" : "Open SP Shortage"}</div>
-            <div className="cfsp-stat-value">{isSp ? selectedEvents.length : openShortageCount}</div>
-          </div>
+        <section className="relative z-10">
+          <GlobalEventFinder
+            items={allVisibleEvents}
+            myEventIds={myEventIds}
+            scope={scope}
+            onOpenEvent={(eventId) => router.push(`/events/${encodeURIComponent(eventId)}`)}
+          />
+        </section>
+
+        <section
+          className="flex flex-wrap items-center gap-2 rounded-[14px] px-3 py-2"
+          style={{
+            border: "1px solid rgba(44, 211, 173, 0.14)",
+            background: "linear-gradient(90deg, rgba(255,255,255,0.72), rgba(236,255,248,0.56), rgba(239,246,255,0.48))",
+            boxShadow: "0 10px 28px rgba(73, 168, 255, 0.06)",
+          }}
+          aria-label="Dashboard telemetry summary"
+        >
+          {[
+            { label: isSp ? "Assigned Events" : scope === "my" ? "My Events" : "All Events", value: selectedEvents.length },
+            { label: isSp ? "Confirmed / Hired" : "Needs Attention", value: isSp ? spConfirmedEvents.length : needsAttention.length },
+            { label: isSp ? "Trainings" : "In Progress", value: isSp ? spTrainingEvents.length : inProgress.length },
+            { label: isSp ? "Upcoming Access" : "Open SP Shortage", value: isSp ? selectedEvents.length : openShortageCount },
+          ].map((stat) => (
+            <div
+              key={stat.label}
+              className="inline-flex items-center gap-2 rounded-[10px] px-3 py-1.5 text-sm"
+              style={{
+                border: "1px solid rgba(73, 168, 255, 0.14)",
+                background: "rgba(255,255,255,0.66)",
+                color: "var(--cfsp-text-muted)",
+              }}
+            >
+              <span className="text-[0.64rem] font-black uppercase tracking-[0.12em]">{stat.label}</span>
+              <span className="text-base font-black text-[var(--cfsp-blue)]">{stat.value}</span>
+            </div>
+          ))}
         </section>
 
         <section className="cfsp-planning-calendar-panel rounded-[14px] px-5 py-4">
