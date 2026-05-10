@@ -629,6 +629,31 @@ function formatOperationalList(items: string[]) {
   return `${items.slice(0, -1).join(", ")}, and ${items[items.length - 1]}`;
 }
 
+function getBlockDurationMinutes(start: number, end: number) {
+  return Math.max(end - start, 0);
+}
+
+function formatDurationCompact(minutes: number) {
+  return `${minutes}m`;
+}
+
+function isRoundTimelineLabel(label: string) {
+  return /^rotation round \d+$/i.test(asText(label));
+}
+
+function isRoundSpecificTimelineBlock(block: TimelineBlock) {
+  return isRoundTimelineLabel(block.label) || /^round \d+$/i.test(asText(block.detail));
+}
+
+function isPrimaryScheduleWideTimelineBlock(block: TimelineBlock) {
+  if (isRoundSpecificTimelineBlock(block)) return false;
+  const label = asText(block.label).toLowerCase();
+  const durationMinutes = getBlockDurationMinutes(block.start, block.end);
+  if (/prebrief|debrief|lunch/.test(label)) return true;
+  if (/\bbreak\b/.test(label) && durationMinutes >= 15) return true;
+  return false;
+}
+
 function formatRoomName(
   roomName: string,
   roomType: "exam" | "flex",
@@ -1396,6 +1421,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const autosaveTimeoutRef = useRef<number | null>(null);
   const [showSchedulePreview, setShowSchedulePreview] = useState(false);
   const [previewKind, setPreviewKind] = useState<SchedulePreviewKind>("timeline");
+  const [showExpandedFlowDetails, setShowExpandedFlowDetails] = useState(false);
 
   useEffect(() => {
     if (!showSchedulePreview || typeof document === "undefined") return;
@@ -1888,6 +1914,46 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       })),
     [scheduleViewMode, scheduledRounds]
   );
+  const compactFlowEntries = useMemo(() => {
+    const roundEntries = visibleScheduledRounds.map((round) => ({
+      key: `round-${round.round}`,
+      kind: "round" as const,
+      start: round.start,
+      end: round.end,
+      round,
+    }));
+    const wideEntries = visibleTimeline
+      .filter((block) => isPrimaryScheduleWideTimelineBlock(block))
+      .map((block) => ({
+        key: `wide-${block.label}-${block.start}-${block.end}`,
+        kind: "wide" as const,
+        start: block.start,
+        end: block.end,
+        block,
+      }));
+
+    return [...wideEntries, ...roundEntries].sort((a, b) => a.start - b.start || a.end - b.end);
+  }, [visibleScheduledRounds, visibleTimeline]);
+  const scheduleGridRows = useMemo(() => {
+    const roundRows = visibleScheduledRounds.map((round) => ({
+      key: `round-row-${round.round}`,
+      kind: "round" as const,
+      start: round.start,
+      end: round.end,
+      round,
+    }));
+    const wideRows = visibleTimeline
+      .filter((block) => isPrimaryScheduleWideTimelineBlock(block))
+      .map((block) => ({
+        key: `wide-row-${block.label}-${block.start}-${block.end}`,
+        kind: "wide" as const,
+        start: block.start,
+        end: block.end,
+        block,
+      }));
+
+    return [...wideRows, ...roundRows].sort((a, b) => a.start - b.start || a.end - b.end);
+  }, [visibleScheduledRounds, visibleTimeline]);
   const selectedBuilderRoundContext = useMemo(
     () =>
       typeof selectedBuilderRound === "number"
@@ -2789,27 +2855,123 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
 
             {copyMessage ? <div className="mt-4 text-sm font-semibold text-[#196b57]">{copyMessage}</div> : null}
             <div className="mt-4 text-sm font-black text-[#14304f]">Live source: {schedulePreview.title}</div>
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+              <div className="text-sm font-semibold text-[#5e7388]">
+                Compact day flow keeps the full schedule visible without the long stacked scroll.
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowExpandedFlowDetails((current) => !current)}
+                className="cfsp-btn cfsp-btn-secondary"
+              >
+                {showExpandedFlowDetails ? "Collapse Flow Details" : "Expand Flow Details"}
+              </button>
+            </div>
 
             {parsedStartMinutes === null ? (
               <div className="cfsp-alert cfsp-alert-error mt-5">Enter a valid start time to generate a full schedule preview.</div>
             ) : (
-              <div className="mt-5 grid gap-3">
-                {visibleTimeline.map((block) => {
-                  const tone = getToneStyles(block.tone);
-                  return (
-                    <div
-                      key={`${block.label}-${block.start}-${block.end}`}
-                      className="rounded-[12px] border px-4 py-3"
-                      style={{ background: tone.background, borderColor: tone.border, color: tone.color }}
-                    >
-                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                        <div className="font-black">{block.label}</div>
-                        <div className="text-sm font-bold">{formatRange(block.start, block.end)}</div>
+              <div className="mt-5 grid gap-4">
+                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                  {compactFlowEntries.map((entry) =>
+                    entry.kind === "wide" ? (
+                      <div
+                        key={entry.key}
+                        className="rounded-[14px] border px-4 py-3"
+                        style={{
+                          gridColumn: "1 / -1",
+                          background:
+                            entry.block.tone === "prebrief"
+                              ? "#eefbf6"
+                              : entry.block.tone === "wrap"
+                                ? "#fff6e8"
+                                : "#edf5fb",
+                          borderColor:
+                            entry.block.tone === "prebrief"
+                              ? "#bfe4d6"
+                              : entry.block.tone === "wrap"
+                                ? "#f1d1a7"
+                                : "#c7dcee",
+                          color:
+                            entry.block.tone === "prebrief"
+                              ? "#196b57"
+                              : entry.block.tone === "wrap"
+                                ? "#a86411"
+                                : "#165a96",
+                        }}
+                      >
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                          <div className="text-base font-black">{entry.block.label}</div>
+                          <div className="text-sm font-bold">
+                            {formatRange(entry.block.start, entry.block.end)} ·{" "}
+                            {formatDurationCompact(getBlockDurationMinutes(entry.block.start, entry.block.end))}
+                          </div>
+                        </div>
+                        {entry.block.detail ? (
+                          <div className="mt-1 text-sm font-semibold opacity-90">{entry.block.detail}</div>
+                        ) : null}
                       </div>
-                      {block.detail ? <div className="mt-1 text-sm font-semibold opacity-90">{block.detail}</div> : null}
-                    </div>
-                  );
-                })}
+                    ) : (
+                      <div
+                        key={entry.key}
+                        className="rounded-[14px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3 shadow-[0_8px_20px_rgba(20,48,79,0.06)]"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <div className="text-[0.72rem] font-black uppercase tracking-[0.08em] text-[#5e7388]">
+                              Round {entry.round.round}
+                            </div>
+                            <div className="mt-2 text-base font-black text-[#14304f]">
+                              {formatRange(entry.round.start, entry.round.end)}
+                            </div>
+                          </div>
+                          <div
+                            className="rounded-full border px-3 py-1 text-[0.72rem] font-black uppercase tracking-[0.08em] text-[#165a96]"
+                            style={{ borderColor: "#c7dcee", background: "#edf5fb" }}
+                          >
+                            {formatDurationCompact(getBlockDurationMinutes(entry.round.start, entry.round.end))}
+                          </div>
+                        </div>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {entry.round.subBlocks.map((subBlock) => (
+                            <span
+                              key={`${entry.round.round}-${subBlock.label}-${subBlock.start}`}
+                              className="rounded-full border px-3 py-1 text-xs font-bold"
+                              style={{
+                                borderColor: "#d6e0e8",
+                                background: "#ffffff",
+                                color: "#4f677d",
+                              }}
+                            >
+                              {subBlock.label} {formatDurationCompact(getBlockDurationMinutes(subBlock.start, subBlock.end))}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  )}
+                </div>
+
+                {showExpandedFlowDetails ? (
+                  <div className="grid gap-3">
+                    {visibleTimeline.map((block) => {
+                      const tone = getToneStyles(block.tone);
+                      return (
+                        <div
+                          key={`${block.label}-${block.start}-${block.end}`}
+                          className="rounded-[12px] border px-4 py-3"
+                          style={{ background: tone.background, borderColor: tone.border, color: tone.color }}
+                        >
+                          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                            <div className="font-black">{block.label}</div>
+                            <div className="text-sm font-bold">{formatRange(block.start, block.end)}</div>
+                          </div>
+                          {block.detail ? <div className="mt-1 text-sm font-semibold opacity-90">{block.detail}</div> : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : null}
               </div>
             )}
           </section>
@@ -2873,21 +3035,65 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                     </tr>
                   </thead>
                   <tbody>
-                    {visibleScheduledRounds.map((round) => {
+                    {scheduleGridRows.map((entry) => {
+                      if (entry.kind === "wide") {
+                        const durationMinutes = getBlockDurationMinutes(entry.block.start, entry.block.end);
+                        return (
+                          <tr key={entry.key} className="border-b border-[#eef3f7]">
+                            <td colSpan={roomColumns.length + 2} className="px-3 py-3">
+                              <div
+                                className="rounded-[14px] border px-4 py-3"
+                                style={{
+                                  background:
+                                    entry.block.tone === "prebrief"
+                                      ? "#eefbf6"
+                                      : entry.block.tone === "wrap"
+                                        ? "#fff6e8"
+                                        : "#edf5fb",
+                                  borderColor:
+                                    entry.block.tone === "prebrief"
+                                      ? "#bfe4d6"
+                                      : entry.block.tone === "wrap"
+                                        ? "#f1d1a7"
+                                        : "#c7dcee",
+                                  color:
+                                    entry.block.tone === "prebrief"
+                                      ? "#196b57"
+                                      : entry.block.tone === "wrap"
+                                        ? "#a86411"
+                                        : "#165a96",
+                                }}
+                              >
+                                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                  <div className="text-base font-black">{entry.block.label}</div>
+                                  <div className="text-sm font-bold">
+                                    {formatRange(entry.block.start, entry.block.end)} · {durationMinutes} minutes
+                                  </div>
+                                </div>
+                                {entry.block.detail ? (
+                                  <div className="mt-1 text-sm font-semibold opacity-90">{entry.block.detail}</div>
+                                ) : null}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      }
+
+                      const round = entry.round;
                       const isSelectedContextRound = selectedBuilderRound === round.round;
                       return (
                         <tr
-                          key={round.round}
+                          key={entry.key}
                           className="border-b border-[#eef3f7] align-top text-sm text-[#14304f]"
                           style={{
                             background: isSelectedContextRound ? "rgba(209, 250, 229, 0.36)" : undefined,
                             boxShadow: isSelectedContextRound ? "inset 4px 0 0 rgba(15, 118, 110, 0.72)" : undefined,
                           }}
                         >
-                            <td className="px-3 py-4 font-black">
-                              <div>Round {round.round}</div>
-                              {isSelectedContextRound ? (
-                                <div className="mt-2 text-[0.68rem] font-black uppercase tracking-[0.08em] text-[#0f766e]">
+                          <td className="px-3 py-4 font-black">
+                            <div>Round {round.round}</div>
+                            {isSelectedContextRound ? (
+                              <div className="mt-2 text-[0.68rem] font-black uppercase tracking-[0.08em] text-[#0f766e]">
                                 Selected round
                               </div>
                             ) : null}
@@ -2896,7 +3102,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                             <div className="font-bold">{formatRange(round.start, round.end)}</div>
                             <div className="mt-2 grid gap-1 text-xs font-semibold text-[#5e7388]">
                               {round.subBlocks.map((subBlock) => (
-                                <div key={`${round.round}-${subBlock.label}`}>
+                                <div key={`${round.round}-${subBlock.label}-${subBlock.start}`}>
                                   {subBlock.label}: {formatRange(subBlock.start, subBlock.end)}
                                 </div>
                               ))}
