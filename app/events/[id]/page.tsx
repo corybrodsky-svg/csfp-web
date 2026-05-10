@@ -5589,11 +5589,6 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     : scheduleInProgress
       ? "Schedule In Progress"
       : "Schedule Not Started";
-  const scheduleStatusDetail = scheduleCompleted
-    ? "Time Ticket and full schedule are ready to open, print, or share."
-    : scheduleInProgress
-      ? "Builder progress is saved. Review the Time Ticket or reopen the builder to finish details."
-      : "Open the builder to set learner flow, room spread, and timing blocks.";
   const staffingCoverageMet = staffingRelevant && (needed > 0 ? confirmedCount >= needed : selectedStaffingCount > 0);
   const staffingCommunicationComplete = hiringEmailSent && confirmationEmailSent;
   const staffingCommandCenterCanCollapse =
@@ -8090,6 +8085,27 @@ Cory`;
         fileName: eventMaterialName,
       }).downloadUrl
     : "";
+  const caseFileUrl = asText(trainingMetadata.case_file_url);
+  const caseFileStoragePath = asText(trainingMetadata.case_file_storage_path);
+  const caseFileDisplayName =
+    asText(trainingMetadata.case_name) ||
+    asText(trainingMetadata.case_file_name) ||
+    getFilenameFromUrl(caseFileUrl) ||
+    "";
+  const caseFileDownloadUrl = caseFileUrl
+    ? buildTrainingMaterialAssetUrls({
+        eventId: id,
+        rawUrl: caseFileUrl,
+        storagePath: caseFileStoragePath,
+        fileName: caseFileDisplayName || "case-file",
+      }).downloadUrl
+    : "";
+  const recordingGuideUrl = normalizeExternalHref(
+    trainingMetadata.recording_url || trainingMetadata.training_recording_url
+  );
+  const trainingAccessUrl = normalizeExternalHref(
+    normalEventTrainingLink || trainingMetadata.zoom_url || trainingMetadata.training_zoom_link
+  );
   const workflowReportItems: WorkflowReadinessItem[] = [
     {
       id: "staffing",
@@ -8892,7 +8908,7 @@ Cory`;
     );
   }
 
-  function handleOpenEventScheduleRouteInNewTab(kind: EventSchedulePreviewKind, previewFamily?: "ticket" | "schedule") {
+  function buildEventSchedulePreviewHref(kind: EventSchedulePreviewKind, previewFamily?: "ticket" | "schedule") {
     const params = new URLSearchParams();
     params.set("source", "event-preview");
     params.set("view", roundCompanionView);
@@ -8907,8 +8923,30 @@ Cory`;
       params.set("roundIndex", String(activeSelectedRotationRoundIndex + 1));
     }
 
-    const href = `/events/${encodeURIComponent(id)}/schedule-builder?${params.toString()}`;
+    return `/events/${encodeURIComponent(id)}/schedule-builder?${params.toString()}`;
+  }
+
+  function handleOpenEventScheduleRouteInNewTab(kind: EventSchedulePreviewKind, previewFamily?: "ticket" | "schedule") {
+    const href = buildEventSchedulePreviewHref(kind, previewFamily);
     window.open(href, "_blank", "noopener,noreferrer");
+  }
+
+  function handlePrintEventSchedulePreview(kind: EventSchedulePreviewKind, previewFamily?: "ticket" | "schedule") {
+    const href = buildEventSchedulePreviewHref(kind, previewFamily);
+    const popup = window.open(href, "_blank", "noopener,noreferrer");
+    if (!popup) {
+      setEventSaveError("Print window blocked. Please allow popups for this site.");
+      return;
+    }
+
+    window.setTimeout(() => {
+      try {
+        popup.focus();
+        popup.print();
+      } catch {
+        setEventSaveError("Could not open print view. Open the schedule in a new tab and print from there.");
+      }
+    }, 1400);
   }
 
   async function saveFacultyContactFields(
@@ -15306,92 +15344,6 @@ Cory`;
             <div style={{ marginTop: "10px", display: "grid", gap: "10px" }}>
               <div
                 style={{
-                  borderRadius: "20px",
-                  border: scheduleCompleted
-                    ? planningSuccessBorder
-                    : scheduleInProgress
-                      ? "1px solid rgba(73, 168, 255, 0.28)"
-                      : "1px solid rgba(148, 163, 184, 0.2)",
-                  background: isPlanningVisualMode
-                    ? scheduleCompleted
-                      ? "linear-gradient(180deg, rgba(236, 253, 245, 0.98) 0%, rgba(220, 252, 231, 0.96) 100%)"
-                      : scheduleInProgress
-                        ? "linear-gradient(180deg, rgba(239, 246, 255, 0.98) 0%, rgba(219, 234, 254, 0.96) 100%)"
-                        : "linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(241, 245, 249, 0.96) 100%)"
-                    : "linear-gradient(180deg, rgba(8, 22, 36, 0.96) 0%, rgba(8, 28, 38, 0.92) 100%)",
-                  boxShadow: isPlanningVisualMode ? "0 16px 28px rgba(42, 112, 140, 0.1)" : "0 18px 36px rgba(0, 0, 0, 0.24)",
-                  padding: "16px 18px",
-                  display: "grid",
-                  gap: "12px",
-                }}
-              >
-                <div style={{ display: "flex", justifyContent: "space-between", gap: "14px", flexWrap: "wrap", alignItems: "center" }}>
-                  <div style={{ display: "grid", gap: "6px" }}>
-                    <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Schedule Status</div>
-                    <div style={{ color: commandCenterVisual.headingColor, fontSize: "22px", fontWeight: 950 }}>
-                      {scheduleStatusLabel}
-                    </div>
-                    <div style={{ color: commandCenterVisual.mutedColor, fontSize: "13px", fontWeight: 700 }}>
-                      {scheduleStatusDetail}
-                    </div>
-                  </div>
-                  <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                    <Link href={expandedScheduleBuilderHref} style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "9px 12px" }}>
-                      Open Schedule Builder
-                    </Link>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        handleOpenEventScheduleRouteInNewTab("timeline", "ticket");
-                      }}
-                      style={{ ...buttonStyle, padding: "9px 12px" }}
-                    >
-                      Open Time Ticket
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleOpenEventScheduleRouteInNewTab("rotation", "schedule")}
-                      style={{ ...buttonStyle, padding: "9px 12px" }}
-                    >
-                      Preview Full Schedule
-                    </button>
-                    {!scheduleCompleted ? (
-                      <button
-                        type="button"
-                        onClick={() => void handleMarkScheduleComplete()}
-                        disabled={saving}
-                        style={{
-                          ...buttonStyle,
-                          padding: "9px 12px",
-                          background: "rgba(44, 211, 173, 0.14)",
-                          color: "#0f766e",
-                          border: "1px solid rgba(44, 211, 173, 0.24)",
-                          opacity: saving ? 0.65 : 1,
-                        }}
-                      >
-                        Mark Schedule Complete
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
-                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                  <span style={{ ...commandChipStyle, background: scheduleCompleted ? planningSuccessBackground : scheduleInProgress ? "rgba(219, 234, 254, 0.72)" : commandCenterVisual.chipBackground, color: scheduleCompleted ? planningSuccessText : scheduleInProgress ? "#1d4ed8" : commandCenterVisual.chipText, border: scheduleCompleted ? planningSuccessBorder : scheduleInProgress ? "1px solid rgba(73, 168, 255, 0.22)" : commandChipStyle.border }}>
-                    {scheduleStatusLabel}
-                  </span>
-                  <span style={commandChipStyle}>
-                    Learners {effectiveLearnerCount > 0 ? effectiveLearnerCount : "TBD"}
-                  </span>
-                  <span style={commandChipStyle}>
-                    Rooms {effectiveRoomCount || "TBD"}
-                  </span>
-                  <span style={commandChipStyle}>
-                    Rounds {activeRotationCount || 0}
-                  </span>
-                </div>
-              </div>
-
-              <div
-                style={{
                   borderRadius: "16px",
                   border: commandCenterVisual.cardBorder,
                   background: commandCenterVisual.cardBackground,
@@ -15488,6 +15440,339 @@ Cory`;
                         </div>
                       </div>
                     ))}
+
+                    <div
+                      style={{
+                        borderTop: "1px solid rgba(99, 181, 217, 0.12)",
+                        paddingTop: "12px",
+                        display: "grid",
+                        gap: "10px",
+                      }}
+                    >
+                      <div>
+                        <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Session Resource Directory</div>
+                        <div style={{ marginTop: "4px", color: commandCenterVisual.textColor, fontWeight: 900, fontSize: "16px" }}>
+                          Command file cabinet
+                        </div>
+                        <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 700 }}>
+                          Keep the case, schedule views, materials, recording links, and training access points together in one packet center.
+                        </div>
+                      </div>
+
+                      <div
+                        style={{
+                          display: "grid",
+                          gap: "10px",
+                          gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                        }}
+                      >
+                        {[
+                          {
+                            key: "case",
+                            icon: "▤",
+                            title: "Case",
+                            detail: caseFileDisplayName || "Case not assigned",
+                            status: caseFileUrl ? "available" : caseFileDisplayName ? "draft" : "missing",
+                            actions: (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    openMaterialPreview({
+                                      title: "Case File",
+                                      rawUrl: caseFileUrl,
+                                      storagePath: caseFileStoragePath,
+                                      fileName: caseFileDisplayName || "case-file",
+                                    })
+                                  }
+                                  disabled={!caseFileUrl}
+                                  style={{ ...buttonStyle, padding: "7px 10px", opacity: caseFileUrl ? 1 : 0.55 }}
+                                >
+                                  Preview
+                                </button>
+                                {caseFileDownloadUrl ? (
+                                  <a
+                                    href={caseFileDownloadUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "7px 10px" }}
+                                  >
+                                    Download
+                                  </a>
+                                ) : null}
+                              </>
+                            ),
+                          },
+                          {
+                            key: "schedule",
+                            icon: "▦",
+                            title: "Schedule",
+                            detail: scheduleStatusLabel,
+                            status: scheduleCompleted ? "complete" : scheduleInProgress ? "draft" : "missing",
+                            actions: (
+                              <>
+                                <Link
+                                  href={expandedScheduleBuilderHref}
+                                  style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "7px 10px" }}
+                                >
+                                  Open
+                                </Link>
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenEventScheduleRouteInNewTab("rotation", "schedule")}
+                                  style={{ ...buttonStyle, padding: "7px 10px" }}
+                                >
+                                  Preview
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handlePrintEventSchedulePreview("rotation", "schedule")}
+                                  style={{ ...buttonStyle, padding: "7px 10px" }}
+                                >
+                                  Print
+                                </button>
+                              </>
+                            ),
+                          },
+                          {
+                            key: "student_schedule",
+                            icon: "◫",
+                            title: "Student Schedule",
+                            detail: "Learner-safe export view",
+                            status: scheduleCompleted ? "complete" : scheduleInProgress ? "draft" : "missing",
+                            actions: (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenEventScheduleRouteInNewTab("student", "schedule")}
+                                  style={{ ...buttonStyle, padding: "7px 10px" }}
+                                >
+                                  Open
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handlePrintEventSchedulePreview("student", "schedule")}
+                                  style={{ ...buttonStyle, padding: "7px 10px" }}
+                                >
+                                  Print
+                                </button>
+                              </>
+                            ),
+                          },
+                          {
+                            key: "sp_schedule",
+                            icon: "◎",
+                            title: "SP Schedule",
+                            detail: "Staff-facing room assignment view",
+                            status: scheduleCompleted ? "complete" : scheduleInProgress ? "draft" : "missing",
+                            actions: (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenEventScheduleRouteInNewTab("sp", "schedule")}
+                                  style={{ ...buttonStyle, padding: "7px 10px" }}
+                                >
+                                  Open
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handlePrintEventSchedulePreview("sp", "schedule")}
+                                  style={{ ...buttonStyle, padding: "7px 10px" }}
+                                >
+                                  Print
+                                </button>
+                              </>
+                            ),
+                          },
+                          {
+                            key: "time_ticket",
+                            icon: "⌁",
+                            title: "Faculty / SimOps Time Ticket",
+                            detail: "Compact timing and flow view",
+                            status: scheduleCompleted ? "complete" : scheduleInProgress ? "draft" : "missing",
+                            actions: (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenEventScheduleRouteInNewTab("timeline", "ticket")}
+                                  style={{ ...buttonStyle, padding: "7px 10px" }}
+                                >
+                                  Open
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handlePrintEventSchedulePreview("timeline", "ticket")}
+                                  style={{ ...buttonStyle, padding: "7px 10px" }}
+                                >
+                                  Print
+                                </button>
+                              </>
+                            ),
+                          },
+                          {
+                            key: "materials",
+                            icon: "⎘",
+                            title: "Materials",
+                            detail: eventMaterialName || "Event materials not uploaded",
+                            status: eventMaterialUrl ? "available" : "missing",
+                            actions: (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    openMaterialPreview({
+                                      title: "Event Material",
+                                      rawUrl: eventMaterialUrl,
+                                      storagePath: eventMaterialStoragePath,
+                                      fileName: eventMaterialName,
+                                    })
+                                  }
+                                  disabled={!eventMaterialUrl}
+                                  style={{ ...buttonStyle, padding: "7px 10px", opacity: eventMaterialUrl ? 1 : 0.55 }}
+                                >
+                                  Preview
+                                </button>
+                                {eventMaterialDownloadUrl ? (
+                                  <a
+                                    href={eventMaterialDownloadUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "7px 10px" }}
+                                  >
+                                    Download
+                                  </a>
+                                ) : null}
+                              </>
+                            ),
+                          },
+                          {
+                            key: "recording",
+                            icon: "◉",
+                            title: "Recording Link",
+                            detail: recordingGuideUrl ? getFilenameFromUrl(recordingGuideUrl) || "Recording link ready" : "No recording link posted",
+                            status: recordingGuideUrl ? "available" : "missing",
+                            actions: (
+                              <>
+                                {recordingGuideUrl ? (
+                                  <a
+                                    href={recordingGuideUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "7px 10px" }}
+                                  >
+                                    Open
+                                  </a>
+                                ) : null}
+                              </>
+                            ),
+                          },
+                          {
+                            key: "training_access",
+                            icon: "⟡",
+                            title: "Zoom / Training Link",
+                            detail: trainingAccessUrl ? trainingModalityLabel : "Training link missing",
+                            status: trainingAccessUrl ? "available" : trainingZoomRequired ? "missing" : "draft",
+                            actions: (
+                              <>
+                                {trainingAccessUrl ? (
+                                  <a
+                                    href={trainingAccessUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "7px 10px" }}
+                                  >
+                                    Open
+                                  </a>
+                                ) : null}
+                              </>
+                            ),
+                          },
+                        ].map((resource) => {
+                          const statusStyle =
+                            resource.status === "complete"
+                              ? {
+                                  background: planningSuccessBackground,
+                                  border: planningSuccessBorder,
+                                  color: planningSuccessText,
+                                }
+                              : resource.status === "available"
+                                ? {
+                                    background: "rgba(219, 234, 254, 0.72)",
+                                    border: "1px solid rgba(73, 168, 255, 0.22)",
+                                    color: "#1d4ed8",
+                                  }
+                                : resource.status === "draft"
+                                  ? {
+                                      background: "rgba(253, 230, 138, 0.18)",
+                                      border: "1px solid rgba(180, 83, 9, 0.22)",
+                                      color: "#b45309",
+                                    }
+                                  : {
+                                      background: commandCenterVisual.chipBackground,
+                                      border: commandChipStyle.border,
+                                      color: commandCenterVisual.chipText,
+                                    };
+
+                          return (
+                            <div
+                              key={resource.key}
+                              style={{
+                                borderRadius: "16px",
+                                border: "1px solid rgba(99, 181, 217, 0.12)",
+                                background: isPlanningVisualMode
+                                  ? "linear-gradient(180deg, rgba(255,255,255,0.96) 0%, rgba(247, 251, 254, 0.96) 100%)"
+                                  : "rgba(255,255,255,0.03)",
+                                padding: "12px",
+                                display: "grid",
+                                gap: "10px",
+                              }}
+                            >
+                              <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "flex-start" }}>
+                                <div style={{ display: "flex", gap: "10px", alignItems: "flex-start", minWidth: 0 }}>
+                                  <span
+                                    style={{
+                                      width: "30px",
+                                      height: "30px",
+                                      borderRadius: "999px",
+                                      display: "inline-flex",
+                                      alignItems: "center",
+                                      justifyContent: "center",
+                                      background: "rgba(73, 168, 255, 0.12)",
+                                      border: "1px solid rgba(73, 168, 255, 0.18)",
+                                      color: "#145b96",
+                                      fontWeight: 900,
+                                      fontSize: "13px",
+                                      flexShrink: 0,
+                                    }}
+                                  >
+                                    {resource.icon}
+                                  </span>
+                                  <div style={{ minWidth: 0 }}>
+                                    <div style={{ color: commandCenterVisual.textColor, fontWeight: 900 }}>
+                                      {resource.title}
+                                    </div>
+                                    <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 700, lineHeight: 1.45 }}>
+                                      {resource.detail}
+                                    </div>
+                                  </div>
+                                </div>
+                                <span
+                                  style={{
+                                    ...commandChipStyle,
+                                    ...statusStyle,
+                                  }}
+                                >
+                                  {resource.status}
+                                </span>
+                              </div>
+                              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                                {resource.actions}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
                   </div>
                 </details>
               </div>
