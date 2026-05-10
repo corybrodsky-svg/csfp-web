@@ -280,6 +280,11 @@ function asText(value: unknown) {
   return String(value).trim();
 }
 
+function serializeScheduleLearnerRosterMetadata(learners: string[]) {
+  const roster = learners.map(asText).filter(Boolean);
+  return roster.length ? encodeURIComponent(JSON.stringify(roster)) : "";
+}
+
 function getBuilderUserLabel(me: BuilderMeResponse | null) {
   return (
     asText(me?.profile?.full_name) ||
@@ -2574,6 +2579,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         schedule_learner_count: String(learnerRoster.length),
         schedule_room_count: String(totalRoomCount),
         schedule_round_count: String(effectiveRoundCount),
+        schedule_room_capacity: String(parsedRoomCapacity),
+        schedule_learner_roster: serializeScheduleLearnerRosterMetadata(
+          uploadedLearners.length ? uploadedLearners : originalUploadedLearners
+        ),
         schedule_preview_enabled_for_sps: selectedEventMetadata.schedule_preview_enabled_for_sps || "no",
       };
       void persistScheduleWorkflowMetadata(partial).catch(() => {
@@ -2590,12 +2599,15 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     draftSnapshot,
     effectiveRoundCount,
     learnerRoster.length,
+    originalUploadedLearners,
+    parsedRoomCapacity,
     persistScheduleWorkflowMetadata,
     scheduleWorkflowStatus,
     selectedEvent?.id,
     selectedEventMetadata.schedule_preview_enabled_for_sps,
     selectedEventMetadata.schedule_started_at,
     totalRoomCount,
+    uploadedLearners,
   ]);
 
   const scheduledRounds = useMemo(
@@ -2946,6 +2958,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         schedule_learner_count: String(learnerRoster.length),
         schedule_room_count: String(totalRoomCount),
         schedule_round_count: String(effectiveRoundCount),
+        schedule_room_capacity: String(parsedRoomCapacity),
+        schedule_learner_roster: serializeScheduleLearnerRosterMetadata(
+          uploadedLearners.length ? uploadedLearners : originalUploadedLearners
+        ),
         schedule_preview_enabled_for_sps: selectedEventMetadata.schedule_preview_enabled_for_sps || "no",
       });
       setCopyMessage("Schedule marked complete.");

@@ -3249,6 +3249,52 @@ function normalizeTextArray(value: unknown) {
   return value.map(asText).filter(Boolean);
 }
 
+const UNASSIGNED_LEARNER_ROOM_LABEL = "No learner assigned for this room/round";
+const LEGACY_UNASSIGNED_LEARNER_LABEL = "Learner not assigned";
+
+function parseScheduleLearnerRosterMetadata(value: unknown) {
+  const text = asText(value);
+  if (!text) return [] as string[];
+
+  const candidates = [text];
+  try {
+    candidates.unshift(decodeURIComponent(text));
+  } catch {
+    // Legacy metadata may already be plain JSON or plain text.
+  }
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate);
+      const roster = normalizeTextArray(parsed);
+      if (roster.length) return roster;
+    } catch {
+      // Fall through to line/comma parsing for older hand-authored metadata.
+    }
+  }
+
+  return text
+    .split(/\r?\n|,/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function getLearnerRoomAssignmentLabel(learnerLabels: string[]) {
+  const labels = learnerLabels.map(asText).filter(Boolean);
+  return labels.length ? labels.join(", ") : UNASSIGNED_LEARNER_ROOM_LABEL;
+}
+
+function isAssignedLearnerRoomLabel(label: unknown) {
+  const text = asText(label);
+  if (!text) return false;
+  const normalized = text.toLowerCase();
+  return (
+    normalized !== LEGACY_UNASSIGNED_LEARNER_LABEL.toLowerCase() &&
+    normalized !== UNASSIGNED_LEARNER_ROOM_LABEL.toLowerCase() &&
+    normalized !== "overflow / standby"
+  );
+}
+
 function normalizeScheduleBuilderDayBlocks(value: unknown) {
   if (!Array.isArray(value)) return [] as ScheduleBuilderPreviewDayBlock[];
 
@@ -4721,6 +4767,7 @@ export default function EventDetailPage() {
     isNeedsSpOperationalBadge(eventStatusLabel) && !hasPrimaryStaffingShortage;
   const isWorkshop = eventMeta.isSkillsWorkshop;
   const parsedEventMetadata = useMemo(() => parseEventMetadata(eventEditor.notes), [eventEditor.notes]);
+  const trainingMetadata = parsedEventMetadata.training;
   const explicitEventTypes = parsedEventMetadata.eventTypes;
   const explicitEventTypeSet = useMemo(() => new Set(explicitEventTypes), [explicitEventTypes]);
   const activeEventTypes = (explicitEventTypes.length
@@ -4775,12 +4822,17 @@ export default function EventDetailPage() {
     () => parseIntegerNoteValue(event?.notes, "Generated Rotation Rounds"),
     [event?.notes]
   );
+  const persistedScheduleLearnerRoster = useMemo(
+    () => parseScheduleLearnerRosterMetadata(trainingMetadata.schedule_learner_roster),
+    [trainingMetadata.schedule_learner_roster]
+  );
   const scheduleBuilderDraftLearnerRoster = useMemo(() => {
-    if (!scheduleBuilderPreviewDraft) return [] as string[];
-    return scheduleBuilderPreviewDraft.uploadedLearners.length
+    if (!scheduleBuilderPreviewDraft) return persistedScheduleLearnerRoster;
+    const localRoster = scheduleBuilderPreviewDraft.uploadedLearners.length
       ? scheduleBuilderPreviewDraft.uploadedLearners
       : scheduleBuilderPreviewDraft.originalUploadedLearners;
-  }, [scheduleBuilderPreviewDraft]);
+    return localRoster.length ? localRoster : persistedScheduleLearnerRoster;
+  }, [persistedScheduleLearnerRoster, scheduleBuilderPreviewDraft]);
   const scheduleBuilderDraftRoomCount = useMemo(
     () => parsePositiveInteger(scheduleBuilderPreviewDraft?.examRoomCount, 0),
     [scheduleBuilderPreviewDraft?.examRoomCount]
@@ -4794,8 +4846,15 @@ export default function EventDetailPage() {
     [scheduleBuilderPreviewDraft?.manualRoundOverride]
   );
   const scheduleBuilderDraftRoomCapacity = useMemo(
-    () => Math.max(1, parsePositiveInteger(scheduleBuilderPreviewDraft?.roomCapacity, 1)),
-    [scheduleBuilderPreviewDraft?.roomCapacity]
+    () =>
+      Math.max(
+        1,
+        parsePositiveInteger(
+          scheduleBuilderPreviewDraft?.roomCapacity || trainingMetadata.schedule_room_capacity,
+          1
+        )
+      ),
+    [scheduleBuilderPreviewDraft?.roomCapacity, trainingMetadata.schedule_room_capacity]
   );
   const effectiveLearnerCount = useMemo(
     () =>
@@ -4884,7 +4943,6 @@ export default function EventDetailPage() {
     () => capRotationRounds(allRotationRounds, activeRotationCount),
     [allRotationRounds, activeRotationCount]
   );
-  const trainingMetadata = parsedEventMetadata.training;
   useEffect(() => {
     if (!id) return;
     const hydrationKey = `${id}:${trainingMetadata.include_backups_in_email}:${trainingMetadata.selected_hiring_sp_ids}`;
@@ -5531,7 +5589,6 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     const remainingLabel = currentLiveBlock
       ? formatRemainingMinutes(Math.max(currentLiveBlock.endMinutes - simulatedLiveMinutes, 0))
       : "Timeline TBD";
-    const currentLiveRoomCount = currentLiveRoomDisplayEntries.length;
     const liveReferenceRowsByRoomNumber = new Map<number, { roomName: string; learnerLabels: string[] }>();
     const liveReferenceRowsByRoomName = new Map<string, { roomName: string; learnerLabels: string[] }>();
     const liveReferenceSessions = currentLiveReferenceRound
@@ -5578,7 +5635,6 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
           const learnerIndex =
             liveReferenceFirstLearnerIndex + slotIndex * Math.max(liveReferenceLearnersPerRow, 1) + learnerOffset;
           if (scheduleBuilderDraftLearnerRoster[learnerIndex]) return scheduleBuilderDraftLearnerRoster[learnerIndex];
-          if (effectiveLearnerCount > 0 && learnerIndex < effectiveLearnerCount) return `Learner slot ${learnerIndex + 1}`;
           return "";
         }).filter(Boolean),
       };
@@ -5631,14 +5687,7 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
             : "in_session";
       const learnerLabel = matchedLiveReferenceRow?.learnerLabels.length
         ? matchedLiveReferenceRow.learnerLabels.join(", ")
-        : asText(trainingMetadata.schedule_status).toLowerCase() === "complete"
-          ? "Learner not assigned"
-          : effectiveLearnerCount > 0 && currentLiveRoomCount > 0
-            ? `Learner ${Math.min(
-                effectiveLearnerCount,
-                currentRotationRoundNumber ? (currentRotationRoundNumber - 1) * currentLiveRoomCount + index + 1 : index + 1
-              )}`
-            : "Learner not assigned";
+        : UNASSIGNED_LEARNER_ROOM_LABEL;
 
       return {
         key: liveKey,
@@ -5660,11 +5709,9 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     currentLiveBlock,
     currentLiveRoomDisplayEntries,
     currentLiveReferenceRound,
-    currentRotationRoundNumber,
     effectiveRoomCount,
     livePausedAtMs,
     liveRoomStates,
-    effectiveLearnerCount,
     roomSlotEntriesByRoundKey,
     rotationRounds,
     scheduleBuilderDraftLearnerRoster,
@@ -5679,7 +5726,6 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     trainingMetadata.case_files,
     trainingMetadata.case_file_url,
     trainingMetadata.case_name,
-    trainingMetadata.schedule_status,
   ]);
   const liveRoomDelayedCount = currentLiveRoomBoardRows.filter((row) => row.status === "delayed" || row.delayMinutes > 0).length;
   const liveRoomMissingCount = currentLiveRoomBoardRows.filter((row) => row.status === "sp_missing").length;
@@ -6822,15 +6868,12 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     return `/events/${encodeURIComponent(id)}/schedule-builder?${params.toString()}`;
   }, [activeSelectedRotationRoundIndex, id, roundCompanionView, selectedRotationRound]);
   const scheduleBuilderLearnerNames = useMemo(
-    () =>
-      scheduleBuilderPreviewDraft?.uploadedLearners.length
-        ? scheduleBuilderPreviewDraft.uploadedLearners
-        : scheduleBuilderPreviewDraft?.originalUploadedLearners || [],
-    [scheduleBuilderPreviewDraft]
+    () => scheduleBuilderDraftLearnerRoster,
+    [scheduleBuilderDraftLearnerRoster]
   );
   const scheduleBuilderRoomCapacity = useMemo(
-    () => Math.max(1, parsePositiveInteger(scheduleBuilderPreviewDraft?.roomCapacity, 1)),
-    [scheduleBuilderPreviewDraft?.roomCapacity]
+    () => scheduleBuilderDraftRoomCapacity,
+    [scheduleBuilderDraftRoomCapacity]
   );
   const currentLiveReferenceRoundIndex = useMemo(
     () =>
@@ -6893,7 +6936,6 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       const learnerLabels = Array.from({ length: Math.max(learnersPerRow, 1) }, (_, learnerOffset) => {
         const learnerIndex = firstLearnerIndex + slotIndex * Math.max(learnersPerRow, 1) + learnerOffset;
         if (scheduleBuilderLearnerNames[learnerIndex]) return scheduleBuilderLearnerNames[learnerIndex];
-        if (effectiveLearnerCount > 0 && learnerIndex < effectiveLearnerCount) return `Learner slot ${learnerIndex + 1}`;
         return "";
       }).filter(Boolean);
       return { roomName, learnerLabels };
@@ -6903,7 +6945,6 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     currentLiveReferenceRoundIndex,
     currentLiveReferenceRoomSlotEntries,
     currentLiveReferenceSessions,
-    effectiveLearnerCount,
     roomNamingContext,
     scheduleBuilderLearnerNames,
     scheduleBuilderRoomCapacity,
@@ -7008,7 +7049,6 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
         const learnerLabels = Array.from({ length: Math.max(learnersPerRow, 1) }, (_, learnerOffset) => {
           const learnerIndex = firstLearnerIndex + slotIndex * Math.max(learnersPerRow, 1) + learnerOffset;
           if (scheduleBuilderLearnerNames[learnerIndex]) return scheduleBuilderLearnerNames[learnerIndex];
-          if (effectiveLearnerCount > 0 && learnerIndex < effectiveLearnerCount) return `Learner slot ${learnerIndex + 1}`;
           return "";
         }).filter(Boolean);
         const flags = [
@@ -7063,6 +7103,34 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     if (roomSlots <= 0) return null;
     return Math.max(roomSlots - selectedRoundLearnerCount, 0);
   }, [selectedRoundLearnerCount, selectedRotationRound, selectedRoundRoomCount]);
+  const learnerPlannerCapacity = useMemo(() => {
+    if (effectiveRoomCount <= 0 || activeRotationCount <= 0) return 0;
+    return effectiveRoomCount * Math.max(scheduleBuilderRoomCapacity, 1) * activeRotationCount;
+  }, [activeRotationCount, effectiveRoomCount, scheduleBuilderRoomCapacity]);
+  const learnerPlannerRosterCount = scheduleBuilderLearnerNames.length;
+  const learnerPlannerExpectedCount = Math.max(effectiveLearnerCount, learnerPlannerRosterCount);
+  const learnerPlannerAssignedCount =
+    learnerPlannerRosterCount > 0 && learnerPlannerCapacity > 0
+      ? Math.min(learnerPlannerRosterCount, learnerPlannerCapacity)
+      : 0;
+  const learnerPlannerUnassignedCount = Math.max(learnerPlannerRosterCount - learnerPlannerAssignedCount, 0);
+  const selectedRoundAssignedLearnerCount = selectedRoundScheduleRows.reduce(
+    (total, row) => total + row.learnerLabels.length,
+    0
+  );
+  const learnerPlannerMissingSignals = [
+    learnerPlannerExpectedCount > 0 && learnerPlannerRosterCount === 0
+      ? `${learnerPlannerExpectedCount} expected learner${learnerPlannerExpectedCount === 1 ? "" : "s"} counted, but roster names are not available`
+      : "",
+    learnerPlannerRosterCount > 0 && effectiveRoomCount <= 0 ? "Room count is missing" : "",
+    learnerPlannerRosterCount > 0 && activeRotationCount <= 0 ? "Rotation rounds are missing" : "",
+    learnerPlannerUnassignedCount > 0
+      ? `${learnerPlannerUnassignedCount} learner${learnerPlannerUnassignedCount === 1 ? "" : "s"} beyond current room/round capacity`
+      : "",
+  ].filter(Boolean);
+  const learnerAssignmentsIncomplete =
+    learnerPlannerMissingSignals.length > 0 ||
+    (learnerPlannerRosterCount > 0 && selectedRoundScheduleRows.some((row) => !row.learnerLabels.length));
   const selectedRoundDayBlocks = useMemo(() => {
     if (!selectedRotationRound) return [] as RoundCompanionBlock[];
     const dayBlocks: RoundCompanionBlock[] = liveFlowBlocks
@@ -7220,7 +7288,6 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
           : Array.from({ length: Math.max(learnersPerRow, 1) }, (_, learnerOffset) => {
               const learnerIndex = firstLearnerIndex + index * Math.max(learnersPerRow, 1) + learnerOffset;
               if (scheduleBuilderLearnerNames[learnerIndex]) return scheduleBuilderLearnerNames[learnerIndex];
-              if (effectiveLearnerCount > 0 && learnerIndex < effectiveLearnerCount) return `Learner slot ${learnerIndex + 1}`;
               return "";
             }).filter(Boolean);
         const hasRoomIdentity = roomNumber !== null || Boolean(entry.roomName);
@@ -7266,7 +7333,6 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     [
       activeSelectedRotationRoundIndex,
       event?.location,
-      effectiveLearnerCount,
       selectedRoundCoverageShortage,
       scheduleBuilderLearnerNames,
       scheduleBuilderRoomCapacity,
@@ -7801,6 +7867,23 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
           (sourceIndex >= 0 ? currentLiveRoomBoardRows.find((row) => row.sourceIndex === sourceIndex) : null) ||
           currentLiveRoomBoardRows[index] ||
           null;
+        const roomNumber = getRoomDisplayNumber(roomName);
+        const scheduleRow =
+          currentLiveReferenceScheduleRows.find((row) => {
+            const rowNumber = getRoomDisplayNumber(row.roomName);
+            return roomNumber !== null && rowNumber === roomNumber;
+          }) ||
+          currentLiveReferenceScheduleRows.find(
+            (row) => asText(row.roomName).toLowerCase() === asText(roomName).toLowerCase()
+          ) ||
+          selectedRoundScheduleRows.find((row) => {
+            const rowNumber = getRoomDisplayNumber(row.roomName);
+            return roomNumber !== null && rowNumber === roomNumber;
+          }) ||
+          selectedRoundScheduleRows.find(
+            (row) => asText(row.roomName).toLowerCase() === asText(roomName).toLowerCase()
+          ) ||
+          null;
         const projection = liveBlueprintRoomAssignmentPlan.assignments[index];
         const restoredAssignment =
           asText(adjustment.restoredAssignmentId)
@@ -7893,7 +7976,9 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
           isCurrentRotationRoom: Boolean(currentLiveRoomDisplayEntries.length && index < currentLiveRoomDisplayEntries.length),
           issueNote: boardRow?.issueNote || "",
           delayMinutes: boardRow?.delayMinutes || 0,
-          learnerLabel: boardRow?.learnerLabel || "Learner not assigned",
+          learnerLabel: isAssignedLearnerRoomLabel(boardRow?.learnerLabel)
+            ? asText(boardRow?.learnerLabel)
+            : getLearnerRoomAssignmentLabel(scheduleRow?.learnerLabels || []),
           encounterLabel: boardRow?.encounterLabel || "Case not assigned",
           standbyAssignment,
           standbySp,
@@ -7909,11 +7994,13 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       confirmedAssignments,
       currentLiveRoomDisplayEntries.length,
       currentLiveRoomBoardRows,
+      currentLiveReferenceScheduleRows,
       firstLiveRotationStartMinutes,
       liveBlueprintRoomEntries,
       liveBlueprintRoomAssignmentPlan.assignments,
       liveRestoredAssignmentRoomById,
       liveRoomAdjustments,
+      selectedRoundScheduleRows,
       simulatedLiveMinutes,
       spsById,
     ]
@@ -8001,7 +8088,7 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
   const liveLearnerPresenceTokens = useMemo(
     () =>
       liveAttendanceBlueprintRooms
-        .filter((room) => room.learnerLabel && room.learnerLabel !== "Learner not assigned" && room.learnerLabel !== "Overflow / standby")
+        .filter((room) => isAssignedLearnerRoomLabel(room.learnerLabel))
         .flatMap((room, roomIndex) =>
           room.learnerLabel
             .split(",")
@@ -8978,7 +9065,7 @@ Cory`;
             >
               Preview
             </button>
-          ) : null}
+            ) : null}
           {eventMaterialDownloadUrl ? (
             <a
               href={eventMaterialDownloadUrl}
@@ -8988,7 +9075,7 @@ Cory`;
             >
               Download
             </a>
-          ) : null}
+            ) : null}
           <button
             type="button"
             onClick={() => focusAdminEditField("materials_readiness")}
@@ -12213,9 +12300,9 @@ Cory`;
 	                      </div>
 	                    </div>
 	                  );
-	                })}
-	              </div>
-	            )}
+                })}
+              </div>
+            )}
 	          </section>
 
 	          <div
@@ -12633,7 +12720,7 @@ Cory`;
                                       {room.spName || "Open room"}
                                     </div>
                                     <div style={{ marginTop: "4px", color: "#dbeafe", fontSize: "10px", fontWeight: 800, lineHeight: 1.35, overflowWrap: "anywhere" }}>
-                                      {room.isTemporaryRoom ? "Extra Room · Standby / Overflow" : room.learnerLabel || "Learner not assigned"}
+                                      {room.isTemporaryRoom ? "Extra Room · Standby / Overflow" : room.learnerLabel || UNASSIGNED_LEARNER_ROOM_LABEL}
                                     </div>
                                     <div style={{ marginTop: "4px", color: "#d9ebff", fontSize: "10px", fontWeight: 800, lineHeight: 1.35, overflowWrap: "anywhere" }}>
                                       {room.encounterLabel}
@@ -12856,8 +12943,7 @@ Cory`;
                                 {roomExpanded ? (
                                   <>
                                 {room.learnerLabel &&
-                                room.learnerLabel !== "Learner not assigned" &&
-                                room.learnerLabel !== "Overflow / standby" ? (
+                                isAssignedLearnerRoomLabel(room.learnerLabel) ? (
 	                                  <button
                                       type="button"
                                       onClick={(event) => {
@@ -12898,7 +12984,21 @@ Cory`;
 	                                  </button>
                                 ) : (
                                   <div style={{ marginTop: "8px", color: livePanelMutedText, fontSize: "10px", fontWeight: 800 }}>
-                                    Learner not assigned
+                                    <div>{UNASSIGNED_LEARNER_ROOM_LABEL}</div>
+                                    <Link
+                                      href={expandedScheduleBuilderHref}
+                                      onClick={(event) => event.stopPropagation()}
+                                      style={{
+                                        marginTop: "6px",
+                                        display: "inline-flex",
+                                        ...buttonStyle,
+                                        textDecoration: "none",
+                                        padding: "5px 7px",
+                                        fontSize: "10px",
+                                      }}
+                                    >
+                                      Assign learners
+                                    </Link>
                                   </div>
                                 )}
                                 {room.status !== "empty" ? (
@@ -12950,7 +13050,7 @@ Cory`;
                                           : "No SP is currently mapped to this visible room. Restore a confirmed SP without changing saved staffing data."}
                                       </div>
                                       <div style={{ color: livePanelMutedText, fontSize: "10px", fontWeight: 800, lineHeight: 1.35 }}>
-                                        Learner: {room.learnerLabel || "Learner not assigned"} · Case: {room.encounterLabel || "Case not assigned"}
+                                        Learner: {room.learnerLabel || UNASSIGNED_LEARNER_ROOM_LABEL} · Case: {room.encounterLabel || "Case not assigned"}
                                       </div>
                                     </div>
                                     {roomLearnerTokens.length ? (
@@ -13009,11 +13109,11 @@ Cory`;
                                               {isLearnerActive ? (
                                                 <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                                                   {[
-                                                    { action: "arrived" as const, label: "Mark Arrived" },
-                                                    { action: "late" as const, label: "Mark Late" },
-                                                    { action: "absent" as const, label: "Mark Absent" },
+                                                    { action: "arrived" as const, label: "Check In" },
                                                     { action: "in_room" as const, label: "Move to Room" },
-                                                    { action: "completed" as const, label: "Complete Round" },
+                                                    { action: "completed" as const, label: "Mark Complete" },
+                                                    { action: "late" as const, label: "Late" },
+                                                    { action: "absent" as const, label: "No-show" },
                                                     { action: "clear" as const, label: "Clear" },
                                                   ].map((button) => (
                                                     <button
@@ -13307,7 +13407,7 @@ Cory`;
                                   background: "rgba(80, 18, 25, 0.2)",
                                   border: "1px solid rgba(248, 113, 113, 0.26)",
                                   color: "#fecaca",
-                                  label: "Absent",
+                                  label: "No-show",
                                 }
                               : token.status === "late"
                                 ? {
@@ -13385,10 +13485,11 @@ Cory`;
                               {activeLearnerAttendanceKey === token.attendanceKey ? (
                                 <div style={{ display: "flex", gap: "5px", flexWrap: "wrap", maxWidth: "360px" }}>
                                   {[
-                                    { action: "arrived" as const, label: "Arrived" },
+                                    { action: "arrived" as const, label: "Check In" },
                                     { action: "late" as const, label: "Late" },
-                                    { action: "absent" as const, label: "Absent" },
+                                    { action: "absent" as const, label: "No-show" },
                                     { action: "in_room" as const, label: "Move to Room" },
+                                    { action: "completed" as const, label: "Complete" },
                                     { action: "clear" as const, label: "Reset" },
                                   ].map((button) => (
                                     <button
@@ -13416,7 +13517,34 @@ Cory`;
                         })}
                       </div>
                     </div>
-                  ) : null}
+                  ) : (
+                    <div
+                      style={{
+                        borderTop: "1px solid rgba(126, 231, 219, 0.14)",
+                        paddingTop: "10px",
+                        display: "flex",
+                        gap: "10px",
+                        justifyContent: "space-between",
+                        flexWrap: "wrap",
+                        alignItems: "center",
+                      }}
+                    >
+                      <div>
+                        <div style={{ ...statLabel, color: livePanelAccentText }}>Learner Arrival Rail</div>
+                        <div style={{ marginTop: "4px", color: livePanelMutedText, fontSize: "12px", fontWeight: 800, lineHeight: 1.45 }}>
+                          {learnerPlannerExpectedCount > 0
+                            ? "Learner count exists, but learner names/room assignments are not available for live check-in yet."
+                            : "No learner roster or room assignment data is available for live check-in yet."}
+                        </div>
+                      </div>
+                      <Link
+                        href={expandedScheduleBuilderHref}
+                        style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "7px 10px" }}
+                      >
+                        Assign learners in Schedule Builder
+                      </Link>
+                    </div>
+                  )}
 
                   <div
                     style={{
@@ -18082,6 +18210,152 @@ Cory`;
                   </section>
                 ))}
               </div>
+
+              <section
+                style={{
+                  borderRadius: "20px",
+                  border: "1px solid rgba(20, 91, 150, 0.16)",
+                  background:
+                    "linear-gradient(135deg, rgba(255,255,255,0.98) 0%, rgba(239, 249, 252, 0.94) 54%, rgba(246, 248, 255, 0.96) 100%)",
+                  boxShadow: "0 14px 30px rgba(20, 65, 95, 0.08), inset 0 1px 0 rgba(255,255,255,0.72)",
+                  padding: "14px",
+                  display: "grid",
+                  gap: "12px",
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "flex-start" }}>
+                  <div>
+                    <div style={{ ...statLabel, color: "#12617f" }}>Learner Arrival & Room Assignment Planner</div>
+                    <div style={{ marginTop: "4px", color: "#102d44", fontWeight: 950, fontSize: "18px" }}>
+                      Planning-side attendance surface
+                    </div>
+                    <div style={{ marginTop: "4px", color: "#4d6678", fontSize: "12px", fontWeight: 750, lineHeight: 1.45, maxWidth: "760px" }}>
+                      Verify the roster, room assignment coverage, and selected-round learner flow before Live Mode check-in begins.
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                    <span
+                      style={{
+                        ...commandChipStyle,
+                        background: learnerAssignmentsIncomplete ? "rgba(237, 233, 254, 0.72)" : planningSuccessBackground,
+                        border: learnerAssignmentsIncomplete ? "1px solid rgba(124, 58, 237, 0.16)" : planningSuccessBorder,
+                        color: learnerAssignmentsIncomplete ? "#5b21b6" : planningSuccessText,
+                      }}
+                    >
+                      {learnerAssignmentsIncomplete ? "Assignment review" : "Learner flow ready"}
+                    </span>
+                    <Link
+                      href={expandedScheduleBuilderHref}
+                      style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "7px 10px" }}
+                    >
+                      Open Schedule Builder
+                    </Link>
+                  </div>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "9px" }}>
+                  {[
+                    {
+                      label: "Imported roster",
+                      value: learnerPlannerRosterCount ? String(learnerPlannerRosterCount) : "Missing",
+                      detail: learnerPlannerRosterCount ? "Learner names available" : "Upload or restore roster names",
+                    },
+                    {
+                      label: "Expected learners",
+                      value: learnerPlannerExpectedCount ? String(learnerPlannerExpectedCount) : "TBD",
+                      detail: effectiveLearnerCount ? "Event/schedule count" : "No learner count found",
+                    },
+                    {
+                      label: "Assigned capacity",
+                      value: learnerPlannerCapacity ? String(Math.min(learnerPlannerCapacity, learnerPlannerRosterCount || learnerPlannerCapacity)) : "TBD",
+                      detail: learnerPlannerCapacity ? `${effectiveRoomCount || 0} rooms · ${activeRotationCount || 0} rounds` : "Build schedule assignments",
+                    },
+                    {
+                      label: "Unassigned",
+                      value: learnerPlannerRosterCount ? String(learnerPlannerUnassignedCount) : "Unknown",
+                      detail: learnerPlannerUnassignedCount ? "Needs schedule adjustment" : "No overflow detected",
+                    },
+                    {
+                      label: "Selected round",
+                      value: selectedRoundAssignedLearnerCount ? String(selectedRoundAssignedLearnerCount) : "None",
+                      detail: selectedRotationRound ? `${selectedRoundRoomCount} room${selectedRoundRoomCount === 1 ? "" : "s"} visible` : "No round selected",
+                    },
+                  ].map((metric) => (
+                    <div
+                      key={`learner-planner-${metric.label}`}
+                      style={{
+                        borderRadius: "15px",
+                        border: "1px solid rgba(96, 137, 164, 0.16)",
+                        background: "rgba(255,255,255,0.78)",
+                        boxShadow: "inset 0 1px 0 rgba(255,255,255,0.68)",
+                        padding: "11px 12px",
+                        display: "grid",
+                        gap: "4px",
+                      }}
+                    >
+                      <div style={{ ...statLabel, color: "#57768a" }}>{metric.label}</div>
+                      <div style={{ color: "#122f46", fontSize: "20px", fontWeight: 950, lineHeight: 1.1 }}>{metric.value}</div>
+                      <div style={{ color: "#496678", fontSize: "12px", fontWeight: 750, lineHeight: 1.35 }}>{metric.detail}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {learnerPlannerMissingSignals.length ? (
+                  <div
+                    style={{
+                      borderRadius: "14px",
+                      border: "1px solid rgba(124, 58, 237, 0.16)",
+                      background: "rgba(237, 233, 254, 0.56)",
+                      color: "#4c1d95",
+                      padding: "9px 11px",
+                      display: "grid",
+                      gap: "5px",
+                      fontSize: "12px",
+                      fontWeight: 800,
+                    }}
+                  >
+                    {learnerPlannerMissingSignals.map((signal) => (
+                      <div key={`learner-planner-signal-${signal}`}>{signal}</div>
+                    ))}
+                  </div>
+                ) : null}
+
+                <div style={{ display: "grid", gap: "8px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+                    <div style={{ ...statLabel, color: "#12617f" }}>
+                      {selectedRotationRound ? `Round ${activeSelectedRotationRoundIndex + 1} assignment preview` : "Assignment preview"}
+                    </div>
+                    <span style={{ color: "#4d6678", fontSize: "11px", fontWeight: 800 }}>
+                      {selectedRoundAssignedLearnerCount} learner{selectedRoundAssignedLearnerCount === 1 ? "" : "s"} paired to visible rooms
+                    </span>
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: "8px" }}>
+                    {selectedRoundScheduleRows.slice(0, Math.max(selectedRoundRoomCount, 1)).map((row, index) => (
+                      <div
+                        key={`learner-planner-preview-${row.key}`}
+                        style={{
+                          borderRadius: "14px",
+                          border: row.learnerLabels.length ? "1px solid rgba(25, 138, 112, 0.18)" : "1px solid rgba(124, 58, 237, 0.14)",
+                          background: row.learnerLabels.length ? "rgba(240, 253, 250, 0.72)" : "rgba(248, 250, 252, 0.82)",
+                          padding: "9px 10px",
+                          display: "grid",
+                          gap: "4px",
+                        }}
+                      >
+                        <div style={{ color: "#57768a", fontSize: "10px", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                          {row.roomName || getFallbackRoomLabel(index, roomNamingContext)}
+                        </div>
+                        <div style={{ color: "#122f46", fontSize: "13px", fontWeight: 900, overflowWrap: "anywhere" }}>
+                          {row.learnerLabels.length ? row.learnerLabels.join(", ") : "No learner assigned"}
+                        </div>
+                        <div style={{ color: row.learnerLabels.length ? "#0f766e" : "#5b21b6", fontSize: "11px", fontWeight: 850 }}>
+                          {row.learnerLabels.length ? "Ready for live check-in" : "Assign in Schedule Builder"}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </section>
 
               <details>
                 <summary style={{ cursor: "pointer", color: commandCenterVisual.textColor, fontWeight: 800 }}>
