@@ -9221,6 +9221,61 @@ Cory`;
     rowBackground: isPlanningVisualMode ? "rgba(255, 255, 255, 0.96)" : "rgba(255,255,255,0.075)",
     rowBorder: isPlanningVisualMode ? "1px solid rgba(128, 167, 182, 0.22)" : "1px solid rgba(203, 213, 225, 0.2)",
   } as const;
+  const commandFileCabinetVisual = isCommandFileCabinetSimpleView
+    ? {
+        shellBackground: "linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(248, 251, 254, 0.98) 100%)",
+        shellBorder: "1px solid rgba(148, 163, 184, 0.2)",
+        shellShadow: "0 10px 24px rgba(15, 23, 42, 0.05)",
+        topRule: "1px solid rgba(148, 163, 184, 0.16)",
+        titleColor: "#0f2940",
+        eyebrowColor: "#145b96",
+        detailColor: "#526b7c",
+        segmentedBackground: "rgba(248, 251, 254, 0.92)",
+        segmentedBorder: "1px solid rgba(148, 163, 184, 0.22)",
+        inactiveToggleText: "#526b7c",
+        activeToggleBackground: "linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(229, 246, 255, 0.82) 100%)",
+        activeToggleBorder: "1px solid rgba(14, 116, 144, 0.18)",
+        activeToggleText: "#0f4c81",
+        activeToggleShadow: "0 8px 18px rgba(14, 116, 144, 0.08)",
+        cardBackground: "linear-gradient(180deg, rgba(255,255,255,0.99) 0%, rgba(248, 251, 254, 0.98) 100%)",
+        cardBorder: "1px solid rgba(125, 154, 174, 0.18)",
+        cardShadow: "0 10px 22px rgba(15, 23, 42, 0.06), inset 0 1px 0 rgba(255,255,255,0.54)",
+        rowBackground: "rgba(255,255,255,0.82)",
+        rowBorder: "1px solid rgba(125, 154, 174, 0.16)",
+        iconBackground: "rgba(255,255,255,0.86)",
+        iconShadow: "inset 0 1px 0 rgba(255,255,255,0.68)",
+        moduleTextColor: "#0f2940",
+        moduleMetaColor: "#4f6d82",
+        moduleLabelColor: "#5b7890",
+      }
+    : {
+        shellBackground:
+          "linear-gradient(135deg, rgba(248, 252, 255, 0.95) 0%, rgba(236, 247, 250, 0.92) 52%, rgba(242, 246, 255, 0.9) 100%)",
+        shellBorder: "1px solid rgba(95, 140, 168, 0.2)",
+        shellShadow: "0 18px 36px rgba(15, 56, 86, 0.1), inset 0 1px 0 rgba(255,255,255,0.62)",
+        topRule: "1px solid rgba(99, 181, 217, 0.14)",
+        titleColor: "#102d44",
+        eyebrowColor: "#12617f",
+        detailColor: "#4d6678",
+        segmentedBackground: "rgba(255,255,255,0.66)",
+        segmentedBorder: "1px solid rgba(80, 132, 163, 0.18)",
+        inactiveToggleText: "#567287",
+        activeToggleBackground: "linear-gradient(135deg, rgba(230, 249, 252, 0.96) 0%, rgba(235, 244, 255, 0.94) 100%)",
+        activeToggleBorder: "1px solid rgba(20, 91, 150, 0.2)",
+        activeToggleText: "#0f4c81",
+        activeToggleShadow: "0 9px 20px rgba(20, 91, 150, 0.1), inset 0 1px 0 rgba(255,255,255,0.78)",
+        cardBackground:
+          "linear-gradient(180deg, rgba(255,255,255,0.88) 0%, rgba(245, 250, 253, 0.9) 100%)",
+        cardBorder: "1px solid rgba(96, 137, 164, 0.18)",
+        cardShadow: "0 14px 28px rgba(20, 65, 95, 0.08), inset 0 1px 0 rgba(255,255,255,0.72)",
+        rowBackground: "rgba(255,255,255,0.62)",
+        rowBorder: "1px solid rgba(96, 137, 164, 0.14)",
+        iconBackground: "linear-gradient(135deg, rgba(255,255,255,0.9) 0%, rgba(235, 248, 251, 0.82) 100%)",
+        iconShadow: "0 8px 18px rgba(20, 91, 150, 0.08), inset 0 1px 0 rgba(255,255,255,0.82)",
+        moduleTextColor: "#122f46",
+        moduleMetaColor: "#496678",
+        moduleLabelColor: "#57768a",
+      };
   function getDominantOperationalTone(tones: OperationalStatusTone[]) {
     return tones.reduce<OperationalStatusTone>((current, tone) =>
       windowTonePriority[tone] > windowTonePriority[current] ? tone : current
@@ -18073,19 +18128,23 @@ Cory`;
 
                   <div
                     style={{
-                      borderTop: "1px solid rgba(99, 181, 217, 0.12)",
-                      paddingTop: "12px",
+                      borderTop: commandFileCabinetVisual.topRule,
+                      borderRadius: "20px",
+                      border: commandFileCabinetVisual.shellBorder,
+                      background: commandFileCabinetVisual.shellBackground,
+                      boxShadow: commandFileCabinetVisual.shellShadow,
+                      padding: "14px",
                       display: "grid",
-                      gap: "10px",
+                      gap: "12px",
                     }}
                   >
                     <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "flex-start" }}>
                       <div>
-                        <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Simulation Command File Cabinet</div>
-                        <div style={{ marginTop: "4px", color: commandCenterVisual.headingColor, fontWeight: 950, fontSize: "18px", letterSpacing: "0.01em" }}>
+                        <div style={{ ...statLabel, color: commandFileCabinetVisual.eyebrowColor }}>Simulation Command File Cabinet</div>
+                        <div style={{ marginTop: "4px", color: commandFileCabinetVisual.titleColor, fontWeight: 950, fontSize: "18px", letterSpacing: "0.01em" }}>
                           Simulation Command File Cabinet
                         </div>
-                        <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 750, lineHeight: 1.45 }}>
+                        <div style={{ marginTop: "4px", color: commandFileCabinetVisual.detailColor, fontSize: "12px", fontWeight: 750, lineHeight: 1.45, maxWidth: "680px" }}>
                           Keep the mission packet, exports, timing tickets, materials, and live-access links together in one tactical rack.
                         </div>
                       </div>
@@ -18095,10 +18154,11 @@ Cory`;
                             display: "inline-flex",
                             alignItems: "center",
                             gap: "4px",
-                            padding: "4px",
+                            padding: "3px",
                             borderRadius: "999px",
-                            border: isCommandFileCabinetSimpleView ? "1px solid rgba(148, 163, 184, 0.24)" : "1px solid rgba(125, 211, 252, 0.16)",
-                            background: isCommandFileCabinetSimpleView ? "rgba(255,255,255,0.86)" : "rgba(6, 17, 29, 0.68)",
+                            border: commandFileCabinetVisual.segmentedBorder,
+                            background: commandFileCabinetVisual.segmentedBackground,
+                            boxShadow: "inset 0 1px 0 rgba(255,255,255,0.48)",
                           }}
                         >
                           {[
@@ -18118,24 +18178,13 @@ Cory`;
                                 }}
                                 style={{
                                   ...buttonStyle,
-                                  padding: "6px 10px",
+                                  padding: "6px 11px",
                                   borderRadius: "999px",
-                                  background: isActive
-                                    ? isCommandFileCabinetSimpleView
-                                      ? "rgba(14, 165, 233, 0.12)"
-                                      : "rgba(126, 231, 219, 0.16)"
-                                    : "transparent",
-                                  border: isActive
-                                    ? isCommandFileCabinetSimpleView
-                                      ? "1px solid rgba(14, 165, 233, 0.22)"
-                                      : "1px solid rgba(126, 231, 219, 0.22)"
-                                    : "1px solid transparent",
-                                  color: isActive
-                                    ? isCommandFileCabinetSimpleView
-                                      ? "#0f4c81"
-                                      : "#dffbff"
-                                    : commandCenterVisual.mutedColor,
-                                  boxShadow: isActive && !isCommandFileCabinetSimpleView ? "0 0 16px rgba(126, 231, 219, 0.12)" : "none",
+                                  background: isActive ? commandFileCabinetVisual.activeToggleBackground : "transparent",
+                                  border: isActive ? commandFileCabinetVisual.activeToggleBorder : "1px solid transparent",
+                                  color: isActive ? commandFileCabinetVisual.activeToggleText : commandFileCabinetVisual.inactiveToggleText,
+                                  boxShadow: isActive ? commandFileCabinetVisual.activeToggleShadow : "none",
+                                  fontWeight: isActive ? 900 : 800,
                                 }}
                               >
                                 {option.label}
@@ -18152,8 +18201,8 @@ Cory`;
                     <div
                       style={{
                         display: "grid",
-                        gap: "8px",
-                        gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                        gap: "10px",
+                        gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))",
                       }}
                     >
                       <input
@@ -18203,20 +18252,20 @@ Cory`;
                                           borderRadius: "12px",
                                           border: isCommandFileCabinetSimpleView
                                             ? "1px solid rgba(14, 116, 144, 0.14)"
-                                            : "1px solid rgba(125, 211, 252, 0.16)",
+                                            : commandFileCabinetVisual.rowBorder,
                                           background: isCommandFileCabinetSimpleView
                                             ? "rgba(255,255,255,0.78)"
-                                            : commandCenterVisual.rowBackground,
-                                          padding: "7px",
+                                            : commandFileCabinetVisual.rowBackground,
+                                          padding: "8px",
                                           display: "grid",
                                           gap: "6px",
                                         }}
                                       >
                                         <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", alignItems: "center" }}>
-                                          <span style={{ color: commandCenterVisual.textColor, fontSize: "11px", fontWeight: 900, overflowWrap: "anywhere" }}>
+                                          <span style={{ color: commandFileCabinetVisual.moduleTextColor, fontSize: "11px", fontWeight: 900, overflowWrap: "anywhere" }}>
                                             Case {caseIndex + 1}: {caseEntry.name || "Untitled case"}
                                           </span>
-                                          <span style={{ color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 800 }}>
+                                          <span style={{ color: commandFileCabinetVisual.moduleMetaColor, fontSize: "10px", fontWeight: 800 }}>
                                             {caseEntry.uploadedAt ? formatHumanDate(caseEntry.uploadedAt) : "Uploaded"}
                                           </span>
                                         </div>
@@ -18269,7 +18318,7 @@ Cory`;
                                   })}
                                 </div>
                               ) : (
-                                <span style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 800 }}>
+                                <span style={{ color: commandFileCabinetVisual.moduleMetaColor, fontSize: "12px", fontWeight: 800 }}>
                                   No cases uploaded. Load the first case packet for this event.
                                 </span>
                               )}
@@ -18290,7 +18339,7 @@ Cory`;
                           detail: scheduleStatusLabel,
                           status: scheduleCompleted ? "complete" : scheduleInProgress ? "draft" : "missing",
                           featured: true,
-                          accent: scheduleCompleted ? "#198a70" : scheduleInProgress ? "#145b96" : "#a86411",
+                          accent: scheduleCompleted ? "#198a70" : scheduleInProgress ? "#145b96" : "#64748b",
                           primaryHref: expandedScheduleBuilderHref,
                           metadata: [
                             scheduleCompleted ? "Export ready" : "",
@@ -18408,7 +18457,7 @@ Cory`;
                           title: "MATERIALS CACHE",
                           detail: eventMaterialName || "Event materials not uploaded",
                           status: eventMaterialUrl ? "available" : "missing",
-                          accent: eventMaterialUrl ? "#a86411" : "#94a3b8",
+                          accent: eventMaterialUrl ? "#4f46e5" : "#64748b",
                           primaryAction: openEventMaterialPreview,
                           metadata: [eventMaterialUrl ? "Packet loaded" : "Upload needed", materialsStatusLabel].filter(Boolean),
                           actions: (
@@ -18439,7 +18488,7 @@ Cory`;
                           title: "RECORDING CHANNEL",
                           detail: recordingGuideUrl ? getFilenameFromUrl(recordingGuideUrl) || "Recording link ready" : "No recording link posted",
                           status: recordingGuideUrl ? "available" : "missing",
-                          accent: recordingGuideUrl ? "#a86411" : "#94a3b8",
+                          accent: recordingGuideUrl ? "#6366f1" : "#64748b",
                           primaryHref: recordingGuideUrl || "",
                           metadata: [recordingStatus.label, recordingGuideUrl ? "Support posted" : "Awaiting link"].filter(Boolean),
                           actions: (
@@ -18462,7 +18511,7 @@ Cory`;
                           title: "TRAINING ACCESS NODE",
                           detail: trainingAccessUrl ? trainingModalityLabel : "Training link missing",
                           status: trainingAccessUrl ? "available" : trainingZoomRequired ? "missing" : "draft",
-                          accent: trainingAccessUrl ? "#145b96" : trainingZoomRequired ? "#a86411" : "#94a3b8",
+                          accent: trainingAccessUrl ? "#145b96" : trainingZoomRequired ? "#7c3aed" : "#64748b",
                           primaryHref: trainingAccessUrl || "",
                           metadata: [
                             trainingAccessUrl ? "Training linked" : "",
@@ -18493,21 +18542,21 @@ Cory`;
                               }
                             : resource.status === "available"
                               ? {
-                                  background: "rgba(219, 234, 254, 0.72)",
-                                  border: "1px solid rgba(20, 91, 150, 0.22)",
-                                  color: "#1d4ed8",
+                                  background: isCommandFileCabinetSimpleView ? "rgba(219, 234, 254, 0.72)" : "rgba(232, 244, 255, 0.76)",
+                                  border: "1px solid rgba(20, 91, 150, 0.18)",
+                                  color: "#145b96",
                                 }
                               : resource.status === "draft"
                                 ? {
-                                    background: isPlanningVisualMode ? "rgba(253, 230, 138, 0.18)" : "rgba(253, 230, 138, 0.12)",
-                                    border: "1px solid rgba(180, 83, 9, 0.22)",
-                                    color: isPlanningVisualMode ? "#92400e" : "#fde68a",
+                                    background: "rgba(237, 233, 254, 0.72)",
+                                    border: "1px solid rgba(124, 58, 237, 0.16)",
+                                    color: "#5b21b6",
                                   }
                                 : {
-                                    background: commandCenterVisual.chipBackground,
-                                    border: commandChipStyle.border,
-                                    color: commandCenterVisual.chipText,
-                                };
+                                    background: "rgba(241, 245, 249, 0.78)",
+                                    border: "1px solid rgba(100, 116, 139, 0.16)",
+                                    color: "#475569",
+                                  };
 
                         return (
                           <div
@@ -18529,24 +18578,17 @@ Cory`;
                                 : undefined
                             }
                             style={{
-                              borderRadius: "16px",
-                              border: isCommandFileCabinetSimpleView
-                                ? `1px solid ${resource.accent}22`
-                                : "1px solid rgba(143, 194, 240, 0.18)",
-                              background: isCommandFileCabinetSimpleView
-                                ? "linear-gradient(180deg, rgba(255,255,255,0.99) 0%, rgba(248, 251, 254, 0.98) 100%)"
-                                : commandCenterVisual.cardBackground,
-                              padding: resource.featured ? "12px 12px 11px" : "10px",
+                              borderRadius: "18px",
+                              border: commandFileCabinetVisual.cardBorder,
+                              background: commandFileCabinetVisual.cardBackground,
+                              padding: resource.featured ? "13px 13px 12px" : "11px",
                               display: "grid",
-                              gap: "8px",
-                              boxShadow: isPlanningVisualMode
-                                ? isCommandFileCabinetSimpleView
-                                  ? `0 10px 22px rgba(15, 23, 42, 0.06), inset 0 1px 0 rgba(255,255,255,0.48)`
-                                  : "0 16px 32px rgba(24, 52, 78, 0.1), inset 0 1px 0 rgba(255,255,255,0.2)"
-                                : "0 18px 34px rgba(0,0,0,0.22), inset 0 1px 0 rgba(255,255,255,0.08)",
+                              gap: "9px",
+                              boxShadow: commandFileCabinetVisual.cardShadow,
                               gridColumn: resource.featured ? "span 2" : undefined,
                               position: "relative",
                               overflow: "hidden",
+                              transition: "transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease",
                             }}
                           >
                             <div
@@ -18554,10 +18596,10 @@ Cory`;
                               style={{
                                 position: "absolute",
                                 inset: "0 auto auto 0",
-                                width: resource.featured ? "42%" : "55%",
+                                width: resource.featured ? "46%" : "52%",
                                 height: "1px",
-                                background: `linear-gradient(90deg, ${resource.accent} 0%, transparent 100%)`,
-                                opacity: isCommandFileCabinetSimpleView ? 0.55 : 0.42,
+                                background: `linear-gradient(90deg, ${resource.accent}99 0%, ${resource.accent}30 48%, transparent 100%)`,
+                                opacity: isCommandFileCabinetSimpleView ? 0.5 : 0.58,
                               }}
                             />
                             <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "flex-start" }}>
@@ -18574,11 +18616,11 @@ Cory`;
                                       display: "inline-flex",
                                       alignItems: "center",
                                       justifyContent: "center",
-                                      background: isCommandFileCabinetSimpleView ? `${resource.accent}10` : "rgba(255,255,255,0.06)",
-                                      border: `1px solid ${resource.accent}26`,
+                                      background: commandFileCabinetVisual.iconBackground,
+                                      border: `1px solid ${resource.accent}24`,
                                       color: resource.accent,
                                       flexShrink: 0,
-                                      boxShadow: "none",
+                                      boxShadow: commandFileCabinetVisual.iconShadow,
                                       cursor: "pointer",
                                     }}
                                   >
@@ -18598,10 +18640,10 @@ Cory`;
                                       display: "inline-flex",
                                       alignItems: "center",
                                       justifyContent: "center",
-                                      background: isCommandFileCabinetSimpleView ? `${resource.accent}10` : "rgba(255,255,255,0.06)",
-                                      border: `1px solid ${resource.accent}26`,
+                                      background: commandFileCabinetVisual.iconBackground,
+                                      border: `1px solid ${resource.accent}24`,
                                       color: resource.accent,
-                                      boxShadow: "none",
+                                      boxShadow: commandFileCabinetVisual.iconShadow,
                                       opacity: resource.primaryAction ? 1 : 0.75,
                                     }}
                                   >
@@ -18609,16 +18651,16 @@ Cory`;
                                   </button>
                                 )}
                                 <div style={{ minWidth: 0 }}>
-                                  <div style={{ color: isCommandFileCabinetSimpleView ? commandCenterVisual.mutedColor : commandCenterVisual.labelColor, fontWeight: 900, fontSize: "10px", letterSpacing: "0.16em" }}>
+                                  <div style={{ color: commandFileCabinetVisual.moduleLabelColor, fontWeight: 900, fontSize: "10px", letterSpacing: "0.14em" }}>
                                     MODULE {String(index + 1).padStart(2, "0")}
                                   </div>
                                   <div
                                     style={{
                                       marginTop: "4px",
-                                      color: isCommandFileCabinetSimpleView ? "#0f2940" : "#f8fcff",
+                                      color: commandFileCabinetVisual.moduleTextColor,
                                       fontWeight: 900,
                                       fontSize: resource.featured ? "14px" : "13px",
-                                      letterSpacing: "0.04em",
+                                      letterSpacing: "0.025em",
                                       textShadow: "none",
                                     }}
                                   >
@@ -18627,7 +18669,7 @@ Cory`;
                                   <div
                                     style={{
                                       marginTop: "4px",
-                                      color: isCommandFileCabinetSimpleView ? "#35586f" : commandCenterVisual.mutedColor,
+                                      color: commandFileCabinetVisual.moduleMetaColor,
                                       fontSize: "11px",
                                       fontWeight: 800,
                                       lineHeight: 1.42,
@@ -18643,11 +18685,11 @@ Cory`;
                                           key={`${resource.key}-${item}`}
                                           style={{
                                             ...commandChipStyle,
-                                            background: isCommandFileCabinetSimpleView ? `${resource.accent}0d` : "rgba(255,255,255,0.06)",
-                                            border: `1px solid ${resource.accent}20`,
+                                            background: `${resource.accent}0d`,
+                                            border: `1px solid ${resource.accent}1f`,
                                             color: resource.accent,
                                             fontSize: "10px",
-                                            letterSpacing: "0.04em",
+                                            letterSpacing: "0.025em",
                                           }}
                                         >
                                           {item}
