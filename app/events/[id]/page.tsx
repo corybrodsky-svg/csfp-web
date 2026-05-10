@@ -2355,6 +2355,10 @@ function getStaffingCommandCenterStorageKey(eventId: string) {
   return `cfsp:staffing-command-center:${eventId || "global"}`;
 }
 
+function getLiveAttendancePanelStorageKey(eventId: string) {
+  return `cfsp:live-attendance-panel:${eventId || "global"}`;
+}
+
 function getEffectivePollResponseStatus(
   notes: string | null | undefined,
   imported?: ImportedPollResponseRecord | null
@@ -3551,6 +3555,7 @@ export default function EventDetailPage() {
   const [attendanceSuccess, setAttendanceSuccess] = useState("");
   const [activeBlueprintRoomKey, setActiveBlueprintRoomKey] = useState("");
   const [blueprintActionSavingKey, setBlueprintActionSavingKey] = useState("");
+  const [liveAttendanceToolsExpanded, setLiveAttendanceToolsExpanded] = useState(true);
   const [trainingImportResult, setTrainingImportResult] = useState<TrainingImportResult | null>(null);
   const [trainingImportError, setTrainingImportError] = useState("");
   const [trainingImporting, setTrainingImporting] = useState(false);
@@ -5078,12 +5083,76 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       ? formatRemainingMinutes(Math.max(currentLiveBlock.endMinutes - simulatedLiveMinutes, 0))
       : "Timeline TBD";
     const currentLiveRoomCount = currentLiveRoomDisplayEntries.length;
+    const liveReferenceRowsByRoomNumber = new Map<number, { roomName: string; learnerLabels: string[] }>();
+    const liveReferenceRowsByRoomName = new Map<string, { roomName: string; learnerLabels: string[] }>();
+    const liveReferenceSessions = currentLiveReferenceRound
+      ? sessions.filter((session) => getRotationRoundKeyFromSession(session) === currentLiveReferenceRound.key)
+      : [];
+    const liveReferenceRoomSlotEntries = currentLiveReferenceRound
+      ? (
+          roomSlotEntriesByRoundKey.get(currentLiveReferenceRound.key) ||
+          buildFullRoomSlotsForRound(currentLiveReferenceRound, {
+            metadataRoomCount: effectiveRoomCount,
+            roomContext: roomNamingContext,
+          })
+        )
+      : [];
+    const liveReferenceSessionByRoomNumber = new Map<number, EventSessionRow>();
+    const liveReferenceSessionByRoomName = new Map<string, EventSessionRow>();
+    liveReferenceSessions.forEach((session) => {
+      const sessionRoomName = asText(session.room);
+      const sessionRoomNumber = getRoomDisplayNumber(sessionRoomName);
+      if (sessionRoomNumber !== null && !liveReferenceSessionByRoomNumber.has(sessionRoomNumber)) {
+        liveReferenceSessionByRoomNumber.set(sessionRoomNumber, session);
+      }
+      if (sessionRoomName) liveReferenceSessionByRoomName.set(sessionRoomName.toLowerCase(), session);
+    });
+    const liveReferenceRowCount = Math.max(liveReferenceRoomSlotEntries.length, 1);
+    const liveReferenceLearnersPerRow = scheduleBuilderDraftLearnerRoster.length ? scheduleBuilderDraftRoomCapacity : 1;
+    const liveReferenceLearnersPerRound = liveReferenceRowCount * Math.max(liveReferenceLearnersPerRow, 1);
+    const liveReferenceRoundIndex = currentLiveReferenceRound
+      ? rotationRounds.findIndex((round) => round.key === currentLiveReferenceRound.key)
+      : -1;
+    const liveReferenceFirstLearnerIndex = Math.max(liveReferenceRoundIndex, 0) * liveReferenceLearnersPerRound;
+    liveReferenceRoomSlotEntries.forEach((entry, slotIndex) => {
+      const roomNumber = getRoomDisplayNumber(entry.roomName);
+      const matchedSession =
+        (roomNumber !== null ? liveReferenceSessionByRoomNumber.get(roomNumber) : null) ||
+        liveReferenceSessionByRoomName.get(asText(entry.roomName).toLowerCase()) ||
+        null;
+      const row = {
+        roomName:
+          asText(matchedSession?.room) ||
+          asText(entry.roomName) ||
+          getFallbackRoomLabel(slotIndex, roomNamingContext),
+        learnerLabels: Array.from({ length: Math.max(liveReferenceLearnersPerRow, 1) }, (_, learnerOffset) => {
+          const learnerIndex =
+            liveReferenceFirstLearnerIndex + slotIndex * Math.max(liveReferenceLearnersPerRow, 1) + learnerOffset;
+          if (scheduleBuilderDraftLearnerRoster[learnerIndex]) return scheduleBuilderDraftLearnerRoster[learnerIndex];
+          if (effectiveLearnerCount > 0 && learnerIndex < effectiveLearnerCount) return `Learner slot ${learnerIndex + 1}`;
+          return "";
+        }).filter(Boolean),
+      };
+      const resolvedRowRoomNumber = getRoomDisplayNumber(row.roomName);
+      if (resolvedRowRoomNumber !== null && !liveReferenceRowsByRoomNumber.has(resolvedRowRoomNumber)) {
+        liveReferenceRowsByRoomNumber.set(resolvedRowRoomNumber, row);
+      }
+      const normalizedRoomName = asText(row.roomName).toLowerCase();
+      if (normalizedRoomName && !liveReferenceRowsByRoomName.has(normalizedRoomName)) {
+        liveReferenceRowsByRoomName.set(normalizedRoomName, row);
+      }
+    });
 
     return currentLiveRoomDisplayEntries.map(({ roomName, sourceIndex }, index) => {
       const assignment = currentLiveRoomAssignmentPlan.assignments[index]?.assignment || null;
       const sp = assignment?.sp_id ? spsById.get(assignment.sp_id) || null : null;
       const checkedAt = assignment ? formatAttendanceTimestamp(assignment.training_checked_in_at) : "";
       const resolvedRoomName = roomName || getFallbackRoomLabel(index, roomNamingContext);
+      const resolvedRoomNumber = getRoomDisplayNumber(resolvedRoomName);
+      const matchedLiveReferenceRow =
+        (resolvedRoomNumber !== null ? liveReferenceRowsByRoomNumber.get(resolvedRoomNumber) : null) ||
+        liveReferenceRowsByRoomName.get(asText(resolvedRoomName).toLowerCase()) ||
+        null;
       const liveKey = `${currentLiveBlock.key}|${resolvedRoomName}`;
       const localState = liveRoomStates[liveKey] || {};
       const assignmentStatus = assignment ? getAssignmentStatus(assignment) : null;
@@ -5099,10 +5168,16 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
           : livePausedAtMs !== null
             ? "ready"
             : "in_session";
-      const learnerLabel =
-        effectiveLearnerCount > 0 && currentLiveRoomCount > 0
-          ? `Learner ${Math.min(effectiveLearnerCount, currentRotationRoundNumber ? (currentRotationRoundNumber - 1) * currentLiveRoomCount + index + 1 : index + 1)}`
-          : "Learner TBD";
+      const learnerLabel = matchedLiveReferenceRow?.learnerLabels.length
+        ? matchedLiveReferenceRow.learnerLabels.join(", ")
+        : asText(trainingMetadata.schedule_status).toLowerCase() === "complete"
+          ? "Learner not assigned"
+          : effectiveLearnerCount > 0 && currentLiveRoomCount > 0
+            ? `Learner ${Math.min(
+                effectiveLearnerCount,
+                currentRotationRoundNumber ? (currentRotationRoundNumber - 1) * currentLiveRoomCount + index + 1 : index + 1
+              )}`
+            : "Learner not assigned";
 
       return {
         key: liveKey,
@@ -5122,14 +5197,22 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
   }, [
     currentLiveBlock,
     currentLiveRoomDisplayEntries,
+    currentLiveReferenceRound,
     currentRotationRoundNumber,
+    effectiveRoomCount,
     livePausedAtMs,
     liveRoomStates,
     effectiveLearnerCount,
+    roomSlotEntriesByRoundKey,
+    rotationRounds,
+    scheduleBuilderDraftLearnerRoster,
+    scheduleBuilderDraftRoomCapacity,
+    sessions,
     simulatedLiveMinutes,
     currentLiveRoomAssignmentPlan.assignments,
     spsById,
     roomNamingContext,
+    trainingMetadata.schedule_status,
   ]);
   const liveRoomDelayedCount = currentLiveRoomBoardRows.filter((row) => row.status === "delayed" || row.delayMinutes > 0).length;
   const liveRoomMissingCount = currentLiveRoomBoardRows.filter((row) => row.status === "sp_missing").length;
@@ -6192,6 +6275,82 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     () => Math.max(1, parsePositiveInteger(scheduleBuilderPreviewDraft?.roomCapacity, 1)),
     [scheduleBuilderPreviewDraft?.roomCapacity]
   );
+  const currentLiveReferenceRoundIndex = useMemo(
+    () =>
+      currentLiveReferenceRound
+        ? rotationRounds.findIndex((round) => round.key === currentLiveReferenceRound.key)
+        : -1,
+    [currentLiveReferenceRound, rotationRounds]
+  );
+  const currentLiveReferenceSessions = useMemo(() => {
+    if (!currentLiveReferenceRound) return [] as EventSessionRow[];
+    return sessions.filter((session) => getRotationRoundKeyFromSession(session) === currentLiveReferenceRound.key);
+  }, [currentLiveReferenceRound, sessions]);
+  const currentLiveReferenceRoomSlotEntries = useMemo(() => {
+    if (!currentLiveReferenceRound) return [] as RoomDisplayEntry[];
+    return (
+      roomSlotEntriesByRoundKey.get(currentLiveReferenceRound.key) ||
+      buildFullRoomSlotsForRound(currentLiveReferenceRound, {
+        metadataRoomCount: effectiveRoomCount,
+        roomContext: roomNamingContext,
+      })
+    );
+  }, [currentLiveReferenceRound, effectiveRoomCount, roomNamingContext, roomSlotEntriesByRoundKey]);
+  const currentLiveReferenceScheduleRows = useMemo(() => {
+    if (!currentLiveReferenceRound) return [] as Array<{ roomName: string; learnerLabels: string[] }>;
+
+    const sessionByRoomNumber = new Map<number, EventSessionRow>();
+    const sessionByRoomName = new Map<string, EventSessionRow>();
+    currentLiveReferenceSessions.forEach((session) => {
+      const roomName = asText(session.room);
+      const roomNumber = getRoomDisplayNumber(roomName);
+      if (roomNumber !== null && !sessionByRoomNumber.has(roomNumber)) {
+        sessionByRoomNumber.set(roomNumber, session);
+      }
+      if (roomName) sessionByRoomName.set(roomName.toLowerCase(), session);
+    });
+
+    const displayRows = currentLiveReferenceRoomSlotEntries.length
+      ? currentLiveReferenceRoomSlotEntries.map((entry, slotIndex) => {
+          const roomNumber = getRoomDisplayNumber(entry.roomName);
+          const matchedSession =
+            (roomNumber !== null ? sessionByRoomNumber.get(roomNumber) : null) ||
+            sessionByRoomName.get(asText(entry.roomName).toLowerCase()) ||
+            null;
+          return {
+            roomName:
+              asText(matchedSession?.room) ||
+              asText(entry.roomName) ||
+              getFallbackRoomLabel(slotIndex, roomNamingContext),
+            slotIndex,
+          };
+        })
+      : [];
+
+    const rowCount = Math.max(displayRows.length, 1);
+    const learnersPerRow = scheduleBuilderLearnerNames.length ? scheduleBuilderRoomCapacity : 1;
+    const learnersPerRound = rowCount * Math.max(learnersPerRow, 1);
+    const firstLearnerIndex = Math.max(currentLiveReferenceRoundIndex, 0) * learnersPerRound;
+
+    return displayRows.map(({ roomName, slotIndex }) => {
+      const learnerLabels = Array.from({ length: Math.max(learnersPerRow, 1) }, (_, learnerOffset) => {
+        const learnerIndex = firstLearnerIndex + slotIndex * Math.max(learnersPerRow, 1) + learnerOffset;
+        if (scheduleBuilderLearnerNames[learnerIndex]) return scheduleBuilderLearnerNames[learnerIndex];
+        if (effectiveLearnerCount > 0 && learnerIndex < effectiveLearnerCount) return `Learner slot ${learnerIndex + 1}`;
+        return "";
+      }).filter(Boolean);
+      return { roomName, learnerLabels };
+    });
+  }, [
+    currentLiveReferenceRound,
+    currentLiveReferenceRoundIndex,
+    currentLiveReferenceRoomSlotEntries,
+    currentLiveReferenceSessions,
+    effectiveLearnerCount,
+    roomNamingContext,
+    scheduleBuilderLearnerNames,
+    scheduleBuilderRoomCapacity,
+  ]);
   const selectedRoundSessions = useMemo(() => {
     if (!selectedRotationRound) return [] as EventSessionRow[];
     return sessions.filter((session) => getRotationRoundKeyFromSession(session) === selectedRotationRound.key);
@@ -7242,9 +7401,52 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
   const liveBlueprintCheckedCount = liveAttendanceBlueprintRooms.filter((room) => room.status === "checked_in").length;
   const liveBlueprintLateCount = liveAttendanceBlueprintRooms.filter((room) => room.status === "late").length;
   const liveBlueprintNoShowCount = liveAttendanceBlueprintRooms.filter((room) => room.status === "no_show").length;
+  const liveBlueprintAwaitingCount = liveAttendanceBlueprintRooms.filter((room) => room.status === "awaiting").length;
+  const liveAttendanceAllPrimaryArrived =
+    liveBlueprintStaffedCount > 0 &&
+    liveBlueprintCheckedCount >= liveBlueprintStaffedCount &&
+    liveBlueprintLateCount === 0 &&
+    liveBlueprintNoShowCount === 0 &&
+    liveBlueprintAwaitingCount === 0 &&
+    liveRoomMissingCount === 0;
   const liveBlueprintHallwaySplitIndex = Math.ceil(liveAttendanceBlueprintRooms.length / 2);
   const liveBlueprintTopRooms = liveAttendanceBlueprintRooms.slice(0, liveBlueprintHallwaySplitIndex);
   const liveBlueprintBottomRooms = liveAttendanceBlueprintRooms.slice(liveBlueprintHallwaySplitIndex);
+  const compactLiveFlowRailBlocks = useMemo(() => {
+    if (!liveFlowBlocks.length) return [] as typeof liveFlowBlocks;
+    const selectedIndex = selectedLiveFlowBlock
+      ? liveFlowBlocks.findIndex((block) => block.key === selectedLiveFlowBlock.key)
+      : -1;
+    const anchorIndex = selectedIndex >= 0 ? selectedIndex : currentLiveBlockIndex >= 0 ? currentLiveBlockIndex : 0;
+    const startIndex = Math.max(anchorIndex - 1, 0);
+    const endIndex = Math.min(startIndex + 5, liveFlowBlocks.length);
+    return liveFlowBlocks.slice(startIndex, endIndex);
+  }, [currentLiveBlockIndex, liveFlowBlocks, selectedLiveFlowBlock]);
+  useEffect(() => {
+    if (typeof window === "undefined" || !id) return;
+
+    const storageKey = getLiveAttendancePanelStorageKey(id);
+    const savedState = window.sessionStorage.getItem(storageKey);
+    if (!liveAttendanceAllPrimaryArrived || liveBlueprintLateCount > 0 || liveBlueprintNoShowCount > 0 || liveRoomMissingCount > 0) {
+      setLiveAttendanceToolsExpanded(true);
+      return;
+    }
+    if (savedState === "expanded") {
+      setLiveAttendanceToolsExpanded(true);
+      return;
+    }
+    if (savedState === "collapsed") {
+      setLiveAttendanceToolsExpanded(false);
+      return;
+    }
+    setLiveAttendanceToolsExpanded(false);
+  }, [
+    id,
+    liveAttendanceAllPrimaryArrived,
+    liveBlueprintLateCount,
+    liveBlueprintNoShowCount,
+    liveRoomMissingCount,
+  ]);
   const needsOutreachCount = useMemo(
     () =>
       pollResponderEntries.filter(
@@ -9898,6 +10100,16 @@ Cory`;
     }
   }
 
+  function handleLiveAttendanceToolsExpandedChange(nextExpanded: boolean) {
+    setLiveAttendanceToolsExpanded(nextExpanded);
+    if (typeof window !== "undefined" && id) {
+      window.sessionStorage.setItem(
+        getLiveAttendancePanelStorageKey(id),
+        nextExpanded ? "expanded" : "collapsed"
+      );
+    }
+  }
+
   async function handleMarkStaffingEmailSent(kind: "hiring" | "confirmation") {
     const sentAt = new Date().toISOString();
     try {
@@ -10446,6 +10658,10 @@ Cory`;
                       <div style={{ marginTop: "4px", color: "#9ed9d1", fontSize: "12px", fontWeight: 700, lineHeight: 1.45 }}>
                         Check in SPs to populate the room wall.
                       </div>
+                      <div style={{ marginTop: "4px", color: "#7da4b5", fontSize: "11px", fontWeight: 800 }}>
+                        schedule rows loaded: {currentLiveReferenceScheduleRows.length} · selected round learners:{" "}
+                        {currentLiveReferenceScheduleRows.reduce((total, row) => total + row.learnerLabels.length, 0)}
+                      </div>
                     </div>
                     <div style={{ display: "flex", gap: "7px", flexWrap: "wrap", justifyContent: "flex-end" }}>
                       <button
@@ -10608,7 +10824,7 @@ Cory`;
                                       {room.spName || "Open room"}
                                     </div>
                                     <div style={{ marginTop: "4px", color: "#9ed9d1", fontSize: "10px", fontWeight: 800, lineHeight: 1.35, overflowWrap: "anywhere" }}>
-                                      {room.isTemporaryRoom ? "Extra Room · Standby / Overflow" : room.learnerLabel || "Learner TBD"}
+                                      {room.isTemporaryRoom ? "Extra Room · Standby / Overflow" : room.learnerLabel || "Learner not assigned"}
                                     </div>
                                   </div>
                                   <div style={{ display: "grid", gap: "6px", justifyItems: "end" }}>
@@ -10808,11 +11024,41 @@ Cory`;
                   >
                     <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
                       <div style={{ ...statLabel, color: "#7ee7db" }}>Live Attendance Log</div>
-                      <span style={{ color: "#89b7c4", fontSize: "11px", fontWeight: 800 }}>
-                        {liveAttendanceBlueprintRooms.length} rooms • {liveAttendanceLogRows.length} staffed SP{liveAttendanceLogRows.length === 1 ? "" : "s"} • {liveBlueprintCheckedCount} checked in
-                      </span>
+                      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                        <span style={{ color: "#89b7c4", fontSize: "11px", fontWeight: 800 }}>
+                          {liveAttendanceBlueprintRooms.length} rooms • {liveAttendanceLogRows.length} staffed SP{liveAttendanceLogRows.length === 1 ? "" : "s"} • {liveBlueprintCheckedCount} checked in
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleLiveAttendanceToolsExpandedChange(!liveAttendanceToolsExpanded)}
+                          style={{ ...buttonStyle, padding: "7px 10px" }}
+                        >
+                          {liveAttendanceToolsExpanded ? "Collapse Attendance Tools" : "Expand Attendance Tools"}
+                        </button>
+                      </div>
                     </div>
-                    {liveAttendanceLogRows.length ? (
+                    {!liveAttendanceToolsExpanded && liveAttendanceAllPrimaryArrived ? (
+                      <div
+                        style={{
+                          border: "1px solid rgba(44, 211, 173, 0.24)",
+                          borderRadius: "14px",
+                          background: "rgba(6, 48, 45, 0.24)",
+                          padding: "10px 12px",
+                          display: "flex",
+                          gap: "8px",
+                          flexWrap: "wrap",
+                          alignItems: "center",
+                        }}
+                      >
+                        <span style={{ ...commandChipStyle, background: "rgba(44, 211, 173, 0.14)", color: "#86efac" }}>All SPs arrived</span>
+                        <span style={{ color: "#d6edf4", fontSize: "12px", fontWeight: 800 }}>
+                          {liveBlueprintCheckedCount} / {liveBlueprintStaffedCount} checked in
+                        </span>
+                        <span style={{ color: "#9ed9d1", fontSize: "12px", fontWeight: 800 }}>0 late</span>
+                        <span style={{ color: "#9ed9d1", fontSize: "12px", fontWeight: 800 }}>0 no-show</span>
+                        <span style={{ color: "#9ed9d1", fontSize: "12px", fontWeight: 800 }}>Room coverage ready</span>
+                      </div>
+                    ) : liveAttendanceLogRows.length ? (
                       <div style={{ display: "grid", gap: "6px" }}>
                         {liveAttendanceLogRows.map((entry) => {
                           const color =
@@ -10862,7 +11108,7 @@ Cory`;
               </section>
 
               <div style={{ display: "grid", gap: "8px" }}>
-                {currentLiveAssignmentRows.length === 0 ? (
+                {!liveAttendanceToolsExpanded && liveAttendanceAllPrimaryArrived ? null : currentLiveAssignmentRows.length === 0 ? (
                   <div style={{ color: "#9bb4c0", fontWeight: 700 }}>
                     No active rotation assignments mapped yet. Use the schedule and staffing tools below to complete the live board.
                   </div>
@@ -11159,7 +11405,7 @@ Cory`;
                           paddingBottom: "2px",
                         }}
                       >
-                        {liveFlowBlocks.map((block) => {
+                        {compactLiveFlowRailBlocks.map((block) => {
                           const duration = Math.max(block.endMinutes - block.startMinutes, 1);
                           const isCurrent = currentLiveBlock?.key === block.key;
                           const isSelected = selectedLiveFlowBlock?.key === block.key;
