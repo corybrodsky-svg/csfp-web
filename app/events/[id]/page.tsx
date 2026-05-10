@@ -3578,7 +3578,7 @@ export default function EventDetailPage() {
   const [showRecordingGuideEditor, setShowRecordingGuideEditor] = useState(false);
   const [contactPanelSaving, setContactPanelSaving] = useState(false);
   const [contactPanelSavedAt, setContactPanelSavedAt] = useState("");
-  const [contactPanelExpanded, setContactPanelExpanded] = useState(true);
+  const [contactPanelExpanded, setContactPanelExpanded] = useState(false);
   const [staffingCommandCenterExpanded, setStaffingCommandCenterExpanded] = useState(true);
   const [trainingReadinessExpanded, setTrainingReadinessExpanded] = useState(true);
   const [showPushRelatedPanel, setShowPushRelatedPanel] = useState(false);
@@ -5622,8 +5622,8 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       setStaffingCommandCenterExpanded(false);
       return;
     }
-    setStaffingCommandCenterExpanded(!staffingCommandCenterCanCollapse);
-  }, [id, staffingCommandCenterCanCollapse]);
+    setStaffingCommandCenterExpanded(commandCenterMode === "planning" ? !staffingCommandCenterCanCollapse : false);
+  }, [commandCenterMode, id, staffingCommandCenterCanCollapse]);
   const outreachProgressLabel = assignments.some(
     (assignment) =>
       Boolean(assignment.last_contacted_at) || ["contacted", "confirmed", "declined"].includes(getAssignmentStatus(assignment))
@@ -5818,6 +5818,26 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     : internalTraining
       ? "Owned by Sim Ops"
       : "Ownership TBD";
+  const facultyCoordinationComplete =
+    facultyReadinessComplete && (!facultyLedTraining || facultyTrainingCoordinationSent);
+  const facultyPanelStatusLabel = facultyCoordinationComplete
+    ? facultyTrainingCoordinationSent
+      ? "Faculty coordinated"
+      : "Contact ready"
+    : facultyTrainingCoordinationDrafted
+      ? "Request drafted"
+      : facultyTrainingCoordinationRequested
+        ? "Request in progress"
+        : facultyReadinessComplete
+          ? "Needs faculty request"
+          : "Needs setup";
+  const facultyPanelTone = facultyCoordinationComplete
+    ? operationalReadinessGoldTone
+    : facultyTrainingCoordinationDrafted || facultyTrainingCoordinationRequested
+      ? getWorkflowReadinessTone("In Progress")
+      : facultyReadinessComplete
+        ? getWorkflowReadinessTone("Needs Action")
+        : getWorkflowReadinessTone("Not Started");
   const normalEventTrainingDateText =
     asText(trainingMetadata.training_date) ||
     asText(trainingMetadata.preferred_training_date) ||
@@ -6003,7 +6023,7 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
   const trainingUrgentMissingItems = [
     trainingZoomRequired && !normalEventTrainingLink ? "Zoom link missing" : "",
     trainingRecordingPlanned && !normalEventTrainingRecordingHref ? "Recording link missing" : "",
-    facultyLedTraining && facultyReadinessComplete && !facultyTrainingCoordinationSent ? "Faculty request not sent" : "",
+    facultyLedTraining && facultyReadinessComplete && !facultyTrainingCoordinationRequested ? "Faculty request not sent" : "",
   ]
     .filter(Boolean)
     .slice(0, 3);
@@ -7176,6 +7196,14 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
         assignment.training_attended !== true
     ).length;
   }, [firstLiveRotationStartMinutes, simulatedLiveMinutes, sortedAssignments]);
+  const payrollReadyCount = useMemo(
+    () =>
+      sortedAssignments.filter((assignment) => {
+        const status = getAssignmentStatus(assignment);
+        return status !== "declined" && status !== "no_show" && assignment.training_attended === true;
+      }).length,
+    [sortedAssignments]
+  );
   const backupAvailableCount =
     sortedAssignments.filter((assignment) => getAssignmentStatus(assignment) === "backup").length +
     maybePollResponders.filter((entry) => !entry.isAssigned).length;
@@ -7458,6 +7486,11 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
   const liveBlueprintLateCount = liveAttendanceBlueprintRooms.filter((room) => room.status === "late").length;
   const liveBlueprintNoShowCount = liveAttendanceBlueprintRooms.filter((room) => room.status === "no_show").length;
   const liveBlueprintAwaitingCount = liveAttendanceBlueprintRooms.filter((room) => room.status === "awaiting").length;
+  const liveCloseoutItems = [
+    { label: "Checked in", value: String(liveBlueprintCheckedCount), detail: `${liveBlueprintStaffedCount} staffed` },
+    { label: "No-show", value: String(liveBlueprintNoShowCount), detail: liveBlueprintNoShowCount > 0 ? "Needs follow-up" : "No active no-show flags" },
+    { label: "Payroll ready", value: `${payrollReadyCount}/${Math.max(confirmedCount, payrollReadyCount)}`, detail: "Confirmed attendance ready for payroll review" },
+  ];
   const liveAttendanceAllPrimaryArrived =
     liveBlueprintStaffedCount > 0 &&
     liveBlueprintCheckedCount >= liveBlueprintStaffedCount &&
@@ -12761,9 +12794,13 @@ Cory`;
           }}
         >
           <div>
-            <h2 style={{ ...compactSectionTitleStyle, color: staffingWorkspacePalette.textStrong, letterSpacing: "0.01em" }}>Staffing Command Center</h2>
+            <h2 style={{ ...compactSectionTitleStyle, color: staffingWorkspacePalette.textStrong, letterSpacing: "0.01em" }}>
+              {isPlanningVisualMode ? "Staffing Command Center" : "Live Staffing & Attendance"}
+            </h2>
             <p style={{ ...compactSectionHintStyle, color: staffingWorkspacePalette.textMuted }}>
-              Run coverage, polling, responder ranking, and selected-staffing operations from one compact workflow.
+              {isPlanningVisualMode
+                ? "Run coverage, polling, responder ranking, and selected-staffing operations from one compact workflow."
+                : "Keep attendance, no-shows, room coverage, and payroll closeout visible without reopening planning-heavy tools."}
             </p>
           </div>
           <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "flex-end" }}>
@@ -12796,7 +12833,7 @@ Cory`;
             >
               {staffingHealthLabel}
             </span>
-            {staffingCommandCenterCanCollapse ? (
+            {staffingCommandCenterCanCollapse || !isPlanningVisualMode ? (
               <button
                 type="button"
                 onClick={() => handleStaffingCommandCenterExpandedChange(!staffingCommandCenterExpanded)}
@@ -12808,12 +12845,14 @@ Cory`;
           </div>
         </div>
 
-        {staffingCommandCenterCanCollapse && !staffingCommandCenterExpanded ? (
+        {(staffingCommandCenterCanCollapse || !isPlanningVisualMode) && !staffingCommandCenterExpanded ? (
           <div
             style={{
               borderRadius: "16px",
-              border: planningSuccessBorder,
-              background: "linear-gradient(180deg, rgba(236, 253, 245, 0.96) 0%, rgba(220, 252, 231, 0.94) 100%)",
+              border: isPlanningVisualMode ? planningSuccessBorder : "1px solid rgba(73, 168, 255, 0.22)",
+              background: isPlanningVisualMode
+                ? "linear-gradient(180deg, rgba(236, 253, 245, 0.96) 0%, rgba(220, 252, 231, 0.94) 100%)"
+                : "linear-gradient(180deg, rgba(12, 29, 46, 0.96) 0%, rgba(11, 25, 39, 0.94) 100%)",
               padding: "14px 16px",
               display: "grid",
               gap: "8px",
@@ -12821,12 +12860,16 @@ Cory`;
           >
             <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
               <div>
-                <div style={{ ...statLabel, color: planningSuccessText }}>Staffing Summary</div>
-                <div style={{ marginTop: "4px", color: planningSuccessText, fontWeight: 900, fontSize: "18px" }}>
-                  {needed} needed · {confirmedCount} confirmed · Coverage met
+                <div style={{ ...statLabel, color: isPlanningVisualMode ? planningSuccessText : "#7ee7db" }}>
+                  {isPlanningVisualMode ? "Staffing Summary" : "Live Staffing Summary"}
                 </div>
-                <div style={{ marginTop: "6px", color: "#166534", fontWeight: 700, fontSize: "13px" }}>
-                  {staffingEmailWorkflowDetail || "Coverage complete"}
+                <div style={{ marginTop: "4px", color: isPlanningVisualMode ? planningSuccessText : "#f4fbff", fontWeight: 900, fontSize: "18px" }}>
+                  {needed} needed · {confirmedCount} confirmed · {coverageRiskTone === "green" ? "Coverage met" : staffingHealthLabel}
+                </div>
+                <div style={{ marginTop: "6px", color: isPlanningVisualMode ? "#166534" : "#9ed9d1", fontWeight: 700, fontSize: "13px" }}>
+                  {isPlanningVisualMode
+                    ? staffingEmailWorkflowDetail || "Coverage complete"
+                    : `${liveBlueprintCheckedCount}/${liveBlueprintStaffedCount || confirmedCount} checked in · ${liveBlueprintNoShowCount} no-show · ${backupCount} backup`}
                 </div>
               </div>
               <button
@@ -12869,6 +12912,47 @@ Cory`;
           </div>
         ) : (
           <>
+            {!isPlanningVisualMode ? (
+              <section
+                style={{
+                  border: "1px solid rgba(73, 168, 255, 0.2)",
+                  borderRadius: "16px",
+                  padding: "12px 14px",
+                  background: "linear-gradient(180deg, rgba(247, 251, 255, 0.98) 0%, rgba(238, 248, 252, 0.96) 100%)",
+                  boxShadow: "0 10px 22px rgba(42, 112, 140, 0.08)",
+                  display: "grid",
+                  gap: "10px",
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+                  <div>
+                    <div style={{ ...statLabel, color: staffingWorkspacePalette.textStrong }}>Attendance, Closeout & Payroll</div>
+                    <div style={{ marginTop: "4px", color: staffingWorkspacePalette.textMuted, fontWeight: 700, fontSize: "13px" }}>
+                      Focus live staffing on arrival status, unresolved issues, and payroll-ready attendance.
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    disabled
+                    style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px", opacity: 0.65 }}
+                  >
+                    Payroll Summary Coming Soon
+                  </button>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "8px" }}>
+                  {liveCloseoutItems.map((item) => (
+                    <div key={`live-closeout-${item.label}`} style={staffingMetricCardStyle}>
+                      <div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>{item.label}</div>
+                      <div style={{ ...statValue, color: staffingWorkspacePalette.textStrong }}>{item.value}</div>
+                      <div style={{ marginTop: "4px", color: staffingWorkspacePalette.textMuted, fontWeight: 700, fontSize: "12px" }}>
+                        {item.detail}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            ) : null}
+
             {relatedTrainingEventId ? (
               <div
                 style={{
@@ -14879,6 +14963,10 @@ Cory`;
     const boardStatusDetail = workflowRequiredReady
       ? "All required readiness systems are complete."
       : `${workflowReadyCount} ready / optional · ${workflowActionCount} action`;
+    const boardTitle = isPlanningVisualMode ? "Operational Readiness Board" : "Closeout Readiness Board";
+    const boardSubtitle = isPlanningVisualMode
+      ? "Event QA telemetry with clear ownership, real actions, and no cosmetic pending checks."
+      : "Track live follow-up, payroll readiness, unresolved issues, and closeout ownership.";
 
     return (
       <section
@@ -14893,9 +14981,9 @@ Cory`;
       >
         <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "flex-start" }}>
           <div>
-            <h2 style={compactSectionTitleStyle}>Operational Readiness Board</h2>
+            <h2 style={compactSectionTitleStyle}>{boardTitle}</h2>
             <p style={compactSectionHintStyle}>
-              Event QA telemetry with clear ownership, real actions, and no cosmetic pending checks.
+              {boardSubtitle}
             </p>
           </div>
           <div
@@ -14935,7 +15023,13 @@ Cory`;
               border: "1px solid var(--cfsp-border)",
             }}
           >
-            {showWorkflowAdvanced ? "Hide Operational QA Board" : "Show Operational QA Board"}
+            {showWorkflowAdvanced
+              ? isPlanningVisualMode
+                ? "Hide Operational QA Board"
+                : "Hide Closeout Board"
+              : isPlanningVisualMode
+                ? "Show Operational QA Board"
+                : "Show Closeout Board"}
           </button>
         </div>
 
@@ -17551,13 +17645,11 @@ Cory`;
 
           <section
             style={{
-              border: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.18)" : "1px solid rgba(61, 201, 184, 0.26)",
+              border: facultyPanelTone.border,
               borderRadius: "18px",
               padding: "14px",
-              background: isPlanningVisualMode
-                ? "linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(241, 249, 252, 0.98) 100%)"
-                : "linear-gradient(180deg, rgba(13, 37, 46, 0.96) 0%, rgba(12, 27, 41, 0.94) 100%)",
-              boxShadow: isPlanningVisualMode ? "0 12px 28px rgba(42, 112, 140, 0.08)" : "0 16px 32px rgba(8, 20, 34, 0.28)",
+              background: facultyPanelTone.cardBackground,
+              boxShadow: facultyCoordinationComplete ? operationalReadinessGoldTone.glow : isPlanningVisualMode ? "0 12px 28px rgba(42, 112, 140, 0.08)" : "0 16px 32px rgba(8, 20, 34, 0.28)",
             }}
           >
             <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
@@ -17566,51 +17658,56 @@ Cory`;
                 <div style={{ marginTop: "4px", color: commandCenterVisual.headingColor, fontSize: "18px", fontWeight: 900 }}>
                   {trainingFacultyText || "Add faculty contact"}
                 </div>
-                {facultyReadinessComplete && !contactPanelExpanded ? (
+                {(!contactPanelExpanded || facultyReadinessComplete) ? (
                   <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "13px", fontWeight: 700 }}>
-                    {facultyContactSummary || facultyReadinessLabel}
+                    {facultyContactSummary || facultyReadinessLabel || facultyTrainingCoordinationLabel}
                   </div>
                 ) : null}
               </div>
               <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
-                <span style={commandChipStyle}>
+                <span
+                  style={{
+                    ...commandChipStyle,
+                    background: facultyPanelTone.background,
+                    border: facultyPanelTone.border,
+                    color: facultyPanelTone.color,
+                  }}
+                >
                   {contactPanelSaving
                     ? "Saving"
                     : contactPanelSavedAt
                       ? `Saved ${formatUploadedTimestamp(contactPanelSavedAt)}`
-                      : facultyReadinessComplete
-                        ? "Ready"
-                        : "Needs setup"}
+                      : facultyPanelStatusLabel}
                 </span>
-                {facultyReadinessComplete ? (
-                  <button
-                    type="button"
-                    onClick={() => handleContactPanelExpandedChange(!contactPanelExpanded)}
-                    style={{ ...buttonStyle, padding: "8px 12px" }}
-                  >
-                    {contactPanelExpanded ? "Collapse" : "Edit / Expand"}
-                  </button>
-                ) : null}
                 <button
                   type="button"
-                  onClick={() =>
-                    void saveFacultyContactFields(
-                      {
-                        faculty_names: trainingMetadata.faculty_names,
-                        faculty_program: trainingMetadata.faculty_program,
-                        faculty_email: trainingMetadata.faculty_email,
-                        faculty_phone: trainingMetadata.faculty_phone,
-                        sim_contact: trainingMetadata.sim_contact,
-                        contact_internal_notes: trainingMetadata.contact_internal_notes,
-                      },
-                      "Faculty/contact saved."
-                    )
-                  }
-                  disabled={contactPanelSaving}
-                  style={{ ...buttonStyle, padding: "8px 12px", opacity: contactPanelSaving ? 0.65 : 1 }}
+                  onClick={() => handleContactPanelExpandedChange(!contactPanelExpanded)}
+                  style={{ ...buttonStyle, padding: "8px 12px" }}
                 >
-                  Save Contact Panel
+                  {contactPanelExpanded ? "Collapse" : "Edit / Expand"}
                 </button>
+                {!facultyReadinessComplete || contactPanelExpanded ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void saveFacultyContactFields(
+                        {
+                          faculty_names: trainingMetadata.faculty_names,
+                          faculty_program: trainingMetadata.faculty_program,
+                          faculty_email: trainingMetadata.faculty_email,
+                          faculty_phone: trainingMetadata.faculty_phone,
+                          sim_contact: trainingMetadata.sim_contact,
+                          contact_internal_notes: trainingMetadata.contact_internal_notes,
+                        },
+                        "Faculty/contact saved."
+                      )
+                    }
+                    disabled={contactPanelSaving}
+                    style={{ ...buttonStyle, padding: "8px 12px", opacity: contactPanelSaving ? 0.65 : 1 }}
+                  >
+                    Save Contact Panel
+                  </button>
+                ) : null}
               </div>
             </div>
 
