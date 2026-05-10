@@ -909,7 +909,28 @@ textarea {
     linear-gradient(90deg, rgba(126, 231, 219, 0.035) 1px, transparent 1px),
     rgba(2, 11, 20, 0.52);
   background-size: 14px 14px;
-  overflow: hidden;
+  box-shadow: inset -26px 0 24px rgba(2, 11, 20, 0.34);
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-gutter: stable;
+  scroll-snap-type: x proximity;
+  -webkit-overflow-scrolling: touch;
+}
+
+.cfsp-live-blueprint-wall::-webkit-scrollbar {
+  height: 10px;
+}
+
+.cfsp-live-blueprint-wall::-webkit-scrollbar-track {
+  border-radius: 999px;
+  background: rgba(2, 11, 20, 0.54);
+  border: 1px solid rgba(126, 231, 219, 0.1);
+}
+
+.cfsp-live-blueprint-wall::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(20, 91, 150, 0.74), rgba(126, 231, 219, 0.58));
+  border: 2px solid rgba(2, 11, 20, 0.54);
 }
 
 .cfsp-live-blueprint-wall::before {
@@ -960,6 +981,7 @@ textarea {
 
 .cfsp-blueprint-room {
   position: relative;
+  min-width: 0;
   min-height: 92px;
   border-radius: 12px;
   padding: 9px;

@@ -7982,6 +7982,12 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
   const liveBlueprintHallwaySplitIndex = Math.ceil(liveVisibleRoomCount / 2);
   const liveBlueprintTopRooms = liveAttendanceBlueprintRooms.slice(0, liveBlueprintHallwaySplitIndex);
   const liveBlueprintBottomRooms = liveAttendanceBlueprintRooms.slice(liveBlueprintHallwaySplitIndex);
+  const liveBlueprintMaxHallwayRooms = Math.max(liveBlueprintTopRooms.length, liveBlueprintBottomRooms.length, 1);
+  const liveBlueprintRoomCardMinWidth = liveVisibleRoomCount > 7 ? 190 : 128;
+  const liveBlueprintWallMinWidth =
+    liveVisibleRoomCount > 7
+      ? liveBlueprintMaxHallwayRooms * liveBlueprintRoomCardMinWidth + Math.max(liveBlueprintMaxHallwayRooms - 1, 0) * 8
+      : 0;
   const compactLiveFlowRailBlocks = useMemo(() => {
     if (!liveFlowBlocks.length) return [] as typeof liveFlowBlocks;
     const selectedIndex = selectedLiveFlowBlock
@@ -12330,7 +12336,11 @@ Cory`;
                     ].map((bank, bankIndex) => (
                       <Fragment key={bank.key}>
                         {bankIndex === 1 ? (
-                          <div className="cfsp-blueprint-hallway" aria-label="Central hallway">
+                          <div
+                            className="cfsp-blueprint-hallway"
+                            aria-label="Central hallway"
+                            style={liveBlueprintWallMinWidth ? { minWidth: `${liveBlueprintWallMinWidth}px` } : undefined}
+                          >
                             <span>Central Hallway</span>
                           </div>
                         ) : null}
@@ -12338,8 +12348,12 @@ Cory`;
                           aria-label={bank.label}
                           style={{
                             display: "grid",
-                            gridTemplateColumns: "repeat(auto-fit, minmax(92px, 1fr))",
+                            gridTemplateColumns:
+                              liveVisibleRoomCount > 7
+                                ? `repeat(${Math.max(bank.rooms.length, 1)}, minmax(${liveBlueprintRoomCardMinWidth}px, 1fr))`
+                                : "repeat(auto-fit, minmax(128px, 1fr))",
                             gap: "8px",
+                            minWidth: liveBlueprintWallMinWidth ? `${liveBlueprintWallMinWidth}px` : undefined,
                           }}
                         >
                           {bank.rooms.map((room) => {
