@@ -29,6 +29,13 @@ import {
   getSimStaffNames,
 } from "../../lib/eventRoster";
 import {
+  getRoomDisplayLabel,
+  type RoomNamingContext,
+  getRoomDisplayLabelFromIndex,
+  type RoomTypeHint,
+  getRoomTypeLabel,
+} from "../../lib/roomNaming";
+import {
   parseTrainingEventMetadata,
   upsertTrainingEventMetadata,
   type TrainingEventMetadata,
@@ -1139,17 +1146,59 @@ function getHighestRoomDisplayNumber(labels: Array<string | null | undefined>) {
   }, 0);
 }
 
-function buildRoomLabelFromTemplate(template: string, roomNumber: number, fallbackPrefix = "Exam Room") {
+function isRoomPlaceholderLabel(label?: string | null) {
+  const normalized = asText(label).trim().toLowerCase();
+  return !normalized || /\b(tbd|to be determined|to-be-determined)\b/.test(normalized);
+}
+
+function getFallbackRoomLabel(index: number, roomContext: RoomNamingContext = {}) {
+  return getRoomDisplayLabelFromIndex("", index, roomContext);
+}
+
+function buildRoomLabelFromTemplate(
+  template: string,
+  roomNumber: number,
+  roomContext: RoomNamingContext = {}
+) {
   const text = asText(template);
-  if (/\d+/.test(text)) return text.replace(/\d+/, String(roomNumber));
-  return `${fallbackPrefix} ${roomNumber}`;
+  const safeRoomNumber = Math.max(1, Number.isFinite(roomNumber) ? roomNumber : 1);
+  if (!text) {
+    return getRoomDisplayLabel(
+      text,
+      safeRoomNumber,
+      roomContext,
+      resolveRoomTypeHint(text)
+    );
+  }
+  if (roomNumber <= 0) {
+    return getRoomDisplayLabel(text, 1, roomContext, resolveRoomTypeHint(text));
+  }
+  if (/\d+/.test(text)) {
+    return text.replace(/(\d+)/, String(safeRoomNumber));
+  }
+  return `${getRoomTypeLabel(roomContext)} ${safeRoomNumber}`;
+}
+
+function resolveRoomTypeHint(roomName: string | null | undefined): RoomTypeHint | undefined {
+  const text = asText(roomName).toLowerCase();
+  if (/\bbreakout\b/.test(text) || /^room\s*\d*$/.test(text)) return "breakout";
+  if (/\bvirtual\b/.test(text)) return "virtual";
+  if (/\bflex\b/.test(text)) return "flex";
+  if (/\boverflow\b/.test(text)) return "overflow";
+  if (/\bexam\b/.test(text)) return "exam";
+  if (/\broom\b/.test(text)) return "exam";
+  return undefined;
 }
 
 function buildFullNumericRoomDisplayEntries(
   roomLabels: Array<string | null | undefined>,
   expectedRoomCount: number,
-  fallbackPrefix = "Exam Room"
+  fallbackPrefix = "",
+  roomContext: RoomNamingContext = {}
 ): RoomDisplayEntry[] {
+  const resolvedRoomContext = roomContext;
+  const resolvedFallbackPrefix = fallbackPrefix || getRoomTypeLabel(roomContext);
+  const fallbackTypeHint = resolveRoomTypeHint(resolvedFallbackPrefix);
   const seen = new Set<string>();
   const cleanedLabels = roomLabels
     .map((label, sourceIndex) => ({ roomName: asText(label), sourceIndex }))
@@ -1183,7 +1232,14 @@ function buildFullNumericRoomDisplayEntries(
   if (!labelsByNumber.size) {
     const fallbackCount = Math.max(expectedRoomCount, sortedLabels.length, 1);
     return Array.from({ length: fallbackCount }, (_, index) => ({
-      roomName: sortedLabels[index]?.roomName || `${fallbackPrefix} ${index + 1}`,
+      roomName:
+        sortedLabels[index]?.roomName ||
+        getRoomDisplayLabelFromIndex(
+          sortedLabels[index]?.roomName || "",
+          index,
+          resolvedRoomContext,
+          fallbackTypeHint
+        ),
       sourceIndex: sortedLabels[index]?.sourceIndex ?? -1,
     }));
   }
@@ -1192,17 +1248,28 @@ function buildFullNumericRoomDisplayEntries(
   if (numericRoomCount <= 0) {
     const fallbackCount = Math.max(expectedRoomCount, sortedLabels.length, 1);
     return Array.from({ length: fallbackCount }, (_, index) => ({
-      roomName: sortedLabels[index]?.roomName || `${fallbackPrefix} ${index + 1}`,
+      roomName:
+        sortedLabels[index]?.roomName ||
+        getRoomDisplayLabelFromIndex(
+          sortedLabels[index]?.roomName || "",
+          index,
+          resolvedRoomContext,
+          fallbackTypeHint
+        ),
       sourceIndex: sortedLabels[index]?.sourceIndex ?? -1,
     }));
   }
 
-  const template = sortedLabels.find((entry) => getRoomDisplayNumber(entry.roomName) !== null)?.roomName || `${fallbackPrefix} 1`;
+  const template =
+    sortedLabels.find((entry) => getRoomDisplayNumber(entry.roomName) !== null)?.roomName ||
+    getRoomDisplayLabelFromIndex("", 0, resolvedRoomContext, fallbackTypeHint);
   const numericEntries = Array.from({ length: numericRoomCount }, (_, index) => {
     const roomNumber = index + 1;
     const existingEntry = labelsByNumber.get(roomNumber);
     return {
-      roomName: existingEntry?.roomName || buildRoomLabelFromTemplate(template, roomNumber, fallbackPrefix),
+      roomName:
+        existingEntry?.roomName ||
+        buildRoomLabelFromTemplate(template, roomNumber, resolvedRoomContext),
       sourceIndex: existingEntry?.sourceIndex ?? -1,
     };
   });
@@ -1216,7 +1283,8 @@ function buildFullNumericRoomDisplayEntries(
 function buildRoomSlotAssignmentPlan(
   roomSlotEntries: RoomDisplayEntry[],
   explicitAssignments: Array<AssignmentRow | null>,
-  confirmedAssignments: AssignmentRow[]
+  confirmedAssignments: AssignmentRow[],
+  roomContext: RoomNamingContext = {}
 ): RoomSlotAssignmentPlan {
   const roomCount = roomSlotEntries.length;
   const assignments: RoomSlotAssignmentProjection[] = roomSlotEntries.map((room, index) => {
@@ -1235,7 +1303,11 @@ function buildRoomSlotAssignmentPlan(
       assignments,
       explicitMappedCount,
       unmappedRoomNames: assignments
-        .map((entry, index) => (entry.isExplicit ? null : roomSlotEntries[index]?.roomName || `Room ${index + 1}`))
+        .map((entry, index) =>
+          entry.isExplicit
+            ? null
+            : roomSlotEntries[index]?.roomName || getRoomDisplayLabelFromIndex("", index, roomContext, resolveRoomTypeHint(fallbackPrefixFromContext(roomContext)))
+        )
         .filter((name): name is string => Boolean(name)),
     };
   }
@@ -1267,9 +1339,17 @@ function buildRoomSlotAssignmentPlan(
     assignments,
     explicitMappedCount,
     unmappedRoomNames: assignments
-      .map((entry, index) => (entry.isExplicit ? null : roomSlotEntries[index]?.roomName || `Room ${index + 1}`))
+      .map((entry, index) =>
+        entry.isExplicit
+          ? null
+          : roomSlotEntries[index]?.roomName || getRoomDisplayLabelFromIndex("", index, roomContext, resolveRoomTypeHint(fallbackPrefixFromContext(roomContext)))
+      )
       .filter((name): name is string => Boolean(name)),
   };
+}
+
+function fallbackPrefixFromContext(roomContext: RoomNamingContext = {}) {
+  return getRoomTypeLabel(roomContext);
 }
 
 function buildFullRoomSlotsForRound(
@@ -1279,6 +1359,7 @@ function buildFullRoomSlotsForRound(
     metadataRoomCount?: number;
     fallbackRoomCount?: number;
     fallbackPrefix?: string;
+    roomContext?: RoomNamingContext;
   } = {}
 ) {
   const sourceLabels = (options.roomLabels?.length ? options.roomLabels : round?.rooms || []).map(asText).filter(Boolean);
@@ -1287,7 +1368,12 @@ function buildFullRoomSlotsForRound(
   const expectedRoomCount = sourceRoomCount || Math.max(options.metadataRoomCount || 0, options.fallbackRoomCount || 0);
 
   if (!sourceLabels.length && expectedRoomCount <= 0) return [] as RoomDisplayEntry[];
-  return buildFullNumericRoomDisplayEntries(sourceLabels, expectedRoomCount, options.fallbackPrefix || "Exam Room");
+  return buildFullNumericRoomDisplayEntries(
+    sourceLabels,
+    expectedRoomCount,
+    options.fallbackPrefix || "",
+    options.roomContext || {}
+  );
 }
 
 function getEmail(sp: SPRow) {
@@ -4279,6 +4365,21 @@ export default function EventDetailPage() {
     () => capRotationRounds(allRotationRounds, activeRotationCount),
     [allRotationRounds, activeRotationCount]
   );
+  const trainingMetadata = useMemo(
+    () => parseTrainingEventMetadata(eventEditor.notes),
+    [eventEditor.notes]
+  );
+  const selectedModalityLabel = inferEventModalityLabel(activeEventTypeSet, trainingMetadata, event);
+  const roomNamingContext = useMemo(
+    () => ({
+      modalityLabel: selectedModalityLabel,
+      telehealthOrZoomEnabled:
+        selectedModalityLabel === "Virtual" ||
+        selectedModalityLabel === "Hybrid" ||
+        /zoom|telehealth|virtual/i.test(asText(event?.location)),
+    }),
+    [event?.location, selectedModalityLabel]
+  );
   const roomSlotEntriesByRoundKey = useMemo(() => {
     const next = new Map<string, RoomDisplayEntry[]>();
     rotationRounds.forEach((round) => {
@@ -4286,20 +4387,17 @@ export default function EventDetailPage() {
         round.key,
         buildFullRoomSlotsForRound(round, {
           metadataRoomCount: effectiveRoomCount,
+          roomContext: roomNamingContext,
         })
       );
     });
     return next;
-  }, [effectiveRoomCount, rotationRounds]);
+  }, [effectiveRoomCount, roomNamingContext, rotationRounds]);
   const hiddenExtraBackendRounds =
     activeRotationCount > 0 && allRotationRounds.length > rotationRounds.length
       ? allRotationRounds.length - rotationRounds.length
       : 0;
   const simStaffNames = useMemo(() => getSimStaffNames(event?.notes), [event?.notes]);
-  const trainingMetadata = useMemo(
-    () => parseTrainingEventMetadata(eventEditor.notes),
-    [eventEditor.notes]
-  );
   const persistedWorkflowChecks = useMemo(
     () => new Set(parseWorkflowManualChecks(trainingMetadata.workflow_manual_checks)),
     [trainingMetadata.workflow_manual_checks]
@@ -4713,11 +4811,12 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       currentRotationRoundNumber && currentRotationRoundNumber > 0
         ? rotationRounds[currentRotationRoundNumber - 1] || null
         : null;
-      if (currentRound) {
-        return (
-          roomSlotEntriesByRoundKey.get(currentRound.key) ||
-          buildFullRoomSlotsForRound(currentRound, {
+    if (currentRound) {
+      return (
+        roomSlotEntriesByRoundKey.get(currentRound.key) ||
+        buildFullRoomSlotsForRound(currentRound, {
           metadataRoomCount: effectiveRoomCount,
+          roomContext: roomNamingContext,
         })
       );
     }
@@ -4725,8 +4824,16 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     return buildFullRoomSlotsForRound(null, {
       roomLabels: currentLiveBlock?.rooms || [],
       metadataRoomCount: effectiveRoomCount,
+      roomContext: roomNamingContext,
     });
-  }, [currentLiveBlock, currentRotationRoundNumber, effectiveRoomCount, roomSlotEntriesByRoundKey, rotationRounds]);
+  }, [
+    currentLiveBlock,
+    currentRotationRoundNumber,
+    effectiveRoomCount,
+    roomNamingContext,
+    roomSlotEntriesByRoundKey,
+    rotationRounds,
+  ]);
   const defaultSelectedRotationRoundKey = useMemo(() => {
     if (!rotationRounds.length) return "";
     if (
@@ -4749,10 +4856,11 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
         const assignment = sourceIndex >= 0 ? sortedAssignments[sourceIndex] : null;
         const sp = assignment?.sp_id ? spsById.get(assignment.sp_id) : undefined;
         if (!assignment || !sp) return null;
-        return { assignment, sp, roomName: roomName || `Room ${index + 1}` };
+        const resolvedRoomName = roomName || getFallbackRoomLabel(index, roomNamingContext);
+        return { assignment, sp, roomName: resolvedRoomName };
       })
       .filter(Boolean) as Array<{ assignment: AssignmentRow; sp: SPRow; roomName: string }>;
-  }, [currentLiveRoomDisplayEntries, sortedAssignments, spsById]);
+  }, [currentLiveRoomDisplayEntries, roomNamingContext, sortedAssignments, spsById]);
   const currentLiveRoomExplicitAssignments = useMemo(
     () =>
       currentLiveRoomDisplayEntries.map(({ sourceIndex }) =>
@@ -4765,9 +4873,10 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       buildRoomSlotAssignmentPlan(
         currentLiveRoomDisplayEntries,
         currentLiveRoomExplicitAssignments,
-        confirmedAssignments
+        confirmedAssignments,
+        roomNamingContext
       ),
-    [currentLiveRoomDisplayEntries, currentLiveRoomExplicitAssignments, confirmedAssignments]
+    [currentLiveRoomDisplayEntries, currentLiveRoomExplicitAssignments, roomNamingContext, confirmedAssignments]
   );
   const currentLiveRoomBoardRows = useMemo(() => {
     if (!currentLiveBlock || !currentLiveRoomDisplayEntries.length) {
@@ -4796,7 +4905,8 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       const assignment = currentLiveRoomAssignmentPlan.assignments[index]?.assignment || null;
       const sp = assignment?.sp_id ? spsById.get(assignment.sp_id) || null : null;
       const checkedAt = assignment ? formatAttendanceTimestamp(assignment.training_checked_in_at) : "";
-      const liveKey = `${currentLiveBlock.key}|${roomName || `room-${index}`}`;
+      const resolvedRoomName = roomName || getFallbackRoomLabel(index, roomNamingContext);
+      const liveKey = `${currentLiveBlock.key}|${resolvedRoomName}`;
       const localState = liveRoomStates[liveKey] || {};
       const assignmentStatus = assignment ? getAssignmentStatus(assignment) : null;
       const missingSp =
@@ -4819,7 +4929,7 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       return {
         key: liveKey,
         sourceIndex,
-        roomName: roomName || `Room ${index + 1}`,
+        roomName: resolvedRoomName,
         assignment,
         sp,
         learnerLabel,
@@ -4841,6 +4951,7 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     simulatedLiveMinutes,
     currentLiveRoomAssignmentPlan.assignments,
     spsById,
+    roomNamingContext,
   ]);
   const liveRoomDelayedCount = currentLiveRoomBoardRows.filter((row) => row.status === "delayed" || row.delayMinutes > 0).length;
   const liveRoomMissingCount = currentLiveRoomBoardRows.filter((row) => row.status === "sp_missing").length;
@@ -5148,7 +5259,6 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       : emailStatusLabel === "Draft opened"
         ? "Draft opened"
         : "Not started";
-  const selectedModalityLabel = inferEventModalityLabel(activeEventTypeSet, trainingMetadata, event);
   const trainingLocationModality =
     selectedModalityLabel === "Hybrid"
       ? event?.location
@@ -5768,9 +5878,10 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       roomSlotEntriesByRoundKey.get(selectedRotationRound.key) ||
       buildFullRoomSlotsForRound(selectedRotationRound, {
         metadataRoomCount: effectiveRoomCount,
+        roomContext: roomNamingContext,
       })
     );
-  }, [effectiveRoomCount, roomSlotEntriesByRoundKey, selectedRotationRound]);
+  }, [effectiveRoomCount, roomNamingContext, roomSlotEntriesByRoundKey, selectedRotationRound]);
   const selectedRoundRoomCount = selectedRoundRoomSlotEntries.length;
   const selectedRoundCaseLabel = useMemo(
     () =>
@@ -5847,7 +5958,7 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
           asText(session.room) ||
           asText(selectedRoundRoomSlotEntries[slotIndex]?.roomName) ||
           "";
-        const displayRoomName = rawRoomName || "Room TBD";
+        const displayRoomName = rawRoomName || getFallbackRoomLabel(slotIndex, roomNamingContext);
         const assignment = sourceIndex >= 0 ? sortedAssignments[sourceIndex] || null : null;
         const sp = assignment?.sp_id ? spsById.get(assignment.sp_id) || null : null;
         const learnerLabels = Array.from({ length: Math.max(learnersPerRow, 1) }, (_, learnerOffset) => {
@@ -5882,6 +5993,7 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     effectiveLearnerCount,
     scheduleBuilderLearnerNames,
     scheduleBuilderRoomCapacity,
+    roomNamingContext,
     selectedRotationRound,
     selectedRoundRoomSlotEntries,
     selectedRoundCaseLabel,
@@ -5990,13 +6102,13 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
   const selectedRoundLearnerScheduleReady =
     selectedRoundScheduleRows.some(
       (row) =>
-        row.roomName !== "Room TBD" ||
+        !isRoomPlaceholderLabel(row.roomName) ||
         row.learnerLabels.length > 0 ||
         Boolean(row.caseLabel || row.stationLabel)
     ) || visibleSelectedRoundScheduleBlocks.length > 0;
   const selectedRoundSpScheduleReady =
     selectedRoundScheduleRows.some(
-      (row) => row.roomName !== "Room TBD" || Boolean(row.sp || row.caseLabel || row.stationLabel)
+      (row) => !isRoomPlaceholderLabel(row.roomName) || Boolean(row.sp || row.caseLabel || row.stationLabel)
     ) || visibleSelectedRoundScheduleBlocks.length > 0;
   const selectedRoundOperationsScheduleReady =
     selectedRoundScheduleRows.length > 0 ||
@@ -6016,9 +6128,10 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       buildRoomSlotAssignmentPlan(
         selectedRoundRoomSlotEntries,
         selectedRoundExplicitSlotAssignments,
-        confirmedAssignments
+        confirmedAssignments,
+        roomNamingContext
       ),
-    [selectedRoundRoomSlotEntries, selectedRoundExplicitSlotAssignments, confirmedAssignments]
+    [confirmedAssignments, roomNamingContext, selectedRoundExplicitSlotAssignments, selectedRoundRoomSlotEntries]
   );
   const selectedRoundCoverageTarget = Math.max(selectedRoundRoomCount, needed);
   const selectedRoundCoverageShortage = Math.max(selectedRoundCoverageTarget - confirmedAssignments.length, 0);
@@ -6597,8 +6710,15 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     return buildFullRoomSlotsForRound(fallbackRound, {
       metadataRoomCount: effectiveRoomCount,
       fallbackRoomCount,
+      roomContext: roomNamingContext,
     });
-  }, [currentLiveRoomDisplayEntries, effectiveRoomCount, rotationRounds, selectedRoundRoomSlotEntries]);
+  }, [
+    currentLiveRoomDisplayEntries,
+    effectiveRoomCount,
+    roomNamingContext,
+    rotationRounds,
+    selectedRoundRoomSlotEntries
+  ]);
   const liveBlueprintExplicitAssignments = useMemo(
     () =>
       liveBlueprintRoomEntries.map(({ sourceIndex }) =>
@@ -6611,9 +6731,10 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       buildRoomSlotAssignmentPlan(
         liveBlueprintRoomEntries,
         liveBlueprintExplicitAssignments,
-        confirmedAssignments
+        confirmedAssignments,
+        roomNamingContext
       ),
-    [liveBlueprintExplicitAssignments, confirmedAssignments, liveBlueprintRoomEntries]
+    [confirmedAssignments, roomNamingContext, liveBlueprintExplicitAssignments, liveBlueprintRoomEntries]
   );
   const liveAttendanceBlueprintRooms = useMemo(
     () =>
@@ -9654,8 +9775,16 @@ Cory`;
 
                   <div className="cfsp-live-blueprint-wall">
                     {[
-                      { key: "north", label: "North exam rooms", rooms: liveBlueprintTopRooms },
-                      { key: "south", label: "South exam rooms", rooms: liveBlueprintBottomRooms },
+                      {
+                        key: "north",
+                        label: `North ${getRoomTypeLabel(roomNamingContext).toLowerCase()}s`,
+                        rooms: liveBlueprintTopRooms,
+                      },
+                      {
+                        key: "south",
+                        label: `South ${getRoomTypeLabel(roomNamingContext).toLowerCase()}s`,
+                        rooms: liveBlueprintBottomRooms,
+                      },
                     ].map((bank, bankIndex) => (
                       <Fragment key={bank.key}>
                         {bankIndex === 1 ? (
@@ -9927,7 +10056,8 @@ Cory`;
                     No active rotation assignments mapped yet. Use the schedule and staffing tools below to complete the live board.
                   </div>
                 ) : (
-                  currentLiveAssignmentRows.map(({ assignment, sp, roomName }) => {
+                  currentLiveAssignmentRows.map(({ assignment, sp, roomName }, index) => {
+                    const resolvedRoomName = roomName || getFallbackRoomLabel(index, roomNamingContext);
                     const checkedAt = formatAttendanceTimestamp(assignment.training_checked_in_at);
                     const status = getAssignmentStatus(assignment);
                     const isMissing = assignment.training_attended !== true && status !== "declined" && status !== "no_show";
@@ -9957,7 +10087,7 @@ Cory`;
                       >
                         <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap" }}>
                           <div style={{ minWidth: 0 }}>
-                            <div style={{ color: "#f4fbff", fontWeight: 900 }}>{roomName || "Room TBD"}</div>
+                            <div style={{ color: "#f4fbff", fontWeight: 900 }}>{resolvedRoomName}</div>
                             <div style={{ marginTop: "4px", color: "#d6edf4", fontWeight: 800 }}>
                               {getFullName(sp)}
                             </div>
