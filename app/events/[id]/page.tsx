@@ -10763,6 +10763,21 @@ Cory`;
     }
   }
 
+  async function handleCopyRoundAnnouncement(text: string) {
+    const announcementText = asText(text);
+    if (!announcementText) return;
+    try {
+      if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
+        throw new Error("Clipboard is unavailable in this browser.");
+      }
+      await navigator.clipboard.writeText(announcementText);
+      setEventSaveMessage("Announcement copied.");
+      setEventSaveError("");
+    } catch (error) {
+      setEventSaveError(error instanceof Error ? error.message : "Could not copy announcement.");
+    }
+  }
+
   async function handleTrainingAttendanceToggle(assignment: AssignmentRow, checked: boolean) {
     setAttendanceSaving(true);
     setAttendanceError("");
@@ -17781,45 +17796,34 @@ Cory`;
 
                     {selectedRotationRound ? (
                       <>
-                        <div
-                          style={{
-                            display: "grid",
-                            gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))",
-                            gap: "10px",
-                          }}
-                        >
-                          <div style={{ ...statCard, background: commandCenterVisual.rowBackground, border: commandCenterVisual.rowBorder }}>
-                            <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Time Range</div>
-                            <div style={{ ...statValue, color: commandCenterVisual.textColor, fontSize: "16px" }}>
-                              {selectedRotationRound.start_time && selectedRotationRound.end_time
-                                ? `${formatDisplayTime(selectedRotationRound.start_time)} - ${formatDisplayTime(selectedRotationRound.end_time)}`
-                                : formatDisplayTime(selectedRotationRound.start_time || selectedRotationRound.end_time) || "Time TBD"}
-                            </div>
-                          </div>
-                          <div style={{ ...statCard, background: commandCenterVisual.rowBackground, border: commandCenterVisual.rowBorder }}>
-                            <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Rooms in Use</div>
-                            <div style={{ ...statValue, color: commandCenterVisual.textColor, fontSize: "16px" }}>
-                              {selectedRoundRoomCount}
-                            </div>
-                          </div>
-                          {roundCompanionView !== "sp" && selectedRoundLearnerCount !== null ? (
-                            <div style={{ ...statCard, background: commandCenterVisual.rowBackground, border: commandCenterVisual.rowBorder }}>
-                              <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Learners</div>
-                              <div style={{ ...statValue, color: commandCenterVisual.textColor, fontSize: "16px" }}>
-                                {selectedRoundLearnerCount}
-                              </div>
-                            </div>
-                          ) : null}
-                          {roundCompanionView === "operations" && selectedRoundEmptySlots !== null ? (
-                            <div style={{ ...statCard, background: commandCenterVisual.rowBackground, border: commandCenterVisual.rowBorder }}>
-                              <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Empty Slots</div>
-                              <div style={{ ...statValue, color: commandCenterVisual.textColor, fontSize: "16px" }}>
-                                {selectedRoundEmptySlots}
-                              </div>
-                            </div>
-                          ) : null}
+                        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                          {[
+                            selectedRotationRound.start_time && selectedRotationRound.end_time
+                              ? `${formatDisplayTime(selectedRotationRound.start_time)} - ${formatDisplayTime(selectedRotationRound.end_time)}`
+                              : formatDisplayTime(selectedRotationRound.start_time || selectedRotationRound.end_time) || "Time TBD",
+                            `${selectedRoundRoomCount} room${selectedRoundRoomCount === 1 ? "" : "s"}`,
+                            roundCompanionView !== "sp" && selectedRoundLearnerCount !== null
+                              ? `${selectedRoundLearnerCount} learner${selectedRoundLearnerCount === 1 ? "" : "s"}`
+                              : null,
+                            roundCompanionView === "operations" && selectedRoundEmptySlots !== null
+                              ? `${selectedRoundEmptySlots} empty slot${selectedRoundEmptySlots === 1 ? "" : "s"}`
+                              : null,
+                          ].filter(Boolean).map((chip) => (
+                            <span
+                              key={`round-context-${chip}`}
+                              style={{
+                                ...commandChipStyle,
+                                background: commandCenterVisual.chipBackground,
+                                color: commandCenterVisual.chipText,
+                                border: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.18)" : commandChipStyle.border,
+                              }}
+                            >
+                              {chip}
+                            </span>
+                          ))}
                         </div>
 
+                        {false ? (
                         <div
                           style={{
                             borderRadius: "18px",
@@ -17863,8 +17867,9 @@ Cory`;
                             {tacticalRoomBoardOpen ? "Collapse Board" : "Open Board"}
                           </button>
                         </div>
+                        ) : null}
 
-                        {tacticalRoomBoardOpen ? (
+                        {false && tacticalRoomBoardOpen ? (
                         <section
                           style={{
                             borderRadius: "22px",
@@ -18246,6 +18251,90 @@ Cory`;
                           {roundCompanionView === "announcements" ? (
                             selectedRoundAnnouncementTimeline.length ? (
                               <div style={{ display: "grid", gap: "10px" }}>
+                                {(() => {
+                                  const currentAnnouncement = selectedRoundAnnouncementTimeline[0];
+                                  const nextAnnouncement = selectedRoundAnnouncementTimeline[1] || null;
+                                  const currentAnnouncementText =
+                                    roundAnnouncementDrafts[currentAnnouncement.key] ?? currentAnnouncement.announcement;
+                                  const nextAnnouncementText = nextAnnouncement
+                                    ? roundAnnouncementDrafts[nextAnnouncement.key] ?? nextAnnouncement.announcement
+                                    : "";
+                                  return (
+                                    <section
+                                      style={{
+                                        borderRadius: "20px",
+                                        border: isPlanningVisualMode ? "1px solid rgba(44, 211, 173, 0.26)" : "1px solid rgba(126, 231, 219, 0.3)",
+                                        background: isPlanningVisualMode
+                                          ? "radial-gradient(circle at 0% 0%, rgba(125, 211, 252, 0.24), transparent 32%), linear-gradient(135deg, rgba(247, 253, 255, 0.98), rgba(236, 253, 245, 0.94))"
+                                          : "radial-gradient(circle at 0% 0%, rgba(34, 211, 238, 0.18), transparent 34%), linear-gradient(135deg, rgba(8, 30, 46, 0.92), rgba(8, 46, 43, 0.82))",
+                                        boxShadow: isPlanningVisualMode
+                                          ? "0 14px 34px rgba(42, 112, 140, 0.12)"
+                                          : "0 18px 46px rgba(0,0,0,0.24), 0 0 28px rgba(44, 211, 173, 0.08)",
+                                        padding: "14px",
+                                        display: "grid",
+                                        gap: "12px",
+                                      }}
+                                    >
+                                      <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "flex-start" }}>
+                                        <div>
+                                          <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Announcement Schedule</div>
+                                          <div style={{ marginTop: "4px", color: commandCenterVisual.headingColor, fontSize: "20px", fontWeight: 950 }}>
+                                            Now: {currentAnnouncement.phaseLabel}
+                                          </div>
+                                          <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "13px", fontWeight: 800 }}>
+                                            {currentAnnouncement.timeLabel}
+                                          </div>
+                                        </div>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleCopyRoundAnnouncement(currentAnnouncementText)}
+                                          style={{ ...buttonStyle, padding: "8px 11px" }}
+                                        >
+                                          Copy Announcement
+                                        </button>
+                                      </div>
+                                      <div
+                                        style={{
+                                          borderRadius: "14px",
+                                          border: commandCenterVisual.rowBorder,
+                                          background: isPlanningVisualMode ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.06)",
+                                          padding: "12px",
+                                          color: commandCenterVisual.textColor,
+                                          fontSize: "15px",
+                                          fontWeight: 900,
+                                          lineHeight: 1.45,
+                                        }}
+                                      >
+                                        {currentAnnouncementText}
+                                      </div>
+                                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "8px" }}>
+                                        <div style={{ borderRadius: "13px", border: commandCenterVisual.rowBorder, background: commandCenterVisual.rowBackground, padding: "10px 11px" }}>
+                                          <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Next</div>
+                                          <div style={{ marginTop: "5px", color: commandCenterVisual.textColor, fontWeight: 900 }}>
+                                            {nextAnnouncement ? `${nextAnnouncement.phaseLabel} · ${nextAnnouncement.timeLabel}` : "No next announcement"}
+                                          </div>
+                                          {nextAnnouncementText ? (
+                                            <div style={{ marginTop: "5px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 700, lineHeight: 1.4 }}>
+                                              {nextAnnouncementText}
+                                            </div>
+                                          ) : null}
+                                        </div>
+                                        <div style={{ borderRadius: "13px", border: commandCenterVisual.rowBorder, background: commandCenterVisual.rowBackground, padding: "10px 11px" }}>
+                                          <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Upcoming</div>
+                                          <div style={{ marginTop: "6px", display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                                            {selectedRoundAnnouncementTimeline.slice(2, 5).length ? selectedRoundAnnouncementTimeline.slice(2, 5).map((entry) => (
+                                              <span key={`${entry.key}-upcoming-chip`} style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText }}>
+                                                {entry.phaseLabel} · {entry.timeLabel}
+                                              </span>
+                                            )) : (
+                                              <span style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 700 }}>No additional callouts</span>
+                                            )}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </section>
+                                  );
+                                })()}
                                 {selectedRoundAnnouncementTimeline.map((entry) => {
                                   const draftValue = roundAnnouncementDrafts[entry.key] ?? entry.announcement;
                                   return (
@@ -18399,6 +18488,43 @@ Cory`;
                           ) : (
                             selectedRoundOperationsScheduleReady ? (
                               <div style={{ display: "grid", gap: "8px" }}>
+                                <section
+                                  style={{
+                                    borderRadius: "16px",
+                                    border: isPlanningVisualMode ? "1px solid rgba(73, 168, 255, 0.22)" : "1px solid rgba(126, 231, 219, 0.24)",
+                                    background: isPlanningVisualMode
+                                      ? "linear-gradient(135deg, rgba(239, 246, 255, 0.92), rgba(236, 253, 245, 0.74))"
+                                      : "linear-gradient(135deg, rgba(8, 30, 46, 0.72), rgba(7, 42, 38, 0.68))",
+                                    padding: "12px",
+                                    display: "grid",
+                                    gap: "10px",
+                                  }}
+                                >
+                                  <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+                                    <div>
+                                      <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Operations View</div>
+                                      <div style={{ marginTop: "4px", color: commandCenterVisual.headingColor, fontWeight: 950, fontSize: "17px" }}>
+                                        Round {activeSelectedRotationRoundIndex + 1} execution flow
+                                      </div>
+                                    </div>
+                                    <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                                      <span style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText }}>
+                                        {selectedRoundRoomCount} rooms
+                                      </span>
+                                      {selectedRoundLearnerCount !== null ? (
+                                        <span style={{ ...commandChipStyle, background: commandCenterVisual.activeSoftBackground, color: commandCenterVisual.activeSoftText }}>
+                                          {selectedRoundLearnerCount} learners
+                                        </span>
+                                      ) : null}
+                                      <span style={{ ...commandChipStyle, background: selectedRoundOperationsFlags.length ? "rgba(243, 187, 103, 0.14)" : commandCenterVisual.activeSoftBackground, color: selectedRoundOperationsFlags.length ? (isPlanningVisualMode ? "#92400e" : "#fde68a") : commandCenterVisual.activeSoftText }}>
+                                        {selectedRoundOperationsFlags.length ? `${selectedRoundOperationsFlags.length} ops note${selectedRoundOperationsFlags.length === 1 ? "" : "s"}` : "Ops stable"}
+                                      </span>
+                                    </div>
+                                  </div>
+                                  <div style={{ color: commandCenterVisual.mutedColor, fontSize: "13px", fontWeight: 750, lineHeight: 1.45 }}>
+                                    Focused staff view for rooms, SPs, learners, timing blocks, transitions, and operational reminders.
+                                  </div>
+                                </section>
                                 <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                                   {selectedRoundScheduleRows.length ? selectedRoundScheduleRows.map((row) => (
                                     <span key={`${row.key}-room-chip`} style={{ ...commandChipStyle, background: "rgba(73, 168, 255, 0.12)", color: "#7dd3fc" }}>
