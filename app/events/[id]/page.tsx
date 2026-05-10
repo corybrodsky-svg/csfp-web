@@ -2359,6 +2359,10 @@ function getStaffingCommandCenterStorageKey(eventId: string) {
   return `cfsp:staffing-command-center:${eventId || "global"}`;
 }
 
+function getTrainingReadinessPanelStorageKey(eventId: string) {
+  return `cfsp:training-readiness-panel:${eventId || "global"}`;
+}
+
 function getLiveAttendancePanelStorageKey(eventId: string) {
   return `cfsp:live-attendance-panel:${eventId || "global"}`;
 }
@@ -3575,6 +3579,7 @@ export default function EventDetailPage() {
   const [contactPanelSavedAt, setContactPanelSavedAt] = useState("");
   const [contactPanelExpanded, setContactPanelExpanded] = useState(true);
   const [staffingCommandCenterExpanded, setStaffingCommandCenterExpanded] = useState(true);
+  const [trainingReadinessExpanded, setTrainingReadinessExpanded] = useState(true);
   const [showPushRelatedPanel, setShowPushRelatedPanel] = useState(false);
   const [relatedKeyword, setRelatedKeyword] = useState("");
   const [relatedMustInclude, setRelatedMustInclude] = useState("");
@@ -5800,9 +5805,13 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
   const trainingRecordingPlanned = isMetadataYes(trainingMetadata.training_recording_planned);
   const facultyTrainingCoordinationRequested =
     isMetadataYes(trainingMetadata.faculty_training_coordination_requested) ||
-    Boolean(asText(trainingMetadata.faculty_training_coordination_status));
+    Boolean(asText(trainingMetadata.faculty_training_coordination_status)) ||
+    Boolean(asText(trainingMetadata.faculty_request_sent_at));
+  const facultyTrainingCoordinationSent = Boolean(asText(trainingMetadata.faculty_request_sent_at));
   const facultyTrainingCoordinationLabel = facultyLedTraining
-    ? trainingMetadata.faculty_training_coordination_status === "draft_opened"
+    ? facultyTrainingCoordinationSent
+      ? "Faculty request sent"
+      : trainingMetadata.faculty_training_coordination_status === "draft_opened"
       ? "Faculty request drafted"
       : facultyTrainingCoordinationRequested
         ? "Faculty availability requested"
@@ -5996,6 +6005,53 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     : trainingNotRequired
       ? "No training required"
       : normalEventTrainingCountdownClock.label;
+  const trainingUrgentMissingItems = [
+    trainingZoomRequired && !normalEventTrainingLink ? "Zoom link missing" : "",
+    trainingRecordingPlanned && !normalEventTrainingRecordingHref ? "Recording link missing" : "",
+    facultyLedTraining && facultyReadinessComplete && !facultyTrainingCoordinationSent ? "Faculty request not sent" : "",
+  ]
+    .filter(Boolean)
+    .slice(0, 3);
+  const trainingProgressExists = Boolean(
+    normalEventTrainingDateText &&
+      selectedStaffingCount > 0 &&
+      (trainingAttendanceReady ||
+        facultyTrainingCoordinationRequested ||
+        facultyTrainingCoordinationSent ||
+        Boolean(normalEventTrainingLink) ||
+        Boolean(normalEventTrainingRecordingHref) ||
+        Boolean(normalEventTrainingInfoText))
+  );
+  const trainingReadinessCanCollapse = Boolean(
+    !trainingNotRequired &&
+      normalEventTrainingDateText &&
+      selectedStaffingCount > 0 &&
+      trainingProgressExists
+  );
+  const collapsedTrainingSummaryLabel = normalEventTrainingComplete
+    ? "Training completed"
+    : normalEventTrainingDate
+      ? `${trainingDateMarkerValue}${normalEventTrainingTimeText ? ` · ${normalEventTrainingTimeText}` : ""}`
+      : "Training details in progress";
+  useEffect(() => {
+    if (typeof window === "undefined" || !id) return;
+
+    const storageKey = getTrainingReadinessPanelStorageKey(id);
+    const savedState = window.localStorage.getItem(storageKey);
+    if (!trainingReadinessCanCollapse || trainingUrgentMissingItems.length > 0) {
+      setTrainingReadinessExpanded(true);
+      return;
+    }
+    if (savedState === "expanded") {
+      setTrainingReadinessExpanded(true);
+      return;
+    }
+    if (savedState === "collapsed") {
+      setTrainingReadinessExpanded(false);
+      return;
+    }
+    setTrainingReadinessExpanded(false);
+  }, [id, trainingReadinessCanCollapse, trainingUrgentMissingItems.length]);
   const trainingDateTone: OperationalDateTone = trainingNotRequired || normalEventTrainingComplete
     ? "ready"
     : normalEventTrainingCountdownClock.tone === "ready"
@@ -8729,6 +8785,17 @@ Cory`;
     if (next.staffing_doc_url && !next.event_material_status) {
       next.event_material_status = "materials_uploaded";
     }
+    if (next.faculty_request_sent_at) {
+      if (!next.faculty_training_coordination_requested) {
+        next.faculty_training_coordination_requested = "yes";
+      }
+      if (!next.faculty_training_coordination_status) {
+        next.faculty_training_coordination_status = "sent";
+      }
+      if (!next.faculty_training_coordination_requested_at) {
+        next.faculty_training_coordination_requested_at = next.faculty_request_sent_at;
+      }
+    }
 
     return next;
   }
@@ -9735,13 +9802,15 @@ Cory`;
     });
 
     try {
+      const sentAt = new Date().toISOString();
       await persistTrainingMetadataFields(
         {
           faculty_training_coordination_requested: "yes",
-          faculty_training_coordination_status: "draft_opened",
-          faculty_training_coordination_requested_at: new Date().toISOString(),
+          faculty_training_coordination_status: "sent",
+          faculty_training_coordination_requested_at: sentAt,
+          faculty_request_sent_at: sentAt,
         },
-        "Faculty training availability request drafted."
+        "Faculty training availability request sent."
       );
       window.location.href = facultyTrainingMailtoHref;
       showSuccessMessage("Faculty training availability request draft opened.");
@@ -10100,6 +10169,16 @@ Cory`;
     if (typeof window !== "undefined" && id) {
       window.localStorage.setItem(
         getStaffingCommandCenterStorageKey(id),
+        nextExpanded ? "expanded" : "collapsed"
+      );
+    }
+  }
+
+  function handleTrainingReadinessExpandedChange(nextExpanded: boolean) {
+    setTrainingReadinessExpanded(nextExpanded);
+    if (typeof window !== "undefined" && id) {
+      window.localStorage.setItem(
+        getTrainingReadinessPanelStorageKey(id),
         nextExpanded ? "expanded" : "collapsed"
       );
     }
@@ -11825,55 +11904,120 @@ Cory`;
             <span style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText, border: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.18)" : commandChipStyle.border }}>
               {selectedStaffingCount} selected SP{selectedStaffingCount === 1 ? "" : "s"}
             </span>
+            {trainingReadinessCanCollapse ? (
+              <button
+                type="button"
+                onClick={() => handleTrainingReadinessExpandedChange(!trainingReadinessExpanded)}
+                style={{ ...buttonStyle, padding: "8px 12px" }}
+              >
+                {trainingReadinessExpanded ? "Collapse Training Details" : "Expand Training Details"}
+              </button>
+            ) : null}
           </div>
         </div>
 
-        <div
-          style={{
-            borderRadius: "16px",
-            border: trainingDateMarkerToneStyle.border,
-            background: trainingDateMarkerToneStyle.background,
-            boxShadow: trainingDateMarkerToneStyle.glow,
-            padding: "12px 14px",
-            display: "flex",
-            justifyContent: "space-between",
-            gap: "12px",
-            alignItems: "center",
-            flexWrap: "wrap",
-          }}
-        >
-          <div style={{ minWidth: 0 }}>
-            <div style={{ ...statLabel, color: trainingDateMarkerToneStyle.accent }}>Training date</div>
-            <div style={{ marginTop: "3px", color: trainingDateMarkerToneStyle.text, fontSize: "18px", fontWeight: 950, lineHeight: 1.2 }}>
-              Training: {trainingDateMarkerValue}
-            </div>
-            <div style={{ marginTop: "4px", color: trainingDateMarkerToneStyle.muted, fontSize: "12px", fontWeight: 800 }}>
-              {normalEventTrainingTimeText || "Training time TBD"}
-            </div>
-          </div>
-          <span
+        {trainingReadinessCanCollapse && !trainingReadinessExpanded ? (
+          <div
             style={{
-              ...commandChipStyle,
-              background: isPlanningVisualMode ? "rgba(255, 255, 255, 0.62)" : "rgba(255, 255, 255, 0.08)",
+              borderRadius: "16px",
               border: trainingDateMarkerToneStyle.border,
-              color: trainingDateMarkerToneStyle.accent,
-              fontSize: "12px",
-              padding: "7px 11px",
-              boxShadow: isPlanningVisualMode ? "0 8px 16px rgba(15, 118, 110, 0.08)" : "none",
+              background: trainingDateMarkerToneStyle.background,
+              boxShadow: trainingDateMarkerToneStyle.glow,
+              padding: "12px 14px",
+              display: "grid",
+              gap: "10px",
             }}
           >
-            {trainingDateCountdownLabel}
-          </span>
-        </div>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", alignItems: "center", flexWrap: "wrap" }}>
+              <div>
+                <div style={{ ...statLabel, color: trainingDateMarkerToneStyle.accent }}>Training Summary</div>
+                <div style={{ marginTop: "3px", color: trainingDateMarkerToneStyle.text, fontSize: "17px", fontWeight: 950, lineHeight: 1.25 }}>
+                  {collapsedTrainingSummaryLabel}
+                </div>
+                <div style={{ marginTop: "4px", color: trainingDateMarkerToneStyle.muted, fontSize: "12px", fontWeight: 800 }}>
+                  {selectedStaffingCount} selected SP{selectedStaffingCount === 1 ? "" : "s"} • {normalEventTrainingAttendanceLabel}
+                </div>
+              </div>
+              <span
+                style={{
+                  ...commandChipStyle,
+                  background: isPlanningVisualMode ? "rgba(255, 255, 255, 0.62)" : "rgba(255, 255, 255, 0.08)",
+                  border: trainingDateMarkerToneStyle.border,
+                  color: trainingDateMarkerToneStyle.accent,
+                  fontSize: "12px",
+                  padding: "7px 11px",
+                  boxShadow: isPlanningVisualMode ? "0 8px 16px rgba(15, 118, 110, 0.08)" : "none",
+                }}
+              >
+                {trainingDateCountdownLabel}
+              </span>
+            </div>
+            {trainingUrgentMissingItems.length ? (
+              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                {trainingUrgentMissingItems.map((item) => (
+                  <span
+                    key={item}
+                    style={{
+                      ...commandChipStyle,
+                      background: "rgba(253, 230, 138, 0.18)",
+                      color: "#b45309",
+                      border: "1px solid rgba(180, 83, 9, 0.24)",
+                    }}
+                  >
+                    {item}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : (
+          <>
+            <div
+              style={{
+                borderRadius: "16px",
+                border: trainingDateMarkerToneStyle.border,
+                background: trainingDateMarkerToneStyle.background,
+                boxShadow: trainingDateMarkerToneStyle.glow,
+                padding: "12px 14px",
+                display: "flex",
+                justifyContent: "space-between",
+                gap: "12px",
+                alignItems: "center",
+                flexWrap: "wrap",
+              }}
+            >
+              <div style={{ minWidth: 0 }}>
+                <div style={{ ...statLabel, color: trainingDateMarkerToneStyle.accent }}>Training date</div>
+                <div style={{ marginTop: "3px", color: trainingDateMarkerToneStyle.text, fontSize: "18px", fontWeight: 950, lineHeight: 1.2 }}>
+                  Training: {trainingDateMarkerValue}
+                </div>
+                <div style={{ marginTop: "4px", color: trainingDateMarkerToneStyle.muted, fontSize: "12px", fontWeight: 800 }}>
+                  {normalEventTrainingTimeText || "Training time TBD"}
+                </div>
+              </div>
+              <span
+                style={{
+                  ...commandChipStyle,
+                  background: isPlanningVisualMode ? "rgba(255, 255, 255, 0.62)" : "rgba(255, 255, 255, 0.08)",
+                  border: trainingDateMarkerToneStyle.border,
+                  color: trainingDateMarkerToneStyle.accent,
+                  fontSize: "12px",
+                  padding: "7px 11px",
+                  boxShadow: isPlanningVisualMode ? "0 8px 16px rgba(15, 118, 110, 0.08)" : "none",
+                }}
+              >
+                {trainingDateCountdownLabel}
+              </span>
+            </div>
 
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(155px, 1fr))",
-            gap: "10px",
-          }}
-        >
-          {[
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(155px, 1fr))",
+                gap: "10px",
+              }}
+            >
+              {[
             {
               label: "Training Required",
               value: getTrainingRequirementLabel(trainingRequirementValue),
@@ -11909,34 +12053,34 @@ Cory`;
               value: facultyTrainingCoordinationLabel,
               detail: facultyLedTraining ? "Faculty availability and ownership tracked here" : "Not faculty-led unless ownership changes",
             },
-          ].map((item) => (
-            <div
-              key={item.label}
-              style={{
-                ...statCard,
-                background:
-                  ["Training Required", "Scheduling"].includes(item.label) && (normalEventTrainingComplete || normalEventTrainingReady)
-                    ? normalEventTrainingPrimaryTone.cardBackground
-                    : commandCenterVisual.cardBackground,
-                border:
-                  ["Training Required", "Scheduling"].includes(item.label) && (normalEventTrainingComplete || normalEventTrainingReady)
-                    ? normalEventTrainingPrimaryTone.border
-                    : commandCenterVisual.cardBorder,
-                minHeight: "104px",
-              }}
-            >
-              <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>{item.label}</div>
-              <div style={{ ...statValue, marginTop: "6px", color: commandCenterVisual.textColor, fontSize: "16px", lineHeight: 1.25 }}>
-                {item.value}
-              </div>
-              <div style={{ marginTop: "6px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 700 }}>
-                {item.detail}
-              </div>
+              ].map((item) => (
+                <div
+                  key={item.label}
+                  style={{
+                    ...statCard,
+                    background:
+                      ["Training Required", "Scheduling"].includes(item.label) && (normalEventTrainingComplete || normalEventTrainingReady)
+                        ? normalEventTrainingPrimaryTone.cardBackground
+                        : commandCenterVisual.cardBackground,
+                    border:
+                      ["Training Required", "Scheduling"].includes(item.label) && (normalEventTrainingComplete || normalEventTrainingReady)
+                        ? normalEventTrainingPrimaryTone.border
+                        : commandCenterVisual.cardBorder,
+                    minHeight: "104px",
+                  }}
+                >
+                  <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>{item.label}</div>
+                  <div style={{ ...statValue, marginTop: "6px", color: commandCenterVisual.textColor, fontSize: "16px", lineHeight: 1.25 }}>
+                    {item.value}
+                  </div>
+                  <div style={{ marginTop: "6px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 700 }}>
+                    {item.detail}
+                  </div>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
 
-        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
           {normalEventTrainingLink ? (
             <a
               href={normalEventTrainingLink}
@@ -11990,13 +12134,26 @@ Cory`;
           </span>
           {facultyLedTraining ? (
             facultyEmails.length ? (
-              <button
-                type="button"
-                onClick={() => void handleDraftFacultyTrainingAvailabilityRequest()}
-                style={{ ...staffingSecondaryButtonStyle, padding: "8px 12px" }}
-              >
-                Request Faculty Availability
-              </button>
+              facultyTrainingCoordinationSent ? (
+                <span
+                  style={{
+                    ...commandChipStyle,
+                    background: planningSuccessBackground,
+                    border: planningSuccessBorder,
+                    color: planningSuccessText,
+                  }}
+                >
+                  Faculty Request Sent
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void handleDraftFacultyTrainingAvailabilityRequest()}
+                  style={{ ...staffingSecondaryButtonStyle, padding: "8px 12px" }}
+                >
+                  Request Faculty Availability
+                </button>
+              )
             ) : (
               <button
                 type="button"
@@ -12007,24 +12164,26 @@ Cory`;
               </button>
             )
           ) : null}
-        </div>
+            </div>
 
-        {normalEventTrainingInfoText ? (
-          <div
-            style={{
-              borderRadius: "14px",
-              border: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.18)" : "1px solid rgba(126, 231, 219, 0.16)",
-              background: isPlanningVisualMode ? "rgba(255, 255, 255, 0.72)" : "rgba(255, 255, 255, 0.05)",
-              padding: "10px 12px",
-              color: commandCenterVisual.mutedColor,
-              fontSize: "13px",
-              fontWeight: 700,
-              lineHeight: 1.55,
-            }}
-          >
-            <strong style={{ color: commandCenterVisual.textColor }}>Training info:</strong> {normalEventTrainingInfoText}
-          </div>
-        ) : null}
+            {normalEventTrainingInfoText ? (
+              <div
+                style={{
+                  borderRadius: "14px",
+                  border: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.18)" : "1px solid rgba(126, 231, 219, 0.16)",
+                  background: isPlanningVisualMode ? "rgba(255, 255, 255, 0.72)" : "rgba(255, 255, 255, 0.05)",
+                  padding: "10px 12px",
+                  color: commandCenterVisual.mutedColor,
+                  fontSize: "13px",
+                  fontWeight: 700,
+                  lineHeight: 1.55,
+                }}
+              >
+                <strong style={{ color: commandCenterVisual.textColor }}>Training info:</strong> {normalEventTrainingInfoText}
+              </div>
+            ) : null}
+          </>
+        )}
       </section>
     ) : null;
 

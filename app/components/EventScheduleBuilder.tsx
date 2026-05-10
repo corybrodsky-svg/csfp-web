@@ -259,17 +259,16 @@ const scheduleCompanionViewLabels: Record<ScheduleCompanionView, string> = {
 };
 
 const schedulePreviewKindOptions: Array<{ value: SchedulePreviewKind; label: string }> = [
-  { value: "timeline", label: "Faculty Time Ticket" },
-  { value: "operations", label: "Sim Ops Time Ticket" },
-  { value: "sp", label: "SP Time Ticket" },
-  { value: "student", label: "Student Time Ticket" },
-  { value: "rotation", label: "Full Operations Schedule" },
+  { value: "student", label: "Student Schedule" },
+  { value: "timeline", label: "Faculty Schedule" },
+  { value: "sp", label: "SP Schedule" },
+  { value: "operations", label: "Operations/Admin Schedule" },
   { value: "announcements", label: "Announcement Schedule" },
 ];
 
 function getPreviewFamilyForKind(kind: SchedulePreviewKind, preferredFamily?: SchedulePreviewFamily | null) {
   if (preferredFamily) return preferredFamily;
-  return kind === "rotation" || kind === "announcements" ? "schedule" : "ticket";
+  return kind === "timeline" ? "ticket" : "schedule";
 }
 
 function getScheduleCompanionViewLabel(view: ScheduleCompanionView | null | undefined) {
@@ -1339,15 +1338,29 @@ function buildSchedulePreviewData(args: {
   } = args;
 
   const isOperations = kind === "operations" || kind === "rotation";
+  const isStudentPreview = kind === "student";
+  const isFacultyPreview = kind === "timeline";
   const effectivePreviewFamily = getPreviewFamilyForKind(kind, previewFamily);
   const titleMap: Record<SchedulePreviewKind, string> = {
-    timeline: "Faculty Time Ticket",
+    timeline: "Faculty Schedule",
     announcements: "Announcement Schedule",
-    student: effectivePreviewFamily === "schedule" ? "Student Schedule" : "Student Time Ticket",
-    sp: effectivePreviewFamily === "schedule" ? "SP Schedule" : "SP Time Ticket",
-    operations: effectivePreviewFamily === "schedule" ? "Operations Schedule" : "Sim Ops Time Ticket",
+    student: "Student Schedule",
+    sp: "SP Schedule",
+    operations: "Operations/Admin Schedule",
     rotation: "Rotation Schedule",
   };
+  const previewTimeline = isStudentPreview
+    ? timeline.filter((block) => !isMajorScheduleDividerBlock(block) && !/lunch/i.test(asText(block.label)))
+    : timeline;
+  const previewRounds = isStudentPreview
+    ? rounds.map((round) => ({
+        ...round,
+        subBlocks: round.subBlocks.filter((subBlock) => /^encounter$/i.test(asText(subBlock.label))),
+      }))
+    : rounds;
+  const previewScheduleGridRows = isStudentPreview
+    ? scheduleGridRows.filter((entry) => entry.kind !== "wide")
+    : scheduleGridRows;
 
   const lines: string[] = [];
 
@@ -1367,10 +1380,10 @@ function buildSchedulePreviewData(args: {
   if (kind === "timeline") {
     lines.push("EVENT FLOW");
     lines.push("-----------");
-    if (!timeline.length) {
+    if (!previewTimeline.length) {
       lines.push("No flow blocks yet. Add day blocks to build a full-day timeline.");
     } else {
-      timeline.forEach((block) => {
+      previewTimeline.forEach((block) => {
         const duration = `${block.detail ? ` (${block.detail})` : ""}`;
         lines.push(`${formatRange(block.start, block.end)}  ${block.label}${duration}`);
       });
@@ -1378,7 +1391,7 @@ function buildSchedulePreviewData(args: {
     lines.push("");
     lines.push("ROTATION FLOW");
     lines.push("------------");
-    rounds.forEach((round) => {
+    previewRounds.forEach((round) => {
       lines.push(`Round ${round.round}: ${formatRange(round.start, round.end)}`);
       if (round.subBlocks.length) {
         round.subBlocks.forEach((subBlock) => {
@@ -1398,23 +1411,23 @@ function buildSchedulePreviewData(args: {
       });
       lines.push("");
     });
-    if (!rounds.length) {
+    if (!previewRounds.length) {
       lines.push("No rotation schedule has been generated yet.");
     }
   } else if (kind === "announcements") {
     lines.push("ANNOUNCEMENT SCHEDULE");
     lines.push("---------------------");
-    if (!timeline.length) {
+    if (!previewTimeline.length) {
       lines.push("No announcement schedule has been generated yet.");
     } else {
-      timeline.forEach((block) => {
+      previewTimeline.forEach((block) => {
         lines.push(`${formatRange(block.start, block.end)}  ${block.label}${block.detail ? ` (${block.detail})` : ""}`);
       });
     }
   } else {
     lines.push(previewLabel.toUpperCase().replace(/\s+/g, " "));
     lines.push("=".repeat(Math.max(30, previewLabel.length)));
-    rounds.forEach((round) => {
+    previewRounds.forEach((round) => {
       lines.push(`\nRound ${round.round}: ${formatRange(round.start, round.end)}`);
       if (round.subBlocks.length) {
         round.subBlocks.forEach((subBlock) => {
@@ -1440,15 +1453,15 @@ function buildSchedulePreviewData(args: {
       lines.push("");
     });
 
-    if (!rounds.length) {
+    if (!previewRounds.length) {
       lines.push("No rotation schedule has been generated yet.");
     }
   }
 
-  const timelineSummary = timeline.length
-    ? `${timeline.length} timeline block${timeline.length === 1 ? "" : "s"} · ${Math.max(generated.rotationEnd - generated.rotationStart, 0)} min planned`
+  const timelineSummary = previewTimeline.length
+    ? `${previewTimeline.length} timeline block${previewTimeline.length === 1 ? "" : "s"} · ${Math.max(generated.rotationEnd - generated.rotationStart, 0)} min planned`
     : "No timeline blocks configured";
-  const renderCountSummary = `${rounds.length} round${rounds.length === 1 ? "" : "s"} rendered • ${roomColumns.length} room${roomColumns.length === 1 ? "" : "s"} rendered • ${learnerCount} learner${learnerCount === 1 ? "" : "s"} rendered`;
+  const renderCountSummary = `${previewRounds.length} round${previewRounds.length === 1 ? "" : "s"} rendered • ${roomColumns.length} room${roomColumns.length === 1 ? "" : "s"} rendered • ${learnerCount} learner${learnerCount === 1 ? "" : "s"} rendered`;
 
   const eventMetaHtml = event
     ? `
@@ -1479,8 +1492,8 @@ function buildSchedulePreviewData(args: {
       `
     : "";
 
-  const timelineStripBlocks = timeline.filter((block) => !isPrimaryScheduleWideTimelineBlock(block));
-  const scheduleWideBlocks = timeline.filter((block) => isPrimaryScheduleWideTimelineBlock(block));
+  const timelineStripBlocks = previewTimeline.filter((block) => !isPrimaryScheduleWideTimelineBlock(block));
+  const scheduleWideBlocks = isStudentPreview ? [] : previewTimeline.filter((block) => isPrimaryScheduleWideTimelineBlock(block));
   const renderTimelineRail = (blocks: TimelineBlock[]) =>
     blocks.length
       ? `
@@ -1503,8 +1516,8 @@ function buildSchedulePreviewData(args: {
       : `<div class="empty-state">No timing blocks are configured yet.</div>`;
 
   const renderRoundRhythmRows = () =>
-    rounds.length
-      ? rounds
+    previewRounds.length
+      ? previewRounds
           .map((round) => {
             const visibleRhythmBlocks = round.subBlocks.filter((subBlock) => !isMajorScheduleDividerBlock(subBlock));
             const rhythmSegments = visibleRhythmBlocks.length
@@ -1584,7 +1597,7 @@ function buildSchedulePreviewData(args: {
       : "";
 
   const renderScheduleGrid = () => {
-    if (!scheduleGridRows.length || !roomColumns.length) {
+    if (!previewScheduleGridRows.length || !roomColumns.length) {
       return `<div class="empty-state">No rotation schedule has been generated yet.</div>`;
     }
 
@@ -1599,7 +1612,7 @@ function buildSchedulePreviewData(args: {
             </tr>
           </thead>
           <tbody>
-            ${scheduleGridRows
+            ${previewScheduleGridRows
               .map((entry) => {
                 if (entry.kind === "wide") {
                   const durationMinutes = Math.max(getBlockDurationMinutes(entry.block.start, entry.block.end), 1);
@@ -1718,8 +1731,8 @@ function buildSchedulePreviewData(args: {
             <section class="round-section">
               <div class="round-header">
                 <div>
-                  <div class="round-kicker">Time Ticket</div>
-                  <h2>Day flow at a glance</h2>
+                  <div class="round-kicker">${escapeHtml(isStudentPreview ? "Student schedule" : isFacultyPreview ? "Faculty schedule" : "Time Ticket")}</div>
+                  <h2>${escapeHtml(isStudentPreview ? "Learner-facing rotation view" : "Day flow at a glance")}</h2>
                 </div>
               </div>
               ${renderTimelineRail(timelineStripBlocks)}
