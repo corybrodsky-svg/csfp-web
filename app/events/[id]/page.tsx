@@ -8308,7 +8308,23 @@ Cory`;
     normalEventTrainingLink || trainingMetadata.zoom_url || trainingMetadata.training_zoom_link
   );
   function scrollToAdminTools() {
-    document.getElementById("coverage-actions")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    const adminTools = document.getElementById("coverage-actions") as HTMLDetailsElement | null;
+    if (adminTools) {
+      adminTools.open = true;
+      adminTools.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }
+  function focusAdminEditField(target: string) {
+    const adminTools = document.getElementById("coverage-actions") as HTMLDetailsElement | null;
+    if (adminTools) {
+      adminTools.open = true;
+      adminTools.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+    window.setTimeout(() => {
+      const field = document.querySelector<HTMLElement>(`[data-admin-field="${target}"]`);
+      field?.scrollIntoView({ behavior: "smooth", block: "center" });
+      field?.focus?.();
+    }, 120);
   }
   function openEventMaterialPreview() {
     if (!eventMaterialUrl) return;
@@ -8443,7 +8459,7 @@ Cory`;
                   : "info") as OperationalStatusTone,
             detail: recordingIndicatorLabel,
             actions: (
-              <button type="button" onClick={scrollToAdminTools} style={{ ...buttonStyle, padding: "7px 10px" }}>
+              <button type="button" onClick={() => focusAdminEditField("recording_status")} style={{ ...buttonStyle, padding: "7px 10px" }}>
                 Admin Edit
               </button>
             ),
@@ -8459,25 +8475,35 @@ Cory`;
             tone: (trainingAccessUrl ? "ready" : trainingZoomRequired ? "attention" : "info") as OperationalStatusTone,
             detail: trainingZoomRequired ? "Training logistics depend on the access link." : "Virtual logistics are optional for this event.",
             actions: (
-              <button type="button" onClick={scrollToAdminTools} style={{ ...buttonStyle, padding: "7px 10px" }}>
+              <button type="button" onClick={() => focusAdminEditField("zoom_url")} style={{ ...buttonStyle, padding: "7px 10px" }}>
                 Admin Edit
               </button>
             ),
           },
         ]
       : []),
-    ...liveSupportNeeds.map((item, index) => ({
-      key: `support-${index}`,
-      label: "Support need",
-      value: item.label,
-      tone: "attention" as OperationalStatusTone,
-      detail: "Surface this only because it affects live execution or staffing support.",
-      actions: (
-        <button type="button" onClick={scrollToAdminTools} style={{ ...buttonStyle, padding: "7px 10px" }}>
-          Admin Edit
-        </button>
-      ),
-    })),
+    ...liveSupportNeeds.map((item, index) => {
+      const normalizedSupportLabel = item.label.toLowerCase();
+      const adminField = normalizedSupportLabel.includes("av")
+        ? "av_support_required"
+        : normalizedSupportLabel.includes("tech")
+          ? "sim_tech_required"
+          : normalizedSupportLabel.includes("recording")
+            ? "recording_monitor_needed"
+            : "training_notes";
+      return {
+        key: `support-${index}`,
+        label: "Support need",
+        value: item.label,
+        tone: "attention" as OperationalStatusTone,
+        detail: "Surface this only because it affects live execution or staffing support.",
+        actions: (
+          <button type="button" onClick={() => focusAdminEditField(adminField)} style={{ ...buttonStyle, padding: "7px 10px" }}>
+            Admin Edit
+          </button>
+        ),
+      };
+    }),
     ...(eventRiskLevel.tone !== "green"
       ? [
           {
@@ -8487,7 +8513,7 @@ Cory`;
             tone: (eventRiskLevel.tone === "red" ? "critical" : "attention") as OperationalStatusTone,
             detail: eventRiskLevel.detail,
             actions: (
-              <button type="button" onClick={scrollToAdminTools} style={{ ...buttonStyle, padding: "7px 10px" }}>
+              <button type="button" onClick={() => focusAdminEditField("training_notes")} style={{ ...buttonStyle, padding: "7px 10px" }}>
                 Admin Edit
               </button>
             ),
@@ -8539,7 +8565,7 @@ Cory`;
           ) : null}
           <button
             type="button"
-            onClick={scrollToAdminTools}
+            onClick={() => focusAdminEditField("materials_readiness")}
             style={{ ...buttonStyle, padding: "7px 10px" }}
           >
             Admin Edit
@@ -8585,7 +8611,7 @@ Cory`;
                 ) : null}
                 <button
                   type="button"
-                  onClick={scrollToAdminTools}
+                  onClick={() => focusAdminEditField("case_file_url")}
                   style={{ ...buttonStyle, padding: "7px 10px" }}
                 >
                   Admin Edit
@@ -8619,7 +8645,7 @@ Cory`;
                 </button>
                 <button
                   type="button"
-                  onClick={scrollToAdminTools}
+                  onClick={() => focusAdminEditField("hiring_email_sent_at")}
                   style={{ ...buttonStyle, padding: "7px 10px" }}
                 >
                   Admin Edit
@@ -8649,7 +8675,7 @@ Cory`;
                 </button>
                 <button
                   type="button"
-                  onClick={scrollToAdminTools}
+                  onClick={() => focusAdminEditField("confirmation_email_sent_at")}
                   style={{ ...buttonStyle, padding: "7px 10px" }}
                 >
                   Admin Edit
@@ -8675,7 +8701,7 @@ Cory`;
                   <>
                     <button
                       type="button"
-                      onClick={scrollToAdminTools}
+                      onClick={() => focusAdminEditField("faculty_names")}
                       style={{ ...buttonStyle, padding: "7px 10px" }}
                     >
                       Add Faculty Email
@@ -8693,7 +8719,7 @@ Cory`;
                   </button>
                   <button
                     type="button"
-                    onClick={scrollToAdminTools}
+                    onClick={() => focusAdminEditField("faculty_training_coordination_status")}
                     style={{ ...buttonStyle, padding: "7px 10px" }}
                   >
                     Admin Edit
@@ -8737,7 +8763,7 @@ Cory`;
                 ) : null}
                 <button
                   type="button"
-                  onClick={scrollToAdminTools}
+                  onClick={() => focusAdminEditField("zoom_url")}
                   style={{ ...buttonStyle, padding: "7px 10px" }}
                 >
                   Admin Edit
@@ -8789,46 +8815,46 @@ Cory`;
   function getOperationalWindowStyles(tone: OperationalStatusTone) {
     if (tone === "ready") {
       return {
-        border: "1px solid rgba(34, 197, 94, 0.24)",
+        border: "1px solid rgba(44, 211, 173, 0.22)",
         background: isPlanningVisualMode
-          ? "linear-gradient(180deg, rgba(240, 253, 244, 0.98) 0%, rgba(233, 252, 239, 0.96) 100%)"
-          : "linear-gradient(180deg, rgba(8, 30, 22, 0.94) 0%, rgba(7, 26, 19, 0.92) 100%)",
+          ? "linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(239, 253, 250, 0.94) 100%)"
+          : "linear-gradient(180deg, rgba(14, 34, 50, 0.94) 0%, rgba(9, 42, 42, 0.88) 100%)",
         glow: isPlanningVisualMode
-          ? "0 14px 34px rgba(34, 197, 94, 0.16), 0 0 0 1px rgba(125, 211, 252, 0.08), inset 0 1px 0 rgba(196, 181, 253, 0.18)"
-          : "0 16px 34px rgba(34, 197, 94, 0.14), inset 0 1px 0 rgba(125, 211, 252, 0.14)",
-        accent: "#15803d",
-        chipBg: "rgba(34, 197, 94, 0.14)",
-        chipColor: "#15803d",
+          ? "inset 4px 0 0 rgba(44, 211, 173, 0.6), 0 12px 30px rgba(44, 211, 173, 0.1)"
+          : "inset 4px 0 0 rgba(44, 211, 173, 0.68), 0 16px 34px rgba(44, 211, 173, 0.08)",
+        accent: "#0f766e",
+        chipBg: "rgba(44, 211, 173, 0.12)",
+        chipColor: "#0f766e",
       };
     }
     if (tone === "attention") {
       return {
-        border: "1px solid rgba(245, 158, 11, 0.24)",
+        border: "1px solid rgba(245, 158, 11, 0.22)",
         background: isPlanningVisualMode
-          ? "linear-gradient(180deg, rgba(255, 251, 235, 0.98) 0%, rgba(255, 247, 220, 0.96) 100%)"
-          : "linear-gradient(180deg, rgba(46, 28, 9, 0.94) 0%, rgba(36, 22, 8, 0.92) 100%)",
-        glow: isPlanningVisualMode ? "0 12px 30px rgba(245, 158, 11, 0.12)" : "0 14px 30px rgba(245, 158, 11, 0.1)",
-        accent: "#b45309",
-        chipBg: "rgba(245, 158, 11, 0.14)",
-        chipColor: "#b45309",
+          ? "linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(255, 251, 235, 0.62) 100%)"
+          : "linear-gradient(180deg, rgba(17, 31, 48, 0.94) 0%, rgba(40, 33, 21, 0.86) 100%)",
+        glow: isPlanningVisualMode ? "inset 4px 0 0 rgba(245, 158, 11, 0.62), 0 12px 28px rgba(245, 158, 11, 0.08)" : "inset 4px 0 0 rgba(245, 158, 11, 0.58), 0 14px 30px rgba(245, 158, 11, 0.06)",
+        accent: "#a16207",
+        chipBg: "rgba(245, 158, 11, 0.12)",
+        chipColor: "#a16207",
       };
     }
     if (tone === "critical") {
       return {
-        border: "1px solid rgba(244, 114, 182, 0.26)",
+        border: "1px solid rgba(244, 114, 182, 0.24)",
         background: isPlanningVisualMode
-          ? "linear-gradient(180deg, rgba(255, 241, 242, 0.98) 0%, rgba(255, 232, 240, 0.96) 100%)"
-          : "linear-gradient(180deg, rgba(55, 18, 32, 0.94) 0%, rgba(42, 12, 24, 0.92) 100%)",
-        glow: isPlanningVisualMode ? "0 12px 30px rgba(244, 114, 182, 0.12)" : "0 14px 30px rgba(244, 114, 182, 0.1)",
+          ? "linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(255, 241, 242, 0.58) 100%)"
+          : "linear-gradient(180deg, rgba(17, 31, 48, 0.94) 0%, rgba(47, 25, 39, 0.86) 100%)",
+        glow: isPlanningVisualMode ? "inset 4px 0 0 rgba(244, 114, 182, 0.58), 0 12px 28px rgba(244, 114, 182, 0.08)" : "inset 4px 0 0 rgba(244, 114, 182, 0.58), 0 14px 30px rgba(244, 114, 182, 0.06)",
         accent: "#be185d",
-        chipBg: "rgba(244, 114, 182, 0.14)",
+        chipBg: "rgba(244, 114, 182, 0.12)",
         chipColor: "#be185d",
       };
     }
     return {
       border: commandCenterVisual.cardBorder,
       background: commandCenterVisual.cardBackground,
-      glow: isPlanningVisualMode ? "0 10px 24px rgba(42, 112, 140, 0.08), inset 0 1px 0 rgba(125, 211, 252, 0.08)" : "none",
+      glow: isPlanningVisualMode ? "inset 4px 0 0 rgba(73, 168, 255, 0.42), 0 10px 24px rgba(42, 112, 140, 0.06)" : "inset 4px 0 0 rgba(125, 211, 252, 0.38)",
       accent: commandCenterVisual.labelColor,
       chipBg: "rgba(73, 168, 255, 0.12)",
       chipColor: "#145b96",
@@ -16899,6 +16925,16 @@ Cory`;
                         gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
                       }}
                     >
+                      <input
+                        ref={caseFileInputRef}
+                        type="file"
+                        accept={staffingDocumentAccept}
+                        onChange={(event) => {
+                          void handleTrainingMaterialUpload("case_file", event.target.files?.[0] || null);
+                          event.currentTarget.value = "";
+                        }}
+                        style={{ display: "none" }}
+                      />
                       {[
                         {
                           key: "case",
@@ -16907,18 +16943,19 @@ Cory`;
                           status: caseFileUrl ? "available" : caseFileDisplayName ? "draft" : "missing",
                           featured: true,
                           accent: "#7dd3fc",
-                          primaryAction: openCaseFilePreview,
-                          metadata: [caseFileUrl ? "Ready for live ops" : "", caseFileDisplayName ? "Packet attached" : "Case not assigned"].filter(Boolean),
+                          primaryAction: caseFileUrl ? openCaseFilePreview : () => openTrainingMaterialPicker("case_file"),
+                          metadata: [caseFileUrl ? "Ready for live ops" : "", caseFileDisplayName ? "Packet attached" : "Empty case slot"].filter(Boolean),
                           actions: (
                             <>
-                              <button
-                                type="button"
-                                onClick={openCaseFilePreview}
-                                disabled={!caseFileUrl && !eventMaterialUrl}
-                                style={{ ...buttonStyle, padding: "6px 9px", opacity: caseFileUrl || eventMaterialUrl ? 1 : 0.55 }}
-                              >
-                                Preview
-                              </button>
+                              {caseFileUrl ? (
+                                <button
+                                  type="button"
+                                  onClick={openCaseFilePreview}
+                                  style={{ ...buttonStyle, padding: "6px 9px" }}
+                                >
+                                  Preview
+                                </button>
+                              ) : null}
                               {caseFileDownloadUrl ? (
                                 <a
                                   href={caseFileDownloadUrl}
@@ -16929,6 +16966,14 @@ Cory`;
                                   Download
                                 </a>
                               ) : null}
+                              <button
+                                type="button"
+                                onClick={() => openTrainingMaterialPicker("case_file")}
+                                disabled={trainingMaterialSaving.case_file}
+                                style={{ ...buttonStyle, padding: "6px 9px", opacity: trainingMaterialSaving.case_file ? 0.65 : 1 }}
+                              >
+                                {caseFileUrl || caseFileDisplayName ? "Replace Case" : "Upload Case"}
+                              </button>
                             </>
                           ),
                         },
@@ -17160,6 +17205,22 @@ Cory`;
                         return (
                           <div
                             key={resource.key}
+                            onDragOver={
+                              resource.key === "case"
+                                ? (event) => {
+                                    event.preventDefault();
+                                    event.dataTransfer.dropEffect = "copy";
+                                  }
+                                : undefined
+                            }
+                            onDrop={
+                              resource.key === "case"
+                                ? (event) => {
+                                    event.preventDefault();
+                                    void handleTrainingMaterialUpload("case_file", event.dataTransfer.files?.[0] || null);
+                                  }
+                                : undefined
+                            }
                             style={{
                               borderRadius: "16px",
                               border: isCommandFileCabinetSimpleView
@@ -19528,6 +19589,7 @@ Cory`;
                           checked={isMetadataYes(trainingMetadata[item.key])}
                           onChange={(event) => handleTrainingMetadataChange(item.key, event.target.checked ? "yes" : "no")}
                           disabled={saving}
+                          data-admin-field={item.key}
                           style={{ width: "15px", height: "15px", accentColor: "var(--cfsp-blue)" }}
                         />
                         {item.label}
@@ -19542,6 +19604,7 @@ Cory`;
                         value={trainingMetadata.faculty_training_coordination_status || "not_started"}
                         onChange={(event) => handleTrainingMetadataChange("faculty_training_coordination_status", event.target.value)}
                         disabled={saving}
+                        data-admin-field="faculty_training_coordination_status"
                         style={{ ...selectStyle, width: "100%", maxWidth: "none", boxSizing: "border-box" }}
                       >
                         <option value="not_started">Not started</option>
@@ -19557,6 +19620,7 @@ Cory`;
                         value={trainingMetadata.training_scheduling_status || "tbd"}
                         onChange={(event) => handleTrainingMetadataChange("training_scheduling_status", event.target.value)}
                         disabled={saving}
+                        data-admin-field="training_scheduling_status"
                         style={{ ...selectStyle, width: "100%", maxWidth: "none", boxSizing: "border-box" }}
                       >
                         <option value="tbd">TBD</option>
@@ -19597,6 +19661,7 @@ Cory`;
                       <button
                         type="button"
                         onClick={() => void handleMarkStaffingEmailSent("hiring")}
+                        data-admin-field="hiring_email_sent_at"
                         style={{ ...buttonStyle, padding: "8px 12px" }}
                       >
                         Mark Hiring Email Sent
@@ -19610,6 +19675,7 @@ Cory`;
                       <button
                         type="button"
                         onClick={() => void handleMarkStaffingEmailSent("confirmation")}
+                        data-admin-field="confirmation_email_sent_at"
                         style={{ ...buttonStyle, padding: "8px 12px" }}
                       >
                         Mark Confirmation Sent
@@ -20178,6 +20244,7 @@ Cory`;
                   value={normalizeRecordingStatusValue(trainingMetadata.recording_status) || "not_recorded"}
                   onChange={(event) => handleTrainingMetadataChange("recording_status", event.target.value)}
                   disabled={saving}
+                  data-admin-field="recording_status"
                   style={{ ...selectStyle, width: "100%", maxWidth: "none", boxSizing: "border-box" }}
                 >
                   {recordingStatusOptions.map((option) => (
@@ -20194,6 +20261,7 @@ Cory`;
                   value={materialsReadinessOption.value}
                   onChange={(event) => handleMaterialsReadinessChange(event.target.value)}
                   disabled={saving}
+                  data-admin-field="materials_readiness"
                   style={{ ...selectStyle, width: "100%", maxWidth: "none", boxSizing: "border-box" }}
                 >
                   {materialsReadinessOptions.map((option) => (
@@ -20215,6 +20283,7 @@ Cory`;
                       value={trainingMetadata.zoom_url}
                       onChange={(event) => handleTrainingMetadataChange("zoom_url", event.target.value)}
                       disabled={saving}
+                      data-admin-field="zoom_url"
                       placeholder="https://..."
                       style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
                     />
@@ -20237,6 +20306,7 @@ Cory`;
                       value={trainingMetadata.recording_url}
                       onChange={(event) => handleTrainingMetadataChange("recording_url", event.target.value)}
                       disabled={saving}
+                      data-admin-field="recording_url"
                       placeholder="https://..."
                       style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
                     />
@@ -20248,6 +20318,7 @@ Cory`;
                       value={trainingMetadata.case_name}
                       onChange={(event) => handleTrainingMetadataChange("case_name", event.target.value)}
                       disabled={saving}
+                      data-admin-field="case_name"
                       placeholder="Case title"
                       style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
                     />
@@ -20259,6 +20330,7 @@ Cory`;
                       value={trainingMetadata.faculty_names}
                       onChange={(event) => handleTrainingMetadataChange("faculty_names", event.target.value)}
                       disabled={saving}
+                      data-admin-field="faculty_names"
                       placeholder={fallbackFacultyText || "Faculty names or emails"}
                       style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
                     />
@@ -20270,6 +20342,7 @@ Cory`;
                       value={trainingMetadata.case_file_url}
                       onChange={(event) => handleTrainingMetadataChange("case_file_url", event.target.value)}
                       disabled={saving}
+                      data-admin-field="case_file_url"
                       placeholder="Paste case link"
                       style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
                     />
@@ -20312,6 +20385,7 @@ Cory`;
                       value={trainingMetadata.sim_contact}
                       onChange={(event) => handleTrainingMetadataChange("sim_contact", event.target.value)}
                       disabled={saving}
+                      data-admin-field="sim_contact"
                       placeholder={simStaffNames.join(", ") || "Sim team assigned"}
                       style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
                     />
@@ -20323,6 +20397,7 @@ Cory`;
                       value={trainingMetadata.training_notes}
                       onChange={(event) => handleTrainingMetadataChange("training_notes", event.target.value)}
                       disabled={saving}
+                      data-admin-field="training_notes"
                       placeholder="Add prep notes, reminders, or follow-up details..."
                       style={{ ...textareaStyle, minHeight: "88px" }}
                     />
