@@ -245,6 +245,7 @@ type EventSchedulePreviewKind =
 type LiveRoomAdjustment = {
   standbyAssignmentId?: string;
   expanded?: boolean;
+  extraRoomCount?: number;
 };
 
 type LiveRoomAdjustmentsMap = Record<string, LiveRoomAdjustment>;
@@ -2311,6 +2312,10 @@ function parseLiveRoomAdjustments(value: string | null | undefined) {
           {
             standbyAssignmentId: asText((record as LiveRoomAdjustment).standbyAssignmentId),
             expanded: Boolean((record as LiveRoomAdjustment).expanded),
+            extraRoomCount: Math.max(
+              0,
+              Math.floor(Number((record as LiveRoomAdjustment).extraRoomCount) || 0)
+            ),
           } satisfies LiveRoomAdjustment,
         ];
       })
@@ -2323,6 +2328,8 @@ function parseLiveRoomAdjustments(value: string | null | undefined) {
 function getFacultyContactPanelStorageKey(eventId: string) {
   return `cfsp:faculty-contact-panel:${eventId || "global"}`;
 }
+
+const LIVE_ROOM_BOARD_ADJUSTMENT_KEY = "__board__";
 
 function getStaffingCommandCenterStorageKey(eventId: string) {
   return `cfsp:staffing-command-center:${eventId || "global"}`;
