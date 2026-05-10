@@ -1059,7 +1059,14 @@ function GlobalEventFinder({
         </button>
       </div>
 
-      <div className="mt-1.5 flex flex-wrap items-center gap-1" aria-label="Operational search toggles">
+      <div
+        className="mt-1.5 flex flex-wrap items-center gap-1 rounded-[10px] px-1.5 py-1"
+        aria-label="Operational search toggles"
+        style={{
+          border: "1px solid rgba(120, 130, 150, 0.12)",
+          background: "linear-gradient(90deg, rgba(255, 255, 255, 0.03) 0%, rgba(255, 255, 255, 0.015) 100%)",
+        }}
+      >
         {chipOptions.map((chip) => {
           const selected = activeChip === chip.key;
           return (
@@ -1067,7 +1074,7 @@ function GlobalEventFinder({
               key={chip.key}
               type="button"
               onClick={() => toggleChip(chip.key)}
-              className="inline-flex h-7 items-center gap-1 rounded-[8px] border px-2 py-0.5 text-[0.61rem] font-semibold transition"
+              className="inline-flex h-6.5 items-center gap-1 rounded-[7px] border px-2 py-0 text-[0.6rem] font-semibold transition"
               style={{
                 borderColor: selected ? "rgba(73, 168, 255, 0.5)" : "rgba(120, 130, 150, 0.18)",
                 background: selected ? "rgba(73, 168, 255, 0.1)" : "rgba(255, 255, 255, 0.02)",

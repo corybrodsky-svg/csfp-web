@@ -16107,12 +16107,12 @@ Cory`;
                     }}
                   >
                     <div>
-                      <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Session Resource Directory</div>
-                      <div style={{ marginTop: "4px", color: commandCenterVisual.textColor, fontWeight: 900, fontSize: "16px" }}>
-                        Command file cabinet
+                      <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Simulation Command File Cabinet</div>
+                      <div style={{ marginTop: "4px", color: commandCenterVisual.textColor, fontWeight: 900, fontSize: "18px", letterSpacing: "0.01em" }}>
+                        Command File Cabinet
                       </div>
                       <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 700 }}>
-                        Keep the case, schedule views, materials, recording links, and training access points together in one packet center.
+                        Keep the mission packet, exports, timing tickets, materials, and live-access links together in one tactical rack.
                       </div>
                     </div>
 
@@ -16126,10 +16126,13 @@ Cory`;
                       {[
                         {
                           key: "case",
-                          icon: "▤",
-                          title: "Case",
+                          icon: "◫",
+                          title: "CASE FILE",
                           detail: caseFileDisplayName || "Case not assigned",
                           status: caseFileUrl ? "available" : caseFileDisplayName ? "draft" : "missing",
+                          featured: true,
+                          accent: "#7dd3fc",
+                          metadata: [caseFileUrl ? "Ready for live ops" : "", caseFileDisplayName ? "Packet attached" : "Case not assigned"].filter(Boolean),
                           actions: (
                             <>
                               <button
@@ -16162,10 +16165,17 @@ Cory`;
                         },
                         {
                           key: "schedule",
-                          icon: "▦",
-                          title: "Schedule",
+                          icon: "▣",
+                          title: "ROTATION BLUEPRINT",
                           detail: scheduleStatusLabel,
                           status: scheduleCompleted ? "complete" : scheduleInProgress ? "draft" : "missing",
+                          featured: true,
+                          accent: scheduleCompleted ? "#86efac" : scheduleInProgress ? "#7dd3fc" : "#fcd34d",
+                          metadata: [
+                            scheduleCompleted ? "Export ready" : "",
+                            scheduleCompleted ? "Print ready" : "",
+                            scheduleInProgress ? "Builder active" : "",
+                          ].filter(Boolean),
                           actions: (
                             <>
                               <Link
@@ -16193,10 +16203,12 @@ Cory`;
                         },
                         {
                           key: "student_schedule",
-                          icon: "◫",
-                          title: "Student Schedule",
+                          icon: "◩",
+                          title: "STUDENT EXPORT",
                           detail: "Learner-safe export view",
                           status: scheduleCompleted ? "complete" : scheduleInProgress ? "draft" : "missing",
+                          accent: "#c4b5fd",
+                          metadata: ["Learner-safe", scheduleCompleted ? "Print ready" : "Draft only"].filter(Boolean),
                           actions: (
                             <>
                               <button
@@ -16219,9 +16231,11 @@ Cory`;
                         {
                           key: "sp_schedule",
                           icon: "◎",
-                          title: "SP Schedule",
+                          title: "SP ASSIGNMENT GRID",
                           detail: "Staff-facing room assignment view",
                           status: scheduleCompleted ? "complete" : scheduleInProgress ? "draft" : "missing",
+                          accent: "#5eead4",
+                          metadata: ["Staffing ops", scheduleCompleted ? "Ready for live ops" : "Builder-linked"].filter(Boolean),
                           actions: (
                             <>
                               <button
@@ -16244,9 +16258,11 @@ Cory`;
                         {
                           key: "time_ticket",
                           icon: "⌁",
-                          title: "Faculty / SimOps Time Ticket",
+                          title: "FACULTY / SIMOPS TIME TICKET",
                           detail: "Compact timing and flow view",
                           status: scheduleCompleted ? "complete" : scheduleInProgress ? "draft" : "missing",
+                          accent: "#f9a8d4",
+                          metadata: ["Flow brief", scheduleCompleted ? "Print ready" : "Draft timing"].filter(Boolean),
                           actions: (
                             <>
                               <button
@@ -16269,9 +16285,11 @@ Cory`;
                         {
                           key: "materials",
                           icon: "⎘",
-                          title: "Materials",
+                          title: "MATERIALS CACHE",
                           detail: eventMaterialName || "Event materials not uploaded",
                           status: eventMaterialUrl ? "available" : "missing",
+                          accent: eventMaterialUrl ? "#fcd34d" : "#94a3b8",
+                          metadata: [eventMaterialUrl ? "Packet loaded" : "Upload needed", materialsStatusLabel].filter(Boolean),
                           actions: (
                             <>
                               <button
@@ -16305,9 +16323,11 @@ Cory`;
                         {
                           key: "recording",
                           icon: "◉",
-                          title: "Recording Link",
+                          title: "RECORDING CHANNEL",
                           detail: recordingGuideUrl ? getFilenameFromUrl(recordingGuideUrl) || "Recording link ready" : "No recording link posted",
                           status: recordingGuideUrl ? "available" : "missing",
+                          accent: recordingGuideUrl ? "#f59e0b" : "#94a3b8",
+                          metadata: [recordingStatus.label, recordingGuideUrl ? "Support posted" : "Awaiting link"].filter(Boolean),
                           actions: (
                             <>
                               {recordingGuideUrl ? (
@@ -16326,9 +16346,14 @@ Cory`;
                         {
                           key: "training_access",
                           icon: "⟡",
-                          title: "Zoom / Training Link",
+                          title: "TRAINING ACCESS NODE",
                           detail: trainingAccessUrl ? trainingModalityLabel : "Training link missing",
                           status: trainingAccessUrl ? "available" : trainingZoomRequired ? "missing" : "draft",
+                          accent: trainingAccessUrl ? "#7dd3fc" : trainingZoomRequired ? "#fcd34d" : "#94a3b8",
+                          metadata: [
+                            trainingAccessUrl ? "Training linked" : "",
+                            trainingZoomRequired ? "Zoom required" : "Optional access",
+                          ].filter(Boolean),
                           actions: (
                             <>
                               {trainingAccessUrl ? (
@@ -16344,7 +16369,7 @@ Cory`;
                             </>
                           ),
                         },
-                      ].map((resource) => {
+                      ].map((resource, index) => {
                         const statusStyle =
                           resource.status === "complete"
                             ? {
@@ -16368,61 +16393,104 @@ Cory`;
                                     background: commandCenterVisual.chipBackground,
                                     border: commandChipStyle.border,
                                     color: commandCenterVisual.chipText,
-                                  };
+                                };
 
                         return (
                           <div
                             key={resource.key}
                             style={{
-                              borderRadius: "16px",
-                              border: "1px solid rgba(99, 181, 217, 0.12)",
+                              borderRadius: "18px",
+                              border: `1px solid ${resource.accent}24`,
                               background: isPlanningVisualMode
-                                ? "linear-gradient(180deg, rgba(255,255,255,0.96) 0%, rgba(247, 251, 254, 0.96) 100%)"
-                                : "rgba(255,255,255,0.03)",
-                              padding: "12px",
+                                ? `linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(247, 251, 254, 0.97) 36%, ${resource.accent}10 100%)`
+                                : `linear-gradient(180deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.02) 48%, ${resource.accent}12 100%)`,
+                              padding: resource.featured ? "14px 14px 13px" : "12px",
                               display: "grid",
                               gap: "10px",
+                              boxShadow: isPlanningVisualMode
+                                ? `0 18px 34px ${resource.accent}14, inset 0 1px 0 rgba(255,255,255,0.32)`
+                                : `0 18px 34px rgba(0,0,0,0.22), inset 0 1px 0 ${resource.accent}18`,
+                              gridColumn: resource.featured ? "span 2" : undefined,
+                              position: "relative",
+                              overflow: "hidden",
                             }}
                           >
+                            <div
+                              aria-hidden="true"
+                              style={{
+                                position: "absolute",
+                                inset: "0 auto auto 0",
+                                width: resource.featured ? "42%" : "55%",
+                                height: "1px",
+                                background: `linear-gradient(90deg, ${resource.accent} 0%, transparent 100%)`,
+                                opacity: 0.85,
+                              }}
+                            />
                             <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "flex-start" }}>
                               <div style={{ display: "flex", gap: "10px", alignItems: "flex-start", minWidth: 0 }}>
                                 <span
                                   style={{
-                                    width: "30px",
-                                    height: "30px",
-                                    borderRadius: "999px",
+                                    width: resource.featured ? "38px" : "32px",
+                                    height: resource.featured ? "38px" : "32px",
+                                    borderRadius: "12px",
                                     display: "inline-flex",
                                     alignItems: "center",
                                     justifyContent: "center",
-                                    background: "rgba(73, 168, 255, 0.12)",
-                                    border: "1px solid rgba(73, 168, 255, 0.18)",
-                                    color: "#145b96",
+                                    background: `${resource.accent}18`,
+                                    border: `1px solid ${resource.accent}26`,
+                                    color: resource.accent,
                                     fontWeight: 900,
-                                    fontSize: "13px",
+                                    fontSize: resource.featured ? "15px" : "13px",
                                     flexShrink: 0,
+                                    boxShadow: `0 10px 22px ${resource.accent}18`,
                                   }}
                                 >
                                   {resource.icon}
                                 </span>
                                 <div style={{ minWidth: 0 }}>
-                                  <div style={{ color: commandCenterVisual.textColor, fontWeight: 900 }}>
+                                  <div style={{ color: commandCenterVisual.mutedColor, fontWeight: 900, fontSize: "10px", letterSpacing: "0.16em" }}>
+                                    MODULE {String(index + 1).padStart(2, "0")}
+                                  </div>
+                                  <div style={{ marginTop: "4px", color: commandCenterVisual.textColor, fontWeight: 900, fontSize: resource.featured ? "15px" : "14px", letterSpacing: "0.04em" }}>
                                     {resource.title}
                                   </div>
                                   <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 700, lineHeight: 1.45 }}>
                                     {resource.detail}
                                   </div>
+                                  {resource.metadata?.length ? (
+                                    <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "8px" }}>
+                                      {resource.metadata.map((item) => (
+                                        <span
+                                          key={`${resource.key}-${item}`}
+                                          style={{
+                                            ...commandChipStyle,
+                                            background: `${resource.accent}12`,
+                                            border: `1px solid ${resource.accent}20`,
+                                            color: resource.accent,
+                                            fontSize: "10px",
+                                            letterSpacing: "0.04em",
+                                          }}
+                                        >
+                                          {item}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  ) : null}
                                 </div>
                               </div>
                               <span
                                 style={{
                                   ...commandChipStyle,
                                   ...statusStyle,
+                                  textTransform: "uppercase",
+                                  letterSpacing: "0.08em",
+                                  fontSize: "10px",
                                 }}
                               >
                                 {resource.status}
                               </span>
                             </div>
-                            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
                               {resource.actions}
                             </div>
                           </div>
