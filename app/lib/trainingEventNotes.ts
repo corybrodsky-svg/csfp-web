@@ -35,6 +35,7 @@ export type TrainingEventMetadata = {
   case_file_storage_path: string;
   case_file_uploaded_at: string;
   case_file_uploaded_by: string;
+  case_files: string;
   doorsign_url: string;
   doorsign_file_url: string;
   doorsign_file_name: string;
@@ -150,6 +151,7 @@ const TRAINING_METADATA_KEYS = [
   "case_file_storage_path",
   "case_file_uploaded_at",
   "case_file_uploaded_by",
+  "case_files",
   "doorsign_url",
   "doorsign_file_url",
   "doorsign_file_name",
@@ -274,6 +276,7 @@ export function emptyTrainingEventMetadata(): TrainingEventMetadata {
     case_file_storage_path: "",
     case_file_uploaded_at: "",
     case_file_uploaded_by: "",
+    case_files: "",
     doorsign_url: "",
     doorsign_file_url: "",
     doorsign_file_name: "",

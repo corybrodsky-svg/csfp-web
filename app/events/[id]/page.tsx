@@ -395,6 +395,18 @@ type TrainingImportResult = {
 };
 
 type TrainingMaterialKind = "case_file" | "doorsign" | "supplemental_doc" | "staffing_doc";
+type CaseFileEntry = {
+  id: string;
+  name: string;
+  url: string;
+  storagePath: string;
+  uploadedAt: string;
+  uploadedBy: string;
+};
+type CaseFileUploadTarget = {
+  mode: "add" | "replace";
+  index?: number;
+};
 type MaterialPreviewKind = "pdf" | "image" | "text" | "html" | "iframe" | "unsupported";
 type MaterialPreviewState = {
   title: string;
@@ -1614,6 +1626,85 @@ function buildTrainingMaterialAssetUrls(args: {
     openInNewTabUrl: `/api/uploads/training-material?${baseParams.toString()}&mode=preview`,
     fileName,
   };
+}
+
+function normalizeCaseFileEntry(value: Partial<CaseFileEntry>, fallbackIndex: number): CaseFileEntry | null {
+  const url = asText(value.url);
+  const storagePath = asText(value.storagePath);
+  const name = asText(value.name) || getFilenameFromUrl(url) || (storagePath ? getFilenameFromUrl(storagePath) : "");
+  if (!url && !storagePath && !name) return null;
+
+  return {
+    id: asText(value.id) || `${storagePath || url || name || "case"}-${fallbackIndex}`,
+    name: name || `Case ${fallbackIndex + 1}`,
+    url,
+    storagePath,
+    uploadedAt: asText(value.uploadedAt),
+    uploadedBy: asText(value.uploadedBy),
+  };
+}
+
+function parseCaseFileEntries(value: string | null | undefined) {
+  const text = asText(value);
+  if (!text) return [] as CaseFileEntry[];
+  try {
+    const parsed = JSON.parse(text);
+    if (!Array.isArray(parsed)) return [] as CaseFileEntry[];
+    return parsed
+      .map((entry, index) =>
+        normalizeCaseFileEntry(
+          {
+            id: (entry as Partial<CaseFileEntry>)?.id,
+            name: (entry as Partial<CaseFileEntry>)?.name,
+            url: (entry as Partial<CaseFileEntry>)?.url,
+            storagePath:
+              (entry as Partial<CaseFileEntry>)?.storagePath ||
+              (entry as { storage_path?: string })?.storage_path,
+            uploadedAt:
+              (entry as Partial<CaseFileEntry>)?.uploadedAt ||
+              (entry as { uploaded_at?: string })?.uploaded_at,
+            uploadedBy:
+              (entry as Partial<CaseFileEntry>)?.uploadedBy ||
+              (entry as { uploaded_by?: string })?.uploaded_by,
+          },
+          index
+        )
+      )
+      .filter((entry): entry is CaseFileEntry => Boolean(entry));
+  } catch {
+    return [] as CaseFileEntry[];
+  }
+}
+
+function serializeCaseFileEntries(entries: CaseFileEntry[]) {
+  return JSON.stringify(
+    entries.map((entry, index) => ({
+      id: entry.id || `${entry.storagePath || entry.url || entry.name || "case"}-${index}`,
+      name: entry.name,
+      url: entry.url,
+      storagePath: entry.storagePath,
+      uploadedAt: entry.uploadedAt,
+      uploadedBy: entry.uploadedBy,
+    }))
+  );
+}
+
+function mergeLegacyCaseFileEntry(
+  entries: CaseFileEntry[],
+  legacyEntry: CaseFileEntry | null
+) {
+  if (!legacyEntry) return entries;
+  const existingIndex = entries.findIndex((entry) =>
+    [entry.storagePath, entry.url, entry.name].some((value) =>
+      value && [legacyEntry.storagePath, legacyEntry.url, legacyEntry.name].includes(value)
+    )
+  );
+  if (existingIndex >= 0) {
+    const nextEntries = [...entries];
+    nextEntries[existingIndex] = { ...legacyEntry, ...nextEntries[existingIndex] };
+    return nextEntries;
+  }
+  return [legacyEntry, ...entries];
 }
 
 function getAvailabilitySpId(row: AvailabilityRow) {
@@ -3468,6 +3559,7 @@ function inferEventModalityLabel(
 function hasMaterialEvidence(metadata: TrainingEventMetadata) {
   return [
     metadata.case_file_url,
+    metadata.case_files,
     metadata.doorsign_url,
     metadata.supplemental_doc_url,
     metadata.case_name,
@@ -3689,6 +3781,7 @@ export default function EventDetailPage() {
   const [materialPreviewText, setMaterialPreviewText] = useState("");
   const [materialPreviewHtml, setMaterialPreviewHtml] = useState("");
   const [showRecordingGuideEditor, setShowRecordingGuideEditor] = useState(false);
+  const [caseFileUploadTarget, setCaseFileUploadTarget] = useState<CaseFileUploadTarget>({ mode: "replace", index: 0 });
   const [contactPanelSaving, setContactPanelSaving] = useState(false);
   const [contactPanelSavedAt, setContactPanelSavedAt] = useState("");
   const [contactPanelExpanded, setContactPanelExpanded] = useState(false);
@@ -5286,6 +5379,7 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       const encounterCaseLabel =
         getFirstNoteValue(eventEditor.notes || event?.notes, ["Case", "Case Name", "Station Case"]) ||
         asText(trainingMetadata.case_name) ||
+        parseCaseFileEntries(trainingMetadata.case_files)[0]?.name ||
         getDisplayFileStem(trainingMetadata.case_file_url) ||
         "";
       const encounterStationLabel = getFirstNoteValue(eventEditor.notes || event?.notes, [
@@ -5356,6 +5450,7 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     roomNamingContext,
     event?.notes,
     eventEditor.notes,
+    trainingMetadata.case_files,
     trainingMetadata.case_file_url,
     trainingMetadata.case_name,
     trainingMetadata.schedule_status,
@@ -6381,7 +6476,7 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     () => [
       { label: materialsStatusLabel, active: true },
       { label: "Event Material Uploaded", active: hasUploadedEventMaterial },
-      { label: "Case Uploaded", active: Boolean(trainingMetadata.case_file_url || trainingMetadata.case_name) },
+      { label: "Case Uploaded", active: Boolean(trainingMetadata.case_file_url || trainingMetadata.case_files || trainingMetadata.case_name) },
       { label: "Door Signs Ready", active: Boolean(trainingMetadata.doorsign_url) },
       { label: "Zoom Ready", active: Boolean(trainingMetadata.zoom_url) || selectedModalityLabel === "Virtual" || selectedModalityLabel === "Hybrid" },
       { label: "AV Ready", active: isMetadataYes(trainingMetadata.av_support_required) || /av ready|audio visual|av support/i.test(eventSummarySourceText) || Boolean(trainingMetadata.recording_url) },
@@ -6393,6 +6488,7 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       materialsStatusLabel,
       recordingSupportActive,
       selectedModalityLabel,
+      trainingMetadata.case_files,
       trainingMetadata.case_file_url,
       trainingMetadata.case_name,
       trainingMetadata.doorsign_url,
@@ -6572,10 +6668,11 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     () =>
       getFirstNoteValue(eventEditor.notes || event?.notes, ["Case", "Case Name", "Station Case"]) ||
       asText(trainingMetadata.case_name) ||
+      parseCaseFileEntries(trainingMetadata.case_files)[0]?.name ||
       getDisplayFileStem(trainingMetadata.case_file_url) ||
       getDisplayFileStem(eventMaterialUrl) ||
       "",
-    [event?.notes, eventEditor.notes, eventMaterialUrl, trainingMetadata.case_file_url, trainingMetadata.case_name]
+    [event?.notes, eventEditor.notes, eventMaterialUrl, trainingMetadata.case_files, trainingMetadata.case_file_url, trainingMetadata.case_name]
   );
   const selectedRoundStationLabel = useMemo(
     () => getFirstNoteValue(eventEditor.notes || event?.notes, ["Station", "Station Label", "Station Labels"]),
@@ -8345,14 +8442,34 @@ Cory`;
     asText(trainingMetadata.case_file_name) ||
     getFilenameFromUrl(caseFileUrl) ||
     "";
-  const caseFileDownloadUrl = caseFileUrl
-    ? buildTrainingMaterialAssetUrls({
-        eventId: id,
-        rawUrl: caseFileUrl,
-        storagePath: caseFileStoragePath,
-        fileName: caseFileDisplayName || "case-file",
-      }).downloadUrl
-    : "";
+  const legacyCaseFileEntry = useMemo(
+    () =>
+      normalizeCaseFileEntry(
+        {
+          id: "primary-case-file",
+          name: caseFileDisplayName,
+          url: caseFileUrl,
+          storagePath: caseFileStoragePath,
+          uploadedAt: trainingMetadata.case_file_uploaded_at,
+          uploadedBy: trainingMetadata.case_file_uploaded_by,
+        },
+        0
+      ),
+    [
+      caseFileDisplayName,
+      caseFileStoragePath,
+      caseFileUrl,
+      trainingMetadata.case_file_uploaded_at,
+      trainingMetadata.case_file_uploaded_by,
+    ]
+  );
+  const caseFileEntries = useMemo(
+    () => mergeLegacyCaseFileEntry(parseCaseFileEntries(trainingMetadata.case_files), legacyCaseFileEntry),
+    [legacyCaseFileEntry, trainingMetadata.case_files]
+  );
+  const primaryCaseFileEntry = caseFileEntries[0] || legacyCaseFileEntry;
+  const caseFileCount = caseFileEntries.length;
+  const uploadedCaseFileCount = caseFileEntries.filter((entry) => Boolean(entry.url || entry.storagePath)).length;
   const recordingGuideUrl = normalizeExternalHref(
     trainingMetadata.recording_url || trainingMetadata.training_recording_url
   );
@@ -8387,13 +8504,13 @@ Cory`;
       fileName: eventMaterialName || getFilenameFromUrl(eventMaterialUrl) || "event-material",
     });
   }
-  function openCaseFilePreview() {
-    if (caseFileUrl) {
+  function openCaseFilePreview(caseEntry: CaseFileEntry | null = primaryCaseFileEntry || null) {
+    if (caseEntry?.url || caseEntry?.storagePath) {
       openMaterialPreview({
-        title: "Case File",
-        rawUrl: caseFileUrl,
-        storagePath: caseFileStoragePath,
-        fileName: caseFileDisplayName || "case-file",
+        title: caseEntry.name || "Case File",
+        rawUrl: caseEntry.url,
+        storagePath: caseEntry.storagePath,
+        fileName: caseEntry.name || "case-file",
       });
       return;
     }
@@ -8625,35 +8742,37 @@ Cory`;
         </>
       ),
     },
-    ...(caseFileUrl || caseFileDisplayName
+    ...(caseFileCount || caseFileDisplayName
       ? [
           {
             key: "case",
             label: "Case",
-            value: caseFileDisplayName || "Case uploaded",
-            tone: (caseFileUrl ? "ready" : caseFileDisplayName ? "info" : "attention") as OperationalStatusTone,
+            value: uploadedCaseFileCount
+              ? `${uploadedCaseFileCount} case${uploadedCaseFileCount === 1 ? "" : "s"} loaded`
+              : caseFileCount
+                ? `${caseFileCount} case${caseFileCount === 1 ? "" : "s"} named · upload needed`
+              : caseFileDisplayName || "Case uploaded",
+            tone: (uploadedCaseFileCount ? "ready" : caseFileCount || caseFileDisplayName ? "info" : "attention") as OperationalStatusTone,
             detail: "Keep the room-facing encounter packet close to the schedule.",
             actions: (
               <>
-                {caseFileUrl ? (
+                {primaryCaseFileEntry && (primaryCaseFileEntry.url || primaryCaseFileEntry.storagePath) ? (
                   <button
                     type="button"
-                    onClick={() =>
-                      openMaterialPreview({
-                        title: "Case File",
-                        rawUrl: caseFileUrl,
-                        storagePath: caseFileStoragePath,
-                        fileName: caseFileDisplayName || "case-file",
-                      })
-                    }
+                    onClick={() => openCaseFilePreview(primaryCaseFileEntry)}
                     style={{ ...buttonStyle, padding: "7px 10px" }}
                   >
                     Preview
                   </button>
                 ) : null}
-                {caseFileDownloadUrl ? (
+                {primaryCaseFileEntry && (primaryCaseFileEntry.url || primaryCaseFileEntry.storagePath) ? (
                   <a
-                    href={caseFileDownloadUrl}
+                    href={buildTrainingMaterialAssetUrls({
+                      eventId: id,
+                      rawUrl: primaryCaseFileEntry.url,
+                      storagePath: primaryCaseFileEntry.storagePath,
+                      fileName: primaryCaseFileEntry.name || "case-file",
+                    }).downloadUrl}
                     target="_blank"
                     rel="noreferrer"
                     style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "7px 10px" }}
@@ -8663,7 +8782,7 @@ Cory`;
                 ) : null}
                 <button
                   type="button"
-                  onClick={() => focusAdminEditField("case_file_url")}
+                  onClick={() => focusAdminEditField("case_files")}
                   style={{ ...buttonStyle, padding: "7px 10px" }}
                 >
                   Admin Edit
@@ -9889,10 +10008,13 @@ Cory`;
   }
 
   function openTrainingMaterialPicker(kind: TrainingMaterialKind) {
+    if (kind === "case_file") {
+      openCaseFilePicker({ mode: caseFileEntries.length ? "replace" : "add", index: 0 });
+      return;
+    }
+
     const inputRef =
-      kind === "case_file"
-        ? caseFileInputRef
-        : kind === "doorsign"
+      kind === "doorsign"
         ? doorsignInputRef
         : kind === "staffing_doc"
         ? staffingDocInputRef
@@ -9901,11 +10023,28 @@ Cory`;
     inputRef.current?.click();
   }
 
-  async function handleTrainingMaterialUpload(kind: TrainingMaterialKind, file: File | null) {
+  function openCaseFilePicker(target: CaseFileUploadTarget = { mode: "add" }) {
+    setCaseFileUploadTarget(target);
+    window.setTimeout(() => caseFileInputRef.current?.click(), 0);
+  }
+
+  async function handleTrainingMaterialUpload(
+    kind: TrainingMaterialKind,
+    file: File | null,
+    caseTargetOverride?: CaseFileUploadTarget
+  ) {
     if (!file || !id) return;
 
     const fieldConfig = trainingMaterialFieldMap[kind];
-    const replacePath = asText(trainingMetadata[fieldConfig.storagePathKey]);
+    const resolvedCaseFileUploadTarget = caseTargetOverride || caseFileUploadTarget;
+    const replaceCaseEntry =
+      kind === "case_file" && resolvedCaseFileUploadTarget.mode === "replace"
+        ? caseFileEntries[Math.max(Number(resolvedCaseFileUploadTarget.index || 0), 0)] || primaryCaseFileEntry
+        : null;
+    const replacePath =
+      kind === "case_file"
+        ? asText(replaceCaseEntry?.storagePath)
+        : asText(trainingMetadata[fieldConfig.storagePathKey]);
     const formData = new FormData();
     formData.append("eventId", id);
     formData.append("kind", kind);
@@ -9941,12 +10080,47 @@ Cory`;
         throw new Error(body?.error || `Could not upload ${fieldConfig.label.toLowerCase()}.`);
       }
 
+      const uploadedCaseEntry = normalizeCaseFileEntry(
+        {
+          id: body.material.storage_path || body.material.url || `${Date.now()}-${body.material.filename}`,
+          name: asText(body.material.filename),
+          url: asText(body.material.url),
+          storagePath: asText(body.material.storage_path),
+          uploadedAt: asText(body.material.uploaded_at),
+          uploadedBy: asText(body.material.uploaded_by),
+        },
+        caseFileEntries.length
+      );
+      const nextCaseEntries =
+        kind === "case_file" && uploadedCaseEntry
+          ? (() => {
+              const existingEntries = caseFileEntries.length
+                ? [...caseFileEntries]
+                : legacyCaseFileEntry
+                  ? [legacyCaseFileEntry]
+                  : [];
+              if (resolvedCaseFileUploadTarget.mode === "replace") {
+                const replaceIndex = Math.max(Number(resolvedCaseFileUploadTarget.index || 0), 0);
+                if (existingEntries[replaceIndex]) {
+                  existingEntries[replaceIndex] = uploadedCaseEntry;
+                  return existingEntries;
+                }
+              }
+              return [...existingEntries, uploadedCaseEntry];
+            })()
+          : [];
+      const primaryCaseEntry = kind === "case_file" ? nextCaseEntries[0] || uploadedCaseEntry : null;
       const nextNotes = upsertEventMetadata(eventEditor.notes, { training: {
-        [fieldConfig.urlKey]: asText(body.material.url),
-        [fieldConfig.nameKey]: asText(body.material.filename),
-        [fieldConfig.storagePathKey]: asText(body.material.storage_path),
-        [fieldConfig.uploadedAtKey]: asText(body.material.uploaded_at),
-        [fieldConfig.uploadedByKey]: asText(body.material.uploaded_by),
+        [fieldConfig.urlKey]: kind === "case_file" ? asText(primaryCaseEntry?.url) : asText(body.material.url),
+        [fieldConfig.nameKey]: kind === "case_file" ? asText(primaryCaseEntry?.name) : asText(body.material.filename),
+        [fieldConfig.storagePathKey]: kind === "case_file" ? asText(primaryCaseEntry?.storagePath) : asText(body.material.storage_path),
+        [fieldConfig.uploadedAtKey]: kind === "case_file" ? asText(primaryCaseEntry?.uploadedAt) : asText(body.material.uploaded_at),
+        [fieldConfig.uploadedByKey]: kind === "case_file" ? asText(primaryCaseEntry?.uploadedBy) : asText(body.material.uploaded_by),
+        ...(kind === "case_file"
+          ? {
+              case_files: serializeCaseFileEntries(nextCaseEntries),
+            }
+          : {}),
         ...(kind === "staffing_doc"
           ? {
               event_material_status: "materials_uploaded",
@@ -10042,6 +10216,10 @@ Cory`;
 
   async function handleRemoveTrainingMaterial(kind: TrainingMaterialKind) {
     if (!id) return;
+    if (kind === "case_file") {
+      await handleRemoveCaseFile(0);
+      return;
+    }
 
     const fieldConfig = trainingMaterialFieldMap[kind];
     const storagePath = asText(trainingMetadata[fieldConfig.storagePathKey]);
@@ -10091,6 +10269,51 @@ Cory`;
       );
     } finally {
       setTrainingMaterialSavingState(kind, false);
+    }
+  }
+
+  async function handleRemoveCaseFile(index: number) {
+    if (!id) return;
+    const caseEntry = caseFileEntries[index];
+    if (!caseEntry) return;
+    if (!window.confirm(`Remove ${caseEntry.name || "this case file"} from this event?`)) return;
+
+    setTrainingMaterialSavingState("case_file", true);
+    setEventSaveMessage("");
+    setEventSaveError("");
+
+    try {
+      if (caseEntry.storagePath) {
+        const response = await fetch("/api/uploads/training-material", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            eventId: id,
+            path: caseEntry.storagePath,
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error(await parseApiError(response));
+        }
+      }
+
+      const nextCaseEntries = caseFileEntries.filter((_, entryIndex) => entryIndex !== index);
+      const primaryCaseEntry = nextCaseEntries[0] || null;
+      const nextNotes = upsertEventMetadata(eventEditor.notes, { training: {
+        case_file_url: asText(primaryCaseEntry?.url),
+        case_file_name: asText(primaryCaseEntry?.name),
+        case_file_storage_path: asText(primaryCaseEntry?.storagePath),
+        case_file_uploaded_at: asText(primaryCaseEntry?.uploadedAt),
+        case_file_uploaded_by: asText(primaryCaseEntry?.uploadedBy),
+        case_files: nextCaseEntries.length ? serializeCaseFileEntries(nextCaseEntries) : "",
+      }});
+
+      await persistTrainingNotes(nextNotes, "Case file removed.");
+    } catch (error) {
+      setEventSaveError(error instanceof Error ? error.message : "Could not remove case file.");
+    } finally {
+      setTrainingMaterialSavingState("case_file", false);
     }
   }
 
@@ -11581,7 +11804,7 @@ Cory`;
 	                        {(caseFileUrl || eventMaterialUrl) ? (
 	                          <button
 	                            type="button"
-	                            onClick={openCaseFilePreview}
+	                            onClick={() => openCaseFilePreview()}
 	                            style={{
 	                              ...buttonStyle,
 	                              padding: "7px 10px",
@@ -12426,7 +12649,7 @@ Cory`;
                                       {(caseFileUrl || eventMaterialUrl) ? (
                                         <button
                                           type="button"
-                                          onClick={openCaseFilePreview}
+                                          onClick={() => openCaseFilePreview()}
                                           style={{
                                             ...buttonStyle,
                                             padding: "6px 8px",
@@ -17387,40 +17610,116 @@ Cory`;
                         {
                           key: "case",
                           title: "CASE FILE",
-                          detail: caseFileDisplayName || "Case not assigned",
-                          status: caseFileUrl ? "available" : caseFileDisplayName ? "draft" : "missing",
+                          detail: uploadedCaseFileCount
+                            ? `${uploadedCaseFileCount} case${uploadedCaseFileCount === 1 ? "" : "s"} loaded`
+                            : caseFileCount
+                              ? `${caseFileCount} case${caseFileCount === 1 ? "" : "s"} identified · upload needed`
+                            : "No cases uploaded",
+                          status: uploadedCaseFileCount ? "available" : caseFileCount ? "draft" : "missing",
                           featured: true,
                           accent: "#7dd3fc",
-                          primaryAction: caseFileUrl ? openCaseFilePreview : () => openTrainingMaterialPicker("case_file"),
-                          metadata: [caseFileUrl ? "Ready for live ops" : "", caseFileDisplayName ? "Packet attached" : "Empty case slot"].filter(Boolean),
+                          primaryAction: primaryCaseFileEntry && (primaryCaseFileEntry.url || primaryCaseFileEntry.storagePath)
+                            ? () => openCaseFilePreview(primaryCaseFileEntry)
+                            : () => openCaseFilePicker({ mode: "add" }),
+                          metadata: [
+                            uploadedCaseFileCount ? "Case packet loaded" : caseFileCount ? "Case named, file missing" : "Empty case slot",
+                            caseFileCount > 1 ? `${caseFileCount} case set` : "",
+                          ].filter(Boolean),
                           actions: (
                             <>
-                              {caseFileUrl ? (
-                                <button
-                                  type="button"
-                                  onClick={openCaseFilePreview}
-                                  style={{ ...buttonStyle, padding: "6px 9px" }}
-                                >
-                                  Preview
-                                </button>
-                              ) : null}
-                              {caseFileDownloadUrl ? (
-                                <a
-                                  href={caseFileDownloadUrl}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "6px 9px" }}
-                                >
-                                  Download
-                                </a>
-                              ) : null}
+                              {caseFileEntries.length ? (
+                                <div style={{ display: "grid", gap: "6px", width: "100%" }}>
+                                  {caseFileEntries.map((caseEntry, caseIndex) => {
+                                    const assetUrls = buildTrainingMaterialAssetUrls({
+                                      eventId: id,
+                                      rawUrl: caseEntry.url,
+                                      storagePath: caseEntry.storagePath,
+                                      fileName: caseEntry.name || `case-${caseIndex + 1}`,
+                                    });
+                                    return (
+                                      <div
+                                        key={`${caseEntry.id}-${caseIndex}`}
+                                        style={{
+                                          borderRadius: "12px",
+                                          border: isCommandFileCabinetSimpleView
+                                            ? "1px solid rgba(14, 116, 144, 0.14)"
+                                            : "1px solid rgba(125, 211, 252, 0.16)",
+                                          background: isCommandFileCabinetSimpleView
+                                            ? "rgba(255,255,255,0.78)"
+                                            : "rgba(5, 19, 32, 0.34)",
+                                          padding: "7px",
+                                          display: "grid",
+                                          gap: "6px",
+                                        }}
+                                      >
+                                        <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", alignItems: "center" }}>
+                                          <span style={{ color: commandCenterVisual.textColor, fontSize: "11px", fontWeight: 900, overflowWrap: "anywhere" }}>
+                                            Case {caseIndex + 1}: {caseEntry.name || "Untitled case"}
+                                          </span>
+                                          <span style={{ color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 800 }}>
+                                            {caseEntry.uploadedAt ? formatHumanDate(caseEntry.uploadedAt) : "Uploaded"}
+                                          </span>
+                                        </div>
+                                        <div style={{ display: "flex", gap: "5px", flexWrap: "wrap" }}>
+                                          <button
+                                            type="button"
+                                            onClick={() => openCaseFilePreview(caseEntry)}
+                                            disabled={!caseEntry.url && !caseEntry.storagePath}
+                                            style={{ ...buttonStyle, padding: "5px 8px", fontSize: "11px", opacity: caseEntry.url || caseEntry.storagePath ? 1 : 0.55 }}
+                                          >
+                                            Preview
+                                          </button>
+                                          {caseEntry.url || caseEntry.storagePath ? (
+                                            <a
+                                              href={assetUrls.downloadUrl}
+                                              target="_blank"
+                                              rel="noreferrer"
+                                              download={assetUrls.fileName}
+                                              style={{
+                                                ...buttonStyle,
+                                                textDecoration: "none",
+                                                display: "inline-flex",
+                                                alignItems: "center",
+                                                padding: "5px 8px",
+                                                fontSize: "11px",
+                                              }}
+                                            >
+                                              Download
+                                            </a>
+                                          ) : null}
+                                          <button
+                                            type="button"
+                                            onClick={() => openCaseFilePicker({ mode: "replace", index: caseIndex })}
+                                            disabled={trainingMaterialSaving.case_file}
+                                            style={{ ...buttonStyle, padding: "5px 8px", fontSize: "11px", opacity: trainingMaterialSaving.case_file ? 0.65 : 1 }}
+                                          >
+                                            Replace
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => void handleRemoveCaseFile(caseIndex)}
+                                            disabled={trainingMaterialSaving.case_file}
+                                            style={{ ...dangerButtonStyle, padding: "5px 8px", fontSize: "11px", opacity: trainingMaterialSaving.case_file ? 0.65 : 1 }}
+                                          >
+                                            Remove
+                                          </button>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              ) : (
+                                <span style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 800 }}>
+                                  No cases uploaded. Load the first case packet for this event.
+                                </span>
+                              )}
                               <button
                                 type="button"
-                                onClick={() => openTrainingMaterialPicker("case_file")}
+                                onClick={() => openCaseFilePicker(uploadedCaseFileCount ? { mode: "add" } : { mode: "replace", index: 0 })}
                                 disabled={trainingMaterialSaving.case_file}
                                 style={{ ...buttonStyle, padding: "6px 9px", opacity: trainingMaterialSaving.case_file ? 0.65 : 1 }}
                               >
-                                {caseFileUrl || caseFileDisplayName ? "Replace Case" : "Upload Case"}
+                                {uploadedCaseFileCount ? "Add Another Case" : "Upload Case"}
                               </button>
                             </>
                           ),
@@ -17662,10 +17961,10 @@ Cory`;
                                 : undefined
                             }
                             onDrop={
-                              resource.key === "case"
+                                  resource.key === "case"
                                 ? (event) => {
                                     event.preventDefault();
-                                    void handleTrainingMaterialUpload("case_file", event.dataTransfer.files?.[0] || null);
+                                    void handleTrainingMaterialUpload("case_file", event.dataTransfer.files?.[0] || null, { mode: "add" });
                                   }
                                 : undefined
                             }
@@ -19425,9 +19724,17 @@ Cory`;
                   const fileName = asText(trainingMetadata[fieldConfig.nameKey]);
                   const storagePath = asText(trainingMetadata[fieldConfig.storagePathKey]);
                   const isBusy = trainingMaterialSaving[material.kind];
+                  const materialCaseEntries = material.kind === "case_file" ? caseFileEntries : [];
+                  const materialHasFile = material.kind === "case_file"
+                    ? materialCaseEntries.some((entry) => Boolean(entry.url || entry.storagePath))
+                    : Boolean(fileUrl);
                   const displayName =
                     material.kind === "case_file"
-                      ? trainingMetadata.case_name || fileName || getFilenameFromUrl(fileUrl) || "No case attached"
+                      ? materialHasFile
+                        ? `${uploadedCaseFileCount} case${uploadedCaseFileCount === 1 ? "" : "s"} loaded`
+                        : materialCaseEntries.length
+                          ? `${materialCaseEntries.length} case${materialCaseEntries.length === 1 ? "" : "s"} named · upload needed`
+                        : "No cases uploaded"
                       : fileName || getFilenameFromUrl(fileUrl) || "No document attached";
 
                   return (
@@ -19447,71 +19754,160 @@ Cory`;
                             {displayName}
                           </div>
                         </div>
-                        <span style={commandChipStyle}>{fileUrl ? "Ready" : "Missing"}</span>
+                        <span style={commandChipStyle}>{materialHasFile ? "Ready" : "Missing"}</span>
                       </div>
                       <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "12px" }}>
+                        {material.kind === "case_file" ? (
+                          materialCaseEntries.length ? (
+                            <div style={{ display: "grid", gap: "7px", width: "100%" }}>
+                              {materialCaseEntries.map((caseEntry, caseIndex) => {
+                                const assetUrls = buildTrainingMaterialAssetUrls({
+                                  eventId: id,
+                                  rawUrl: caseEntry.url,
+                                  storagePath: caseEntry.storagePath,
+                                  fileName: caseEntry.name || `case-${caseIndex + 1}`,
+                                });
+                                return (
+                                  <div
+                                    key={`admin-case-${caseEntry.id}-${caseIndex}`}
+                                    style={{
+                                      border: "1px solid rgba(61, 201, 184, 0.14)",
+                                      borderRadius: "12px",
+                                      padding: "8px",
+                                      background: "rgba(255,255,255,0.72)",
+                                      display: "grid",
+                                      gap: "7px",
+                                    }}
+                                  >
+                                    <div style={{ color: "var(--cfsp-text)", fontSize: "12px", fontWeight: 900 }}>
+                                      Case {caseIndex + 1}: {caseEntry.name || "Untitled case"}
+                                    </div>
+                                    <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                                      <button
+                                        type="button"
+                                        onClick={() => openCaseFilePreview(caseEntry)}
+                                        disabled={!caseEntry.url && !caseEntry.storagePath}
+                                        style={{ ...buttonStyle, padding: "7px 10px", opacity: caseEntry.url || caseEntry.storagePath ? 1 : 0.55 }}
+                                      >
+                                        Preview
+                                      </button>
+                                      {caseEntry.url || caseEntry.storagePath ? (
+                                        <a
+                                          href={assetUrls.downloadUrl}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                          download={assetUrls.fileName}
+                                          style={{
+                                            ...buttonStyle,
+                                            display: "inline-flex",
+                                            alignItems: "center",
+                                            textDecoration: "none",
+                                            padding: "7px 10px",
+                                          }}
+                                        >
+                                          Download
+                                        </a>
+                                      ) : null}
+                                      <button
+                                        type="button"
+                                        onClick={() => openCaseFilePicker({ mode: "replace", index: caseIndex })}
+                                        disabled={isBusy}
+                                        style={{ ...buttonStyle, padding: "7px 10px", opacity: isBusy ? 0.65 : 1 }}
+                                      >
+                                        Replace
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => void handleRemoveCaseFile(caseIndex)}
+                                        disabled={isBusy}
+                                        style={{ ...dangerButtonStyle, padding: "7px 10px", opacity: isBusy ? 0.65 : 1 }}
+                                      >
+                                        Remove
+                                      </button>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ) : null
+                        ) : (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                openMaterialPreview({
+                                  title: material.title,
+                                  rawUrl: fileUrl,
+                                  storagePath,
+                                  fileName: displayName,
+                                })
+                              }
+                              disabled={!fileUrl}
+                              style={{ ...buttonStyle, padding: "8px 12px", opacity: fileUrl ? 1 : 0.55 }}
+                            >
+                              Preview
+                            </button>
+                            {fileUrl ? (
+                              (() => {
+                                const assetUrls = buildTrainingMaterialAssetUrls({
+                                  eventId: id,
+                                  rawUrl: fileUrl,
+                                  storagePath,
+                                  fileName: displayName,
+                                });
+                                return (
+                                  <a
+                                    href={assetUrls.downloadUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    download={assetUrls.fileName}
+                                    style={{
+                                      ...buttonStyle,
+                                      display: "inline-flex",
+                                      alignItems: "center",
+                                      textDecoration: "none",
+                                      padding: "8px 12px",
+                                    }}
+                                  >
+                                    Download
+                                  </a>
+                                );
+                              })()
+                            ) : null}
+                          </>
+                        )}
                         <button
                           type="button"
                           onClick={() =>
-                            openMaterialPreview({
-                              title: material.title,
-                              rawUrl: fileUrl,
-                              storagePath,
-                              fileName: displayName,
-                            })
+                            material.kind === "case_file"
+                              ? openCaseFilePicker(uploadedCaseFileCount ? { mode: "add" } : { mode: "replace", index: 0 })
+                              : openTrainingMaterialPicker(material.kind)
                           }
-                          disabled={!fileUrl}
-                          style={{ ...buttonStyle, padding: "8px 12px", opacity: fileUrl ? 1 : 0.55 }}
-                        >
-                          Preview
-                        </button>
-                        {fileUrl ? (
-                          (() => {
-                            const assetUrls = buildTrainingMaterialAssetUrls({
-                              eventId: id,
-                              rawUrl: fileUrl,
-                              storagePath,
-                              fileName: displayName,
-                            });
-                            return (
-                              <a
-                                href={assetUrls.downloadUrl}
-                                target="_blank"
-                                rel="noreferrer"
-                                download={assetUrls.fileName}
-                                style={{
-                                  ...buttonStyle,
-                                  display: "inline-flex",
-                                  alignItems: "center",
-                                  textDecoration: "none",
-                                  padding: "8px 12px",
-                                }}
-                              >
-                                Download
-                              </a>
-                            );
-                          })()
-                        ) : null}
-                        <button
-                          type="button"
-                          onClick={() => openTrainingMaterialPicker(material.kind)}
                           disabled={isBusy}
                           style={{ ...buttonStyle, padding: "8px 12px", opacity: isBusy ? 0.65 : 1 }}
                         >
-                          {fileUrl ? "Replace" : "Add"}
+                          {material.kind === "case_file"
+                            ? uploadedCaseFileCount
+                              ? "Add Another Case"
+                              : "Upload Case"
+                            : fileUrl
+                              ? "Replace"
+                              : "Add"}
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => void handleRemoveTrainingMaterial(material.kind)}
-                          disabled={isBusy || (!fileUrl && !storagePath && !fileName)}
-                          style={{
-                            ...dangerButtonStyle,
-                            padding: "8px 12px",
-                            opacity: isBusy || (!fileUrl && !storagePath && !fileName) ? 0.65 : 1,
-                          }}
-                        >
-                          Remove
-                        </button>
+                        {material.kind === "case_file" ? null : (
+                          <button
+                            type="button"
+                            onClick={() => void handleRemoveTrainingMaterial(material.kind)}
+                            disabled={isBusy || (!fileUrl && !storagePath && !fileName)}
+                            style={{
+                              ...dangerButtonStyle,
+                              padding: "8px 12px",
+                              opacity: isBusy || (!fileUrl && !storagePath && !fileName) ? 0.65 : 1,
+                            }}
+                          >
+                            Remove
+                          </button>
+                        )}
                       </div>
                     </div>
                   );
@@ -20799,12 +21195,119 @@ Cory`;
                   <label style={{ display: "grid", gap: "6px" }}>
                     <span style={statLabel}>Case File Selected</span>
                     <input
-                      value={trainingMetadata.case_file_name}
+                      value={caseFileCount ? `${caseFileCount} case${caseFileCount === 1 ? "" : "s"} loaded` : trainingMetadata.case_file_name}
                       readOnly
                       placeholder="No case file uploaded"
                       style={{ ...inputStyle, width: "100%", boxSizing: "border-box", background: "var(--cfsp-surface-muted)" }}
                     />
                   </label>
+
+                  <div
+                    data-admin-field="case_files"
+                    style={{
+                      gridColumn: "1 / -1",
+                      border: "1px solid rgba(99, 181, 217, 0.16)",
+                      borderRadius: "14px",
+                      padding: "12px",
+                      background: "rgba(255,255,255,0.76)",
+                      display: "grid",
+                      gap: "10px",
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+                      <div>
+                        <div style={statLabel}>Multiple Case Files</div>
+                        <div style={{ marginTop: "3px", color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 750 }}>
+                          {uploadedCaseFileCount
+                            ? `${uploadedCaseFileCount} case${uploadedCaseFileCount === 1 ? "" : "s"} available for this session.`
+                            : caseFileCount
+                              ? `${caseFileCount} case${caseFileCount === 1 ? "" : "s"} named; upload files when ready.`
+                              : "No cases uploaded yet."}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => openCaseFilePicker(uploadedCaseFileCount ? { mode: "add" } : { mode: "replace", index: 0 })}
+                        disabled={trainingMaterialSaving.case_file}
+                        style={{ ...buttonStyle, padding: "8px 11px", opacity: trainingMaterialSaving.case_file ? 0.65 : 1 }}
+                      >
+                        {uploadedCaseFileCount ? "Add Another Case" : "Upload Case"}
+                      </button>
+                    </div>
+                    {caseFileEntries.length ? (
+                      <div style={{ display: "grid", gap: "8px" }}>
+                        {caseFileEntries.map((caseEntry, caseIndex) => {
+                          const assetUrls = buildTrainingMaterialAssetUrls({
+                            eventId: id,
+                            rawUrl: caseEntry.url,
+                            storagePath: caseEntry.storagePath,
+                            fileName: caseEntry.name || `case-${caseIndex + 1}`,
+                          });
+                          return (
+                            <div
+                              key={`admin-metadata-case-${caseEntry.id}-${caseIndex}`}
+                              style={{
+                                display: "grid",
+                                gridTemplateColumns: "minmax(0, 1fr) auto",
+                                gap: "10px",
+                                alignItems: "center",
+                                border: "1px solid rgba(61, 201, 184, 0.14)",
+                                borderRadius: "12px",
+                                background: "rgba(248, 251, 253, 0.9)",
+                                padding: "9px 10px",
+                              }}
+                            >
+                              <div style={{ minWidth: 0 }}>
+                                <div style={{ color: "var(--cfsp-text)", fontSize: "13px", fontWeight: 900, overflowWrap: "anywhere" }}>
+                                  Case {caseIndex + 1}: {caseEntry.name || "Untitled case"}
+                                </div>
+                                <div style={{ marginTop: "3px", color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750, overflowWrap: "anywhere" }}>
+                                  {caseEntry.uploadedAt ? `Uploaded ${formatHumanDate(caseEntry.uploadedAt)}` : "Uploaded"}{caseEntry.uploadedBy ? ` by ${caseEntry.uploadedBy}` : ""}
+                                </div>
+                              </div>
+                              <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                                <button
+                                  type="button"
+                                  onClick={() => openCaseFilePreview(caseEntry)}
+                                  disabled={!caseEntry.url && !caseEntry.storagePath}
+                                  style={{ ...buttonStyle, padding: "7px 10px", opacity: caseEntry.url || caseEntry.storagePath ? 1 : 0.55 }}
+                                >
+                                  Preview
+                                </button>
+                                {caseEntry.url || caseEntry.storagePath ? (
+                                  <a
+                                    href={assetUrls.downloadUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    download={assetUrls.fileName}
+                                    style={{ ...buttonStyle, display: "inline-flex", alignItems: "center", textDecoration: "none", padding: "7px 10px" }}
+                                  >
+                                    Download
+                                  </a>
+                                ) : null}
+                                <button
+                                  type="button"
+                                  onClick={() => openCaseFilePicker({ mode: "replace", index: caseIndex })}
+                                  disabled={trainingMaterialSaving.case_file}
+                                  style={{ ...buttonStyle, padding: "7px 10px", opacity: trainingMaterialSaving.case_file ? 0.65 : 1 }}
+                                >
+                                  Replace
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => void handleRemoveCaseFile(caseIndex)}
+                                  disabled={trainingMaterialSaving.case_file}
+                                  style={{ ...dangerButtonStyle, padding: "7px 10px", opacity: trainingMaterialSaving.case_file ? 0.65 : 1 }}
+                                >
+                                  Remove
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : null}
+                  </div>
 
                   <label style={{ display: "grid", gap: "6px" }}>
                     <span style={statLabel}>Doorsign URL</span>
