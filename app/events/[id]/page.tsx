@@ -4813,21 +4813,32 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       : liveFlowBlocks.find((block) => block.startMinutes > simulatedLiveMinutes) || null;
   const currentRotationRoundNumber =
     currentLiveBlock?.tone === "rotation" ? currentLiveBlock.roundNumber : null;
+  const currentLiveReferenceRound = useMemo(() => {
+    if (selectedRotationRoundKey) {
+      const selectedRound = rotationRounds.find((round) => round.key === selectedRotationRoundKey) || null;
+      if (selectedRound) return selectedRound;
+    }
+    if (
+      currentRotationRoundNumber &&
+      currentRotationRoundNumber > 0 &&
+      currentRotationRoundNumber <= rotationRounds.length
+    ) {
+      return rotationRounds[currentRotationRoundNumber - 1] || null;
+    }
+    return rotationRounds[0] || null;
+  }, [currentRotationRoundNumber, rotationRounds, selectedRotationRoundKey]);
   const currentLiveRoomDisplayEntries = useMemo(() => {
-    if (!currentLiveBlock?.rooms.length && !currentRotationRoundNumber) return [] as RoomDisplayEntry[];
-    const currentRound =
-      currentRotationRoundNumber && currentRotationRoundNumber > 0
-        ? rotationRounds[currentRotationRoundNumber - 1] || null
-        : null;
-    if (currentRound) {
+    if (currentLiveReferenceRound) {
       return (
-        roomSlotEntriesByRoundKey.get(currentRound.key) ||
-        buildFullRoomSlotsForRound(currentRound, {
+        roomSlotEntriesByRoundKey.get(currentLiveReferenceRound.key) ||
+        buildFullRoomSlotsForRound(currentLiveReferenceRound, {
           metadataRoomCount: effectiveRoomCount,
           roomContext: roomNamingContext,
         })
       );
     }
+
+    if (!currentLiveBlock?.rooms.length) return [] as RoomDisplayEntry[];
 
     return buildFullRoomSlotsForRound(null, {
       roomLabels: currentLiveBlock?.rooms || [],
@@ -4836,11 +4847,10 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     });
   }, [
     currentLiveBlock,
-    currentRotationRoundNumber,
+    currentLiveReferenceRound,
     effectiveRoomCount,
     roomNamingContext,
     roomSlotEntriesByRoundKey,
-    rotationRounds,
   ]);
   const defaultSelectedRotationRoundKey = useMemo(() => {
     if (!rotationRounds.length) return "";
@@ -10022,7 +10032,7 @@ Cory`;
                     <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
                       <div style={{ ...statLabel, color: "#7ee7db" }}>Live Attendance Log</div>
                       <span style={{ color: "#89b7c4", fontSize: "11px", fontWeight: 800 }}>
-                        {liveAttendanceLogRows.length} tracked SP{liveAttendanceLogRows.length === 1 ? "" : "s"}
+                        {liveAttendanceBlueprintRooms.length} rooms • {liveAttendanceLogRows.length} staffed SP{liveAttendanceLogRows.length === 1 ? "" : "s"} • {liveBlueprintCheckedCount} checked in
                       </span>
                     </div>
                     {liveAttendanceLogRows.length ? (
