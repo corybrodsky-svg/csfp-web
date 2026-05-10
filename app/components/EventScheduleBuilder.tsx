@@ -6,7 +6,7 @@ import { createPortal } from "react-dom";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { formatHumanDate, getImportedYearHint } from "../lib/eventDateUtils";
-import { parseTrainingEventMetadata } from "../lib/trainingEventNotes";
+import { parseTrainingEventMetadata, upsertTrainingEventMetadata } from "../lib/trainingEventNotes";
 import { getRoomDisplayLabel, getRoomTypeLabel } from "../lib/roomNaming";
 
 type EventRow = {
@@ -63,7 +63,7 @@ type DayBlockPlacement =
 
 type DayBlockVisibility = "student" | "operations" | "both";
 
-type SchedulePreviewKind = "timeline" | "student" | "operations" | "rotation";
+type SchedulePreviewKind = "timeline" | "student" | "sp" | "operations" | "rotation" | "announcements";
 
 type DayBlockConfig = {
   id: string;
@@ -155,6 +155,17 @@ type ScheduleBuilderDraft = {
   savedAt?: string | null;
 };
 
+type BuilderMeResponse = {
+  user?: {
+    email?: string | null;
+  };
+  profile?: {
+    full_name?: string | null;
+    schedule_name?: string | null;
+    email?: string | null;
+  } | null;
+};
+
 type SaveState = "saved" | "saving" | "unsaved" | "error";
 
 type BuilderTimeSource =
@@ -222,8 +233,10 @@ const scheduleCompanionViewLabels: Record<ScheduleCompanionView, string> = {
 
 const schedulePreviewKindOptions: Array<{ value: SchedulePreviewKind; label: string }> = [
   { value: "timeline", label: "Day Flow" },
+  { value: "announcements", label: "Announcement Schedule" },
   { value: "rotation", label: "Rotation Schedule" },
   { value: "student", label: "Student Schedule" },
+  { value: "sp", label: "SP Schedule" },
   { value: "operations", label: "Operations Schedule" },
 ];
 
@@ -234,6 +247,15 @@ function getScheduleCompanionViewLabel(view: ScheduleCompanionView | null | unde
 function asText(value: unknown) {
   if (value === null || value === undefined) return "";
   return String(value).trim();
+}
+
+function getBuilderUserLabel(me: BuilderMeResponse | null) {
+  return (
+    asText(me?.profile?.full_name) ||
+    asText(me?.profile?.schedule_name) ||
+    asText(me?.profile?.email) ||
+    asText(me?.user?.email)
+  );
 }
 
 function makeDayBlockId() {
@@ -1149,7 +1171,9 @@ function buildSchedulePreviewData(args: {
   const isOperations = kind === "operations" || kind === "rotation";
   const titleMap: Record<SchedulePreviewKind, string> = {
     timeline: "Day Flow Preview",
+    announcements: "Announcement Schedule Preview",
     student: "Student Schedule Preview",
+    sp: "SP Schedule Preview",
     operations: "Operations Schedule Preview",
     rotation: "Rotation Schedule Preview",
   };
@@ -1206,6 +1230,16 @@ function buildSchedulePreviewData(args: {
     if (!rounds.length) {
       lines.push("No rotation schedule has been generated yet.");
     }
+  } else if (kind === "announcements") {
+    lines.push("ANNOUNCEMENT SCHEDULE");
+    lines.push("---------------------");
+    if (!timeline.length) {
+      lines.push("No announcement schedule has been generated yet.");
+    } else {
+      timeline.forEach((block) => {
+        lines.push(`${formatRange(block.start, block.end)}  ${block.label}${block.detail ? ` (${block.detail})` : ""}`);
+      });
+    }
   } else {
     lines.push(previewLabel.toUpperCase().replace(/\s+/g, " "));
     lines.push("=".repeat(Math.max(30, previewLabel.length)));
@@ -1221,7 +1255,12 @@ function buildSchedulePreviewData(args: {
         const assignmentIndex = round.roomSlots.findIndex((item) => item.roomName === slot.roomName);
         const learnerText = slot.learnerLabels.length ? slot.learnerLabels.join(", ") : "No learner assigned";
         lines.push(`  ${displayRoomName}`);
-        lines.push(`    Learner: ${learnerText}`);
+        if (kind !== "sp") {
+          lines.push(`    Learner: ${learnerText}`);
+        }
+        if (kind === "sp") {
+          lines.push(`    Assignment: ${assignedSpNames?.[assignmentIndex] || "Unassigned"}`);
+        }
         if (includeOperationsContext) {
           lines.push(`    SP: ${assignedSpNames?.[assignmentIndex] || "Unassigned"}`);
           if (caseName) lines.push(`    Case: ${caseName}`);
@@ -1419,9 +1458,12 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const hydratedTimePrefillKeyRef = useRef<string>("");
   const skipNextAutosaveRef = useRef(false);
   const autosaveTimeoutRef = useRef<number | null>(null);
+  const workflowSyncTimeoutRef = useRef<number | null>(null);
   const [showSchedulePreview, setShowSchedulePreview] = useState(false);
   const [previewKind, setPreviewKind] = useState<SchedulePreviewKind>("timeline");
   const [showExpandedFlowDetails, setShowExpandedFlowDetails] = useState(false);
+  const [activeFlowDetailKey, setActiveFlowDetailKey] = useState("");
+  const [me, setMe] = useState<BuilderMeResponse | null>(null);
 
   useEffect(() => {
     if (!showSchedulePreview || typeof document === "undefined") return;
@@ -1525,6 +1567,31 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       cancelled = true;
     };
   }, [props.fixedEventId, router]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadCurrentUser() {
+      try {
+        const response = await fetch("/api/me", {
+          cache: "no-store",
+          credentials: "include",
+        });
+        if (!response.ok) return;
+        const body = (await response.json().catch(() => null)) as BuilderMeResponse | null;
+        if (!cancelled && body) {
+          setMe(body);
+        }
+      } catch {
+        return;
+      }
+    }
+
+    void loadCurrentUser();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const storageKey = useMemo(
     () => getStorageKey(props.fixedEventId || selectedEventId || ""),
@@ -1687,6 +1754,29 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     () => events.find((event) => event.id === selectedEventId) || null,
     [events, selectedEventId]
   );
+  const persistScheduleWorkflowMetadata = useCallback(
+    async (partial: Record<string, string>) => {
+      if (!selectedEvent?.id) return false;
+      const nextNotes = upsertTrainingEventMetadata(selectedEvent.notes, partial);
+      const response = await fetch(`/api/events/${encodeURIComponent(selectedEvent.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          event_updates: {
+            notes: nextNotes,
+          },
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(`Could not save schedule workflow state (${response.status}).`);
+      }
+      setEvents((current) =>
+        current.map((event) => (event.id === selectedEvent.id ? { ...event, notes: nextNotes } : event))
+      );
+      return true;
+    },
+    [selectedEvent]
+  );
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1711,6 +1801,47 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     () => parseTrainingEventMetadata(selectedEvent?.notes),
     [selectedEvent?.notes]
   );
+  const scheduleWorkflowStatus = asText(selectedEventMetadata.schedule_status).toLowerCase();
+  const scheduleWorkflowBadgeLabel =
+    scheduleWorkflowStatus === "complete"
+      ? "Schedule Complete"
+      : scheduleWorkflowStatus === "in_progress"
+        ? "Schedule In Progress"
+        : "Schedule Not Started";
+  useEffect(() => {
+    if (!selectedEvent?.id) return;
+    if (skipNextAutosaveRef.current) return;
+
+    if (workflowSyncTimeoutRef.current) {
+      window.clearTimeout(workflowSyncTimeoutRef.current);
+    }
+
+    workflowSyncTimeoutRef.current = window.setTimeout(() => {
+      const now = new Date().toISOString();
+      const nextStatus = scheduleWorkflowStatus === "complete" ? "complete" : "in_progress";
+      const partial = {
+        schedule_status: nextStatus,
+        rotation_schedule_status: nextStatus === "complete" ? "complete" : "built",
+        schedule_started_at: selectedEventMetadata.schedule_started_at || now,
+        schedule_updated_at: now,
+      };
+      void persistScheduleWorkflowMetadata(partial).catch(() => {
+        // Keep the builder usable even if event metadata persistence is temporarily unavailable.
+      });
+    }, 1400);
+
+    return () => {
+      if (workflowSyncTimeoutRef.current) {
+        window.clearTimeout(workflowSyncTimeoutRef.current);
+      }
+    };
+  }, [
+    draftSnapshot,
+    persistScheduleWorkflowMetadata,
+    scheduleWorkflowStatus,
+    selectedEvent?.id,
+    selectedEventMetadata.schedule_started_at,
+  ]);
   const selectedEventText = [selectedEvent?.name, selectedEvent?.location, selectedEvent?.notes]
     .map((value) => asText(value))
     .join(" ")
@@ -2011,12 +2142,31 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     if (parsedStartMinutes === null || !generated.rounds.length) return "";
     return `${toDisplayTime(parsedStartMinutes)} - ${toDisplayTime(generated.rotationEnd)}`;
   }, [generated.rotationEnd, generated.rounds.length, parsedStartMinutes]);
+  const contextualPreviewRounds = useMemo(() => {
+    if (!selectedBuilderRoundContext) return visibleScheduledRounds;
+    return [selectedBuilderRoundContext];
+  }, [selectedBuilderRoundContext, visibleScheduledRounds]);
+  const contextualOperationsRounds = useMemo(() => {
+    if (!selectedBuilderRound) return scheduledRounds;
+    return scheduledRounds.filter((round) => round.round === selectedBuilderRound);
+  }, [scheduledRounds, selectedBuilderRound]);
   const schedulePreviews = useMemo(() => {
     const timelinePreview = buildSchedulePreviewData({
       kind: "timeline",
       event: selectedEvent,
       timeline: generated.timeline,
-      rounds: visibleScheduledRounds,
+      rounds: contextualPreviewRounds,
+      roomContext: roomNamingContext,
+      caseName: selectedEventMetadata.case_name,
+      assignedSpNames: selectedEvent?.assigned_sp_names || [],
+      generated,
+      selectedEventSummaryTime,
+    });
+    const announcementPreview = buildSchedulePreviewData({
+      kind: "announcements",
+      event: selectedEvent,
+      timeline: visibleTimeline,
+      rounds: contextualPreviewRounds,
       roomContext: roomNamingContext,
       caseName: selectedEventMetadata.case_name,
       assignedSpNames: selectedEvent?.assigned_sp_names || [],
@@ -2027,7 +2177,18 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       kind: "student",
       event: selectedEvent,
       timeline: generated.timeline,
-      rounds: visibleScheduledRounds,
+      rounds: contextualPreviewRounds,
+      roomContext: roomNamingContext,
+      caseName: selectedEventMetadata.case_name,
+      assignedSpNames: selectedEvent?.assigned_sp_names || [],
+      generated,
+      selectedEventSummaryTime,
+    });
+    const spPreview = buildSchedulePreviewData({
+      kind: "sp",
+      event: selectedEvent,
+      timeline: generated.timeline,
+      rounds: contextualPreviewRounds,
       roomContext: roomNamingContext,
       caseName: selectedEventMetadata.case_name,
       assignedSpNames: selectedEvent?.assigned_sp_names || [],
@@ -2038,7 +2199,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       kind: "operations",
       event: selectedEvent,
       timeline: generated.timeline,
-      rounds: scheduledRounds,
+      rounds: contextualOperationsRounds,
       roomContext: roomNamingContext,
       caseName: selectedEventMetadata.case_name,
       assignedSpNames: selectedEvent?.assigned_sp_names || [],
@@ -2049,7 +2210,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       kind: "rotation",
       event: selectedEvent,
       timeline: generated.timeline,
-      rounds: scheduledRounds,
+      rounds: contextualOperationsRounds,
       roomContext: roomNamingContext,
       caseName: selectedEventMetadata.case_name,
       assignedSpNames: selectedEvent?.assigned_sp_names || [],
@@ -2059,18 +2220,21 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
 
     return {
       timeline: timelinePreview,
+      announcements: announcementPreview,
       student: studentPreview,
+      sp: spPreview,
       operations: operationsPreview,
       rotation: rotationPreview,
     };
   }, [
+    contextualOperationsRounds,
+    contextualPreviewRounds,
     generated,
     roomNamingContext,
-    scheduledRounds,
     selectedEvent,
     selectedEventMetadata.case_name,
     selectedEventSummaryTime,
-    visibleScheduledRounds,
+    visibleTimeline,
   ]);
   const schedulePreview = schedulePreviews[previewKind];
   const selectedPreviewFileName = `${getSafeFileName(schedulePreview.title)}.html`;
@@ -2159,6 +2323,29 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       popup.focus();
       popup.print();
     };
+  }
+
+  async function handleCompleteSchedule() {
+    if (!selectedEvent?.id) return;
+    const confirmed = window.confirm("Mark this schedule complete?");
+    if (!confirmed) return;
+
+    const now = new Date().toISOString();
+    try {
+      await persistScheduleWorkflowMetadata({
+        schedule_status: "complete",
+        schedule_started_at: selectedEventMetadata.schedule_started_at || now,
+        schedule_updated_at: now,
+        schedule_completed_at: now,
+        schedule_completed_by: getBuilderUserLabel(me),
+        rotation_schedule_status: "complete",
+      });
+      setCopyMessage("Schedule marked complete.");
+      window.setTimeout(() => setCopyMessage(""), 2400);
+    } catch (error) {
+      setCopyMessage(error instanceof Error ? error.message : "Could not mark schedule complete.");
+      window.setTimeout(() => setCopyMessage(""), 2600);
+    }
   }
 
   function handleClearRoster() {
@@ -2835,6 +3022,55 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                     </option>
                   ))}
                 </select>
+              </div>
+            </div>
+            <div className="mt-2 text-xs font-semibold uppercase tracking-[0.08em] text-[#5e7388]">
+              Output: {schedulePreview.summary}
+            </div>
+
+            {copyMessage ? <div className="mt-4 text-sm font-semibold text-[#196b57]">{copyMessage}</div> : null}
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+              <div className="text-sm font-black text-[#14304f]">Live source: {schedulePreview.title}</div>
+              <span
+                className="rounded-full border px-3 py-1 text-xs font-black uppercase tracking-[0.08em]"
+                style={{
+                  borderColor:
+                    scheduleWorkflowStatus === "complete"
+                      ? "rgba(44, 211, 173, 0.28)"
+                      : scheduleWorkflowStatus === "in_progress"
+                        ? "rgba(73, 168, 255, 0.28)"
+                        : "rgba(148, 163, 184, 0.24)",
+                  background:
+                    scheduleWorkflowStatus === "complete"
+                      ? "rgba(209, 250, 229, 0.52)"
+                      : scheduleWorkflowStatus === "in_progress"
+                        ? "rgba(219, 234, 254, 0.58)"
+                        : "rgba(241, 245, 249, 0.7)",
+                  color:
+                    scheduleWorkflowStatus === "complete"
+                      ? "#0f766e"
+                      : scheduleWorkflowStatus === "in_progress"
+                        ? "#1d4ed8"
+                        : "#5e7388",
+                }}
+              >
+                {scheduleWorkflowBadgeLabel}
+              </span>
+            </div>
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+              <div className="text-sm font-semibold text-[#5e7388]">
+                Compact day flow keeps the full schedule visible without the long stacked scroll.
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowExpandedFlowDetails((current) => !current)}
+                className="cfsp-btn cfsp-btn-secondary"
+              >
+                {showExpandedFlowDetails ? "Collapse Flow Details" : "Expand Flow Details"}
+              </button>
+            </div>
+            <div className="mt-3 grid gap-3 rounded-[16px] border border-[#dce6ee] bg-[#f8fbfd] p-3">
+              <div className="flex flex-wrap gap-2">
                 <button type="button" onClick={() => setShowSchedulePreview(true)} className="cfsp-btn cfsp-btn-secondary">
                   Preview
                 </button>
@@ -2847,25 +3083,17 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                 <button type="button" onClick={handlePrintPreview} className="cfsp-btn cfsp-btn-secondary">
                   Print
                 </button>
+                <button type="button" onClick={() => void handleCompleteSchedule()} className="cfsp-btn">
+                  Complete Schedule
+                </button>
               </div>
-            </div>
-            <div className="mt-2 text-xs font-semibold uppercase tracking-[0.08em] text-[#5e7388]">
-              Output: {schedulePreview.summary}
-            </div>
-
-            {copyMessage ? <div className="mt-4 text-sm font-semibold text-[#196b57]">{copyMessage}</div> : null}
-            <div className="mt-4 text-sm font-black text-[#14304f]">Live source: {schedulePreview.title}</div>
-            <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-              <div className="text-sm font-semibold text-[#5e7388]">
-                Compact day flow keeps the full schedule visible without the long stacked scroll.
+              <div className="overflow-hidden rounded-[14px] border border-[#dce6ee] bg-white">
+                <iframe
+                  title={`${schedulePreview.title} inline preview`}
+                  srcDoc={schedulePreview.html}
+                  style={{ width: "100%", height: "520px", border: "none", background: "#fff", display: "block" }}
+                />
               </div>
-              <button
-                type="button"
-                onClick={() => setShowExpandedFlowDetails((current) => !current)}
-                className="cfsp-btn cfsp-btn-secondary"
-              >
-                {showExpandedFlowDetails ? "Collapse Flow Details" : "Expand Flow Details"}
-              </button>
             </div>
 
             {parsedStartMinutes === null ? (
@@ -2915,6 +3143,23 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                       <div
                         key={entry.key}
                         className="rounded-[14px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3 shadow-[0_8px_20px_rgba(20,48,79,0.06)]"
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => setSelectedBuilderRound(entry.round.round)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            setSelectedBuilderRound(entry.round.round);
+                          }
+                        }}
+                        style={{
+                          borderColor: selectedBuilderRound === entry.round.round ? "#0f766e" : "#dce6ee",
+                          background: selectedBuilderRound === entry.round.round ? "rgba(209, 250, 229, 0.34)" : "#f8fbfd",
+                          boxShadow:
+                            selectedBuilderRound === entry.round.round
+                              ? "0 12px 24px rgba(15,118,110,0.12)"
+                              : "0 8px 20px rgba(20,48,79,0.06)",
+                        }}
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div>
@@ -2937,16 +3182,53 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                             <span
                               key={`${entry.round.round}-${subBlock.label}-${subBlock.start}`}
                               className="rounded-full border px-3 py-1 text-xs font-bold"
+                              role="button"
+                              tabIndex={0}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setActiveFlowDetailKey((current) =>
+                                  current === `${entry.key}-${subBlock.label}-${subBlock.start}` ? "" : `${entry.key}-${subBlock.label}-${subBlock.start}`
+                                );
+                              }}
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter" || event.key === " ") {
+                                  event.preventDefault();
+                                  event.stopPropagation();
+                                  setActiveFlowDetailKey((current) =>
+                                    current === `${entry.key}-${subBlock.label}-${subBlock.start}` ? "" : `${entry.key}-${subBlock.label}-${subBlock.start}`
+                                  );
+                                }
+                              }}
                               style={{
                                 borderColor: "#d6e0e8",
                                 background: "#ffffff",
                                 color: "#4f677d",
+                                cursor: "pointer",
                               }}
                             >
                               {subBlock.label} {formatDurationCompact(getBlockDurationMinutes(subBlock.start, subBlock.end))}
                             </span>
                           ))}
                         </div>
+                        {entry.round.subBlocks.map((subBlock) => {
+                          const detailKey = `${entry.key}-${subBlock.label}-${subBlock.start}`;
+                          if (activeFlowDetailKey !== detailKey) return null;
+                          return (
+                            <div
+                              key={`${detailKey}-detail`}
+                              className="mt-3 rounded-[12px] border border-[#c7dcee] bg-white px-3 py-3 text-sm"
+                            >
+                              <div className="font-black text-[#14304f]">{subBlock.label}</div>
+                              <div className="mt-1 font-semibold text-[#5e7388]">
+                                {formatRange(subBlock.start, subBlock.end)} · {getBlockDurationMinutes(subBlock.start, subBlock.end)} minutes
+                              </div>
+                              <div className="mt-1 font-semibold text-[#5e7388]">Round {entry.round.round}</div>
+                              <div className="mt-1 font-semibold text-[#5e7388]">
+                                Visibility: {subBlock.visibleTo === "both" || !subBlock.visibleTo ? "Both" : subBlock.visibleTo === "student" ? "Student" : "Operations"}
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     )
                   )}
@@ -3085,9 +3367,11 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                         <tr
                           key={entry.key}
                           className="border-b border-[#eef3f7] align-top text-sm text-[#14304f]"
+                          onClick={() => setSelectedBuilderRound(round.round)}
                           style={{
                             background: isSelectedContextRound ? "rgba(209, 250, 229, 0.36)" : undefined,
                             boxShadow: isSelectedContextRound ? "inset 4px 0 0 rgba(15, 118, 110, 0.72)" : undefined,
+                            cursor: "pointer",
                           }}
                         >
                           <td className="px-3 py-4 font-black">

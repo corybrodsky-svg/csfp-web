@@ -5152,9 +5152,12 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
   const hasTrainingScheduled = hasNotesLine(event?.notes, /^Training Date\s*:/im);
   const hasZoomReady = hasNotesLine(event?.notes, /^(Zoom|SimIQ)\s*:/im) || /zoom|simiq|online|virtual/i.test(asText(event?.notes));
   const hasRoomsBuilt = sessions.some((session) => Boolean(asText(session.room) || asText(session.location)));
+  const scheduleWorkflowStatus = asText(trainingMetadata.schedule_status).toLowerCase();
   const rotationScheduleBuilt = ["built", "saved", "complete"].includes(
     asText(trainingMetadata.rotation_schedule_status).toLowerCase()
   );
+  const scheduleCompleted = scheduleWorkflowStatus === "complete";
+  const scheduleInProgress = scheduleWorkflowStatus === "in_progress";
   const trainingFacultyText = trainingMetadata.faculty_names || fallbackFacultyText;
   const facultyEmailText = trainingMetadata.faculty_email;
   const facultyPhoneText = trainingMetadata.faculty_phone;
@@ -5740,7 +5743,7 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       { label: "Needs Staffing", active: staffingRelevant && confirmedCount < Math.max(needed, 1) },
       { label: "Needs Faculty", active: !facultyReadinessComplete },
       { label: materialsReadinessLabel, active: Boolean(materialsReadinessLabel) },
-      { label: "Awaiting Schedule", active: !rotationRounds.length || summaryTimeLabel === "Time TBD" },
+      { label: scheduleInProgress ? "Schedule In Progress" : "Awaiting Schedule", active: scheduleInProgress || !rotationRounds.length || summaryTimeLabel === "Time TBD" },
       { label: "Awaiting Rooms", active: !hasRoomsBuilt },
     ];
     return {
@@ -5755,6 +5758,7 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     materialsWorkflowNeedsAction,
     needed,
     rotationRounds.length,
+    scheduleInProgress,
     staffingRelevant,
     summaryTimeLabel,
   ]);
@@ -7392,7 +7396,11 @@ Cory`;
         : "Not Started";
   const facultyReadinessStatus: WorkflowReadinessStatus = facultyReadinessComplete ? "Ready" : "Needs Action";
   const scheduleReadinessStatus: WorkflowReadinessStatus =
-    rotationRounds.length && summaryTimeLabel !== "Time TBD"
+    scheduleCompleted
+      ? "Ready"
+      : scheduleInProgress
+        ? "In Progress"
+        : rotationRounds.length && summaryTimeLabel !== "Time TBD"
       ? "Ready"
       : sessions.length || asText(event?.date_text)
         ? "Needs Action"
@@ -7495,10 +7503,18 @@ Cory`;
       id: "schedule",
       label: "Schedule readiness",
       status: scheduleReadinessStatus,
-      value: rotationRounds.length
-        ? `${rotationRounds.length} rotation round${rotationRounds.length === 1 ? "" : "s"} prepared`
-        : "Schedule not built",
-      explanation: rotationRounds.length
+      value: scheduleCompleted
+        ? "Schedule Complete"
+        : scheduleInProgress
+          ? "Schedule In Progress"
+          : rotationRounds.length
+            ? `${rotationRounds.length} rotation round${rotationRounds.length === 1 ? "" : "s"} prepared`
+            : "Schedule not built",
+      explanation: scheduleCompleted
+        ? "The scheduling workflow is marked complete and ready for event operations."
+        : scheduleInProgress
+          ? "The scheduling workspace has active builder progress saved for this event."
+          : rotationRounds.length
         ? `${effectiveRotationCountSource.label}. Rotation schedule is available for ${summaryTimeLabel}.`
         : sessions.length
           ? `${sessions.length} structured session${sessions.length === 1 ? "" : "s"} exist, but rotation rounds still need QA.`
@@ -14022,6 +14038,24 @@ Cory`;
                 }}
               >
                 {[
+                  {
+                    label: "Schedule",
+                    value: scheduleCompleted
+                      ? "Schedule Complete"
+                      : scheduleInProgress
+                        ? "Schedule In Progress"
+                        : rotationRounds.length
+                          ? `${rotationRounds.length} rounds prepared`
+                          : "Schedule not built",
+                    chips: [
+                      scheduleCompleted
+                        ? "Ready for operations"
+                        : scheduleInProgress
+                          ? "Builder progress saved"
+                          : effectiveRotationCountSource.label,
+                    ].filter(Boolean),
+                    accent: scheduleCompleted ? "#86efac" : scheduleInProgress ? "#7dd3fc" : "#fcd34d",
+                  },
                   {
                     label: "Communication",
                     value:

@@ -47,6 +47,11 @@ export type TrainingEventMetadata = {
   contact_internal_notes: string;
   training_notes: string;
   rotation_schedule_status: string;
+  schedule_started_at: string;
+  schedule_updated_at: string;
+  schedule_completed_at: string;
+  schedule_status: string;
+  schedule_completed_by: string;
   modality: string;
   workflow_manual_checks: string;
   email_status: string;
@@ -115,6 +120,11 @@ const TRAINING_METADATA_KEYS = [
   "contact_internal_notes",
   "training_notes",
   "rotation_schedule_status",
+  "schedule_started_at",
+  "schedule_updated_at",
+  "schedule_completed_at",
+  "schedule_status",
+  "schedule_completed_by",
   "modality",
   "workflow_manual_checks",
   "email_status",
@@ -192,6 +202,11 @@ export function emptyTrainingEventMetadata(): TrainingEventMetadata {
     contact_internal_notes: "",
     training_notes: "",
     rotation_schedule_status: "",
+    schedule_started_at: "",
+    schedule_updated_at: "",
+    schedule_completed_at: "",
+    schedule_status: "",
+    schedule_completed_by: "",
     modality: "",
     workflow_manual_checks: "",
     email_status: "",
