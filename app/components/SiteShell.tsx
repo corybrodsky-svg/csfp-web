@@ -387,7 +387,7 @@ export default function SiteShell({ title, subtitle, children }: SiteShellProps)
                 </div>
               </div>
 
-              <nav className="flex flex-wrap gap-2 pt-4" aria-label="Primary navigation" style={{ borderTop: "1px solid var(--cfsp-border)" }}>
+              <nav className="flex flex-wrap gap-1.5 pt-4" aria-label="Primary navigation" style={{ borderTop: "1px solid var(--cfsp-border)" }}>
                 {visibleNavItems.map((item) => {
                   const active = activeMap.get(item.href);
                   const isPrimary = item.tone === "primary";
@@ -396,17 +396,8 @@ export default function SiteShell({ title, subtitle, children }: SiteShellProps)
                     <Link
                       key={item.href}
                       href={item.href}
-                      className="min-h-[42px] rounded-[10px] px-3 py-2 text-sm font-bold no-underline transition-colors"
-                      style={{
-                        background: active
-                          ? "linear-gradient(135deg, rgba(73, 168, 255, 0.94), rgba(44, 211, 173, 0.82))"
-                          : isPrimary
-                            ? "linear-gradient(135deg, rgba(20, 91, 150, 0.98), rgba(25, 138, 112, 0.92))"
-                            : "var(--cfsp-header-bg)",
-                        border: active || isPrimary ? "1px solid transparent" : "1px solid var(--cfsp-header-border)",
-                        color: active || isPrimary ? "#04111b" : "var(--cfsp-text)",
-                        boxShadow: active || isPrimary ? "0 10px 20px rgba(24, 52, 78, 0.14), 0 0 18px rgba(73, 168, 255, 0.12)" : "none",
-                      }}
+                      className={`cfsp-nav-link${active ? " is-active" : ""}${isPrimary ? " is-primary" : ""}`}
+                      aria-current={active ? "page" : undefined}
                     >
                       {item.label}
                     </Link>

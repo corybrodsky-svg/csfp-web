@@ -529,13 +529,14 @@ const statValue: React.CSSProperties = {
 };
 
 const buttonStyle: React.CSSProperties = {
-  border: "1px solid var(--cfsp-blue)",
-  borderRadius: "12px",
-  background: "var(--cfsp-blue)",
-  color: "#ffffff",
+  border: "1px solid var(--cfsp-command-button-active-border)",
+  borderRadius: "9px",
+  background: "var(--cfsp-command-button-primary-bg)",
+  color: "var(--cfsp-command-button-primary-text)",
   cursor: "pointer",
-  fontWeight: 800,
-  padding: "10px 14px",
+  fontWeight: 850,
+  padding: "8px 13px",
+  boxShadow: "var(--cfsp-command-button-active-shadow)",
 };
 
 const dangerButtonStyle: React.CSSProperties = {
@@ -16363,9 +16364,12 @@ Cory`;
                   gap: "8px",
                   flexWrap: "wrap",
                   padding: "6px",
-                  borderRadius: "999px",
-                  border: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.2)" : "1px solid rgba(126, 231, 219, 0.18)",
-                  background: isPlanningVisualMode ? "rgba(230, 245, 249, 0.9)" : "rgba(5, 16, 29, 0.82)",
+                  borderRadius: "14px",
+                  border: "1px solid var(--cfsp-command-button-border)",
+                  background: isPlanningVisualMode
+                    ? "linear-gradient(135deg, rgba(255,255,255,0.84), rgba(232,255,249,0.7))"
+                    : "linear-gradient(135deg, rgba(14, 34, 50, 0.82), rgba(11, 53, 55, 0.72))",
+                  boxShadow: "var(--cfsp-command-button-shadow)",
                 }}
               >
                 <button
@@ -16374,16 +16378,17 @@ Cory`;
                   style={{
                     ...buttonStyle,
                     padding: "8px 12px",
-                    borderRadius: "999px",
+                    borderRadius: "10px",
                     background:
-                      commandCenterMode === "planning" ? "var(--cfsp-blue)" : "transparent",
-                    color: commandCenterMode === "planning" ? "#ffffff" : commandCenterVisual.mutedColor,
+                      commandCenterMode === "planning" ? "var(--cfsp-command-button-active-bg)" : "transparent",
+                    color: commandCenterMode === "planning" ? "var(--cfsp-command-button-active-text)" : commandCenterVisual.mutedColor,
                     border:
                       commandCenterMode === "planning"
-                        ? "1px solid var(--cfsp-blue)"
+                        ? "1px solid var(--cfsp-command-button-active-border)"
                         : isPlanningVisualMode
-                          ? "1px solid rgba(99, 181, 217, 0.2)"
+                          ? "1px solid rgba(44, 211, 173, 0.16)"
                           : "1px solid rgba(148, 163, 184, 0.2)",
+                    boxShadow: commandCenterMode === "planning" ? "var(--cfsp-command-button-active-shadow)" : "none",
                   }}
                 >
                   Planning Mode
@@ -16394,16 +16399,17 @@ Cory`;
                   style={{
                     ...buttonStyle,
                     padding: "8px 12px",
-                    borderRadius: "999px",
+                    borderRadius: "10px",
                     background:
-                      commandCenterMode === "live" ? "rgba(44, 211, 173, 0.18)" : "transparent",
-                    color: commandCenterMode === "live" ? "#7ee7db" : commandCenterVisual.mutedColor,
+                      commandCenterMode === "live" ? "var(--cfsp-command-button-active-bg)" : "transparent",
+                    color: commandCenterMode === "live" ? "var(--cfsp-command-button-active-text)" : commandCenterVisual.mutedColor,
                     border:
                       commandCenterMode === "live"
-                        ? "1px solid rgba(44, 211, 173, 0.28)"
+                        ? "1px solid var(--cfsp-command-button-active-border)"
                         : isPlanningVisualMode
-                          ? "1px solid rgba(99, 181, 217, 0.2)"
+                          ? "1px solid rgba(44, 211, 173, 0.16)"
                           : "1px solid rgba(148, 163, 184, 0.2)",
+                    boxShadow: commandCenterMode === "live" ? "var(--cfsp-command-button-active-shadow)" : "none",
                   }}
                 >
                   Live Event Mode

@@ -91,6 +91,18 @@
   --cfsp-console-control-bg: rgba(255, 255, 255, 0.72);
   --cfsp-console-chip-bg: rgba(255, 255, 255, 0.52);
   --cfsp-console-chip-border: rgba(73, 168, 255, 0.18);
+  --cfsp-command-button-bg: linear-gradient(135deg, rgba(250, 254, 255, 0.94), rgba(235, 255, 250, 0.9));
+  --cfsp-command-button-border: rgba(44, 211, 173, 0.2);
+  --cfsp-command-button-text: #163f5d;
+  --cfsp-command-button-shadow: 0 9px 22px rgba(73, 168, 255, 0.08), inset 0 1px 0 rgba(255,255,255,0.76);
+  --cfsp-command-button-hover-bg: linear-gradient(135deg, rgba(239, 250, 255, 0.98), rgba(220, 255, 247, 0.94));
+  --cfsp-command-button-active-bg: linear-gradient(135deg, rgba(125, 211, 252, 0.46), rgba(44, 211, 173, 0.32), rgba(196, 181, 253, 0.22));
+  --cfsp-command-button-active-border: rgba(44, 211, 173, 0.48);
+  --cfsp-command-button-active-text: #062f3c;
+  --cfsp-command-button-active-shadow: 0 12px 28px rgba(44, 211, 173, 0.18), 0 0 24px rgba(73, 168, 255, 0.15), inset 0 1px 0 rgba(255,255,255,0.82);
+  --cfsp-command-button-primary-bg: linear-gradient(135deg, rgba(73, 168, 255, 0.94), rgba(44, 211, 173, 0.88));
+  --cfsp-command-button-primary-text: #041a22;
+  --cfsp-command-button-success-bg: linear-gradient(135deg, rgba(44, 211, 173, 0.94), rgba(143, 245, 214, 0.82));
 }
 
 html[data-theme="dark"] {
@@ -189,6 +201,18 @@ html[data-theme="dark"] {
   --cfsp-console-control-bg: rgba(255, 255, 255, 0.08);
   --cfsp-console-chip-bg: rgba(255, 255, 255, 0.075);
   --cfsp-console-chip-border: rgba(125, 211, 252, 0.2);
+  --cfsp-command-button-bg: linear-gradient(135deg, rgba(19, 38, 58, 0.88), rgba(13, 54, 58, 0.8));
+  --cfsp-command-button-border: rgba(125, 211, 252, 0.22);
+  --cfsp-command-button-text: #dcefff;
+  --cfsp-command-button-shadow: 0 10px 26px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255,255,255,0.07);
+  --cfsp-command-button-hover-bg: linear-gradient(135deg, rgba(25, 55, 82, 0.94), rgba(15, 72, 70, 0.88));
+  --cfsp-command-button-active-bg: linear-gradient(135deg, rgba(73, 168, 255, 0.32), rgba(44, 211, 173, 0.26), rgba(196, 181, 253, 0.14));
+  --cfsp-command-button-active-border: rgba(125, 211, 252, 0.42);
+  --cfsp-command-button-active-text: #eaffff;
+  --cfsp-command-button-active-shadow: 0 12px 32px rgba(0, 0, 0, 0.24), 0 0 28px rgba(44, 211, 173, 0.16), 0 0 22px rgba(73, 168, 255, 0.12), inset 0 1px 0 rgba(255,255,255,0.1);
+  --cfsp-command-button-primary-bg: linear-gradient(135deg, rgba(73, 168, 255, 0.88), rgba(44, 211, 173, 0.8));
+  --cfsp-command-button-primary-text: #04111b;
+  --cfsp-command-button-success-bg: linear-gradient(135deg, rgba(44, 211, 173, 0.9), rgba(143, 245, 214, 0.72));
 }
 
 @theme inline {
@@ -382,18 +406,23 @@ textarea {
 }
 
 .cfsp-btn {
-  min-height: 44px;
+  min-height: 38px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  border-radius: 10px;
-  padding: 10px 16px;
+  gap: 7px;
+  border-radius: 9px;
+  padding: 8px 13px;
   text-decoration: none;
-  font-weight: 800;
-  border: 1px solid transparent;
+  font-size: 0.88rem;
+  font-weight: 850;
+  letter-spacing: 0.005em;
+  border: 1px solid var(--cfsp-command-button-border);
+  background: var(--cfsp-command-button-bg);
+  color: var(--cfsp-command-button-text);
+  box-shadow: var(--cfsp-command-button-shadow);
   transition:
-    background-color 160ms ease,
+    background 160ms ease,
     border-color 160ms ease,
     color 160ms ease,
     box-shadow 160ms ease,
@@ -402,7 +431,9 @@ textarea {
 
 .cfsp-btn:hover {
   transform: translateY(-1px);
-  box-shadow: 0 0 0 1px rgba(120, 180, 255, 0.08), 0 10px 24px rgba(0, 0, 0, 0.22);
+  background: var(--cfsp-command-button-hover-bg);
+  border-color: var(--cfsp-command-button-active-border);
+  box-shadow: var(--cfsp-command-button-active-shadow);
 }
 
 .cfsp-btn:focus-visible,
@@ -413,46 +444,85 @@ textarea {
 }
 
 .cfsp-btn-primary {
-  background: var(--cfsp-blue);
-  border-color: var(--cfsp-blue);
-  color: #ffffff;
+  background: var(--cfsp-command-button-primary-bg);
+  border-color: var(--cfsp-command-button-active-border);
+  color: var(--cfsp-command-button-primary-text);
+  box-shadow: var(--cfsp-command-button-active-shadow);
 }
 
 .cfsp-btn-primary:hover {
-  background: var(--cfsp-blue-dark);
-  border-color: var(--cfsp-blue-dark);
+  background: var(--cfsp-command-button-active-bg);
+  border-color: var(--cfsp-command-button-active-border);
 }
 
 .cfsp-btn-secondary {
-  background: var(--cfsp-button-secondary-bg);
-  border-color: var(--cfsp-button-secondary-border);
-  color: var(--cfsp-button-secondary-text);
+  background: var(--cfsp-command-button-bg);
+  border-color: var(--cfsp-command-button-border);
+  color: var(--cfsp-command-button-text);
 }
 
 .cfsp-btn-secondary:hover {
-  background: var(--cfsp-surface-muted);
-  border-color: var(--cfsp-border-strong);
+  background: var(--cfsp-command-button-hover-bg);
+  border-color: var(--cfsp-command-button-active-border);
 }
 
 .cfsp-btn-subtle {
-  background: var(--cfsp-theme-toggle-bg);
-  border-color: var(--cfsp-theme-toggle-border);
-  color: var(--cfsp-blue-dark);
+  background: rgba(255,255,255,0.36);
+  border-color: var(--cfsp-command-button-border);
+  color: var(--cfsp-command-button-text);
+  box-shadow: none;
 }
 
 .cfsp-btn-subtle:hover {
-  background: var(--cfsp-surface-muted);
+  background: var(--cfsp-command-button-hover-bg);
 }
 
 .cfsp-btn-success {
-  background: var(--cfsp-green);
-  border-color: var(--cfsp-green);
-  color: #ffffff;
+  background: var(--cfsp-command-button-success-bg);
+  border-color: rgba(44, 211, 173, 0.46);
+  color: var(--cfsp-command-button-primary-text);
+  box-shadow: var(--cfsp-command-button-active-shadow);
 }
 
 .cfsp-btn-success:hover {
-  background: var(--cfsp-green-dark);
-  border-color: var(--cfsp-green-dark);
+  background: var(--cfsp-command-button-active-bg);
+  border-color: var(--cfsp-command-button-active-border);
+}
+
+.cfsp-nav-link {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 9px;
+  border: 1px solid var(--cfsp-command-button-border);
+  background: var(--cfsp-command-button-bg);
+  color: var(--cfsp-command-button-text);
+  box-shadow: var(--cfsp-command-button-shadow);
+  padding: 7px 11px;
+  font-size: 0.84rem;
+  font-weight: 850;
+  text-decoration: none;
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
+}
+
+.cfsp-nav-link:hover {
+  transform: translateY(-1px);
+  background: var(--cfsp-command-button-hover-bg);
+  border-color: var(--cfsp-command-button-active-border);
+  box-shadow: var(--cfsp-command-button-active-shadow);
+}
+
+.cfsp-nav-link.is-active,
+.cfsp-nav-link.is-primary {
+  background: var(--cfsp-command-button-active-bg);
+  border-color: var(--cfsp-command-button-active-border);
+  color: var(--cfsp-command-button-active-text);
+  box-shadow: var(--cfsp-command-button-active-shadow);
 }
 
 .cfsp-badge {
