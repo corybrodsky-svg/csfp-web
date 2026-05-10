@@ -245,6 +245,7 @@ type EventSchedulePreviewKind =
 
 type LiveRoomAdjustment = {
   standbyAssignmentId?: string;
+  restoredAssignmentId?: string;
   expanded?: boolean;
   extraRoomCount?: number;
 };
@@ -2350,6 +2351,7 @@ function parseLiveRoomAdjustments(value: string | null | undefined) {
           key,
           {
             standbyAssignmentId: asText((record as LiveRoomAdjustment).standbyAssignmentId),
+            restoredAssignmentId: asText((record as LiveRoomAdjustment).restoredAssignmentId),
             expanded: Boolean((record as LiveRoomAdjustment).expanded),
             extraRoomCount: Math.max(
               0,
@@ -3674,6 +3676,7 @@ export default function EventDetailPage() {
   const [attendanceSuccess, setAttendanceSuccess] = useState("");
   const [activeBlueprintRoomKey, setActiveBlueprintRoomKey] = useState("");
   const [blueprintActionSavingKey, setBlueprintActionSavingKey] = useState("");
+  const [blueprintRestoreAssignmentIdByRoom, setBlueprintRestoreAssignmentIdByRoom] = useState<Record<string, string>>({});
   const [liveAttendanceToolsExpanded, setLiveAttendanceToolsExpanded] = useState(true);
   const [trainingImportResult, setTrainingImportResult] = useState<TrainingImportResult | null>(null);
   const [trainingImportError, setTrainingImportError] = useState("");
@@ -7449,6 +7452,14 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       ),
     [liveRoomAdjustments]
   );
+  const liveRestoredAssignmentRoomById = useMemo(() => {
+    const next = new Map<string, string>();
+    Object.entries(liveRoomAdjustments).forEach(([roomKey, adjustment]) => {
+      const restoredId = asText(adjustment.restoredAssignmentId);
+      if (restoredId) next.set(restoredId, roomKey);
+    });
+    return next;
+  }, [liveRoomAdjustments]);
   const liveBlueprintBaseRooms = useMemo(
     () =>
       liveBlueprintRoomEntries.map(({ roomName, sourceIndex }, index) => {
@@ -7459,8 +7470,28 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
           (sourceIndex >= 0 ? currentLiveRoomBoardRows.find((row) => row.sourceIndex === sourceIndex) : null) ||
           currentLiveRoomBoardRows[index] ||
           null;
-        const assignment = boardRow?.assignment || liveBlueprintRoomAssignmentPlan.assignments[index]?.assignment || null;
-        const sp = boardRow?.sp || (assignment?.sp_id ? spsById.get(assignment.sp_id) || null : null);
+        const projection = liveBlueprintRoomAssignmentPlan.assignments[index];
+        const restoredAssignment =
+          asText(adjustment.restoredAssignmentId)
+            ? confirmedAssignments.find((item) => item.id === adjustment.restoredAssignmentId) || null
+            : null;
+        const plannedAssignment = boardRow?.assignment || projection?.assignment || null;
+        const plannedAssignmentOverrideRoom = plannedAssignment?.id
+          ? liveRestoredAssignmentRoomById.get(plannedAssignment.id)
+          : "";
+        const assignment =
+          restoredAssignment ||
+          (plannedAssignmentOverrideRoom && plannedAssignmentOverrideRoom !== adjustmentKey ? null : plannedAssignment);
+        const sp = assignment
+          ? (assignment.sp_id ? spsById.get(assignment.sp_id) || null : null)
+          : null;
+        const assignmentSource = restoredAssignment
+          ? "restored"
+          : assignment
+            ? projection?.isExplicit
+              ? "explicit"
+              : "auto"
+            : "missing";
         const standbyAssignment =
           asText(adjustment.standbyAssignmentId)
             ? backupAssignments.find((item) => item.id === adjustment.standbyAssignmentId) || null
@@ -7539,15 +7570,18 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
           standbyExpanded: Boolean(adjustment.expanded || standbyAssignment),
           adjustmentKey,
           isTemporaryRoom: false,
+          assignmentSource,
         };
       }),
     [
       backupAssignments,
+      confirmedAssignments,
       currentLiveRoomDisplayEntries.length,
       currentLiveRoomBoardRows,
       firstLiveRotationStartMinutes,
       liveBlueprintRoomEntries,
       liveBlueprintRoomAssignmentPlan.assignments,
+      liveRestoredAssignmentRoomById,
       liveRoomAdjustments,
       simulatedLiveMinutes,
       spsById,
@@ -7581,11 +7615,29 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
         standbyExpanded: false,
         adjustmentKey,
         isTemporaryRoom: true,
+        assignmentSource: "missing" as const,
       };
     });
     return [...liveBlueprintBaseRooms, ...extraRooms];
   }, [liveBlueprintBaseHighestRoomNumber, liveBlueprintBaseRooms, liveExtraRoomCount, roomNamingContext]);
   const liveVisibleRoomCount = liveAttendanceBlueprintRooms.length;
+  const liveDisplayedPrimaryAssignmentIds = useMemo(
+    () =>
+      new Set(
+        liveAttendanceBlueprintRooms
+          .map((room) => asText(room.assignment?.id))
+          .filter(Boolean)
+      ),
+    [liveAttendanceBlueprintRooms]
+  );
+  const liveUnmappedConfirmedAssignments = useMemo(
+    () =>
+      confirmedAssignments.filter((assignment) => {
+        const assignmentId = asText(assignment.id);
+        return assignmentId && !liveDisplayedPrimaryAssignmentIds.has(assignmentId);
+      }),
+    [confirmedAssignments, liveDisplayedPrimaryAssignmentIds]
+  );
   const liveAttendanceLogRows = useMemo(
     () =>
       liveAttendanceBlueprintRooms
@@ -9642,6 +9694,7 @@ Cory`;
         ([key, adjustment]) =>
           adjustment.expanded ||
           adjustment.standbyAssignmentId ||
+          adjustment.restoredAssignmentId ||
           (key === LIVE_ROOM_BOARD_ADJUSTMENT_KEY && Number(adjustment.extraRoomCount || 0) > 0)
       )
     );
@@ -10995,6 +11048,113 @@ Cory`;
     await persistLiveRoomAdjustments(nextAdjustments);
   }
 
+  async function handleLiveBlueprintRestoreAssignment(room: { adjustmentKey: string; roomName: string }, assignmentId: string) {
+    const restoredAssignmentId = asText(assignmentId);
+    if (!restoredAssignmentId) {
+      setAttendanceError("Select a confirmed SP to restore into this room.");
+      return;
+    }
+
+    setAttendanceSaving(true);
+    setBlueprintActionSavingKey(`${room.adjustmentKey}:restore`);
+    setAttendanceError("");
+    setAttendanceSuccess("");
+
+    try {
+      const nextAdjustments = { ...liveRoomAdjustments };
+      Object.entries(nextAdjustments).forEach(([key, adjustment]) => {
+        if (adjustment.restoredAssignmentId === restoredAssignmentId && key !== room.adjustmentKey) {
+          const nextAdjustment = { ...adjustment };
+          delete nextAdjustment.restoredAssignmentId;
+          nextAdjustments[key] = nextAdjustment;
+        }
+      });
+      nextAdjustments[room.adjustmentKey] = {
+        ...nextAdjustments[room.adjustmentKey],
+        restoredAssignmentId,
+      };
+      await persistLiveRoomAdjustments(nextAdjustments);
+      setBlueprintRestoreAssignmentIdByRoom((current) => ({ ...current, [room.adjustmentKey]: "" }));
+      setAttendanceSuccess(`SP restored to ${room.roomName}.`);
+      setActiveBlueprintRoomKey("");
+    } catch (error) {
+      setAttendanceError(error instanceof Error ? error.message : "Could not restore SP to this room.");
+    } finally {
+      setBlueprintActionSavingKey("");
+      setAttendanceSaving(false);
+    }
+  }
+
+  async function handleLiveBlueprintMoveAssignment(
+    assignment: AssignmentRow | null,
+    targetAdjustmentKey: string,
+    currentAdjustmentKey: string,
+    targetRoomName: string
+  ) {
+    const assignmentId = asText(assignment?.id);
+    if (!assignmentId || !targetAdjustmentKey || targetAdjustmentKey === currentAdjustmentKey) return;
+
+    setAttendanceSaving(true);
+    setBlueprintActionSavingKey(`${currentAdjustmentKey}:move`);
+    setAttendanceError("");
+    setAttendanceSuccess("");
+
+    try {
+      const nextAdjustments = { ...liveRoomAdjustments };
+      Object.entries(nextAdjustments).forEach(([key, adjustment]) => {
+        if (adjustment.restoredAssignmentId === assignmentId) {
+          const nextAdjustment = { ...adjustment };
+          delete nextAdjustment.restoredAssignmentId;
+          nextAdjustments[key] = nextAdjustment;
+        }
+      });
+      nextAdjustments[targetAdjustmentKey] = {
+        ...nextAdjustments[targetAdjustmentKey],
+        restoredAssignmentId: assignmentId,
+      };
+      await persistLiveRoomAdjustments(nextAdjustments);
+      setAttendanceSuccess(`SP moved to ${targetRoomName}.`);
+      setActiveBlueprintRoomKey("");
+    } catch (error) {
+      setAttendanceError(error instanceof Error ? error.message : "Could not move SP.");
+    } finally {
+      setBlueprintActionSavingKey("");
+      setAttendanceSaving(false);
+    }
+  }
+
+  async function handleLiveBlueprintRemoveRestoredAssignment(room: {
+    adjustmentKey: string;
+    assignmentSource: string;
+    spName: string;
+  }) {
+    if (room.assignmentSource !== "restored") {
+      setAttendanceError("Saved room assignments are managed in Schedule Builder. Temporary restored SPs can be removed here.");
+      return;
+    }
+    if (!window.confirm(`Remove ${room.spName || "this SP"} from this temporary live room mapping?`)) return;
+
+    setAttendanceSaving(true);
+    setBlueprintActionSavingKey(`${room.adjustmentKey}:remove`);
+    setAttendanceError("");
+    setAttendanceSuccess("");
+
+    try {
+      const nextAdjustments = { ...liveRoomAdjustments };
+      const nextAdjustment = { ...nextAdjustments[room.adjustmentKey] };
+      delete nextAdjustment.restoredAssignmentId;
+      nextAdjustments[room.adjustmentKey] = nextAdjustment;
+      await persistLiveRoomAdjustments(nextAdjustments);
+      setAttendanceSuccess("Temporary room mapping removed.");
+      setActiveBlueprintRoomKey("");
+    } catch (error) {
+      setAttendanceError(error instanceof Error ? error.message : "Could not remove the temporary room mapping.");
+    } finally {
+      setBlueprintActionSavingKey("");
+      setAttendanceSaving(false);
+    }
+  }
+
   function handleContactPanelExpandedChange(nextExpanded: boolean) {
     setContactPanelExpanded(nextExpanded);
     if (typeof window !== "undefined" && id) {
@@ -11665,6 +11825,9 @@ Cory`;
                       <span style={{ ...commandChipStyle, background: "rgba(44, 211, 173, 0.14)", color: "#86efac" }}>
                         {liveBlueprintStaffedCount} staffed
                       </span>
+                      <span style={{ ...commandChipStyle, background: "rgba(73, 168, 255, 0.12)", color: "#bfdbfe" }}>
+                        {confirmedAssignments.length} confirmed
+                      </span>
                       <span style={{ ...commandChipStyle, background: "rgba(44, 211, 173, 0.14)", color: "#9ff5df" }}>
                         {liveBlueprintCheckedCount} checked in
                       </span>
@@ -11694,6 +11857,32 @@ Cory`;
                       }}
                     >
                       {attendanceError || attendanceSuccess}
+                    </div>
+                  ) : null}
+
+                  {liveUnmappedConfirmedAssignments.length ? (
+                    <div
+                      style={{
+                        borderRadius: "14px",
+                        border: "1px solid rgba(243, 187, 103, 0.3)",
+                        background: "rgba(67, 46, 12, 0.2)",
+                        color: "#fde68a",
+                        padding: "9px 11px",
+                        display: "flex",
+                        gap: "8px",
+                        justifyContent: "space-between",
+                        flexWrap: "wrap",
+                        alignItems: "center",
+                        fontSize: "12px",
+                        fontWeight: 850,
+                      }}
+                    >
+                      <span>
+                        {confirmedAssignments.length} confirmed SPs · {liveBlueprintStaffedCount} mapped to visible rooms.
+                      </span>
+                      <span style={{ color: "#fef3c7" }}>
+                        Restore available: {liveUnmappedConfirmedAssignments.map((assignment) => getFullName(spsById.get(asText(assignment.sp_id)) || emptySpRow)).filter(Boolean).join(", ")}
+                      </span>
                     </div>
                   ) : null}
 
@@ -11761,6 +11950,20 @@ Cory`;
                                           glow: "none",
                                         };
                             const isActionMenuOpen = activeBlueprintRoomKey === room.key;
+                            const selectedRestoreAssignmentId =
+                              blueprintRestoreAssignmentIdByRoom[room.adjustmentKey] ||
+                              liveUnmappedConfirmedAssignments[0]?.id ||
+                              "";
+                            const avatarTone =
+                              room.status === "checked_in"
+                                ? { ring: "#2cd3ad", glow: "0 0 18px rgba(44, 211, 173, 0.34)", fill: "rgba(44, 211, 173, 0.16)" }
+                                : room.status === "late"
+                                  ? { ring: "#f3bb67", glow: "0 0 16px rgba(243, 187, 103, 0.28)", fill: "rgba(243, 187, 103, 0.13)" }
+                                  : room.status === "no_show"
+                                    ? { ring: "#f87171", glow: "0 0 16px rgba(248, 113, 113, 0.28)", fill: "rgba(248, 113, 113, 0.12)" }
+                                    : room.status === "awaiting"
+                                      ? { ring: "#49a8ff", glow: "0 0 14px rgba(73, 168, 255, 0.2)", fill: "rgba(73, 168, 255, 0.13)" }
+                                      : { ring: "#7da4b5", glow: "none", fill: "rgba(255,255,255,0.04)" };
                             return (
                               <div
                                 key={room.key}
@@ -11849,12 +12052,91 @@ Cory`;
                                         -
                                       </button>
                                     </div>
-                                    <span
-                                      className={`cfsp-blueprint-marker is-${room.status.replace("_", "-")}`}
-                                      style={{ color: tone.color, borderColor: tone.color }}
-                                    >
-                                      {room.status === "empty" ? "--" : room.initials}
-                                    </span>
+                                    {room.assignment ? (
+                                      <button
+                                        type="button"
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          setActiveBlueprintRoomKey((current) => (current === room.key ? "" : room.key));
+                                        }}
+                                        className={`cfsp-blueprint-marker is-${room.status.replace("_", "-")}`}
+                                        style={{
+                                          color: tone.color,
+                                          borderColor: avatarTone.ring,
+                                          width: "48px",
+                                          height: "58px",
+                                          borderRadius: "18px",
+                                          display: "grid",
+                                          placeItems: "center",
+                                          gap: "1px",
+                                          background: avatarTone.fill,
+                                          boxShadow: avatarTone.glow,
+                                          cursor: "pointer",
+                                        }}
+                                        aria-label={`Open ${room.spName} controls`}
+                                        title={`${room.spName} • ${room.statusLabel}`}
+                                      >
+                                        <span
+                                          aria-hidden="true"
+                                          style={{
+                                            width: "18px",
+                                            height: "18px",
+                                            borderRadius: "999px",
+                                            border: `1px solid ${avatarTone.ring}`,
+                                            background: "rgba(4, 15, 26, 0.72)",
+                                            boxShadow: `0 0 10px ${avatarTone.ring}55`,
+                                          }}
+                                        />
+                                        <span
+                                          aria-hidden="true"
+                                          style={{
+                                            width: "30px",
+                                            height: "18px",
+                                            borderRadius: "14px 14px 9px 9px",
+                                            border: `1px solid ${avatarTone.ring}`,
+                                            background: "rgba(4, 15, 26, 0.62)",
+                                          }}
+                                        />
+                                        <span style={{ fontSize: "9px", fontWeight: 950, lineHeight: 1 }}>
+                                          {room.initials}
+                                        </span>
+                                      </button>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          setActiveBlueprintRoomKey(room.key);
+                                        }}
+                                        style={{
+                                          width: "52px",
+                                          minHeight: "60px",
+                                          borderRadius: "18px",
+                                          border: "1px dashed rgba(243, 187, 103, 0.46)",
+                                          background: "rgba(67, 46, 12, 0.16)",
+                                          color: "#fde68a",
+                                          display: "grid",
+                                          placeItems: "center",
+                                          gap: "2px",
+                                          fontSize: "9px",
+                                          fontWeight: 900,
+                                          cursor: "pointer",
+                                        }}
+                                        aria-label={`Assign or restore SP to ${room.roomName}`}
+                                      >
+                                        <span
+                                          aria-hidden="true"
+                                          style={{
+                                            width: "17px",
+                                            height: "17px",
+                                            borderRadius: "999px",
+                                            border: "1px dashed rgba(253, 230, 138, 0.7)",
+                                          }}
+                                        />
+                                        <span>Empty</span>
+                                        <span>Assign</span>
+                                      </button>
+                                    )}
                                   </div>
                                 </div>
                                 <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", alignItems: "center", marginTop: "10px" }}>
@@ -11867,6 +12149,45 @@ Cory`;
                                     </span>
                                   ) : null}
                                 </div>
+                                {room.learnerLabel &&
+                                room.learnerLabel !== "Learner not assigned" &&
+                                room.learnerLabel !== "Overflow / standby" ? (
+                                  <div
+                                    style={{
+                                      marginTop: "8px",
+                                      display: "inline-flex",
+                                      alignItems: "center",
+                                      gap: "6px",
+                                      borderRadius: "999px",
+                                      border: room.isCurrentRotationRoom
+                                        ? "1px solid rgba(44, 211, 173, 0.22)"
+                                        : "1px solid rgba(125, 211, 252, 0.18)",
+                                      background: room.isCurrentRotationRoom
+                                        ? "rgba(44, 211, 173, 0.1)"
+                                        : "rgba(125, 211, 252, 0.08)",
+                                      padding: "4px 7px",
+                                    }}
+                                  >
+                                    <span
+                                      aria-hidden="true"
+                                      style={{
+                                        width: "18px",
+                                        height: "22px",
+                                        borderRadius: "9px 9px 7px 7px",
+                                        border: "1px solid rgba(191, 219, 254, 0.55)",
+                                        background: "linear-gradient(180deg, rgba(191, 219, 254, 0.18), rgba(44, 211, 173, 0.1))",
+                                        boxShadow: room.isCurrentRotationRoom ? "0 0 12px rgba(44, 211, 173, 0.18)" : "none",
+                                      }}
+                                    />
+                                    <span style={{ color: "#dbeafe", fontSize: "10px", fontWeight: 850, overflowWrap: "anywhere" }}>
+                                      {room.isCurrentRotationRoom ? "Learner in room" : "Learner queued"}
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <div style={{ marginTop: "8px", color: "#7da4b5", fontSize: "10px", fontWeight: 800 }}>
+                                    Learner not assigned
+                                  </div>
+                                )}
                                 {room.status !== "empty" ? (
                                   <div className={`cfsp-blueprint-room-x is-${room.status.replace("_", "-")}`} aria-hidden="true">
                                     {room.status === "checked_in" ? "✓" : "X"}
@@ -11906,11 +12227,81 @@ Cory`;
                                       zIndex: 2,
                                     }}
                                   >
-                                    <div style={{ color: "#9ed9d1", fontSize: "10px", fontWeight: 850, lineHeight: 1.35 }}>
-                                      {room.assignment
-                                        ? "Live attendance action"
-                                        : "No SP assigned. This slot remains visible for coverage scanning."}
+                                    <div style={{ display: "grid", gap: "6px" }}>
+                                      <div style={{ color: "#f4fbff", fontSize: "11px", fontWeight: 900, lineHeight: 1.35 }}>
+                                        {room.assignment ? room.spName || "Assigned SP" : "Empty SP slot"}
+                                      </div>
+                                      <div style={{ color: "#9ed9d1", fontSize: "10px", fontWeight: 850, lineHeight: 1.35 }}>
+                                        {room.assignment
+                                          ? `${room.statusLabel} · ${room.assignmentSource === "restored" ? "Restored live mapping" : room.assignmentSource === "auto" ? "Auto-mapped for live display" : "Mapped room assignment"}`
+                                          : "No SP is currently mapped to this visible room. Restore a confirmed SP without changing saved staffing data."}
+                                      </div>
+                                      <div style={{ color: "#89b7c4", fontSize: "10px", fontWeight: 800, lineHeight: 1.35 }}>
+                                        Learner: {room.learnerLabel || "Learner not assigned"} · Case: {room.encounterLabel || "Case not assigned"}
+                                      </div>
                                     </div>
+                                    {!room.assignment ? (
+                                      <div
+                                        style={{
+                                          display: "grid",
+                                          gap: "6px",
+                                          border: "1px solid rgba(243, 187, 103, 0.22)",
+                                          borderRadius: "12px",
+                                          background: "rgba(67, 46, 12, 0.14)",
+                                          padding: "7px",
+                                        }}
+                                      >
+                                        <label style={{ color: "#fde68a", fontSize: "10px", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                                          Assign / Restore SP
+                                        </label>
+                                        <select
+                                          value={selectedRestoreAssignmentId}
+                                          onChange={(event) =>
+                                            setBlueprintRestoreAssignmentIdByRoom((current) => ({
+                                              ...current,
+                                              [room.adjustmentKey]: event.target.value,
+                                            }))
+                                          }
+                                          disabled={!liveUnmappedConfirmedAssignments.length || attendanceSaving}
+                                          style={{
+                                            width: "100%",
+                                            borderRadius: "10px",
+                                            border: "1px solid rgba(243, 187, 103, 0.24)",
+                                            background: "rgba(4, 15, 26, 0.76)",
+                                            color: "#fef3c7",
+                                            padding: "7px 8px",
+                                            fontSize: "11px",
+                                            fontWeight: 800,
+                                          }}
+                                        >
+                                          {liveUnmappedConfirmedAssignments.length ? (
+                                            liveUnmappedConfirmedAssignments.map((assignment) => (
+                                              <option key={`${room.key}-restore-${assignment.id}`} value={assignment.id}>
+                                                {getFullName(spsById.get(asText(assignment.sp_id)) || emptySpRow) || "Confirmed SP"}
+                                              </option>
+                                            ))
+                                          ) : (
+                                            <option value="">No unmapped confirmed SPs</option>
+                                          )}
+                                        </select>
+                                        <button
+                                          type="button"
+                                          onClick={() => void handleLiveBlueprintRestoreAssignment(room, selectedRestoreAssignmentId)}
+                                          disabled={!selectedRestoreAssignmentId || attendanceSaving}
+                                          style={{
+                                            ...buttonStyle,
+                                            padding: "7px 9px",
+                                            fontSize: "11px",
+                                            background: "rgba(243, 187, 103, 0.14)",
+                                            color: "#fde68a",
+                                            border: "1px solid rgba(243, 187, 103, 0.32)",
+                                            opacity: !selectedRestoreAssignmentId || attendanceSaving ? 0.55 : 1,
+                                          }}
+                                        >
+                                          {blueprintActionSavingKey === `${room.adjustmentKey}:restore` ? "Restoring..." : "Restore SP"}
+                                        </button>
+                                      </div>
+                                    ) : null}
                                     <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                                       <button
                                         type="button"
@@ -11976,6 +12367,62 @@ Cory`;
                                       >
                                         {blueprintActionSavingKey === `${room.key}:clear` ? "Saving..." : "Clear Status"}
                                       </button>
+                                      {room.assignment ? (
+                                        <select
+                                          aria-label={`Move ${room.spName || "SP"} to another room`}
+                                          defaultValue=""
+                                          onChange={(event) => {
+                                            const targetKey = event.target.value;
+                                            if (!targetKey) return;
+                                            const targetRoom = liveAttendanceBlueprintRooms.find((entry) => entry.adjustmentKey === targetKey);
+                                            void handleLiveBlueprintMoveAssignment(
+                                              room.assignment,
+                                              targetKey,
+                                              room.adjustmentKey,
+                                              targetRoom?.roomName || "selected room"
+                                            );
+                                            event.currentTarget.value = "";
+                                          }}
+                                          disabled={attendanceSaving}
+                                          style={{
+                                            borderRadius: "10px",
+                                            border: "1px solid rgba(125, 211, 252, 0.24)",
+                                            background: "rgba(4, 15, 26, 0.76)",
+                                            color: "#bfdbfe",
+                                            padding: "6px 8px",
+                                            fontSize: "11px",
+                                            fontWeight: 800,
+                                          }}
+                                        >
+                                          <option value="">Move room...</option>
+                                          {liveAttendanceBlueprintRooms
+                                            .filter((entry) => entry.adjustmentKey !== room.adjustmentKey)
+                                            .map((entry) => (
+                                              <option key={`${room.key}-move-${entry.adjustmentKey}`} value={entry.adjustmentKey}>
+                                                {entry.roomName}{entry.assignment ? " (occupied)" : " (open)"}
+                                              </option>
+                                            ))}
+                                        </select>
+                                      ) : null}
+                                      {room.assignment ? (
+                                        <button
+                                          type="button"
+                                          onClick={() => void handleLiveBlueprintRemoveRestoredAssignment(room)}
+                                          disabled={attendanceSaving || room.assignmentSource !== "restored"}
+                                          style={{
+                                            ...buttonStyle,
+                                            padding: "6px 8px",
+                                            fontSize: "11px",
+                                            background: "rgba(255,255,255,0.06)",
+                                            color: room.assignmentSource === "restored" ? "#d6edf4" : "#7da4b5",
+                                            border: "1px solid rgba(255,255,255,0.12)",
+                                            opacity: attendanceSaving || room.assignmentSource !== "restored" ? 0.55 : 1,
+                                          }}
+                                          title={room.assignmentSource === "restored" ? "Remove temporary live mapping" : "Saved assignments are managed in Schedule Builder"}
+                                        >
+                                          Remove from room
+                                        </button>
+                                      ) : null}
                                       {(caseFileUrl || eventMaterialUrl) ? (
                                         <button
                                           type="button"
@@ -12068,8 +12515,8 @@ Cory`;
                             <div
                               key={token.key}
                               style={{
-                                borderRadius: "999px",
-                                padding: "6px 9px",
+                                borderRadius: "16px",
+                                padding: "6px 9px 6px 7px",
                                 display: "inline-flex",
                                 alignItems: "center",
                                 gap: "7px",
@@ -12080,13 +12527,14 @@ Cory`;
                             >
                               <span
                                 style={{
-                                  width: "22px",
-                                  height: "22px",
-                                  borderRadius: "999px",
-                                  display: "inline-flex",
-                                  alignItems: "center",
-                                  justifyContent: "center",
-                                  background: "rgba(4, 15, 26, 0.5)",
+                                  width: "26px",
+                                  height: "32px",
+                                  borderRadius: "13px 13px 9px 9px",
+                                  display: "grid",
+                                  placeItems: "center",
+                                  background: "rgba(4, 15, 26, 0.54)",
+                                  border: `1px solid ${tone.color}`,
+                                  boxShadow: token.state === "roomed" ? "0 0 14px rgba(44, 211, 173, 0.22)" : "none",
                                   color: tone.color,
                                   fontSize: "10px",
                                   fontWeight: 900,
