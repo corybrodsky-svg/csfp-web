@@ -1050,14 +1050,36 @@ function isNeedsSpOperationalBadge(label: unknown) {
   return key === "needs sps" || key === "needs sp" || key === "needs staffing";
 }
 
-function dedupeOperationalBadges<T extends { label: string }>(badges: T[]) {
-  const seen = new Set<string>();
-  return badges.filter((badge) => {
+type OperationalBadgePipelineItem = {
+  key: string;
+  label: string;
+  style?: React.CSSProperties;
+  showInHeader?: boolean;
+  showInSummary?: boolean;
+};
+
+function buildOperationalBadgePipeline(badges: OperationalBadgePipelineItem[]) {
+  const merged = new Map<string, OperationalBadgePipelineItem>();
+
+  badges.forEach((badge) => {
     const key = normalizeOperationalBadgeKey(badge.label);
-    if (!key || seen.has(key)) return false;
-    seen.add(key);
-    return true;
+    if (!key) return;
+
+    const existing = merged.get(key);
+    if (existing) {
+      merged.set(key, {
+        ...existing,
+        showInHeader: Boolean(existing.showInHeader || badge.showInHeader),
+        showInSummary: Boolean(existing.showInSummary || badge.showInSummary),
+        style: existing.style || badge.style,
+      });
+      return;
+    }
+
+    merged.set(key, badge);
   });
+
+  return Array.from(merged.values());
 }
 
 function normalizeRecordingStatusValue(value: unknown): RecordingStatusValue | "" {
@@ -4733,48 +4755,6 @@ export default function EventDetailPage() {
             border: shortage <= 2 ? "1px solid #fed7aa" : "1px solid #fecaca",
             color: shortage <= 2 ? "#9a3412" : "#991b1b",
           };
-  const headerOperationalBadges = dedupeOperationalBadges(
-    [
-      !shouldSuppressStaleNeedsSpStatus
-        ? {
-            key: "event-status",
-            label: eventStatusLabel,
-            style: {
-              ...assignmentStatusStyles[
-                eventStatusLabel.toLowerCase() === "confirmed" ? "confirmed" : "invited"
-              ],
-              borderRadius: "999px",
-              padding: "6px 10px",
-              fontWeight: 900,
-              fontSize: "12px",
-            } satisfies React.CSSProperties,
-          }
-        : null,
-      {
-        key: "coverage-status",
-        label: coverageStatus.message,
-        style: {
-          borderRadius: "999px",
-          padding: "6px 10px",
-          background: coverageStatus.background,
-          border: coverageStatus.border,
-          color: coverageStatus.color,
-          fontWeight: 900,
-          fontSize: "12px",
-        } satisfies React.CSSProperties,
-      },
-      {
-        key: "classification",
-        label: eventMeta.primaryBadgeLabel,
-        style: {
-          ...skillsWorkshopBadgeStyle,
-          background: badgeAppearance.background,
-          border: `1px solid ${badgeAppearance.border}`,
-          color: badgeAppearance.color,
-        } satisfies React.CSSProperties,
-      },
-    ].filter(Boolean) as { key: string; label: string; style: React.CSSProperties }[]
-  );
   const coveragePercent =
     needed > 0 ? Math.min(100, Math.round((confirmedCount / needed) * 100)) : 0;
   const importedYearHint = getImportedYearHint(event?.notes);
@@ -6668,15 +6648,64 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     selectedModalityLabel,
     staffingRelevant,
   ]);
-  const summaryOperationalIdentityBadges = dedupeOperationalBadges(
+  const operationalBadgePipeline = buildOperationalBadgePipeline(
     [
-      shouldSuppressStaleNeedsSpStatus ? "" : eventStatusLabel,
-      ...eventIdentityChips.slice(0, 2),
-      selectedModalityLabel,
-    ]
-      .filter(Boolean)
-      .map((label) => ({ label }))
+      !shouldSuppressStaleNeedsSpStatus
+        ? {
+            key: "event-status",
+            label: eventStatusLabel,
+            showInHeader: true,
+            showInSummary: true,
+            style: {
+              ...assignmentStatusStyles[
+                eventStatusLabel.toLowerCase() === "confirmed" ? "confirmed" : "invited"
+              ],
+              borderRadius: "999px",
+              padding: "6px 10px",
+              fontWeight: 900,
+              fontSize: "12px",
+            } satisfies React.CSSProperties,
+          }
+        : null,
+      {
+        key: "coverage-status",
+        label: coverageStatus.message,
+        showInHeader: true,
+        style: {
+          borderRadius: "999px",
+          padding: "6px 10px",
+          background: coverageStatus.background,
+          border: coverageStatus.border,
+          color: coverageStatus.color,
+          fontWeight: 900,
+          fontSize: "12px",
+        } satisfies React.CSSProperties,
+      },
+      {
+        key: "classification",
+        label: eventMeta.primaryBadgeLabel,
+        showInHeader: true,
+        style: {
+          ...skillsWorkshopBadgeStyle,
+          background: badgeAppearance.background,
+          border: `1px solid ${badgeAppearance.border}`,
+          color: badgeAppearance.color,
+        } satisfies React.CSSProperties,
+      },
+      ...eventIdentityChips.slice(0, 2).map((label, index) => ({
+        key: `identity-${index}`,
+        label,
+        showInSummary: true,
+      })),
+      {
+        key: "modality",
+        label: selectedModalityLabel,
+        showInSummary: true,
+      },
+    ].filter(Boolean) as OperationalBadgePipelineItem[]
   );
+  const headerOperationalBadges = operationalBadgePipeline.filter((badge) => badge.showInHeader);
+  const summaryOperationalIdentityBadges = operationalBadgePipeline.filter((badge) => badge.showInSummary);
   const operationalReadinessItems = useMemo(() => {
     const materialsReadinessLabel = materialsWorkflowNeedsAction ? materialsStatusLabel : "";
     const items = [
