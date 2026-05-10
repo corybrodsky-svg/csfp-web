@@ -6266,7 +6266,7 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       { label: "Case Uploaded", active: Boolean(trainingMetadata.case_file_url || trainingMetadata.case_name) },
       { label: "Door Signs Ready", active: Boolean(trainingMetadata.doorsign_url) },
       { label: "Zoom Ready", active: Boolean(trainingMetadata.zoom_url) || selectedModalityLabel === "Virtual" || selectedModalityLabel === "Hybrid" },
-      { label: "AV Ready", active: /av ready|audio visual|av support/i.test(eventSummarySourceText) || Boolean(trainingMetadata.recording_url) },
+      { label: "AV Ready", active: isMetadataYes(trainingMetadata.av_support_required) || /av ready|audio visual|av support/i.test(eventSummarySourceText) || Boolean(trainingMetadata.recording_url) },
       { label: "Recording Ready", active: recordingSupportActive },
     ],
     [
@@ -6278,6 +6278,7 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       trainingMetadata.case_file_url,
       trainingMetadata.case_name,
       trainingMetadata.doorsign_url,
+      trainingMetadata.av_support_required,
       trainingMetadata.recording_url,
       trainingMetadata.zoom_url,
     ]
@@ -6303,11 +6304,11 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
   ]);
   const liveSupportNeeds = useMemo(() => {
     const needs = [
-      { label: "AV Support Required", active: /av|audio visual|projector|mic/.test(eventSummarySourceText) || Boolean(trainingMetadata.recording_url) },
-      { label: "Sim Tech Required", active: activeEventTypeSet.has("hifi") || /sim tech|simcapture|recording/i.test(eventSummarySourceText) },
+      { label: "AV Support Required", active: isMetadataYes(trainingMetadata.av_support_required) || /av|audio visual|projector|mic/.test(eventSummarySourceText) || Boolean(trainingMetadata.recording_url) },
+      { label: "Sim Tech Required", active: isMetadataYes(trainingMetadata.sim_tech_required) || activeEventTypeSet.has("hifi") || /sim tech|simcapture|recording/i.test(eventSummarySourceText) },
       { label: "Faculty Operator Needed", active: Boolean(facultyReadinessComplete && (activeEventTypeSet.has("hifi") || activeEventTypeSet.has("virtual"))) },
       { label: "SP Educator Needed", active: staffingRelevant && isTrainingMode },
-      { label: "Recording Monitor Needed", active: recordingSupportActive },
+      { label: "Recording Monitor Needed", active: isMetadataYes(trainingMetadata.recording_monitor_needed) || recordingSupportActive },
     ];
     return needs.filter((item) => item.active);
   }, [
@@ -6318,6 +6319,9 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     recordingSupportActive,
     staffingRelevant,
     trainingMetadata.recording_url,
+    trainingMetadata.av_support_required,
+    trainingMetadata.sim_tech_required,
+    trainingMetadata.recording_monitor_needed,
   ]);
   const selectedRotationRoundIndex = useMemo(
     () => rotationRounds.findIndex((round) => round.key === selectedRotationRoundKey),
@@ -8148,6 +8152,18 @@ Cory`;
   const trainingAccessUrl = normalizeExternalHref(
     normalEventTrainingLink || trainingMetadata.zoom_url || trainingMetadata.training_zoom_link
   );
+  function scrollToAdminTools() {
+    document.getElementById("coverage-actions")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+  function openEventMaterialPreview() {
+    if (!eventMaterialUrl) return;
+    openMaterialPreview({
+      title: "Event Material",
+      rawUrl: eventMaterialUrl,
+      storagePath: eventMaterialStoragePath,
+      fileName: eventMaterialName || getFilenameFromUrl(eventMaterialUrl) || "event-material",
+    });
+  }
   const scheduleSummaryActions: Array<{
     label: string;
     href?: string;
@@ -8254,6 +8270,11 @@ Cory`;
                   ? "attention"
                   : "info") as OperationalStatusTone,
             detail: recordingIndicatorLabel,
+            actions: (
+              <button type="button" onClick={scrollToAdminTools} style={{ ...buttonStyle, padding: "7px 10px" }}>
+                Admin Edit
+              </button>
+            ),
           },
         ]
       : []),
@@ -8265,6 +8286,11 @@ Cory`;
             value: trainingAccessUrl ? `${trainingModalityLabel} link ready` : trainingZoomRequired ? "Training link needed" : trainingModalityLabel,
             tone: (trainingAccessUrl ? "ready" : trainingZoomRequired ? "attention" : "info") as OperationalStatusTone,
             detail: trainingZoomRequired ? "Training logistics depend on the access link." : "Virtual logistics are optional for this event.",
+            actions: (
+              <button type="button" onClick={scrollToAdminTools} style={{ ...buttonStyle, padding: "7px 10px" }}>
+                Admin Edit
+              </button>
+            ),
           },
         ]
       : []),
@@ -8274,6 +8300,11 @@ Cory`;
       value: item.label,
       tone: "attention" as OperationalStatusTone,
       detail: "Surface this only because it affects live execution or staffing support.",
+      actions: (
+        <button type="button" onClick={scrollToAdminTools} style={{ ...buttonStyle, padding: "7px 10px" }}>
+          Admin Edit
+        </button>
+      ),
     })),
     ...(eventRiskLevel.tone !== "green"
       ? [
@@ -8283,6 +8314,11 @@ Cory`;
             value: eventRiskLevel.label,
             tone: (eventRiskLevel.tone === "red" ? "critical" : "attention") as OperationalStatusTone,
             detail: eventRiskLevel.detail,
+            actions: (
+              <button type="button" onClick={scrollToAdminTools} style={{ ...buttonStyle, padding: "7px 10px" }}>
+                Admin Edit
+              </button>
+            ),
           },
         ]
       : []),
@@ -8313,14 +8349,7 @@ Cory`;
           {eventMaterialUrl ? (
             <button
               type="button"
-              onClick={() =>
-                openMaterialPreview({
-                  title: "Event Material",
-                  rawUrl: eventMaterialUrl,
-                  storagePath: eventMaterialStoragePath,
-                  fileName: eventMaterialName,
-                })
-              }
+              onClick={openEventMaterialPreview}
               style={{ ...buttonStyle, padding: "7px 10px" }}
             >
               Preview
@@ -8336,6 +8365,13 @@ Cory`;
               Download
             </a>
           ) : null}
+          <button
+            type="button"
+            onClick={scrollToAdminTools}
+            style={{ ...buttonStyle, padding: "7px 10px" }}
+          >
+            Admin Edit
+          </button>
         </>
       ),
     },
@@ -8375,6 +8411,13 @@ Cory`;
                     Download
                   </a>
                 ) : null}
+                <button
+                  type="button"
+                  onClick={scrollToAdminTools}
+                  style={{ ...buttonStyle, padding: "7px 10px" }}
+                >
+                  Admin Edit
+                </button>
               </>
             ),
           },
@@ -8389,18 +8432,27 @@ Cory`;
             tone: (hiringEmailSent ? "ready" : hiringEmailDrafted ? "info" : "attention") as OperationalStatusTone,
             detail: hiringEmailSent ? hiringEmailSentAt || "Persisted in event metadata." : "Launch from the staffing workflow when outreach is ready.",
             actions: hiringEmailSent ? null : (
-              <button
-                type="button"
-                onClick={() => {
-                  setShowEmailDraft(true);
-                  window.requestAnimationFrame(() => {
-                    document.getElementById("staffing-command-center")?.scrollIntoView({ behavior: "smooth", block: "start" });
-                  });
-                }}
-                style={{ ...buttonStyle, padding: "7px 10px" }}
-              >
-                Open Hiring Email
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowEmailDraft(true);
+                    window.requestAnimationFrame(() => {
+                      document.getElementById("staffing-command-center")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                    });
+                  }}
+                  style={{ ...buttonStyle, padding: "7px 10px" }}
+                >
+                  Open Hiring Email
+                </button>
+                <button
+                  type="button"
+                  onClick={scrollToAdminTools}
+                  style={{ ...buttonStyle, padding: "7px 10px" }}
+                >
+                  Admin Edit
+                </button>
+              </>
             ),
           },
           {
@@ -8410,18 +8462,27 @@ Cory`;
             tone: (confirmationEmailSent ? "ready" : confirmationEmailDrafted ? "info" : "attention") as OperationalStatusTone,
             detail: confirmationEmailSent ? confirmationEmailSentAt || "Persisted in event metadata." : "Use after primary SP assignments are confirmed.",
             actions: confirmationEmailSent ? null : (
-              <button
-                type="button"
-                onClick={() => {
-                  setShowConfirmationEmailPreview(true);
-                  window.requestAnimationFrame(() => {
-                    document.getElementById("staffing-command-center")?.scrollIntoView({ behavior: "smooth", block: "start" });
-                  });
-                }}
-                style={{ ...buttonStyle, padding: "7px 10px" }}
-              >
-                Open Confirmation
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowConfirmationEmailPreview(true);
+                    window.requestAnimationFrame(() => {
+                      document.getElementById("staffing-command-center")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                    });
+                  }}
+                  style={{ ...buttonStyle, padding: "7px 10px" }}
+                >
+                  Open Confirmation
+                </button>
+                <button
+                  type="button"
+                  onClick={scrollToAdminTools}
+                  style={{ ...buttonStyle, padding: "7px 10px" }}
+                >
+                  Admin Edit
+                </button>
+              </>
             ),
           },
         ]
@@ -8439,24 +8500,33 @@ Cory`;
             actions:
               facultyTrainingCoordinationSent || !facultyEmails.length ? (
                 !facultyEmails.length ? (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      document.getElementById("coverage-actions")?.scrollIntoView({ behavior: "smooth", block: "start" })
-                    }
-                    style={{ ...buttonStyle, padding: "7px 10px" }}
-                  >
-                    Add Faculty Email
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      onClick={scrollToAdminTools}
+                      style={{ ...buttonStyle, padding: "7px 10px" }}
+                    >
+                      Add Faculty Email
+                    </button>
+                  </>
                 ) : null
               ) : (
-                <button
-                  type="button"
-                  onClick={() => void handleDraftFacultyTrainingAvailabilityRequest()}
-                  style={{ ...buttonStyle, padding: "7px 10px" }}
-                >
-                  Request Faculty Availability
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={() => void handleDraftFacultyTrainingAvailabilityRequest()}
+                    style={{ ...buttonStyle, padding: "7px 10px" }}
+                  >
+                    Request Faculty Availability
+                  </button>
+                  <button
+                    type="button"
+                    onClick={scrollToAdminTools}
+                    style={{ ...buttonStyle, padding: "7px 10px" }}
+                  >
+                    Admin Edit
+                  </button>
+                </>
               ),
           },
         ]
@@ -8493,6 +8563,13 @@ Cory`;
                     Open Recording
                   </a>
                 ) : null}
+                <button
+                  type="button"
+                  onClick={scrollToAdminTools}
+                  style={{ ...buttonStyle, padding: "7px 10px" }}
+                >
+                  Admin Edit
+                </button>
               </>
             ),
           },
@@ -8517,7 +8594,9 @@ Cory`;
         background: isPlanningVisualMode
           ? "linear-gradient(180deg, rgba(240, 253, 244, 0.98) 0%, rgba(233, 252, 239, 0.96) 100%)"
           : "linear-gradient(180deg, rgba(8, 30, 22, 0.94) 0%, rgba(7, 26, 19, 0.92) 100%)",
-        glow: isPlanningVisualMode ? "0 12px 30px rgba(34, 197, 94, 0.14)" : "0 14px 30px rgba(34, 197, 94, 0.12)",
+        glow: isPlanningVisualMode
+          ? "0 14px 34px rgba(34, 197, 94, 0.16), 0 0 0 1px rgba(125, 211, 252, 0.08), inset 0 1px 0 rgba(196, 181, 253, 0.18)"
+          : "0 16px 34px rgba(34, 197, 94, 0.14), inset 0 1px 0 rgba(125, 211, 252, 0.14)",
         accent: "#15803d",
         chipBg: "rgba(34, 197, 94, 0.14)",
         chipColor: "#15803d",
@@ -8550,7 +8629,7 @@ Cory`;
     return {
       border: commandCenterVisual.cardBorder,
       background: commandCenterVisual.cardBackground,
-      glow: isPlanningVisualMode ? "0 10px 24px rgba(42, 112, 140, 0.06)" : "none",
+      glow: isPlanningVisualMode ? "0 10px 24px rgba(42, 112, 140, 0.08), inset 0 1px 0 rgba(125, 211, 252, 0.08)" : "none",
       accent: commandCenterVisual.labelColor,
       chipBg: "rgba(73, 168, 255, 0.12)",
       chipColor: "#145b96",
@@ -13231,14 +13310,7 @@ Cory`;
                     <>
                       <button
                         type="button"
-                        onClick={() =>
-                          openMaterialPreview({
-                            title: "Event Material",
-                            rawUrl: eventMaterialUrl,
-                            storagePath: eventMaterialStoragePath,
-                            fileName: eventMaterialName,
-                          })
-                        }
+                        onClick={openEventMaterialPreview}
                         style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px", fontSize: "12px" }}
                       >
                         Preview
@@ -16493,14 +16565,7 @@ Cory`;
                             <>
                               <button
                                 type="button"
-                                onClick={() =>
-                                  openMaterialPreview({
-                                    title: "Event Material",
-                                    rawUrl: eventMaterialUrl,
-                                    storagePath: eventMaterialStoragePath,
-                                    fileName: eventMaterialName,
-                                  })
-                                }
+                                onClick={openEventMaterialPreview}
                                 disabled={!eventMaterialUrl}
                                 style={{ ...buttonStyle, padding: "7px 10px", opacity: eventMaterialUrl ? 1 : 0.55 }}
                               >
@@ -18761,6 +18826,156 @@ Cory`;
                     />
                   </label>
                 </div>
+
+                <section
+                  style={{
+                    border: "1px solid rgba(99, 181, 217, 0.18)",
+                    borderRadius: "16px",
+                    padding: "12px 14px",
+                    background: "var(--cfsp-surface-muted)",
+                    display: "grid",
+                    gap: "12px",
+                  }}
+                >
+                  <div>
+                    <div style={statLabel}>Operational Metadata Controls</div>
+                    <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 700 }}>
+                      These controls feed the Planning Mode operational windows and keep admin edits tied to the same metadata source.
+                    </div>
+                  </div>
+
+                  <div style={{ display: "grid", gap: "8px", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
+                    {[
+                      { key: "av_support_required" as const, label: "AV support required" },
+                      { key: "sim_tech_required" as const, label: "Sim tech required" },
+                      { key: "recording_monitor_needed" as const, label: "Recording monitor needed" },
+                    ].map((item) => (
+                      <label
+                        key={item.key}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "8px",
+                          borderRadius: "12px",
+                          border: "1px solid rgba(99, 181, 217, 0.14)",
+                          background: "rgba(255,255,255,0.76)",
+                          padding: "10px 12px",
+                          color: "var(--cfsp-text)",
+                          fontSize: "13px",
+                          fontWeight: 800,
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isMetadataYes(trainingMetadata[item.key])}
+                          onChange={(event) => handleTrainingMetadataChange(item.key, event.target.checked ? "yes" : "no")}
+                          disabled={saving}
+                          style={{ width: "15px", height: "15px", accentColor: "var(--cfsp-blue)" }}
+                        />
+                        {item.label}
+                      </label>
+                    ))}
+                  </div>
+
+                  <div style={{ display: "grid", gap: "8px", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
+                    <label style={{ display: "grid", gap: "6px" }}>
+                      <span style={statLabel}>Faculty coordination status</span>
+                      <select
+                        value={trainingMetadata.faculty_training_coordination_status || "not_started"}
+                        onChange={(event) => handleTrainingMetadataChange("faculty_training_coordination_status", event.target.value)}
+                        disabled={saving}
+                        style={{ ...selectStyle, width: "100%", maxWidth: "none", boxSizing: "border-box" }}
+                      >
+                        <option value="not_started">Not started</option>
+                        <option value="requested">Requested</option>
+                        <option value="drafted">Drafted</option>
+                        <option value="sent">Sent</option>
+                        <option value="confirmed">Confirmed</option>
+                      </select>
+                    </label>
+                    <label style={{ display: "grid", gap: "6px" }}>
+                      <span style={statLabel}>Training scheduling status</span>
+                      <select
+                        value={trainingMetadata.training_scheduling_status || "tbd"}
+                        onChange={(event) => handleTrainingMetadataChange("training_scheduling_status", event.target.value)}
+                        disabled={saving}
+                        style={{ ...selectStyle, width: "100%", maxWidth: "none", boxSizing: "border-box" }}
+                      >
+                        <option value="tbd">TBD</option>
+                        <option value="scheduled">Scheduled</option>
+                        <option value="awaiting_faculty">Awaiting faculty</option>
+                        <option value="internal_pending">Internal pending</option>
+                        <option value="complete">Complete</option>
+                      </select>
+                    </label>
+                  </div>
+
+                  <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                    {eventMaterialUrl ? (
+                      <button
+                        type="button"
+                        onClick={openEventMaterialPreview}
+                        style={{ ...buttonStyle, padding: "8px 12px" }}
+                      >
+                        Preview Event Material
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => openTrainingMaterialPicker("staffing_doc")}
+                        style={{ ...buttonStyle, padding: "8px 12px" }}
+                      >
+                        Upload Event Material
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => openTrainingMaterialPicker("staffing_doc")}
+                      style={{ ...buttonStyle, padding: "8px 12px" }}
+                    >
+                      {eventMaterialUrl ? "Replace Event Material" : "Add Event Material"}
+                    </button>
+                    {!hiringEmailSent ? (
+                      <button
+                        type="button"
+                        onClick={() => void handleMarkStaffingEmailSent("hiring")}
+                        style={{ ...buttonStyle, padding: "8px 12px" }}
+                      >
+                        Mark Hiring Email Sent
+                      </button>
+                    ) : (
+                      <span style={{ ...commandChipStyle, background: planningSuccessBackground, border: planningSuccessBorder, color: planningSuccessText }}>
+                        Hiring Sent
+                      </span>
+                    )}
+                    {!confirmationEmailSent ? (
+                      <button
+                        type="button"
+                        onClick={() => void handleMarkStaffingEmailSent("confirmation")}
+                        style={{ ...buttonStyle, padding: "8px 12px" }}
+                      >
+                        Mark Confirmation Sent
+                      </button>
+                    ) : (
+                      <span style={{ ...commandChipStyle, background: planningSuccessBackground, border: planningSuccessBorder, color: planningSuccessText }}>
+                        Confirmation Sent
+                      </span>
+                    )}
+                    {!facultyTrainingCoordinationSent ? (
+                      <button
+                        type="button"
+                        onClick={() => void handleDraftFacultyTrainingAvailabilityRequest()}
+                        style={{ ...buttonStyle, padding: "8px 12px" }}
+                      >
+                        Request Faculty Availability
+                      </button>
+                    ) : (
+                      <span style={{ ...commandChipStyle, background: "rgba(196, 181, 253, 0.16)", border: "1px solid rgba(167, 139, 250, 0.22)", color: "#6d28d9" }}>
+                        Faculty Request Sent
+                      </span>
+                    )}
+                  </div>
+                </section>
 
                 {metadataInspectorPanel}
 
