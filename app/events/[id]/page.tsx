@@ -250,11 +250,6 @@ type LiveRoomAdjustment = {
 
 type LiveRoomAdjustmentsMap = Record<string, LiveRoomAdjustment>;
 
-type LiveFlowPreviewEntry = {
-  block: LiveFlowBlock;
-  relation: "previous" | "current" | "next";
-};
-
 type ScheduleBuilderPreviewDayBlock = {
   id: string;
   type: string;
@@ -1819,6 +1814,23 @@ function formatRemainingMinutes(totalMinutes: number) {
   if (hours > 0 && minutes > 0) return `${hours}h ${minutes}m`;
   if (hours > 0) return `${hours}h`;
   return `${minutes}m`;
+}
+
+function getLiveFlowDividerLabel(label: string) {
+  const normalized = asText(label).toLowerCase();
+  if (normalized.includes("lunch")) return "Lunch";
+  if (normalized.includes("break")) return "Break";
+  if (normalized.includes("debrief")) return "Debrief";
+  if (normalized.includes("prebrief")) return "Prebrief";
+  return label;
+}
+
+function getLiveFlowAnnouncementCopy(block: LiveFlowBlock) {
+  if (block.note) return block.note;
+  if (block.roundNumber && block.tone === "rotation") {
+    return `Round ${block.roundNumber} encounter is live.`;
+  }
+  return `${getLiveFlowDividerLabel(block.label)} · ${formatMinuteRange(block.startMinutes, block.endMinutes)}`;
 }
 
 function parseDurationMinutes(value?: string | null) {
@@ -3483,6 +3495,7 @@ export default function EventDetailPage() {
   const [liveDelayMinutes, setLiveDelayMinutes] = useState(0);
   const [livePausedAtMs, setLivePausedAtMs] = useState<number | null>(null);
   const [liveNowMs, setLiveNowMs] = useState(() => Date.now());
+  const [selectedLiveFlowBlockKey, setSelectedLiveFlowBlockKey] = useState("");
   const [countdownNowMs, setCountdownNowMs] = useState<number | null>(null);
   const [pollMatchLocationFilter, setPollMatchLocationFilter] = useState<PollLocationFilter>("any");
   const [pollMatchActiveOnly, setPollMatchActiveOnly] = useState(true);
@@ -4924,30 +4937,32 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     currentLiveBlockIndex >= 0
       ? liveFlowBlocks[currentLiveBlockIndex + 1] || null
       : liveFlowBlocks.find((block) => block.startMinutes > simulatedLiveMinutes) || null;
-  const liveFlowPreviewEntries = useMemo(() => {
-    if (!liveFlowBlocks.length) return [] as LiveFlowPreviewEntry[];
-
-    const currentIndex =
-      currentLiveBlockIndex >= 0
-        ? currentLiveBlockIndex
-        : liveFlowBlocks.findIndex((block) => block.startMinutes > simulatedLiveMinutes);
-    const resolvedCurrentIndex = currentIndex >= 0 ? currentIndex : liveFlowBlocks.length - 1;
-    const entries: LiveFlowPreviewEntry[] = [];
-
-    if (resolvedCurrentIndex > 0) {
-      entries.push({ block: liveFlowBlocks[resolvedCurrentIndex - 1], relation: "previous" });
+  useEffect(() => {
+    if (!liveFlowBlocks.length) {
+      setSelectedLiveFlowBlockKey("");
+      return;
     }
-    if (liveFlowBlocks[resolvedCurrentIndex]) {
-      entries.push({ block: liveFlowBlocks[resolvedCurrentIndex], relation: "current" });
+    if (selectedLiveFlowBlockKey && liveFlowBlocks.some((block) => block.key === selectedLiveFlowBlockKey)) {
+      return;
     }
-    for (let offset = 1; offset <= 3; offset += 1) {
-      const nextBlock = liveFlowBlocks[resolvedCurrentIndex + offset];
-      if (!nextBlock) break;
-      entries.push({ block: nextBlock, relation: "next" });
-    }
-
-    return entries;
-  }, [currentLiveBlockIndex, liveFlowBlocks, simulatedLiveMinutes]);
+    setSelectedLiveFlowBlockKey(currentLiveBlock?.key || nextLiveBlock?.key || liveFlowBlocks[0]?.key || "");
+  }, [currentLiveBlock?.key, liveFlowBlocks, nextLiveBlock?.key, selectedLiveFlowBlockKey]);
+  const selectedLiveFlowBlock =
+    liveFlowBlocks.find((block) => block.key === selectedLiveFlowBlockKey) ||
+    currentLiveBlock ||
+    nextLiveBlock ||
+    null;
+  const selectedLiveFlowRelation =
+    selectedLiveFlowBlock
+      ? simulatedLiveMinutes >= selectedLiveFlowBlock.endMinutes
+        ? "completed"
+        : simulatedLiveMinutes >= selectedLiveFlowBlock.startMinutes
+          ? "current"
+          : "upcoming"
+      : "upcoming";
+  const selectedLiveFlowAnnouncementText = selectedLiveFlowBlock
+    ? getLiveFlowAnnouncementCopy(selectedLiveFlowBlock)
+    : "";
   const currentRotationRoundNumber =
     currentLiveBlock?.tone === "rotation" ? currentLiveBlock.roundNumber : null;
   const currentLiveReferenceRound = useMemo(() => {
@@ -11056,101 +11071,230 @@ Cory`;
                       </div>
                     </div>
 
-                    <div style={{ display: "grid", gap: "8px" }}>
-                      {liveFlowPreviewEntries.map(({ block, relation }) => {
-                        const isCurrent = relation === "current";
-                        const toneColor =
-                          block.tone === "rotation"
-                            ? "#7dd3fc"
-                            : block.tone === "support"
-                              ? "#a7f3d0"
-                              : block.tone === "break"
-                                ? "#fde68a"
-                                : "#c4b5fd";
-                        return (
-                          <div
-                            key={`${block.key}-${relation}`}
-                            title={[formatMinuteRange(block.startMinutes, block.endMinutes), block.detail, block.note].filter(Boolean).join(" • ")}
-                            style={{
-                              borderRadius: "13px",
-                              padding: "9px 11px",
-                              border: isCurrent
-                                ? "1px solid rgba(126, 231, 219, 0.24)"
-                                : relation === "next"
-                                  ? "1px solid rgba(125, 211, 252, 0.16)"
-                                  : "1px solid rgba(148, 163, 184, 0.14)",
-                              background: isCurrent ? "rgba(16, 44, 59, 0.78)" : "rgba(13, 27, 42, 0.72)",
-                              display: "grid",
-                              gap: "3px",
+                    <div style={{ display: "grid", gap: "10px" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
+                        <div style={{ color: "#89b7c4", fontSize: "11px", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                          Live Flow Rail
+                        </div>
+                        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (currentLiveBlock?.key) setSelectedLiveFlowBlockKey(currentLiveBlock.key);
                             }}
+                            disabled={!currentLiveBlock}
+                            style={{ ...buttonStyle, padding: "7px 10px", opacity: currentLiveBlock ? 1 : 0.55 }}
                           >
-                            <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
-                              <div style={{ color: toneColor, fontWeight: 900 }}>
-                                {relation === "previous" ? "Previous" : relation === "current" ? "Current" : "Up Next"}: {block.label}
-                              </div>
-                              <span style={{ ...commandChipStyle, background: "rgba(255,255,255,0.04)", color: toneColor }}>
-                                {formatMinuteRange(block.startMinutes, block.endMinutes)}
-                              </span>
-                            </div>
-                            <div style={{ color: "#89b7c4", fontSize: "12px", fontWeight: 700 }}>
-                              {block.detail}{block.note ? ` • ${block.note}` : ""}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-
-                    <div style={{ display: "grid", gap: "8px" }}>
-                      <div style={{ color: "#89b7c4", fontSize: "11px", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.08em" }}>
-                        Day Rhythm
+                            Now
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (nextLiveBlock?.key) setSelectedLiveFlowBlockKey(nextLiveBlock.key);
+                            }}
+                            disabled={!nextLiveBlock}
+                            style={{ ...buttonStyle, padding: "7px 10px", opacity: nextLiveBlock ? 1 : 0.55 }}
+                          >
+                            Next
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              handleOpenEventScheduleRouteInNewTab("rotation", "schedule");
+                            }}
+                            style={{ ...buttonStyle, padding: "7px 10px" }}
+                          >
+                            View Full Schedule
+                          </button>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              if (!selectedLiveFlowAnnouncementText) return;
+                              try {
+                                await navigator.clipboard.writeText(selectedLiveFlowAnnouncementText);
+                                setEventSaveMessage("Live announcement copied.");
+                                window.setTimeout(() => setEventSaveMessage(""), 2200);
+                              } catch (error) {
+                                setEventSaveMessage(error instanceof Error ? error.message : "Could not copy live announcement.");
+                                window.setTimeout(() => setEventSaveMessage(""), 2400);
+                              }
+                            }}
+                            disabled={!selectedLiveFlowAnnouncementText}
+                            style={{ ...buttonStyle, padding: "7px 10px", opacity: selectedLiveFlowAnnouncementText ? 1 : 0.55 }}
+                          >
+                            Copy Announcement
+                          </button>
+                        </div>
                       </div>
-                      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+
+                      <div
+                        style={{
+                          display: "flex",
+                          gap: "7px",
+                          alignItems: "stretch",
+                          overflowX: "auto",
+                          paddingBottom: "2px",
+                        }}
+                      >
                         {liveFlowBlocks.map((block) => {
                           const duration = Math.max(block.endMinutes - block.startMinutes, 1);
                           const isCurrent = currentLiveBlock?.key === block.key;
-                          const background =
-                            block.tone === "rotation"
-                              ? "linear-gradient(135deg, rgba(59, 130, 246, 0.22) 0%, rgba(125, 211, 252, 0.26) 100%)"
-                              : block.tone === "break"
-                                ? "linear-gradient(135deg, rgba(245, 158, 11, 0.22) 0%, rgba(253, 230, 138, 0.28) 100%)"
-                                : block.tone === "support"
-                                  ? "linear-gradient(135deg, rgba(16, 185, 129, 0.2) 0%, rgba(167, 243, 208, 0.24) 100%)"
-                                  : "linear-gradient(135deg, rgba(168, 85, 247, 0.2) 0%, rgba(221, 214, 254, 0.24) 100%)";
+                          const isSelected = selectedLiveFlowBlock?.key === block.key;
+                          const isCompleted = simulatedLiveMinutes >= block.endMinutes;
+                          const isUpcoming = simulatedLiveMinutes < block.startMinutes;
+                          const isDivider = block.tone === "break" && /lunch|break/i.test(block.label);
                           const color =
                             block.tone === "rotation"
                               ? "#7dd3fc"
-                              : block.tone === "break"
-                                ? "#fde68a"
-                                : block.tone === "support"
-                                  ? "#9ff5df"
-                                  : "#d8b4fe";
+                              : block.tone === "support"
+                                ? "#9ff5df"
+                                : block.tone === "break"
+                                  ? "#fde68a"
+                                  : "#c4b5fd";
+                          const label = isDivider ? getLiveFlowDividerLabel(block.label) : block.label;
                           return (
-                            <div
-                              key={`live-rhythm-${block.key}`}
-                              title={`${block.label} • ${formatMinuteRange(block.startMinutes, block.endMinutes)} • ${block.detail}${block.note ? ` • ${block.note}` : ""}`}
+                            <button
+                              key={`live-rail-${block.key}`}
+                              type="button"
+                              onClick={() => setSelectedLiveFlowBlockKey(block.key)}
+                              title={`${label} • ${formatMinuteRange(block.startMinutes, block.endMinutes)} • ${block.detail}${block.note ? ` • ${block.note}` : ""}`}
                               style={{
-                                flex: `${Math.max(duration, 6)} 1 58px`,
-                                minHeight: "42px",
-                                borderRadius: "12px",
-                                border: isCurrent ? "1px solid rgba(126, 231, 219, 0.34)" : "1px solid rgba(255,255,255,0.08)",
-                                background,
-                                boxShadow: isCurrent ? "0 0 0 1px rgba(126, 231, 219, 0.08), 0 0 22px rgba(126, 231, 219, 0.14)" : "none",
-                                padding: "7px 8px",
+                                flex: isDivider ? "0 0 auto" : `${Math.max(duration, 8)} 1 92px`,
+                                minWidth: isDivider ? "110px" : "92px",
+                                minHeight: isDivider ? "58px" : "64px",
+                                borderRadius: isDivider ? "999px" : "14px",
+                                border: isSelected
+                                  ? "1px solid rgba(126, 231, 219, 0.38)"
+                                  : isCurrent
+                                    ? "1px solid rgba(125, 211, 252, 0.28)"
+                                    : "1px solid rgba(255,255,255,0.08)",
+                                background: isDivider
+                                  ? "linear-gradient(135deg, rgba(122, 84, 24, 0.42) 0%, rgba(82, 56, 20, 0.38) 100%)"
+                                  : isCurrent
+                                    ? "linear-gradient(135deg, rgba(14, 56, 74, 0.98) 0%, rgba(7, 30, 45, 0.96) 100%)"
+                                    : "linear-gradient(135deg, rgba(13, 27, 42, 0.82) 0%, rgba(10, 22, 36, 0.88) 100%)",
+                                opacity: isCompleted ? 0.54 : 1,
+                                boxShadow: isSelected
+                                  ? "0 0 0 1px rgba(126, 231, 219, 0.12), 0 0 22px rgba(126, 231, 219, 0.12)"
+                                  : isCurrent
+                                    ? "0 0 18px rgba(73, 168, 255, 0.16)"
+                                    : "none",
+                                padding: isDivider ? "10px 12px" : "9px 10px",
                                 display: "grid",
-                                alignContent: "space-between",
                                 gap: "4px",
+                                alignContent: "space-between",
+                                textAlign: "left",
                               }}
                             >
-                              <div style={{ color, fontSize: "10px", fontWeight: 900, lineHeight: 1.2, overflowWrap: "anywhere" }}>
-                                {block.label}
+                              <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", alignItems: "flex-start" }}>
+                                <div style={{ color, fontSize: "11px", fontWeight: 900, lineHeight: 1.2, overflowWrap: "anywhere" }}>
+                                  {label}
+                                </div>
+                                <div style={{ color: isCompleted ? "#86efac" : isCurrent ? "#7ee7db" : "#89b7c4", fontSize: "11px", fontWeight: 900 }}>
+                                  {isCompleted ? "✓" : isCurrent ? "Now" : isUpcoming ? "Next" : ""}
+                                </div>
                               </div>
                               <div style={{ color: "#d6edf4", fontSize: "10px", fontWeight: 800 }}>
-                                {block.detail}
+                                {formatMinuteRange(block.startMinutes, block.endMinutes)}
                               </div>
-                            </div>
+                            </button>
                           );
                         })}
                       </div>
+
+                      {selectedLiveFlowBlock ? (
+                        <div
+                          style={{
+                            borderRadius: "14px",
+                            border:
+                              selectedLiveFlowRelation === "current"
+                                ? "1px solid rgba(126, 231, 219, 0.28)"
+                                : selectedLiveFlowRelation === "completed"
+                                  ? "1px solid rgba(134, 239, 172, 0.2)"
+                                  : "1px solid rgba(125, 211, 252, 0.18)",
+                            background:
+                              selectedLiveFlowRelation === "current"
+                                ? "rgba(16, 44, 59, 0.72)"
+                                : "rgba(13, 27, 42, 0.72)",
+                            padding: "12px 13px",
+                            display: "grid",
+                            gap: "8px",
+                          }}
+                        >
+                          <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+                            <div>
+                              <div style={{ color: "#7ee7db", fontSize: "11px", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                                {selectedLiveFlowRelation === "current"
+                                  ? "Current block"
+                                  : selectedLiveFlowRelation === "completed"
+                                    ? "Completed block"
+                                    : "Upcoming block"}
+                              </div>
+                              <div style={{ marginTop: "4px", color: "#f4fbff", fontSize: "17px", fontWeight: 900 }}>
+                                {selectedLiveFlowBlock.label}
+                              </div>
+                            </div>
+                            <span style={{ ...commandChipStyle, background: "rgba(255,255,255,0.04)", color: "#7dd3fc" }}>
+                              {formatMinuteRange(selectedLiveFlowBlock.startMinutes, selectedLiveFlowBlock.endMinutes)}
+                            </span>
+                          </div>
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "8px" }}>
+                            <div>
+                              <div style={{ ...statLabel, color: "#89b7c4" }}>Duration</div>
+                              <div style={{ color: "#f4fbff", fontWeight: 800 }}>{selectedLiveFlowBlock.detail}</div>
+                            </div>
+                            <div>
+                              <div style={{ ...statLabel, color: "#89b7c4" }}>Round</div>
+                              <div style={{ color: "#f4fbff", fontWeight: 800 }}>
+                                {selectedLiveFlowBlock.roundNumber ? `Round ${selectedLiveFlowBlock.roundNumber}` : "Day-wide"}
+                              </div>
+                            </div>
+                            <div>
+                              <div style={{ ...statLabel, color: "#89b7c4" }}>Status</div>
+                              <div style={{ color: "#f4fbff", fontWeight: 800 }}>
+                                {selectedLiveFlowRelation === "current"
+                                  ? `${formatRemainingMinutes(Math.max(selectedLiveFlowBlock.endMinutes - simulatedLiveMinutes, 0))} remaining`
+                                  : selectedLiveFlowRelation === "completed"
+                                    ? "Completed"
+                                    : "Upcoming"}
+                              </div>
+                            </div>
+                          </div>
+                          {selectedLiveFlowBlock.note ? (
+                            <div style={{ color: "#9ed9d1", fontSize: "12px", fontWeight: 700 }}>
+                              {selectedLiveFlowBlock.note}
+                            </div>
+                          ) : null}
+                          {selectedLiveFlowAnnouncementText ? (
+                            <div style={{ color: "#d6edf4", fontSize: "12px", fontWeight: 700 }}>
+                              Announcement: {selectedLiveFlowAnnouncementText}
+                            </div>
+                          ) : null}
+                          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                            {selectedLiveFlowBlock.roundNumber ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const round = rotationRounds[selectedLiveFlowBlock.roundNumber ? selectedLiveFlowBlock.roundNumber - 1 : -1];
+                                  if (round?.key) setSelectedRotationRoundKey(round.key);
+                                }}
+                                style={{ ...buttonStyle, padding: "7px 10px" }}
+                              >
+                                Open Round {selectedLiveFlowBlock.roundNumber}
+                              </button>
+                            ) : null}
+                            {selectedLiveFlowBlock.rooms.length ? (
+                              <span style={{ ...commandChipStyle, background: "rgba(73, 168, 255, 0.12)", color: "#7dd3fc" }}>
+                                {selectedLiveFlowBlock.rooms.length} room{selectedLiveFlowBlock.rooms.length === 1 ? "" : "s"}
+                              </span>
+                            ) : (
+                              <span style={{ ...commandChipStyle, background: "rgba(255,255,255,0.04)", color: "#9bb4c0" }}>
+                                Whole-event block
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      ) : null}
                     </div>
                   </>
                 )}
