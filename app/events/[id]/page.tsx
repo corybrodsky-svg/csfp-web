@@ -643,6 +643,14 @@ function getWorkflowReadinessTone(status: WorkflowReadinessStatus) {
   };
 }
 
+const operationalReadinessGoldTone = {
+  background: "linear-gradient(180deg, rgba(255, 248, 220, 0.98) 0%, rgba(249, 232, 182, 0.84) 100%)",
+  cardBackground: "linear-gradient(180deg, rgba(255, 251, 235, 0.98) 0%, rgba(254, 240, 178, 0.82) 100%)",
+  border: "1px solid rgba(180, 138, 38, 0.42)",
+  color: "#7c5a10",
+  glow: "0 14px 36px rgba(180, 138, 38, 0.14)",
+};
+
 const recordingStatusOptions = [
   { value: "not_recorded", label: "Not Recorded", active: false, tone: "#94a3b8", chip: "Disabled" },
   { value: "recorded", label: "Recorded", active: true, tone: "#ff6b6b", chip: "Recorded" },
@@ -5438,9 +5446,13 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
   const recordingAvailabilityDate = parseOperationalDate(recordingAvailabilityDateText, importedYearHint);
   const emailStatusLabel = getEmailStatusLabel(trainingMetadata);
   const hiringEmailDrafted = Boolean(asText(trainingMetadata.hiring_email_drafted_at));
-  const hiringEmailSent = Boolean(asText(trainingMetadata.hiring_email_sent_or_marked_at));
+  const hiringEmailSentAt =
+    asText(trainingMetadata.hiring_email_sent_at) || asText(trainingMetadata.hiring_email_sent_or_marked_at);
+  const hiringEmailSent = Boolean(hiringEmailSentAt);
   const confirmationEmailDrafted = Boolean(asText(trainingMetadata.confirmation_email_drafted_at));
-  const confirmationEmailSent = Boolean(asText(trainingMetadata.confirmation_email_sent_or_marked_at));
+  const confirmationEmailSentAt =
+    asText(trainingMetadata.confirmation_email_sent_at) || asText(trainingMetadata.confirmation_email_sent_or_marked_at);
+  const confirmationEmailSent = Boolean(confirmationEmailSentAt);
   const staffingEmailWorkflowDetail = [
     hiringEmailSent ? "Hiring sent" : hiringEmailDrafted ? "Hiring drafted" : "",
     confirmationEmailSent ? "Confirmation sent" : confirmationEmailDrafted ? "Confirmation drafted" : "",
@@ -8066,8 +8078,12 @@ Cory`;
       ],
     },
   ];
+  const workflowRequiredReadyIds = new Set(["staffing", "faculty", "materials", "schedule", "email"]);
   const workflowReadyCount = workflowReportItems.filter((item) => item.status === "Ready" || item.status === "Optional").length;
   const workflowActionCount = workflowReportItems.filter((item) => ["Needs Action", "Blocked", "Not Started"].includes(item.status)).length;
+  const workflowRequiredReady = workflowReportItems
+    .filter((item) => workflowRequiredReadyIds.has(item.id))
+    .every((item) => item.status === "Ready");
   const workflowBoardStatus: WorkflowReadinessStatus = workflowActionCount > 0 ? "Needs Action" : "Ready";
   const arrivalInstructions = getFirstNoteValue(eventEditor.notes || event?.notes, [
     "Arrival Instructions",
@@ -9884,28 +9900,35 @@ Cory`;
 
   async function handleMarkStaffingEmailSent(kind: "hiring" | "confirmation") {
     const sentAt = new Date().toISOString();
-    await persistTrainingMetadataFields(
-      kind === "hiring"
-        ? {
-            email_status: confirmationEmailSent ? "sent" : "draft_opened",
-            email_sent_at: sentAt,
-            hiring_email_sent_or_marked_at: sentAt,
-            staffing_status: confirmationEmailSent && staffingCoverageMet ? "complete" : staffingCoverageMet ? "coverage_met" : "needs_staffing",
-            selected_hiring_sp_ids: selectedHiringEmailSpIds.join(","),
-            last_email_workflow_type: "hiring",
-            last_email_recipient_count: String(hiringEmailBccEmails.length),
-          }
-        : {
-            email_status: hiringEmailSent ? "sent" : "draft_opened",
-            email_sent_at: sentAt,
-            confirmation_email_sent_or_marked_at: sentAt,
-            staffing_status: hiringEmailSent && staffingCoverageMet ? "complete" : staffingCoverageMet ? "coverage_met" : "needs_staffing",
-            include_backups_in_email: includeBackupConfirmationEmails ? "yes" : "no",
-            last_email_workflow_type: "confirmation",
-            last_email_recipient_count: String(confirmationBccEmails.length),
-          },
-      kind === "hiring" ? "Hiring email marked sent." : "Confirmation email marked sent."
-    );
+    try {
+      await persistTrainingMetadataFields(
+        kind === "hiring"
+          ? {
+              email_status: confirmationEmailSent ? "sent" : "draft_opened",
+              email_sent_at: sentAt,
+              hiring_email_sent_at: sentAt,
+              hiring_email_sent_or_marked_at: sentAt,
+              staffing_status: confirmationEmailSent && staffingCoverageMet ? "complete" : staffingCoverageMet ? "coverage_met" : "needs_staffing",
+              selected_hiring_sp_ids: selectedHiringEmailSpIds.join(","),
+              last_email_workflow_type: "hiring",
+              last_email_recipient_count: String(hiringEmailBccEmails.length),
+            }
+          : {
+              email_status: hiringEmailSent ? "sent" : "draft_opened",
+              email_sent_at: sentAt,
+              confirmation_email_sent_at: sentAt,
+              confirmation_email_sent_or_marked_at: sentAt,
+              staffing_status: hiringEmailSent && staffingCoverageMet ? "complete" : staffingCoverageMet ? "coverage_met" : "needs_staffing",
+              include_backups_in_email: includeBackupConfirmationEmails ? "yes" : "no",
+              last_email_workflow_type: "confirmation",
+              last_email_recipient_count: String(confirmationBccEmails.length),
+            },
+        kind === "hiring" ? "Hiring email marked sent." : "Confirmation email marked sent."
+      );
+    } catch (error) {
+      const detail = error instanceof Error && error.message ? ` ${error.message}` : "";
+      setEventSaveError(`Could not save email sent status.${detail}`.trim());
+    }
   }
 
   function handleClearSuggestedAssignments() {
@@ -12366,7 +12389,8 @@ Cory`;
                       </div>
                     ) : null}
                   </div>
-                  <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                  <div style={{ display: "grid", gap: "8px", justifyItems: "start" }}>
+                    <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                     <input
                       ref={pollImportInputRef}
                       type="file"
@@ -12401,16 +12425,38 @@ Cory`;
                     <button
                       type="button"
                       onClick={() => void handleMarkStaffingEmailSent("hiring")}
-                      style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px" }}
+                      style={
+                        hiringEmailSent
+                          ? {
+                              ...staffingSecondaryButtonStyle,
+                              padding: "8px 11px",
+                              background: planningSuccessCardBackground,
+                              border: planningSuccessBorder,
+                              color: planningSuccessText,
+                              boxShadow: "0 8px 18px rgba(16, 185, 129, 0.16)",
+                            }
+                          : { ...staffingSecondaryButtonStyle, padding: "8px 11px" }
+                      }
                     >
-                      Mark Hiring Email Sent
+                      {hiringEmailSent ? "Hiring Email Sent" : "Mark Hiring Email Sent"}
                     </button>
                     <button
                       type="button"
                       onClick={() => void handleMarkStaffingEmailSent("confirmation")}
-                      style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px" }}
+                      style={
+                        confirmationEmailSent
+                          ? {
+                              ...staffingSecondaryButtonStyle,
+                              padding: "8px 11px",
+                              background: planningSuccessCardBackground,
+                              border: planningSuccessBorder,
+                              color: planningSuccessText,
+                              boxShadow: "0 8px 18px rgba(16, 185, 129, 0.16)",
+                            }
+                          : { ...staffingSecondaryButtonStyle, padding: "8px 11px" }
+                      }
                     >
-                      Mark Confirmation Sent
+                      {confirmationEmailSent ? "Confirmation Sent" : "Mark Confirmation Sent"}
                     </button>
                     <label
                       style={{
@@ -12474,7 +12520,7 @@ Cory`;
                     >
                       {pollImportSaving ? "Uploading..." : "Upload Poll Results"}
                     </button>
-                    <button
+<button
   type="button"
   onClick={() => {
     setPollImportDebugInfo(null);
@@ -12494,6 +12540,14 @@ Cory`;
 >
   Clear Poll Results
 </button>
+                    </div>
+                    <div style={{ display: "grid", gap: "4px", fontSize: "12px", fontWeight: 800, color: staffingWorkspacePalette.textMuted }}>
+                      <div>hiring_email_sent_at: {hiringEmailSentAt || "missing"}</div>
+                      <div>confirmation_email_sent_at: {confirmationEmailSentAt || "missing"}</div>
+                      {eventSaveError.includes("Could not save email sent status") ? (
+                        <div style={{ color: staffingWorkspacePalette.dangerText }}>Could not save email sent status</div>
+                      ) : null}
+                    </div>
                   </div>
                 </div>
 
@@ -14002,7 +14056,11 @@ Cory`;
   }
 
   function renderOperationalReadinessBoard(className: string, extraStyle: React.CSSProperties = {}) {
-    const boardTone = getWorkflowReadinessTone(workflowBoardStatus);
+    const boardTone = workflowRequiredReady ? operationalReadinessGoldTone : getWorkflowReadinessTone(workflowBoardStatus);
+    const boardStatusLabel = workflowRequiredReady ? "Operationally Ready" : workflowBoardStatus;
+    const boardStatusDetail = workflowRequiredReady
+      ? "All required readiness systems are complete."
+      : `${workflowReadyCount} ready / optional · ${workflowActionCount} action`;
 
     return (
       <section
@@ -14010,8 +14068,9 @@ Cory`;
         style={{
           ...cardStyle,
           ...extraStyle,
-          background: "var(--cfsp-surface-muted)",
-          borderColor: "rgba(120, 180, 255, 0.24)",
+          background: workflowRequiredReady ? operationalReadinessGoldTone.cardBackground : "var(--cfsp-surface-muted)",
+          borderColor: workflowRequiredReady ? "rgba(180, 138, 38, 0.42)" : "rgba(120, 180, 255, 0.24)",
+          boxShadow: workflowRequiredReady ? operationalReadinessGoldTone.glow : cardStyle.boxShadow,
         }}
       >
         <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "flex-start" }}>
@@ -14033,11 +14092,12 @@ Cory`;
               display: "grid",
               gap: "2px",
               minWidth: "150px",
+              boxShadow: workflowRequiredReady ? "0 8px 20px rgba(180, 138, 38, 0.14)" : undefined,
             }}
           >
-            <span>{workflowBoardStatus}</span>
+            <span>{boardStatusLabel}</span>
             <span style={{ fontSize: "11px", opacity: 0.82 }}>
-              {workflowReadyCount} ready / optional · {workflowActionCount} action
+              {boardStatusDetail}
             </span>
           </div>
         </div>
