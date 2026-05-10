@@ -234,12 +234,12 @@ const scheduleCompanionViewLabels: Record<ScheduleCompanionView, string> = {
 };
 
 const schedulePreviewKindOptions: Array<{ value: SchedulePreviewKind; label: string }> = [
-  { value: "timeline", label: "Day Flow" },
+  { value: "timeline", label: "Faculty Time Ticket" },
+  { value: "operations", label: "Sim Ops Time Ticket" },
+  { value: "sp", label: "SP Time Ticket" },
+  { value: "student", label: "Student Time Ticket" },
+  { value: "rotation", label: "Full Operations Schedule" },
   { value: "announcements", label: "Announcement Schedule" },
-  { value: "rotation", label: "Rotation Schedule" },
-  { value: "student", label: "Student Schedule" },
-  { value: "sp", label: "SP Schedule" },
-  { value: "operations", label: "Operations Schedule" },
 ];
 
 function getScheduleCompanionViewLabel(view: ScheduleCompanionView | null | undefined) {
@@ -1241,12 +1241,12 @@ function buildSchedulePreviewData(args: {
 
   const isOperations = kind === "operations" || kind === "rotation";
   const titleMap: Record<SchedulePreviewKind, string> = {
-    timeline: "Day Flow Preview",
-    announcements: "Announcement Schedule Preview",
-    student: "Student Schedule Preview",
-    sp: "SP Schedule Preview",
-    operations: "Operations Schedule Preview",
-    rotation: "Rotation Schedule Preview",
+    timeline: "Faculty Time Ticket",
+    announcements: "Announcement Schedule",
+    student: "Student Time Ticket",
+    sp: "SP Time Ticket",
+    operations: "Sim Ops Time Ticket",
+    rotation: "Full Operations Schedule",
   };
 
   const lines: string[] = [];
@@ -2472,14 +2472,14 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     const source = uploadedLearners.length ? uploadedLearners : learnerRoster;
     if (!source.length) return;
     setUploadedLearners(shuffleRoster(source));
-    setCopyMessage("Student order randomized.");
+    setCopyMessage("Learner spread randomized.");
     window.setTimeout(() => setCopyMessage(""), 2600);
   }
 
   function handleResetLearnerOrder() {
     if (!originalUploadedLearners.length) return;
     setUploadedLearners(originalUploadedLearners);
-    setCopyMessage("Student order reset to uploaded order.");
+    setCopyMessage("Uploaded learner order restored.");
     window.setTimeout(() => setCopyMessage(""), 2600);
   }
 
@@ -2647,6 +2647,54 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
               {props.backLabel || "Back"}
             </Link>
           ) : null}
+        </div>
+      </section>
+
+      <section className="cfsp-panel px-4 py-4">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+          <div className="grid gap-3">
+            <div>
+              <div className="cfsp-label">Schedule status</div>
+              <div className="mt-2 text-[1.4rem] font-black text-[#14304f]">{scheduleWorkflowBadgeLabel}</div>
+              <div className="mt-2 text-sm font-semibold text-[#5e7388]">
+                {lastSavedLabel ? `Last saved ${lastSavedLabel}` : "Changes save into the active builder draft as you work."}
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <span className="cfsp-chip">Learners {learnerRoster.length}</span>
+              <span className="cfsp-chip">Rooms {totalRoomCount}</span>
+              <span className="cfsp-chip">Rounds {effectiveRoundCount}</span>
+              <span className="cfsp-chip">{scheduleWorkflowBadgeLabel}</span>
+            </div>
+          </div>
+          <div className="grid gap-3">
+            <div className="flex flex-wrap gap-2">
+              <button type="button" onClick={() => setPreviewKind("timeline")} className="cfsp-btn cfsp-btn-secondary">
+                Preview Time Ticket
+              </button>
+              <button type="button" onClick={handlePrintPreview} className="cfsp-btn cfsp-btn-secondary">
+                Print
+              </button>
+              <button type="button" onClick={handleDownloadPreview} className="cfsp-btn cfsp-btn-secondary">
+                Download
+              </button>
+              <button type="button" onClick={() => void handleCompleteSchedule()} className="cfsp-btn">
+                Mark Schedule Complete
+              </button>
+            </div>
+            {learnerRoster.length > 1 ? (
+              <div className="flex flex-wrap gap-2">
+                <button type="button" onClick={handleRandomizeLearners} className="cfsp-btn cfsp-btn-secondary">
+                  Randomize Learner Spread
+                </button>
+                {originalUploadedLearners.length ? (
+                  <button type="button" onClick={handleResetLearnerOrder} className="cfsp-btn cfsp-btn-secondary">
+                    Reset Uploaded Order
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
         </div>
       </section>
 
@@ -3115,9 +3163,9 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
           <section className="cfsp-panel px-4 py-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
-                <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">Operations Timeline</h3>
+                <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">Time Ticket & Schedule Preview</h3>
                 <p className="mt-2 mb-0 text-sm leading-6 text-[#5e7388]">
-                  Review the operational day from arrival through the final block before the next activity window.
+                  Switch between audience-facing Time Tickets and the full operations schedule without leaving the builder.
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -3183,7 +3231,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
             <div className="mt-3 grid gap-3 rounded-[16px] border border-[#dce6ee] bg-[#f8fbfd] p-3">
               <div className="flex flex-wrap gap-2">
                 <button type="button" onClick={() => setShowSchedulePreview(true)} className="cfsp-btn cfsp-btn-secondary">
-                  Preview
+                  Preview Time Ticket
                 </button>
                 <button type="button" onClick={handleOpenPreviewInNewTab} className="cfsp-btn cfsp-btn-secondary">
                   Open in New Tab

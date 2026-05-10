@@ -2324,12 +2324,16 @@ function getFacultyContactPanelStorageKey(eventId: string) {
   return `cfsp:faculty-contact-panel:${eventId || "global"}`;
 }
 
+function getStaffingCommandCenterStorageKey(eventId: string) {
+  return `cfsp:staffing-command-center:${eventId || "global"}`;
+}
+
 const eventSchedulePreviewOptions: Array<{ value: EventSchedulePreviewKind; label: string }> = [
-  { value: "timeline", label: "Day Flow" },
-  { value: "rotation", label: "Rotation Schedule" },
-  { value: "student", label: "Student Schedule" },
-  { value: "sp", label: "SP Schedule" },
-  { value: "operations", label: "Operations Schedule" },
+  { value: "timeline", label: "Faculty Time Ticket" },
+  { value: "operations", label: "Sim Ops Time Ticket" },
+  { value: "sp", label: "SP Time Ticket" },
+  { value: "student", label: "Student Time Ticket" },
+  { value: "rotation", label: "Full Operations Schedule" },
   { value: "announcements", label: "Announcement Schedule" },
 ];
 
@@ -3536,6 +3540,7 @@ export default function EventDetailPage() {
   const [contactPanelSaving, setContactPanelSaving] = useState(false);
   const [contactPanelSavedAt, setContactPanelSavedAt] = useState("");
   const [contactPanelExpanded, setContactPanelExpanded] = useState(true);
+  const [staffingCommandCenterExpanded, setStaffingCommandCenterExpanded] = useState(true);
   const [showPushRelatedPanel, setShowPushRelatedPanel] = useState(false);
   const [relatedKeyword, setRelatedKeyword] = useState("");
   const schedulePreviewFrameRef = useRef<HTMLIFrameElement | null>(null);
@@ -5391,6 +5396,20 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     .map(asText)
     .filter(Boolean)
     .join(" · ");
+  const scheduleStatusLabel = scheduleCompleted
+    ? "Schedule Complete"
+    : scheduleInProgress
+      ? "Schedule In Progress"
+      : "Schedule Not Started";
+  const scheduleStatusDetail = scheduleCompleted
+    ? "Time Ticket and full schedule are ready to open, print, or share."
+    : scheduleInProgress
+      ? "Builder progress is saved. Review the Time Ticket or reopen the builder to finish details."
+      : "Open the builder to set learner flow, room spread, and timing blocks.";
+  const staffingCoverageMet = staffingRelevant && (needed > 0 ? confirmedCount >= needed : selectedStaffingCount > 0);
+  const staffingCommunicationComplete = emailStatusLabel === "Sent";
+  const staffingCommandCenterCanCollapse =
+    staffingRelevant && staffingCoverageMet && staffingCommunicationComplete;
   useEffect(() => {
     if (typeof window === "undefined" || !id) return;
 
@@ -5406,6 +5425,21 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     }
     setContactPanelExpanded(!facultyReadinessComplete);
   }, [facultyReadinessComplete, id]);
+  useEffect(() => {
+    if (typeof window === "undefined" || !id) return;
+
+    const storageKey = getStaffingCommandCenterStorageKey(id);
+    const savedState = window.localStorage.getItem(storageKey);
+    if (savedState === "expanded") {
+      setStaffingCommandCenterExpanded(true);
+      return;
+    }
+    if (savedState === "collapsed") {
+      setStaffingCommandCenterExpanded(false);
+      return;
+    }
+    setStaffingCommandCenterExpanded(!staffingCommandCenterCanCollapse);
+  }, [id, staffingCommandCenterCanCollapse]);
   const outreachProgressLabel = assignments.some(
     (assignment) =>
       Boolean(assignment.last_contacted_at) || ["contacted", "confirmed", "declined"].includes(getAssignmentStatus(assignment))
@@ -7738,7 +7772,14 @@ Cory`;
           : "Open the scheduling workspace to build or import the learner/SP flow.",
       actions: [
         { label: "Open Schedule Builder", href: expandedScheduleBuilderHref },
-        { label: "Preview Schedule", onClick: () => setShowEventSchedulePreview(true) },
+        {
+          label: "Open Time Ticket",
+          onClick: () => {
+            setEventSchedulePreviewKind("timeline");
+            setShowEventSchedulePreview(true);
+          },
+        },
+        { label: "Preview Full Schedule", onClick: () => setShowEventSchedulePreview(true) },
         ...(scheduleCompleted ? [] : [{ label: "Mark Schedule Complete", onClick: () => void handleMarkScheduleComplete(), disabled: saving }]),
       ],
     },
@@ -9573,6 +9614,26 @@ Cory`;
     }
   }
 
+  function handleStaffingCommandCenterExpandedChange(nextExpanded: boolean) {
+    setStaffingCommandCenterExpanded(nextExpanded);
+    if (typeof window !== "undefined" && id) {
+      window.localStorage.setItem(
+        getStaffingCommandCenterStorageKey(id),
+        nextExpanded ? "expanded" : "collapsed"
+      );
+    }
+  }
+
+  async function handleMarkStaffingEmailSent(kind: "hiring" | "confirmation") {
+    await persistTrainingMetadataFields(
+      {
+        email_status: "sent",
+        email_sent_at: new Date().toISOString(),
+      },
+      kind === "hiring" ? "Hiring email marked sent." : "Confirmation email marked sent."
+    );
+  }
+
   function handleClearSuggestedAssignments() {
     setSuggestedAssignmentFilter("all");
     showSuccessMessage("Suggested assignments reset.");
@@ -11381,7 +11442,7 @@ Cory`;
               Run coverage, polling, responder ranking, and selected-staffing operations from one compact workflow.
             </p>
           </div>
-          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "flex-end" }}>
             <span style={{ ...staffingSelectedChipStyle, background: "rgba(186, 230, 253, 0.28)", color: "#1d5f83" }}>{needed} needed</span>
             <span style={{ ...staffingSelectedChipStyle, background: planningSuccessBackground, color: planningSuccessText, border: planningSuccessBorder }}>
               {confirmedCount} confirmed
@@ -11411,10 +11472,49 @@ Cory`;
             >
               {staffingHealthLabel}
             </span>
+            {staffingCommandCenterCanCollapse ? (
+              <button
+                type="button"
+                onClick={() => handleStaffingCommandCenterExpandedChange(!staffingCommandCenterExpanded)}
+                style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px" }}
+              >
+                {staffingCommandCenterExpanded ? "Collapse Staffing Tools" : "Expand Staffing Tools"}
+              </button>
+            ) : null}
           </div>
         </div>
 
-        {!staffingRelevant ? (
+        {staffingCommandCenterCanCollapse && !staffingCommandCenterExpanded ? (
+          <div
+            style={{
+              borderRadius: "16px",
+              border: planningSuccessBorder,
+              background: "linear-gradient(180deg, rgba(236, 253, 245, 0.96) 0%, rgba(220, 252, 231, 0.94) 100%)",
+              padding: "14px 16px",
+              display: "grid",
+              gap: "8px",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
+              <div>
+                <div style={{ ...statLabel, color: planningSuccessText }}>Staffing Summary</div>
+                <div style={{ marginTop: "4px", color: planningSuccessText, fontWeight: 900, fontSize: "18px" }}>
+                  {needed} needed · {confirmedCount} confirmed · Coverage met
+                </div>
+                <div style={{ marginTop: "6px", color: "#166534", fontWeight: 700, fontSize: "13px" }}>
+                  {emailStatusLabel === "Sent" ? "Hiring complete · Confirmation sent" : "Coverage complete"}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleStaffingCommandCenterExpandedChange(true)}
+                style={{ ...buttonStyle, padding: "8px 12px" }}
+              >
+                Expand Staffing Tools
+              </button>
+            </div>
+          </div>
+        ) : !staffingRelevant ? (
           <div
             style={{
               ...statCard,
@@ -11779,6 +11879,20 @@ Cory`;
                       style={{ ...buttonStyle, padding: "8px 11px", boxShadow: "0 8px 16px rgba(14, 165, 233, 0.16)", opacity: confirmationBccEmails.length === 0 ? 0.65 : 1 }}
                     >
                       Confirm Staffing Email
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleMarkStaffingEmailSent("hiring")}
+                      style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px" }}
+                    >
+                      Mark Hiring Email Sent
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleMarkStaffingEmailSent("confirmation")}
+                      style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px" }}
+                    >
+                      Mark Confirmation Sent
                     </button>
                     <label
                       style={{
@@ -14268,6 +14382,93 @@ Cory`;
             <div style={{ marginTop: "10px", display: "grid", gap: "10px" }}>
               <div
                 style={{
+                  borderRadius: "20px",
+                  border: scheduleCompleted
+                    ? planningSuccessBorder
+                    : scheduleInProgress
+                      ? "1px solid rgba(73, 168, 255, 0.28)"
+                      : "1px solid rgba(148, 163, 184, 0.2)",
+                  background: isPlanningVisualMode
+                    ? scheduleCompleted
+                      ? "linear-gradient(180deg, rgba(236, 253, 245, 0.98) 0%, rgba(220, 252, 231, 0.96) 100%)"
+                      : scheduleInProgress
+                        ? "linear-gradient(180deg, rgba(239, 246, 255, 0.98) 0%, rgba(219, 234, 254, 0.96) 100%)"
+                        : "linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(241, 245, 249, 0.96) 100%)"
+                    : "linear-gradient(180deg, rgba(8, 22, 36, 0.96) 0%, rgba(8, 28, 38, 0.92) 100%)",
+                  boxShadow: isPlanningVisualMode ? "0 16px 28px rgba(42, 112, 140, 0.1)" : "0 18px 36px rgba(0, 0, 0, 0.24)",
+                  padding: "16px 18px",
+                  display: "grid",
+                  gap: "12px",
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", gap: "14px", flexWrap: "wrap", alignItems: "center" }}>
+                  <div style={{ display: "grid", gap: "6px" }}>
+                    <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Schedule Status</div>
+                    <div style={{ color: commandCenterVisual.headingColor, fontSize: "22px", fontWeight: 950 }}>
+                      {scheduleStatusLabel}
+                    </div>
+                    <div style={{ color: commandCenterVisual.mutedColor, fontSize: "13px", fontWeight: 700 }}>
+                      {scheduleStatusDetail}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                    <Link href={expandedScheduleBuilderHref} style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "9px 12px" }}>
+                      Open Schedule Builder
+                    </Link>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEventSchedulePreviewKind("timeline");
+                        setShowEventSchedulePreview(true);
+                      }}
+                      style={{ ...buttonStyle, padding: "9px 12px" }}
+                    >
+                      Open Time Ticket
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowEventSchedulePreview(true)}
+                      style={{ ...buttonStyle, padding: "9px 12px" }}
+                    >
+                      Preview Full Schedule
+                    </button>
+                    {!scheduleCompleted ? (
+                      <button
+                        type="button"
+                        onClick={() => void handleMarkScheduleComplete()}
+                        disabled={saving}
+                        style={{
+                          ...buttonStyle,
+                          padding: "9px 12px",
+                          background: "rgba(44, 211, 173, 0.14)",
+                          color: "#0f766e",
+                          border: "1px solid rgba(44, 211, 173, 0.24)",
+                          opacity: saving ? 0.65 : 1,
+                        }}
+                      >
+                        Mark Schedule Complete
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                  <span style={{ ...commandChipStyle, background: scheduleCompleted ? planningSuccessBackground : scheduleInProgress ? "rgba(219, 234, 254, 0.72)" : commandCenterVisual.chipBackground, color: scheduleCompleted ? planningSuccessText : scheduleInProgress ? "#1d4ed8" : commandCenterVisual.chipText, border: scheduleCompleted ? planningSuccessBorder : scheduleInProgress ? "1px solid rgba(73, 168, 255, 0.22)" : commandChipStyle.border }}>
+                    {scheduleStatusLabel}
+                  </span>
+                  <span style={commandChipStyle}>
+                    Learners {effectiveLearnerCount > 0 ? effectiveLearnerCount : "TBD"}
+                  </span>
+                  <span style={commandChipStyle}>
+                    Rooms {effectiveRoomCount || "TBD"}
+                  </span>
+                  <span style={commandChipStyle}>
+                    Rounds {activeRotationCount || 0}
+                  </span>
+                </div>
+              </div>
+
+              <div
+                style={{
                   display: "grid",
                   gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
                   gap: "10px",
@@ -14427,70 +14628,6 @@ Cory`;
                     </div>
                   </div>
                 ))}
-              </div>
-
-              <div
-                style={{
-                  marginTop: "12px",
-                  borderRadius: "18px",
-                  border: scheduleCompleted
-                    ? "1px solid rgba(44, 211, 173, 0.24)"
-                    : scheduleInProgress
-                      ? "1px solid rgba(73, 168, 255, 0.24)"
-                      : "1px solid rgba(148, 163, 184, 0.18)",
-                  background: isPlanningVisualMode
-                    ? scheduleCompleted
-                      ? "linear-gradient(180deg, rgba(236, 253, 245, 0.94) 0%, rgba(220, 252, 231, 0.94) 100%)"
-                      : scheduleInProgress
-                        ? "linear-gradient(180deg, rgba(239, 246, 255, 0.96) 0%, rgba(219, 234, 254, 0.94) 100%)"
-                        : "linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(241, 249, 252, 0.96) 100%)"
-                    : "linear-gradient(180deg, rgba(8, 22, 36, 0.94) 0%, rgba(8, 28, 38, 0.9) 100%)",
-                  boxShadow: isPlanningVisualMode ? "0 12px 24px rgba(42, 112, 140, 0.08)" : "0 14px 34px rgba(0, 0, 0, 0.2)",
-                  padding: "14px 16px",
-                  display: "grid",
-                  gap: "10px",
-                }}
-              >
-                <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
-                  <div>
-                    <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Schedule Workflow</div>
-                    <div style={{ color: commandCenterVisual.headingColor, fontSize: "18px", fontWeight: 900 }}>
-                      {scheduleCompleted ? "Schedule Complete" : scheduleInProgress ? "Schedule In Progress" : "Schedule not finalized"}
-                    </div>
-                    <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "13px", fontWeight: 700 }}>
-                      {scheduleCompleted
-                        ? "Preview or reopen the builder any time."
-                        : scheduleInProgress
-                          ? "Builder progress is saved and ready for review."
-                          : "Open the builder to finish the learner and room flow."}
-                    </div>
-                  </div>
-                  <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                    <Link href={expandedScheduleBuilderHref} style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "8px 12px" }}>
-                      Open Schedule Builder
-                    </Link>
-                    <button type="button" onClick={() => setShowEventSchedulePreview(true)} style={{ ...buttonStyle, padding: "8px 12px" }}>
-                      Preview Schedule
-                    </button>
-                    {!scheduleCompleted ? (
-                      <button
-                        type="button"
-                        onClick={() => void handleMarkScheduleComplete()}
-                        disabled={saving}
-                        style={{
-                          ...buttonStyle,
-                          padding: "8px 12px",
-                          background: "rgba(44, 211, 173, 0.14)",
-                          color: "#0f766e",
-                          border: "1px solid rgba(44, 211, 173, 0.24)",
-                          opacity: saving ? 0.65 : 1,
-                        }}
-                      >
-                        Mark Schedule Complete
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
               </div>
 
               {normalEventTrainingReadinessPanel}
@@ -18955,12 +19092,12 @@ Cory`;
               }}
             >
               <div>
-                <div style={{ ...statLabel, color: "#7ee7db" }}>Schedule Preview</div>
+                <div style={{ ...statLabel, color: "#7ee7db" }}>Time Ticket / Schedule Preview</div>
                 <div style={{ color: "#ffffff", fontWeight: 900, fontSize: "18px" }}>
-                  {scheduleCompleted ? "Schedule Complete" : scheduleInProgress ? "Schedule In Progress" : "Schedule Preview"}
+                  {scheduleCompleted ? "Schedule Complete" : scheduleInProgress ? "Schedule In Progress" : "Time Ticket Preview"}
                 </div>
                 <div style={{ marginTop: "4px", color: "rgba(220, 239, 255, 0.68)", fontSize: "12px", fontWeight: 700 }}>
-                  Preview the current event schedule without leaving the event page.
+                  Open a Time Ticket or full schedule view without leaving the event page.
                 </div>
               </div>
               <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
