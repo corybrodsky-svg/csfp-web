@@ -254,6 +254,12 @@ type LiveFlowPreviewEntry = {
   relation: "previous" | "current" | "next";
 };
 
+type EventSchedulePreviewDocument = {
+  title: string;
+  summary: string;
+  html: string;
+};
+
 type ScheduleBuilderPreviewDayBlock = {
   id: string;
   type: string;
@@ -1832,6 +1838,15 @@ function formatUploadedTimestamp(value?: string | null) {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return value;
   return parsed.toLocaleString();
+}
+
+function escapePreviewHtml(value: unknown) {
+  return asText(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
 }
 
 function formatSessionDate(value?: string | null, fallbackYear?: number | null) {
@@ -3531,6 +3546,8 @@ export default function EventDetailPage() {
   const [materialPreview, setMaterialPreview] = useState<MaterialPreviewState | null>(null);
   const [showEventSchedulePreview, setShowEventSchedulePreview] = useState(false);
   const [eventSchedulePreviewKind, setEventSchedulePreviewKind] = useState<EventSchedulePreviewKind>("timeline");
+  const [eventSchedulePreviewLoading, setEventSchedulePreviewLoading] = useState(false);
+  const [eventSchedulePreviewError, setEventSchedulePreviewError] = useState("");
   const [materialPreviewLoading, setMaterialPreviewLoading] = useState(false);
   const [materialPreviewError, setMaterialPreviewError] = useState("");
   const [materialOpenInNewTabError, setMaterialOpenInNewTabError] = useState("");
@@ -5130,6 +5147,25 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     };
   }, [showEventSchedulePreview]);
   useEffect(() => {
+    if (!showEventSchedulePreview || typeof window === "undefined") return;
+
+    setEventSchedulePreviewError("");
+    setEventSchedulePreviewLoading(true);
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setShowEventSchedulePreview(false);
+        setEventSchedulePreviewLoading(false);
+        setEventSchedulePreviewError("");
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [showEventSchedulePreview, eventSchedulePreviewKind]);
+  useEffect(() => {
     if (typeof window === "undefined" || !id) return;
 
     const savedState = window.localStorage.getItem(getRotationCommandSurfaceStorageKey(id));
@@ -6068,26 +6104,6 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
 
     return `/events/${encodeURIComponent(id)}/schedule-builder?${params.toString()}`;
   }, [activeSelectedRotationRoundIndex, id, roundCompanionView, selectedRotationRound]);
-  const schedulePreviewHref = useMemo(() => {
-    const params = new URLSearchParams();
-    params.set("source", "event-preview");
-    params.set("view", roundCompanionView);
-    params.set("preview", eventSchedulePreviewKind);
-    params.set("previewMode", "1");
-
-    if (selectedRotationRound) {
-      params.set("round", selectedRotationRound.key);
-      params.set("roundIndex", String(activeSelectedRotationRoundIndex + 1));
-    }
-
-    return `/events/${encodeURIComponent(id)}/schedule-builder?${params.toString()}`;
-  }, [
-    activeSelectedRotationRoundIndex,
-    eventSchedulePreviewKind,
-    id,
-    roundCompanionView,
-    selectedRotationRound,
-  ]);
   const scheduleBuilderLearnerNames = useMemo(
     () =>
       scheduleBuilderPreviewDraft?.uploadedLearners.length
@@ -6672,6 +6688,250 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     rotationRounds,
     selectedRotationRound,
     visibleSelectedRoundDayBlocks,
+  ]);
+  const eventSchedulePreviewDocument = useMemo(() => {
+    const titleMap: Record<EventSchedulePreviewKind, string> = {
+      timeline: "Faculty Time Ticket",
+      operations: "Sim Ops Time Ticket",
+      sp: "SP Time Ticket",
+      student: "Student Time Ticket",
+      rotation: "Full Operations Schedule",
+      announcements: "Announcement Schedule",
+    };
+    const title = titleMap[eventSchedulePreviewKind];
+    const eventName = event?.name || "Untitled Event";
+    const selectedRoundLabel =
+      currentRotationRoundNumber !== null
+        ? `Round ${currentRotationRoundNumber}`
+        : selectedRotationRound
+          ? `Round ${activeSelectedRotationRoundIndex + 1}`
+          : "No round selected";
+    const metaItems = [
+      formatEventDateText(event?.date_text || trainingMetadata.event_session_date, importedYearHint) || sessionSummaryLabel,
+      summaryTimeLabel,
+      event?.location || "Location TBD",
+      selectedRoundLabel,
+    ].filter(Boolean);
+
+    const renderEmptyState = (message: string) =>
+      `<div class="empty">${escapePreviewHtml(message)}</div>`;
+
+    const renderTimelineBlocks = () => {
+      if (!liveFlowBlocks.length) return renderEmptyState("No schedule flow has been generated for this event yet.");
+      return `
+        <div class="ticket-grid">
+          ${liveFlowBlocks
+            .map((block) => {
+              const tone =
+                block.label.toLowerCase().includes("lunch") || block.label.toLowerCase().includes("break")
+                  ? "block-gold"
+                  : block.label.toLowerCase().includes("encounter")
+                    ? "block-blue"
+                    : "block-slate";
+              const isCurrent = currentLiveBlock?.key === block.key ? " current-block" : "";
+              return `
+                <article class="ticket-card ${tone}${isCurrent}">
+                  <div class="ticket-time">${escapePreviewHtml(formatMinuteRange(block.startMinutes, block.endMinutes))}</div>
+                  <div class="ticket-title">${escapePreviewHtml(block.label)}</div>
+                  <div class="ticket-detail">${escapePreviewHtml(block.detail || formatLiveFlowDurationLabel(block.endMinutes - block.startMinutes))}</div>
+                  ${block.note ? `<div class="ticket-note">${escapePreviewHtml(block.note)}</div>` : ""}
+                </article>
+              `;
+            })
+            .join("")}
+        </div>
+      `;
+    };
+
+    const renderAnnouncements = () => {
+      if (!selectedRoundAnnouncementTimeline.length) {
+        return renderEmptyState("No announcements configured for this round.");
+      }
+      return `
+        <div class="stack">
+          ${selectedRoundAnnouncementTimeline
+            .map(
+              (entry) => `
+                <article class="row-card">
+                  <div class="row-time">${escapePreviewHtml(entry.timeLabel)}</div>
+                  <div class="row-body">
+                    <div class="row-title">${escapePreviewHtml(entry.phaseLabel)}</div>
+                    <div class="row-copy">${escapePreviewHtml(roundAnnouncementDrafts[entry.key] ?? entry.announcement)}</div>
+                    ${entry.detail ? `<div class="row-note">${escapePreviewHtml(entry.detail)}</div>` : ""}
+                  </div>
+                </article>
+              `
+            )
+            .join("")}
+        </div>
+      `;
+    };
+
+    const renderSelectedRoundRows = (kind: "student" | "sp" | "operations") => {
+      if (!selectedRoundTacticalBoardRows.length) {
+        return renderEmptyState("No room schedule is available for the selected round yet.");
+      }
+      return `
+        <div class="stack">
+          ${selectedRoundTacticalBoardRows
+            .map((row) => {
+              const learnerText = row.learnerLabels.length ? row.learnerLabels.join(", ") : "No learner assigned";
+              const spText = row.sp ? getFullName(row.sp) : row.assignment ? "Assigned SP" : "Unassigned";
+              const flagsText = row.flags.filter(Boolean).join(" · ");
+              return `
+                <article class="room-card">
+                  <div class="room-head">
+                    <div>
+                      <div class="room-name">${escapePreviewHtml(row.roomName)}</div>
+                      <div class="room-sub">${escapePreviewHtml(row.stationLabel || selectedRoundLabel)}</div>
+                    </div>
+                    <div class="room-time">${escapePreviewHtml(
+                      selectedRotationRound?.start_time && selectedRotationRound?.end_time
+                        ? `${formatDisplayTime(selectedRotationRound.start_time)} - ${formatDisplayTime(selectedRotationRound.end_time)}`
+                        : summaryTimeLabel
+                    )}</div>
+                  </div>
+                  <div class="room-grid">
+                    ${
+                      kind !== "sp"
+                        ? `<div><span class="row-label">Learners</span><span>${escapePreviewHtml(learnerText)}</span></div>`
+                        : ""
+                    }
+                    ${
+                      kind !== "student"
+                        ? `<div><span class="row-label">SP</span><span>${escapePreviewHtml(spText)}</span></div>`
+                        : ""
+                    }
+                    <div><span class="row-label">Case</span><span>${escapePreviewHtml(row.caseLabel || "Case TBD")}</span></div>
+                    ${
+                      kind === "operations"
+                        ? `<div><span class="row-label">Status</span><span>${escapePreviewHtml(flagsText || row.mappingState || "Ready")}</span></div>`
+                        : ""
+                    }
+                  </div>
+                </article>
+              `;
+            })
+            .join("")}
+        </div>
+      `;
+    };
+
+    const renderRotationSummary = () => {
+      if (!rotationRounds.length) return renderEmptyState("No rounds are built yet.");
+      return `
+        <div class="stack">
+          ${rotationRounds
+            .map((round, index) => {
+              const roundRoomCount = roomSlotEntriesByRoundKey.get(round.key)?.length || 0;
+              return `
+                <article class="row-card">
+                  <div class="row-time">${escapePreviewHtml(
+                    round.start_time && round.end_time
+                      ? `${formatDisplayTime(round.start_time)} - ${formatDisplayTime(round.end_time)}`
+                      : formatDisplayTime(round.start_time || round.end_time)
+                  )}</div>
+                  <div class="row-body">
+                    <div class="row-title">Round ${index + 1}</div>
+                    <div class="row-copy">${escapePreviewHtml(
+                      `${roundRoomCount} room${roundRoomCount === 1 ? "" : "s"} · ${formatSessionDate(round.session_date, importedYearHint) || "Date TBD"}`
+                    )}</div>
+                  </div>
+                </article>
+              `;
+            })
+            .join("")}
+        </div>
+      `;
+    };
+
+    const body =
+      eventSchedulePreviewKind === "timeline"
+        ? renderTimelineBlocks()
+        : eventSchedulePreviewKind === "announcements"
+          ? renderAnnouncements()
+          : eventSchedulePreviewKind === "student"
+            ? renderSelectedRoundRows("student")
+            : eventSchedulePreviewKind === "sp"
+              ? renderSelectedRoundRows("sp")
+              : eventSchedulePreviewKind === "operations"
+                ? renderSelectedRoundRows("operations")
+                : renderRotationSummary();
+
+    return {
+      title,
+      summary: metaItems.join(" • "),
+      html: `
+        <!doctype html>
+        <html>
+          <head>
+            <meta charSet="UTF-8" />
+            <title>${escapePreviewHtml(title)}</title>
+            <style>
+              :root { color-scheme: light; }
+              body { margin: 0; padding: 24px; font-family: Inter, Arial, sans-serif; color: #14304f; background: #f5fbfd; }
+              .shell { max-width: 980px; margin: 0 auto; display: grid; gap: 18px; }
+              .hero { border: 1px solid rgba(94, 186, 212, 0.22); border-radius: 20px; padding: 20px 22px; background: linear-gradient(180deg, #ffffff 0%, #eef8fb 100%); box-shadow: 0 18px 44px rgba(42, 112, 140, 0.08); }
+              .eyebrow { font-size: 11px; font-weight: 900; letter-spacing: 0.12em; text-transform: uppercase; color: #2b7a92; }
+              h1 { margin: 10px 0 6px; font-size: 30px; line-height: 1.05; }
+              .meta { color: #5e7388; font-size: 13px; font-weight: 700; }
+              .ticket-grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+              .ticket-card, .row-card, .room-card { border: 1px solid #d7e6ef; border-radius: 16px; background: #ffffff; box-shadow: 0 10px 24px rgba(42, 112, 140, 0.06); }
+              .ticket-card { padding: 14px; display: grid; gap: 6px; }
+              .ticket-card.current-block { border-color: rgba(44, 211, 173, 0.34); box-shadow: 0 0 0 1px rgba(44, 211, 173, 0.14), 0 14px 28px rgba(42, 112, 140, 0.1); }
+              .block-blue { background: linear-gradient(180deg, #f8fdff 0%, #eef7ff 100%); }
+              .block-gold { background: linear-gradient(180deg, #fffdf6 0%, #fff7dd 100%); }
+              .block-slate { background: linear-gradient(180deg, #ffffff 0%, #f8fbfd 100%); }
+              .ticket-time, .row-time { font-size: 12px; font-weight: 900; color: #2b7a92; text-transform: uppercase; letter-spacing: 0.08em; }
+              .ticket-title, .row-title, .room-name { font-size: 18px; font-weight: 900; color: #14304f; }
+              .ticket-detail, .row-copy, .room-sub, .room-time, .row-note, .ticket-note { font-size: 13px; font-weight: 700; color: #5e7388; }
+              .stack { display: grid; gap: 10px; }
+              .row-card { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 14px; padding: 14px 16px; align-items: start; }
+              .row-body { display: grid; gap: 5px; }
+              .room-card { padding: 16px; display: grid; gap: 12px; }
+              .room-head { display: flex; justify-content: space-between; gap: 10px; align-items: start; }
+              .room-grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+              .room-grid div { display: grid; gap: 4px; }
+              .row-label { font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.08em; color: #2b7a92; }
+              .empty { border: 1px dashed #c7d8e4; border-radius: 16px; padding: 18px; background: #ffffff; color: #5e7388; font-size: 14px; font-weight: 700; }
+              @media print {
+                body { background: #ffffff; padding: 0; }
+                .hero, .ticket-card, .row-card, .room-card { box-shadow: none; }
+              }
+            </style>
+          </head>
+          <body>
+            <main class="shell">
+              <section class="hero">
+                <div class="eyebrow">${escapePreviewHtml(title)}</div>
+                <h1>${escapePreviewHtml(eventName)}</h1>
+                <div class="meta">${escapePreviewHtml(metaItems.join(" • "))}</div>
+              </section>
+              ${body}
+            </main>
+          </body>
+        </html>
+      `,
+    } satisfies EventSchedulePreviewDocument;
+  }, [
+    activeSelectedRotationRoundIndex,
+    currentLiveBlock?.key,
+    currentRotationRoundNumber,
+    event?.date_text,
+    event?.location,
+    event?.name,
+    eventSchedulePreviewKind,
+    importedYearHint,
+    liveFlowBlocks,
+    roomSlotEntriesByRoundKey,
+    rotationRounds,
+    roundAnnouncementDrafts,
+    selectedRoundAnnouncementTimeline,
+    selectedRoundTacticalBoardRows,
+    selectedRotationRound,
+    sessionSummaryLabel,
+    summaryTimeLabel,
+    trainingMetadata.event_session_date,
   ]);
   const selectedRoundOperationsNotes = useMemo(
     () =>
@@ -8363,10 +8623,10 @@ Cory`;
 
   async function handleDownloadEventSchedulePreview() {
     try {
-      const response = await fetch(schedulePreviewHref, { credentials: "same-origin" });
-      if (!response.ok) throw new Error(`Preview download failed (${response.status}).`);
-      const html = await response.text();
-      const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+      if (!eventSchedulePreviewDocument?.html) {
+        throw new Error("Preview could not load. Open Schedule Builder instead.");
+      }
+      const blob = new Blob([eventSchedulePreviewDocument.html], { type: "text/html;charset=utf-8" });
       const downloadUrl = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = downloadUrl;
@@ -8382,9 +8642,30 @@ Cory`;
     }
   }
 
+  function handleOpenEventSchedulePreviewInNewTab() {
+    if (!eventSchedulePreviewDocument?.html) {
+      setEventSchedulePreviewError("Preview could not load. Open Schedule Builder instead.");
+      return;
+    }
+    const htmlBlob = new Blob([eventSchedulePreviewDocument.html], {
+      type: "text/html;charset=utf-8",
+    });
+    const htmlUrl = URL.createObjectURL(htmlBlob);
+    const openWindow = window.open(htmlUrl, "_blank", "noopener,noreferrer");
+    if (!openWindow) {
+      setEventSchedulePreviewError("Preview could not open in a new tab. Open Schedule Builder instead.");
+      window.setTimeout(() => setEventSchedulePreviewError(""), 2600);
+      URL.revokeObjectURL(htmlUrl);
+      return;
+    }
+    window.setTimeout(() => {
+      URL.revokeObjectURL(htmlUrl);
+    }, 12000);
+  }
+
   function handlePrintEventSchedulePreview() {
     const frameWindow = schedulePreviewFrameRef.current?.contentWindow;
-    if (!frameWindow) {
+    if (!frameWindow || eventSchedulePreviewLoading || !eventSchedulePreviewDocument?.html) {
       setEventSaveError("Schedule preview is still loading.");
       return;
     }
@@ -19086,7 +19367,10 @@ Cory`;
                     </option>
                   ))}
                 </select>
-                <button type="button" onClick={() => window.open(schedulePreviewHref, "_blank", "noopener,noreferrer")} style={{ ...buttonStyle, padding: "8px 12px" }}>
+                <Link href={expandedScheduleBuilderHref} style={{ ...buttonStyle, padding: "8px 12px", display: "inline-flex", alignItems: "center", textDecoration: "none" }}>
+                  Open Schedule Builder
+                </Link>
+                <button type="button" onClick={handleOpenEventSchedulePreviewInNewTab} style={{ ...buttonStyle, padding: "8px 12px" }}>
                   Open in New Tab
                 </button>
                 <button type="button" onClick={() => void handleDownloadEventSchedulePreview()} style={{ ...buttonStyle, padding: "8px 12px" }}>
@@ -19110,13 +19394,72 @@ Cory`;
                 </button>
               </div>
             </div>
-            <div style={{ minHeight: "min(74vh, 860px)", background: "#ffffff" }}>
-              <iframe
-                ref={schedulePreviewFrameRef}
-                title="Event schedule preview"
-                src={schedulePreviewHref}
-                style={{ width: "100%", height: "100%", minHeight: "min(74vh, 860px)", border: "none", display: "block", background: "#fff" }}
-              />
+            <div style={{ minHeight: "min(74vh, 860px)", background: "#ffffff", position: "relative" }}>
+              {eventSchedulePreviewLoading ? (
+                <div
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    background: "rgba(255,255,255,0.92)",
+                    color: "#14304f",
+                    fontWeight: 800,
+                    zIndex: 1,
+                  }}
+                >
+                  Loading schedule preview...
+                </div>
+              ) : null}
+              {eventSchedulePreviewError ? (
+                <div
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    display: "grid",
+                    placeItems: "center",
+                    padding: "24px",
+                    textAlign: "center",
+                    color: "#14304f",
+                    background: "#ffffff",
+                    zIndex: 2,
+                  }}
+                >
+                  <div style={{ display: "grid", gap: "12px" }}>
+                    <div style={{ fontWeight: 900, fontSize: "18px" }}>Preview could not load.</div>
+                    <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
+                      Open Schedule Builder instead.
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "center", gap: "8px", flexWrap: "wrap" }}>
+                      <Link href={expandedScheduleBuilderHref} style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "8px 12px" }}>
+                        Open Schedule Builder
+                      </Link>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowEventSchedulePreview(false);
+                          setEventSchedulePreviewLoading(false);
+                          setEventSchedulePreviewError("");
+                        }}
+                        style={{ ...buttonStyle, padding: "8px 12px" }}
+                      >
+                        Close
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+              {eventSchedulePreviewDocument?.html ? (
+                <iframe
+                  ref={schedulePreviewFrameRef}
+                  title={eventSchedulePreviewDocument.title}
+                  sandbox="allow-same-origin allow-modals"
+                  srcDoc={eventSchedulePreviewDocument.html}
+                  onLoad={() => setEventSchedulePreviewLoading(false)}
+                  style={{ width: "100%", height: "100%", minHeight: "min(74vh, 860px)", border: "none", display: "block", background: "#fff" }}
+                />
+              ) : null}
             </div>
           </div>
         </div>
