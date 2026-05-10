@@ -13516,7 +13516,7 @@ Cory`;
                       style={{
                         borderRadius: "14px",
                         border: "1px solid rgba(126, 231, 219, 0.2)",
-                        background: "linear-gradient(180deg, rgba(10, 33, 49, 0.96) 0%, rgba(10, 24, 38, 0.94) 100%)",
+                        background: livePanelCardBackground,
                         padding: "10px 12px",
                         display: "grid",
                         gap: "4px",
@@ -14091,8 +14091,8 @@ Cory`;
           borderRadius: "18px",
           border: normalEventTrainingPrimaryTone.border,
           background: isPlanningVisualMode
-            ? "linear-gradient(135deg, rgba(240, 253, 250, 0.98) 0%, rgba(236, 249, 255, 0.98) 52%, rgba(255, 251, 235, 0.84) 100%)"
-            : "linear-gradient(135deg, rgba(13, 37, 46, 0.96) 0%, rgba(10, 25, 41, 0.94) 60%, rgba(69, 26, 3, 0.36) 100%)",
+            ? "linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(246, 251, 253, 0.98) 100%)"
+            : commandCenterVisual.cardBackground,
           boxShadow: isPlanningVisualMode ? "0 14px 32px rgba(42, 112, 140, 0.1)" : "0 18px 42px rgba(8, 20, 34, 0.32)",
           padding: "14px",
           display: "grid",
@@ -14102,10 +14102,10 @@ Cory`;
         <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "flex-start" }}>
           <div>
             <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>SP Training Readiness</div>
-            <div style={{ marginTop: "4px", color: commandCenterVisual.headingColor, fontSize: "20px", fontWeight: 900 }}>
+            <div style={{ marginTop: "4px", color: commandCenterVisual.headingColor, fontSize: "20px", fontWeight: 950 }}>
               {normalEventTrainingStatusLabel}
             </div>
-            <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "13px", fontWeight: 700 }}>
+            <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "13px", fontWeight: 750 }}>
               Training stays tied to selected SPs, confirmation status, access links, recording support, and attendance check-in.
             </div>
           </div>
@@ -14176,10 +14176,10 @@ Cory`;
                 {trainingUrgentMissingItems.map((item) => (
                   <span
                     key={item}
-                    style={{
-                      ...commandChipStyle,
-                      background: "rgba(253, 230, 138, 0.18)",
-                      color: "#b45309",
+                  style={{
+                    ...commandChipStyle,
+                      background: isPlanningVisualMode ? "rgba(253, 230, 138, 0.18)" : "rgba(253, 230, 138, 0.12)",
+                      color: isPlanningVisualMode ? "#92400e" : "#fde68a",
                       border: "1px solid rgba(180, 83, 9, 0.24)",
                     }}
                   >
@@ -15420,7 +15420,7 @@ Cory`;
                       }}
                     >
                       <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Available for Event</div><div style={{ ...statValue, color: "#0f766e" }}>{importedPollResponseSummary.availableCount}</div></div>
-                      <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Maybe / Backup</div><div style={{ ...statValue, color: "#b45309" }}>{importedPollResponseSummary.maybeCount}</div></div>
+                      <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Maybe / Backup</div><div style={{ ...statValue, color: "#92400e" }}>{importedPollResponseSummary.maybeCount}</div></div>
                       <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Not Available</div><div style={{ ...statValue, color: staffingWorkspacePalette.dangerText }}>{importedPollResponseSummary.notAvailableCount}</div></div>
                       <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>No Match Found</div><div style={{ ...statValue, color: staffingWorkspacePalette.textMuted }}>{importedPollResponseSummary.unmatchedCount}</div></div>
                     </div>
@@ -16331,7 +16331,7 @@ Cory`;
                       }}
                     >
                       <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Available</div><div style={{ ...statValue, color: "#0f766e" }}>{pollResponseSummary.availableCount}</div></div>
-                      <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Maybe</div><div style={{ ...statValue, color: "#b45309" }}>{pollResponseSummary.maybeCount}</div></div>
+                      <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Maybe</div><div style={{ ...statValue, color: "#92400e" }}>{pollResponseSummary.maybeCount}</div></div>
                       <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Not Available</div><div style={{ ...statValue, color: "#b91c1c" }}>{pollResponseSummary.notAvailableCount}</div></div>
                       <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>No Response</div><div style={{ ...statValue, color: staffingWorkspacePalette.textMuted }}>{pollResponseSummary.noResponseCount}</div></div>
                     </div>
@@ -17670,7 +17670,7 @@ Cory`;
                               ? planningSuccessText
                               : eventRiskLevel.tone === "red"
                                 ? "#dc2626"
-                                : "#b45309",
+                                : isPlanningVisualMode ? "#92400e" : "#fde68a",
                         }}
                       >
                         {operationalReadinessItems.primary}
@@ -17681,7 +17681,7 @@ Cory`;
                         {planningWindowExpanded["event-status"] ? "Collapse" : "Expand"}
                       </span>
                     </div>
-                    <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 800, textAlign: "right", maxWidth: "420px" }}>
+                    <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 850, textAlign: "right", maxWidth: "420px", lineHeight: 1.45 }}>
                       {eventRiskLevel.detail} · {needed > 0 ? `${confirmedCount}/${needed} confirmed` : `${confirmedCount} confirmed`}
                     </div>
                   </div>
@@ -17711,7 +17711,7 @@ Cory`;
                           style={{
                             borderRadius: "16px",
                             border: eventStatusWindowStyles.border,
-                            background: isPlanningVisualMode ? "rgba(255,255,255,0.66)" : "rgba(255,255,255,0.04)",
+                            background: commandCenterVisual.rowBackground,
                             padding: "12px 13px",
                             display: "grid",
                             gap: "4px",
@@ -17719,7 +17719,7 @@ Cory`;
                         >
                           <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>{metric.label}</div>
                           <div style={{ color: commandCenterVisual.headingColor, fontSize: "22px", fontWeight: 950, lineHeight: 1.1 }}>{metric.value}</div>
-                          <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 700 }}>{metric.detail}</div>
+                          <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 750 }}>{metric.detail}</div>
                         </div>
                       ))}
                     </div>
@@ -17760,7 +17760,7 @@ Cory`;
                               ...commandChipStyle,
                               background: "rgba(253, 230, 138, 0.18)",
                               border: "1px solid rgba(180, 83, 9, 0.22)",
-                              color: "#b45309",
+                              color: isPlanningVisualMode ? "#92400e" : "#fde68a",
                             }}
                           >
                             {item.label}
@@ -17870,10 +17870,10 @@ Cory`;
                     >
                       <div>
                         <div style={{ ...statLabel, color: windowCard.styles.accent }}>{windowCard.title}</div>
-                        <div style={{ marginTop: "4px", color: commandCenterVisual.textColor, fontSize: "14px", fontWeight: 900 }}>
+                        <div style={{ marginTop: "4px", color: commandCenterVisual.textColor, fontSize: "14px", fontWeight: 950, lineHeight: 1.3 }}>
                           {windowCard.summary || windowCard.subtitle}
                         </div>
-                        <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 700, lineHeight: 1.45 }}>
+                        <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 750, lineHeight: 1.45 }}>
                           {windowCard.subtitle}
                         </div>
                       </div>
@@ -17907,19 +17907,19 @@ Cory`;
                                 style={{
                                   borderRadius: "14px",
                                   border: rowStyles.border,
-                                  background: isPlanningVisualMode ? "rgba(255,255,255,0.66)" : "rgba(255,255,255,0.04)",
+                                  background: commandCenterVisual.rowBackground,
                                   padding: "11px 12px",
                                   display: "grid",
                                   gap: "8px",
-                                  boxShadow: row.tone === "ready" ? "0 0 18px rgba(34, 197, 94, 0.08)" : row.tone === "critical" ? "0 0 18px rgba(244, 114, 182, 0.08)" : row.tone === "attention" ? "0 0 18px rgba(245, 158, 11, 0.06)" : undefined,
+                                  boxShadow: row.tone === "ready" ? "0 0 0 1px rgba(34, 197, 94, 0.04)" : row.tone === "critical" ? "0 0 0 1px rgba(244, 114, 182, 0.04)" : row.tone === "attention" ? "0 0 0 1px rgba(245, 158, 11, 0.04)" : undefined,
                                 }}
                               >
                                 <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "baseline" }}>
                                   <div style={{ ...statLabel, color: rowStyles.accent }}>{row.label}</div>
-                                  <div style={{ color: commandCenterVisual.textColor, fontSize: "14px", fontWeight: 900, textAlign: "right" }}>{row.value}</div>
+                                  <div style={{ color: commandCenterVisual.textColor, fontSize: "14px", fontWeight: 950, textAlign: "right" }}>{row.value}</div>
                                 </div>
                                 {row.detail ? (
-                                  <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 700, lineHeight: 1.45 }}>
+                                  <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 750, lineHeight: 1.45 }}>
                                     {row.detail}
                                   </div>
                                 ) : null}
@@ -17939,7 +17939,7 @@ Cory`;
                             padding: "12px",
                             color: commandCenterVisual.mutedColor,
                             fontSize: "13px",
-                            fontWeight: 700,
+                            fontWeight: 750,
                           }}
                         >
                           Support clear - no active support needs.
@@ -17985,9 +17985,9 @@ Cory`;
                       <div>
                         <div style={{ color: commandCenterVisual.textColor, fontWeight: 900 }}>{item.value}</div>
                         {item.detail ? (
-                          <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 700 }}>
-                            {item.detail}
-                          </div>
+                        <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 750, lineHeight: 1.45 }}>
+                          {item.detail}
+                        </div>
                         ) : null}
                       </div>
                     </div>
@@ -18003,11 +18003,11 @@ Cory`;
                   >
                     <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "flex-start" }}>
                       <div>
-                        <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Simulation Command File Cabinet</div>
-                        <div style={{ marginTop: "4px", color: commandCenterVisual.textColor, fontWeight: 900, fontSize: "18px", letterSpacing: "0.01em" }}>
+                        <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Simulation Command File Cabinet</div>
+                        <div style={{ marginTop: "4px", color: commandCenterVisual.headingColor, fontWeight: 950, fontSize: "18px", letterSpacing: "0.01em" }}>
                           Simulation Command File Cabinet
                         </div>
-                        <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 700 }}>
+                        <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 750, lineHeight: 1.45 }}>
                           Keep the mission packet, exports, timing tickets, materials, and live-access links together in one tactical rack.
                         </div>
                       </div>
@@ -18128,7 +18128,7 @@ Cory`;
                                             : "1px solid rgba(125, 211, 252, 0.16)",
                                           background: isCommandFileCabinetSimpleView
                                             ? "rgba(255,255,255,0.78)"
-                                            : "rgba(5, 19, 32, 0.34)",
+                                            : commandCenterVisual.rowBackground,
                                           padding: "7px",
                                           display: "grid",
                                           gap: "6px",
@@ -18421,9 +18421,9 @@ Cory`;
                                 }
                               : resource.status === "draft"
                                 ? {
-                                    background: "rgba(253, 230, 138, 0.18)",
+                                    background: isPlanningVisualMode ? "rgba(253, 230, 138, 0.18)" : "rgba(253, 230, 138, 0.12)",
                                     border: "1px solid rgba(180, 83, 9, 0.22)",
-                                    color: "#b45309",
+                                    color: isPlanningVisualMode ? "#92400e" : "#fde68a",
                                   }
                                 : {
                                     background: commandCenterVisual.chipBackground,
@@ -18457,7 +18457,7 @@ Cory`;
                                 : "1px solid rgba(143, 194, 240, 0.18)",
                               background: isCommandFileCabinetSimpleView
                                 ? "linear-gradient(180deg, rgba(255,255,255,0.99) 0%, rgba(248, 251, 254, 0.98) 100%)"
-                                : "linear-gradient(180deg, rgba(17, 31, 48, 0.94) 0%, rgba(20, 43, 62, 0.9) 100%)",
+                                : commandCenterVisual.cardBackground,
                               padding: resource.featured ? "12px 12px 11px" : "10px",
                               display: "grid",
                               gap: "8px",
@@ -18531,7 +18531,7 @@ Cory`;
                                   </button>
                                 )}
                                 <div style={{ minWidth: 0 }}>
-                                  <div style={{ color: commandCenterVisual.mutedColor, fontWeight: 900, fontSize: "10px", letterSpacing: "0.16em" }}>
+                                  <div style={{ color: isCommandFileCabinetSimpleView ? commandCenterVisual.mutedColor : commandCenterVisual.labelColor, fontWeight: 900, fontSize: "10px", letterSpacing: "0.16em" }}>
                                     MODULE {String(index + 1).padStart(2, "0")}
                                   </div>
                                   <div
@@ -19693,11 +19693,11 @@ Cory`;
             <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
               <div>
                 <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Faculty / Contact</div>
-                <div style={{ marginTop: "4px", color: commandCenterVisual.headingColor, fontSize: "18px", fontWeight: 900 }}>
+                <div style={{ marginTop: "4px", color: commandCenterVisual.headingColor, fontSize: "18px", fontWeight: 950 }}>
                   {trainingFacultyText || "Add faculty contact"}
                 </div>
                 {(!contactPanelExpanded || facultyReadinessComplete) ? (
-                  <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "13px", fontWeight: 700 }}>
+                  <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "13px", fontWeight: 750, lineHeight: 1.45 }}>
                     {facultyContactSummary || facultyReadinessLabel || facultyTrainingCoordinationLabel}
                   </div>
                 ) : null}
@@ -19837,12 +19837,12 @@ Cory`;
                     style={{
                       ...statCard,
                       minHeight: "92px",
-                      background: commandCenterVisual.cardBackground,
-                      border: commandCenterVisual.cardBorder,
+                      background: commandCenterVisual.rowBackground,
+                      border: commandCenterVisual.rowBorder,
                     }}
                   >
                     <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>{item.label}</div>
-                    <div style={{ ...statValue, marginTop: "8px", color: commandCenterVisual.textColor, fontSize: "15px", lineHeight: 1.3 }}>
+                    <div style={{ ...statValue, marginTop: "8px", color: commandCenterVisual.textColor, fontSize: "15px", lineHeight: 1.3, fontWeight: 900 }}>
                       {item.value}
                     </div>
                   </div>
