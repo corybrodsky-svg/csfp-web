@@ -1033,6 +1033,33 @@ function asText(value: unknown) {
   return String(value).trim();
 }
 
+function normalizeOperationalBadgeKey(label: unknown) {
+  const normalized = asText(label)
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (normalized === "in person" || normalized === "inperson") return "in person";
+  return normalized;
+}
+
+function isNeedsSpOperationalBadge(label: unknown) {
+  const key = normalizeOperationalBadgeKey(label);
+  return key === "needs sps" || key === "needs sp" || key === "needs staffing";
+}
+
+function dedupeOperationalBadges<T extends { label: string }>(badges: T[]) {
+  const seen = new Set<string>();
+  return badges.filter((badge) => {
+    const key = normalizeOperationalBadgeKey(badge.label);
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 function normalizeRecordingStatusValue(value: unknown): RecordingStatusValue | "" {
   const normalized = asText(value)
     .toLowerCase()
@@ -4654,6 +4681,7 @@ export default function EventDetailPage() {
   const contactedAssignmentCount = pollInviteOnlyAssignments.length;
   const needed = Number(event?.sp_needed || 0);
   const shortage = Math.max(needed - confirmedCount, 0);
+  const hasPrimaryStaffingShortage = needed > 0 && shortage > 0;
   const eventMeta = classifyEventPresentation({
     name: event?.name,
     status: event?.status,
@@ -4666,6 +4694,9 @@ export default function EventDetailPage() {
     isWorkshop: isSkillsWorkshopEvent(needed, hiredAssignments.length, staffedCount),
   });
   const badgeAppearance = getEventBadgeAppearance(eventMeta.primaryBadgeKind);
+  const eventStatusLabel = asText(event?.status) || "No status";
+  const shouldSuppressStaleNeedsSpStatus =
+    isNeedsSpOperationalBadge(eventStatusLabel) && !hasPrimaryStaffingShortage;
   const isWorkshop = eventMeta.isSkillsWorkshop;
   const parsedEventMetadata = useMemo(() => parseEventMetadata(eventEditor.notes), [eventEditor.notes]);
   const explicitEventTypes = parsedEventMetadata.eventTypes;
@@ -4702,6 +4733,48 @@ export default function EventDetailPage() {
             border: shortage <= 2 ? "1px solid #fed7aa" : "1px solid #fecaca",
             color: shortage <= 2 ? "#9a3412" : "#991b1b",
           };
+  const headerOperationalBadges = dedupeOperationalBadges(
+    [
+      !shouldSuppressStaleNeedsSpStatus
+        ? {
+            key: "event-status",
+            label: eventStatusLabel,
+            style: {
+              ...assignmentStatusStyles[
+                eventStatusLabel.toLowerCase() === "confirmed" ? "confirmed" : "invited"
+              ],
+              borderRadius: "999px",
+              padding: "6px 10px",
+              fontWeight: 900,
+              fontSize: "12px",
+            } satisfies React.CSSProperties,
+          }
+        : null,
+      {
+        key: "coverage-status",
+        label: coverageStatus.message,
+        style: {
+          borderRadius: "999px",
+          padding: "6px 10px",
+          background: coverageStatus.background,
+          border: coverageStatus.border,
+          color: coverageStatus.color,
+          fontWeight: 900,
+          fontSize: "12px",
+        } satisfies React.CSSProperties,
+      },
+      {
+        key: "classification",
+        label: eventMeta.primaryBadgeLabel,
+        style: {
+          ...skillsWorkshopBadgeStyle,
+          background: badgeAppearance.background,
+          border: `1px solid ${badgeAppearance.border}`,
+          color: badgeAppearance.color,
+        } satisfies React.CSSProperties,
+      },
+    ].filter(Boolean) as { key: string; label: string; style: React.CSSProperties }[]
+  );
   const coveragePercent =
     needed > 0 ? Math.min(100, Math.round((confirmedCount / needed) * 100)) : 0;
   const importedYearHint = getImportedYearHint(event?.notes);
@@ -6595,6 +6668,15 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     selectedModalityLabel,
     staffingRelevant,
   ]);
+  const summaryOperationalIdentityBadges = dedupeOperationalBadges(
+    [
+      shouldSuppressStaleNeedsSpStatus ? "" : eventStatusLabel,
+      ...eventIdentityChips.slice(0, 2),
+      selectedModalityLabel,
+    ]
+      .filter(Boolean)
+      .map((label) => ({ label }))
+  );
   const operationalReadinessItems = useMemo(() => {
     const materialsReadinessLabel = materialsWorkflowNeedsAction ? materialsStatusLabel : "";
     const items = [
@@ -17181,42 +17263,11 @@ Cory`;
               <h1 style={{ margin: 0, fontSize: "28px", color: "var(--cfsp-text)", lineHeight: 1.05 }}>
                 {event?.name || "Untitled Event"}
               </h1>
-              <span
-                style={{
-                  ...assignmentStatusStyles[
-                    (event?.status || "").toLowerCase() === "confirmed" ? "confirmed" : "invited"
-                  ],
-                  borderRadius: "999px",
-                  padding: "6px 10px",
-                  fontWeight: 900,
-                  fontSize: "12px",
-                }}
-              >
-                {event?.status || "No status"}
-              </span>
-              <span
-                style={{
-                  borderRadius: "999px",
-                  padding: "6px 10px",
-                  background: coverageStatus.background,
-                  border: coverageStatus.border,
-                  color: coverageStatus.color,
-                  fontWeight: 900,
-                  fontSize: "12px",
-                }}
-              >
-                {coverageStatus.message}
-              </span>
-              <span
-                style={{
-                  ...skillsWorkshopBadgeStyle,
-                  background: badgeAppearance.background,
-                  border: `1px solid ${badgeAppearance.border}`,
-                  color: badgeAppearance.color,
-                }}
-              >
-                {eventMeta.primaryBadgeLabel}
-              </span>
+              {headerOperationalBadges.map((badge) => (
+                <span key={badge.key} style={badge.style}>
+                  {badge.label}
+                </span>
+              ))}
               <button
                 type="button"
                 onClick={() => {
@@ -17725,13 +17776,11 @@ Cory`;
                     </div>
 
                     <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                      {[event?.status || "No status", ...eventIdentityChips.slice(0, 2), selectedModalityLabel]
-                        .filter(Boolean)
-                        .map((chip) => (
-                          <span key={`summary-identity-${chip}`} style={commandChipStyle}>
-                            {chip}
-                          </span>
-                        ))}
+                      {summaryOperationalIdentityBadges.map((badge) => (
+                        <span key={`summary-identity-${normalizeOperationalBadgeKey(badge.label)}`} style={commandChipStyle}>
+                          {badge.label}
+                        </span>
+                      ))}
                       {eventSummaryDateMarkers.slice(0, 3).map((marker) => {
                         const markerTone = getOperationalDateToneStyles(marker.tone, true);
                         return (
