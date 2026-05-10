@@ -119,6 +119,29 @@ type ScheduledRound = Omit<GeneratedRound, "roomSlots"> & {
   roomSlots: ScheduledRoomSlot[];
 };
 
+type PreviewRoomColumn = {
+  roomName: string;
+  displayRoomName: string;
+  roomType: GeneratedRoomSlot["roomType"];
+  capacityLabel: string;
+};
+
+type ScheduleGridPreviewRow =
+  | {
+      key: string;
+      kind: "wide";
+      start: number;
+      end: number;
+      block: TimelineBlock;
+    }
+  | {
+      key: string;
+      kind: "round";
+      start: number;
+      end: number;
+      round: ScheduledRound;
+    };
+
 type ScheduleBuilderDraft = {
   builderMode: "simple" | "advanced";
   scheduleViewMode: "student" | "operations";
@@ -765,6 +788,40 @@ function isPrimaryScheduleWideTimelineBlock(block: TimelineBlock) {
   return false;
 }
 
+function filterRoundsForView(rounds: ScheduledRound[], viewMode: ScheduleBuilderViewMode) {
+  return rounds.map((round) => ({
+    ...round,
+    subBlocks: round.subBlocks.filter((block) =>
+      isDayBlockVisibleToView(block.visibleTo || "both", viewMode)
+    ),
+  }));
+}
+
+function filterTimelineForView(timeline: TimelineBlock[], viewMode: ScheduleBuilderViewMode) {
+  return timeline.filter((block) => isDayBlockVisibleToView(block.visibleTo || "both", viewMode));
+}
+
+function buildScheduleGridPreviewRows(rounds: ScheduledRound[], timeline: TimelineBlock[]): ScheduleGridPreviewRow[] {
+  const roundRows: ScheduleGridPreviewRow[] = rounds.map((round) => ({
+    key: `round-row-${round.round}`,
+    kind: "round",
+    start: round.start,
+    end: round.end,
+    round,
+  }));
+  const wideRows: ScheduleGridPreviewRow[] = timeline
+    .filter((block) => isPrimaryScheduleWideTimelineBlock(block))
+    .map((block) => ({
+      key: `wide-row-${block.label}-${block.start}-${block.end}`,
+      kind: "wide",
+      start: block.start,
+      end: block.end,
+      block,
+    }));
+
+  return [...wideRows, ...roundRows].sort((a, b) => a.start - b.start || a.end - b.end);
+}
+
 function formatRoomName(
   roomName: string,
   roomType: "exam" | "flex",
@@ -1235,9 +1292,12 @@ function buildSchedulePreviewData(args: {
   event: EventRow | null;
   timeline: TimelineBlock[];
   rounds: ScheduledRound[];
+  scheduleGridRows: ScheduleGridPreviewRow[];
+  roomColumns: PreviewRoomColumn[];
   roomContext: Parameters<typeof getRoomDisplayLabel>[2];
   caseName?: string;
   assignedSpNames?: string[];
+  learnerCount: number;
   generated: {
     rounds: Array<GeneratedRound | ScheduledRound>;
     rotationStart: number;
@@ -1252,9 +1312,12 @@ function buildSchedulePreviewData(args: {
     event,
     timeline,
     rounds,
+    scheduleGridRows,
+    roomColumns,
     roomContext,
     caseName,
     assignedSpNames,
+    learnerCount,
     generated,
     selectedEventSummaryTime,
   } = args;
@@ -1369,6 +1432,7 @@ function buildSchedulePreviewData(args: {
   const timelineSummary = timeline.length
     ? `${timeline.length} timeline block${timeline.length === 1 ? "" : "s"} · ${Math.max(generated.rotationEnd - generated.rotationStart, 0)} min planned`
     : "No timeline blocks configured";
+  const renderCountSummary = `${rounds.length} round${rounds.length === 1 ? "" : "s"} rendered • ${roomColumns.length} room${roomColumns.length === 1 ? "" : "s"} rendered • ${learnerCount} learner${learnerCount === 1 ? "" : "s"} rendered`;
 
   const eventMetaHtml = event
     ? `
@@ -1401,7 +1465,6 @@ function buildSchedulePreviewData(args: {
 
   const timelineStripBlocks = timeline.filter((block) => !isPrimaryScheduleWideTimelineBlock(block));
   const scheduleWideBlocks = timeline.filter((block) => isPrimaryScheduleWideTimelineBlock(block));
-  const scheduleRoomHeaders = rounds[0]?.roomSlots || [];
   const renderTimelineRail = (blocks: TimelineBlock[]) =>
     blocks.length
       ? `
@@ -1505,26 +1568,9 @@ function buildSchedulePreviewData(args: {
       : "";
 
   const renderScheduleGrid = () => {
-    if (!rounds.length || !scheduleRoomHeaders.length) {
+    if (!scheduleGridRows.length || !roomColumns.length) {
       return `<div class="empty-state">No rotation schedule has been generated yet.</div>`;
     }
-
-    const gridRows = [
-      ...scheduleWideBlocks.map((block) => ({
-        key: `wide-${block.label}-${block.start}-${block.end}`,
-        kind: "wide" as const,
-        start: block.start,
-        end: block.end,
-        block,
-      })),
-      ...rounds.map((round) => ({
-        key: `round-${round.round}`,
-        kind: "round" as const,
-        start: round.start,
-        end: round.end,
-        round,
-      })),
-    ].sort((a, b) => a.start - b.start || a.end - b.end);
 
     return `
       <div class="schedule-grid-shell">
@@ -1533,22 +1579,17 @@ function buildSchedulePreviewData(args: {
             <tr>
               <th>Round</th>
               <th>Time</th>
-              ${scheduleRoomHeaders
-                .map((slot, slotIndex) => {
-                  const displayRoomName = formatRoomName(slot.roomName, slot.roomType, slotIndex + 1, roomContext);
-                  return `<th>${escapeHtml(displayRoomName)}</th>`;
-                })
-                .join("")}
+              ${roomColumns.map((column) => `<th>${escapeHtml(column.displayRoomName)}</th>`).join("")}
             </tr>
           </thead>
           <tbody>
-            ${gridRows
+            ${scheduleGridRows
               .map((entry) => {
                 if (entry.kind === "wide") {
                   const durationMinutes = Math.max(getBlockDurationMinutes(entry.block.start, entry.block.end), 1);
                   return `
                     <tr class="wide-row">
-                      <td colspan="${scheduleRoomHeaders.length + 2}">
+                      <td colspan="${roomColumns.length + 2}">
                         <div class="wide-band">
                           <div class="wide-band-title">${escapeHtml(entry.block.label)}</div>
                           <div class="wide-band-meta">${escapeHtml(formatRange(entry.block.start, entry.block.end))} · ${escapeHtml(
@@ -1634,6 +1675,7 @@ function buildSchedulePreviewData(args: {
             <h1>${escapeHtml(titleMap[kind])}</h1>
             <div class="meta">${escapeHtml(event ? `Generated from ${event.name || "Untitled Event"}` : "Schedule Builder")}</div>
             <div class="meta">${escapeHtml(timelineSummary)}</div>
+            <div class="meta">${escapeHtml(renderCountSummary)}</div>
           </div>
           ${eventMetaHtml}
           <section class="round-section">
@@ -1654,6 +1696,7 @@ function buildSchedulePreviewData(args: {
               <h1>${escapeHtml(titleMap[kind])}</h1>
               <div class="meta">${escapeHtml(event ? `Generated from ${event.name || "Untitled Event"}` : "Schedule Builder")}</div>
               <div class="meta">${escapeHtml(timelineSummary)}</div>
+              <div class="meta">${escapeHtml(renderCountSummary)}</div>
             </div>
             ${eventMetaHtml}
             <section class="round-section">
@@ -1683,6 +1726,7 @@ function buildSchedulePreviewData(args: {
               <h1>${escapeHtml(titleMap[kind])}</h1>
               <div class="meta">${escapeHtml(event ? `Generated from ${event.name || "Untitled Event"}` : "Schedule Builder")}</div>
               <div class="meta">${escapeHtml(timelineSummary)}</div>
+              <div class="meta">${escapeHtml(renderCountSummary)}</div>
             </div>
             ${eventMetaHtml}
             <section class="round-section">
@@ -2529,22 +2573,29 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     () => attachLearners(generated.rounds, learnerRoster),
     [generated.rounds, learnerRoster]
   );
+  const studentPreviewTimeline = useMemo(
+    () => filterTimelineForView(generated.timeline, "student"),
+    [generated.timeline]
+  );
+  const operationsPreviewTimeline = useMemo(
+    () => filterTimelineForView(generated.timeline, "operations"),
+    [generated.timeline]
+  );
   const visibleTimeline = useMemo(
-    () =>
-      generated.timeline.filter((block) =>
-        isDayBlockVisibleToView(block.visibleTo || "both", scheduleViewMode)
-      ),
-    [generated.timeline, scheduleViewMode]
+    () => (scheduleViewMode === "student" ? studentPreviewTimeline : operationsPreviewTimeline),
+    [operationsPreviewTimeline, scheduleViewMode, studentPreviewTimeline]
+  );
+  const studentPreviewRounds = useMemo(
+    () => filterRoundsForView(scheduledRounds, "student"),
+    [scheduledRounds]
+  );
+  const operationsPreviewRounds = useMemo(
+    () => filterRoundsForView(scheduledRounds, "operations"),
+    [scheduledRounds]
   );
   const visibleScheduledRounds = useMemo(
-    () =>
-      scheduledRounds.map((round) => ({
-        ...round,
-        subBlocks: round.subBlocks.filter((block) =>
-          isDayBlockVisibleToView(block.visibleTo || "both", scheduleViewMode)
-        ),
-      })),
-    [scheduleViewMode, scheduledRounds]
+    () => (scheduleViewMode === "student" ? studentPreviewRounds : operationsPreviewRounds),
+    [operationsPreviewRounds, scheduleViewMode, studentPreviewRounds]
   );
   const compactFlowEntries = useMemo(() => {
     const roundEntries = visibleScheduledRounds.map((round) => ({
@@ -2566,26 +2617,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
 
     return [...wideEntries, ...roundEntries].sort((a, b) => a.start - b.start || a.end - b.end);
   }, [visibleScheduledRounds, visibleTimeline]);
-  const scheduleGridRows = useMemo(() => {
-    const roundRows = visibleScheduledRounds.map((round) => ({
-      key: `round-row-${round.round}`,
-      kind: "round" as const,
-      start: round.start,
-      end: round.end,
-      round,
-    }));
-    const wideRows = visibleTimeline
-      .filter((block) => isPrimaryScheduleWideTimelineBlock(block))
-      .map((block) => ({
-        key: `wide-row-${block.label}-${block.start}-${block.end}`,
-        kind: "wide" as const,
-        start: block.start,
-        end: block.end,
-        block,
-      }));
-
-    return [...wideRows, ...roundRows].sort((a, b) => a.start - b.start || a.end - b.end);
-  }, [visibleScheduledRounds, visibleTimeline]);
+  const scheduleGridRows = useMemo(
+    () => buildScheduleGridPreviewRows(visibleScheduledRounds, visibleTimeline),
+    [visibleScheduledRounds, visibleTimeline]
+  );
   const selectedBuilderRoundContext = useMemo(
     () =>
       typeof selectedBuilderRound === "number"
@@ -2643,24 +2678,27 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     if (parsedStartMinutes === null || !generated.rounds.length) return "";
     return `${toDisplayTime(parsedStartMinutes)} - ${toDisplayTime(generated.rotationEnd)}`;
   }, [generated.rotationEnd, generated.rounds.length, parsedStartMinutes]);
-  const contextualPreviewRounds = useMemo(() => {
-    if (!selectedBuilderRoundContext) return visibleScheduledRounds;
-    return [selectedBuilderRoundContext];
-  }, [selectedBuilderRoundContext, visibleScheduledRounds]);
-  const contextualOperationsRounds = useMemo(() => {
-    if (!selectedBuilderRound) return scheduledRounds;
-    return scheduledRounds.filter((round) => round.round === selectedBuilderRound);
-  }, [scheduledRounds, selectedBuilderRound]);
+  const studentScheduleGridRows = useMemo(
+    () => buildScheduleGridPreviewRows(studentPreviewRounds, studentPreviewTimeline),
+    [studentPreviewRounds, studentPreviewTimeline]
+  );
+  const operationsScheduleGridRows = useMemo(
+    () => buildScheduleGridPreviewRows(operationsPreviewRounds, operationsPreviewTimeline),
+    [operationsPreviewRounds, operationsPreviewTimeline]
+  );
   const schedulePreviews = useMemo(() => {
     const timelinePreview = buildSchedulePreviewData({
       kind: "timeline",
       previewFamily: props.previewFamily,
       event: selectedEvent,
-      timeline: generated.timeline,
-      rounds: contextualPreviewRounds,
+      timeline: operationsPreviewTimeline,
+      rounds: operationsPreviewRounds,
+      scheduleGridRows: operationsScheduleGridRows,
+      roomColumns,
       roomContext: roomNamingContext,
       caseName: selectedEventMetadata.case_name,
       assignedSpNames: selectedEvent?.assigned_sp_names || [],
+      learnerCount: learnerRoster.length,
       generated,
       selectedEventSummaryTime,
     });
@@ -2668,11 +2706,14 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       kind: "announcements",
       previewFamily: props.previewFamily,
       event: selectedEvent,
-      timeline: visibleTimeline,
-      rounds: contextualPreviewRounds,
+      timeline: operationsPreviewTimeline,
+      rounds: operationsPreviewRounds,
+      scheduleGridRows: operationsScheduleGridRows,
+      roomColumns,
       roomContext: roomNamingContext,
       caseName: selectedEventMetadata.case_name,
       assignedSpNames: selectedEvent?.assigned_sp_names || [],
+      learnerCount: learnerRoster.length,
       generated,
       selectedEventSummaryTime,
     });
@@ -2680,11 +2721,14 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       kind: "student",
       previewFamily: props.previewFamily,
       event: selectedEvent,
-      timeline: generated.timeline,
-      rounds: contextualPreviewRounds,
+      timeline: studentPreviewTimeline,
+      rounds: studentPreviewRounds,
+      scheduleGridRows: studentScheduleGridRows,
+      roomColumns,
       roomContext: roomNamingContext,
       caseName: selectedEventMetadata.case_name,
       assignedSpNames: selectedEvent?.assigned_sp_names || [],
+      learnerCount: learnerRoster.length,
       generated,
       selectedEventSummaryTime,
     });
@@ -2692,11 +2736,14 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       kind: "sp",
       previewFamily: props.previewFamily,
       event: selectedEvent,
-      timeline: generated.timeline,
-      rounds: contextualPreviewRounds,
+      timeline: operationsPreviewTimeline,
+      rounds: operationsPreviewRounds,
+      scheduleGridRows: operationsScheduleGridRows,
+      roomColumns,
       roomContext: roomNamingContext,
       caseName: selectedEventMetadata.case_name,
       assignedSpNames: selectedEvent?.assigned_sp_names || [],
+      learnerCount: learnerRoster.length,
       generated,
       selectedEventSummaryTime,
     });
@@ -2704,11 +2751,14 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       kind: "operations",
       previewFamily: props.previewFamily,
       event: selectedEvent,
-      timeline: generated.timeline,
-      rounds: contextualOperationsRounds,
+      timeline: operationsPreviewTimeline,
+      rounds: operationsPreviewRounds,
+      scheduleGridRows: operationsScheduleGridRows,
+      roomColumns,
       roomContext: roomNamingContext,
       caseName: selectedEventMetadata.case_name,
       assignedSpNames: selectedEvent?.assigned_sp_names || [],
+      learnerCount: learnerRoster.length,
       generated,
       selectedEventSummaryTime,
     });
@@ -2716,11 +2766,14 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       kind: "rotation",
       previewFamily: props.previewFamily,
       event: selectedEvent,
-      timeline: generated.timeline,
-      rounds: contextualOperationsRounds,
+      timeline: operationsPreviewTimeline,
+      rounds: operationsPreviewRounds,
+      scheduleGridRows: operationsScheduleGridRows,
+      roomColumns,
       roomContext: roomNamingContext,
       caseName: selectedEventMetadata.case_name,
       assignedSpNames: selectedEvent?.assigned_sp_names || [],
+      learnerCount: learnerRoster.length,
       generated,
       selectedEventSummaryTime,
     });
@@ -2734,15 +2787,20 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       rotation: rotationPreview,
     };
   }, [
-    contextualOperationsRounds,
-    contextualPreviewRounds,
     generated,
+    learnerRoster.length,
+    operationsPreviewRounds,
+    operationsPreviewTimeline,
+    operationsScheduleGridRows,
     roomNamingContext,
+    roomColumns,
     selectedEvent,
     selectedEventMetadata.case_name,
     selectedEventSummaryTime,
-    visibleTimeline,
     props.previewFamily,
+    studentPreviewRounds,
+    studentPreviewTimeline,
+    studentScheduleGridRows,
   ]);
   const schedulePreview = schedulePreviews[previewKind];
   const selectedPreviewFileName = `${getSafeFileName(schedulePreview.title)}.html`;
