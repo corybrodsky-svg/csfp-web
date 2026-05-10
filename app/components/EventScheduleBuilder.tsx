@@ -733,6 +733,7 @@ function getFlowRhythmSegmentStyles(label: string) {
 
 function getFlowRhythmSummary(round: ScheduledRound) {
   return round.subBlocks
+    .filter((subBlock) => !isMajorScheduleDividerBlock(subBlock))
     .map((subBlock) => `${subBlock.label} ${formatDurationCompact(getBlockDurationMinutes(subBlock.start, subBlock.end))}`)
     .join(" · ");
 }
@@ -745,12 +746,22 @@ function isRoundSpecificTimelineBlock(block: TimelineBlock) {
   return isRoundTimelineLabel(block.label) || /^round \d+$/i.test(asText(block.detail));
 }
 
-function isPrimaryScheduleWideTimelineBlock(block: TimelineBlock) {
-  if (isRoundSpecificTimelineBlock(block)) return false;
-  const label = asText(block.label).toLowerCase();
+function isMajorScheduleDividerLabel(label: string) {
+  const normalized = asText(label).toLowerCase();
+  return /prebrief|debrief|lunch/.test(normalized);
+}
+
+function isMajorScheduleDividerBlock(block: { label: string; start: number; end: number }) {
+  if (isMajorScheduleDividerLabel(block.label)) return true;
+  const normalized = asText(block.label).toLowerCase();
   const durationMinutes = getBlockDurationMinutes(block.start, block.end);
-  if (/prebrief|debrief|lunch/.test(label)) return true;
-  if (/\bbreak\b/.test(label) && durationMinutes >= 15) return true;
+  if (/\bbreak\b/.test(normalized) && durationMinutes >= 15) return true;
+  return false;
+}
+
+function isPrimaryScheduleWideTimelineBlock(block: TimelineBlock) {
+  if (isMajorScheduleDividerBlock(block)) return true;
+  if (isRoundSpecificTimelineBlock(block)) return false;
   return false;
 }
 
@@ -1416,8 +1427,9 @@ function buildSchedulePreviewData(args: {
     rounds.length
       ? rounds
           .map((round) => {
-            const rhythmSegments = round.subBlocks.length
-              ? round.subBlocks
+            const visibleRhythmBlocks = round.subBlocks.filter((subBlock) => !isMajorScheduleDividerBlock(subBlock));
+            const rhythmSegments = visibleRhythmBlocks.length
+              ? visibleRhythmBlocks
                   .map((subBlock) => {
                     const tone = getFlowRhythmSegmentStyles(subBlock.label);
                     const durationMinutes = Math.max(getBlockDurationMinutes(subBlock.start, subBlock.end), 1);
@@ -1550,8 +1562,9 @@ function buildSchedulePreviewData(args: {
                 }
 
                 const round = entry.round;
-                const subBlockSummary = round.subBlocks.length
-                  ? round.subBlocks
+                const visibleRoundBlocks = round.subBlocks.filter((subBlock) => !isMajorScheduleDividerBlock(subBlock));
+                const subBlockSummary = visibleRoundBlocks.length
+                  ? visibleRoundBlocks
                       .map(
                         (subBlock) =>
                           `${subBlock.label} ${formatDurationCompact(getBlockDurationMinutes(subBlock.start, subBlock.end))}`
@@ -3760,7 +3773,9 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                             </div>
                           </div>
                           <div className="flex flex-1 flex-wrap gap-2 lg:justify-end">
-                            {entry.round.subBlocks.map((subBlock) => {
+                            {entry.round.subBlocks
+                              .filter((subBlock) => !isMajorScheduleDividerBlock(subBlock))
+                              .map((subBlock) => {
                               const durationMinutes = Math.max(getBlockDurationMinutes(subBlock.start, subBlock.end), 1);
                               const rhythmStyles = getFlowRhythmSegmentStyles(subBlock.label);
                               return (
@@ -3805,7 +3820,9 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                       </div>
                     </div>
                     <div className="mt-4 flex flex-wrap gap-2">
-                      {selectedBuilderRoundContext.subBlocks.map((subBlock) => (
+                      {selectedBuilderRoundContext.subBlocks
+                        .filter((subBlock) => !isMajorScheduleDividerBlock(subBlock))
+                        .map((subBlock) => (
                         <button
                           key={`${selectedBuilderRoundContext.round}-${subBlock.label}-${subBlock.start}`}
                           type="button"
@@ -3839,7 +3856,9 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                         </button>
                       ))}
                     </div>
-                    {selectedBuilderRoundContext.subBlocks.map((subBlock) => {
+                    {selectedBuilderRoundContext.subBlocks
+                      .filter((subBlock) => !isMajorScheduleDividerBlock(subBlock))
+                      .map((subBlock) => {
                       const detailKey = `selected-round-${subBlock.label}-${subBlock.start}`;
                       if (activeFlowDetailKey !== detailKey) return null;
                       return (
@@ -4012,7 +4031,9 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                           <td className="px-3 py-4">
                             <div className="font-bold">{formatRange(round.start, round.end)}</div>
                             <div className="mt-2 grid gap-1 text-xs font-semibold text-[#5e7388]">
-                              {round.subBlocks.map((subBlock) => (
+                              {round.subBlocks
+                                .filter((subBlock) => !isMajorScheduleDividerBlock(subBlock))
+                                .map((subBlock) => (
                                 <div key={`${round.round}-${subBlock.label}-${subBlock.start}`}>
                                   {subBlock.label}: {formatRange(subBlock.start, subBlock.end)}
                                 </div>
