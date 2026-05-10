@@ -7780,6 +7780,7 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
                 : "queued";
           return {
             key: `${room.key}-learner-token`,
+            roomKey: room.key,
             roomName: room.roomName,
             learnerName,
             initials,
@@ -12282,84 +12283,75 @@ Cory`;
                                           event.stopPropagation();
                                           setActiveBlueprintRoomKey((current) => (current === room.key ? "" : room.key));
                                         }}
-                                        className={`cfsp-blueprint-marker is-${room.status.replace("_", "-")}`}
-                                        style={{
-                                          color: tone.color,
-                                          borderColor: avatarTone.ring,
-                                          width: "48px",
-                                          height: "58px",
-                                          borderRadius: "18px",
-                                          display: "grid",
+	                                        className={`cfsp-blueprint-marker cfsp-presence-token cfsp-presence-token-sp is-${room.status.replace("_", "-")}`}
+	                                        style={{
+	                                          color: tone.color,
+	                                          borderColor: avatarTone.ring,
+                                              ["--presence-ring" as string]: avatarTone.ring,
+                                              ["--presence-fill" as string]: avatarTone.fill,
+	                                          width: "48px",
+	                                          height: "58px",
+	                                          borderRadius: "18px",
+	                                          display: "grid",
                                           placeItems: "center",
                                           gap: "1px",
                                           background: avatarTone.fill,
                                           boxShadow: avatarTone.glow,
                                           cursor: "pointer",
                                         }}
-                                        aria-label={`Open ${room.spName} controls`}
-                                        title={`${room.spName} • ${room.statusLabel}`}
-                                      >
-                                        <span
-                                          aria-hidden="true"
-                                          style={{
-                                            width: "18px",
-                                            height: "18px",
-                                            borderRadius: "999px",
-                                            border: `1px solid ${avatarTone.ring}`,
-                                            background: "rgba(4, 15, 26, 0.72)",
-                                            boxShadow: `0 0 10px ${avatarTone.ring}55`,
-                                          }}
-                                        />
-                                        <span
-                                          aria-hidden="true"
-                                          style={{
-                                            width: "30px",
-                                            height: "18px",
-                                            borderRadius: "14px 14px 9px 9px",
-                                            border: `1px solid ${avatarTone.ring}`,
-                                            background: "rgba(4, 15, 26, 0.62)",
-                                          }}
-                                        />
-                                        <span style={{ fontSize: "9px", fontWeight: 950, lineHeight: 1 }}>
-                                          {room.initials}
-                                        </span>
-                                      </button>
-                                    ) : (
-                                      <button
-                                        type="button"
-                                        onClick={(event) => {
+	                                        aria-label={`Open ${room.spName} controls`}
+	                                        title={`${room.spName} • ${room.statusLabel}`}
+	                                      >
+                                            <span className="cfsp-presence-figure cfsp-presence-figure-sp" aria-hidden="true">
+                                              <span className="cfsp-presence-head" />
+                                              <span className="cfsp-presence-core" />
+                                              <span className="cfsp-presence-arm cfsp-presence-arm-front" />
+                                              <span className="cfsp-presence-arm cfsp-presence-arm-back" />
+                                              <span className="cfsp-presence-leg cfsp-presence-leg-front" />
+                                              <span className="cfsp-presence-leg cfsp-presence-leg-back" />
+                                              <span className="cfsp-presence-step" />
+                                            </span>
+	                                        <span className="cfsp-presence-initials" style={{ fontSize: "9px", fontWeight: 950, lineHeight: 1 }}>
+	                                          {room.initials}
+	                                        </span>
+	                                      </button>
+	                                    ) : (
+	                                      <button
+	                                        type="button"
+	                                        onClick={(event) => {
                                           event.stopPropagation();
                                           setActiveBlueprintRoomKey(room.key);
                                         }}
-                                        style={{
+	                                        style={{
                                           width: "52px",
                                           minHeight: "60px",
                                           borderRadius: "18px",
-                                          border: "1px dashed rgba(243, 187, 103, 0.46)",
-                                          background: "rgba(67, 46, 12, 0.16)",
-                                          color: "#f3bb67",
-                                          display: "grid",
-                                          placeItems: "center",
-                                          gap: "2px",
-                                          fontSize: "9px",
-                                          fontWeight: 900,
-                                          cursor: "pointer",
-                                        }}
-                                        aria-label={`Assign or restore SP to ${room.roomName}`}
-                                      >
-                                        <span
-                                          aria-hidden="true"
-                                          style={{
-                                            width: "17px",
-                                            height: "17px",
-                                            borderRadius: "999px",
-                                            border: "1px dashed rgba(253, 230, 138, 0.7)",
-                                          }}
-                                        />
-                                        <span>Empty</span>
-                                        <span>Assign</span>
-                                      </button>
-                                    )}
+	                                          border: "1px dashed rgba(243, 187, 103, 0.46)",
+	                                          background: "rgba(67, 46, 12, 0.16)",
+	                                          color: "#f3bb67",
+	                                          display: "grid",
+	                                          placeItems: "center",
+	                                          gap: "2px",
+	                                          fontSize: "9px",
+	                                          fontWeight: 900,
+	                                          cursor: "pointer",
+                                              ["--presence-ring" as string]: "#f3bb67",
+                                              ["--presence-fill" as string]: "rgba(243, 187, 103, 0.08)",
+	                                        }}
+                                          className="cfsp-presence-token cfsp-presence-token-empty"
+	                                        aria-label={`Assign or restore SP to ${room.roomName}`}
+	                                      >
+                                            <span className="cfsp-presence-figure cfsp-presence-figure-empty" aria-hidden="true">
+                                              <span className="cfsp-presence-head" />
+                                              <span className="cfsp-presence-core" />
+                                              <span className="cfsp-presence-arm cfsp-presence-arm-front" />
+                                              <span className="cfsp-presence-arm cfsp-presence-arm-back" />
+                                              <span className="cfsp-presence-leg cfsp-presence-leg-front" />
+                                              <span className="cfsp-presence-leg cfsp-presence-leg-back" />
+                                            </span>
+	                                        <span>Assign</span>
+	                                      </button>
+	                                    )}
                                   </div>
                                 </div>
                                 <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", alignItems: "center", marginTop: "10px" }}>
@@ -12375,37 +12367,44 @@ Cory`;
                                 {room.learnerLabel &&
                                 room.learnerLabel !== "Learner not assigned" &&
                                 room.learnerLabel !== "Overflow / standby" ? (
-                                  <div
-                                    style={{
-                                      marginTop: "8px",
-                                      display: "inline-flex",
-                                      alignItems: "center",
-                                      gap: "6px",
+	                                  <button
+                                      type="button"
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        setActiveBlueprintRoomKey((current) => (current === room.key ? "" : room.key));
+                                      }}
+	                                    style={{
+	                                      marginTop: "8px",
+	                                      display: "inline-flex",
+	                                      alignItems: "center",
+	                                      gap: "6px",
                                       borderRadius: "999px",
                                       border: room.isCurrentRotationRoom
                                         ? "1px solid rgba(25, 138, 112, 0.22)"
                                         : "1px solid rgba(125, 211, 252, 0.18)",
-                                      background: room.isCurrentRotationRoom
-                                        ? "rgba(25, 138, 112, 0.1)"
-                                        : "rgba(125, 211, 252, 0.08)",
-                                      padding: "4px 7px",
-                                    }}
-                                  >
-                                    <span
-                                      aria-hidden="true"
-                                      style={{
-                                        width: "18px",
-                                        height: "22px",
-                                        borderRadius: "9px 9px 7px 7px",
-                                        border: "1px solid rgba(191, 219, 254, 0.55)",
-                                        background: "linear-gradient(180deg, rgba(191, 219, 254, 0.18), rgba(25, 138, 112, 0.1))",
-                                        boxShadow: room.isCurrentRotationRoom ? "0 0 12px rgba(25, 138, 112, 0.18)" : "none",
-                                      }}
-                                    />
-                                    <span style={{ color: "#dbeafe", fontSize: "10px", fontWeight: 850, overflowWrap: "anywhere" }}>
-                                      {room.isCurrentRotationRoom ? "Learner in room" : "Learner queued"}
-                                    </span>
-                                  </div>
+	                                      background: room.isCurrentRotationRoom
+	                                        ? "rgba(25, 138, 112, 0.1)"
+	                                        : "rgba(125, 211, 252, 0.08)",
+	                                      padding: "4px 7px",
+                                        cursor: "pointer",
+                                        ["--presence-ring" as string]: room.isCurrentRotationRoom ? "#b8e4d4" : "#bfdbfe",
+                                        ["--presence-fill" as string]: room.isCurrentRotationRoom ? "rgba(25, 138, 112, 0.12)" : "rgba(191, 219, 254, 0.1)",
+	                                    }}
+                                      aria-label={`Open learner flow for ${room.learnerLabel}`}
+	                                  >
+	                                    <span className={`cfsp-presence-figure cfsp-presence-figure-learner ${room.isCurrentRotationRoom ? "is-roomed" : "is-queued"}`} aria-hidden="true">
+                                        <span className="cfsp-presence-head" />
+                                        <span className="cfsp-presence-core" />
+                                        <span className="cfsp-presence-arm cfsp-presence-arm-front" />
+                                        <span className="cfsp-presence-arm cfsp-presence-arm-back" />
+                                        <span className="cfsp-presence-leg cfsp-presence-leg-front" />
+                                        <span className="cfsp-presence-leg cfsp-presence-leg-back" />
+                                        <span className="cfsp-presence-step" />
+                                      </span>
+	                                    <span style={{ color: "#dbeafe", fontSize: "10px", fontWeight: 850, overflowWrap: "anywhere" }}>
+	                                      {room.isCurrentRotationRoom ? "Learner in room" : "Learner queued"}
+	                                    </span>
+	                                  </button>
                                 ) : (
                                   <div style={{ marginTop: "8px", color: "#7da4b5", fontSize: "10px", fontWeight: 800 }}>
                                     Learner not assigned
@@ -12735,43 +12734,41 @@ Cory`;
                                     label: "Queued",
                                   };
                           return (
-                            <div
-                              key={token.key}
-                              style={{
-                                borderRadius: "16px",
-                                padding: "6px 9px 6px 7px",
-                                display: "inline-flex",
+	                            <button
+                                type="button"
+                                onClick={() => setActiveBlueprintRoomKey((current) => (current === token.roomKey ? "" : token.roomKey))}
+	                              key={token.key}
+	                              style={{
+	                                borderRadius: "16px",
+	                                padding: "6px 9px 6px 7px",
+	                                display: "inline-flex",
                                 alignItems: "center",
-                                gap: "7px",
-                                background: tone.background,
-                                border: tone.border,
-                              }}
-                              title={`${token.learnerName} • ${token.roomName}`}
-                            >
-                              <span
-                                style={{
-                                  width: "26px",
-                                  height: "32px",
-                                  borderRadius: "13px 13px 9px 9px",
-                                  display: "grid",
-                                  placeItems: "center",
-                                  background: "rgba(4, 15, 26, 0.54)",
-                                  border: `1px solid ${tone.color}`,
-                                  boxShadow: token.state === "roomed" ? "0 0 14px rgba(25, 138, 112, 0.22)" : "none",
-                                  color: tone.color,
-                                  fontSize: "10px",
-                                  fontWeight: 900,
-                                }}
-                              >
-                                {token.initials}
-                              </span>
-                              <span style={{ color: "#f4fbff", fontSize: "11px", fontWeight: 800 }}>
-                                {token.learnerName}
-                              </span>
-                              <span style={{ color: tone.color, fontSize: "10px", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                                {tone.label}
-                              </span>
-                            </div>
+	                                gap: "7px",
+	                                background: tone.background,
+	                                border: tone.border,
+                                  cursor: "pointer",
+                                  ["--presence-ring" as string]: tone.color,
+                                  ["--presence-fill" as string]: token.state === "roomed" ? "rgba(25, 138, 112, 0.12)" : token.state === "next" ? "rgba(191, 219, 254, 0.1)" : "rgba(255,255,255,0.05)",
+	                              }}
+                                aria-label={`Open ${token.learnerName} room flow controls`}
+	                              title={`${token.learnerName} • ${token.roomName}`}
+	                            >
+	                              <span className={`cfsp-presence-figure cfsp-presence-figure-learner is-${token.state}`} aria-hidden="true">
+                                  <span className="cfsp-presence-head" />
+                                  <span className="cfsp-presence-core" />
+                                  <span className="cfsp-presence-arm cfsp-presence-arm-front" />
+                                  <span className="cfsp-presence-arm cfsp-presence-arm-back" />
+                                  <span className="cfsp-presence-leg cfsp-presence-leg-front" />
+                                  <span className="cfsp-presence-leg cfsp-presence-leg-back" />
+                                  <span className="cfsp-presence-step" />
+                                </span>
+	                              <span style={{ color: "#f4fbff", fontSize: "11px", fontWeight: 800 }}>
+	                                {token.learnerName}
+	                              </span>
+	                              <span style={{ color: tone.color, fontSize: "10px", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+	                                {tone.label}
+	                              </span>
+	                            </button>
                           );
                         })}
                       </div>
