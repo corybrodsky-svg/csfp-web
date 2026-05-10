@@ -1,5 +1,6 @@
 import {
   applySimVitalsAuthCookies,
+  getSimVitalsAuthorProfiles,
   getAuthenticatedSimVitalsContext,
   getErrorMessage,
   getSimVitalsReadinessFailure,
@@ -13,6 +14,8 @@ import {
   SIMVITALS_ATTACHMENT_COLUMN_MESSAGE,
   unauthorizedSimVitalsResponse,
   type SimVitalsAttachmentMetadata,
+  type SimVitalsAuthorProfile,
+  type SimVitalsAvatarSource,
   type SimVitalsPostType,
   type SimVitalsRole,
 } from "../_lib";
@@ -77,14 +80,18 @@ function toPostResponse(
     commentsByPostId: Map<string, number>;
     acknowledgedPostIds: Set<string>;
   },
-  linkedEventsById = new Map<string, SimVitalsLinkedEventRow>()
+  linkedEventsById = new Map<string, SimVitalsLinkedEventRow>(),
+  authorProfiles = new Map<string, SimVitalsAuthorProfile>()
 ) {
   const linkedEvent = linkedEventsById.get(asText(row.linked_event_id));
+  const authorProfile = authorProfiles.get(asText(row.author_user_id));
   return {
     id: row.id,
     authorUserId: asText(row.author_user_id),
     authorName: asText(row.author_name) || "CFSP Team",
     authorRole: normalizeRole(row.author_role),
+    authorAvatarUrl: authorProfile?.avatarUrl || "",
+    authorAvatarSource: (authorProfile?.avatarSource || "initials") as SimVitalsAvatarSource,
     type: normalizePostType(row.post_type),
     body: asText(row.body),
     linkedEventId: asText(row.linked_event_id) || null,
@@ -233,6 +240,15 @@ export async function GET(request: Request) {
     if (error) throw error;
 
     const posts = (data || []) as unknown as SimVitalsPostRow[];
+    const authorProfiles = await getSimVitalsAuthorProfiles(
+      posts.map((post) => asText(post.author_user_id)).filter(Boolean)
+    );
+    if (context.viewer.avatarUrl) {
+      authorProfiles.set(context.viewer.id, {
+        avatarUrl: context.viewer.avatarUrl,
+        avatarSource: context.viewer.avatarSource,
+      });
+    }
     const linkedEventsById = await getLinkedEventsById(
       context,
       posts.map((post) => post.linked_event_id).filter(Boolean) as string[]
@@ -248,7 +264,7 @@ export async function GET(request: Request) {
       attachmentSupportReady,
       attachmentWarning,
       warning: counts.warnings.join(" "),
-      posts: posts.map((post) => toPostResponse(post, counts, linkedEventsById)),
+      posts: posts.map((post) => toPostResponse(post, counts, linkedEventsById, authorProfiles)),
     });
 
     return applySimVitalsAuthCookies(response, context);
@@ -375,7 +391,11 @@ export async function POST(request: Request) {
         {
           ok: true,
           warning: counts.warnings.join(" "),
-          post: toPostResponse(data as unknown as SimVitalsPostRow, counts, linkedEventsById),
+          post: {
+            ...toPostResponse(data as unknown as SimVitalsPostRow, counts, linkedEventsById),
+            authorAvatarUrl: context.viewer.avatarUrl,
+            authorAvatarSource: context.viewer.avatarSource,
+          },
         },
         { status: 201 }
       );
@@ -397,7 +417,11 @@ export async function POST(request: Request) {
       {
         ok: true,
         warning: counts.warnings.join(" "),
-        post: toPostResponse(data as unknown as SimVitalsPostRow, counts, linkedEventsById),
+        post: {
+          ...toPostResponse(data as unknown as SimVitalsPostRow, counts, linkedEventsById),
+          authorAvatarUrl: context.viewer.avatarUrl,
+          authorAvatarSource: context.viewer.avatarSource,
+        },
       },
       { status: 201 }
     );

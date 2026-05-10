@@ -9,6 +9,7 @@ export type AppProfile = {
   email: string | null;
   role: string | null;
   is_active: boolean | null;
+  profile_image_url?: string | null;
 };
 
 const ALLOWED_PROFILE_ROLES = new Set(["sp", "faculty", "sim_op", "admin", "super_admin"]);
@@ -102,7 +103,7 @@ async function fetchProfiles(
     return { profiles: [], available: false };
   }
 
-  const withScheduleUrl = `${supabaseUrl}/rest/v1/profiles?select=id,full_name,schedule_name,email,role,is_active&${query}`;
+  const withScheduleUrl = `${supabaseUrl}/rest/v1/profiles?select=id,full_name,schedule_name,email,role,is_active,profile_image_url&${query}`;
   const withScheduleResponse = await fetch(withScheduleUrl, {
     headers: getRestHeaders(accessToken),
   });
@@ -119,6 +120,7 @@ async function fetchProfiles(
             email: profile.email ?? null,
             role: profile.role ?? null,
             is_active: profile.is_active ?? null,
+            profile_image_url: profile.profile_image_url ?? null,
           }))
         : [],
       available: true,
@@ -138,7 +140,7 @@ async function fetchProfiles(
     return { profiles: [], available: true, error: withScheduleError };
   }
 
-  const withoutScheduleUrl = `${supabaseUrl}/rest/v1/profiles?select=id,full_name,email,role,is_active&${query}`;
+  const withoutScheduleUrl = `${supabaseUrl}/rest/v1/profiles?select=id,full_name,email,role,is_active,profile_image_url&${query}`;
   const withoutScheduleResponse = await fetch(withoutScheduleUrl, {
     headers: getRestHeaders(accessToken),
   });
@@ -151,6 +153,7 @@ async function fetchProfiles(
         ? body.map((profile) => ({
             ...profile,
             schedule_name: null,
+            profile_image_url: profile.profile_image_url ?? null,
           }))
         : [],
       available: true,

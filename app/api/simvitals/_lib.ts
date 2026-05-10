@@ -7,7 +7,7 @@ import {
   clearAuthCookies,
   setAuthCookies,
 } from "@/app/lib/authCookies";
-import { getProfileForUser } from "@/app/lib/profileServer";
+import { getProfileForUser, getProfilesByIds, type AppProfile } from "@/app/lib/profileServer";
 import { createSupabaseAdminClient } from "@/app/lib/supabaseAdminClient";
 import {
   createSupabaseServerClient,
@@ -36,6 +36,7 @@ export const SIMVITALS_ATTACHMENT_BUCKET_MESSAGE =
 
 export type SimVitalsPostType = (typeof SIMVITALS_POST_TYPES)[number];
 export type SimVitalsRole = (typeof SIMVITALS_ROLES)[number];
+export type SimVitalsAvatarSource = "profile" | "auth_metadata" | "initials";
 
 export type SimVitalsAttachmentMetadata = {
   fileName: string;
@@ -56,7 +57,14 @@ export type SimVitalsViewer = {
   email: string;
   displayName: string;
   role: SimVitalsRole;
+  avatarUrl: string;
+  avatarSource: SimVitalsAvatarSource;
   accessToken: string;
+};
+
+export type SimVitalsAuthorProfile = {
+  avatarUrl: string;
+  avatarSource: SimVitalsAvatarSource;
 };
 
 export type SimVitalsContext = {
@@ -240,6 +248,55 @@ function getDisplayName(user: User, profile: { full_name?: string | null; schedu
   return atIndex > 0 ? email.slice(0, atIndex) : email || "CFSP Team";
 }
 
+function getAuthMetadataAvatar(user: User | null) {
+  if (!user) return "";
+  const metadata = user.user_metadata || {};
+  return (
+    asText(metadata.profile_image_url) ||
+    asText(metadata.avatar_url) ||
+    asText(metadata.image_url) ||
+    asText(metadata.picture) ||
+    asText(metadata.avatar) ||
+    ""
+  );
+}
+
+export function resolveSimVitalsAuthorAvatar(
+  profile?: Partial<AppProfile> | null,
+  user?: User | null
+): SimVitalsAuthorProfile {
+  const profileAvatar = asText(profile?.profile_image_url);
+  if (profileAvatar) {
+    return {
+      avatarUrl: profileAvatar,
+      avatarSource: "profile",
+    };
+  }
+
+  const metadataAvatar = getAuthMetadataAvatar(user || null);
+  if (metadataAvatar) {
+    return {
+      avatarUrl: metadataAvatar,
+      avatarSource: "auth_metadata",
+    };
+  }
+
+  return {
+    avatarUrl: "",
+    avatarSource: "initials",
+  };
+}
+
+export async function getSimVitalsAuthorProfiles(userIds: string[]) {
+  const directory = await getProfilesByIds(userIds);
+  return new Map(
+    directory.profiles.map((profile) => [
+      profile.id,
+      resolveSimVitalsAuthorAvatar(profile, null),
+    ])
+  );
+}
+
 function createViewerSupabaseClient(accessToken: string) {
   if (!supabaseUrl || !supabaseKey) return null;
   return createClient(supabaseUrl, supabaseKey, {
@@ -388,11 +445,14 @@ export async function getAuthenticatedSimVitalsContext(): Promise<SimVitalsConte
 
   const profileResult = await getProfileForUser(activeUser.id, activeAccessToken);
   const profile = profileResult.profile;
+  const viewerAvatar = resolveSimVitalsAuthorAvatar(profile, activeUser);
   const viewer: SimVitalsViewer = {
     id: activeUser.id,
     email: asText(profile?.email) || asText(activeUser.email),
     displayName: getDisplayName(activeUser, profile),
     role: normalizeRole(profile?.role || activeUser.user_metadata?.role),
+    avatarUrl: viewerAvatar.avatarUrl,
+    avatarSource: viewerAvatar.avatarSource,
     accessToken: activeAccessToken,
   };
   const db = createSupabaseAdminClient() || createViewerSupabaseClient(activeAccessToken);

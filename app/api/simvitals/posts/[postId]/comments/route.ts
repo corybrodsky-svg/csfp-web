@@ -1,11 +1,14 @@
 import {
   applySimVitalsAuthCookies,
+  getSimVitalsAuthorProfiles,
   getAuthenticatedSimVitalsContext,
   getErrorMessage,
   getSimVitalsReadinessFailure,
   isMissingSimVitalsSchemaError,
   jsonNoStore,
   unauthorizedSimVitalsResponse,
+  type SimVitalsAuthorProfile,
+  type SimVitalsAvatarSource,
   type SimVitalsRole,
 } from "../../../_lib";
 
@@ -43,13 +46,19 @@ function getRoutePostId(params: { postId?: string | string[] }) {
   return typeof raw === "string" ? raw : "";
 }
 
-function toCommentResponse(row: SimVitalsCommentRow) {
+function toCommentResponse(
+  row: SimVitalsCommentRow,
+  authorProfiles = new Map<string, SimVitalsAuthorProfile>()
+) {
+  const authorProfile = authorProfiles.get(asText(row.author_user_id));
   return {
     id: row.id,
     postId: asText(row.post_id),
     authorUserId: asText(row.author_user_id),
     authorName: asText(row.author_name) || "CFSP Team",
     authorRole: normalizeRole(row.author_role),
+    authorAvatarUrl: authorProfile?.avatarUrl || "",
+    authorAvatarSource: (authorProfile?.avatarSource || "initials") as SimVitalsAvatarSource,
     body: asText(row.body),
     createdAt: asText(row.created_at),
     updatedAt: asText(row.updated_at),
@@ -95,11 +104,21 @@ export async function GET(
       .order("created_at", { ascending: true });
 
     if (error) throw error;
+    const rows = (data || []) as SimVitalsCommentRow[];
+    const authorProfiles = await getSimVitalsAuthorProfiles(
+      rows.map((comment) => asText(comment.author_user_id)).filter(Boolean)
+    );
+    if (context.viewer.avatarUrl) {
+      authorProfiles.set(context.viewer.id, {
+        avatarUrl: context.viewer.avatarUrl,
+        avatarSource: context.viewer.avatarSource,
+      });
+    }
 
     return applySimVitalsAuthCookies(
       jsonNoStore({
         ok: true,
-        comments: ((data || []) as SimVitalsCommentRow[]).map(toCommentResponse),
+        comments: rows.map((comment) => toCommentResponse(comment, authorProfiles)),
       }),
       context
     );
@@ -178,7 +197,11 @@ export async function POST(
       jsonNoStore(
         {
           ok: true,
-          comment: toCommentResponse(data as SimVitalsCommentRow),
+          comment: {
+            ...toCommentResponse(data as SimVitalsCommentRow),
+            authorAvatarUrl: context.viewer.avatarUrl,
+            authorAvatarSource: context.viewer.avatarSource,
+          },
           commentCount,
         },
         { status: 201 }

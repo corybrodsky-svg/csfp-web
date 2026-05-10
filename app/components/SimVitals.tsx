@@ -5,6 +5,7 @@ import Link from "next/link";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
 export type SimVitalsRole = "sim_ops" | "admin" | "faculty" | "sp" | "system";
+export type SimVitalsAvatarSource = "profile" | "auth_metadata" | "initials";
 export type SimVitalsFeedType =
   | "general_update"
   | "staffing_alert"
@@ -18,6 +19,8 @@ export type SimVitalsPost = {
   authorUserId?: string;
   authorName: string;
   authorRole: SimVitalsRole;
+  authorAvatarUrl?: string;
+  authorAvatarSource?: SimVitalsAvatarSource;
   type: SimVitalsFeedType;
   timestampLabel?: string;
   createdAt?: string;
@@ -54,6 +57,8 @@ export type SimVitalsComment = {
   authorUserId?: string;
   authorName: string;
   authorRole: SimVitalsRole;
+  authorAvatarUrl?: string;
+  authorAvatarSource?: SimVitalsAvatarSource;
   body: string;
   createdAt?: string;
   updatedAt?: string;
@@ -308,6 +313,8 @@ function normalizeSimVitalsPost(value: unknown): SimVitalsPost | null {
     authorUserId: asText(source.authorUserId),
     authorName: asText(source.authorName) || "CFSP Team",
     authorRole: simVitalsRoleAppearance[authorRole] ? authorRole : "sp",
+    authorAvatarUrl: asText(source.authorAvatarUrl),
+    authorAvatarSource: (asText(source.authorAvatarSource) as SimVitalsAvatarSource) || "initials",
     type,
     timestampLabel: asText(source.timestampLabel),
     createdAt: asText(source.createdAt),
@@ -338,6 +345,8 @@ function normalizeSimVitalsComment(value: unknown): SimVitalsComment | null {
     authorUserId: asText(source.authorUserId),
     authorName: asText(source.authorName) || "CFSP Team",
     authorRole: simVitalsRoleAppearance[authorRole] ? authorRole : "sp",
+    authorAvatarUrl: asText(source.authorAvatarUrl),
+    authorAvatarSource: (asText(source.authorAvatarSource) as SimVitalsAvatarSource) || "initials",
     body,
     createdAt: asText(source.createdAt),
     updatedAt: asText(source.updatedAt),
@@ -428,6 +437,55 @@ function getSimVitalsInitials(name: string) {
   const parts = asText(name).split(/\s+/).filter(Boolean);
   if (!parts.length) return "SV";
   return parts.slice(0, 2).map((part) => part[0]?.toUpperCase()).join("");
+}
+
+function SimVitalsAvatar({
+  name,
+  imageUrl,
+  source,
+  size = "default",
+}: {
+  name: string;
+  imageUrl?: string;
+  source?: SimVitalsAvatarSource;
+  size?: "small" | "default" | "large";
+}) {
+  const [failedImageUrl, setFailedImageUrl] = useState("");
+  const initials = getSimVitalsInitials(name);
+  const resolvedImageUrl = asText(imageUrl);
+  const showImage = Boolean(resolvedImageUrl) && failedImageUrl !== resolvedImageUrl;
+  const dimension = size === "small" ? 34 : size === "large" ? 42 : 38;
+  const radiusClass =
+    size === "small" ? "rounded-[10px]" : size === "large" ? "rounded-[13px]" : "rounded-[12px]";
+  const textClass = size === "small" ? "text-xs" : "text-sm";
+
+  return (
+    <div
+      className={`${radiusClass} relative flex shrink-0 items-center justify-center overflow-hidden font-black ${textClass}`}
+      style={{
+        height: `${dimension}px`,
+        width: `${dimension}px`,
+        background: "linear-gradient(135deg, rgba(73, 168, 255, 0.14), rgba(44, 211, 173, 0.16))",
+        border: "1px solid rgba(73, 168, 255, 0.22)",
+        color: "var(--cfsp-blue-dark)",
+        boxShadow: "0 0 18px rgba(73, 168, 255, 0.14)",
+      }}
+      title={source ? `Avatar source: ${source}` : undefined}
+    >
+      {showImage ? (
+        <Image
+          src={resolvedImageUrl}
+          alt={`${name} profile photo`}
+          fill
+          unoptimized
+          className="object-cover"
+          onError={() => setFailedImageUrl(resolvedImageUrl)}
+        />
+      ) : (
+        <span aria-hidden="true">{initials}</span>
+      )}
+    </div>
+  );
 }
 
 function SimVitalsSignalMark({ compact = false }: { compact?: boolean }) {
@@ -548,7 +606,6 @@ export function SimVitalsPostCard({
 }) {
   const typeLook = simVitalsFeedTypeAppearance[post.type];
   const roleLook = simVitalsRoleAppearance[post.authorRole];
-  const initials = getSimVitalsInitials(post.authorName);
   const timestampLabel = post.timestampLabel || formatSimVitalsTimestamp(post.createdAt);
   const linkedEvent = eventReference || (
     post.linkedEventId || post.linkedEventName
@@ -688,17 +745,12 @@ export function SimVitalsPostCard({
 
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
-          <div
-            className={`${compact ? "h-[34px] w-[34px] rounded-[10px] text-xs" : "h-[38px] w-[38px] rounded-[12px] text-sm"} flex shrink-0 items-center justify-center font-black`}
-            style={{
-              background: typeLook.background,
-              border: `1px solid ${typeLook.border}`,
-              color: typeLook.color,
-              boxShadow: `0 0 18px ${typeLook.border}`,
-            }}
-          >
-            {initials}
-          </div>
+          <SimVitalsAvatar
+            name={post.authorName}
+            imageUrl={post.authorAvatarUrl}
+            source={post.authorAvatarSource}
+            size={compact ? "small" : "default"}
+          />
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <span className="font-black text-[var(--cfsp-text)]">{post.authorName}</span>
@@ -861,14 +913,24 @@ export function SimVitalsPostCard({
             <div className="grid gap-2">
               {comments.map((comment) => (
                 <div key={comment.id} className="rounded-[10px] bg-[var(--cfsp-surface)] px-3 py-2">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-xs font-black text-[var(--cfsp-text)]">{comment.authorName}</span>
-                    <SimVitalsRoleBadge role={comment.authorRole} />
-                    <span className="text-[0.72rem] font-bold text-[var(--cfsp-text-muted)]">
-                      {formatSimVitalsTimestamp(comment.createdAt)}
-                    </span>
+                  <div className="flex gap-2">
+                    <SimVitalsAvatar
+                      name={comment.authorName}
+                      imageUrl={comment.authorAvatarUrl}
+                      source={comment.authorAvatarSource}
+                      size="small"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-xs font-black text-[var(--cfsp-text)]">{comment.authorName}</span>
+                        <SimVitalsRoleBadge role={comment.authorRole} />
+                        <span className="text-[0.72rem] font-bold text-[var(--cfsp-text-muted)]">
+                          {formatSimVitalsTimestamp(comment.createdAt)}
+                        </span>
+                      </div>
+                      <div className="mt-1 text-sm leading-5 text-[var(--cfsp-text)]">{comment.body}</div>
+                    </div>
                   </div>
-                  <div className="mt-1 text-sm leading-5 text-[var(--cfsp-text)]">{comment.body}</div>
                 </div>
               ))}
             </div>
@@ -991,9 +1053,11 @@ export function SimVitalsDashboardPreview() {
 export function SimVitalsFullExperience({
   displayName,
   profileRole,
+  profileImageUrl,
 }: {
   displayName: string;
   profileRole: string;
+  profileImageUrl?: string;
 }) {
   const authorRole = getSimVitalsRoleFromProfile(profileRole);
   const [draft, setDraft] = useState("");
@@ -1014,7 +1078,6 @@ export function SimVitalsFullExperience({
   const [eventReferenceQuery, setEventReferenceQuery] = useState("");
   const [referenceDetail, setReferenceDetail] = useState("");
   const attachmentInputRef = useRef<HTMLInputElement | null>(null);
-  const authorInitials = getSimVitalsInitials(displayName);
   const selectedTypeLook = simVitalsFeedTypeAppearance[postType];
   const authorRoleLook = simVitalsRoleAppearance[authorRole];
   const eventReferenceById = useMemo(
@@ -1265,16 +1328,12 @@ export function SimVitalsFullExperience({
       >
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
           <div className="flex min-w-[220px] items-center gap-3">
-            <div
-              className="flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-[13px] text-sm font-black"
-              style={{
-                background: authorRoleLook.background,
-                border: `1px solid ${authorRoleLook.border}`,
-                color: authorRoleLook.color,
-              }}
-            >
-              {authorInitials}
-            </div>
+            <SimVitalsAvatar
+              name={displayName}
+              imageUrl={profileImageUrl}
+              source={profileImageUrl ? "profile" : "initials"}
+              size="large"
+            />
             <div className="min-w-0">
               <div className="truncate text-sm font-black text-[var(--cfsp-text)]">{displayName}</div>
               <div className="mt-1">

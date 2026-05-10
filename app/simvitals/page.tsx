@@ -14,6 +14,7 @@ type SimVitalsMeResponse = {
     schedule_name?: string | null;
     role?: string | null;
     email?: string | null;
+    profile_image_url?: string | null;
   } | null;
 };
 
@@ -77,13 +78,18 @@ export default function SimVitalsPage() {
 
   const displayName = useMemo(() => getDisplayName(me), [me]);
   const role = asText(me?.profile?.role) || "sim_op";
+  const profileImageUrl = asText(me?.profile?.profile_image_url);
 
   return (
     <SiteShell
       title="SimVitals"
       subtitle="Check SimVitals for simulation-native signals, operational telemetry, staffing alerts, faculty coordination, and live lab support."
     >
-      <SimVitalsFullExperience displayName={displayName} profileRole={role} />
+      <SimVitalsFullExperience
+        displayName={displayName}
+        profileRole={role}
+        profileImageUrl={profileImageUrl}
+      />
     </SiteShell>
   );
 }
