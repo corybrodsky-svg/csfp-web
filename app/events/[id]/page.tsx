@@ -603,18 +603,18 @@ const segmentedGroupStyle: React.CSSProperties = {
 const commandChipStyle: React.CSSProperties = {
   borderRadius: "999px",
   padding: "5px 10px",
-  border: "1px solid rgba(61, 201, 184, 0.28)",
-  background: "rgba(24, 48, 67, 0.72)",
-  color: "#7ee7db",
+  border: "1px solid rgba(20, 91, 150, 0.16)",
+  background: "rgba(255, 255, 255, 0.86)",
+  color: "#145b96",
   fontSize: "11px",
   fontWeight: 900,
   letterSpacing: "0.04em",
   textTransform: "uppercase",
 };
 
-const planningSuccessBackground = "linear-gradient(180deg, rgba(187, 247, 208, 0.94) 0%, rgba(134, 239, 172, 0.8) 100%)";
-const planningSuccessCardBackground = "linear-gradient(180deg, rgba(220, 252, 231, 0.96) 0%, rgba(187, 247, 208, 0.82) 100%)";
-const planningSuccessBorder = "1px solid rgba(4, 120, 87, 0.38)";
+const planningSuccessBackground = "#e9f6f1";
+const planningSuccessCardBackground = "linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(233,246,241,0.86) 100%)";
+const planningSuccessBorder = "1px solid rgba(25, 138, 112, 0.28)";
 const planningSuccessText = "#064e3b";
 
 function getWorkflowReadinessTone(status: WorkflowReadinessStatus) {
@@ -682,7 +682,7 @@ const operationalReadinessGoldTone = {
 const recordingStatusOptions = [
   { value: "not_recorded", label: "Not Recorded", active: false, tone: "#94a3b8", chip: "Disabled" },
   { value: "recorded", label: "Recorded", active: true, tone: "#ff6b6b", chip: "Recorded" },
-  { value: "recording_planned", label: "Recording Planned", active: true, tone: "#49a8ff", chip: "Planned" },
+  { value: "recording_planned", label: "Recording Planned", active: true, tone: "#145b96", chip: "Planned" },
   { value: "recording_pending", label: "Recording Pending", active: true, tone: "#f59e0b", chip: "Pending" },
   { value: "recording_not_allowed", label: "Recording Not Allowed", active: false, tone: "#ef4444", chip: "Not allowed" },
 ] as const;
@@ -869,7 +869,7 @@ function getPlanningStaffingPresenceLabel(status: AssignmentStatus | null | unde
 
 const assignmentStatusStyles: Record<AssignmentStatus, React.CSSProperties> = {
   invited: {
-    background: "rgba(73, 168, 255, 0.16)",
+    background: "rgba(20, 91, 150, 0.16)",
     color: "var(--cfsp-blue)",
     border: "1px solid rgba(120, 180, 255, 0.26)",
   },
@@ -881,7 +881,7 @@ const assignmentStatusStyles: Record<AssignmentStatus, React.CSSProperties> = {
   confirmed: {
     background: "var(--cfsp-green-soft)",
     color: "var(--cfsp-green)",
-    border: "1px solid rgba(44, 211, 173, 0.24)",
+    border: "1px solid rgba(25, 138, 112, 0.24)",
   },
   declined: {
     background: "var(--cfsp-danger-soft)",
@@ -901,7 +901,7 @@ const assignmentStatusStyles: Record<AssignmentStatus, React.CSSProperties> = {
 };
 const confirmationStyles = {
   confirmed: {
-    background: "rgba(73, 168, 255, 0.18)",
+    background: "rgba(20, 91, 150, 0.18)",
     color: "#ffffff",
     border: "1px solid rgba(120, 180, 255, 0.28)",
   },
@@ -917,8 +917,8 @@ const skillsWorkshopBadgeStyle: React.CSSProperties = {
   alignItems: "center",
   borderRadius: "999px",
   padding: "6px 10px",
-  background: "rgba(44, 211, 173, 0.14)",
-  border: "1px solid rgba(44, 211, 173, 0.22)",
+  background: "rgba(25, 138, 112, 0.14)",
+  border: "1px solid rgba(25, 138, 112, 0.22)",
   color: "var(--cfsp-green)",
   fontWeight: 900,
   fontSize: "12px",
@@ -935,7 +935,7 @@ const availabilityMatchStyles: Record<AvailabilityMatchStatus, React.CSSProperti
   available: {
     background: "var(--cfsp-green-soft)",
     color: "var(--cfsp-green)",
-    border: "1px solid rgba(44, 211, 173, 0.24)",
+    border: "1px solid rgba(25, 138, 112, 0.24)",
   },
   partial: {
     background: "var(--cfsp-warning-soft)",
@@ -966,14 +966,14 @@ const liveRoomStatusAppearance: Record<
   },
   in_session: {
     label: "In Session",
-    background: "rgba(44, 211, 173, 0.14)",
-    color: "#86efac",
-    border: "1px solid rgba(44, 211, 173, 0.24)",
+    background: "rgba(25, 138, 112, 0.14)",
+    color: "#b8e4d4",
+    border: "1px solid rgba(25, 138, 112, 0.24)",
   },
   delayed: {
     label: "Delayed",
     background: "rgba(243, 187, 103, 0.14)",
-    color: "#fde68a",
+    color: "#f3bb67",
     border: "1px solid rgba(243, 187, 103, 0.24)",
   },
   empty: {
@@ -1528,7 +1528,7 @@ function getEventTypeButtonStyle(type: EventDisplayType, active: boolean): React
       color: "var(--cfsp-skills-text)",
     },
     sp: {
-      background: "rgba(73, 168, 255, 0.14)",
+      background: "rgba(20, 91, 150, 0.14)",
       border: "rgba(120, 180, 255, 0.24)",
       color: "var(--cfsp-blue)",
     },
@@ -1543,7 +1543,7 @@ function getEventTypeButtonStyle(type: EventDisplayType, active: boolean): React
       color: "var(--cfsp-warning)",
     },
     virtual: {
-      background: "rgba(73, 168, 255, 0.14)",
+      background: "rgba(20, 91, 150, 0.14)",
       border: "rgba(120, 180, 255, 0.24)",
       color: "var(--cfsp-blue)",
     },
@@ -3315,10 +3315,10 @@ function getOperationalDateToneStyles(tone: OperationalDateTone, planningMode: b
       : {
           background: "linear-gradient(180deg, rgba(6, 78, 59, 0.42) 0%, rgba(20, 83, 45, 0.28) 100%)",
           border: "1px solid rgba(134, 239, 172, 0.34)",
-          accent: "#86efac",
+          accent: "#b8e4d4",
           text: "#dcfce7",
           muted: "#bbf7d0",
-          glow: "0 0 24px rgba(34, 197, 94, 0.14)",
+          glow: "0 0 18px rgba(25, 138, 112, 0.12)",
         };
   }
 
@@ -3335,10 +3335,10 @@ function getOperationalDateToneStyles(tone: OperationalDateTone, planningMode: b
       : {
           background: "linear-gradient(180deg, rgba(120, 53, 15, 0.34) 0%, rgba(69, 26, 3, 0.24) 100%)",
           border: "1px solid rgba(251, 191, 36, 0.34)",
-          accent: "#fde68a",
+          accent: "#f3bb67",
           text: "#fef3c7",
-          muted: "#fde68a",
-          glow: "0 0 24px rgba(245, 158, 11, 0.14)",
+          muted: "#f3bb67",
+          glow: "0 0 18px rgba(168, 100, 17, 0.12)",
         };
   }
 
@@ -3391,13 +3391,13 @@ function getOperationalDateToneStyles(tone: OperationalDateTone, planningMode: b
         muted: "#155e75",
         glow: "0 12px 24px rgba(14, 165, 233, 0.1)",
       }
-    : {
+      : {
         background: "linear-gradient(180deg, rgba(8, 47, 73, 0.48) 0%, rgba(14, 116, 144, 0.22) 100%)",
         border: "1px solid rgba(125, 211, 252, 0.32)",
-        accent: "#7dd3fc",
+        accent: "#d9ebff",
         text: "#e0f2fe",
         muted: "#bae6fd",
-        glow: "0 0 24px rgba(34, 211, 238, 0.14)",
+        glow: "0 0 18px rgba(143, 194, 240, 0.12)",
       };
 }
 
@@ -4551,8 +4551,8 @@ export default function EventDetailPage() {
     isWorkshop
       ? {
           message: "Skills Workshop",
-          background: "rgba(44, 211, 173, 0.14)",
-          border: "1px solid rgba(44, 211, 173, 0.24)",
+          background: "rgba(25, 138, 112, 0.14)",
+          border: "1px solid rgba(25, 138, 112, 0.24)",
           color: "var(--cfsp-green)",
         }
       : needed <= 0
@@ -8954,27 +8954,27 @@ Cory`;
   const isPlanningVisualMode = commandCenterMode === "planning";
   const isCommandFileCabinetSimpleView = commandFileCabinetView === "simple";
   const commandCenterVisual = {
-    shellBorder: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.2)" : "1px solid rgba(73, 168, 255, 0.24)",
+    shellBorder: isPlanningVisualMode ? "1px solid rgba(20, 91, 150, 0.16)" : "1px solid rgba(143, 194, 240, 0.22)",
     shellBackground: isPlanningVisualMode
-      ? "linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(241, 249, 252, 0.98) 100%)"
+      ? "linear-gradient(180deg, rgba(255, 255, 255, 0.99) 0%, rgba(247, 250, 252, 0.98) 100%)"
       : "linear-gradient(180deg, rgba(17, 31, 48, 0.94) 0%, rgba(20, 43, 62, 0.9) 100%)",
-    shellShadow: isPlanningVisualMode ? "0 14px 32px rgba(42, 112, 140, 0.08)" : "none",
-    labelColor: isPlanningVisualMode ? "#247083" : "#7ee7db",
+    shellShadow: isPlanningVisualMode ? "0 14px 32px rgba(24, 52, 78, 0.08)" : "none",
+    labelColor: isPlanningVisualMode ? "#145b96" : "#b9d7ef",
     headingColor: isPlanningVisualMode ? "#0f2940" : "#f4fbff",
     textColor: isPlanningVisualMode ? "#18364a" : "#f8fafc",
     mutedColor: isPlanningVisualMode ? "#597b8e" : "#9cc7d3",
     cardBackground: isPlanningVisualMode
-      ? "linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(244, 250, 252, 0.98) 100%)"
+      ? "linear-gradient(180deg, rgba(255, 255, 255, 0.99) 0%, rgba(247, 250, 252, 0.98) 100%)"
       : "linear-gradient(180deg, rgba(20, 37, 54, 0.94) 0%, rgba(21, 40, 58, 0.92) 100%)",
-    cardBorder: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.18)" : "1px solid rgba(126, 231, 219, 0.12)",
-    chipBackground: isPlanningVisualMode ? "rgba(219, 240, 246, 0.82)" : "rgba(125, 211, 252, 0.14)",
-    chipText: isPlanningVisualMode ? "#1d5f83" : "#7dd3fc",
+    cardBorder: isPlanningVisualMode ? "1px solid rgba(20, 91, 150, 0.12)" : "1px solid rgba(143, 194, 240, 0.14)",
+    chipBackground: isPlanningVisualMode ? "rgba(255, 255, 255, 0.86)" : "rgba(143, 194, 240, 0.12)",
+    chipText: isPlanningVisualMode ? "#145b96" : "#d9ebff",
     activeSoftBackground: isPlanningVisualMode ? planningSuccessBackground : "rgba(126, 231, 219, 0.14)",
-    activeSoftText: isPlanningVisualMode ? planningSuccessText : "#7ee7db",
+    activeSoftText: isPlanningVisualMode ? planningSuccessText : "#b8f1e1",
     panelBackground: isPlanningVisualMode
-      ? "linear-gradient(180deg, rgba(249, 253, 255, 0.98) 0%, rgba(237, 248, 251, 0.96) 100%)"
+      ? "linear-gradient(180deg, rgba(255,255,255,0.99) 0%, rgba(247,250,252,0.97) 100%)"
       : "linear-gradient(180deg, rgba(9, 26, 39, 0.98) 0%, rgba(12, 27, 41, 0.94) 100%)",
-    panelBorder: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.2)" : "1px solid rgba(126, 231, 219, 0.24)",
+    panelBorder: isPlanningVisualMode ? "1px solid rgba(20, 91, 150, 0.16)" : "1px solid rgba(143, 194, 240, 0.22)",
     rowBackground: isPlanningVisualMode ? "rgba(255, 255, 255, 0.96)" : "rgba(255,255,255,0.04)",
     rowBorder: isPlanningVisualMode ? "1px solid rgba(128, 167, 182, 0.22)" : "1px solid rgba(148, 163, 184, 0.18)",
   } as const;
@@ -8986,15 +8986,15 @@ Cory`;
   function getOperationalWindowStyles(tone: OperationalStatusTone) {
     if (tone === "ready") {
       return {
-        border: "1px solid rgba(44, 211, 173, 0.22)",
+        border: "1px solid rgba(25, 138, 112, 0.22)",
         background: isPlanningVisualMode
           ? "linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(239, 253, 250, 0.94) 100%)"
           : "linear-gradient(180deg, rgba(14, 34, 50, 0.94) 0%, rgba(9, 42, 42, 0.88) 100%)",
         glow: isPlanningVisualMode
-          ? "inset 4px 0 0 rgba(44, 211, 173, 0.6), 0 12px 30px rgba(44, 211, 173, 0.1)"
-          : "inset 4px 0 0 rgba(44, 211, 173, 0.68), 0 16px 34px rgba(44, 211, 173, 0.08)",
+          ? "inset 4px 0 0 rgba(25, 138, 112, 0.6), 0 12px 30px rgba(25, 138, 112, 0.1)"
+          : "inset 4px 0 0 rgba(25, 138, 112, 0.68), 0 16px 34px rgba(25, 138, 112, 0.08)",
         accent: "#0f766e",
-        chipBg: "rgba(44, 211, 173, 0.12)",
+        chipBg: "rgba(25, 138, 112, 0.12)",
         chipColor: "#0f766e",
       };
     }
@@ -9025,9 +9025,9 @@ Cory`;
     return {
       border: commandCenterVisual.cardBorder,
       background: commandCenterVisual.cardBackground,
-      glow: isPlanningVisualMode ? "inset 4px 0 0 rgba(73, 168, 255, 0.42), 0 10px 24px rgba(42, 112, 140, 0.06)" : "inset 4px 0 0 rgba(125, 211, 252, 0.38)",
+      glow: isPlanningVisualMode ? "inset 4px 0 0 rgba(20, 91, 150, 0.42), 0 10px 24px rgba(42, 112, 140, 0.06)" : "inset 4px 0 0 rgba(125, 211, 252, 0.38)",
       accent: commandCenterVisual.labelColor,
-      chipBg: "rgba(73, 168, 255, 0.12)",
+      chipBg: "rgba(20, 91, 150, 0.12)",
       chipColor: "#145b96",
     };
   }
@@ -11568,11 +11568,11 @@ Cory`;
                   background:
                     livePausedAtMs !== null
                       ? "rgba(243, 187, 103, 0.14)"
-                      : "rgba(44, 211, 173, 0.14)",
+                      : "rgba(25, 138, 112, 0.14)",
                   border:
                     livePausedAtMs !== null
                       ? "1px solid rgba(243, 187, 103, 0.28)"
-                      : "1px solid rgba(44, 211, 173, 0.26)",
+                      : "1px solid rgba(25, 138, 112, 0.26)",
                   color: livePausedAtMs !== null ? "var(--cfsp-warning)" : "var(--cfsp-green)",
                   fontWeight: 900,
                   fontSize: "12px",
@@ -11581,7 +11581,7 @@ Cory`;
                 {livePausedAtMs !== null ? "Paused" : "Go Live"}
               </span>
               {liveDelayMinutes > 0 ? (
-                <span style={{ ...commandChipStyle, background: "rgba(73, 168, 255, 0.12)", color: "#7dd3fc" }}>
+                <span style={{ ...commandChipStyle, background: "rgba(143, 194, 240, 0.12)", color: "#d9ebff" }}>
                   Delay +{liveDelayMinutes}m
                 </span>
               ) : null}
@@ -11591,7 +11591,7 @@ Cory`;
 	          <section
 	            style={{
 	              borderRadius: "18px",
-	              border: "1px solid rgba(73, 168, 255, 0.22)",
+	              border: "1px solid rgba(20, 91, 150, 0.22)",
 	              background: "rgba(9, 20, 33, 0.94)",
 	              padding: "14px",
 	              display: "grid",
@@ -11609,25 +11609,25 @@ Cory`;
 	                </div>
 	              </div>
 	              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "flex-end" }}>
-	                <span style={{ ...commandChipStyle, background: "rgba(44, 211, 173, 0.14)", color: "#86efac" }}>
+	                <span style={{ ...commandChipStyle, background: "rgba(139, 210, 189, 0.12)", color: "#b8e4d4" }}>
 	                  {event?.name || "Untitled Event"}
 	                </span>
 	                <span
 	                  style={{
 	                    ...commandChipStyle,
-	                    background: livePausedAtMs !== null ? "rgba(243, 187, 103, 0.14)" : "rgba(44, 211, 173, 0.14)",
+	                    background: livePausedAtMs !== null ? "rgba(243, 187, 103, 0.14)" : "rgba(25, 138, 112, 0.14)",
 	                    color: livePausedAtMs !== null ? "var(--cfsp-warning)" : "var(--cfsp-green)",
 	                  }}
 	                >
 	                  {livePausedAtMs !== null ? "Paused" : "Live"}
 	                </span>
-	                <span style={{ ...commandChipStyle, background: "rgba(73, 168, 255, 0.12)", color: "#7dd3fc" }}>
+		                <span style={{ ...commandChipStyle, background: "rgba(143, 194, 240, 0.12)", color: "#d9ebff" }}>
 	                  {liveVisibleRoomCount} visible rooms
 	                </span>
-	                <span style={{ ...commandChipStyle, background: "rgba(73, 168, 255, 0.12)", color: "#7dd3fc" }}>
+		                <span style={{ ...commandChipStyle, background: "rgba(143, 194, 240, 0.12)", color: "#d9ebff" }}>
 	                  {liveRoomActiveCount} active
 	                </span>
-	                <span style={{ ...commandChipStyle, background: "rgba(243, 187, 103, 0.14)", color: "#fde68a" }}>
+		                <span style={{ ...commandChipStyle, background: "rgba(243, 187, 103, 0.12)", color: "#f3bb67" }}>
 	                  {liveRoomDelayedCount} delayed
 	                </span>
 	                <span style={{ ...commandChipStyle, background: "rgba(248, 113, 113, 0.14)", color: "#fecaca" }}>
@@ -11690,7 +11690,7 @@ Cory`;
 	                              color: statusAppearance.color,
 	                              fontSize: "11px",
 	                              fontWeight: 900,
-	                              boxShadow: row.checkedAt ? "0 0 14px rgba(44, 211, 173, 0.18)" : "none",
+	                              boxShadow: row.checkedAt ? "0 0 14px rgba(25, 138, 112, 0.18)" : "none",
 	                            }}
 	                          >
 	                            {row.sp ? getInitials(getFullName(row.sp)) : "--"}
@@ -11741,7 +11741,7 @@ Cory`;
 	                          </span>
 	                        ) : null}
 	                        {row.delayMinutes > 0 ? (
-	                          <span style={{ ...commandChipStyle, background: "rgba(243, 187, 103, 0.14)", color: "#fde68a" }}>
+	                          <span style={{ ...commandChipStyle, background: "rgba(243, 187, 103, 0.14)", color: "#f3bb67" }}>
 	                            Delay +{row.delayMinutes}m
 	                          </span>
 	                        ) : null}
@@ -11761,9 +11761,9 @@ Cory`;
 	                          style={{
 	                            ...buttonStyle,
 	                            padding: "7px 10px",
-	                            background: "rgba(44, 211, 173, 0.14)",
-	                            color: "#86efac",
-	                            border: "1px solid rgba(44, 211, 173, 0.22)",
+	                            background: "rgba(25, 138, 112, 0.14)",
+	                            color: "#b8e4d4",
+	                            border: "1px solid rgba(25, 138, 112, 0.22)",
 	                          }}
 	                        >
 	                          Start
@@ -11823,9 +11823,9 @@ Cory`;
 	                            style={{
 	                              ...buttonStyle,
 	                              padding: "7px 10px",
-	                              background: "rgba(73, 168, 255, 0.12)",
-	                              color: "#7dd3fc",
-	                              border: "1px solid rgba(73, 168, 255, 0.24)",
+	                              background: "rgba(20, 91, 150, 0.12)",
+	                              color: "#d9ebff",
+	                              border: "1px solid rgba(20, 91, 150, 0.24)",
 	                            }}
 	                          >
 	                            Clear Issue
@@ -11849,7 +11849,7 @@ Cory`;
             <section
               style={{
                 borderRadius: "18px",
-                border: "1px solid rgba(73, 168, 255, 0.22)",
+                border: "1px solid rgba(20, 91, 150, 0.22)",
                 background: "rgba(9, 20, 33, 0.94)",
                 padding: "14px",
                 display: "grid",
@@ -11889,7 +11889,7 @@ Cory`;
                     label: "Rooms in use",
                     value: String(liveVisibleRoomCount || 0),
                     detail: "active rooms",
-                    color: "#7dd3fc",
+                    color: "#d9ebff",
                   },
                   {
                     label: "Staffed",
@@ -11901,13 +11901,13 @@ Cory`;
                     label: "Checked in",
                     value: String(liveBlueprintCheckedCount),
                     detail: `${liveBlueprintStaffedCount || 0} staffed`,
-                    color: "#86efac",
+                    color: "#b8e4d4",
                   },
                   {
                     label: "Late",
                     value: String(liveBlueprintLateCount),
                     detail: liveBlueprintLateCount > 0 ? "watch list" : "clear",
-                    color: liveBlueprintLateCount > 0 ? "#fde68a" : "#9ed9d1",
+                    color: liveBlueprintLateCount > 0 ? "#f3bb67" : "#9ed9d1",
                   },
                   {
                     label: "No-show",
@@ -11965,9 +11965,9 @@ Cory`;
                     style={{
                       ...buttonStyle,
                       padding: "7px 10px",
-                      background: "rgba(73, 168, 255, 0.12)",
-                      color: "#7dd3fc",
-                      border: "1px solid rgba(73, 168, 255, 0.24)",
+                      background: "rgba(20, 91, 150, 0.12)",
+                      color: "#d9ebff",
+                      border: "1px solid rgba(20, 91, 150, 0.24)",
                     }}
                   >
                     Add delay
@@ -11980,7 +11980,7 @@ Cory`;
                   borderRadius: "20px",
                   border: "1px solid rgba(126, 231, 219, 0.24)",
                   background:
-                    "radial-gradient(circle at 16% 10%, rgba(73, 168, 255, 0.14), transparent 32%), linear-gradient(180deg, rgba(2, 13, 24, 0.94) 0%, rgba(5, 23, 35, 0.92) 100%)",
+                    "radial-gradient(circle at 16% 10%, rgba(20, 91, 150, 0.14), transparent 32%), linear-gradient(180deg, rgba(2, 13, 24, 0.94) 0%, rgba(5, 23, 35, 0.92) 100%)",
                   boxShadow: "inset 0 0 0 1px rgba(126, 231, 219, 0.05), 0 20px 40px rgba(0, 0, 0, 0.2)",
                   padding: "14px",
                   display: "grid",
@@ -12023,9 +12023,9 @@ Cory`;
                         style={{
                           ...buttonStyle,
                           padding: "7px 10px",
-                          background: "rgba(73, 168, 255, 0.12)",
+                          background: "rgba(20, 91, 150, 0.12)",
                           color: "#bfdbfe",
-                          border: "1px solid rgba(73, 168, 255, 0.28)",
+                          border: "1px solid rgba(20, 91, 150, 0.28)",
                         }}
                       >
                         + Add Room
@@ -12045,16 +12045,16 @@ Cory`;
                       >
                         - Remove Extra Room
                       </button>
-                      <span style={{ ...commandChipStyle, background: "rgba(44, 211, 173, 0.14)", color: "#86efac" }}>
+                      <span style={{ ...commandChipStyle, background: "rgba(25, 138, 112, 0.14)", color: "#b8e4d4" }}>
                         {liveBlueprintStaffedCount} staffed
                       </span>
-                      <span style={{ ...commandChipStyle, background: "rgba(73, 168, 255, 0.12)", color: "#bfdbfe" }}>
+                      <span style={{ ...commandChipStyle, background: "rgba(20, 91, 150, 0.12)", color: "#bfdbfe" }}>
                         {confirmedAssignments.length} confirmed
                       </span>
-                      <span style={{ ...commandChipStyle, background: "rgba(44, 211, 173, 0.14)", color: "#9ff5df" }}>
+                      <span style={{ ...commandChipStyle, background: "rgba(25, 138, 112, 0.14)", color: "#9ff5df" }}>
                         {liveBlueprintCheckedCount} checked in
                       </span>
-                      <span style={{ ...commandChipStyle, background: "rgba(243, 187, 103, 0.14)", color: "#fde68a" }}>
+                      <span style={{ ...commandChipStyle, background: "rgba(243, 187, 103, 0.14)", color: "#f3bb67" }}>
                         {liveBlueprintLateCount} late
                       </span>
                       <span style={{ ...commandChipStyle, background: "rgba(248, 113, 113, 0.14)", color: "#fecaca" }}>
@@ -12069,7 +12069,7 @@ Cory`;
                         borderRadius: "12px",
                         border: attendanceError
                           ? "1px solid rgba(248, 113, 113, 0.28)"
-                          : "1px solid rgba(44, 211, 173, 0.24)",
+                          : "1px solid rgba(25, 138, 112, 0.24)",
                         background: attendanceError
                           ? "rgba(80, 18, 25, 0.32)"
                           : "rgba(6, 48, 45, 0.28)",
@@ -12089,7 +12089,7 @@ Cory`;
                         borderRadius: "14px",
                         border: "1px solid rgba(243, 187, 103, 0.3)",
                         background: "rgba(67, 46, 12, 0.2)",
-                        color: "#fde68a",
+                        color: "#f3bb67",
                         padding: "9px 11px",
                         display: "flex",
                         gap: "8px",
@@ -12140,16 +12140,16 @@ Cory`;
                             const tone =
                               room.status === "checked_in"
                                 ? {
-                                    border: "1px solid rgba(44, 211, 173, 0.48)",
+                                    border: "1px solid rgba(25, 138, 112, 0.48)",
                                     background: "rgba(6, 48, 45, 0.58)",
                                     color: "#9ff5df",
-                                    glow: "0 0 22px rgba(44, 211, 173, 0.24)",
+                                    glow: "0 0 22px rgba(25, 138, 112, 0.24)",
                                   }
                                 : room.status === "late"
                                   ? {
                                       border: "1px solid rgba(243, 187, 103, 0.46)",
                                       background: "rgba(69, 39, 8, 0.52)",
-                                      color: "#fde68a",
+                                      color: "#f3bb67",
                                       glow: "0 0 20px rgba(243, 187, 103, 0.18)",
                                     }
                                   : room.status === "no_show"
@@ -12161,7 +12161,7 @@ Cory`;
                                       }
                                     : room.status === "awaiting"
                                       ? {
-                                          border: "1px solid rgba(73, 168, 255, 0.34)",
+                                          border: "1px solid rgba(20, 91, 150, 0.34)",
                                           background: "rgba(6, 30, 52, 0.46)",
                                           color: "#bfdbfe",
                                           glow: "none",
@@ -12179,13 +12179,13 @@ Cory`;
                               "";
                             const avatarTone =
                               room.status === "checked_in"
-                                ? { ring: "#2cd3ad", glow: "0 0 18px rgba(44, 211, 173, 0.34)", fill: "rgba(44, 211, 173, 0.16)" }
+                                ? { ring: "#198a70", glow: "0 0 18px rgba(25, 138, 112, 0.34)", fill: "rgba(25, 138, 112, 0.16)" }
                                 : room.status === "late"
                                   ? { ring: "#f3bb67", glow: "0 0 16px rgba(243, 187, 103, 0.28)", fill: "rgba(243, 187, 103, 0.13)" }
                                   : room.status === "no_show"
                                     ? { ring: "#f87171", glow: "0 0 16px rgba(248, 113, 113, 0.28)", fill: "rgba(248, 113, 113, 0.12)" }
                                     : room.status === "awaiting"
-                                      ? { ring: "#49a8ff", glow: "0 0 14px rgba(73, 168, 255, 0.2)", fill: "rgba(73, 168, 255, 0.13)" }
+                                      ? { ring: "#145b96", glow: "0 0 14px rgba(20, 91, 150, 0.2)", fill: "rgba(20, 91, 150, 0.13)" }
                                       : { ring: "#7da4b5", glow: "none", fill: "rgba(255,255,255,0.04)" };
                             return (
                               <div
@@ -12222,7 +12222,7 @@ Cory`;
                                     <div style={{ marginTop: "4px", color: "#9ed9d1", fontSize: "10px", fontWeight: 800, lineHeight: 1.35, overflowWrap: "anywhere" }}>
                                       {room.isTemporaryRoom ? "Extra Room · Standby / Overflow" : room.learnerLabel || "Learner not assigned"}
                                     </div>
-                                    <div style={{ marginTop: "4px", color: "#7dd3fc", fontSize: "10px", fontWeight: 800, lineHeight: 1.35, overflowWrap: "anywhere" }}>
+                                    <div style={{ marginTop: "4px", color: "#d9ebff", fontSize: "10px", fontWeight: 800, lineHeight: 1.35, overflowWrap: "anywhere" }}>
                                       {room.encounterLabel}
                                     </div>
                                   </div>
@@ -12242,9 +12242,9 @@ Cory`;
                                           fontSize: "14px",
                                           lineHeight: 1,
                                           borderRadius: "999px",
-                                          background: "rgba(73, 168, 255, 0.14)",
+                                          background: "rgba(20, 91, 150, 0.14)",
                                           color: "#bfdbfe",
-                                          border: "1px solid rgba(73, 168, 255, 0.28)",
+                                          border: "1px solid rgba(20, 91, 150, 0.28)",
                                         }}
                                         aria-label={`Add standby to ${room.roomName}`}
                                       >
@@ -12337,7 +12337,7 @@ Cory`;
                                           borderRadius: "18px",
                                           border: "1px dashed rgba(243, 187, 103, 0.46)",
                                           background: "rgba(67, 46, 12, 0.16)",
-                                          color: "#fde68a",
+                                          color: "#f3bb67",
                                           display: "grid",
                                           placeItems: "center",
                                           gap: "2px",
@@ -12383,10 +12383,10 @@ Cory`;
                                       gap: "6px",
                                       borderRadius: "999px",
                                       border: room.isCurrentRotationRoom
-                                        ? "1px solid rgba(44, 211, 173, 0.22)"
+                                        ? "1px solid rgba(25, 138, 112, 0.22)"
                                         : "1px solid rgba(125, 211, 252, 0.18)",
                                       background: room.isCurrentRotationRoom
-                                        ? "rgba(44, 211, 173, 0.1)"
+                                        ? "rgba(25, 138, 112, 0.1)"
                                         : "rgba(125, 211, 252, 0.08)",
                                       padding: "4px 7px",
                                     }}
@@ -12398,8 +12398,8 @@ Cory`;
                                         height: "22px",
                                         borderRadius: "9px 9px 7px 7px",
                                         border: "1px solid rgba(191, 219, 254, 0.55)",
-                                        background: "linear-gradient(180deg, rgba(191, 219, 254, 0.18), rgba(44, 211, 173, 0.1))",
-                                        boxShadow: room.isCurrentRotationRoom ? "0 0 12px rgba(44, 211, 173, 0.18)" : "none",
+                                        background: "linear-gradient(180deg, rgba(191, 219, 254, 0.18), rgba(25, 138, 112, 0.1))",
+                                        boxShadow: room.isCurrentRotationRoom ? "0 0 12px rgba(25, 138, 112, 0.18)" : "none",
                                       }}
                                     />
                                     <span style={{ color: "#dbeafe", fontSize: "10px", fontWeight: 850, overflowWrap: "anywhere" }}>
@@ -12474,7 +12474,7 @@ Cory`;
                                           padding: "7px",
                                         }}
                                       >
-                                        <label style={{ color: "#fde68a", fontSize: "10px", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                                        <label style={{ color: "#f3bb67", fontSize: "10px", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.06em" }}>
                                           Assign / Restore SP
                                         </label>
                                         <select
@@ -12516,7 +12516,7 @@ Cory`;
                                             padding: "7px 9px",
                                             fontSize: "11px",
                                             background: "rgba(243, 187, 103, 0.14)",
-                                            color: "#fde68a",
+                                            color: "#f3bb67",
                                             border: "1px solid rgba(243, 187, 103, 0.32)",
                                             opacity: !selectedRestoreAssignmentId || attendanceSaving ? 0.55 : 1,
                                           }}
@@ -12534,9 +12534,9 @@ Cory`;
                                           ...buttonStyle,
                                           padding: "6px 8px",
                                           fontSize: "11px",
-                                          background: "rgba(44, 211, 173, 0.18)",
+                                          background: "rgba(25, 138, 112, 0.18)",
                                           color: "#9ff5df",
-                                          border: "1px solid rgba(44, 211, 173, 0.34)",
+                                          border: "1px solid rgba(25, 138, 112, 0.34)",
                                           opacity: !room.assignment || attendanceSaving || trainingAttendanceFieldsMissing ? 0.55 : 1,
                                         }}
                                       >
@@ -12551,7 +12551,7 @@ Cory`;
                                           padding: "6px 8px",
                                           fontSize: "11px",
                                           background: "rgba(243, 187, 103, 0.16)",
-                                          color: "#fde68a",
+                                          color: "#f3bb67",
                                           border: "1px solid rgba(243, 187, 103, 0.34)",
                                           opacity: !room.assignment || attendanceSaving || trainingAttendanceFieldsMissing ? 0.55 : 1,
                                         }}
@@ -12582,9 +12582,9 @@ Cory`;
                                           ...buttonStyle,
                                           padding: "6px 8px",
                                           fontSize: "11px",
-                                          background: "rgba(73, 168, 255, 0.12)",
+                                          background: "rgba(20, 91, 150, 0.12)",
                                           color: "#bfdbfe",
-                                          border: "1px solid rgba(73, 168, 255, 0.28)",
+                                          border: "1px solid rgba(20, 91, 150, 0.28)",
                                           opacity: !room.assignment || attendanceSaving || trainingAttendanceFieldsMissing ? 0.55 : 1,
                                         }}
                                       >
@@ -12654,9 +12654,9 @@ Cory`;
                                             ...buttonStyle,
                                             padding: "6px 8px",
                                             fontSize: "11px",
-                                            background: "rgba(73, 168, 255, 0.12)",
+                                            background: "rgba(20, 91, 150, 0.12)",
                                             color: "#bfdbfe",
-                                            border: "1px solid rgba(73, 168, 255, 0.28)",
+                                            border: "1px solid rgba(20, 91, 150, 0.28)",
                                           }}
                                         >
                                           Preview Case
@@ -12716,8 +12716,8 @@ Cory`;
                           const tone =
                             token.state === "roomed"
                               ? {
-                                  background: "rgba(44, 211, 173, 0.14)",
-                                  border: "1px solid rgba(44, 211, 173, 0.24)",
+                                  background: "rgba(25, 138, 112, 0.14)",
+                                  border: "1px solid rgba(25, 138, 112, 0.24)",
                                   color: "#9ff5df",
                                   label: "In room",
                                 }
@@ -12757,7 +12757,7 @@ Cory`;
                                   placeItems: "center",
                                   background: "rgba(4, 15, 26, 0.54)",
                                   border: `1px solid ${tone.color}`,
-                                  boxShadow: token.state === "roomed" ? "0 0 14px rgba(44, 211, 173, 0.22)" : "none",
+                                  boxShadow: token.state === "roomed" ? "0 0 14px rgba(25, 138, 112, 0.22)" : "none",
                                   color: tone.color,
                                   fontSize: "10px",
                                   fontWeight: 900,
@@ -12804,7 +12804,7 @@ Cory`;
                     {!liveAttendanceToolsExpanded && liveAttendanceAllPrimaryArrived ? (
                       <div
                         style={{
-                          border: "1px solid rgba(44, 211, 173, 0.24)",
+                          border: "1px solid rgba(25, 138, 112, 0.24)",
                           borderRadius: "14px",
                           background: "rgba(6, 48, 45, 0.24)",
                           padding: "10px 12px",
@@ -12814,7 +12814,7 @@ Cory`;
                           alignItems: "center",
                         }}
                       >
-                        <span style={{ ...commandChipStyle, background: "rgba(44, 211, 173, 0.14)", color: "#86efac" }}>All SPs arrived</span>
+                        <span style={{ ...commandChipStyle, background: "rgba(25, 138, 112, 0.14)", color: "#b8e4d4" }}>All SPs arrived</span>
                         <span style={{ color: "#d6edf4", fontSize: "12px", fontWeight: 800 }}>
                           {liveBlueprintCheckedCount} / {liveBlueprintStaffedCount} checked in
                         </span>
@@ -12827,9 +12827,9 @@ Cory`;
                         {liveAttendanceLogRows.map((entry) => {
                           const color =
                             entry.status === "checked_in"
-                              ? "#86efac"
+                              ? "#b8e4d4"
                               : entry.status === "late"
-                                ? "#fde68a"
+                                ? "#f3bb67"
                                 : entry.status === "no_show"
                                   ? "#fecaca"
                                   : "#bfdbfe";
@@ -12982,9 +12982,9 @@ Cory`;
                             style={{
                               ...buttonStyle,
                               padding: "7px 11px",
-                              background: "rgba(73, 168, 255, 0.12)",
-                              color: "#7dd3fc",
-                              border: "1px solid rgba(73, 168, 255, 0.24)",
+                              background: "rgba(20, 91, 150, 0.12)",
+                              color: "#d9ebff",
+                              border: "1px solid rgba(20, 91, 150, 0.24)",
                             }}
                           >
                             Replace SP
@@ -13023,7 +13023,7 @@ Cory`;
                       <div
                         style={{
                           borderRadius: "12px",
-                          border: "1px solid rgba(73, 168, 255, 0.18)",
+                          border: "1px solid rgba(20, 91, 150, 0.18)",
                           background: "rgba(8, 47, 73, 0.14)",
                           padding: "8px 10px",
                           display: "grid",
@@ -13118,7 +13118,7 @@ Cory`;
                             ? "1px solid rgba(248, 113, 113, 0.2)"
                             : alert.tone === "warning"
                               ? "1px solid rgba(243, 187, 103, 0.2)"
-                              : "1px solid rgba(73, 168, 255, 0.18)",
+                              : "1px solid rgba(20, 91, 150, 0.18)",
                         background:
                           alert.tone === "danger"
                             ? "rgba(127, 29, 29, 0.12)"
@@ -13129,7 +13129,7 @@ Cory`;
                           alert.tone === "danger"
                             ? "#fecaca"
                             : alert.tone === "warning"
-                              ? "#fde68a"
+                              ? "#f3bb67"
                               : "#bfdbfe",
                         fontWeight: 800,
                         fontSize: "12px",
@@ -13145,7 +13145,7 @@ Cory`;
               <div
                 style={{
                   borderRadius: "18px",
-                  border: "1px solid rgba(73, 168, 255, 0.22)",
+                  border: "1px solid rgba(20, 91, 150, 0.22)",
                   background: "rgba(9, 20, 33, 0.94)",
                   padding: "14px",
                   display: "grid",
@@ -13271,12 +13271,12 @@ Cory`;
                           const isDivider = block.tone === "break" && /lunch|break/i.test(block.label);
                           const color =
                             block.tone === "rotation"
-                              ? "#7dd3fc"
+                              ? "#d9ebff"
                               : block.tone === "support"
                                 ? "#9ff5df"
                                 : block.tone === "break"
-                                  ? "#fde68a"
-                                  : "#c4b5fd";
+                                  ? "#f3bb67"
+                                  : "#d9ebff";
                           const label = isDivider ? getLiveFlowDividerLabel(block.label) : block.label;
                           return (
                             <button
@@ -13303,7 +13303,7 @@ Cory`;
                                 boxShadow: isSelected
                                   ? "0 0 0 1px rgba(126, 231, 219, 0.12), 0 0 22px rgba(126, 231, 219, 0.12)"
                                   : isCurrent
-                                    ? "0 0 18px rgba(73, 168, 255, 0.16)"
+                                    ? "0 0 18px rgba(20, 91, 150, 0.16)"
                                     : "none",
                                 padding: isDivider ? "10px 12px" : "9px 10px",
                                 display: "grid",
@@ -13316,7 +13316,7 @@ Cory`;
                                 <div style={{ color, fontSize: "11px", fontWeight: 900, lineHeight: 1.2, overflowWrap: "anywhere" }}>
                                   {label}
                                 </div>
-                                <div style={{ color: isCompleted ? "#86efac" : isCurrent ? "#7ee7db" : "#89b7c4", fontSize: "11px", fontWeight: 900 }}>
+                                <div style={{ color: isCompleted ? "#b8e4d4" : isCurrent ? "#7ee7db" : "#89b7c4", fontSize: "11px", fontWeight: 900 }}>
                                   {isCompleted ? "✓" : isCurrent ? "Now" : isUpcoming ? "Next" : ""}
                                 </div>
                               </div>
@@ -13360,7 +13360,7 @@ Cory`;
                                 {selectedLiveFlowBlock.label}
                               </div>
                             </div>
-                            <span style={{ ...commandChipStyle, background: "rgba(255,255,255,0.04)", color: "#7dd3fc" }}>
+                            <span style={{ ...commandChipStyle, background: "rgba(255,255,255,0.04)", color: "#d9ebff" }}>
                               {formatMinuteRange(selectedLiveFlowBlock.startMinutes, selectedLiveFlowBlock.endMinutes)}
                             </span>
                           </div>
@@ -13410,7 +13410,7 @@ Cory`;
                               </button>
                             ) : null}
                             {(selectedLiveFlowBlock.rooms.length || liveVisibleRoomCount) ? (
-                              <span style={{ ...commandChipStyle, background: "rgba(73, 168, 255, 0.12)", color: "#7dd3fc" }}>
+                              <span style={{ ...commandChipStyle, background: "rgba(20, 91, 150, 0.12)", color: "#d9ebff" }}>
                                 {(selectedLiveFlowBlock.rooms.length || liveVisibleRoomCount)} room
                                 {(selectedLiveFlowBlock.rooms.length || liveVisibleRoomCount) === 1 ? "" : "s"}
                               </span>
@@ -14164,7 +14164,7 @@ Cory`;
                   coverageRiskTone === "green"
                     ? planningSuccessText
                     : coverageRiskTone === "yellow"
-                      ? "#fde68a"
+                      ? "#f3bb67"
                       : staffingWorkspacePalette.dangerText,
                 border:
                   coverageRiskTone === "green"
@@ -14192,7 +14192,7 @@ Cory`;
           <div
             style={{
               borderRadius: "16px",
-              border: isPlanningVisualMode ? planningSuccessBorder : "1px solid rgba(73, 168, 255, 0.22)",
+              border: isPlanningVisualMode ? planningSuccessBorder : "1px solid rgba(20, 91, 150, 0.22)",
               background: isPlanningVisualMode
                 ? "linear-gradient(180deg, rgba(236, 253, 245, 0.96) 0%, rgba(220, 252, 231, 0.94) 100%)"
                 : "linear-gradient(180deg, rgba(12, 29, 46, 0.96) 0%, rgba(11, 25, 39, 0.94) 100%)",
@@ -14228,8 +14228,8 @@ Cory`;
           <div
             style={{
               ...statCard,
-              background: "rgba(196, 181, 253, 0.12)",
-              border: "1px solid rgba(196, 181, 253, 0.18)",
+              background: "rgba(20, 91, 150, 0.12)",
+              border: "1px solid rgba(20, 91, 150, 0.18)",
               color: "#ddd6fe",
             }}
           >
@@ -14258,7 +14258,7 @@ Cory`;
             {!isPlanningVisualMode ? (
               <section
                 style={{
-                  border: "1px solid rgba(73, 168, 255, 0.2)",
+                  border: "1px solid rgba(20, 91, 150, 0.2)",
                   borderRadius: "16px",
                   padding: "12px 14px",
                   background: "linear-gradient(180deg, rgba(247, 251, 255, 0.98) 0%, rgba(238, 248, 252, 0.96) 100%)",
@@ -14573,7 +14573,7 @@ Cory`;
                         coverageRiskTone === "green"
                           ? planningSuccessText
                           : coverageRiskTone === "yellow"
-                            ? "#fde68a"
+                            ? "#f3bb67"
                             : staffingWorkspacePalette.dangerText,
                     }}
                   >
@@ -15269,7 +15269,7 @@ Cory`;
                                 <span
                                   style={{
                                     ...commandChipStyle,
-                                    background: isConfirmed ? planningSuccessBackground : "rgba(73, 168, 255, 0.12)",
+                                    background: isConfirmed ? planningSuccessBackground : "rgba(20, 91, 150, 0.12)",
                                     color: isConfirmed ? planningSuccessText : "#bae6fd",
                                     border: isConfirmed ? planningSuccessBorder : commandChipStyle.border,
                                   }}
@@ -16133,7 +16133,7 @@ Cory`;
               padding: "6px 10px",
               background: allAssignedCheckedIn ? "var(--cfsp-green-soft)" : "rgba(168, 183, 204, 0.12)",
               border: allAssignedCheckedIn
-                ? "1px solid rgba(44, 211, 173, 0.24)"
+                ? "1px solid rgba(25, 138, 112, 0.24)"
                 : "1px solid var(--cfsp-border)",
               color: allAssignedCheckedIn ? "var(--cfsp-green)" : "var(--cfsp-text-muted)",
               fontSize: "12px",
@@ -16928,8 +16928,8 @@ Cory`;
                               style={{
                                 borderRadius: "999px",
                                 padding: "4px 8px",
-                                background: "rgba(44, 211, 173, 0.14)",
-                                border: "1px solid rgba(44, 211, 173, 0.22)",
+                                background: "rgba(25, 138, 112, 0.14)",
+                                border: "1px solid rgba(25, 138, 112, 0.22)",
                                 color: "var(--cfsp-green)",
                                 fontSize: "12px",
                                 fontWeight: 900,
@@ -16952,7 +16952,7 @@ Cory`;
             {relatedPushSummary ? (
               <div
                 style={{
-                  border: "1px solid rgba(44, 211, 173, 0.24)",
+                  border: "1px solid rgba(25, 138, 112, 0.24)",
                   borderRadius: "14px",
                   padding: "14px",
                   background: "var(--cfsp-green-soft)",
@@ -17083,7 +17083,7 @@ Cory`;
                       commandCenterMode === "planning"
                         ? "1px solid var(--cfsp-command-button-active-border)"
                         : isPlanningVisualMode
-                          ? "1px solid rgba(44, 211, 173, 0.16)"
+                          ? "1px solid rgba(25, 138, 112, 0.16)"
                           : "1px solid rgba(148, 163, 184, 0.2)",
                     boxShadow: commandCenterMode === "planning" ? "var(--cfsp-command-button-active-shadow)" : "none",
                   }}
@@ -17104,7 +17104,7 @@ Cory`;
                       commandCenterMode === "live"
                         ? "1px solid var(--cfsp-command-button-active-border)"
                         : isPlanningVisualMode
-                          ? "1px solid rgba(44, 211, 173, 0.16)"
+                          ? "1px solid rgba(25, 138, 112, 0.16)"
                           : "1px solid rgba(148, 163, 184, 0.2)",
                     boxShadow: commandCenterMode === "live" ? "var(--cfsp-command-button-active-shadow)" : "none",
                   }}
@@ -17617,7 +17617,7 @@ Cory`;
                             : "No cases uploaded",
                           status: uploadedCaseFileCount ? "available" : caseFileCount ? "draft" : "missing",
                           featured: true,
-                          accent: "#7dd3fc",
+                          accent: "#145b96",
                           primaryAction: primaryCaseFileEntry && (primaryCaseFileEntry.url || primaryCaseFileEntry.storagePath)
                             ? () => openCaseFilePreview(primaryCaseFileEntry)
                             : () => openCaseFilePicker({ mode: "add" }),
@@ -17730,7 +17730,7 @@ Cory`;
                           detail: scheduleStatusLabel,
                           status: scheduleCompleted ? "complete" : scheduleInProgress ? "draft" : "missing",
                           featured: true,
-                          accent: scheduleCompleted ? "#86efac" : scheduleInProgress ? "#7dd3fc" : "#fcd34d",
+                          accent: scheduleCompleted ? "#198a70" : scheduleInProgress ? "#145b96" : "#a86411",
                           primaryHref: expandedScheduleBuilderHref,
                           metadata: [
                             scheduleCompleted ? "Export ready" : "",
@@ -17767,7 +17767,7 @@ Cory`;
                           title: "STUDENT EXPORT",
                           detail: "Learner-safe export view",
                           status: scheduleCompleted ? "complete" : scheduleInProgress ? "draft" : "missing",
-                          accent: "#c4b5fd",
+                          accent: "#145b96",
                           primaryAction: () => handleOpenEventScheduleRouteInNewTab("student", "schedule"),
                           metadata: ["Learner-safe", scheduleCompleted ? "Print ready" : "Draft only"].filter(Boolean),
                           actions: (
@@ -17794,7 +17794,7 @@ Cory`;
                           title: "SP ASSIGNMENT GRID",
                           detail: "Staff-facing room assignment view",
                           status: scheduleCompleted ? "complete" : scheduleInProgress ? "draft" : "missing",
-                          accent: "#5eead4",
+                          accent: "#198a70",
                           primaryAction: () => handleOpenEventScheduleRouteInNewTab("sp", "schedule"),
                           metadata: ["Staffing ops", scheduleCompleted ? "Ready for live ops" : "Builder-linked"].filter(Boolean),
                           actions: (
@@ -17821,7 +17821,7 @@ Cory`;
                           title: "FACULTY / SIMOPS TIME TICKET",
                           detail: "Compact timing and flow view",
                           status: scheduleCompleted ? "complete" : scheduleInProgress ? "draft" : "missing",
-                          accent: "#f9a8d4",
+                          accent: "#0f4776",
                           primaryAction: () => handleOpenEventScheduleRouteInNewTab("timeline", "ticket"),
                           metadata: ["Flow brief", scheduleCompleted ? "Print ready" : "Draft timing"].filter(Boolean),
                           actions: (
@@ -17848,7 +17848,7 @@ Cory`;
                           title: "MATERIALS CACHE",
                           detail: eventMaterialName || "Event materials not uploaded",
                           status: eventMaterialUrl ? "available" : "missing",
-                          accent: eventMaterialUrl ? "#fcd34d" : "#94a3b8",
+                          accent: eventMaterialUrl ? "#a86411" : "#94a3b8",
                           primaryAction: openEventMaterialPreview,
                           metadata: [eventMaterialUrl ? "Packet loaded" : "Upload needed", materialsStatusLabel].filter(Boolean),
                           actions: (
@@ -17879,7 +17879,7 @@ Cory`;
                           title: "RECORDING CHANNEL",
                           detail: recordingGuideUrl ? getFilenameFromUrl(recordingGuideUrl) || "Recording link ready" : "No recording link posted",
                           status: recordingGuideUrl ? "available" : "missing",
-                          accent: recordingGuideUrl ? "#f59e0b" : "#94a3b8",
+                          accent: recordingGuideUrl ? "#a86411" : "#94a3b8",
                           primaryHref: recordingGuideUrl || "",
                           metadata: [recordingStatus.label, recordingGuideUrl ? "Support posted" : "Awaiting link"].filter(Boolean),
                           actions: (
@@ -17902,7 +17902,7 @@ Cory`;
                           title: "TRAINING ACCESS NODE",
                           detail: trainingAccessUrl ? trainingModalityLabel : "Training link missing",
                           status: trainingAccessUrl ? "available" : trainingZoomRequired ? "missing" : "draft",
-                          accent: trainingAccessUrl ? "#7dd3fc" : trainingZoomRequired ? "#fcd34d" : "#94a3b8",
+                          accent: trainingAccessUrl ? "#145b96" : trainingZoomRequired ? "#a86411" : "#94a3b8",
                           primaryHref: trainingAccessUrl || "",
                           metadata: [
                             trainingAccessUrl ? "Training linked" : "",
@@ -17934,7 +17934,7 @@ Cory`;
                             : resource.status === "available"
                               ? {
                                   background: "rgba(219, 234, 254, 0.72)",
-                                  border: "1px solid rgba(73, 168, 255, 0.22)",
+                                  border: "1px solid rgba(20, 91, 150, 0.22)",
                                   color: "#1d4ed8",
                                 }
                               : resource.status === "draft"
@@ -17972,18 +17972,18 @@ Cory`;
                               borderRadius: "16px",
                               border: isCommandFileCabinetSimpleView
                                 ? `1px solid ${resource.accent}22`
-                                : `1px solid ${resource.accent}28`,
+                                : "1px solid rgba(143, 194, 240, 0.18)",
                               background: isCommandFileCabinetSimpleView
                                 ? "linear-gradient(180deg, rgba(255,255,255,0.99) 0%, rgba(248, 251, 254, 0.98) 100%)"
-                                : `linear-gradient(180deg, rgba(255,255,255,0.05) 0%, rgba(10, 20, 34, 0.84) 42%, ${resource.accent}14 100%)`,
+                                : "linear-gradient(180deg, rgba(17, 31, 48, 0.94) 0%, rgba(20, 43, 62, 0.9) 100%)",
                               padding: resource.featured ? "12px 12px 11px" : "10px",
                               display: "grid",
                               gap: "8px",
                               boxShadow: isPlanningVisualMode
                                 ? isCommandFileCabinetSimpleView
                                   ? `0 10px 22px rgba(15, 23, 42, 0.06), inset 0 1px 0 rgba(255,255,255,0.48)`
-                                  : `0 18px 34px ${resource.accent}14, inset 0 1px 0 rgba(255,255,255,0.32)`
-                                : `0 18px 34px rgba(0,0,0,0.22), inset 0 1px 0 ${resource.accent}18`,
+                                  : "0 16px 32px rgba(24, 52, 78, 0.1), inset 0 1px 0 rgba(255,255,255,0.2)"
+                                : "0 18px 34px rgba(0,0,0,0.22), inset 0 1px 0 rgba(255,255,255,0.08)",
                               gridColumn: resource.featured ? "span 2" : undefined,
                               position: "relative",
                               overflow: "hidden",
@@ -17997,7 +17997,7 @@ Cory`;
                                 width: resource.featured ? "42%" : "55%",
                                 height: "1px",
                                 background: `linear-gradient(90deg, ${resource.accent} 0%, transparent 100%)`,
-                                opacity: 0.85,
+                                opacity: isCommandFileCabinetSimpleView ? 0.55 : 0.42,
                               }}
                             />
                             <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "flex-start" }}>
@@ -18014,11 +18014,11 @@ Cory`;
                                       display: "inline-flex",
                                       alignItems: "center",
                                       justifyContent: "center",
-                                      background: isCommandFileCabinetSimpleView ? `${resource.accent}12` : `${resource.accent}18`,
+                                      background: isCommandFileCabinetSimpleView ? `${resource.accent}10` : "rgba(255,255,255,0.06)",
                                       border: `1px solid ${resource.accent}26`,
                                       color: resource.accent,
                                       flexShrink: 0,
-                                      boxShadow: isCommandFileCabinetSimpleView ? "none" : `0 10px 22px ${resource.accent}18`,
+                                      boxShadow: "none",
                                       cursor: "pointer",
                                     }}
                                   >
@@ -18038,10 +18038,10 @@ Cory`;
                                       display: "inline-flex",
                                       alignItems: "center",
                                       justifyContent: "center",
-                                      background: isCommandFileCabinetSimpleView ? `${resource.accent}12` : `${resource.accent}18`,
+                                      background: isCommandFileCabinetSimpleView ? `${resource.accent}10` : "rgba(255,255,255,0.06)",
                                       border: `1px solid ${resource.accent}26`,
                                       color: resource.accent,
-                                      boxShadow: isCommandFileCabinetSimpleView ? "none" : `0 10px 22px ${resource.accent}18`,
+                                      boxShadow: "none",
                                       opacity: resource.primaryAction ? 1 : 0.75,
                                     }}
                                   >
@@ -18083,7 +18083,7 @@ Cory`;
                                           key={`${resource.key}-${item}`}
                                           style={{
                                             ...commandChipStyle,
-                                            background: isCommandFileCabinetSimpleView ? `${resource.accent}10` : `${resource.accent}12`,
+                                            background: isCommandFileCabinetSimpleView ? `${resource.accent}0d` : "rgba(255,255,255,0.06)",
                                             border: `1px solid ${resource.accent}20`,
                                             color: resource.accent,
                                             fontSize: "10px",
@@ -18148,19 +18148,19 @@ Cory`;
                     label: "Event Modality",
                     value: eventModalityChips[0] || "Operational event",
                     chips: eventModalityChips.slice(1, 4),
-                    accent: "#7dd3fc",
+                    accent: "#145b96",
                   },
                   {
                     label: "Simulation Type",
                     value: eventIdentityChips[0] || "Operational event",
                     chips: eventIdentityChips.slice(1, 4),
-                    accent: "#c4b5fd",
+                    accent: "#0f4776",
                   },
                   {
                     label: "Readiness",
                     value: operationalReadinessItems.primary,
                     chips: operationalReadinessItems.items.filter((item) => item.active).slice(0, 3).map((item) => item.label),
-                    accent: operationalReadinessItems.primary === "Ready" ? "#86efac" : "#fde68a",
+                    accent: operationalReadinessItems.primary === "Ready" ? "#198a70" : "#a86411",
                   },
                   {
                     label: "Risk Level",
@@ -18168,9 +18168,9 @@ Cory`;
                     chips: [eventRiskLevel.detail],
                     accent:
                       eventRiskLevel.tone === "green"
-                        ? "#86efac"
+                        ? "#198a70"
                         : eventRiskLevel.tone === "yellow"
-                          ? "#fde68a"
+                          ? "#a86411"
                           : "#ff7a7a",
                   },
                 ].map((card) => (
@@ -18236,7 +18236,7 @@ Cory`;
                           ? "Builder progress saved"
                           : effectiveRotationCountSource.label,
                     ].filter(Boolean),
-                    accent: scheduleCompleted ? "#86efac" : scheduleInProgress ? "#7dd3fc" : "#fcd34d",
+                    accent: scheduleCompleted ? "#198a70" : scheduleInProgress ? "#145b96" : "#a86411",
                   },
                   {
                     label: "Communication",
@@ -18245,19 +18245,19 @@ Cory`;
                         ? `${communicationStatusItems.filter((item) => item.active).length} active`
                         : "No active sends",
                     chips: communicationStatusItems.filter((item) => item.active).slice(0, 3).map((item) => item.label),
-                    accent: "#7dd3fc",
+                    accent: "#145b96",
                   },
                   {
                     label: "Materials",
                     value: materialsStatusLabel,
                     chips: materialsStatusItems.filter((item) => item.active).slice(0, 3).map((item) => item.label),
-                    accent: materialsReadinessComplete ? "#86efac" : "#fcd34d",
+                    accent: materialsReadinessComplete ? "#198a70" : "#a86411",
                   },
                   {
                     label: "Live Support",
                     value: liveSupportNeeds.length ? `${liveSupportNeeds.length} support flags` : "No support flags",
                     chips: (liveSupportNeeds.length ? liveSupportNeeds : [{ label: "No extra live support flagged" }]).slice(0, 3).map((item) => item.label),
-                    accent: "#fcd34d",
+                    accent: "#a86411",
                     indicator: recordingIndicatorActive ? (
                       <RecordingStatusIndicator
                         label={recordingIndicatorLabel}
@@ -18354,7 +18354,7 @@ Cory`;
                         ? isPlanningVisualMode ? "rgba(255, 255, 255, 0.92)" : "rgba(15, 23, 42, 0.76)"
                         : isPlanningVisualMode
                           ? "linear-gradient(135deg, #0f766e 0%, #0369a1 100%)"
-                          : "linear-gradient(135deg, rgba(44, 211, 173, 0.95) 0%, rgba(73, 168, 255, 0.9) 100%)",
+                          : "linear-gradient(135deg, rgba(25, 138, 112, 0.95) 0%, rgba(20, 91, 150, 0.9) 100%)",
                       color: rotationCommandSurfaceOpen
                         ? commandCenterVisual.textColor
                         : isPlanningVisualMode
@@ -18367,7 +18367,7 @@ Cory`;
                         ? "none"
                         : isPlanningVisualMode
                           ? "0 10px 22px rgba(3, 105, 161, 0.16)"
-                          : "0 12px 28px rgba(44, 211, 173, 0.18)",
+                          : "0 12px 28px rgba(25, 138, 112, 0.18)",
                     }}
                   >
                     {rotationCommandSurfaceOpen ? "Collapse" : "Open Rotation Command Surface"}
@@ -18419,7 +18419,7 @@ Cory`;
                     <span style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText, border: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.18)" : commandChipStyle.border }}>
                       {selectedRotationRound ? `Selected Round ${activeSelectedRotationRoundIndex + 1}` : "No round selected"}
                     </span>
-                    <span style={{ ...commandChipStyle, background: commandCenterVisual.activeSoftBackground, color: commandCenterVisual.activeSoftText, border: isPlanningVisualMode ? "1px solid rgba(44, 211, 173, 0.2)" : commandChipStyle.border }}>
+                    <span style={{ ...commandChipStyle, background: commandCenterVisual.activeSoftBackground, color: commandCenterVisual.activeSoftText, border: isPlanningVisualMode ? "1px solid rgba(25, 138, 112, 0.2)" : commandChipStyle.border }}>
                       {roundCompanionView === "announcements"
                         ? "Announcements"
                         : roundCompanionView === "student"
@@ -18470,25 +18470,25 @@ Cory`;
                             borderRadius: "18px",
                             border: selected
                               ? isPlanningVisualMode
-                                ? "1px solid rgba(168, 85, 247, 0.46)"
-                                : "1px solid rgba(196, 181, 253, 0.52)"
+                                ? "1px solid rgba(20, 91, 150, 0.34)"
+                                : "1px solid rgba(143, 194, 240, 0.34)"
                               : isPlanningVisualMode
-                                ? "1px solid rgba(168, 85, 247, 0.18)"
-                                : "1px solid rgba(196, 181, 253, 0.18)",
+                                ? "1px solid rgba(20, 91, 150, 0.14)"
+                                : "1px solid rgba(143, 194, 240, 0.16)",
                             background: selected
                               ? isPlanningVisualMode
-                                ? "radial-gradient(circle at 14% 0%, rgba(196, 181, 253, 0.38), transparent 40%), linear-gradient(180deg, rgba(250, 245, 255, 0.98) 0%, rgba(231, 246, 250, 0.96) 100%)"
-                                : "radial-gradient(circle at 14% 0%, rgba(168, 85, 247, 0.34), transparent 42%), rgba(12, 45, 60, 0.96)"
+                                ? "linear-gradient(180deg, rgba(255,255,255,0.99) 0%, rgba(239,246,251,0.96) 100%)"
+                                : "linear-gradient(180deg, rgba(20, 43, 62, 0.96) 0%, rgba(15, 31, 48, 0.94) 100%)"
                               : isPlanningVisualMode
                                 ? "linear-gradient(180deg, rgba(255, 255, 255, 0.97) 0%, rgba(248, 250, 255, 0.95) 100%)"
                                 : "linear-gradient(180deg, rgba(18, 22, 42, 0.92) 0%, rgba(15, 23, 42, 0.92) 100%)",
                             boxShadow: selected
                               ? isPlanningVisualMode
-                                ? "0 14px 30px rgba(124, 58, 237, 0.16), 0 8px 18px rgba(42, 112, 140, 0.08), inset 4px 0 0 rgba(124, 58, 237, 0.72)"
-                                : "0 14px 30px rgba(168, 85, 247, 0.18), inset 4px 0 0 rgba(196, 181, 253, 0.82)"
+                                ? "0 14px 30px rgba(24, 52, 78, 0.1), inset 4px 0 0 rgba(20, 91, 150, 0.72)"
+                                : "0 14px 30px rgba(0,0,0,0.22), inset 4px 0 0 rgba(143, 194, 240, 0.64)"
                               : isPlanningVisualMode
-                                ? "inset 3px 0 0 rgba(168, 85, 247, 0.18)"
-                                : "inset 3px 0 0 rgba(196, 181, 253, 0.16)",
+                                ? "inset 3px 0 0 rgba(20, 91, 150, 0.16)"
+                                : "inset 3px 0 0 rgba(143, 194, 240, 0.14)",
                             padding: isPlanningVisualMode ? "13px 15px" : "16px 18px",
                             display: "grid",
                             gap: "8px",
@@ -18507,7 +18507,7 @@ Cory`;
                               Round {index + 1}
                             </div>
                             {selected ? (
-                              <span style={{ ...commandChipStyle, background: isPlanningVisualMode ? "rgba(168, 85, 247, 0.12)" : "rgba(196, 181, 253, 0.14)", color: isPlanningVisualMode ? "#6d28d9" : "#ddd6fe", border: isPlanningVisualMode ? "1px solid rgba(168, 85, 247, 0.24)" : "1px solid rgba(196, 181, 253, 0.26)" }}>
+                              <span style={{ ...commandChipStyle, background: isPlanningVisualMode ? "rgba(20, 91, 150, 0.08)" : "rgba(143, 194, 240, 0.12)", color: isPlanningVisualMode ? "#145b96" : "#d9ebff", border: isPlanningVisualMode ? "1px solid rgba(20, 91, 150, 0.18)" : "1px solid rgba(143, 194, 240, 0.2)" }}>
                                 Active detail view
                               </span>
                             ) : null}
@@ -18528,7 +18528,7 @@ Cory`;
                               {roundRoomCount} rooms
                             </span>
                             {roundLearnerCount !== null ? (
-                              <span style={{ ...commandChipStyle, background: commandCenterVisual.activeSoftBackground, color: commandCenterVisual.activeSoftText, border: isPlanningVisualMode ? "1px solid rgba(44, 211, 173, 0.2)" : commandChipStyle.border }}>
+                              <span style={{ ...commandChipStyle, background: commandCenterVisual.activeSoftBackground, color: commandCenterVisual.activeSoftText, border: isPlanningVisualMode ? "1px solid rgba(25, 138, 112, 0.2)" : commandChipStyle.border }}>
                                 {roundLearnerCount} learners
                               </span>
                             ) : null}
@@ -18589,7 +18589,7 @@ Cory`;
                               border:
                                 roundCompanionView === view.value
                                   ? isPlanningVisualMode
-                                    ? "1px solid rgba(44, 211, 173, 0.24)"
+                                    ? "1px solid rgba(25, 138, 112, 0.24)"
                                     : "1px solid rgba(126, 231, 219, 0.32)"
                                   : isPlanningVisualMode
                                     ? "1px solid rgba(128, 167, 182, 0.2)"
@@ -18675,7 +18675,7 @@ Cory`;
                               color: tacticalRoomBoardOpen ? commandCenterVisual.textColor : commandCenterVisual.activeSoftText,
                               border: tacticalRoomBoardOpen
                                 ? isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.2)" : "1px solid rgba(148, 163, 184, 0.18)"
-                                : isPlanningVisualMode ? "1px solid rgba(44, 211, 173, 0.22)" : "1px solid rgba(126, 231, 219, 0.26)",
+                                : isPlanningVisualMode ? "1px solid rgba(25, 138, 112, 0.22)" : "1px solid rgba(126, 231, 219, 0.26)",
                             }}
                           >
                             {tacticalRoomBoardOpen ? "Collapse Board" : "Open Board"}
@@ -18687,7 +18687,7 @@ Cory`;
                         <section
                           style={{
                             borderRadius: "22px",
-                            border: isPlanningVisualMode ? "1px solid rgba(44, 211, 173, 0.28)" : "1px solid rgba(126, 231, 219, 0.32)",
+                            border: isPlanningVisualMode ? "1px solid rgba(25, 138, 112, 0.28)" : "1px solid rgba(126, 231, 219, 0.32)",
                             background: isPlanningVisualMode
                               ? "radial-gradient(circle at 12% 0%, rgba(125, 211, 252, 0.2), transparent 34%), linear-gradient(135deg, rgba(247, 253, 255, 0.98) 0%, rgba(231, 246, 250, 0.96) 48%, rgba(236, 253, 245, 0.94) 100%)"
                               : "radial-gradient(circle at 12% 0%, rgba(34, 211, 238, 0.16), transparent 36%), linear-gradient(135deg, rgba(7, 18, 31, 0.98) 0%, rgba(12, 32, 46, 0.96) 50%, rgba(5, 46, 44, 0.86) 100%)",
@@ -18758,11 +18758,11 @@ Cory`;
                                     ? "rgba(243, 187, 103, 0.16)"
                                     : commandCenterVisual.activeSoftBackground,
                                   color: selectedRoundOperationsFlags.length
-                                    ? isPlanningVisualMode ? "#92400e" : "#fde68a"
+                                    ? isPlanningVisualMode ? "#92400e" : "#f3bb67"
                                     : commandCenterVisual.activeSoftText,
                                   border: selectedRoundOperationsFlags.length
                                     ? "1px solid rgba(243, 187, 103, 0.28)"
-                                    : isPlanningVisualMode ? "1px solid rgba(44, 211, 173, 0.2)" : commandChipStyle.border,
+                                    : isPlanningVisualMode ? "1px solid rgba(25, 138, 112, 0.2)" : commandChipStyle.border,
                                 }}
                               >
                                 {selectedRoundOperationsFlags.length ? `${selectedRoundOperationsFlags.length} alert${selectedRoundOperationsFlags.length === 1 ? "" : "s"}` : "Room board ready"}
@@ -18862,22 +18862,22 @@ Cory`;
                                     : hasFlags
                                       ? "rgba(243, 187, 103, 0.16)"
                                       : row.assignment || !staffingRelevant
-                                        ? "rgba(44, 211, 173, 0.16)"
+                                        ? "rgba(25, 138, 112, 0.16)"
                                         : "rgba(248, 113, 113, 0.14)";
                                 const statusColor = isShortageSlot
                                   ? staffingWorkspacePalette.dangerText
                                   : row.mappingState === "Needs room mapping"
                                     ? isPlanningVisualMode
                                       ? "#92400e"
-                                      : "#fde68a"
+                                      : "#f3bb67"
                                     : hasFlags
                                       ? isPlanningVisualMode
                                         ? "#92400e"
-                                        : "#fde68a"
+                                        : "#f3bb67"
                                       : row.assignment || !staffingRelevant
                                         ? isPlanningVisualMode
                                           ? "#0f766e"
-                                          : "#86efac"
+                                          : "#b8e4d4"
                                         : staffingWorkspacePalette.dangerText;
                                 const encounterLabel = [row.stationLabel, row.caseLabel].filter(Boolean).join(" · ") || "Case not assigned";
                                 return (
@@ -18912,7 +18912,7 @@ Cory`;
                                         inset: "0 auto 0 0",
                                         width: "4px",
                                         borderRadius: "18px 0 0 18px",
-                                        background: hasFlags ? "#f3bb67" : row.assignment || !staffingRelevant ? "#2cd3ad" : "#f87171",
+                                        background: hasFlags ? "#f3bb67" : row.assignment || !staffingRelevant ? "#198a70" : "#f87171",
                                       }}
                                     />
                                     <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "flex-start" }}>
@@ -18922,7 +18922,7 @@ Cory`;
                                           {row.roomName || `Room ${index + 1}`}
                                         </div>
                                       </div>
-                                      <span style={{ ...commandChipStyle, background: statusBackground, color: statusColor, border: `1px solid ${hasFlags ? "rgba(243, 187, 103, 0.28)" : "rgba(44, 211, 173, 0.22)"}` }}>
+                                      <span style={{ ...commandChipStyle, background: statusBackground, color: statusColor, border: `1px solid ${hasFlags ? "rgba(243, 187, 103, 0.28)" : "rgba(25, 138, 112, 0.22)"}` }}>
                                         {statusLabel}
                                       </span>
                                     </div>
@@ -18949,7 +18949,7 @@ Cory`;
                                     </div>
 
                                     <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
-                                      <span style={{ ...commandChipStyle, background: "rgba(73, 168, 255, 0.12)", color: isPlanningVisualMode ? "#0369a1" : "#7dd3fc" }}>
+                                      <span style={{ ...commandChipStyle, background: "rgba(20, 91, 150, 0.12)", color: isPlanningVisualMode ? "#0369a1" : "#d9ebff" }}>
                                         {selectedModalityLabel}
                                       </span>
                                       {row.assignment ? (
@@ -19077,13 +19077,13 @@ Cory`;
                                     <section
                                       style={{
                                         borderRadius: "20px",
-                                        border: isPlanningVisualMode ? "1px solid rgba(44, 211, 173, 0.26)" : "1px solid rgba(126, 231, 219, 0.3)",
+                                        border: isPlanningVisualMode ? "1px solid rgba(25, 138, 112, 0.26)" : "1px solid rgba(126, 231, 219, 0.3)",
                                         background: isPlanningVisualMode
                                           ? "radial-gradient(circle at 0% 0%, rgba(125, 211, 252, 0.24), transparent 32%), linear-gradient(135deg, rgba(247, 253, 255, 0.98), rgba(236, 253, 245, 0.94))"
                                           : "radial-gradient(circle at 0% 0%, rgba(34, 211, 238, 0.18), transparent 34%), linear-gradient(135deg, rgba(8, 30, 46, 0.92), rgba(8, 46, 43, 0.82))",
                                         boxShadow: isPlanningVisualMode
                                           ? "0 14px 34px rgba(42, 112, 140, 0.12)"
-                                          : "0 18px 46px rgba(0,0,0,0.24), 0 0 28px rgba(44, 211, 173, 0.08)",
+                                          : "0 18px 46px rgba(0,0,0,0.24), 0 0 28px rgba(25, 138, 112, 0.08)",
                                         padding: "14px",
                                         display: "grid",
                                         gap: "12px",
@@ -19218,7 +19218,7 @@ Cory`;
                                     {row.caseLabel || row.stationLabel ? (
                                       <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                                         {row.stationLabel ? (
-                                          <span style={{ ...commandChipStyle, background: "rgba(73, 168, 255, 0.12)", color: "#7dd3fc" }}>
+                                          <span style={{ ...commandChipStyle, background: "rgba(20, 91, 150, 0.12)", color: "#d9ebff" }}>
                                             {row.stationLabel}
                                           </span>
                                         ) : null}
@@ -19277,7 +19277,7 @@ Cory`;
                                       ) : null}
                                     </div>
                                     {row.assignment ? (
-                                      <span style={{ ...commandChipStyle, background: "rgba(73, 168, 255, 0.12)", color: "#7dd3fc" }}>
+                                      <span style={{ ...commandChipStyle, background: "rgba(20, 91, 150, 0.12)", color: "#d9ebff" }}>
                                         {assignmentStatusLabels[getAssignmentStatus(row.assignment)]}
                                       </span>
                                     ) : null}
@@ -19305,7 +19305,7 @@ Cory`;
                                 <section
                                   style={{
                                     borderRadius: "16px",
-                                    border: isPlanningVisualMode ? "1px solid rgba(73, 168, 255, 0.22)" : "1px solid rgba(126, 231, 219, 0.24)",
+                                    border: isPlanningVisualMode ? "1px solid rgba(20, 91, 150, 0.22)" : "1px solid rgba(126, 231, 219, 0.24)",
                                     background: isPlanningVisualMode
                                       ? "linear-gradient(135deg, rgba(239, 246, 255, 0.92), rgba(236, 253, 245, 0.74))"
                                       : "linear-gradient(135deg, rgba(8, 30, 46, 0.72), rgba(7, 42, 38, 0.68))",
@@ -19330,7 +19330,7 @@ Cory`;
                                           {selectedRoundLearnerCount} learners
                                         </span>
                                       ) : null}
-                                      <span style={{ ...commandChipStyle, background: selectedRoundOperationsFlags.length ? "rgba(243, 187, 103, 0.14)" : commandCenterVisual.activeSoftBackground, color: selectedRoundOperationsFlags.length ? (isPlanningVisualMode ? "#92400e" : "#fde68a") : commandCenterVisual.activeSoftText }}>
+                                      <span style={{ ...commandChipStyle, background: selectedRoundOperationsFlags.length ? "rgba(243, 187, 103, 0.14)" : commandCenterVisual.activeSoftBackground, color: selectedRoundOperationsFlags.length ? (isPlanningVisualMode ? "#92400e" : "#f3bb67") : commandCenterVisual.activeSoftText }}>
                                         {selectedRoundOperationsFlags.length ? `${selectedRoundOperationsFlags.length} ops note${selectedRoundOperationsFlags.length === 1 ? "" : "s"}` : "Ops stable"}
                                       </span>
                                     </div>
@@ -19341,7 +19341,7 @@ Cory`;
                                 </section>
                                 <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                                   {selectedRoundScheduleRows.length ? selectedRoundScheduleRows.map((row) => (
-                                    <span key={`${row.key}-room-chip`} style={{ ...commandChipStyle, background: "rgba(73, 168, 255, 0.12)", color: "#7dd3fc" }}>
+                                    <span key={`${row.key}-room-chip`} style={{ ...commandChipStyle, background: "rgba(20, 91, 150, 0.12)", color: "#d9ebff" }}>
                                       {row.roomName}
                                     </span>
                                   )) : (
@@ -19370,12 +19370,12 @@ Cory`;
                                       </div>
                                       <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
                                         {row.assignment ? (
-                                          <span style={{ ...commandChipStyle, background: "rgba(73, 168, 255, 0.12)", color: "#7dd3fc" }}>
+                                          <span style={{ ...commandChipStyle, background: "rgba(20, 91, 150, 0.12)", color: "#d9ebff" }}>
                                             {assignmentStatusLabels[getAssignmentStatus(row.assignment)]}
                                           </span>
                                         ) : null}
                                         {row.sp && getEmail(row.sp) ? (
-                                          <span style={{ ...commandChipStyle, background: "rgba(44, 211, 173, 0.14)", color: "#86efac" }}>
+                                          <span style={{ ...commandChipStyle, background: "rgba(25, 138, 112, 0.14)", color: "#b8e4d4" }}>
                                             Email ready
                                           </span>
                                         ) : null}
@@ -20538,7 +20538,7 @@ Cory`;
                         Request Faculty Availability
                       </button>
                     ) : (
-                      <span style={{ ...commandChipStyle, background: "rgba(196, 181, 253, 0.16)", border: "1px solid rgba(167, 139, 250, 0.22)", color: "#6d28d9" }}>
+                      <span style={{ ...commandChipStyle, background: "rgba(20, 91, 150, 0.16)", border: "1px solid rgba(167, 139, 250, 0.22)", color: "#6d28d9" }}>
                         Faculty Request Sent
                       </span>
                     )}
@@ -20653,7 +20653,7 @@ Cory`;
                   style={{
                     borderRadius: "999px",
                     padding: "8px 12px",
-                    background: "rgba(73, 168, 255, 0.12)",
+                    background: "rgba(20, 91, 150, 0.12)",
                     border: "1px solid rgba(120, 180, 255, 0.22)",
                     color: "var(--cfsp-blue)",
                     fontWeight: 900,
@@ -20671,7 +20671,7 @@ Cory`;
                     borderRadius: "12px",
                     padding: "10px 12px",
                     background: "var(--cfsp-green-soft)",
-                    border: "1px solid rgba(44, 211, 173, 0.22)",
+                    border: "1px solid rgba(25, 138, 112, 0.22)",
                     color: "var(--cfsp-green)",
                     fontWeight: 800,
                   }}
@@ -20716,7 +20716,7 @@ Cory`;
                 <div
                   style={{
                     marginTop: "14px",
-                    border: "1px solid rgba(44, 211, 173, 0.22)",
+                    border: "1px solid rgba(25, 138, 112, 0.22)",
                     borderRadius: "14px",
                     padding: "12px",
                     background: "var(--cfsp-green-soft)",
@@ -20783,7 +20783,7 @@ Cory`;
                                 padding: "6px 10px",
                                 background: assignment.training_attended ? "var(--cfsp-green-soft)" : "rgba(168, 183, 204, 0.12)",
                                 border: assignment.training_attended
-                                  ? "1px solid rgba(44, 211, 173, 0.24)"
+                                  ? "1px solid rgba(25, 138, 112, 0.24)"
                                   : "1px solid var(--cfsp-border)",
                                 color: assignment.training_attended ? "var(--cfsp-green)" : "var(--cfsp-text-muted)",
                                 fontSize: "12px",
@@ -20859,7 +20859,7 @@ Cory`;
           style={{
             ...cardStyle,
             borderRadius: "12px",
-            border: "1px solid rgba(44, 211, 173, 0.24)",
+            border: "1px solid rgba(25, 138, 112, 0.24)",
             background: "var(--cfsp-green-soft)",
             color: "var(--cfsp-green)",
             padding: "10px 12px",
@@ -21517,10 +21517,10 @@ Cory`;
           <div
             style={{
               marginTop: "14px",
-              border: "1px solid rgba(44, 211, 173, 0.24)",
+              border: "1px solid rgba(25, 138, 112, 0.24)",
               borderRadius: "16px",
               padding: "16px",
-              background: "rgba(44, 211, 173, 0.14)",
+              background: "rgba(25, 138, 112, 0.14)",
               color: "var(--cfsp-green)",
               fontWeight: 800,
             }}
@@ -21621,7 +21621,7 @@ Cory`;
                     padding: "12px 14px",
                     background: "var(--cfsp-surface)",
                     boxShadow: isRecentlyAssigned
-                      ? "0 0 0 4px rgba(44, 211, 173, 0.18), 0 16px 34px rgba(0, 0, 0, 0.4)"
+                      ? "0 0 0 4px rgba(25, 138, 112, 0.18), 0 16px 34px rgba(0, 0, 0, 0.4)"
                       : "var(--cfsp-shadow)",
                     transform: isRecentlyAssigned ? "translateY(-2px)" : "translateY(0)",
                     transition: "box-shadow 180ms ease, transform 180ms ease",
@@ -21690,7 +21690,7 @@ Cory`;
                             padding: "8px 12px",
                             background: assignment.training_attended ? "var(--cfsp-green-soft)" : "rgba(168, 183, 204, 0.12)",
                             border: assignment.training_attended
-                              ? "1px solid rgba(44, 211, 173, 0.24)"
+                              ? "1px solid rgba(25, 138, 112, 0.24)"
                               : "1px solid var(--cfsp-border)",
                             color: assignment.training_attended ? "var(--cfsp-green)" : "var(--cfsp-text-muted)",
                             fontSize: "12px",
@@ -21766,8 +21766,8 @@ Cory`;
         <div
           style={{
             ...cardStyle,
-            background: "rgba(44, 211, 173, 0.14)",
-            borderColor: "rgba(44, 211, 173, 0.24)",
+            background: "rgba(25, 138, 112, 0.14)",
+            borderColor: "rgba(25, 138, 112, 0.24)",
             color: "var(--cfsp-green)",
           }}
         >
@@ -21845,7 +21845,7 @@ Cory`;
                 borderRadius: "14px",
                 padding: "12px 14px",
                 background: "var(--cfsp-green-soft)",
-                border: "1px solid rgba(44, 211, 173, 0.24)",
+                border: "1px solid rgba(25, 138, 112, 0.24)",
                 color: "var(--cfsp-green)",
                 fontWeight: 900,
               }}
@@ -21912,7 +21912,7 @@ Cory`;
                           : "var(--cfsp-danger-soft)",
                     border:
                       coverageRiskTone === "green"
-                        ? "1px solid rgba(44, 211, 173, 0.24)"
+                        ? "1px solid rgba(25, 138, 112, 0.24)"
                         : coverageRiskTone === "yellow"
                           ? "1px solid rgba(243, 187, 103, 0.24)"
                           : "1px solid var(--cfsp-danger-border)",
@@ -21956,7 +21956,7 @@ Cory`;
                     borderRadius: "14px",
                     padding: "12px 14px",
                     background: "var(--cfsp-surface)",
-                    border: "1px solid rgba(73, 168, 255, 0.2)",
+                    border: "1px solid rgba(20, 91, 150, 0.2)",
                     display: "grid",
                     gap: "12px",
                   }}
@@ -22073,8 +22073,8 @@ Cory`;
                     <div
                       style={{
                         borderRadius: "12px",
-                        border: "1px solid rgba(73, 168, 255, 0.18)",
-                        background: "rgba(73, 168, 255, 0.06)",
+                        border: "1px solid rgba(20, 91, 150, 0.18)",
+                        background: "rgba(20, 91, 150, 0.06)",
                         padding: "12px",
                         display: "grid",
                         gap: "8px",
@@ -22109,8 +22109,8 @@ Cory`;
                                         padding: "4px 8px",
                                         fontSize: "11px",
                                         fontWeight: 900,
-                                        background: "rgba(73, 168, 255, 0.12)",
-                                        border: "1px solid rgba(73, 168, 255, 0.22)",
+                                        background: "rgba(20, 91, 150, 0.12)",
+                                        border: "1px solid rgba(20, 91, 150, 0.22)",
                                         color: "var(--cfsp-blue)",
                                       }}
                                     >
@@ -22232,8 +22232,8 @@ Cory`;
                     {[
                       {
                         title: `Top Matches (${matchMakerTopMatches.length})`,
-                        tone: "rgba(44, 211, 173, 0.14)",
-                        border: "1px solid rgba(44, 211, 173, 0.24)",
+                        tone: "rgba(25, 138, 112, 0.14)",
+                        border: "1px solid rgba(25, 138, 112, 0.24)",
                         rows: matchMakerTopMatches,
                         empty: "No top matches yet.",
                       },
@@ -22324,8 +22324,8 @@ Cory`;
                                       padding: "4px 8px",
                                       fontSize: "11px",
                                       fontWeight: 900,
-                                      background: "rgba(73, 168, 255, 0.12)",
-                                      border: "1px solid rgba(73, 168, 255, 0.24)",
+                                      background: "rgba(20, 91, 150, 0.12)",
+                                      border: "1px solid rgba(20, 91, 150, 0.24)",
                                       color: "var(--cfsp-blue)",
                                     }}
                                   >
@@ -22645,7 +22645,7 @@ Cory`;
                             : "var(--cfsp-surface)",
                       border:
                         availabilityMatch.status === "available"
-                          ? "1px solid rgba(44, 211, 173, 0.24)"
+                          ? "1px solid rgba(25, 138, 112, 0.24)"
                           : availabilityMatch.status === "partial"
                             ? "1px solid rgba(243, 187, 103, 0.24)"
                             : availabilityMatch.status === "none"
@@ -22794,7 +22794,7 @@ Cory`;
           textTransform: "uppercase",
           background:
             pollStatusLabel === "sent"
-              ? "rgba(44, 211, 173, 0.16)"
+              ? "rgba(25, 138, 112, 0.16)"
               : pollStatusLabel === "draft_ready"
                 ? "rgba(47, 109, 229, 0.12)"
                 : "rgba(168, 183, 204, 0.12)",
@@ -22806,7 +22806,7 @@ Cory`;
                 : "var(--cfsp-text-muted)",
           border:
             pollStatusLabel === "sent"
-              ? "1px solid rgba(44, 211, 173, 0.28)"
+              ? "1px solid rgba(25, 138, 112, 0.28)"
               : pollStatusLabel === "draft_ready"
                 ? "1px solid rgba(47, 109, 229, 0.2)"
                 : "1px solid var(--cfsp-border)",
@@ -22918,9 +22918,9 @@ Cory`;
         type="button"
         style={{
           ...buttonStyle,
-          background: "rgba(44, 211, 173, 0.14)",
+          background: "rgba(25, 138, 112, 0.14)",
           color: "var(--cfsp-green)",
-          border: "1px solid rgba(44, 211, 173, 0.22)",
+          border: "1px solid rgba(25, 138, 112, 0.22)",
         }}
         onClick={() => void handleMarkPollSent()}
         disabled={

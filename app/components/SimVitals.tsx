@@ -102,8 +102,8 @@ const simVitalsFeedTypeAppearance: Record<
   general_update: {
     label: "Ops Signal",
     accent: "var(--cfsp-blue)",
-    background: "rgba(73, 168, 255, 0.10)",
-    border: "rgba(73, 168, 255, 0.25)",
+    background: "rgba(20, 91, 150, 0.10)",
+    border: "rgba(20, 91, 150, 0.25)",
     color: "var(--cfsp-blue-dark)",
     signal: "Ops Signal",
   },
@@ -162,19 +162,19 @@ const simVitalsRoleAppearance: Record<
 > = {
   sim_ops: {
     label: "Sim Ops",
-    background: "rgba(73, 168, 255, 0.13)",
-    border: "rgba(73, 168, 255, 0.32)",
+    background: "rgba(20, 91, 150, 0.13)",
+    border: "rgba(20, 91, 150, 0.32)",
     color: "var(--cfsp-blue-dark)",
-    cardBorder: "rgba(73, 168, 255, 0.25)",
-    cardBackground: "linear-gradient(180deg, rgba(73, 168, 255, 0.08) 0%, var(--cfsp-surface) 100%)",
+    cardBorder: "rgba(20, 91, 150, 0.25)",
+    cardBackground: "linear-gradient(180deg, rgba(20, 91, 150, 0.08) 0%, var(--cfsp-surface) 100%)",
   },
   admin: {
     label: "Admin",
-    background: "rgba(44, 211, 173, 0.14)",
-    border: "rgba(44, 211, 173, 0.32)",
+    background: "rgba(25, 138, 112, 0.14)",
+    border: "rgba(25, 138, 112, 0.32)",
     color: "var(--cfsp-green-dark)",
-    cardBorder: "rgba(44, 211, 173, 0.27)",
-    cardBackground: "linear-gradient(180deg, rgba(44, 211, 173, 0.09) 0%, var(--cfsp-surface) 100%)",
+    cardBorder: "rgba(25, 138, 112, 0.27)",
+    cardBackground: "linear-gradient(180deg, rgba(25, 138, 112, 0.09) 0%, var(--cfsp-surface) 100%)",
   },
   faculty: {
     label: "Faculty",
@@ -465,10 +465,10 @@ function SimVitalsAvatar({
       style={{
         height: `${dimension}px`,
         width: `${dimension}px`,
-        background: "linear-gradient(135deg, rgba(73, 168, 255, 0.14), rgba(44, 211, 173, 0.16))",
-        border: "1px solid rgba(73, 168, 255, 0.22)",
+        background: "linear-gradient(180deg, rgba(255,255,255,0.96), rgba(237,246,251,0.9))",
+        border: "1px solid rgba(20, 91, 150, 0.18)",
         color: "var(--cfsp-blue-dark)",
-        boxShadow: "0 0 18px rgba(73, 168, 255, 0.14)",
+        boxShadow: "0 6px 14px rgba(24, 52, 78, 0.08)",
       }}
       title={source ? `Avatar source: ${source}` : undefined}
     >
@@ -782,8 +782,8 @@ export function SimVitalsPostCard({
               href={`/events/${encodeURIComponent(linkedEvent.id)}`}
               className="inline-flex max-w-full items-center gap-2 rounded-[12px] px-3 py-2 text-xs font-black no-underline"
               style={{
-                background: "linear-gradient(90deg, rgba(73, 168, 255, 0.12), rgba(44, 211, 173, 0.10))",
-                border: "1px solid rgba(73, 168, 255, 0.24)",
+                background: "linear-gradient(90deg, rgba(20, 91, 150, 0.12), rgba(25, 138, 112, 0.10))",
+                border: "1px solid rgba(20, 91, 150, 0.24)",
                 color: "var(--cfsp-blue-dark)",
               }}
             >
@@ -1012,7 +1012,7 @@ export function SimVitalsDashboardPreview() {
       <div
         aria-hidden="true"
         className="absolute left-0 right-0 top-0 h-[3px]"
-        style={{ background: "linear-gradient(90deg, #145b96, #2cd3ad, #8fc2f0)" }}
+        style={{ background: "linear-gradient(90deg, #145b96, #198a70)" }}
       />
 
       <div className="relative flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
@@ -1276,14 +1276,14 @@ export function SimVitalsFullExperience({
         <div
           aria-hidden="true"
           className="absolute inset-x-0 top-0 h-[3px]"
-          style={{ background: "linear-gradient(90deg, #145b96, #2cd3ad, #8fc2f0, #198a70)" }}
+          style={{ background: "linear-gradient(90deg, #145b96, #198a70)" }}
         />
         <div
           aria-hidden="true"
           className="absolute right-5 top-5 hidden h-20 w-44 opacity-35 sm:block"
           style={{
             backgroundImage:
-              "linear-gradient(90deg, rgba(73, 168, 255, 0.18), rgba(44, 211, 173, 0.26), transparent)",
+              "linear-gradient(90deg, rgba(20, 91, 150, 0.12), rgba(25, 138, 112, 0.14), transparent)",
             backgroundSize: "100% 12px",
           }}
         />
@@ -1305,7 +1305,7 @@ export function SimVitalsFullExperience({
                 key={item.label}
                 className="rounded-[12px] px-4 py-3"
                 style={{
-                  border: "1px solid rgba(73, 168, 255, 0.20)",
+                  border: "1px solid rgba(20, 91, 150, 0.20)",
                   background: "var(--cfsp-simvitals-stat-bg)",
                   backdropFilter: "blur(12px)",
                 }}
@@ -1321,7 +1321,7 @@ export function SimVitalsFullExperience({
       <section
         className="rounded-[14px] px-4 py-4"
         style={{
-          border: "1px solid rgba(73, 168, 255, 0.24)",
+          border: "1px solid rgba(20, 91, 150, 0.24)",
           background: "var(--cfsp-simvitals-composer-bg)",
           boxShadow: "0 16px 34px rgba(24, 52, 78, 0.08)",
         }}
@@ -1401,7 +1401,7 @@ export function SimVitalsFullExperience({
           <div
             className="mt-3 grid gap-3 rounded-[14px] px-3 py-3"
             style={{
-              border: "1px solid rgba(73, 168, 255, 0.22)",
+              border: "1px solid rgba(20, 91, 150, 0.22)",
               background: "linear-gradient(180deg, rgba(255,255,255,0.72), rgba(232, 247, 252, 0.62))",
             }}
           >
@@ -1435,8 +1435,8 @@ export function SimVitalsFullExperience({
                     onClick={() => setReferenceKind(kind)}
                     className="inline-flex min-h-[30px] items-center rounded-full px-3 py-1 text-xs font-black transition"
                     style={{
-                      background: active ? "rgba(73, 168, 255, 0.13)" : "var(--cfsp-surface)",
-                      border: active ? "1px solid rgba(73, 168, 255, 0.28)" : "1px solid var(--cfsp-border)",
+                      background: active ? "rgba(20, 91, 150, 0.13)" : "var(--cfsp-surface)",
+                      border: active ? "1px solid rgba(20, 91, 150, 0.28)" : "1px solid var(--cfsp-border)",
                       color: active ? "var(--cfsp-blue-dark)" : "var(--cfsp-text-muted)",
                     }}
                   >
@@ -1472,8 +1472,8 @@ export function SimVitalsFullExperience({
                           onClick={() => setSelectedEventId(active ? "" : event.id)}
                           className="rounded-[12px] px-3 py-2 text-left transition"
                           style={{
-                            border: active ? "1px solid rgba(44, 211, 173, 0.36)" : "1px solid var(--cfsp-border)",
-                            background: active ? "rgba(44, 211, 173, 0.12)" : "var(--cfsp-surface)",
+                            border: active ? "1px solid rgba(25, 138, 112, 0.36)" : "1px solid var(--cfsp-border)",
+                            background: active ? "rgba(25, 138, 112, 0.12)" : "var(--cfsp-surface)",
                           }}
                         >
                           <div className="truncate text-xs font-black text-[var(--cfsp-text)]">{event.name}</div>
@@ -1504,8 +1504,8 @@ export function SimVitalsFullExperience({
                   <div
                     className="rounded-[12px] px-3 py-3 text-xs font-bold"
                     style={{
-                      border: "1px solid rgba(44, 211, 173, 0.26)",
-                      background: "rgba(44, 211, 173, 0.10)",
+                      border: "1px solid rgba(25, 138, 112, 0.26)",
+                      background: "rgba(25, 138, 112, 0.10)",
                       color: "var(--cfsp-green-dark)",
                     }}
                   >
@@ -1610,9 +1610,9 @@ export function SimVitalsFullExperience({
                 className="inline-flex min-h-[30px] items-center rounded-full px-3 py-1 text-xs font-black transition"
                 style={{
                   background: active
-                    ? typeLook?.background || "rgba(73, 168, 255, 0.12)"
+                    ? typeLook?.background || "rgba(20, 91, 150, 0.12)"
                     : "var(--cfsp-surface)",
-                  border: `1px solid ${active ? typeLook?.border || "rgba(73, 168, 255, 0.24)" : "var(--cfsp-border)"}`,
+                  border: `1px solid ${active ? typeLook?.border || "rgba(20, 91, 150, 0.24)" : "var(--cfsp-border)"}`,
                   color: active ? typeLook?.color || "var(--cfsp-blue-dark)" : "var(--cfsp-text-muted)",
                   boxShadow: active && typeLook ? `0 0 18px ${typeLook.border}` : "none",
                 }}
