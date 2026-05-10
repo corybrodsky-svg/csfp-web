@@ -4611,7 +4611,12 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       latestEndMinutes: number
     ) => {
       const durationMinutes = parsePositiveInteger(block.durationMinutes, 0);
-      const endMinutes = Math.min(startMinutes + durationMinutes, latestEndMinutes);
+      const configuredEndMinutes = startMinutes + durationMinutes;
+      const boundedLatestEndMinutes = Math.max(latestEndMinutes, startMinutes);
+      const endMinutes =
+        boundedLatestEndMinutes - startMinutes > durationMinutes + 1
+          ? configuredEndMinutes
+          : Math.min(configuredEndMinutes, boundedLatestEndMinutes);
       if (durationMinutes <= 0 || endMinutes <= startMinutes) return startMinutes;
 
       const label = normalizeLiveFlowBlockLabel(block.label, block.type);
@@ -4729,7 +4734,10 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
         typeof nextStartMinutes === "number" && nextStartMinutes > cursorMinutes
           ? nextStartMinutes
           : endMinutes;
-      if (nextBoundaryMinutes > cursorMinutes) {
+      const shouldInferFallbackGap =
+        typeof nextStartMinutes === "number" &&
+        nextBoundaryMinutes > cursorMinutes;
+      if (shouldInferFallbackGap) {
         const gapMinutes = nextBoundaryMinutes - cursorMinutes;
         const blockLabel = getFallbackLiveFlowLabel(gapMinutes, notesText);
         pushLiveFlowBlock({

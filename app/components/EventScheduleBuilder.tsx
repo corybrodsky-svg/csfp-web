@@ -659,6 +659,58 @@ function formatDurationCompact(minutes: number) {
   return `${minutes}m`;
 }
 
+function getFlowRhythmSegmentStyles(label: string) {
+  const normalized = asText(label).toLowerCase();
+
+  if (normalized.includes("encounter")) {
+    return {
+      background: "linear-gradient(135deg, rgba(31, 116, 255, 0.14) 0%, rgba(125, 211, 252, 0.2) 100%)",
+      borderColor: "rgba(59, 130, 246, 0.26)",
+      color: "#0f4c81",
+    };
+  }
+  if (normalized.includes("checklist") || normalized.includes("soap")) {
+    return {
+      background: "linear-gradient(135deg, rgba(20, 184, 166, 0.14) 0%, rgba(153, 246, 228, 0.2) 100%)",
+      borderColor: "rgba(20, 184, 166, 0.24)",
+      color: "#0f766e",
+    };
+  }
+  if (normalized.includes("feedback")) {
+    return {
+      background: "linear-gradient(135deg, rgba(168, 85, 247, 0.12) 0%, rgba(221, 214, 254, 0.22) 100%)",
+      borderColor: "rgba(168, 85, 247, 0.24)",
+      color: "#6d28d9",
+    };
+  }
+  if (normalized.includes("break") || normalized.includes("lunch")) {
+    return {
+      background: "linear-gradient(135deg, rgba(245, 158, 11, 0.14) 0%, rgba(254, 240, 138, 0.22) 100%)",
+      borderColor: "rgba(245, 158, 11, 0.24)",
+      color: "#b45309",
+    };
+  }
+  if (normalized.includes("transition")) {
+    return {
+      background: "linear-gradient(135deg, rgba(148, 163, 184, 0.12) 0%, rgba(226, 232, 240, 0.24) 100%)",
+      borderColor: "rgba(100, 116, 139, 0.22)",
+      color: "#475569",
+    };
+  }
+
+  return {
+    background: "linear-gradient(135deg, rgba(226, 232, 240, 0.35) 0%, rgba(248, 250, 252, 0.9) 100%)",
+    borderColor: "rgba(148, 163, 184, 0.22)",
+    color: "#4f677d",
+  };
+}
+
+function getFlowRhythmSummary(round: ScheduledRound) {
+  return round.subBlocks
+    .map((subBlock) => `${subBlock.label} ${formatDurationCompact(getBlockDurationMinutes(subBlock.start, subBlock.end))}`)
+    .join(" · ");
+}
+
 function isRoundTimelineLabel(label: string) {
   return /^rotation round \d+$/i.test(asText(label));
 }
@@ -3100,14 +3152,13 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
               <div className="cfsp-alert cfsp-alert-error mt-5">Enter a valid start time to generate a full schedule preview.</div>
             ) : (
               <div className="mt-5 grid gap-4">
-                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                <div className="grid gap-3">
                   {compactFlowEntries.map((entry) =>
                     entry.kind === "wide" ? (
                       <div
                         key={entry.key}
-                        className="rounded-[14px] border px-4 py-3"
+                        className="rounded-[16px] border px-4 py-4"
                         style={{
-                          gridColumn: "1 / -1",
                           background:
                             entry.block.tone === "prebrief"
                               ? "#eefbf6"
@@ -3142,7 +3193,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                     ) : (
                       <div
                         key={entry.key}
-                        className="rounded-[14px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3 shadow-[0_8px_20px_rgba(20,48,79,0.06)]"
+                        className="rounded-[16px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-4 shadow-[0_10px_24px_rgba(20,48,79,0.06)]"
                         role="button"
                         tabIndex={0}
                         onClick={() => setSelectedBuilderRound(entry.round.round)}
@@ -3161,7 +3212,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                               : "0 8px 20px rgba(20,48,79,0.06)",
                         }}
                       >
-                        <div className="flex items-start justify-between gap-3">
+                        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                           <div>
                             <div className="text-[0.72rem] font-black uppercase tracking-[0.08em] text-[#5e7388]">
                               Round {entry.round.round}
@@ -3169,21 +3220,33 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                             <div className="mt-2 text-base font-black text-[#14304f]">
                               {formatRange(entry.round.start, entry.round.end)}
                             </div>
+                            <div className="mt-2 text-sm font-semibold text-[#5e7388]">
+                              {getFlowRhythmSummary(entry.round)}
+                            </div>
                           </div>
-                          <div
-                            className="rounded-full border px-3 py-1 text-[0.72rem] font-black uppercase tracking-[0.08em] text-[#165a96]"
-                            style={{ borderColor: "#c7dcee", background: "#edf5fb" }}
-                          >
-                            {formatDurationCompact(getBlockDurationMinutes(entry.round.start, entry.round.end))}
+                          <div className="flex flex-wrap gap-2">
+                            <div
+                              className="rounded-full border px-3 py-1 text-[0.72rem] font-black uppercase tracking-[0.08em] text-[#165a96]"
+                              style={{ borderColor: "#c7dcee", background: "#edf5fb" }}
+                            >
+                              {formatDurationCompact(getBlockDurationMinutes(entry.round.start, entry.round.end))}
+                            </div>
+                            {selectedBuilderRound === entry.round.round ? (
+                              <div
+                                className="rounded-full border px-3 py-1 text-[0.72rem] font-black uppercase tracking-[0.08em]"
+                                style={{ borderColor: "rgba(15,118,110,0.2)", background: "rgba(209, 250, 229, 0.52)", color: "#0f766e" }}
+                              >
+                                Active round
+                              </div>
+                            ) : null}
                           </div>
                         </div>
-                        <div className="mt-3 flex flex-wrap gap-2">
+                        <div className="mt-4 flex flex-wrap gap-2">
                           {entry.round.subBlocks.map((subBlock) => (
-                            <span
+                            <button
                               key={`${entry.round.round}-${subBlock.label}-${subBlock.start}`}
-                              className="rounded-full border px-3 py-1 text-xs font-bold"
-                              role="button"
-                              tabIndex={0}
+                              type="button"
+                              className="min-w-[132px] rounded-[12px] border px-3 py-2 text-left text-xs font-bold transition"
                               onClick={(event) => {
                                 event.stopPropagation();
                                 setActiveFlowDetailKey((current) =>
@@ -3199,15 +3262,28 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                                   );
                                 }
                               }}
-                              style={{
-                                borderColor: "#d6e0e8",
-                                background: "#ffffff",
-                                color: "#4f677d",
-                                cursor: "pointer",
-                              }}
+                              style={(() => {
+                                const durationMinutes = Math.max(getBlockDurationMinutes(subBlock.start, subBlock.end), 1);
+                                const rhythmStyles = getFlowRhythmSegmentStyles(subBlock.label);
+                                return {
+                                  flex: `${Math.max(durationMinutes, 6)} 1 132px`,
+                                  minHeight: "62px",
+                                  borderColor: rhythmStyles.borderColor,
+                                  background: rhythmStyles.background,
+                                  color: rhythmStyles.color,
+                                  cursor: "pointer",
+                                  boxShadow:
+                                    activeFlowDetailKey === `${entry.key}-${subBlock.label}-${subBlock.start}`
+                                      ? "0 0 0 1px rgba(15,118,110,0.12), 0 12px 20px rgba(20,48,79,0.08)"
+                                      : "none",
+                                };
+                              })()}
                             >
-                              {subBlock.label} {formatDurationCompact(getBlockDurationMinutes(subBlock.start, subBlock.end))}
-                            </span>
+                              <div className="text-[0.72rem] font-black uppercase tracking-[0.08em] opacity-70">
+                                {formatDurationCompact(getBlockDurationMinutes(subBlock.start, subBlock.end))}
+                              </div>
+                              <div className="mt-1 text-sm font-black leading-5">{subBlock.label}</div>
+                            </button>
                           ))}
                         </div>
                         {entry.round.subBlocks.map((subBlock) => {
