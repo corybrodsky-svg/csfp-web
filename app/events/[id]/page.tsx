@@ -8753,6 +8753,33 @@ Cory`;
     attention: 2,
     critical: 3,
   };
+  const isPlanningVisualMode = commandCenterMode === "planning";
+  const isCommandFileCabinetSimpleView = commandFileCabinetView === "simple";
+  const commandCenterVisual = {
+    shellBorder: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.2)" : "1px solid rgba(73, 168, 255, 0.24)",
+    shellBackground: isPlanningVisualMode
+      ? "linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(241, 249, 252, 0.98) 100%)"
+      : "linear-gradient(180deg, rgba(17, 31, 48, 0.94) 0%, rgba(20, 43, 62, 0.9) 100%)",
+    shellShadow: isPlanningVisualMode ? "0 14px 32px rgba(42, 112, 140, 0.08)" : "none",
+    labelColor: isPlanningVisualMode ? "#247083" : "#7ee7db",
+    headingColor: isPlanningVisualMode ? "#0f2940" : "#f4fbff",
+    textColor: isPlanningVisualMode ? "#18364a" : "#f8fafc",
+    mutedColor: isPlanningVisualMode ? "#597b8e" : "#9cc7d3",
+    cardBackground: isPlanningVisualMode
+      ? "linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(244, 250, 252, 0.98) 100%)"
+      : "linear-gradient(180deg, rgba(20, 37, 54, 0.94) 0%, rgba(21, 40, 58, 0.92) 100%)",
+    cardBorder: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.18)" : "1px solid rgba(126, 231, 219, 0.12)",
+    chipBackground: isPlanningVisualMode ? "rgba(219, 240, 246, 0.82)" : "rgba(125, 211, 252, 0.14)",
+    chipText: isPlanningVisualMode ? "#1d5f83" : "#7dd3fc",
+    activeSoftBackground: isPlanningVisualMode ? planningSuccessBackground : "rgba(126, 231, 219, 0.14)",
+    activeSoftText: isPlanningVisualMode ? planningSuccessText : "#7ee7db",
+    panelBackground: isPlanningVisualMode
+      ? "linear-gradient(180deg, rgba(249, 253, 255, 0.98) 0%, rgba(237, 248, 251, 0.96) 100%)"
+      : "linear-gradient(180deg, rgba(9, 26, 39, 0.98) 0%, rgba(12, 27, 41, 0.94) 100%)",
+    panelBorder: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.2)" : "1px solid rgba(126, 231, 219, 0.24)",
+    rowBackground: isPlanningVisualMode ? "rgba(255, 255, 255, 0.96)" : "rgba(255,255,255,0.04)",
+    rowBorder: isPlanningVisualMode ? "1px solid rgba(128, 167, 182, 0.22)" : "1px solid rgba(148, 163, 184, 0.18)",
+  } as const;
   function getDominantOperationalTone(tones: OperationalStatusTone[]) {
     return tones.reduce<OperationalStatusTone>((current, tone) =>
       windowTonePriority[tone] > windowTonePriority[current] ? tone : current
@@ -12781,33 +12808,6 @@ Cory`;
     fontWeight: 700,
     fontSize: "13px",
   };
-  const isPlanningVisualMode = commandCenterMode === "planning";
-  const isCommandFileCabinetSimpleView = commandFileCabinetView === "simple";
-  const commandCenterVisual = {
-    shellBorder: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.2)" : "1px solid rgba(73, 168, 255, 0.24)",
-    shellBackground: isPlanningVisualMode
-      ? "linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(241, 249, 252, 0.98) 100%)"
-      : "linear-gradient(180deg, rgba(17, 31, 48, 0.94) 0%, rgba(20, 43, 62, 0.9) 100%)",
-    shellShadow: isPlanningVisualMode ? "0 14px 32px rgba(42, 112, 140, 0.08)" : "none",
-    labelColor: isPlanningVisualMode ? "#247083" : "#7ee7db",
-    headingColor: isPlanningVisualMode ? "#0f2940" : "#f4fbff",
-    textColor: isPlanningVisualMode ? "#18364a" : "#f8fafc",
-    mutedColor: isPlanningVisualMode ? "#597b8e" : "#9cc7d3",
-    cardBackground: isPlanningVisualMode
-      ? "linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(244, 250, 252, 0.98) 100%)"
-      : "linear-gradient(180deg, rgba(20, 37, 54, 0.94) 0%, rgba(21, 40, 58, 0.92) 100%)",
-    cardBorder: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.18)" : "1px solid rgba(126, 231, 219, 0.12)",
-    chipBackground: isPlanningVisualMode ? "rgba(219, 240, 246, 0.82)" : "rgba(125, 211, 252, 0.14)",
-    chipText: isPlanningVisualMode ? "#1d5f83" : "#7dd3fc",
-    activeSoftBackground: isPlanningVisualMode ? planningSuccessBackground : "rgba(126, 231, 219, 0.14)",
-    activeSoftText: isPlanningVisualMode ? planningSuccessText : "#7ee7db",
-    panelBackground: isPlanningVisualMode
-      ? "linear-gradient(180deg, rgba(249, 253, 255, 0.98) 0%, rgba(237, 248, 251, 0.96) 100%)"
-      : "linear-gradient(180deg, rgba(9, 26, 39, 0.98) 0%, rgba(12, 27, 41, 0.94) 100%)",
-    panelBorder: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.2)" : "1px solid rgba(126, 231, 219, 0.24)",
-    rowBackground: isPlanningVisualMode ? "rgba(255, 255, 255, 0.96)" : "rgba(255,255,255,0.04)",
-    rowBorder: isPlanningVisualMode ? "1px solid rgba(128, 167, 182, 0.22)" : "1px solid rgba(148, 163, 184, 0.18)",
-  } as const;
   const trainingDateMarkerToneStyle = getOperationalDateToneStyles(trainingDateTone, isPlanningVisualMode);
   const metadataInspectorPanel =
     viewerRole !== "sp" ? (
