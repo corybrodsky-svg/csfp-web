@@ -691,13 +691,13 @@ function WorkflowSection({
                       highlightedEventId === item.event.id
                         ? "linear-gradient(180deg, rgba(239, 246, 255, 0.98) 0%, rgba(219, 234, 254, 0.96) 100%)"
                         : needsAttentionSection
-                          ? "linear-gradient(180deg, rgba(10, 22, 36, 0.92) 0%, rgba(12, 20, 33, 0.94) 100%)"
+                          ? "linear-gradient(135deg, rgba(255, 255, 255, 0.72) 0%, rgba(231, 250, 255, 0.28) 48%, rgba(236, 255, 248, 0.2) 100%)"
                           : visualTone.cardBackground,
                     boxShadow:
                       highlightedEventId === item.event.id
                         ? "0 0 0 2px rgba(96, 165, 250, 0.18), 0 16px 36px rgba(59, 130, 246, 0.14)"
                         : needsAttentionSection
-                          ? "0 16px 34px rgba(5, 12, 22, 0.28), inset 0 1px 0 rgba(125, 211, 252, 0.04)"
+                          ? "0 14px 30px rgba(73, 168, 255, 0.12), 0 0 22px rgba(44, 211, 173, 0.08), inset 0 1px 0 rgba(255,255,255,0.12)"
                           : visualTone.cardShadow,
                     transition: "box-shadow 180ms ease, border-color 180ms ease, background 180ms ease",
                   }}
@@ -905,13 +905,14 @@ function GlobalEventFinder({
   }
 
   const consoleShellStyle = {
-    border: "1px solid rgba(120, 180, 255, 0.18)",
-    background: "linear-gradient(180deg, rgba(14, 22, 36, 0.96) 0%, rgba(10, 18, 29, 0.96) 100%)",
-    boxShadow: "0 18px 42px rgba(5, 12, 22, 0.2), inset 0 1px 0 rgba(125, 211, 252, 0.05)",
+    border: "1px solid var(--cfsp-console-border)",
+    background: "var(--cfsp-console-bg)",
+    boxShadow: "var(--cfsp-console-shadow)",
+    backdropFilter: "blur(18px)",
   };
   const consoleChipStyle = {
-    border: "1px solid rgba(120, 180, 255, 0.16)",
-    background: "rgba(255, 255, 255, 0.035)",
+    border: "1px solid var(--cfsp-console-chip-border)",
+    background: "var(--cfsp-console-chip-bg)",
     color: "var(--cfsp-attention-title)",
   };
 
@@ -945,8 +946,8 @@ function GlobalEventFinder({
             onClick={toggleCollapsed}
             className="rounded-full px-2.5 py-1 text-[0.68rem] font-bold transition"
             style={{
-              border: "1px solid rgba(120, 180, 255, 0.16)",
-              background: "rgba(255,255,255,0.04)",
+              border: "1px solid var(--cfsp-console-chip-border)",
+              background: "var(--cfsp-console-chip-bg)",
               color: "var(--cfsp-attention-title)",
             }}
           >
@@ -1011,9 +1012,9 @@ function GlobalEventFinder({
         <div
           className="flex min-h-[36px] min-w-0 flex-1 items-center gap-2 rounded-[10px] px-2.5 py-1.5"
           style={{
-            border: "1px solid rgba(120, 180, 255, 0.18)",
-            background: "rgba(5, 13, 23, 0.72)",
-            boxShadow: resultsOpen ? "0 0 0 2px rgba(73, 168, 255, 0.18)" : "none",
+            border: "1px solid var(--cfsp-console-chip-border)",
+            background: "var(--cfsp-console-control-bg)",
+            boxShadow: resultsOpen ? "0 0 0 2px rgba(73, 168, 255, 0.2), 0 0 24px rgba(44, 211, 173, 0.12)" : "inset 0 1px 0 rgba(255,255,255,0.08)",
           }}
         >
           <input
@@ -1035,7 +1036,7 @@ function GlobalEventFinder({
             className="hidden rounded-[6px] px-1.5 py-0.5 text-[0.58rem] font-black sm:inline"
             style={{
               border: "1px solid var(--cfsp-input-border)",
-              background: "rgba(255,255,255,0.05)",
+              background: "rgba(255,255,255,0.12)",
               color: "var(--cfsp-attention-meta)",
             }}
           >
@@ -1074,8 +1075,8 @@ function GlobalEventFinder({
           onClick={toggleCollapsed}
           className="shrink-0 rounded-[8px] px-2 py-0.5 text-[0.62rem] font-bold transition"
           style={{
-            border: "1px solid rgba(120, 180, 255, 0.16)",
-            background: "rgba(255,255,255,0.04)",
+            border: "1px solid var(--cfsp-console-chip-border)",
+            background: "var(--cfsp-console-chip-bg)",
             color: "var(--cfsp-attention-meta)",
           }}
           aria-expanded="true"
@@ -1088,8 +1089,8 @@ function GlobalEventFinder({
         className="mt-1.5 flex flex-wrap items-center gap-1 rounded-[10px] px-1.5 py-1"
         aria-label="Operational search toggles"
         style={{
-          border: "1px solid rgba(120, 180, 255, 0.12)",
-          background: "linear-gradient(90deg, rgba(73, 168, 255, 0.06) 0%, rgba(255, 255, 255, 0.02) 100%)",
+          border: "1px solid var(--cfsp-console-chip-border)",
+          background: "linear-gradient(90deg, rgba(73, 168, 255, 0.09) 0%, rgba(44, 211, 173, 0.08) 48%, rgba(196, 181, 253, 0.06) 100%)",
         }}
       >
         {chipOptions.map((chip) => {
@@ -1101,10 +1102,10 @@ function GlobalEventFinder({
               onClick={() => toggleChip(chip.key)}
               className="inline-flex h-6.5 items-center gap-1 rounded-[7px] border px-2 py-0 text-[0.6rem] font-semibold transition"
               style={{
-                borderColor: selected ? "rgba(73, 168, 255, 0.5)" : "rgba(120, 130, 150, 0.18)",
-                background: selected ? "rgba(73, 168, 255, 0.12)" : "rgba(255, 255, 255, 0.025)",
-                color: selected ? "#d8f1ff" : "var(--cfsp-attention-meta)",
-                boxShadow: selected ? "inset 0 0 0 1px rgba(73, 168, 255, 0.12), 0 0 12px rgba(73, 168, 255, 0.1)" : "none",
+                borderColor: selected ? "rgba(44, 211, 173, 0.46)" : "var(--cfsp-console-chip-border)",
+                background: selected ? "linear-gradient(135deg, rgba(73, 168, 255, 0.2), rgba(44, 211, 173, 0.16))" : "var(--cfsp-console-chip-bg)",
+                color: selected ? "var(--cfsp-attention-title)" : "var(--cfsp-attention-meta)",
+                boxShadow: selected ? "inset 0 0 0 1px rgba(255,255,255,0.1), 0 0 14px rgba(44, 211, 173, 0.16)" : "none",
               }}
               aria-pressed={selected}
             >

@@ -30,10 +30,10 @@
   --cfsp-shell-chip-border: #8cd4be;
   --cfsp-shell-chip-text: #13624f;
   --cfsp-logo-bg: #0f4673;
-  --cfsp-command-mark-bg: linear-gradient(145deg, rgba(15, 71, 118, 0.98), rgba(18, 108, 88, 0.9));
-  --cfsp-command-mark-border: rgba(44, 211, 173, 0.28);
-  --cfsp-command-mark-glow: 0 18px 34px rgba(20, 91, 150, 0.14), 0 0 28px rgba(44, 211, 173, 0.1);
-  --cfsp-command-signal: #94f3df;
+  --cfsp-command-mark-bg: linear-gradient(145deg, rgba(238, 250, 255, 0.98), rgba(201, 250, 238, 0.94) 48%, rgba(224, 215, 255, 0.9));
+  --cfsp-command-mark-border: rgba(44, 211, 173, 0.42);
+  --cfsp-command-mark-glow: 0 18px 34px rgba(73, 168, 255, 0.18), 0 0 28px rgba(44, 211, 173, 0.16), inset 0 1px 0 rgba(255,255,255,0.7);
+  --cfsp-command-signal: #0f9f86;
   --cfsp-theme-toggle-bg: #edf4fb;
   --cfsp-theme-toggle-border: #d8e5f1;
   --cfsp-theme-toggle-text: #145b96;
@@ -42,7 +42,7 @@
   --cfsp-account-dropdown-bg: rgba(255, 255, 255, 0.98);
   --cfsp-account-dropdown-shadow: 0 22px 55px rgba(24, 52, 78, 0.18), 0 0 0 1px rgba(143, 194, 240, 0.14);
   --cfsp-stars-opacity: 0;
-  --cfsp-card-glow: 0 10px 28px rgba(24, 52, 78, 0.07), 0 0 0 1px rgba(73, 168, 255, 0.04);
+  --cfsp-card-glow: 0 12px 30px rgba(73, 168, 255, 0.08), 0 0 0 1px rgba(44, 211, 173, 0.06), inset 0 1px 0 rgba(255,255,255,0.7);
   --cfsp-dashboard-hero-bg: linear-gradient(135deg, rgba(20, 91, 150, 0.1) 0%, rgba(44, 211, 173, 0.09) 42%, #ffffff 100%);
   --cfsp-dashboard-panel-bg: linear-gradient(180deg, rgba(248, 252, 255, 0.98) 0%, rgba(255, 255, 255, 0.98) 100%);
   --cfsp-planning-calendar-bg: linear-gradient(135deg, rgba(20, 91, 150, 0.1) 0%, rgba(12, 31, 51, 0.06) 42%, rgba(44, 211, 173, 0.08) 100%);
@@ -62,7 +62,7 @@
   --cfsp-simvitals-mark-border: rgba(44, 211, 173, 0.36);
   --cfsp-simvitals-mark-glow: 0 18px 34px rgba(20, 91, 150, 0.18), 0 0 30px rgba(44, 211, 173, 0.12);
   --cfsp-simvitals-signal: #9ce9d6;
-  --cfsp-panel-strong: #eef5fb;
+  --cfsp-panel-strong: linear-gradient(180deg, rgba(255,255,255,0.94) 0%, rgba(238, 250, 255, 0.86) 100%);
   --cfsp-input-bg: #ffffff;
   --cfsp-input-border: #bfd0dc;
   --cfsp-button-secondary-bg: #ffffff;
@@ -74,31 +74,38 @@
   --cfsp-skills-soft: #edf6ff;
   --cfsp-skills-border: #bfdcf6;
   --cfsp-skills-text: #145b96;
-  --cfsp-attention-panel-bg: linear-gradient(180deg, rgba(11, 27, 44, 0.98) 0%, rgba(10, 21, 36, 0.98) 82%, rgba(8, 15, 28, 0.99) 100%);
-  --cfsp-attention-panel-border: rgba(73, 168, 255, 0.22);
-  --cfsp-attention-panel-shadow: 0 20px 44px rgba(10, 20, 33, 0.16), inset 0 1px 0 rgba(125, 211, 252, 0.06);
-  --cfsp-attention-panel-header: linear-gradient(90deg, rgba(73, 168, 255, 0.12) 0%, rgba(243, 187, 103, 0.08) 46%, rgba(255, 255, 255, 0) 100%);
-  --cfsp-attention-title: #e7f4ff;
-  --cfsp-attention-copy: rgba(224, 238, 255, 0.76);
-  --cfsp-attention-meta: rgba(173, 197, 223, 0.72);
-  --cfsp-attention-link: #8fcfff;
-  --cfsp-attention-chip-bg: rgba(243, 187, 103, 0.14);
-  --cfsp-attention-chip-border: rgba(243, 187, 103, 0.26);
-  --cfsp-attention-chip-text: #f3bb67;
+  --cfsp-attention-panel-bg: linear-gradient(135deg, rgba(246, 253, 255, 0.97) 0%, rgba(232, 250, 255, 0.93) 38%, rgba(240, 255, 248, 0.92) 70%, rgba(255, 249, 231, 0.86) 100%);
+  --cfsp-attention-panel-border: rgba(73, 168, 255, 0.28);
+  --cfsp-attention-panel-shadow: 0 18px 42px rgba(73, 168, 255, 0.12), 0 0 28px rgba(44, 211, 173, 0.1), inset 0 1px 0 rgba(255,255,255,0.82);
+  --cfsp-attention-panel-header: linear-gradient(90deg, rgba(73, 168, 255, 0.16) 0%, rgba(44, 211, 173, 0.13) 44%, rgba(196, 181, 253, 0.12) 74%, rgba(255, 255, 255, 0) 100%);
+  --cfsp-attention-title: #0f4268;
+  --cfsp-attention-copy: rgba(42, 82, 110, 0.82);
+  --cfsp-attention-meta: rgba(72, 102, 124, 0.76);
+  --cfsp-attention-link: #0f6da8;
+  --cfsp-attention-chip-bg: rgba(255, 247, 212, 0.82);
+  --cfsp-attention-chip-border: rgba(243, 187, 103, 0.34);
+  --cfsp-attention-chip-text: #94600c;
+  --cfsp-console-bg: linear-gradient(135deg, rgba(248, 253, 255, 0.96) 0%, rgba(231, 250, 255, 0.92) 40%, rgba(236, 255, 248, 0.9) 74%, rgba(244, 240, 255, 0.86) 100%);
+  --cfsp-console-border: rgba(73, 168, 255, 0.26);
+  --cfsp-console-shadow: 0 18px 42px rgba(73, 168, 255, 0.1), 0 0 26px rgba(44, 211, 173, 0.08), inset 0 1px 0 rgba(255,255,255,0.78);
+  --cfsp-console-control-bg: rgba(255, 255, 255, 0.72);
+  --cfsp-console-chip-bg: rgba(255, 255, 255, 0.52);
+  --cfsp-console-chip-border: rgba(73, 168, 255, 0.18);
 }
 
 html[data-theme="dark"] {
-  --background: #05070b;
+  --background: #0d1726;
   --foreground: #f4f8ff;
   --cfsp-app-bg:
-    radial-gradient(circle at top, rgba(0, 180, 255, 0.08), transparent 40%),
-    radial-gradient(circle at bottom right, rgba(0, 255, 170, 0.05), transparent 35%),
-    linear-gradient(180deg, rgba(5, 9, 16, 0.98) 0%, rgba(4, 9, 16, 1) 100%),
-    #05070b;
-  --cfsp-surface: #0d1420;
-  --cfsp-surface-muted: #111927;
-  --cfsp-sidebar: #09111b;
-  --cfsp-sidebar-strong: #060c14;
+    radial-gradient(circle at top left, rgba(73, 168, 255, 0.18), transparent 36%),
+    radial-gradient(circle at bottom right, rgba(44, 211, 173, 0.14), transparent 34%),
+    radial-gradient(circle at 70% 12%, rgba(196, 181, 253, 0.12), transparent 26%),
+    linear-gradient(180deg, rgba(15, 27, 43, 0.98) 0%, rgba(12, 25, 39, 1) 100%),
+    #0d1726;
+  --cfsp-surface: #142235;
+  --cfsp-surface-muted: #182b42;
+  --cfsp-sidebar: #102235;
+  --cfsp-sidebar-strong: #0c1b2c;
   --cfsp-sidebar-border: rgba(120, 180, 255, 0.18);
   --cfsp-border: rgba(120, 180, 255, 0.18);
   --cfsp-border-strong: rgba(120, 180, 255, 0.26);
@@ -114,17 +121,17 @@ html[data-theme="dark"] {
   --cfsp-danger: #ff8f86;
   --cfsp-danger-soft: rgba(255, 143, 134, 0.12);
   --cfsp-shadow: 0 8px 30px rgba(0, 0, 0, 0.45);
-  --cfsp-card-glow: 0 0 0 1px rgba(120, 180, 255, 0.08), 0 8px 30px rgba(0, 0, 0, 0.45);
-  --cfsp-header-bg: rgba(13, 20, 32, 0.92);
+  --cfsp-card-glow: 0 0 0 1px rgba(120, 220, 255, 0.11), 0 12px 34px rgba(5, 18, 32, 0.32), 0 0 28px rgba(44, 211, 173, 0.06);
+  --cfsp-header-bg: rgba(17, 31, 48, 0.9);
   --cfsp-header-border: rgba(120, 180, 255, 0.16);
   --cfsp-header-muted: #111927;
   --cfsp-shell-chip-bg: rgba(16, 41, 52, 0.82);
   --cfsp-shell-chip-border: rgba(74, 205, 179, 0.32);
   --cfsp-shell-chip-text: #9ce9d6;
-  --cfsp-logo-bg: #08111c;
-  --cfsp-command-mark-bg: linear-gradient(145deg, rgba(8, 17, 28, 0.98), rgba(10, 38, 52, 0.96));
-  --cfsp-command-mark-border: rgba(120, 220, 255, 0.34);
-  --cfsp-command-mark-glow: 0 20px 44px rgba(0, 0, 0, 0.42), 0 0 34px rgba(44, 211, 173, 0.22), 0 0 48px rgba(73, 168, 255, 0.12);
+  --cfsp-logo-bg: #11283f;
+  --cfsp-command-mark-bg: linear-gradient(145deg, rgba(24, 67, 98, 0.98), rgba(21, 111, 95, 0.92) 48%, rgba(68, 55, 129, 0.84));
+  --cfsp-command-mark-border: rgba(144, 235, 255, 0.44);
+  --cfsp-command-mark-glow: 0 18px 38px rgba(73, 168, 255, 0.2), 0 0 34px rgba(44, 211, 173, 0.22), 0 0 42px rgba(196, 181, 253, 0.1);
   --cfsp-command-signal: #8df7e2;
   --cfsp-theme-toggle-bg: #111c2a;
   --cfsp-theme-toggle-border: rgba(120, 180, 255, 0.24);
@@ -134,9 +141,9 @@ html[data-theme="dark"] {
   --cfsp-account-dropdown-bg: rgba(8, 15, 26, 0.96);
   --cfsp-account-dropdown-shadow: 0 24px 60px rgba(0, 0, 0, 0.58), 0 0 36px rgba(73, 168, 255, 0.14), 0 0 0 1px rgba(120, 180, 255, 0.12);
   --cfsp-stars-opacity: 0.22;
-  --cfsp-panel-strong: #101827;
-  --cfsp-dashboard-hero-bg: linear-gradient(135deg, rgba(73, 168, 255, 0.13) 0%, rgba(44, 211, 173, 0.10) 42%, rgba(13, 20, 32, 0.96) 100%);
-  --cfsp-dashboard-panel-bg: linear-gradient(180deg, rgba(17, 29, 45, 0.94) 0%, rgba(11, 18, 29, 0.96) 100%);
+  --cfsp-panel-strong: linear-gradient(180deg, rgba(28, 47, 70, 0.9) 0%, rgba(22, 38, 58, 0.9) 100%);
+  --cfsp-dashboard-hero-bg: linear-gradient(135deg, rgba(73, 168, 255, 0.2) 0%, rgba(44, 211, 173, 0.16) 42%, rgba(30, 44, 68, 0.92) 100%);
+  --cfsp-dashboard-panel-bg: linear-gradient(180deg, rgba(24, 40, 60, 0.92) 0%, rgba(19, 34, 53, 0.94) 100%);
   --cfsp-planning-calendar-bg: linear-gradient(135deg, rgba(73, 168, 255, 0.16) 0%, rgba(16, 25, 39, 0.96) 44%, rgba(8, 15, 26, 0.98) 100%);
   --cfsp-planning-calendar-border: rgba(120, 180, 255, 0.28);
   --cfsp-planning-calendar-shadow: 0 0 0 1px rgba(120, 180, 255, 0.08), 0 18px 48px rgba(0, 0, 0, 0.38), 0 0 32px rgba(44, 211, 173, 0.08);
@@ -165,10 +172,10 @@ html[data-theme="dark"] {
   --cfsp-skills-soft: rgba(73, 168, 255, 0.1);
   --cfsp-skills-border: rgba(120, 180, 255, 0.28);
   --cfsp-skills-text: #8fcfff;
-  --cfsp-attention-panel-bg: linear-gradient(180deg, rgba(10, 19, 33, 0.98) 0%, rgba(8, 15, 27, 0.98) 86%, rgba(7, 11, 21, 0.99) 100%);
-  --cfsp-attention-panel-border: rgba(120, 180, 255, 0.18);
-  --cfsp-attention-panel-shadow: 0 22px 52px rgba(0, 0, 0, 0.42), inset 0 1px 0 rgba(125, 211, 252, 0.06), 0 0 28px rgba(243, 187, 103, 0.08);
-  --cfsp-attention-panel-header: linear-gradient(90deg, rgba(73, 168, 255, 0.13) 0%, rgba(243, 187, 103, 0.09) 44%, rgba(255, 255, 255, 0) 100%);
+  --cfsp-attention-panel-bg: linear-gradient(135deg, rgba(23, 50, 76, 0.94) 0%, rgba(19, 70, 82, 0.88) 42%, rgba(23, 76, 65, 0.84) 72%, rgba(50, 43, 94, 0.76) 100%);
+  --cfsp-attention-panel-border: rgba(125, 211, 252, 0.3);
+  --cfsp-attention-panel-shadow: 0 20px 50px rgba(5, 18, 32, 0.32), inset 0 1px 0 rgba(255,255,255,0.08), 0 0 34px rgba(44, 211, 173, 0.1);
+  --cfsp-attention-panel-header: linear-gradient(90deg, rgba(73, 168, 255, 0.18) 0%, rgba(44, 211, 173, 0.14) 44%, rgba(196, 181, 253, 0.13) 74%, rgba(255, 255, 255, 0) 100%);
   --cfsp-attention-title: #e7f4ff;
   --cfsp-attention-copy: rgba(214, 237, 244, 0.78);
   --cfsp-attention-meta: rgba(158, 185, 204, 0.76);
@@ -176,6 +183,12 @@ html[data-theme="dark"] {
   --cfsp-attention-chip-bg: rgba(243, 187, 103, 0.12);
   --cfsp-attention-chip-border: rgba(243, 187, 103, 0.24);
   --cfsp-attention-chip-text: #fde68a;
+  --cfsp-console-bg: linear-gradient(135deg, rgba(25, 55, 82, 0.92) 0%, rgba(20, 84, 96, 0.86) 48%, rgba(30, 80, 70, 0.82) 76%, rgba(54, 45, 103, 0.74) 100%);
+  --cfsp-console-border: rgba(125, 211, 252, 0.32);
+  --cfsp-console-shadow: 0 18px 46px rgba(5, 18, 32, 0.3), 0 0 30px rgba(44, 211, 173, 0.1), inset 0 1px 0 rgba(255,255,255,0.09);
+  --cfsp-console-control-bg: rgba(255, 255, 255, 0.08);
+  --cfsp-console-chip-bg: rgba(255, 255, 255, 0.075);
+  --cfsp-console-chip-border: rgba(125, 211, 252, 0.2);
 }
 
 @theme inline {
