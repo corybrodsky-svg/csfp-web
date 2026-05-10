@@ -8106,6 +8106,320 @@ Cory`;
   const trainingAccessUrl = normalizeExternalHref(
     normalEventTrainingLink || trainingMetadata.zoom_url || trainingMetadata.training_zoom_link
   );
+  const scheduleSummaryActions: Array<{
+    label: string;
+    href?: string;
+    onClick?: () => void;
+    disabled?: boolean;
+  }> = [
+    { label: "Open Schedule Builder", href: expandedScheduleBuilderHref },
+    {
+      label: "Open Time Ticket",
+      onClick: () => handleOpenEventScheduleRouteInNewTab("timeline", "ticket"),
+    },
+    {
+      label: "Preview Schedule",
+      onClick: () => handleOpenEventScheduleRouteInNewTab("rotation", "schedule"),
+    },
+    ...(scheduleCompleted
+      ? []
+      : [{ label: "Mark Schedule Complete", onClick: () => void handleMarkScheduleComplete(), disabled: saving }]),
+  ];
+  const staffingTrainingRows: Array<{
+    key: string;
+    label: string;
+    value: string;
+    detail?: string;
+    actions?: React.ReactNode;
+  }> = [
+    ...(staffingRelevant
+      ? [
+          {
+            key: "coverage",
+            label: "Coverage",
+            value: needed > 0 ? `${confirmedCount}/${needed} primary confirmed` : `${confirmedCount} confirmed`,
+            detail:
+              backupCount > 0
+                ? `${backupCount} backup selected as optional support.`
+                : "Backup optional unless the event team wants overflow coverage.",
+          },
+          {
+            key: "staffing_health",
+            label: "Staffing health",
+            value: staffingHealthLabel,
+            detail: coverageRiskTone === "green" ? "Coverage target is met." : `Short by ${Math.max(needed - confirmedCount, 0)} primary.`,
+          },
+        ]
+      : []),
+    {
+      key: "training",
+      label: "Training",
+      value: eventSummaryTrainingValue,
+      detail: eventSummaryTrainingSubvalue || normalEventTrainingTimelineLabel,
+    },
+    ...(!trainingNotRequired
+      ? [
+          {
+            key: "attendance",
+            label: "Attendance",
+            value: normalEventTrainingAttendanceLabel,
+            detail: `${selectedStaffingCount} selected SP${selectedStaffingCount === 1 ? "" : "s"} tracked for training readiness.`,
+          },
+        ]
+      : []),
+    ...(facultyLedTraining || facultyReadinessComplete || facultyTrainingCoordinationRequested
+      ? [
+          {
+            key: "faculty",
+            label: "Faculty coordination",
+            value: facultyTrainingCoordinationLabel,
+            detail: facultyContactSummary || facultyReadinessLabel,
+          },
+        ]
+      : []),
+  ];
+  const supportRequirementRows: Array<{
+    key: string;
+    label: string;
+    value: string;
+    detail?: string;
+    actions?: React.ReactNode;
+  }> = [
+    ...(recordingSupportActive || Boolean(recordingGuideUrl)
+      ? [
+          {
+            key: "recording",
+            label: "Recording",
+            value: recordingStatus.label,
+            detail: recordingIndicatorLabel,
+          },
+        ]
+      : []),
+    ...(trainingZoomRequired || Boolean(trainingAccessUrl) || selectedModalityLabel === "Virtual" || selectedModalityLabel === "Hybrid"
+      ? [
+          {
+            key: "zoom",
+            label: "Zoom / logistics",
+            value: trainingAccessUrl ? `${trainingModalityLabel} link ready` : trainingZoomRequired ? "Training link needed" : trainingModalityLabel,
+            detail: trainingZoomRequired ? "Training logistics depend on the access link." : "Virtual logistics are optional for this event.",
+          },
+        ]
+      : []),
+    ...liveSupportNeeds.map((item, index) => ({
+      key: `support-${index}`,
+      label: "Support need",
+      value: item.label,
+      detail: "Surface this only because it affects live execution or staffing support.",
+    })),
+    ...(eventRiskLevel.tone !== "green"
+      ? [
+          {
+            key: "risk",
+            label: "Risk watch",
+            value: eventRiskLevel.label,
+            detail: eventRiskLevel.detail,
+          },
+        ]
+      : []),
+  ];
+  const communicationMaterialRows: Array<{
+    key: string;
+    label: string;
+    value: string;
+    detail?: string;
+    actions?: React.ReactNode;
+  }> = [
+    {
+      key: "materials",
+      label: "Materials",
+      value: materialsStatusLabel,
+      detail: eventMaterialName || (hasUploadedEventMaterial ? "Event material uploaded." : "No staff-facing event material uploaded yet."),
+      actions: (
+        <>
+          {eventMaterialUrl ? (
+            <button
+              type="button"
+              onClick={() =>
+                openMaterialPreview({
+                  title: "Event Material",
+                  rawUrl: eventMaterialUrl,
+                  storagePath: eventMaterialStoragePath,
+                  fileName: eventMaterialName,
+                })
+              }
+              style={{ ...buttonStyle, padding: "7px 10px" }}
+            >
+              Preview
+            </button>
+          ) : null}
+          {eventMaterialDownloadUrl ? (
+            <a
+              href={eventMaterialDownloadUrl}
+              target="_blank"
+              rel="noreferrer"
+              style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "7px 10px" }}
+            >
+              Download
+            </a>
+          ) : null}
+        </>
+      ),
+    },
+    ...(caseFileUrl || caseFileDisplayName
+      ? [
+          {
+            key: "case",
+            label: "Case",
+            value: caseFileDisplayName || "Case uploaded",
+            detail: "Keep the room-facing encounter packet close to the schedule.",
+            actions: (
+              <>
+                {caseFileUrl ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      openMaterialPreview({
+                        title: "Case File",
+                        rawUrl: caseFileUrl,
+                        storagePath: caseFileStoragePath,
+                        fileName: caseFileDisplayName || "case-file",
+                      })
+                    }
+                    style={{ ...buttonStyle, padding: "7px 10px" }}
+                  >
+                    Preview
+                  </button>
+                ) : null}
+                {caseFileDownloadUrl ? (
+                  <a
+                    href={caseFileDownloadUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "7px 10px" }}
+                  >
+                    Download
+                  </a>
+                ) : null}
+              </>
+            ),
+          },
+        ]
+      : []),
+    ...(staffingRelevant
+      ? [
+          {
+            key: "hiring_email",
+            label: "Hiring email",
+            value: hiringEmailSent ? "Hiring Email Sent" : hiringEmailDrafted ? "Hiring draft ready" : "Hiring not sent",
+            detail: hiringEmailSent ? hiringEmailSentAt || "Persisted in event metadata." : "Launch from the staffing workflow when outreach is ready.",
+            actions: hiringEmailSent ? null : (
+              <button
+                type="button"
+                onClick={() => {
+                  setShowEmailDraft(true);
+                  window.requestAnimationFrame(() => {
+                    document.getElementById("staffing-command-center")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                  });
+                }}
+                style={{ ...buttonStyle, padding: "7px 10px" }}
+              >
+                Open Hiring Email
+              </button>
+            ),
+          },
+          {
+            key: "confirmation_email",
+            label: "Confirmation",
+            value: confirmationEmailSent ? "Confirmation Sent" : confirmationEmailDrafted ? "Confirmation draft ready" : "Confirmation pending",
+            detail: confirmationEmailSent ? confirmationEmailSentAt || "Persisted in event metadata." : "Use after primary SP assignments are confirmed.",
+            actions: confirmationEmailSent ? null : (
+              <button
+                type="button"
+                onClick={() => {
+                  setShowConfirmationEmailPreview(true);
+                  window.requestAnimationFrame(() => {
+                    document.getElementById("staffing-command-center")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                  });
+                }}
+                style={{ ...buttonStyle, padding: "7px 10px" }}
+              >
+                Open Confirmation
+              </button>
+            ),
+          },
+        ]
+      : []),
+    ...(facultyLedTraining
+      ? [
+          {
+            key: "faculty_request",
+            label: "Faculty request",
+            value: facultyTrainingCoordinationLabel,
+            detail: facultyTrainingCoordinationSent
+              ? "Faculty scheduling outreach is logged in the event metadata."
+              : "Track faculty availability before training logistics are finalized.",
+            actions:
+              facultyTrainingCoordinationSent || !facultyEmails.length ? (
+                !facultyEmails.length ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      document.getElementById("coverage-actions")?.scrollIntoView({ behavior: "smooth", block: "start" })
+                    }
+                    style={{ ...buttonStyle, padding: "7px 10px" }}
+                  >
+                    Add Faculty Email
+                  </button>
+                ) : null
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void handleDraftFacultyTrainingAvailabilityRequest()}
+                  style={{ ...buttonStyle, padding: "7px 10px" }}
+                >
+                  Request Faculty Availability
+                </button>
+              ),
+          },
+        ]
+      : []),
+    ...(normalEventTrainingLink || normalEventTrainingRecordingHref || recordingGuideUrl
+      ? [
+          {
+            key: "access",
+            label: "Links",
+            value: normalEventTrainingLink ? "Training access ready" : recordingGuideUrl ? "Recording link ready" : "Training recording ready",
+            detail: [normalEventTrainingLink ? trainingModalityLabel : "", recordingGuideUrl ? "Recording support posted" : ""]
+              .filter(Boolean)
+              .join(" · "),
+            actions: (
+              <>
+                {normalEventTrainingLink ? (
+                  <a
+                    href={normalEventTrainingLink}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "7px 10px" }}
+                  >
+                    Open Training Link
+                  </a>
+                ) : null}
+                {recordingGuideUrl ? (
+                  <a
+                    href={recordingGuideUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "7px 10px" }}
+                  >
+                    Open Recording
+                  </a>
+                ) : null}
+              </>
+            ),
+          },
+        ]
+      : []),
+  ];
   const workflowReportItems: WorkflowReadinessItem[] = [
     {
       id: "staffing",
@@ -12224,6 +12538,7 @@ Cory`;
         )}
       </section>
     ) : null;
+  void normalEventTrainingReadinessPanel;
 
   const editableTrainingSchedulingValue: TrainingSchedulingValue =
     asText(trainingMetadata.training_scheduling_status)
@@ -15341,52 +15656,110 @@ Cory`;
             }}
           >
             <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Event Summary</div>
-            <div style={{ marginTop: "10px", display: "grid", gap: "10px" }}>
-              <div
+            <div style={{ marginTop: "10px", display: "grid", gap: "12px" }}>
+              <section
                 style={{
-                  borderRadius: "16px",
+                  borderRadius: "20px",
                   border: commandCenterVisual.cardBorder,
-                  background: commandCenterVisual.cardBackground,
-                  boxShadow: isPlanningVisualMode ? "0 8px 18px rgba(42, 112, 140, 0.06)" : "none",
-                  padding: "12px 14px",
+                  background: isPlanningVisualMode
+                    ? "linear-gradient(135deg, rgba(255,255,255,0.98) 0%, rgba(237, 248, 251, 0.98) 56%, rgba(238, 247, 255, 0.96) 100%)"
+                    : "linear-gradient(135deg, rgba(8, 22, 36, 0.96) 0%, rgba(8, 28, 38, 0.94) 62%, rgba(11, 44, 64, 0.88) 100%)",
+                  boxShadow: isPlanningVisualMode ? "0 16px 36px rgba(42, 112, 140, 0.09)" : "0 18px 40px rgba(0, 0, 0, 0.22)",
+                  padding: "16px",
                   display: "grid",
-                  gap: "10px",
+                  gap: "14px",
                 }}
               >
-                <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "flex-start" }}>
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ color: commandCenterVisual.headingColor, fontSize: "20px", fontWeight: 950, lineHeight: 1.2 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: "14px", flexWrap: "wrap", alignItems: "flex-start" }}>
+                  <div style={{ minWidth: 0, display: "grid", gap: "7px" }}>
+                    <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Event Status Window</div>
+                    <div style={{ color: commandCenterVisual.headingColor, fontSize: "24px", fontWeight: 950, lineHeight: 1.15 }}>
                       {event.name || "Untitled Event"}
                     </div>
-                    <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "13px", fontWeight: 700 }}>
+                    <div style={{ color: commandCenterVisual.mutedColor, fontSize: "13px", fontWeight: 800 }}>
                       {[sessionSummaryLabel, summaryTimeLabel, event.location || "Location TBD"].filter(Boolean).join(" · ")}
                     </div>
                   </div>
-                  <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
-                    {[
-                      event.status || "No status",
-                      selectedModalityLabel,
-                      staffingHealthLabel,
-                      scheduleStatusLabel,
-                    ]
-                      .filter(Boolean)
-                      .slice(0, 4)
-                      .map((chip) => (
-                        <span key={`summary-primary-${chip}`} style={commandChipStyle}>
-                          {chip}
-                        </span>
-                      ))}
+                  <div style={{ display: "grid", gap: "8px", justifyItems: "end" }}>
+                    <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                      <span
+                        style={{
+                          ...commandChipStyle,
+                          background:
+                            operationalReadinessItems.primary === "Ready"
+                              ? planningSuccessBackground
+                              : eventRiskLevel.tone === "red"
+                                ? "rgba(248, 113, 113, 0.14)"
+                                : "rgba(253, 230, 138, 0.16)",
+                          border:
+                            operationalReadinessItems.primary === "Ready"
+                              ? planningSuccessBorder
+                              : eventRiskLevel.tone === "red"
+                                ? "1px solid rgba(239, 68, 68, 0.24)"
+                                : "1px solid rgba(180, 83, 9, 0.22)",
+                          color:
+                            operationalReadinessItems.primary === "Ready"
+                              ? planningSuccessText
+                              : eventRiskLevel.tone === "red"
+                                ? "#dc2626"
+                                : "#b45309",
+                        }}
+                      >
+                        {operationalReadinessItems.primary}
+                      </span>
+                      <span style={commandChipStyle}>{eventRiskLevel.label}</span>
+                      <span style={commandChipStyle}>{scheduleStatusLabel}</span>
+                    </div>
+                    <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 800, textAlign: "right", maxWidth: "420px" }}>
+                      {eventRiskLevel.detail}
+                    </div>
                   </div>
                 </div>
 
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+                    gap: "10px",
+                  }}
+                >
+                  {[
+                    { label: "Learners", value: effectiveLearnerCount > 0 ? String(effectiveLearnerCount) : "TBD", detail: "Current roster source" },
+                    { label: "Rooms", value: effectiveRoomCount || "TBD", detail: "Operational room surface" },
+                    { label: "Rounds", value: activeRotationCount || 0, detail: effectiveRotationCountSource.label },
+                    {
+                      label: "Coverage",
+                      value: needed > 0 ? `${confirmedCount}/${needed}` : `${confirmedCount}`,
+                      detail: needed > 0 ? "Primary confirmed" : "Confirmed SPs",
+                    },
+                  ].map((metric) => (
+                    <div
+                      key={`summary-metric-${metric.label}`}
+                      style={{
+                        borderRadius: "16px",
+                        border: "1px solid rgba(99, 181, 217, 0.14)",
+                        background: isPlanningVisualMode ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.04)",
+                        padding: "12px 13px",
+                        display: "grid",
+                        gap: "4px",
+                      }}
+                    >
+                      <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>{metric.label}</div>
+                      <div style={{ color: commandCenterVisual.headingColor, fontSize: "22px", fontWeight: 950, lineHeight: 1.1 }}>{metric.value}</div>
+                      <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 700 }}>{metric.detail}</div>
+                    </div>
+                  ))}
+                </div>
+
                 <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                  <span style={commandChipStyle}>Learners {effectiveLearnerCount > 0 ? effectiveLearnerCount : "TBD"}</span>
-                  <span style={commandChipStyle}>Rooms {effectiveRoomCount || "TBD"}</span>
-                  <span style={commandChipStyle}>Rounds {activeRotationCount || 0}</span>
-                  <span style={commandChipStyle}>
-                    Staffing {needed > 0 ? `${confirmedCount}/${needed}` : `${confirmedCount} confirmed`}
-                  </span>
-                  {eventSummaryDateMarkers.map((marker) => {
+                  {[event.status || "No status", ...eventIdentityChips.slice(0, 2), selectedModalityLabel]
+                    .filter(Boolean)
+                    .map((chip) => (
+                      <span key={`summary-identity-${chip}`} style={commandChipStyle}>
+                        {chip}
+                      </span>
+                    ))}
+                  {eventSummaryDateMarkers.slice(0, 3).map((marker) => {
                     const markerTone = getOperationalDateToneStyles(marker.tone, true);
                     return (
                       <span
@@ -15404,380 +15777,521 @@ Cory`;
                       </span>
                     );
                   })}
-                </div>
-
-                <details>
-                  <summary style={{ cursor: "pointer", color: commandCenterVisual.textColor, fontWeight: 800 }}>
-                    Show full event details
-                  </summary>
-                  <div style={{ marginTop: "10px", display: "grid", gap: "8px" }}>
-                    {[
-                      { label: "Simulation Type", value: eventIdentityChips[0] || "Operational event", detail: isTrainingOnlyEvent ? "Training event" : [selectedModalityLabel, (effectiveRoomCount || rotationRounds.length > 1) ? "multi-station capable" : ""].filter(Boolean).join(" · ") },
-                      { label: "Training", value: eventSummaryTrainingValue, detail: eventSummaryTrainingSubvalue },
-                      { label: "Materials", value: materialsStatusLabel, detail: hasUploadedEventMaterial ? "Event material uploaded" : "Materials status is admin-set" },
-                      { label: "Recording", value: recordingStatus.label, detail: recordingIndicatorLabel },
-                      { label: "Coverage", value: needed > 0 ? `${confirmedCount} primary / ${needed} needed` : `${selectedStaffingCount} selected`, detail: !isTrainingMode && staffingRelevant ? `${backupCount} backup selected` : "" },
-                    ].map((item) => (
-                      <div
-                        key={`summary-detail-${item.label}`}
+                  {operationalReadinessItems.items
+                    .filter((item) => item.active)
+                    .slice(0, 3)
+                    .map((item) => (
+                      <span
+                        key={`summary-alert-${item.label}`}
                         style={{
-                          display: "grid",
-                          gridTemplateColumns: "minmax(140px, 180px) minmax(0, 1fr)",
-                          gap: "10px",
-                          alignItems: "start",
-                          borderTop: "1px solid rgba(99, 181, 217, 0.12)",
-                          paddingTop: "8px",
+                          ...commandChipStyle,
+                          background: "rgba(253, 230, 138, 0.18)",
+                          border: "1px solid rgba(180, 83, 9, 0.22)",
+                          color: "#b45309",
                         }}
                       >
-                        <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>{item.label}</div>
-                        <div>
-                          <div style={{ color: commandCenterVisual.textColor, fontWeight: 900 }}>{item.value}</div>
-                          {item.detail ? (
-                            <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 700 }}>
-                              {item.detail}
-                            </div>
-                          ) : null}
-                        </div>
-                      </div>
+                        {item.label}
+                      </span>
                     ))}
+                </div>
+
+                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                  {scheduleSummaryActions.map((action) =>
+                    action.href ? (
+                      <Link
+                        key={action.label}
+                        href={action.href}
+                        style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "8px 12px" }}
+                      >
+                        {action.label}
+                      </Link>
+                    ) : (
+                      <button
+                        key={action.label}
+                        type="button"
+                        onClick={action.onClick}
+                        disabled={Boolean(action.disabled)}
+                        style={{ ...buttonStyle, padding: "8px 12px", opacity: action.disabled ? 0.65 : 1 }}
+                      >
+                        {action.label}
+                      </button>
+                    )
+                  )}
+                </div>
+              </section>
+
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+                  gap: "12px",
+                  alignItems: "start",
+                }}
+              >
+                {[
+                  {
+                    key: "staffing-training",
+                    title: "Staffing & Training",
+                    subtitle: "Coverage, training readiness, attendance, and faculty coordination.",
+                    rows: staffingTrainingRows,
+                  },
+                  {
+                    key: "operations-support",
+                    title: "Operations & Support",
+                    subtitle: "Only active support needs and live execution dependencies.",
+                    rows: supportRequirementRows,
+                  },
+                  {
+                    key: "materials-communications",
+                    title: "Materials & Communications",
+                    subtitle: "Case access, materials, outreach, and training links in one place.",
+                    rows: communicationMaterialRows,
+                  },
+                ].map((windowCard) => (
+                  <section
+                    key={windowCard.key}
+                    style={{
+                      borderRadius: "18px",
+                      border: commandCenterVisual.cardBorder,
+                      background: commandCenterVisual.cardBackground,
+                      boxShadow: isPlanningVisualMode ? "0 10px 24px rgba(42, 112, 140, 0.06)" : "none",
+                      padding: "14px",
+                      display: "grid",
+                      gap: "12px",
+                    }}
+                  >
+                    <div>
+                      <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>{windowCard.title}</div>
+                      <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 700, lineHeight: 1.45 }}>
+                        {windowCard.subtitle}
+                      </div>
+                    </div>
+
+                    {windowCard.rows.length ? (
+                      <div style={{ display: "grid", gap: "10px" }}>
+                        {windowCard.rows.map((row) => (
+                          <div
+                            key={row.key}
+                            style={{
+                              borderRadius: "14px",
+                              border: "1px solid rgba(99, 181, 217, 0.12)",
+                              background: isPlanningVisualMode ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.04)",
+                              padding: "11px 12px",
+                              display: "grid",
+                              gap: "8px",
+                            }}
+                          >
+                            <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "baseline" }}>
+                              <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>{row.label}</div>
+                              <div style={{ color: commandCenterVisual.textColor, fontSize: "14px", fontWeight: 900, textAlign: "right" }}>{row.value}</div>
+                            </div>
+                            {row.detail ? (
+                              <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 700, lineHeight: 1.45 }}>
+                                {row.detail}
+                              </div>
+                            ) : null}
+                            {"actions" in row && row.actions ? (
+                              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>{row.actions}</div>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div
+                        style={{
+                          borderRadius: "14px",
+                          border: "1px dashed rgba(99, 181, 217, 0.18)",
+                          background: isPlanningVisualMode ? "rgba(255,255,255,0.58)" : "rgba(255,255,255,0.03)",
+                          padding: "12px",
+                          color: commandCenterVisual.mutedColor,
+                          fontSize: "13px",
+                          fontWeight: 700,
+                        }}
+                      >
+                        No active support needs are surfaced here yet.
+                      </div>
+                    )}
+                  </section>
+                ))}
+              </div>
+
+              <details>
+                <summary style={{ cursor: "pointer", color: commandCenterVisual.textColor, fontWeight: 800 }}>
+                  Show full event details
+                </summary>
+                <div style={{ marginTop: "10px", display: "grid", gap: "8px" }}>
+                  {[
+                    {
+                      label: "Simulation Type",
+                      value: eventIdentityChips[0] || "Operational event",
+                      detail: isTrainingOnlyEvent ? "Training event" : [selectedModalityLabel, (effectiveRoomCount || rotationRounds.length > 1) ? "multi-station capable" : ""].filter(Boolean).join(" · "),
+                    },
+                    { label: "Training", value: eventSummaryTrainingValue, detail: eventSummaryTrainingSubvalue },
+                    { label: "Materials", value: materialsStatusLabel, detail: hasUploadedEventMaterial ? "Event material uploaded" : "Materials status is admin-set" },
+                    { label: "Recording", value: recordingStatus.label, detail: recordingIndicatorLabel },
+                    {
+                      label: "Coverage",
+                      value: needed > 0 ? `${confirmedCount} primary / ${needed} needed` : `${selectedStaffingCount} selected`,
+                      detail: !isTrainingMode && staffingRelevant ? `${backupCount} backup selected` : "",
+                    },
+                  ].map((item) => (
+                    <div
+                      key={`summary-detail-${item.label}`}
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "minmax(140px, 180px) minmax(0, 1fr)",
+                        gap: "10px",
+                        alignItems: "start",
+                        borderTop: "1px solid rgba(99, 181, 217, 0.12)",
+                        paddingTop: "8px",
+                      }}
+                    >
+                      <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>{item.label}</div>
+                      <div>
+                        <div style={{ color: commandCenterVisual.textColor, fontWeight: 900 }}>{item.value}</div>
+                        {item.detail ? (
+                          <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 700 }}>
+                            {item.detail}
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  ))}
+
+                  <div
+                    style={{
+                      borderTop: "1px solid rgba(99, 181, 217, 0.12)",
+                      paddingTop: "12px",
+                      display: "grid",
+                      gap: "10px",
+                    }}
+                  >
+                    <div>
+                      <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Session Resource Directory</div>
+                      <div style={{ marginTop: "4px", color: commandCenterVisual.textColor, fontWeight: 900, fontSize: "16px" }}>
+                        Command file cabinet
+                      </div>
+                      <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 700 }}>
+                        Keep the case, schedule views, materials, recording links, and training access points together in one packet center.
+                      </div>
+                    </div>
 
                     <div
                       style={{
-                        borderTop: "1px solid rgba(99, 181, 217, 0.12)",
-                        paddingTop: "12px",
                         display: "grid",
                         gap: "10px",
+                        gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
                       }}
                     >
-                      <div>
-                        <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Session Resource Directory</div>
-                        <div style={{ marginTop: "4px", color: commandCenterVisual.textColor, fontWeight: 900, fontSize: "16px" }}>
-                          Command file cabinet
-                        </div>
-                        <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 700 }}>
-                          Keep the case, schedule views, materials, recording links, and training access points together in one packet center.
-                        </div>
-                      </div>
-
-                      <div
-                        style={{
-                          display: "grid",
-                          gap: "10px",
-                          gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-                        }}
-                      >
-                        {[
-                          {
-                            key: "case",
-                            icon: "▤",
-                            title: "Case",
-                            detail: caseFileDisplayName || "Case not assigned",
-                            status: caseFileUrl ? "available" : caseFileDisplayName ? "draft" : "missing",
-                            actions: (
-                              <>
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    openMaterialPreview({
-                                      title: "Case File",
-                                      rawUrl: caseFileUrl,
-                                      storagePath: caseFileStoragePath,
-                                      fileName: caseFileDisplayName || "case-file",
-                                    })
-                                  }
-                                  disabled={!caseFileUrl}
-                                  style={{ ...buttonStyle, padding: "7px 10px", opacity: caseFileUrl ? 1 : 0.55 }}
+                      {[
+                        {
+                          key: "case",
+                          icon: "▤",
+                          title: "Case",
+                          detail: caseFileDisplayName || "Case not assigned",
+                          status: caseFileUrl ? "available" : caseFileDisplayName ? "draft" : "missing",
+                          actions: (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  openMaterialPreview({
+                                    title: "Case File",
+                                    rawUrl: caseFileUrl,
+                                    storagePath: caseFileStoragePath,
+                                    fileName: caseFileDisplayName || "case-file",
+                                  })
+                                }
+                                disabled={!caseFileUrl}
+                                style={{ ...buttonStyle, padding: "7px 10px", opacity: caseFileUrl ? 1 : 0.55 }}
+                              >
+                                Preview
+                              </button>
+                              {caseFileDownloadUrl ? (
+                                <a
+                                  href={caseFileDownloadUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "7px 10px" }}
                                 >
-                                  Preview
-                                </button>
-                                {caseFileDownloadUrl ? (
-                                  <a
-                                    href={caseFileDownloadUrl}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "7px 10px" }}
-                                  >
-                                    Download
-                                  </a>
-                                ) : null}
-                              </>
-                            ),
-                          },
-                          {
-                            key: "schedule",
-                            icon: "▦",
-                            title: "Schedule",
-                            detail: scheduleStatusLabel,
-                            status: scheduleCompleted ? "complete" : scheduleInProgress ? "draft" : "missing",
-                            actions: (
-                              <>
-                                <Link
-                                  href={expandedScheduleBuilderHref}
+                                  Download
+                                </a>
+                              ) : null}
+                            </>
+                          ),
+                        },
+                        {
+                          key: "schedule",
+                          icon: "▦",
+                          title: "Schedule",
+                          detail: scheduleStatusLabel,
+                          status: scheduleCompleted ? "complete" : scheduleInProgress ? "draft" : "missing",
+                          actions: (
+                            <>
+                              <Link
+                                href={expandedScheduleBuilderHref}
+                                style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "7px 10px" }}
+                              >
+                                Open
+                              </Link>
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEventScheduleRouteInNewTab("rotation", "schedule")}
+                                style={{ ...buttonStyle, padding: "7px 10px" }}
+                              >
+                                Preview
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handlePrintEventSchedulePreview("rotation", "schedule")}
+                                style={{ ...buttonStyle, padding: "7px 10px" }}
+                              >
+                                Print
+                              </button>
+                            </>
+                          ),
+                        },
+                        {
+                          key: "student_schedule",
+                          icon: "◫",
+                          title: "Student Schedule",
+                          detail: "Learner-safe export view",
+                          status: scheduleCompleted ? "complete" : scheduleInProgress ? "draft" : "missing",
+                          actions: (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEventScheduleRouteInNewTab("student", "schedule")}
+                                style={{ ...buttonStyle, padding: "7px 10px" }}
+                              >
+                                Open
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handlePrintEventSchedulePreview("student", "schedule")}
+                                style={{ ...buttonStyle, padding: "7px 10px" }}
+                              >
+                                Print
+                              </button>
+                            </>
+                          ),
+                        },
+                        {
+                          key: "sp_schedule",
+                          icon: "◎",
+                          title: "SP Schedule",
+                          detail: "Staff-facing room assignment view",
+                          status: scheduleCompleted ? "complete" : scheduleInProgress ? "draft" : "missing",
+                          actions: (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEventScheduleRouteInNewTab("sp", "schedule")}
+                                style={{ ...buttonStyle, padding: "7px 10px" }}
+                              >
+                                Open
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handlePrintEventSchedulePreview("sp", "schedule")}
+                                style={{ ...buttonStyle, padding: "7px 10px" }}
+                              >
+                                Print
+                              </button>
+                            </>
+                          ),
+                        },
+                        {
+                          key: "time_ticket",
+                          icon: "⌁",
+                          title: "Faculty / SimOps Time Ticket",
+                          detail: "Compact timing and flow view",
+                          status: scheduleCompleted ? "complete" : scheduleInProgress ? "draft" : "missing",
+                          actions: (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEventScheduleRouteInNewTab("timeline", "ticket")}
+                                style={{ ...buttonStyle, padding: "7px 10px" }}
+                              >
+                                Open
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handlePrintEventSchedulePreview("timeline", "ticket")}
+                                style={{ ...buttonStyle, padding: "7px 10px" }}
+                              >
+                                Print
+                              </button>
+                            </>
+                          ),
+                        },
+                        {
+                          key: "materials",
+                          icon: "⎘",
+                          title: "Materials",
+                          detail: eventMaterialName || "Event materials not uploaded",
+                          status: eventMaterialUrl ? "available" : "missing",
+                          actions: (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  openMaterialPreview({
+                                    title: "Event Material",
+                                    rawUrl: eventMaterialUrl,
+                                    storagePath: eventMaterialStoragePath,
+                                    fileName: eventMaterialName,
+                                  })
+                                }
+                                disabled={!eventMaterialUrl}
+                                style={{ ...buttonStyle, padding: "7px 10px", opacity: eventMaterialUrl ? 1 : 0.55 }}
+                              >
+                                Preview
+                              </button>
+                              {eventMaterialDownloadUrl ? (
+                                <a
+                                  href={eventMaterialDownloadUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "7px 10px" }}
+                                >
+                                  Download
+                                </a>
+                              ) : null}
+                            </>
+                          ),
+                        },
+                        {
+                          key: "recording",
+                          icon: "◉",
+                          title: "Recording Link",
+                          detail: recordingGuideUrl ? getFilenameFromUrl(recordingGuideUrl) || "Recording link ready" : "No recording link posted",
+                          status: recordingGuideUrl ? "available" : "missing",
+                          actions: (
+                            <>
+                              {recordingGuideUrl ? (
+                                <a
+                                  href={recordingGuideUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
                                   style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "7px 10px" }}
                                 >
                                   Open
-                                </Link>
-                                <button
-                                  type="button"
-                                  onClick={() => handleOpenEventScheduleRouteInNewTab("rotation", "schedule")}
-                                  style={{ ...buttonStyle, padding: "7px 10px" }}
-                                >
-                                  Preview
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handlePrintEventSchedulePreview("rotation", "schedule")}
-                                  style={{ ...buttonStyle, padding: "7px 10px" }}
-                                >
-                                  Print
-                                </button>
-                              </>
-                            ),
-                          },
-                          {
-                            key: "student_schedule",
-                            icon: "◫",
-                            title: "Student Schedule",
-                            detail: "Learner-safe export view",
-                            status: scheduleCompleted ? "complete" : scheduleInProgress ? "draft" : "missing",
-                            actions: (
-                              <>
-                                <button
-                                  type="button"
-                                  onClick={() => handleOpenEventScheduleRouteInNewTab("student", "schedule")}
-                                  style={{ ...buttonStyle, padding: "7px 10px" }}
+                                </a>
+                              ) : null}
+                            </>
+                          ),
+                        },
+                        {
+                          key: "training_access",
+                          icon: "⟡",
+                          title: "Zoom / Training Link",
+                          detail: trainingAccessUrl ? trainingModalityLabel : "Training link missing",
+                          status: trainingAccessUrl ? "available" : trainingZoomRequired ? "missing" : "draft",
+                          actions: (
+                            <>
+                              {trainingAccessUrl ? (
+                                <a
+                                  href={trainingAccessUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "7px 10px" }}
                                 >
                                   Open
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handlePrintEventSchedulePreview("student", "schedule")}
-                                  style={{ ...buttonStyle, padding: "7px 10px" }}
-                                >
-                                  Print
-                                </button>
-                              </>
-                            ),
-                          },
-                          {
-                            key: "sp_schedule",
-                            icon: "◎",
-                            title: "SP Schedule",
-                            detail: "Staff-facing room assignment view",
-                            status: scheduleCompleted ? "complete" : scheduleInProgress ? "draft" : "missing",
-                            actions: (
-                              <>
-                                <button
-                                  type="button"
-                                  onClick={() => handleOpenEventScheduleRouteInNewTab("sp", "schedule")}
-                                  style={{ ...buttonStyle, padding: "7px 10px" }}
-                                >
-                                  Open
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handlePrintEventSchedulePreview("sp", "schedule")}
-                                  style={{ ...buttonStyle, padding: "7px 10px" }}
-                                >
-                                  Print
-                                </button>
-                              </>
-                            ),
-                          },
-                          {
-                            key: "time_ticket",
-                            icon: "⌁",
-                            title: "Faculty / SimOps Time Ticket",
-                            detail: "Compact timing and flow view",
-                            status: scheduleCompleted ? "complete" : scheduleInProgress ? "draft" : "missing",
-                            actions: (
-                              <>
-                                <button
-                                  type="button"
-                                  onClick={() => handleOpenEventScheduleRouteInNewTab("timeline", "ticket")}
-                                  style={{ ...buttonStyle, padding: "7px 10px" }}
-                                >
-                                  Open
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handlePrintEventSchedulePreview("timeline", "ticket")}
-                                  style={{ ...buttonStyle, padding: "7px 10px" }}
-                                >
-                                  Print
-                                </button>
-                              </>
-                            ),
-                          },
-                          {
-                            key: "materials",
-                            icon: "⎘",
-                            title: "Materials",
-                            detail: eventMaterialName || "Event materials not uploaded",
-                            status: eventMaterialUrl ? "available" : "missing",
-                            actions: (
-                              <>
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    openMaterialPreview({
-                                      title: "Event Material",
-                                      rawUrl: eventMaterialUrl,
-                                      storagePath: eventMaterialStoragePath,
-                                      fileName: eventMaterialName,
-                                    })
-                                  }
-                                  disabled={!eventMaterialUrl}
-                                  style={{ ...buttonStyle, padding: "7px 10px", opacity: eventMaterialUrl ? 1 : 0.55 }}
-                                >
-                                  Preview
-                                </button>
-                                {eventMaterialDownloadUrl ? (
-                                  <a
-                                    href={eventMaterialDownloadUrl}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "7px 10px" }}
-                                  >
-                                    Download
-                                  </a>
-                                ) : null}
-                              </>
-                            ),
-                          },
-                          {
-                            key: "recording",
-                            icon: "◉",
-                            title: "Recording Link",
-                            detail: recordingGuideUrl ? getFilenameFromUrl(recordingGuideUrl) || "Recording link ready" : "No recording link posted",
-                            status: recordingGuideUrl ? "available" : "missing",
-                            actions: (
-                              <>
-                                {recordingGuideUrl ? (
-                                  <a
-                                    href={recordingGuideUrl}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "7px 10px" }}
-                                  >
-                                    Open
-                                  </a>
-                                ) : null}
-                              </>
-                            ),
-                          },
-                          {
-                            key: "training_access",
-                            icon: "⟡",
-                            title: "Zoom / Training Link",
-                            detail: trainingAccessUrl ? trainingModalityLabel : "Training link missing",
-                            status: trainingAccessUrl ? "available" : trainingZoomRequired ? "missing" : "draft",
-                            actions: (
-                              <>
-                                {trainingAccessUrl ? (
-                                  <a
-                                    href={trainingAccessUrl}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "7px 10px" }}
-                                  >
-                                    Open
-                                  </a>
-                                ) : null}
-                              </>
-                            ),
-                          },
-                        ].map((resource) => {
-                          const statusStyle =
-                            resource.status === "complete"
+                                </a>
+                              ) : null}
+                            </>
+                          ),
+                        },
+                      ].map((resource) => {
+                        const statusStyle =
+                          resource.status === "complete"
+                            ? {
+                                background: planningSuccessBackground,
+                                border: planningSuccessBorder,
+                                color: planningSuccessText,
+                              }
+                            : resource.status === "available"
                               ? {
-                                  background: planningSuccessBackground,
-                                  border: planningSuccessBorder,
-                                  color: planningSuccessText,
+                                  background: "rgba(219, 234, 254, 0.72)",
+                                  border: "1px solid rgba(73, 168, 255, 0.22)",
+                                  color: "#1d4ed8",
                                 }
-                              : resource.status === "available"
+                              : resource.status === "draft"
                                 ? {
-                                    background: "rgba(219, 234, 254, 0.72)",
-                                    border: "1px solid rgba(73, 168, 255, 0.22)",
-                                    color: "#1d4ed8",
+                                    background: "rgba(253, 230, 138, 0.18)",
+                                    border: "1px solid rgba(180, 83, 9, 0.22)",
+                                    color: "#b45309",
                                   }
-                                : resource.status === "draft"
-                                  ? {
-                                      background: "rgba(253, 230, 138, 0.18)",
-                                      border: "1px solid rgba(180, 83, 9, 0.22)",
-                                      color: "#b45309",
-                                    }
-                                  : {
-                                      background: commandCenterVisual.chipBackground,
-                                      border: commandChipStyle.border,
-                                      color: commandCenterVisual.chipText,
-                                    };
+                                : {
+                                    background: commandCenterVisual.chipBackground,
+                                    border: commandChipStyle.border,
+                                    color: commandCenterVisual.chipText,
+                                  };
 
-                          return (
-                            <div
-                              key={resource.key}
-                              style={{
-                                borderRadius: "16px",
-                                border: "1px solid rgba(99, 181, 217, 0.12)",
-                                background: isPlanningVisualMode
-                                  ? "linear-gradient(180deg, rgba(255,255,255,0.96) 0%, rgba(247, 251, 254, 0.96) 100%)"
-                                  : "rgba(255,255,255,0.03)",
-                                padding: "12px",
-                                display: "grid",
-                                gap: "10px",
-                              }}
-                            >
-                              <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "flex-start" }}>
-                                <div style={{ display: "flex", gap: "10px", alignItems: "flex-start", minWidth: 0 }}>
-                                  <span
-                                    style={{
-                                      width: "30px",
-                                      height: "30px",
-                                      borderRadius: "999px",
-                                      display: "inline-flex",
-                                      alignItems: "center",
-                                      justifyContent: "center",
-                                      background: "rgba(73, 168, 255, 0.12)",
-                                      border: "1px solid rgba(73, 168, 255, 0.18)",
-                                      color: "#145b96",
-                                      fontWeight: 900,
-                                      fontSize: "13px",
-                                      flexShrink: 0,
-                                    }}
-                                  >
-                                    {resource.icon}
-                                  </span>
-                                  <div style={{ minWidth: 0 }}>
-                                    <div style={{ color: commandCenterVisual.textColor, fontWeight: 900 }}>
-                                      {resource.title}
-                                    </div>
-                                    <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 700, lineHeight: 1.45 }}>
-                                      {resource.detail}
-                                    </div>
-                                  </div>
-                                </div>
+                        return (
+                          <div
+                            key={resource.key}
+                            style={{
+                              borderRadius: "16px",
+                              border: "1px solid rgba(99, 181, 217, 0.12)",
+                              background: isPlanningVisualMode
+                                ? "linear-gradient(180deg, rgba(255,255,255,0.96) 0%, rgba(247, 251, 254, 0.96) 100%)"
+                                : "rgba(255,255,255,0.03)",
+                              padding: "12px",
+                              display: "grid",
+                              gap: "10px",
+                            }}
+                          >
+                            <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "flex-start" }}>
+                              <div style={{ display: "flex", gap: "10px", alignItems: "flex-start", minWidth: 0 }}>
                                 <span
                                   style={{
-                                    ...commandChipStyle,
-                                    ...statusStyle,
+                                    width: "30px",
+                                    height: "30px",
+                                    borderRadius: "999px",
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    background: "rgba(73, 168, 255, 0.12)",
+                                    border: "1px solid rgba(73, 168, 255, 0.18)",
+                                    color: "#145b96",
+                                    fontWeight: 900,
+                                    fontSize: "13px",
+                                    flexShrink: 0,
                                   }}
                                 >
-                                  {resource.status}
+                                  {resource.icon}
                                 </span>
+                                <div style={{ minWidth: 0 }}>
+                                  <div style={{ color: commandCenterVisual.textColor, fontWeight: 900 }}>
+                                    {resource.title}
+                                  </div>
+                                  <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 700, lineHeight: 1.45 }}>
+                                    {resource.detail}
+                                  </div>
+                                </div>
                               </div>
-                              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                                {resource.actions}
-                              </div>
+                              <span
+                                style={{
+                                  ...commandChipStyle,
+                                  ...statusStyle,
+                                }}
+                              >
+                                {resource.status}
+                              </span>
                             </div>
-                          );
-                        })}
-                      </div>
+                            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                              {resource.actions}
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
-                </details>
-              </div>
-
-              {normalEventTrainingReadinessPanel}
+                </div>
+              </details>
 
               {!isPlanningVisualMode ? (
                 <>
