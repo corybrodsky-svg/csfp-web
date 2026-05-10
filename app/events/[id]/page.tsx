@@ -11708,6 +11708,14 @@ Cory`;
     }));
   }
 
+  const livePanelTitleText = "#ffffff";
+  const livePanelBodyText = "#e8f1f8";
+  const livePanelMutedText = "#cbd5e1";
+  const livePanelLabelText = "#d7efff";
+  const livePanelAccentText = "#7ee7db";
+  const livePanelCardBackground = "rgba(20, 36, 52, 0.92)";
+  const livePanelSubtleBackground = "rgba(255,255,255,0.075)";
+
   const liveCommandCenterPanel =
     canRunLiveEventMode && commandCenterMode === "live" ? (
       <section
@@ -11749,11 +11757,11 @@ Cory`;
             }}
           >
             <div>
-              <div style={{ ...statLabel, color: "#7ee7db" }}>Live Event Mode</div>
-              <div style={{ marginTop: "4px", color: "#f4fbff", fontSize: "24px", fontWeight: 900 }}>
+              <div style={{ ...statLabel, color: livePanelAccentText }}>Live Event Mode</div>
+              <div style={{ marginTop: "4px", color: livePanelTitleText, fontSize: "24px", fontWeight: 950 }}>
                 Event Command Station
               </div>
-              <div style={{ marginTop: "6px", color: "#9ed9d1", fontSize: "13px", fontWeight: 700 }}>
+              <div style={{ marginTop: "6px", color: livePanelBodyText, fontSize: "13px", fontWeight: 750 }}>
                 Run staffing, timing, and rotation flow from one operational view.
               </div>
             </div>
@@ -11805,11 +11813,11 @@ Cory`;
 	          >
 	            <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
 	              <div>
-	                <div style={{ ...statLabel, color: "#7ee7db" }}>Live Room Status Board</div>
-	                <div style={{ marginTop: "4px", color: "#f4fbff", fontSize: "20px", fontWeight: 900 }}>
+	                <div style={{ ...statLabel, color: livePanelAccentText }}>Live Room Status Board</div>
+	                <div style={{ marginTop: "4px", color: livePanelTitleText, fontSize: "20px", fontWeight: 950 }}>
 	                  {currentRotationRoundNumber !== null ? `Round ${currentRotationRoundNumber}` : currentLiveBlock?.label || "Stand by"}
 	                </div>
-	                <div style={{ marginTop: "4px", color: "#9ed9d1", fontSize: "13px", fontWeight: 700 }}>
+	                <div style={{ marginTop: "4px", color: livePanelBodyText, fontSize: "13px", fontWeight: 750 }}>
 	                  Room-by-room simulation status for the active rotation.
 	                </div>
 	              </div>
@@ -11847,7 +11855,7 @@ Cory`;
 	            </div>
 
 	            {currentLiveRoomBoardRows.length === 0 ? (
-	              <div style={{ color: "#9bb4c0", fontWeight: 700 }}>
+	              <div style={{ color: livePanelMutedText, fontWeight: 750 }}>
 	                No live rooms are active yet. Build the schedule and assign SPs to populate the room wall.
 	              </div>
 	            ) : (
@@ -11867,7 +11875,7 @@ Cory`;
 	                      style={{
 	                        borderRadius: "16px",
 	                        border: statusAppearance.border,
-	                        background: "rgba(13, 27, 42, 0.92)",
+	                        background: livePanelCardBackground,
 	                        padding: "12px 14px",
 	                        display: "grid",
 	                        gap: "10px",
@@ -11876,8 +11884,8 @@ Cory`;
 	                    >
 	                      <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
 	                        <div>
-	                          <div style={{ color: "#f4fbff", fontWeight: 900, fontSize: "17px" }}>{row.roomName}</div>
-	                          <div style={{ marginTop: "4px", color: "#9ed9d1", fontSize: "12px", fontWeight: 700 }}>
+	                          <div style={{ color: livePanelTitleText, fontWeight: 950, fontSize: "17px" }}>{row.roomName}</div>
+	                          <div style={{ marginTop: "4px", color: livePanelBodyText, fontSize: "12px", fontWeight: 750 }}>
 	                            {row.sp ? getFullName(row.sp) : "SP TBD"}
 	                          </div>
 	                        </div>
@@ -11923,17 +11931,17 @@ Cory`;
 	                          gap: "8px",
 	                        }}
 	                      >
-	                        <div style={{ ...statCard, background: "rgba(255,255,255,0.04)" }}>
-	                          <div style={{ ...statLabel, color: "#89b7c4" }}>Learner</div>
-	                          <div style={{ color: "#f4fbff", fontWeight: 800, fontSize: "14px" }}>{row.learnerLabel}</div>
+	                        <div style={{ ...statCard, background: livePanelSubtleBackground }}>
+	                          <div style={{ ...statLabel, color: livePanelLabelText }}>Learner</div>
+	                          <div style={{ color: livePanelTitleText, fontWeight: 850, fontSize: "14px" }}>{row.learnerLabel}</div>
 	                        </div>
-	                        <div style={{ ...statCard, background: "rgba(255,255,255,0.04)" }}>
-	                          <div style={{ ...statLabel, color: "#89b7c4" }}>Time Remaining</div>
-	                          <div style={{ color: "#f4fbff", fontWeight: 800, fontSize: "14px" }}>{row.timeRemainingLabel}</div>
+	                        <div style={{ ...statCard, background: livePanelSubtleBackground }}>
+	                          <div style={{ ...statLabel, color: livePanelLabelText }}>Time Remaining</div>
+	                          <div style={{ color: livePanelTitleText, fontWeight: 850, fontSize: "14px" }}>{row.timeRemainingLabel}</div>
 	                        </div>
-	                        <div style={{ ...statCard, background: "rgba(255,255,255,0.04)" }}>
-	                          <div style={{ ...statLabel, color: "#89b7c4" }}>Issue</div>
-	                          <div style={{ color: hasIssue ? "#fecaca" : "#cbd5e1", fontWeight: 800, fontSize: "14px" }}>
+	                        <div style={{ ...statCard, background: livePanelSubtleBackground }}>
+	                          <div style={{ ...statLabel, color: livePanelLabelText }}>Issue</div>
+	                          <div style={{ color: hasIssue ? "#fecaca" : livePanelBodyText, fontWeight: 850, fontSize: "14px" }}>
 	                            {hasIssue ? "Flagged" : "Clear"}
 	                          </div>
 	                        </div>
@@ -12082,25 +12090,25 @@ Cory`;
                     detail: currentLiveBlock
                       ? formatMinuteRange(currentLiveBlock.startMinutes, currentLiveBlock.endMinutes)
                       : summaryTimeLabel,
-                    color: "#f4fbff",
+                    color: livePanelTitleText,
                   },
                   {
                     label: isTrainingMode ? "Training clock" : "Event clock",
                     value: activeLiveCountdownClock.label,
                     detail: activeLiveCountdownTarget?.targetTimeLabel || "Countdown unavailable",
-                    color: "#f4fbff",
+                    color: livePanelTitleText,
                   },
                   {
                     label: "Rooms in use",
                     value: String(liveVisibleRoomCount || 0),
                     detail: "active rooms",
-                    color: "#d9ebff",
+                    color: livePanelBodyText,
                   },
                   {
                     label: "Staffed",
                     value: `${liveBlueprintStaffedCount}/${liveVisibleRoomCount || 0}`,
                     detail: "mapped SPs",
-                    color: liveBlueprintStaffedCount > 0 ? "#9ff5df" : "#9ed9d1",
+                    color: liveBlueprintStaffedCount > 0 ? "#9ff5df" : livePanelBodyText,
                   },
                   {
                     label: "Checked in",
@@ -12112,13 +12120,13 @@ Cory`;
                     label: "Late",
                     value: String(liveBlueprintLateCount),
                     detail: liveBlueprintLateCount > 0 ? "watch list" : "clear",
-                    color: liveBlueprintLateCount > 0 ? "#f3bb67" : "#9ed9d1",
+                    color: liveBlueprintLateCount > 0 ? "#f3bb67" : livePanelBodyText,
                   },
                   {
                     label: "No-show",
                     value: String(liveBlueprintNoShowCount),
                     detail: liveBlueprintNoShowCount > 0 ? "coverage risk" : "clear",
-                    color: liveBlueprintNoShowCount > 0 ? "#fecaca" : "#9ed9d1",
+                    color: liveBlueprintNoShowCount > 0 ? "#fecaca" : livePanelBodyText,
                   },
                 ].map((item) => (
                   <div
@@ -12135,13 +12143,13 @@ Cory`;
                       alignContent: "center",
                     }}
                   >
-                    <div style={{ color: "#89b7c4", fontSize: "10px", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                    <div style={{ color: livePanelLabelText, fontSize: "10px", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.08em" }}>
                       {item.label}
                     </div>
                     <div style={{ color: item.color, fontSize: "15px", fontWeight: 950, lineHeight: 1.15, overflowWrap: "anywhere" }}>
                       {item.value}
                     </div>
-                    <div style={{ color: "#9ed9d1", fontSize: "10px", fontWeight: 750, lineHeight: 1.2, overflowWrap: "anywhere" }}>
+                    <div style={{ color: livePanelMutedText, fontSize: "10px", fontWeight: 750, lineHeight: 1.2, overflowWrap: "anywhere" }}>
                       {item.detail}
                     </div>
                   </div>
@@ -12209,8 +12217,8 @@ Cory`;
                 <div style={{ position: "relative", display: "grid", gap: "12px" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "flex-start" }}>
                     <div>
-                      <div style={{ ...statLabel, color: "#7ee7db" }}>Live Attendance Blueprint</div>
-                      <div style={{ marginTop: "4px", color: "#f4fbff", fontSize: "19px", fontWeight: 900 }}>
+                      <div style={{ ...statLabel, color: livePanelAccentText }}>Live Attendance Blueprint</div>
+                      <div style={{ marginTop: "4px", color: livePanelTitleText, fontSize: "19px", fontWeight: 950 }}>
                         Simulation Lab Occupancy
                       </div>
                       <div style={{ marginTop: "4px", color: "#dbeafe", fontSize: "12px", fontWeight: 750, lineHeight: 1.45 }}>
@@ -12390,8 +12398,8 @@ Cory`;
                                         }
                                       : {
                                           border: "1px solid rgba(126, 231, 219, 0.2)",
-                                          background: "rgba(5, 19, 32, 0.42)",
-                                          color: "#8fb5c2",
+                                          background: livePanelSubtleBackground,
+                                          color: livePanelMutedText,
                                           glow: "none",
                                         };
                             const isActionMenuOpen = activeBlueprintRoomKey === room.key;
@@ -12452,10 +12460,10 @@ Cory`;
                               >
                                 <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", alignItems: "flex-start" }}>
                                   <div style={{ minWidth: 0 }}>
-                                    <div style={{ color: "#7ee7db", fontSize: "10px", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                                    <div style={{ color: livePanelAccentText, fontSize: "10px", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.08em" }}>
                                       {room.roomName}
                                     </div>
-                                    <div style={{ marginTop: "4px", color: "#f4fbff", fontSize: "12px", fontWeight: 900, lineHeight: 1.25, overflowWrap: "anywhere" }}>
+                                    <div style={{ marginTop: "4px", color: livePanelTitleText, fontSize: "12px", fontWeight: 950, lineHeight: 1.25, overflowWrap: "anywhere" }}>
                                       {room.spName || "Open room"}
                                     </div>
                                     <div style={{ marginTop: "4px", color: "#dbeafe", fontSize: "10px", fontWeight: 800, lineHeight: 1.35, overflowWrap: "anywhere" }}>
@@ -12674,7 +12682,7 @@ Cory`;
                                     <span style={{ color: "#9ff5df", fontSize: "10px", fontWeight: 900 }}>Ready</span>
                                   ) : null}
                                   {room.checkedAt ? (
-                                    <span style={{ color: "#9ed9d1", fontSize: "10px", fontWeight: 800 }}>
+                                    <span style={{ color: livePanelBodyText, fontSize: "10px", fontWeight: 800 }}>
                                       {room.checkedAt}
                                     </span>
                                   ) : null}
@@ -12723,7 +12731,7 @@ Cory`;
 	                                    </span>
 	                                  </button>
                                 ) : (
-                                  <div style={{ marginTop: "8px", color: "#7da4b5", fontSize: "10px", fontWeight: 800 }}>
+                                  <div style={{ marginTop: "8px", color: livePanelMutedText, fontSize: "10px", fontWeight: 800 }}>
                                     Learner not assigned
                                   </div>
                                 )}
@@ -12767,15 +12775,15 @@ Cory`;
                                     }}
                                   >
                                     <div style={{ display: "grid", gap: "6px" }}>
-                                      <div style={{ color: "#f4fbff", fontSize: "11px", fontWeight: 900, lineHeight: 1.35 }}>
+                                      <div style={{ color: livePanelTitleText, fontSize: "11px", fontWeight: 950, lineHeight: 1.35 }}>
                                         {room.assignment ? room.spName || "Assigned SP" : "Empty SP slot"}
                                       </div>
-                                      <div style={{ color: "#9ed9d1", fontSize: "10px", fontWeight: 850, lineHeight: 1.35 }}>
+                                      <div style={{ color: livePanelBodyText, fontSize: "10px", fontWeight: 850, lineHeight: 1.35 }}>
                                         {room.assignment
                                           ? `${room.statusLabel} · ${room.assignmentSource === "restored" ? "Restored live mapping" : room.assignmentSource === "auto" ? "Auto-mapped for live display" : "Mapped room assignment"}`
                                           : "No SP is currently mapped to this visible room. Restore a confirmed SP without changing saved staffing data."}
                                       </div>
-                                      <div style={{ color: "#89b7c4", fontSize: "10px", fontWeight: 800, lineHeight: 1.35 }}>
+                                      <div style={{ color: livePanelMutedText, fontSize: "10px", fontWeight: 800, lineHeight: 1.35 }}>
                                         Learner: {room.learnerLabel || "Learner not assigned"} · Case: {room.encounterLabel || "Case not assigned"}
                                       </div>
                                     </div>
@@ -13049,7 +13057,7 @@ Cory`;
                                             padding: "6px 8px",
                                             fontSize: "11px",
                                             background: "rgba(255,255,255,0.06)",
-                                            color: room.assignmentSource === "restored" ? "#d6edf4" : "#7da4b5",
+                                            color: room.assignmentSource === "restored" ? livePanelBodyText : livePanelMutedText,
                                             border: "1px solid rgba(255,255,255,0.12)",
                                             opacity: attendanceSaving || room.assignmentSource !== "restored" ? 0.55 : 1,
                                           }}
@@ -13074,7 +13082,7 @@ Cory`;
                                           Preview Case
                                         </button>
                                       ) : (
-                                        <span style={{ color: "#7da4b5", fontSize: "10px", fontWeight: 800 }}>
+                                        <span style={{ color: livePanelMutedText, fontSize: "10px", fontWeight: 800 }}>
                                           No case assigned
                                         </span>
                                       )}
@@ -13120,8 +13128,8 @@ Cory`;
                       }}
                     >
                       <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
-                        <div style={{ ...statLabel, color: "#7ee7db" }}>Learner Arrival Rail</div>
-                        <span style={{ color: "#89b7c4", fontSize: "11px", fontWeight: 800 }}>
+                        <div style={{ ...statLabel, color: livePanelAccentText }}>Learner Arrival Rail</div>
+                        <span style={{ color: livePanelMutedText, fontSize: "11px", fontWeight: 800 }}>
                           {liveLearnerPresenceTokens.length} learner assignment{liveLearnerPresenceTokens.length === 1 ? "" : "s"} in active flow
                         </span>
                       </div>
@@ -13201,7 +13209,7 @@ Cory`;
                                     <span className="cfsp-presence-leg cfsp-presence-leg-back" />
                                     <span className="cfsp-presence-step" />
                                   </span>
-  	                              <span style={{ color: "#f4fbff", fontSize: "11px", fontWeight: 800 }}>
+  	                              <span style={{ color: livePanelTitleText, fontSize: "11px", fontWeight: 850 }}>
   	                                {token.learnerName}
   	                              </span>
   	                              <span style={{ color: tone.color, fontSize: "10px", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.06em" }}>
@@ -13253,9 +13261,9 @@ Cory`;
                     }}
                   >
                     <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
-                      <div style={{ ...statLabel, color: "#7ee7db" }}>Live Attendance Log</div>
+                      <div style={{ ...statLabel, color: livePanelAccentText }}>Live Attendance Log</div>
                       <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
-                        <span style={{ color: "#89b7c4", fontSize: "11px", fontWeight: 800 }}>
+                        <span style={{ color: livePanelMutedText, fontSize: "11px", fontWeight: 800 }}>
                           {liveVisibleRoomCount} rooms • {liveBlueprintStaffedCount} staffed SP{liveBlueprintStaffedCount === 1 ? "" : "s"} • {liveBlueprintCheckedCount} checked in
                         </span>
                         <button
@@ -13284,9 +13292,9 @@ Cory`;
                         <span style={{ color: "#d6edf4", fontSize: "12px", fontWeight: 800 }}>
                           {liveBlueprintCheckedCount} / {liveBlueprintStaffedCount} checked in
                         </span>
-                        <span style={{ color: "#9ed9d1", fontSize: "12px", fontWeight: 800 }}>0 late</span>
-                        <span style={{ color: "#9ed9d1", fontSize: "12px", fontWeight: 800 }}>0 no-show</span>
-                        <span style={{ color: "#9ed9d1", fontSize: "12px", fontWeight: 800 }}>Room coverage ready</span>
+                        <span style={{ color: livePanelBodyText, fontSize: "12px", fontWeight: 800 }}>0 late</span>
+                        <span style={{ color: livePanelBodyText, fontSize: "12px", fontWeight: 800 }}>0 no-show</span>
+                        <span style={{ color: livePanelBodyText, fontSize: "12px", fontWeight: 800 }}>Room coverage ready</span>
                       </div>
                     ) : liveAttendanceLogRows.length ? (
                       <div style={{ display: "grid", gap: "6px" }}>
@@ -13314,10 +13322,10 @@ Cory`;
                               }}
                             >
                               <div style={{ minWidth: 0 }}>
-                                <div style={{ color: "#f4fbff", fontWeight: 900, fontSize: "12px", overflowWrap: "anywhere" }}>
+                                <div style={{ color: livePanelTitleText, fontWeight: 950, fontSize: "12px", overflowWrap: "anywhere" }}>
                                   {entry.spName}
                                 </div>
-                                <div style={{ marginTop: "2px", color: "#89b7c4", fontSize: "11px", fontWeight: 700 }}>
+                                <div style={{ marginTop: "2px", color: livePanelMutedText, fontSize: "11px", fontWeight: 750 }}>
                                   {entry.roomName}{entry.checkedAt ? ` - ${entry.checkedAt}` : ""}
                                 </div>
                               </div>
@@ -13329,7 +13337,7 @@ Cory`;
                         })}
                       </div>
                     ) : (
-                      <div style={{ color: "#9bb4c0", fontWeight: 700, fontSize: "13px" }}>
+                      <div style={{ color: livePanelMutedText, fontWeight: 750, fontSize: "13px" }}>
                         No SPs are mapped yet. Check-ins will appear here as the room wall populates.
                       </div>
                     )}
@@ -13339,7 +13347,7 @@ Cory`;
 
               <div style={{ display: "grid", gap: "8px" }}>
                 {!liveAttendanceToolsExpanded && liveAttendanceAllPrimaryArrived ? null : currentLiveAssignmentRows.length === 0 ? (
-                  <div style={{ color: "#9bb4c0", fontWeight: 700 }}>
+                  <div style={{ color: livePanelMutedText, fontWeight: 750 }}>
                     No active rotation assignments mapped yet. Use the schedule and staffing tools below to complete the live board.
                   </div>
                 ) : (
@@ -13374,11 +13382,11 @@ Cory`;
                       >
                         <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap" }}>
                           <div style={{ minWidth: 0 }}>
-                            <div style={{ color: "#f4fbff", fontWeight: 900 }}>{resolvedRoomName}</div>
-                            <div style={{ marginTop: "4px", color: "#d6edf4", fontWeight: 800 }}>
+                            <div style={{ color: livePanelTitleText, fontWeight: 950 }}>{resolvedRoomName}</div>
+                            <div style={{ marginTop: "4px", color: livePanelBodyText, fontWeight: 850 }}>
                               {getFullName(sp)}
                             </div>
-                            <div style={{ marginTop: "4px", color: "#89b7c4", fontSize: "13px", fontWeight: 700 }}>
+                            <div style={{ marginTop: "4px", color: livePanelMutedText, fontSize: "13px", fontWeight: 750 }}>
                               {[getEmail(sp), sp.phone].filter(Boolean).join(" · ") || "No contact info"}
                             </div>
                           </div>
@@ -13476,7 +13484,7 @@ Cory`;
                 }}
               >
                 <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
-                  <div style={{ ...statLabel, color: "#7ee7db" }}>Next Announcement</div>
+                  <div style={{ ...statLabel, color: livePanelAccentText }}>Next Announcement</div>
                   {liveAnnouncementQueue[0] ? (
                     <span style={{ ...commandChipStyle, background: "rgba(126, 231, 219, 0.14)", color: "#9ff5df" }}>
                       {liveAnnouncementQueue[0].countdownLabel}
@@ -13496,10 +13504,10 @@ Cory`;
                           gap: "3px",
                         }}
                       >
-                        <div style={{ color: "#89b7c4", fontSize: "10px", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                        <div style={{ color: livePanelLabelText, fontSize: "10px", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.08em" }}>
                           Current Callout
                         </div>
-                        <div style={{ color: "#d6edf4", fontSize: "11px", fontWeight: 800 }}>
+                        <div style={{ color: livePanelBodyText, fontSize: "11px", fontWeight: 850 }}>
                           {getLiveFlowAnnouncementCopy(currentLiveBlock)}
                         </div>
                       </div>
@@ -13514,10 +13522,10 @@ Cory`;
                         gap: "4px",
                       }}
                     >
-                      <div style={{ color: "#f4fbff", fontWeight: 900, fontSize: "14px" }}>
+                      <div style={{ color: livePanelTitleText, fontWeight: 950, fontSize: "14px" }}>
                         {liveAnnouncementQueue[0].announcementText}
                       </div>
-                      <div style={{ color: "#9ed9d1", fontSize: "11px", fontWeight: 800 }}>
+                      <div style={{ color: livePanelMutedText, fontSize: "11px", fontWeight: 800 }}>
                         {liveAnnouncementQueue[0].label} • {formatMinuteRange(liveAnnouncementQueue[0].startMinutes, liveAnnouncementQueue[0].endMinutes)}
                       </div>
                     </div>
@@ -13540,10 +13548,10 @@ Cory`;
                             border: "1px solid rgba(255,255,255,0.08)",
                           }}
                         >
-                          <span style={{ color: "#d6edf4", fontSize: "11px", fontWeight: 800 }}>
+                          <span style={{ color: livePanelBodyText, fontSize: "11px", fontWeight: 850 }}>
                             {item.announcementText}
                           </span>
-                          <span style={{ color: "#89b7c4", fontSize: "10px", fontWeight: 900, whiteSpace: "nowrap" }}>
+                          <span style={{ color: livePanelMutedText, fontSize: "10px", fontWeight: 900, whiteSpace: "nowrap" }}>
                             {item.countdownLabel}
                           </span>
                         </button>
@@ -13551,7 +13559,7 @@ Cory`;
                     </div>
                   </>
                 ) : (
-                  <div style={{ color: "#9bb4c0", fontWeight: 700, fontSize: "12px", lineHeight: 1.4 }}>
+                  <div style={{ color: livePanelMutedText, fontWeight: 750, fontSize: "12px", lineHeight: 1.4 }}>
                     Build a schedule to generate live operational announcements.
                   </div>
                 )}
@@ -13567,9 +13575,9 @@ Cory`;
                   gap: "8px",
                 }}
               >
-                <div style={{ ...statLabel, color: "#7ee7db" }}>Operational Alerts</div>
+                <div style={{ ...statLabel, color: livePanelAccentText }}>Operational Alerts</div>
                 {liveAlerts.length === 0 ? (
-                  <div style={{ color: "#9bb4c0", fontWeight: 700, fontSize: "12px", lineHeight: 1.4 }}>
+                  <div style={{ color: livePanelMutedText, fontWeight: 750, fontSize: "12px", lineHeight: 1.4 }}>
                     No live alerts. Timeline and staffing are stable right now.
                   </div>
                 ) : (
@@ -13619,7 +13627,7 @@ Cory`;
                 }}
               >
                 <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
-                  <div style={{ ...statLabel, color: "#7ee7db" }}>Live Flow</div>
+                  <div style={{ ...statLabel, color: livePanelAccentText }}>Live Flow</div>
                   <button
                     type="button"
                     onClick={() => {
@@ -13631,7 +13639,7 @@ Cory`;
                   </button>
                 </div>
                 {liveFlowBlocks.length === 0 ? (
-                  <div style={{ color: "#9bb4c0", fontWeight: 700 }}>
+                  <div style={{ color: livePanelMutedText, fontWeight: 750 }}>
                     Build a schedule to unlock the live flow rail.
                   </div>
                 ) : (
@@ -13647,16 +13655,16 @@ Cory`;
                         boxShadow: "0 0 0 1px rgba(126, 231, 219, 0.08), 0 14px 28px rgba(4, 14, 26, 0.22)",
                       }}
                     >
-                      <div style={{ color: "#7ee7db", fontSize: "11px", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                      <div style={{ color: livePanelAccentText, fontSize: "11px", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.08em" }}>
                         Now
                       </div>
-                      <div style={{ color: "#f4fbff", fontSize: "20px", fontWeight: 900 }}>
+                      <div style={{ color: livePanelTitleText, fontSize: "20px", fontWeight: 950 }}>
                         {currentLiveBlock?.label || "Awaiting first live block"}
                       </div>
-                      <div style={{ color: "#d6edf4", fontWeight: 800 }}>
+                      <div style={{ color: livePanelBodyText, fontWeight: 850 }}>
                         {currentLiveBlock ? formatMinuteRange(currentLiveBlock.startMinutes, currentLiveBlock.endMinutes) : summaryTimeLabel}
                       </div>
-                      <div style={{ color: "#9ed9d1", fontSize: "13px", fontWeight: 800 }}>
+                      <div style={{ color: livePanelMutedText, fontSize: "13px", fontWeight: 800 }}>
                         {currentLiveBlock
                           ? `${formatRemainingMinutes(Math.max(currentLiveBlock.endMinutes - simulatedLiveMinutes, 0))} remaining`
                           : "Stand by for the first scheduled block"}
@@ -13665,7 +13673,7 @@ Cory`;
 
                     <div style={{ display: "grid", gap: "10px" }}>
                       <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
-                        <div style={{ color: "#89b7c4", fontSize: "11px", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                        <div style={{ color: livePanelLabelText, fontSize: "11px", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.08em" }}>
                           Live Flow Rail
                         </div>
                         <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
@@ -13779,14 +13787,14 @@ Cory`;
                               }}
                             >
                               <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", alignItems: "flex-start" }}>
-                                <div style={{ color, fontSize: "11px", fontWeight: 900, lineHeight: 1.2, overflowWrap: "anywhere" }}>
+                                <div style={{ color, fontSize: "11px", fontWeight: 950, lineHeight: 1.2, overflowWrap: "anywhere" }}>
                                   {label}
                                 </div>
-                                <div style={{ color: isCompleted ? "#b8e4d4" : isCurrent ? "#7ee7db" : "#89b7c4", fontSize: "11px", fontWeight: 900 }}>
+                                <div style={{ color: isCompleted ? "#b8e4d4" : isCurrent ? livePanelAccentText : livePanelMutedText, fontSize: "11px", fontWeight: 900 }}>
                                   {isCompleted ? "✓" : isCurrent ? "Now" : isUpcoming ? "Next" : ""}
                                 </div>
                               </div>
-                              <div style={{ color: "#d6edf4", fontSize: "10px", fontWeight: 800 }}>
+                              <div style={{ color: livePanelBodyText, fontSize: "10px", fontWeight: 800 }}>
                                 {formatMinuteRange(block.startMinutes, block.endMinutes)}
                               </div>
                             </button>
@@ -13815,14 +13823,14 @@ Cory`;
                         >
                           <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
                             <div>
-                              <div style={{ color: "#7ee7db", fontSize: "11px", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                              <div style={{ color: livePanelAccentText, fontSize: "11px", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.08em" }}>
                                 {selectedLiveFlowRelation === "current"
                                   ? "Current block"
                                   : selectedLiveFlowRelation === "completed"
                                     ? "Completed block"
                                     : "Upcoming block"}
                               </div>
-                              <div style={{ marginTop: "4px", color: "#f4fbff", fontSize: "17px", fontWeight: 900 }}>
+                              <div style={{ marginTop: "4px", color: livePanelTitleText, fontSize: "17px", fontWeight: 950 }}>
                                 {selectedLiveFlowBlock.label}
                               </div>
                             </div>
@@ -13832,18 +13840,18 @@ Cory`;
                           </div>
                           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "8px" }}>
                             <div>
-                              <div style={{ ...statLabel, color: "#89b7c4" }}>Duration</div>
-                              <div style={{ color: "#f4fbff", fontWeight: 800 }}>{selectedLiveFlowBlock.detail}</div>
+                              <div style={{ ...statLabel, color: livePanelLabelText }}>Duration</div>
+                              <div style={{ color: livePanelTitleText, fontWeight: 850 }}>{selectedLiveFlowBlock.detail}</div>
                             </div>
                             <div>
-                              <div style={{ ...statLabel, color: "#89b7c4" }}>Round</div>
-                              <div style={{ color: "#f4fbff", fontWeight: 800 }}>
+                              <div style={{ ...statLabel, color: livePanelLabelText }}>Round</div>
+                              <div style={{ color: livePanelTitleText, fontWeight: 850 }}>
                                 {selectedLiveFlowBlock.roundNumber ? `Round ${selectedLiveFlowBlock.roundNumber}` : "Day-wide"}
                               </div>
                             </div>
                             <div>
-                              <div style={{ ...statLabel, color: "#89b7c4" }}>Status</div>
-                              <div style={{ color: "#f4fbff", fontWeight: 800 }}>
+                              <div style={{ ...statLabel, color: livePanelLabelText }}>Status</div>
+                              <div style={{ color: livePanelTitleText, fontWeight: 850 }}>
                                 {selectedLiveFlowRelation === "current"
                                   ? `${formatRemainingMinutes(Math.max(selectedLiveFlowBlock.endMinutes - simulatedLiveMinutes, 0))} remaining`
                                   : selectedLiveFlowRelation === "completed"
@@ -13853,12 +13861,12 @@ Cory`;
                             </div>
                           </div>
                           {selectedLiveFlowBlock.note ? (
-                            <div style={{ color: "#9ed9d1", fontSize: "12px", fontWeight: 700 }}>
+                            <div style={{ color: livePanelBodyText, fontSize: "12px", fontWeight: 750 }}>
                               {selectedLiveFlowBlock.note}
                             </div>
                           ) : null}
                           {selectedLiveFlowAnnouncementText ? (
-                            <div style={{ color: "#d6edf4", fontSize: "12px", fontWeight: 700 }}>
+                            <div style={{ color: livePanelBodyText, fontSize: "12px", fontWeight: 750 }}>
                               Announcement: {selectedLiveFlowAnnouncementText}
                             </div>
                           ) : null}
@@ -13881,7 +13889,7 @@ Cory`;
                                 {(selectedLiveFlowBlock.rooms.length || liveVisibleRoomCount) === 1 ? "" : "s"}
                               </span>
                             ) : (
-                              <span style={{ ...commandChipStyle, background: "rgba(255,255,255,0.04)", color: "#9bb4c0" }}>
+                              <span style={{ ...commandChipStyle, background: "rgba(255,255,255,0.08)", color: livePanelMutedText }}>
                                 Whole-event block
                               </span>
                             )}
@@ -14675,7 +14683,7 @@ Cory`;
                 <div style={{ marginTop: "4px", color: isPlanningVisualMode ? planningSuccessText : "#f4fbff", fontWeight: 900, fontSize: "18px" }}>
                   {needed} needed · {confirmedCount} confirmed · {coverageRiskTone === "green" ? "Coverage met" : staffingHealthLabel}
                 </div>
-                <div style={{ marginTop: "6px", color: isPlanningVisualMode ? "#166534" : "#9ed9d1", fontWeight: 700, fontSize: "13px" }}>
+                <div style={{ marginTop: "6px", color: isPlanningVisualMode ? "#166534" : livePanelBodyText, fontWeight: 750, fontSize: "13px" }}>
                   {isPlanningVisualMode
                     ? staffingEmailWorkflowDetail || "Coverage complete"
                     : `${liveBlueprintCheckedCount}/${liveBlueprintStaffedCount || confirmedCount} checked in · ${liveBlueprintNoShowCount} no-show · ${backupCount} backup`}
@@ -18533,7 +18541,7 @@ Cory`;
                                       fontWeight: 900,
                                       fontSize: resource.featured ? "14px" : "13px",
                                       letterSpacing: "0.04em",
-                                      textShadow: isCommandFileCabinetSimpleView ? "0 1px 0 rgba(255,255,255,0.72)" : "0 1px 0 rgba(6, 12, 20, 0.95), 0 0 1px rgba(6, 12, 20, 0.9)",
+                                      textShadow: "none",
                                     }}
                                   >
                                     {resource.title}
@@ -18541,11 +18549,11 @@ Cory`;
                                   <div
                                     style={{
                                       marginTop: "4px",
-                                      color: isCommandFileCabinetSimpleView ? "#456377" : "#d9edf6",
+                                      color: isCommandFileCabinetSimpleView ? "#35586f" : commandCenterVisual.mutedColor,
                                       fontSize: "11px",
                                       fontWeight: 800,
                                       lineHeight: 1.42,
-                                      textShadow: isCommandFileCabinetSimpleView ? "none" : "0 1px 0 rgba(6, 12, 20, 0.9)",
+                                      textShadow: "none",
                                     }}
                                   >
                                     {resource.detail}
