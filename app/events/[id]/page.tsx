@@ -365,6 +365,9 @@ type WorkflowReadinessGroup = {
   items: WorkflowReadinessItem[];
 };
 
+type PlanningWindowKey = "event-status" | "staffing-training" | "operations-support" | "materials-communications";
+type OperationalStatusTone = "ready" | "attention" | "critical" | "info";
+
 type TrainingImportResult = {
   eventTitle: string;
   matchedAssigned: string[];
@@ -3581,6 +3584,12 @@ export default function EventDetailPage() {
   const [contactPanelExpanded, setContactPanelExpanded] = useState(false);
   const [staffingCommandCenterExpanded, setStaffingCommandCenterExpanded] = useState(true);
   const [trainingReadinessExpanded, setTrainingReadinessExpanded] = useState(true);
+  const [planningWindowExpanded, setPlanningWindowExpanded] = useState<Record<PlanningWindowKey, boolean>>({
+    "event-status": true,
+    "staffing-training": false,
+    "operations-support": false,
+    "materials-communications": false,
+  });
   const [showPushRelatedPanel, setShowPushRelatedPanel] = useState(false);
   const [relatedKeyword, setRelatedKeyword] = useState("");
   const [relatedMustInclude, setRelatedMustInclude] = useState("");
@@ -8163,6 +8172,7 @@ Cory`;
     label: string;
     value: string;
     detail?: string;
+    tone?: OperationalStatusTone;
     actions?: React.ReactNode;
   }> = [
     ...(staffingRelevant
@@ -8171,6 +8181,7 @@ Cory`;
             key: "coverage",
             label: "Coverage",
             value: needed > 0 ? `${confirmedCount}/${needed} primary confirmed` : `${confirmedCount} confirmed`,
+            tone: (staffingReadinessStatus === "Ready" ? "ready" : "attention") as OperationalStatusTone,
             detail:
               backupCount > 0
                 ? `${backupCount} backup selected as optional support.`
@@ -8180,6 +8191,7 @@ Cory`;
             key: "staffing_health",
             label: "Staffing health",
             value: staffingHealthLabel,
+            tone: (coverageRiskTone === "green" ? "ready" : coverageRiskTone === "red" ? "critical" : "attention") as OperationalStatusTone,
             detail: coverageRiskTone === "green" ? "Coverage target is met." : `Short by ${Math.max(needed - confirmedCount, 0)} primary.`,
           },
         ]
@@ -8188,6 +8200,14 @@ Cory`;
       key: "training",
       label: "Training",
       value: eventSummaryTrainingValue,
+      tone: (
+        trainingReadinessStatus === "Ready"
+          ? "ready"
+          : trainingReadinessStatus === "Blocked"
+            ? "critical"
+            : trainingReadinessStatus === "Needs Action"
+              ? "attention"
+              : "info") as OperationalStatusTone,
       detail: eventSummaryTrainingSubvalue || normalEventTrainingTimelineLabel,
     },
     ...(!trainingNotRequired
@@ -8196,6 +8216,7 @@ Cory`;
             key: "attendance",
             label: "Attendance",
             value: normalEventTrainingAttendanceLabel,
+            tone: (trainingAttendanceReady ? "ready" : selectedStaffingCount > 0 ? "info" : "attention") as OperationalStatusTone,
             detail: `${selectedStaffingCount} selected SP${selectedStaffingCount === 1 ? "" : "s"} tracked for training readiness.`,
           },
         ]
@@ -8206,6 +8227,7 @@ Cory`;
             key: "faculty",
             label: "Faculty coordination",
             value: facultyTrainingCoordinationLabel,
+            tone: (facultyReadinessComplete || facultyTrainingCoordinationSent ? "ready" : facultyTrainingCoordinationRequested ? "info" : "attention") as OperationalStatusTone,
             detail: facultyContactSummary || facultyReadinessLabel,
           },
         ]
@@ -8216,6 +8238,7 @@ Cory`;
     label: string;
     value: string;
     detail?: string;
+    tone?: OperationalStatusTone;
     actions?: React.ReactNode;
   }> = [
     ...(recordingSupportActive || Boolean(recordingGuideUrl)
@@ -8224,6 +8247,12 @@ Cory`;
             key: "recording",
             label: "Recording",
             value: recordingStatus.label,
+            tone: (
+              recordingReadinessStatus === "Ready"
+                ? "ready"
+                : recordingReadinessStatus === "Needs Action"
+                  ? "attention"
+                  : "info") as OperationalStatusTone,
             detail: recordingIndicatorLabel,
           },
         ]
@@ -8234,6 +8263,7 @@ Cory`;
             key: "zoom",
             label: "Zoom / logistics",
             value: trainingAccessUrl ? `${trainingModalityLabel} link ready` : trainingZoomRequired ? "Training link needed" : trainingModalityLabel,
+            tone: (trainingAccessUrl ? "ready" : trainingZoomRequired ? "attention" : "info") as OperationalStatusTone,
             detail: trainingZoomRequired ? "Training logistics depend on the access link." : "Virtual logistics are optional for this event.",
           },
         ]
@@ -8242,6 +8272,7 @@ Cory`;
       key: `support-${index}`,
       label: "Support need",
       value: item.label,
+      tone: "attention" as OperationalStatusTone,
       detail: "Surface this only because it affects live execution or staffing support.",
     })),
     ...(eventRiskLevel.tone !== "green"
@@ -8250,6 +8281,7 @@ Cory`;
             key: "risk",
             label: "Risk watch",
             value: eventRiskLevel.label,
+            tone: (eventRiskLevel.tone === "red" ? "critical" : "attention") as OperationalStatusTone,
             detail: eventRiskLevel.detail,
           },
         ]
@@ -8260,12 +8292,21 @@ Cory`;
     label: string;
     value: string;
     detail?: string;
+    tone?: OperationalStatusTone;
     actions?: React.ReactNode;
   }> = [
     {
       key: "materials",
       label: "Materials",
       value: materialsStatusLabel,
+      tone: (
+        materialsWorkflowStatus === "Ready"
+          ? "ready"
+          : materialsWorkflowStatus === "Needs Action"
+            ? "attention"
+            : materialsWorkflowStatus === "Blocked"
+              ? "critical"
+              : "info") as OperationalStatusTone,
       detail: eventMaterialName || (hasUploadedEventMaterial ? "Event material uploaded." : "No staff-facing event material uploaded yet."),
       actions: (
         <>
@@ -8304,6 +8345,7 @@ Cory`;
             key: "case",
             label: "Case",
             value: caseFileDisplayName || "Case uploaded",
+            tone: (caseFileUrl ? "ready" : caseFileDisplayName ? "info" : "attention") as OperationalStatusTone,
             detail: "Keep the room-facing encounter packet close to the schedule.",
             actions: (
               <>
@@ -8344,6 +8386,7 @@ Cory`;
             key: "hiring_email",
             label: "Hiring email",
             value: hiringEmailSent ? "Hiring Email Sent" : hiringEmailDrafted ? "Hiring draft ready" : "Hiring not sent",
+            tone: (hiringEmailSent ? "ready" : hiringEmailDrafted ? "info" : "attention") as OperationalStatusTone,
             detail: hiringEmailSent ? hiringEmailSentAt || "Persisted in event metadata." : "Launch from the staffing workflow when outreach is ready.",
             actions: hiringEmailSent ? null : (
               <button
@@ -8364,6 +8407,7 @@ Cory`;
             key: "confirmation_email",
             label: "Confirmation",
             value: confirmationEmailSent ? "Confirmation Sent" : confirmationEmailDrafted ? "Confirmation draft ready" : "Confirmation pending",
+            tone: (confirmationEmailSent ? "ready" : confirmationEmailDrafted ? "info" : "attention") as OperationalStatusTone,
             detail: confirmationEmailSent ? confirmationEmailSentAt || "Persisted in event metadata." : "Use after primary SP assignments are confirmed.",
             actions: confirmationEmailSent ? null : (
               <button
@@ -8388,6 +8432,7 @@ Cory`;
             key: "faculty_request",
             label: "Faculty request",
             value: facultyTrainingCoordinationLabel,
+            tone: (facultyTrainingCoordinationSent ? "ready" : facultyTrainingCoordinationRequested ? "info" : "attention") as OperationalStatusTone,
             detail: facultyTrainingCoordinationSent
               ? "Faculty scheduling outreach is logged in the event metadata."
               : "Track faculty availability before training logistics are finalized.",
@@ -8422,6 +8467,7 @@ Cory`;
             key: "access",
             label: "Links",
             value: normalEventTrainingLink ? "Training access ready" : recordingGuideUrl ? "Recording link ready" : "Training recording ready",
+            tone: ((normalEventTrainingLink || recordingGuideUrl) ? "ready" : "info") as OperationalStatusTone,
             detail: [normalEventTrainingLink ? trainingModalityLabel : "", recordingGuideUrl ? "Recording support posted" : ""]
               .filter(Boolean)
               .join(" · "),
@@ -8453,6 +8499,80 @@ Cory`;
         ]
       : []),
   ];
+  const windowTonePriority: Record<OperationalStatusTone, number> = {
+    info: 0,
+    ready: 1,
+    attention: 2,
+    critical: 3,
+  };
+  function getDominantOperationalTone(tones: OperationalStatusTone[]) {
+    return tones.reduce<OperationalStatusTone>((current, tone) =>
+      windowTonePriority[tone] > windowTonePriority[current] ? tone : current
+    , "info");
+  }
+  function getOperationalWindowStyles(tone: OperationalStatusTone) {
+    if (tone === "ready") {
+      return {
+        border: "1px solid rgba(34, 197, 94, 0.24)",
+        background: isPlanningVisualMode
+          ? "linear-gradient(180deg, rgba(240, 253, 244, 0.98) 0%, rgba(233, 252, 239, 0.96) 100%)"
+          : "linear-gradient(180deg, rgba(8, 30, 22, 0.94) 0%, rgba(7, 26, 19, 0.92) 100%)",
+        glow: isPlanningVisualMode ? "0 12px 30px rgba(34, 197, 94, 0.14)" : "0 14px 30px rgba(34, 197, 94, 0.12)",
+        accent: "#15803d",
+        chipBg: "rgba(34, 197, 94, 0.14)",
+        chipColor: "#15803d",
+      };
+    }
+    if (tone === "attention") {
+      return {
+        border: "1px solid rgba(245, 158, 11, 0.24)",
+        background: isPlanningVisualMode
+          ? "linear-gradient(180deg, rgba(255, 251, 235, 0.98) 0%, rgba(255, 247, 220, 0.96) 100%)"
+          : "linear-gradient(180deg, rgba(46, 28, 9, 0.94) 0%, rgba(36, 22, 8, 0.92) 100%)",
+        glow: isPlanningVisualMode ? "0 12px 30px rgba(245, 158, 11, 0.12)" : "0 14px 30px rgba(245, 158, 11, 0.1)",
+        accent: "#b45309",
+        chipBg: "rgba(245, 158, 11, 0.14)",
+        chipColor: "#b45309",
+      };
+    }
+    if (tone === "critical") {
+      return {
+        border: "1px solid rgba(244, 114, 182, 0.26)",
+        background: isPlanningVisualMode
+          ? "linear-gradient(180deg, rgba(255, 241, 242, 0.98) 0%, rgba(255, 232, 240, 0.96) 100%)"
+          : "linear-gradient(180deg, rgba(55, 18, 32, 0.94) 0%, rgba(42, 12, 24, 0.92) 100%)",
+        glow: isPlanningVisualMode ? "0 12px 30px rgba(244, 114, 182, 0.12)" : "0 14px 30px rgba(244, 114, 182, 0.1)",
+        accent: "#be185d",
+        chipBg: "rgba(244, 114, 182, 0.14)",
+        chipColor: "#be185d",
+      };
+    }
+    return {
+      border: commandCenterVisual.cardBorder,
+      background: commandCenterVisual.cardBackground,
+      glow: isPlanningVisualMode ? "0 10px 24px rgba(42, 112, 140, 0.06)" : "none",
+      accent: commandCenterVisual.labelColor,
+      chipBg: "rgba(73, 168, 255, 0.12)",
+      chipColor: "#145b96",
+    };
+  }
+  const eventStatusWindowTone: OperationalStatusTone =
+    eventRiskLevel.tone === "red"
+      ? "critical"
+      : operationalReadinessItems.primary === "Ready"
+        ? "ready"
+        : eventRiskLevel.tone === "yellow"
+          ? "attention"
+          : "info";
+  const staffingTrainingWindowTone = getDominantOperationalTone(staffingTrainingRows.map((row) => row.tone || "info"));
+  const operationsSupportWindowTone = supportRequirementRows.length
+    ? getDominantOperationalTone(supportRequirementRows.map((row) => row.tone || "info"))
+    : "ready";
+  const materialsCommunicationWindowTone = getDominantOperationalTone(communicationMaterialRows.map((row) => row.tone || "info"));
+  const eventStatusWindowStyles = getOperationalWindowStyles(eventStatusWindowTone);
+  const staffingTrainingWindowStyles = getOperationalWindowStyles(staffingTrainingWindowTone);
+  const operationsSupportWindowStyles = getOperationalWindowStyles(operationsSupportWindowTone);
+  const materialsCommunicationWindowStyles = getOperationalWindowStyles(materialsCommunicationWindowTone);
   const workflowReportItems: WorkflowReadinessItem[] = [
     {
       id: "staffing",
@@ -10594,6 +10714,13 @@ Cory`;
         nextExpanded ? "expanded" : "collapsed"
       );
     }
+  }
+
+  function togglePlanningWindow(key: PlanningWindowKey) {
+    setPlanningWindowExpanded((current) => ({
+      ...current,
+      [key]: !current[key],
+    }));
   }
 
   async function handleMarkStaffingEmailSent(kind: "hiring" | "confirmation") {
@@ -15800,19 +15927,32 @@ Cory`;
               <section
                 style={{
                   borderRadius: "20px",
-                  border: commandCenterVisual.cardBorder,
-                  background: isPlanningVisualMode
-                    ? "linear-gradient(135deg, rgba(255,255,255,0.98) 0%, rgba(237, 248, 251, 0.98) 56%, rgba(238, 247, 255, 0.96) 100%)"
-                    : "linear-gradient(135deg, rgba(8, 22, 36, 0.96) 0%, rgba(8, 28, 38, 0.94) 62%, rgba(11, 44, 64, 0.88) 100%)",
-                  boxShadow: isPlanningVisualMode ? "0 16px 36px rgba(42, 112, 140, 0.09)" : "0 18px 40px rgba(0, 0, 0, 0.22)",
+                  border: eventStatusWindowStyles.border,
+                  background: eventStatusWindowStyles.background,
+                  boxShadow: eventStatusWindowStyles.glow,
                   padding: "16px",
                   display: "grid",
                   gap: "14px",
                 }}
               >
-                <div style={{ display: "flex", justifyContent: "space-between", gap: "14px", flexWrap: "wrap", alignItems: "flex-start" }}>
+                <button
+                  type="button"
+                  onClick={() => togglePlanningWindow("event-status")}
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    gap: "14px",
+                    flexWrap: "wrap",
+                    alignItems: "flex-start",
+                    background: "transparent",
+                    border: "none",
+                    padding: 0,
+                    textAlign: "left",
+                    cursor: "pointer",
+                  }}
+                >
                   <div style={{ minWidth: 0, display: "grid", gap: "7px" }}>
-                    <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Event Status Window</div>
+                    <div style={{ ...statLabel, color: eventStatusWindowStyles.accent }}>Event Status Window</div>
                     <div style={{ color: commandCenterVisual.headingColor, fontSize: "24px", fontWeight: 950, lineHeight: 1.15 }}>
                       {event.name || "Untitled Event"}
                     </div>
@@ -15836,7 +15976,7 @@ Cory`;
                               ? planningSuccessBorder
                               : eventRiskLevel.tone === "red"
                                 ? "1px solid rgba(239, 68, 68, 0.24)"
-                                : "1px solid rgba(180, 83, 9, 0.22)",
+                              : "1px solid rgba(180, 83, 9, 0.22)",
                           color:
                             operationalReadinessItems.primary === "Ready"
                               ? planningSuccessText
@@ -15847,117 +15987,124 @@ Cory`;
                       >
                         {operationalReadinessItems.primary}
                       </span>
-                      <span style={commandChipStyle}>{eventRiskLevel.label}</span>
-                      <span style={commandChipStyle}>{scheduleStatusLabel}</span>
+                      <span style={{ ...commandChipStyle, background: eventStatusWindowStyles.chipBg, color: eventStatusWindowStyles.chipColor }}>{eventRiskLevel.label}</span>
+                      <span style={{ ...commandChipStyle, background: eventStatusWindowStyles.chipBg, color: eventStatusWindowStyles.chipColor }}>{scheduleStatusLabel}</span>
+                      <span style={{ ...commandChipStyle, background: "rgba(15, 23, 42, 0.08)", color: commandCenterVisual.textColor }}>
+                        {planningWindowExpanded["event-status"] ? "Collapse" : "Expand"}
+                      </span>
                     </div>
                     <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 800, textAlign: "right", maxWidth: "420px" }}>
-                      {eventRiskLevel.detail}
+                      {eventRiskLevel.detail} · {needed > 0 ? `${confirmedCount}/${needed} confirmed` : `${confirmedCount} confirmed`}
                     </div>
                   </div>
-                </div>
+                </button>
 
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
-                    gap: "10px",
-                  }}
-                >
-                  {[
-                    { label: "Learners", value: effectiveLearnerCount > 0 ? String(effectiveLearnerCount) : "TBD", detail: "Current roster source" },
-                    { label: "Rooms", value: effectiveRoomCount || "TBD", detail: "Operational room surface" },
-                    { label: "Rounds", value: activeRotationCount || 0, detail: effectiveRotationCountSource.label },
-                    {
-                      label: "Coverage",
-                      value: needed > 0 ? `${confirmedCount}/${needed}` : `${confirmedCount}`,
-                      detail: needed > 0 ? "Primary confirmed" : "Confirmed SPs",
-                    },
-                  ].map((metric) => (
+                {planningWindowExpanded["event-status"] ? (
+                  <>
                     <div
-                      key={`summary-metric-${metric.label}`}
                       style={{
-                        borderRadius: "16px",
-                        border: "1px solid rgba(99, 181, 217, 0.14)",
-                        background: isPlanningVisualMode ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.04)",
-                        padding: "12px 13px",
                         display: "grid",
-                        gap: "4px",
+                        gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+                        gap: "10px",
                       }}
                     >
-                      <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>{metric.label}</div>
-                      <div style={{ color: commandCenterVisual.headingColor, fontSize: "22px", fontWeight: 950, lineHeight: 1.1 }}>{metric.value}</div>
-                      <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 700 }}>{metric.detail}</div>
+                      {[
+                        { label: "Learners", value: effectiveLearnerCount > 0 ? String(effectiveLearnerCount) : "TBD", detail: "Current roster source" },
+                        { label: "Rooms", value: effectiveRoomCount || "TBD", detail: "Operational room surface" },
+                        { label: "Rounds", value: activeRotationCount || 0, detail: effectiveRotationCountSource.label },
+                        {
+                          label: "Coverage",
+                          value: needed > 0 ? `${confirmedCount}/${needed}` : `${confirmedCount}`,
+                          detail: needed > 0 ? "Primary confirmed" : "Confirmed SPs",
+                        },
+                      ].map((metric) => (
+                        <div
+                          key={`summary-metric-${metric.label}`}
+                          style={{
+                            borderRadius: "16px",
+                            border: eventStatusWindowStyles.border,
+                            background: isPlanningVisualMode ? "rgba(255,255,255,0.66)" : "rgba(255,255,255,0.04)",
+                            padding: "12px 13px",
+                            display: "grid",
+                            gap: "4px",
+                          }}
+                        >
+                          <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>{metric.label}</div>
+                          <div style={{ color: commandCenterVisual.headingColor, fontSize: "22px", fontWeight: 950, lineHeight: 1.1 }}>{metric.value}</div>
+                          <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 700 }}>{metric.detail}</div>
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
 
-                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                  {[event.status || "No status", ...eventIdentityChips.slice(0, 2), selectedModalityLabel]
-                    .filter(Boolean)
-                    .map((chip) => (
-                      <span key={`summary-identity-${chip}`} style={commandChipStyle}>
-                        {chip}
-                      </span>
-                    ))}
-                  {eventSummaryDateMarkers.slice(0, 3).map((marker) => {
-                    const markerTone = getOperationalDateToneStyles(marker.tone, true);
-                    return (
-                      <span
-                        key={`summary-marker-${marker.key}`}
-                        style={{
-                          ...commandChipStyle,
-                          background: markerTone.background,
-                          border: markerTone.border,
-                          color: markerTone.accent,
-                          boxShadow: markerTone.glow,
-                        }}
-                      >
-                        {marker.label}: {marker.value}
-                        {marker.countdown ? ` · ${marker.countdown}` : ""}
-                      </span>
-                    );
-                  })}
-                  {operationalReadinessItems.items
-                    .filter((item) => item.active)
-                    .slice(0, 3)
-                    .map((item) => (
-                      <span
-                        key={`summary-alert-${item.label}`}
-                        style={{
-                          ...commandChipStyle,
-                          background: "rgba(253, 230, 138, 0.18)",
-                          border: "1px solid rgba(180, 83, 9, 0.22)",
-                          color: "#b45309",
-                        }}
-                      >
-                        {item.label}
-                      </span>
-                    ))}
-                </div>
+                    <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                      {[event.status || "No status", ...eventIdentityChips.slice(0, 2), selectedModalityLabel]
+                        .filter(Boolean)
+                        .map((chip) => (
+                          <span key={`summary-identity-${chip}`} style={commandChipStyle}>
+                            {chip}
+                          </span>
+                        ))}
+                      {eventSummaryDateMarkers.slice(0, 3).map((marker) => {
+                        const markerTone = getOperationalDateToneStyles(marker.tone, true);
+                        return (
+                          <span
+                            key={`summary-marker-${marker.key}`}
+                            style={{
+                              ...commandChipStyle,
+                              background: markerTone.background,
+                              border: markerTone.border,
+                              color: markerTone.accent,
+                              boxShadow: markerTone.glow,
+                            }}
+                          >
+                            {marker.label}: {marker.value}
+                            {marker.countdown ? ` · ${marker.countdown}` : ""}
+                          </span>
+                        );
+                      })}
+                      {operationalReadinessItems.items
+                        .filter((item) => item.active)
+                        .slice(0, 3)
+                        .map((item) => (
+                          <span
+                            key={`summary-alert-${item.label}`}
+                            style={{
+                              ...commandChipStyle,
+                              background: "rgba(253, 230, 138, 0.18)",
+                              border: "1px solid rgba(180, 83, 9, 0.22)",
+                              color: "#b45309",
+                            }}
+                          >
+                            {item.label}
+                          </span>
+                        ))}
+                    </div>
 
-                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                  {scheduleSummaryActions.map((action) =>
-                    action.href ? (
-                      <Link
-                        key={action.label}
-                        href={action.href}
-                        style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "8px 12px" }}
-                      >
-                        {action.label}
-                      </Link>
-                    ) : (
-                      <button
-                        key={action.label}
-                        type="button"
-                        onClick={action.onClick}
-                        disabled={Boolean(action.disabled)}
-                        style={{ ...buttonStyle, padding: "8px 12px", opacity: action.disabled ? 0.65 : 1 }}
-                      >
-                        {action.label}
-                      </button>
-                    )
-                  )}
-                </div>
+                    <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                      {scheduleSummaryActions.map((action) =>
+                        action.href ? (
+                          <Link
+                            key={action.label}
+                            href={action.href}
+                            style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "8px 12px" }}
+                          >
+                            {action.label}
+                          </Link>
+                        ) : (
+                          <button
+                            key={action.label}
+                            type="button"
+                            onClick={action.onClick}
+                            disabled={Boolean(action.disabled)}
+                            style={{ ...buttonStyle, padding: "8px 12px", opacity: action.disabled ? 0.65 : 1 }}
+                          >
+                            {action.label}
+                          </button>
+                        )
+                      )}
+                    </div>
+                  </>
+                ) : null}
               </section>
 
               <div
@@ -15974,83 +16121,135 @@ Cory`;
                     title: "Staffing & Training",
                     subtitle: "Coverage, training readiness, attendance, and faculty coordination.",
                     rows: staffingTrainingRows,
+                    tone: staffingTrainingWindowTone,
+                    summary:
+                      needed > 0
+                        ? `${confirmedCount}/${needed} primary · ${eventSummaryTrainingValue}`
+                        : `${confirmedCount} confirmed · ${eventSummaryTrainingValue}`,
+                    styles: staffingTrainingWindowStyles,
                   },
                   {
                     key: "operations-support",
                     title: "Operations & Support",
                     subtitle: "Only active support needs and live execution dependencies.",
                     rows: supportRequirementRows,
+                    tone: operationsSupportWindowTone,
+                    summary: supportRequirementRows.length ? `${supportRequirementRows.length} active support signal${supportRequirementRows.length === 1 ? "" : "s"}` : "No active support flags",
+                    styles: operationsSupportWindowStyles,
                   },
                   {
                     key: "materials-communications",
                     title: "Materials & Communications",
                     subtitle: "Case access, materials, outreach, and training links in one place.",
                     rows: communicationMaterialRows,
+                    tone: materialsCommunicationWindowTone,
+                    summary: [materialsStatusLabel, hiringEmailSent ? "Hiring sent" : hiringEmailDrafted ? "Hiring draft" : "", confirmationEmailSent ? "Confirmation sent" : ""].filter(Boolean).slice(0, 2).join(" · "),
+                    styles: materialsCommunicationWindowStyles,
                   },
                 ].map((windowCard) => (
                   <section
                     key={windowCard.key}
                     style={{
                       borderRadius: "18px",
-                      border: commandCenterVisual.cardBorder,
-                      background: commandCenterVisual.cardBackground,
-                      boxShadow: isPlanningVisualMode ? "0 10px 24px rgba(42, 112, 140, 0.06)" : "none",
+                      border: windowCard.styles.border,
+                      background: windowCard.styles.background,
+                      boxShadow: windowCard.styles.glow,
                       padding: "14px",
                       display: "grid",
                       gap: "12px",
                     }}
                   >
-                    <div>
-                      <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>{windowCard.title}</div>
-                      <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 700, lineHeight: 1.45 }}>
-                        {windowCard.subtitle}
+                    <button
+                      type="button"
+                      onClick={() => togglePlanningWindow(windowCard.key as PlanningWindowKey)}
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        gap: "12px",
+                        flexWrap: "wrap",
+                        alignItems: "flex-start",
+                        background: "transparent",
+                        border: "none",
+                        padding: 0,
+                        textAlign: "left",
+                        cursor: "pointer",
+                      }}
+                    >
+                      <div>
+                        <div style={{ ...statLabel, color: windowCard.styles.accent }}>{windowCard.title}</div>
+                        <div style={{ marginTop: "4px", color: commandCenterVisual.textColor, fontSize: "14px", fontWeight: 900 }}>
+                          {windowCard.summary || windowCard.subtitle}
+                        </div>
+                        <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 700, lineHeight: 1.45 }}>
+                          {windowCard.subtitle}
+                        </div>
                       </div>
-                    </div>
+                      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                        <span style={{ ...commandChipStyle, background: windowCard.styles.chipBg, color: windowCard.styles.chipColor }}>
+                          {windowCard.tone === "ready"
+                            ? "Ready"
+                            : windowCard.tone === "critical"
+                              ? "Critical"
+                              : windowCard.tone === "attention"
+                                ? "Needs Action"
+                                : "In Progress"}
+                        </span>
+                        <span style={{ ...commandChipStyle, background: "rgba(15, 23, 42, 0.08)", color: commandCenterVisual.textColor }}>
+                          {planningWindowExpanded[windowCard.key as PlanningWindowKey] ? "Collapse" : "Expand"}
+                        </span>
+                      </div>
+                    </button>
 
-                    {windowCard.rows.length ? (
-                      <div style={{ display: "grid", gap: "10px" }}>
-                        {windowCard.rows.map((row) => (
-                          <div
-                            key={row.key}
-                            style={{
-                              borderRadius: "14px",
-                              border: "1px solid rgba(99, 181, 217, 0.12)",
-                              background: isPlanningVisualMode ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.04)",
-                              padding: "11px 12px",
-                              display: "grid",
-                              gap: "8px",
-                            }}
-                          >
-                            <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "baseline" }}>
-                              <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>{row.label}</div>
-                              <div style={{ color: commandCenterVisual.textColor, fontSize: "14px", fontWeight: 900, textAlign: "right" }}>{row.value}</div>
-                            </div>
-                            {row.detail ? (
-                              <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 700, lineHeight: 1.45 }}>
-                                {row.detail}
+                    {planningWindowExpanded[windowCard.key as PlanningWindowKey] ? (
+                      windowCard.rows.length ? (
+                        <div style={{ display: "grid", gap: "10px" }}>
+                          {windowCard.rows.map((row) => {
+                            const rowStyles = getOperationalWindowStyles(row.tone || "info");
+                            return (
+                              <div
+                                key={row.key}
+                                style={{
+                                  borderRadius: "14px",
+                                  border: rowStyles.border,
+                                  background: isPlanningVisualMode ? "rgba(255,255,255,0.66)" : "rgba(255,255,255,0.04)",
+                                  padding: "11px 12px",
+                                  display: "grid",
+                                  gap: "8px",
+                                  boxShadow: row.tone === "ready" ? "0 0 18px rgba(34, 197, 94, 0.08)" : row.tone === "critical" ? "0 0 18px rgba(244, 114, 182, 0.08)" : row.tone === "attention" ? "0 0 18px rgba(245, 158, 11, 0.06)" : undefined,
+                                }}
+                              >
+                                <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "baseline" }}>
+                                  <div style={{ ...statLabel, color: rowStyles.accent }}>{row.label}</div>
+                                  <div style={{ color: commandCenterVisual.textColor, fontSize: "14px", fontWeight: 900, textAlign: "right" }}>{row.value}</div>
+                                </div>
+                                {row.detail ? (
+                                  <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 700, lineHeight: 1.45 }}>
+                                    {row.detail}
+                                  </div>
+                                ) : null}
+                                {"actions" in row && row.actions ? (
+                                  <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>{row.actions}</div>
+                                ) : null}
                               </div>
-                            ) : null}
-                            {"actions" in row && row.actions ? (
-                              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>{row.actions}</div>
-                            ) : null}
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div
-                        style={{
-                          borderRadius: "14px",
-                          border: "1px dashed rgba(99, 181, 217, 0.18)",
-                          background: isPlanningVisualMode ? "rgba(255,255,255,0.58)" : "rgba(255,255,255,0.03)",
-                          padding: "12px",
-                          color: commandCenterVisual.mutedColor,
-                          fontSize: "13px",
-                          fontWeight: 700,
-                        }}
-                      >
-                        No active support needs are surfaced here yet.
-                      </div>
-                    )}
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div
+                          style={{
+                            borderRadius: "14px",
+                            border: "1px dashed rgba(99, 181, 217, 0.18)",
+                            background: isPlanningVisualMode ? "rgba(255,255,255,0.58)" : "rgba(255,255,255,0.03)",
+                            padding: "12px",
+                            color: commandCenterVisual.mutedColor,
+                            fontSize: "13px",
+                            fontWeight: 700,
+                          }}
+                        >
+                          No active support needs are surfaced here yet.
+                        </div>
+                      )
+                    ) : null}
                   </section>
                 ))}
               </div>
