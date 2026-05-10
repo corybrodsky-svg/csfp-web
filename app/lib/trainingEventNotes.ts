@@ -58,6 +58,9 @@ export type TrainingEventMetadata = {
   imported_training_time: string;
   imported_event_times: string;
   imported_event_dates_count: string;
+  sp_report_call_time: string;
+  sp_release_end_time: string;
+  hiring_window_label: string;
 };
 
 const TRAINING_METADATA_START = "[CFSP_TRAINING_METADATA]";
@@ -123,6 +126,9 @@ const TRAINING_METADATA_KEYS = [
   "imported_training_time",
   "imported_event_times",
   "imported_event_dates_count",
+  "sp_report_call_time",
+  "sp_release_end_time",
+  "hiring_window_label",
 ] as const satisfies readonly (keyof TrainingEventMetadata)[];
 
 function asText(value: unknown) {
@@ -197,6 +203,9 @@ export function emptyTrainingEventMetadata(): TrainingEventMetadata {
     imported_training_time: "",
     imported_event_times: "",
     imported_event_dates_count: "",
+    sp_report_call_time: "",
+    sp_release_end_time: "",
+    hiring_window_label: "",
   };
 }
 

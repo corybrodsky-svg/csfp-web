@@ -695,6 +695,8 @@ const materialsReadinessOptions = [
   },
 ] as const;
 
+const HIRING_WORK_WINDOW_DEFAULT_LEAD_MINUTES = 30;
+
 type MaterialsReadinessValue = (typeof materialsReadinessOptions)[number]["value"];
 
 const assignmentStatuses: AssignmentStatus[] = [
@@ -1692,6 +1694,15 @@ function formatMinutesAsClockLabel(totalMinutes: number) {
 
 function formatMinuteRange(startMinutes: number, endMinutes: number) {
   return `${formatMinutesAsClockLabel(startMinutes)} - ${formatMinutesAsClockLabel(endMinutes)}`;
+}
+
+function getSpHiringWindowStartTime(startTimeText?: string | null, leadMinutes = HIRING_WORK_WINDOW_DEFAULT_LEAD_MINUTES) {
+  const startMinutes = parseTimeToMinutes(startTimeText);
+  if (startMinutes === null) return "";
+
+  const effectiveLeadMinutes = Math.max(0, Number.isFinite(leadMinutes) ? leadMinutes : HIRING_WORK_WINDOW_DEFAULT_LEAD_MINUTES);
+  const windowStartMinutes = ((startMinutes - effectiveLeadMinutes) % 1440 + 1440) % 1440;
+  return formatMinutesAsClockLabel(windowStartMinutes);
 }
 
 function formatRemainingMinutes(totalMinutes: number) {
@@ -4313,6 +4324,42 @@ export default function EventDetailPage() {
         .join("; ")
     : "";
   const eventDateLabel = structuredDateLabel || formatEventDateText(event?.date_text, importedYearHint);
+  const hiringWindowDateText = useMemo(
+    () =>
+      asText(trainingMetadata.event_session_date) ||
+      asText(sessions[0]?.session_date) ||
+      asText(event?.date_text),
+    [event?.date_text, sessions, trainingMetadata.event_session_date]
+  );
+  const hiringWindowDateLabel = useMemo(() => formatEventDateText(hiringWindowDateText, importedYearHint), [
+    hiringWindowDateText,
+    importedYearHint,
+  ]);
+  const hiringWindowOfficialStartTimeText = useMemo(
+    () => asText(trainingMetadata.event_start_time) || asText(sessions[0]?.start_time),
+    [sessions, trainingMetadata.event_start_time]
+  );
+  const hiringWindowOfficialEndTimeText = useMemo(
+    () =>
+      asText(trainingMetadata.event_end_time) ||
+      asText(sessions[sessions.length - 1]?.end_time) ||
+      asText(sessions[0]?.end_time),
+    [sessions, trainingMetadata.event_end_time]
+  );
+  const hiringWindowStartTimeText = useMemo(
+    () =>
+      asText(trainingMetadata.sp_report_call_time) ||
+      getSpHiringWindowStartTime(hiringWindowOfficialStartTimeText),
+    [hiringWindowOfficialStartTimeText, trainingMetadata.sp_report_call_time]
+  );
+  const hiringWindowEndTimeText = useMemo(
+    () => asText(trainingMetadata.sp_release_end_time) || hiringWindowOfficialEndTimeText,
+    [hiringWindowOfficialEndTimeText, trainingMetadata.sp_release_end_time]
+  );
+  const hiringWorkWindowLabel = useMemo(
+    () => asText(trainingMetadata.hiring_window_label) || formatTimeWindowLabel(hiringWindowStartTimeText, hiringWindowEndTimeText),
+    [hiringWindowEndTimeText, hiringWindowStartTimeText, trainingMetadata.hiring_window_label]
+  );
   const uniqueSessionDates = useMemo(
     () =>
       Array.from(
@@ -7560,15 +7607,16 @@ Cory`;
     subject: confirmationEmailSubject,
     body: confirmationEmailBody,
   });
-  const emailSubject = `[CFSP] ${event?.name || "CFSP Event"} - ${eventDateLabel}`;
+  const hiringEmailSubjectDateLabel = hiringWindowDateLabel || eventDateLabel || "Date TBD";
+  const emailSubject = `[CFSP] ${event?.name || "CFSP Event"} - ${hiringEmailSubjectDateLabel}`;
   const emailBody = [
     "Hello,",
     "",
     "We are reaching out regarding the following CFSP event:",
     "",
     `Event: ${event?.name || "TBD"}`,
-    `Date: ${eventDateLabel || "TBD"}`,
-    `Time: ${summaryTimeLabel || "TBD"}`,
+    `Date: ${hiringEmailSubjectDateLabel || "TBD"}`,
+    `SP Work Window: ${hiringWorkWindowLabel || "TBD"}`,
     `Location: ${event?.location || "TBD"}`,
     "",
     "Please reply to confirm your availability and assignment status for this event.",
