@@ -1,4 +1,5 @@
-import { EditableEventType, getExplicitEventTypes } from "./eventTypeNotes";
+import type { EditableEventType } from "./eventTypeNotes";
+import { parseEventMetadata } from "./eventMetadata";
 
 export type EventDisplayType = "skills" | "sp" | "hifi" | "training" | "virtual";
 
@@ -74,7 +75,7 @@ export function classifyEventPresentation(input: EventClassificationInput) {
   const spNeeded = Number(input.spNeeded || 0);
   const assignmentCount = Number(input.assignmentCount || 0);
   const confirmedCount = Number(input.confirmedCount || 0);
-  const explicitTypes = getExplicitEventTypes(input.notes);
+  const explicitTypes = parseEventMetadata(input.notes).eventTypes;
   const explicitTypeSet = new Set(explicitTypes);
   const hasExplicitTypes = explicitTypeSet.size > 0;
   const hasRoomSignal =

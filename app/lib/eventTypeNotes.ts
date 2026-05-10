@@ -69,25 +69,21 @@ export function upsertEventTypesInNotes(
 ) {
   const text = asText(notes);
   const normalizedTypes = dedupeEventTypes(nextTypes);
+  const withoutExisting = text
+    .replace(/^(Event Types?|Event Category)\s*:.*$/gim, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 
   if (!normalizedTypes.length) {
-    return text
-      .replace(/^(Event Types?|Event Category)\s*:.*$/gim, "")
-      .replace(/\n{3,}/g, "\n\n")
-      .trim();
+    return withoutExisting;
   }
 
   const nextLine = `Event Types: ${normalizedTypes
     .map((type) => editableEventTypeLabels[type])
     .join(", ")}`;
 
-  if (!text) return nextLine;
-
-  if (/^(Event Types?|Event Category)\s*:/im.test(text)) {
-    return text.replace(/^(Event Types?|Event Category)\s*:.*$/gim, nextLine);
-  }
-
-  return `${nextLine}\n${text}`;
+  if (!withoutExisting) return nextLine;
+  return `${nextLine}\n${withoutExisting}`;
 }
 
 export function upsertEventTypeInNotes(

@@ -1,4 +1,4 @@
-import { parseTrainingEventMetadata } from "./trainingEventNotes";
+import { parseEventMetadata } from "./eventMetadata";
 
 type EventRosterSource = {
   notes?: string | null;
@@ -154,7 +154,7 @@ export function getBestEventTeamInfo(event?: EventRosterSource | null): BestEven
   if (!event) return EMPTY_TEAM_INFO;
 
   const notes = asText(event.notes);
-  const metadata = parseTrainingEventMetadata(notes);
+  const metadata = parseEventMetadata(notes).training;
   const explicitTeamNames = namesFromText(metadata.sim_contact);
   const explicitFacultyNames = namesFromText(metadata.faculty_names);
   const workbookTeamNames = namesFromText(event.schedule_owner_text);

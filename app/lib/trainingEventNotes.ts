@@ -2,6 +2,9 @@ export type TrainingEventMetadata = {
   training_required: string;
   training_ownership: string;
   training_scheduling_status: string;
+  training_date: string;
+  training_start_time: string;
+  training_end_time: string;
   event_session_date: string;
   event_start_time: string;
   event_end_time: string;
@@ -10,12 +13,16 @@ export type TrainingEventMetadata = {
   preferred_training_end_time: string;
   faculty_availability_unknown: string;
   training_zoom_required: string;
+  training_zoom_link: string;
   training_recording_planned: string;
   faculty_training_coordination_requested: string;
   faculty_training_coordination_status: string;
   faculty_training_coordination_requested_at: string;
   zoom_url: string;
   training_password: string;
+  training_recording_url: string;
+  training_recording_status: string;
+  training_attendance_status: string;
   recording_url: string;
   recording_status: string;
   case_name: string;
@@ -25,10 +32,14 @@ export type TrainingEventMetadata = {
   case_file_uploaded_at: string;
   case_file_uploaded_by: string;
   doorsign_url: string;
+  doorsign_file_url: string;
   doorsign_file_name: string;
   doorsign_storage_path: string;
   doorsign_uploaded_at: string;
   doorsign_uploaded_by: string;
+  faculty_schedule_file_url: string;
+  student_roster_file_url: string;
+  additional_materials: string;
   supplemental_doc_url: string;
   supplemental_doc_name: string;
   supplemental_doc_storage_path: string;
@@ -48,22 +59,37 @@ export type TrainingEventMetadata = {
   training_notes: string;
   rotation_schedule_status: string;
   schedule_started_at: string;
+  schedule_last_saved_at: string;
   schedule_updated_at: string;
   schedule_completed_at: string;
   schedule_status: string;
   schedule_completed_by: string;
+  schedule_learner_count: string;
+  schedule_room_count: string;
+  schedule_round_count: string;
+  schedule_preview_enabled_for_sps: string;
   live_room_adjustments: string;
+  live_mode_started_at: string;
+  live_mode_ended_at: string;
+  live_alerts_acknowledged: string;
+  live_flow_status: string;
   modality: string;
   workflow_manual_checks: string;
   email_status: string;
   email_sent_at: string;
   email_draft_opened_at: string;
   hiring_email_drafted_at: string;
+  hiring_email_sent_at: string;
   hiring_email_sent_or_marked_at: string;
   confirmation_email_drafted_at: string;
+  confirmation_email_sent_at: string;
   confirmation_email_sent_or_marked_at: string;
   last_email_workflow_type: string;
   last_email_recipient_count: string;
+  staffing_status: string;
+  include_backups_in_email: string;
+  selected_hiring_sp_ids: string;
+  event_material_status: string;
   imported_event_info_at: string;
   imported_event_info_count: string;
   imported_training_date: string;
@@ -73,6 +99,11 @@ export type TrainingEventMetadata = {
   sp_report_call_time: string;
   sp_release_end_time: string;
   hiring_window_label: string;
+  linked_event_id: string;
+  linked_event_title: string;
+  signal_type: string;
+  attachment_metadata: string;
+  acknowledged_by: string;
 };
 
 const TRAINING_METADATA_START = "[CFSP_TRAINING_METADATA]";
@@ -82,6 +113,9 @@ const TRAINING_METADATA_KEYS = [
   "training_required",
   "training_ownership",
   "training_scheduling_status",
+  "training_date",
+  "training_start_time",
+  "training_end_time",
   "event_session_date",
   "event_start_time",
   "event_end_time",
@@ -90,12 +124,16 @@ const TRAINING_METADATA_KEYS = [
   "preferred_training_end_time",
   "faculty_availability_unknown",
   "training_zoom_required",
+  "training_zoom_link",
   "training_recording_planned",
   "faculty_training_coordination_requested",
   "faculty_training_coordination_status",
   "faculty_training_coordination_requested_at",
   "zoom_url",
   "training_password",
+  "training_recording_url",
+  "training_recording_status",
+  "training_attendance_status",
   "recording_url",
   "recording_status",
   "case_name",
@@ -105,10 +143,14 @@ const TRAINING_METADATA_KEYS = [
   "case_file_uploaded_at",
   "case_file_uploaded_by",
   "doorsign_url",
+  "doorsign_file_url",
   "doorsign_file_name",
   "doorsign_storage_path",
   "doorsign_uploaded_at",
   "doorsign_uploaded_by",
+  "faculty_schedule_file_url",
+  "student_roster_file_url",
+  "additional_materials",
   "supplemental_doc_url",
   "supplemental_doc_name",
   "supplemental_doc_storage_path",
@@ -128,22 +170,37 @@ const TRAINING_METADATA_KEYS = [
   "training_notes",
   "rotation_schedule_status",
   "schedule_started_at",
+  "schedule_last_saved_at",
   "schedule_updated_at",
   "schedule_completed_at",
   "schedule_status",
   "schedule_completed_by",
+  "schedule_learner_count",
+  "schedule_room_count",
+  "schedule_round_count",
+  "schedule_preview_enabled_for_sps",
   "live_room_adjustments",
+  "live_mode_started_at",
+  "live_mode_ended_at",
+  "live_alerts_acknowledged",
+  "live_flow_status",
   "modality",
   "workflow_manual_checks",
   "email_status",
   "email_sent_at",
   "email_draft_opened_at",
   "hiring_email_drafted_at",
+  "hiring_email_sent_at",
   "hiring_email_sent_or_marked_at",
   "confirmation_email_drafted_at",
+  "confirmation_email_sent_at",
   "confirmation_email_sent_or_marked_at",
   "last_email_workflow_type",
   "last_email_recipient_count",
+  "staffing_status",
+  "include_backups_in_email",
+  "selected_hiring_sp_ids",
+  "event_material_status",
   "imported_event_info_at",
   "imported_event_info_count",
   "imported_training_date",
@@ -153,6 +210,11 @@ const TRAINING_METADATA_KEYS = [
   "sp_report_call_time",
   "sp_release_end_time",
   "hiring_window_label",
+  "linked_event_id",
+  "linked_event_title",
+  "signal_type",
+  "attachment_metadata",
+  "acknowledged_by",
 ] as const satisfies readonly (keyof TrainingEventMetadata)[];
 
 function asText(value: unknown) {
@@ -171,6 +233,9 @@ export function emptyTrainingEventMetadata(): TrainingEventMetadata {
     training_required: "",
     training_ownership: "",
     training_scheduling_status: "",
+    training_date: "",
+    training_start_time: "",
+    training_end_time: "",
     event_session_date: "",
     event_start_time: "",
     event_end_time: "",
@@ -179,12 +244,16 @@ export function emptyTrainingEventMetadata(): TrainingEventMetadata {
     preferred_training_end_time: "",
     faculty_availability_unknown: "",
     training_zoom_required: "",
+    training_zoom_link: "",
     training_recording_planned: "",
     faculty_training_coordination_requested: "",
     faculty_training_coordination_status: "",
     faculty_training_coordination_requested_at: "",
     zoom_url: "",
     training_password: "",
+    training_recording_url: "",
+    training_recording_status: "",
+    training_attendance_status: "",
     recording_url: "",
     recording_status: "",
     case_name: "",
@@ -194,10 +263,14 @@ export function emptyTrainingEventMetadata(): TrainingEventMetadata {
     case_file_uploaded_at: "",
     case_file_uploaded_by: "",
     doorsign_url: "",
+    doorsign_file_url: "",
     doorsign_file_name: "",
     doorsign_storage_path: "",
     doorsign_uploaded_at: "",
     doorsign_uploaded_by: "",
+    faculty_schedule_file_url: "",
+    student_roster_file_url: "",
+    additional_materials: "",
     supplemental_doc_url: "",
     supplemental_doc_name: "",
     supplemental_doc_storage_path: "",
@@ -217,22 +290,37 @@ export function emptyTrainingEventMetadata(): TrainingEventMetadata {
     training_notes: "",
     rotation_schedule_status: "",
     schedule_started_at: "",
+    schedule_last_saved_at: "",
     schedule_updated_at: "",
     schedule_completed_at: "",
     schedule_status: "",
     schedule_completed_by: "",
+    schedule_learner_count: "",
+    schedule_room_count: "",
+    schedule_round_count: "",
+    schedule_preview_enabled_for_sps: "",
     live_room_adjustments: "",
+    live_mode_started_at: "",
+    live_mode_ended_at: "",
+    live_alerts_acknowledged: "",
+    live_flow_status: "",
     modality: "",
     workflow_manual_checks: "",
     email_status: "",
     email_sent_at: "",
     email_draft_opened_at: "",
     hiring_email_drafted_at: "",
+    hiring_email_sent_at: "",
     hiring_email_sent_or_marked_at: "",
     confirmation_email_drafted_at: "",
+    confirmation_email_sent_at: "",
     confirmation_email_sent_or_marked_at: "",
     last_email_workflow_type: "",
     last_email_recipient_count: "",
+    staffing_status: "",
+    include_backups_in_email: "",
+    selected_hiring_sp_ids: "",
+    event_material_status: "",
     imported_event_info_at: "",
     imported_event_info_count: "",
     imported_training_date: "",
@@ -242,10 +330,15 @@ export function emptyTrainingEventMetadata(): TrainingEventMetadata {
     sp_report_call_time: "",
     sp_release_end_time: "",
     hiring_window_label: "",
+    linked_event_id: "",
+    linked_event_title: "",
+    signal_type: "",
+    attachment_metadata: "",
+    acknowledged_by: "",
   };
 }
 
-function getMetadataBlock(notes?: string | null) {
+export function getTrainingMetadataBlock(notes?: string | null) {
   const text = asText(notes);
   if (!text) return "";
 
@@ -260,7 +353,7 @@ function getMetadataBlock(notes?: string | null) {
 
 export function parseTrainingEventMetadata(notes?: string | null) {
   const metadata = emptyTrainingEventMetadata();
-  const block = getMetadataBlock(notes);
+  const block = getTrainingMetadataBlock(notes);
   if (!block) return metadata;
 
   block.split(/\r?\n/).forEach((line) => {

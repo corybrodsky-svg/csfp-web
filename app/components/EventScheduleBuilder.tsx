@@ -6,7 +6,7 @@ import { createPortal } from "react-dom";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { formatHumanDate, getImportedYearHint } from "../lib/eventDateUtils";
-import { parseTrainingEventMetadata, upsertTrainingEventMetadata } from "../lib/trainingEventNotes";
+import { parseEventMetadata, upsertEventMetadata } from "../lib/eventMetadata";
 import { getRoomDisplayLabel, getRoomTypeLabel } from "../lib/roomNaming";
 
 type EventRow = {
@@ -574,7 +574,7 @@ function buildTimePrefill(event: EventRow | null, savedDraft: ScheduleBuilderDra
     };
   }
 
-  const metadata = parseTrainingEventMetadata(event.notes);
+  const metadata = parseEventMetadata(event.notes).training;
   const importedEventTimeText =
     asText(metadata.imported_event_times).split(/\s*\|\s*/).find(Boolean) || "";
   const importedEventRange = extractTimeRange(importedEventTimeText);
@@ -2055,7 +2055,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const persistScheduleWorkflowMetadata = useCallback(
     async (partial: Record<string, string>) => {
       if (!selectedEvent?.id) return false;
-      const nextNotes = upsertTrainingEventMetadata(selectedEvent.notes, partial);
+      const nextNotes = upsertEventMetadata(selectedEvent.notes, { training: partial });
       const response = await fetch(`/api/events/${encodeURIComponent(selectedEvent.id)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -2096,7 +2096,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   }, [selectedEvent, selectedEventId, storageKey]);
 
   const selectedEventMetadata = useMemo(
-    () => parseTrainingEventMetadata(selectedEvent?.notes),
+    () => parseEventMetadata(selectedEvent?.notes).training,
     [selectedEvent?.notes]
   );
   const scheduleWorkflowStatus = asText(selectedEventMetadata.schedule_status).toLowerCase();
@@ -2106,40 +2106,6 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       : scheduleWorkflowStatus === "in_progress"
         ? "Schedule In Progress"
         : "Schedule Not Started";
-  useEffect(() => {
-    if (!selectedEvent?.id) return;
-    if (skipNextAutosaveRef.current) return;
-
-    if (workflowSyncTimeoutRef.current) {
-      window.clearTimeout(workflowSyncTimeoutRef.current);
-    }
-
-    workflowSyncTimeoutRef.current = window.setTimeout(() => {
-      const now = new Date().toISOString();
-      const nextStatus = scheduleWorkflowStatus === "complete" ? "complete" : "in_progress";
-      const partial = {
-        schedule_status: nextStatus,
-        rotation_schedule_status: nextStatus === "complete" ? "complete" : "built",
-        schedule_started_at: selectedEventMetadata.schedule_started_at || now,
-        schedule_updated_at: now,
-      };
-      void persistScheduleWorkflowMetadata(partial).catch(() => {
-        // Keep the builder usable even if event metadata persistence is temporarily unavailable.
-      });
-    }, 1400);
-
-    return () => {
-      if (workflowSyncTimeoutRef.current) {
-        window.clearTimeout(workflowSyncTimeoutRef.current);
-      }
-    };
-  }, [
-    draftSnapshot,
-    persistScheduleWorkflowMetadata,
-    scheduleWorkflowStatus,
-    selectedEvent?.id,
-    selectedEventMetadata.schedule_started_at,
-  ]);
   const explicitEventModality = asText(selectedEventMetadata.modality).toLowerCase();
   const selectedEventModality =
     explicitEventModality === "virtual" || explicitEventModality === "hybrid"
@@ -2325,6 +2291,49 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     () => buildLearnerRoster(uploadedLearners, Math.max(slotsPerRound, 1), generated.rounds.length),
     [generated.rounds.length, slotsPerRound, uploadedLearners]
   );
+  useEffect(() => {
+    if (!selectedEvent?.id) return;
+    if (skipNextAutosaveRef.current) return;
+
+    if (workflowSyncTimeoutRef.current) {
+      window.clearTimeout(workflowSyncTimeoutRef.current);
+    }
+
+    workflowSyncTimeoutRef.current = window.setTimeout(() => {
+      const now = new Date().toISOString();
+      const nextStatus = scheduleWorkflowStatus === "complete" ? "complete" : "in_progress";
+      const partial = {
+        schedule_status: nextStatus,
+        rotation_schedule_status: nextStatus === "complete" ? "complete" : "built",
+        schedule_started_at: selectedEventMetadata.schedule_started_at || now,
+        schedule_last_saved_at: now,
+        schedule_updated_at: now,
+        schedule_learner_count: String(learnerRoster.length),
+        schedule_room_count: String(totalRoomCount),
+        schedule_round_count: String(effectiveRoundCount),
+        schedule_preview_enabled_for_sps: selectedEventMetadata.schedule_preview_enabled_for_sps || "no",
+      };
+      void persistScheduleWorkflowMetadata(partial).catch(() => {
+        // Keep the builder usable even if event metadata persistence is temporarily unavailable.
+      });
+    }, 1400);
+
+    return () => {
+      if (workflowSyncTimeoutRef.current) {
+        window.clearTimeout(workflowSyncTimeoutRef.current);
+      }
+    };
+  }, [
+    draftSnapshot,
+    effectiveRoundCount,
+    learnerRoster.length,
+    persistScheduleWorkflowMetadata,
+    scheduleWorkflowStatus,
+    selectedEvent?.id,
+    selectedEventMetadata.schedule_preview_enabled_for_sps,
+    selectedEventMetadata.schedule_started_at,
+    totalRoomCount,
+  ]);
 
   const scheduledRounds = useMemo(
     () => attachLearners(generated.rounds, learnerRoster),
@@ -2648,10 +2657,15 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       await persistScheduleWorkflowMetadata({
         schedule_status: "complete",
         schedule_started_at: selectedEventMetadata.schedule_started_at || now,
+        schedule_last_saved_at: now,
         schedule_updated_at: now,
         schedule_completed_at: now,
         schedule_completed_by: getBuilderUserLabel(me),
         rotation_schedule_status: "complete",
+        schedule_learner_count: String(learnerRoster.length),
+        schedule_room_count: String(totalRoomCount),
+        schedule_round_count: String(effectiveRoundCount),
+        schedule_preview_enabled_for_sps: selectedEventMetadata.schedule_preview_enabled_for_sps || "no",
       });
       setCopyMessage("Schedule marked complete.");
       window.setTimeout(() => setCopyMessage(""), 2400);

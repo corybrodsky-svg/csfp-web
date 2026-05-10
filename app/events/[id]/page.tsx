@@ -20,10 +20,12 @@ import {
 import { formatDisplayTime, parseTimeToMinutes } from "../../lib/timeFormat";
 import {
   editableEventTypeLabels,
-  getExplicitEventTypes,
-  upsertEventTypesInNotes,
   type EditableEventType,
 } from "../../lib/eventTypeNotes";
+import {
+  parseEventMetadata,
+  upsertEventMetadata,
+} from "../../lib/eventMetadata";
 import {
   getFacultyText,
   getSimStaffNames,
@@ -36,8 +38,6 @@ import {
   getRoomTypeLabel,
 } from "../../lib/roomNaming";
 import {
-  parseTrainingEventMetadata,
-  upsertTrainingEventMetadata,
   type TrainingEventMetadata,
 } from "../../lib/trainingEventNotes";
 
@@ -3582,6 +3582,7 @@ export default function EventDetailPage() {
   const supplementalDocInputRef = useRef<HTMLInputElement | null>(null);
   const staffingDocInputRef = useRef<HTMLInputElement | null>(null);
   const feedbackTimeoutRef = useRef<number | null>(null);
+  const hydratedConfirmationEmailOptionsRef = useRef("");
 
   const spsById = useMemo(() => {
     const next = new Map<string, SPRow>();
@@ -4291,7 +4292,8 @@ export default function EventDetailPage() {
   });
   const badgeAppearance = getEventBadgeAppearance(eventMeta.primaryBadgeKind);
   const isWorkshop = eventMeta.isSkillsWorkshop;
-  const explicitEventTypes = getExplicitEventTypes(eventEditor.notes);
+  const parsedEventMetadata = useMemo(() => parseEventMetadata(eventEditor.notes), [eventEditor.notes]);
+  const explicitEventTypes = parsedEventMetadata.eventTypes;
   const explicitEventTypeSet = useMemo(() => new Set(explicitEventTypes), [explicitEventTypes]);
   const activeEventTypes = (explicitEventTypes.length
     ? explicitEventTypes
@@ -4454,10 +4456,33 @@ export default function EventDetailPage() {
     () => capRotationRounds(allRotationRounds, activeRotationCount),
     [allRotationRounds, activeRotationCount]
   );
-  const trainingMetadata = useMemo(
-    () => parseTrainingEventMetadata(eventEditor.notes),
-    [eventEditor.notes]
-  );
+  const trainingMetadata = parsedEventMetadata.training;
+  useEffect(() => {
+    if (!id) return;
+    const hydrationKey = `${id}:${trainingMetadata.include_backups_in_email}:${trainingMetadata.selected_hiring_sp_ids}`;
+    if (hydratedConfirmationEmailOptionsRef.current === hydrationKey) return;
+
+    if (trainingMetadata.include_backups_in_email === "yes") {
+      setIncludeBackupConfirmationEmails(true);
+    } else if (trainingMetadata.include_backups_in_email === "no") {
+      setIncludeBackupConfirmationEmails(false);
+    }
+
+    const savedHiringIds = asText(trainingMetadata.selected_hiring_sp_ids)
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean);
+    if (savedHiringIds.length && !selectedHiringEmailSpIds.length) {
+      setSelectedHiringEmailSpIds(savedHiringIds);
+    }
+
+    hydratedConfirmationEmailOptionsRef.current = hydrationKey;
+  }, [
+    id,
+    selectedHiringEmailSpIds.length,
+    trainingMetadata.include_backups_in_email,
+    trainingMetadata.selected_hiring_sp_ids,
+  ]);
   const selectedModalityLabel = inferEventModalityLabel(explicitEventTypeSet, trainingMetadata, event);
   const isEventVirtual = selectedModalityLabel === "Virtual";
   const isEventHybrid = selectedModalityLabel === "Hybrid";
@@ -5326,7 +5351,7 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
   const materialsReadinessRaw = getFirstNoteValue(eventEditor.notes || event?.notes, [
     "Materials Readiness",
     "Materials Status",
-  ]);
+  ]) || trainingMetadata.event_material_status;
   const savedMaterialsReadinessValue = normalizeMaterialsReadinessValue(materialsReadinessRaw);
   const materialsReadinessOption =
     getMaterialsReadinessOption(savedMaterialsReadinessValue || "materials_not_reviewed") ||
@@ -5659,12 +5684,16 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       ? "Owned by Sim Ops"
       : "Ownership TBD";
   const normalEventTrainingDateText =
+    asText(trainingMetadata.training_date) ||
     asText(trainingMetadata.preferred_training_date) ||
     asText(trainingMetadata.imported_training_date) ||
     getFirstNoteValue(event?.notes, ["Preferred Training Date", "Training Date", "SP Training Date", "Training Date/Time"]);
   const preferredTrainingTimeWindowText =
-    asText(trainingMetadata.preferred_training_time) || asText(trainingMetadata.preferred_training_end_time)
-      ? formatTimeWindowLabel(trainingMetadata.preferred_training_time, trainingMetadata.preferred_training_end_time)
+    asText(trainingMetadata.training_start_time) || asText(trainingMetadata.training_end_time) || asText(trainingMetadata.preferred_training_time) || asText(trainingMetadata.preferred_training_end_time)
+      ? formatTimeWindowLabel(
+          trainingMetadata.training_start_time || trainingMetadata.preferred_training_time,
+          trainingMetadata.training_end_time || trainingMetadata.preferred_training_end_time
+        )
       : "";
   const normalEventTrainingTimeText =
     preferredTrainingTimeWindowText ||
@@ -5675,11 +5704,13 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     getFirstNoteValue(event?.notes, ["Training Information", "Training Info", "SP Training Information"]);
   const normalEventTrainingLink =
     normalizeExternalHref(
+      asText(trainingMetadata.training_zoom_link) ||
       asText(trainingMetadata.zoom_url) ||
         getFirstNoteValue(event?.notes, ["Training Link", "Zoom", "Zoom Link", "SimIQ", "Virtual Link"])
     );
   const trainingAccessSourceText = [
     trainingMetadata.zoom_url,
+    trainingMetadata.training_zoom_link,
     normalEventTrainingLink,
     trainingMetadata.training_notes,
     getFirstNoteValue(event?.notes, ["Training Link", "Zoom", "Zoom Link", "SimIQ", "Virtual Link"]),
@@ -5780,22 +5811,26 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     ? normalEventTrainingCountdownLabel
     : normalEventTrainingStatusLabel;
   const normalEventTrainingAttendanceLabel = trainingAttendanceFieldsMissing
-    ? "Attendance tracking unavailable"
+    ? asText(trainingMetadata.training_attendance_status) || "Attendance tracking unavailable"
     : selectedStaffingCount > 0
       ? trainingAttendanceReady && !normalEventTrainingComplete
         ? `Attendance ready · ${attendedCount} / ${selectedStaffingCount} checked in`
         : `${attendedCount} / ${selectedStaffingCount} checked in`
-      : "No selected SPs yet";
+      : asText(trainingMetadata.training_attendance_status) || "No selected SPs yet";
   const normalEventTrainingRecordingLabel = trainingRecordingPlanned
-    ? trainingMetadata.recording_url
+    ? (trainingMetadata.training_recording_url || trainingMetadata.recording_url)
       ? "Training recording ready"
       : "Training recording planned"
-    : trainingMetadata.recording_url
+    : (trainingMetadata.training_recording_url || trainingMetadata.recording_url)
     ? "Recording guide ready"
-    : recordingStatus.active
-      ? recordingStatus.label
+    : trainingMetadata.training_recording_status
+      ? trainingMetadata.training_recording_status
+      : recordingStatus.active
+        ? recordingStatus.label
       : "No recording posted";
-  const normalEventTrainingRecordingHref = normalizeExternalHref(trainingMetadata.recording_url);
+  const normalEventTrainingRecordingHref = normalizeExternalHref(
+    trainingMetadata.training_recording_url || trainingMetadata.recording_url
+  );
   const normalEventTrainingPrimaryTone =
     normalEventTrainingComplete || normalEventTrainingReady
       ? {
@@ -8148,7 +8183,7 @@ Cory`;
       getEventDetailsSessionEditorState(
         result.sessions,
         result.event?.date_text,
-        parseTrainingEventMetadata(result.event?.notes)
+        parseEventMetadata(result.event?.notes).training
       )
     );
     setSessions(result.sessions);
@@ -8225,10 +8260,16 @@ Cory`;
     const trimmedSessionDate = sessionEditor.session_date.trim();
     const startTime = toStoredTimeValue(sessionEditor.start_time);
     const endTime = toStoredTimeValue(sessionEditor.end_time);
-    const nextEventNotes = upsertTrainingEventMetadata(eventEditor.notes, {
-      event_session_date: trimmedSessionDate,
-      event_start_time: startTime || "",
-      event_end_time: endTime || "",
+    const nextEventNotes = upsertEventMetadata(eventEditor.notes, {
+      training: {
+        event_session_date: trimmedSessionDate,
+        event_start_time: startTime || "",
+        event_end_time: endTime || "",
+        training_date: trainingMetadata.training_date || trainingMetadata.preferred_training_date,
+        training_start_time: trainingMetadata.training_start_time || trainingMetadata.preferred_training_time,
+        training_end_time: trainingMetadata.training_end_time || trainingMetadata.preferred_training_end_time,
+      },
+      eventTypes: activeEventTypes,
     });
     const shouldUpdateStructuredSessionFromEventDetails = sessions.length <= 1;
 
@@ -8316,7 +8357,7 @@ Cory`;
       : [...activeEventTypes, nextType];
     setEventEditor((current) => ({
       ...current,
-      notes: upsertEventTypesInNotes(current.notes, nextTypes),
+      notes: upsertEventMetadata(current.notes, { eventTypes: nextTypes }),
     }));
   }
 
@@ -8328,7 +8369,9 @@ Cory`;
     setEventSaveError("");
     setEventEditor((current) => ({
       ...current,
-      notes: upsertTrainingEventMetadata(current.notes, { [key]: value }),
+      notes: upsertEventMetadata(current.notes, {
+        training: buildNormalizedTrainingMetadataPartial({ [key]: value } as Partial<TrainingEventMetadata>),
+      }),
     }));
   }
 
@@ -8337,7 +8380,9 @@ Cory`;
     setEventSaveError("");
     setEventEditor((current) => ({
       ...current,
-      notes: upsertTrainingEventMetadata(current.notes, partial),
+      notes: upsertEventMetadata(current.notes, {
+        training: buildNormalizedTrainingMetadataPartial(partial),
+      }),
     }));
   }
 
@@ -8347,13 +8392,19 @@ Cory`;
     setEventSaveError("");
     setEventEditor((current) => ({
       ...current,
-      notes: upsertNoteValue(current.notes, "Materials Readiness", nextValue),
+      notes: upsertEventMetadata(
+        upsertNoteValue(current.notes, "Materials Readiness", nextValue),
+        { training: { event_material_status: nextValue } }
+      ),
     }));
   }
 
   async function handleMarkMaterialsReviewed() {
     try {
-      const nextNotes = upsertNoteValue(eventEditor.notes, "Materials Readiness", "materials_ready");
+      const nextNotes = upsertEventMetadata(
+        upsertNoteValue(eventEditor.notes, "Materials Readiness", "materials_ready"),
+        { training: { event_material_status: "materials_ready" } }
+      );
       await persistTrainingNotes(nextNotes, "Materials marked reviewed.");
     } catch (error) {
       setEventSaveError(error instanceof Error ? error.message : "Could not mark materials reviewed.");
@@ -8393,8 +8444,10 @@ Cory`;
     const selectedIds = Object.entries(nextChecks)
       .filter(([, complete]) => complete)
       .map(([workflowId]) => workflowId);
-    const nextNotes = upsertTrainingEventMetadata(eventEditor.notes, {
-      workflow_manual_checks: serializeWorkflowManualChecks(selectedIds),
+    const nextNotes = upsertEventMetadata(eventEditor.notes, {
+      training: {
+        workflow_manual_checks: serializeWorkflowManualChecks(selectedIds),
+      },
     });
     const persisted = await persistTrainingNotes(nextNotes, "Workflow updated.");
     if (persisted) {
@@ -8403,11 +8456,52 @@ Cory`;
     return persisted;
   }
 
+  function buildNormalizedTrainingMetadataPartial(
+    partial: Partial<TrainingEventMetadata>
+  ): Partial<TrainingEventMetadata> {
+    const next = { ...partial };
+
+    if (next.preferred_training_date && !next.training_date) {
+      next.training_date = next.preferred_training_date;
+    }
+    if (next.preferred_training_time && !next.training_start_time) {
+      next.training_start_time = next.preferred_training_time;
+    }
+    if (next.preferred_training_end_time && !next.training_end_time) {
+      next.training_end_time = next.preferred_training_end_time;
+    }
+    if (next.zoom_url && !next.training_zoom_link) {
+      next.training_zoom_link = next.zoom_url;
+    }
+    if (next.recording_url && !next.training_recording_url) {
+      next.training_recording_url = next.recording_url;
+    }
+    if (next.recording_status && !next.training_recording_status) {
+      next.training_recording_status = next.recording_status;
+    }
+    if (next.schedule_updated_at && !next.schedule_last_saved_at) {
+      next.schedule_last_saved_at = next.schedule_updated_at;
+    }
+    if (next.hiring_email_sent_or_marked_at && !next.hiring_email_sent_at) {
+      next.hiring_email_sent_at = next.hiring_email_sent_or_marked_at;
+    }
+    if (next.confirmation_email_sent_or_marked_at && !next.confirmation_email_sent_at) {
+      next.confirmation_email_sent_at = next.confirmation_email_sent_or_marked_at;
+    }
+    if (next.staffing_doc_url && !next.event_material_status) {
+      next.event_material_status = "materials_uploaded";
+    }
+
+    return next;
+  }
+
   async function persistTrainingMetadataFields(
     partial: Partial<TrainingEventMetadata>,
     successMessage: string
   ) {
-    const nextNotes = upsertTrainingEventMetadata(eventEditor.notes, partial);
+    const nextNotes = upsertEventMetadata(eventEditor.notes, {
+      training: buildNormalizedTrainingMetadataPartial(partial),
+    });
     return persistTrainingNotes(nextNotes, successMessage);
   }
 
@@ -8420,9 +8514,14 @@ Cory`;
         schedule_status: "complete",
         schedule_started_at: trainingMetadata.schedule_started_at || now,
         schedule_updated_at: now,
+        schedule_last_saved_at: now,
         schedule_completed_at: now,
         schedule_completed_by: me?.fullName || me?.scheduleName || me?.email || "",
         rotation_schedule_status: "complete",
+        schedule_learner_count: effectiveLearnerCount > 0 ? String(effectiveLearnerCount) : "",
+        schedule_room_count: effectiveRoomCount > 0 ? String(effectiveRoomCount) : "",
+        schedule_round_count: activeRotationCount > 0 ? String(activeRotationCount) : "",
+        schedule_preview_enabled_for_sps: trainingMetadata.schedule_preview_enabled_for_sps || "no",
       },
       "Schedule marked complete."
     );
@@ -8467,6 +8566,25 @@ Cory`;
       delete nextAdjustments[LIVE_ROOM_BOARD_ADJUSTMENT_KEY];
     }
     await persistLiveRoomAdjustments(nextAdjustments);
+  }
+
+  async function handleCommandCenterModeChange(nextMode: CommandCenterMode) {
+    setCommandCenterMode(nextMode);
+    if (nextMode === commandCenterMode) return;
+
+    const now = new Date().toISOString();
+    await persistTrainingMetadataFields(
+      nextMode === "live"
+        ? {
+            live_mode_started_at: trainingMetadata.live_mode_started_at || now,
+            live_flow_status: "active",
+          }
+        : {
+            live_mode_ended_at: now,
+            live_flow_status: "planning",
+          },
+      nextMode === "live" ? "Live mode started." : "Returned to planning mode."
+    );
   }
 
   function handleOpenEventScheduleRouteInNewTab(kind: EventSchedulePreviewKind, previewFamily?: "ticket" | "schedule") {
@@ -8639,13 +8757,18 @@ Cory`;
         throw new Error(body?.error || `Could not upload ${fieldConfig.label.toLowerCase()}.`);
       }
 
-      const nextNotes = upsertTrainingEventMetadata(eventEditor.notes, {
+      const nextNotes = upsertEventMetadata(eventEditor.notes, { training: {
         [fieldConfig.urlKey]: asText(body.material.url),
         [fieldConfig.nameKey]: asText(body.material.filename),
         [fieldConfig.storagePathKey]: asText(body.material.storage_path),
         [fieldConfig.uploadedAtKey]: asText(body.material.uploaded_at),
         [fieldConfig.uploadedByKey]: asText(body.material.uploaded_by),
-      });
+        ...(kind === "staffing_doc"
+          ? {
+              event_material_status: "materials_uploaded",
+            }
+          : {}),
+      }});
 
       await persistTrainingNotes(
         nextNotes,
@@ -8759,13 +8882,18 @@ Cory`;
         }
       }
 
-      const nextNotes = upsertTrainingEventMetadata(eventEditor.notes, {
+      const nextNotes = upsertEventMetadata(eventEditor.notes, { training: {
         [fieldConfig.urlKey]: "",
         [fieldConfig.nameKey]: "",
         [fieldConfig.storagePathKey]: "",
         [fieldConfig.uploadedAtKey]: "",
         [fieldConfig.uploadedByKey]: "",
-      });
+        ...(kind === "staffing_doc"
+          ? {
+              event_material_status: "",
+            }
+          : {}),
+      }});
 
       await persistTrainingNotes(
         nextNotes,
@@ -9026,7 +9154,7 @@ Cory`;
           getEventDetailsSessionEditorState(
             result.sessions,
             result.event?.date_text,
-            parseTrainingEventMetadata(result.event?.notes)
+            parseEventMetadata(result.event?.notes).training
           )
         );
         setSessions(result.sessions);
@@ -9308,6 +9436,8 @@ Cory`;
         email_status: "draft_opened",
         email_draft_opened_at: new Date().toISOString(),
         hiring_email_drafted_at: new Date().toISOString(),
+        selected_hiring_sp_ids: selectedHiringEmailSpIds.join(","),
+        staffing_status: staffingCoverageMet ? "coverage_met" : "needs_staffing",
         last_email_workflow_type: "hiring",
         last_email_recipient_count: String(hiringEmailBccEmails.length),
       },
@@ -9402,6 +9532,8 @@ Cory`;
         email_status: "draft_opened",
         email_draft_opened_at: new Date().toISOString(),
         confirmation_email_drafted_at: new Date().toISOString(),
+        include_backups_in_email: includeBackupConfirmationEmails ? "yes" : "no",
+        staffing_status: staffingCoverageMet ? "coverage_met" : "needs_staffing",
         last_email_workflow_type: "confirmation",
         last_email_recipient_count: String(confirmationBccEmails.length),
       },
@@ -9743,6 +9875,8 @@ Cory`;
             email_status: confirmationEmailSent ? "sent" : "draft_opened",
             email_sent_at: sentAt,
             hiring_email_sent_or_marked_at: sentAt,
+            staffing_status: confirmationEmailSent && staffingCoverageMet ? "complete" : staffingCoverageMet ? "coverage_met" : "needs_staffing",
+            selected_hiring_sp_ids: selectedHiringEmailSpIds.join(","),
             last_email_workflow_type: "hiring",
             last_email_recipient_count: String(hiringEmailBccEmails.length),
           }
@@ -9750,6 +9884,8 @@ Cory`;
             email_status: hiringEmailSent ? "sent" : "draft_opened",
             email_sent_at: sentAt,
             confirmation_email_sent_or_marked_at: sentAt,
+            staffing_status: hiringEmailSent && staffingCoverageMet ? "complete" : staffingCoverageMet ? "coverage_met" : "needs_staffing",
+            include_backups_in_email: includeBackupConfirmationEmails ? "yes" : "no",
             last_email_workflow_type: "confirmation",
             last_email_recipient_count: String(confirmationBccEmails.length),
           },
@@ -11141,6 +11277,93 @@ Cory`;
     rowBorder: isPlanningVisualMode ? "1px solid rgba(128, 167, 182, 0.22)" : "1px solid rgba(148, 163, 184, 0.18)",
   } as const;
   const trainingDateMarkerToneStyle = getOperationalDateToneStyles(trainingDateTone, isPlanningVisualMode);
+  const metadataInspectorPanel =
+    viewerRole !== "sp" ? (
+      <details
+        style={{
+          border: "1px solid var(--cfsp-border)",
+          borderRadius: "14px",
+          padding: "12px",
+          background: "var(--cfsp-surface-muted)",
+        }}
+      >
+        <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 800 }}>
+          Metadata Inspector
+        </summary>
+        <div style={{ display: "grid", gap: "12px", marginTop: "12px" }}>
+          <div
+            style={{
+              display: "grid",
+              gap: "8px",
+              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+            }}
+          >
+            {Object.entries(parsedEventMetadata.summary).length ? (
+              Object.entries(parsedEventMetadata.summary)
+                .sort(([a], [b]) => a.localeCompare(b))
+                .map(([key, value]) => (
+                  <div
+                    key={`metadata-summary-${key}`}
+                    style={{
+                      border: "1px solid var(--cfsp-border)",
+                      borderRadius: "12px",
+                      background: "var(--cfsp-surface)",
+                      padding: "10px 12px",
+                      display: "grid",
+                      gap: "4px",
+                    }}
+                  >
+                    <div style={{ ...statLabel, color: "var(--cfsp-text-muted)" }}>{key}</div>
+                    <div style={{ color: "var(--cfsp-text)", fontWeight: 800, fontSize: "13px", overflowWrap: "anywhere" }}>
+                      {value}
+                    </div>
+                  </div>
+                ))
+            ) : (
+              <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>No parsed metadata fields yet.</div>
+            )}
+          </div>
+          <div style={{ display: "grid", gap: "8px" }}>
+            <div style={statLabel}>Raw metadata block</div>
+            <pre
+              style={{
+                margin: 0,
+                padding: "12px",
+                borderRadius: "12px",
+                border: "1px solid var(--cfsp-border)",
+                background: "var(--cfsp-surface)",
+                color: "var(--cfsp-text)",
+                fontSize: "12px",
+                lineHeight: 1.5,
+                whiteSpace: "pre-wrap",
+                overflowWrap: "anywhere",
+              }}
+            >
+              {parsedEventMetadata.rawTrainingBlock || "(No machine metadata block found)"}
+            </pre>
+          </div>
+          <div style={{ display: "grid", gap: "8px" }}>
+            <div style={statLabel}>Raw event type lines</div>
+            <pre
+              style={{
+                margin: 0,
+                padding: "12px",
+                borderRadius: "12px",
+                border: "1px solid var(--cfsp-border)",
+                background: "var(--cfsp-surface)",
+                color: "var(--cfsp-text)",
+                fontSize: "12px",
+                lineHeight: 1.5,
+                whiteSpace: "pre-wrap",
+                overflowWrap: "anywhere",
+              }}
+            >
+              {parsedEventMetadata.rawEventTypeLines.join("\n") || "(No explicit event type lines found)"}
+            </pre>
+          </div>
+        </div>
+      </details>
+    ) : null;
 
   const normalEventTrainingReadinessPanel =
     staffingRelevant && !isTrainingMode ? (
@@ -14383,7 +14606,7 @@ Cory`;
               >
                 <button
                   type="button"
-                  onClick={() => setCommandCenterMode("planning")}
+                  onClick={() => void handleCommandCenterModeChange("planning")}
                   style={{
                     ...buttonStyle,
                     padding: "8px 12px",
@@ -14403,7 +14626,7 @@ Cory`;
                 </button>
                 <button
                   type="button"
-                  onClick={() => setCommandCenterMode("live")}
+                  onClick={() => void handleCommandCenterModeChange("live")}
                   style={{
                     ...buttonStyle,
                     padding: "8px 12px",
@@ -16813,6 +17036,8 @@ Cory`;
                   </label>
                 </div>
 
+                {metadataInspectorPanel}
+
                 <details
                   style={{
                     border: "1px solid var(--cfsp-border)",
@@ -17530,6 +17755,7 @@ Cory`;
               style={{ ...textareaStyle, marginTop: "10px" }}
             />
           </details>
+          {metadataInspectorPanel}
           {deleteEventDangerZone}
         </div>
         </div>
