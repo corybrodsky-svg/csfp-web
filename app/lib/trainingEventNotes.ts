@@ -404,3 +404,39 @@ export function hasTrainingMetadataValue(
 ) {
   return isMeaningfulTrainingMetadataText(metadata[key]);
 }
+
+export type FacultyTrainingCoordinationState = {
+  requested: boolean;
+  drafted: boolean;
+  sent: boolean;
+  status: "not_started" | "drafted" | "requested" | "sent";
+  requestedAt: string;
+  sentAt: string;
+};
+
+export function getFacultyTrainingCoordinationState(
+  metadata: TrainingEventMetadata
+): FacultyTrainingCoordinationState {
+  const coordinationStatus = asText(metadata.faculty_training_coordination_status).toLowerCase();
+  const explicitSentAt = asText(metadata.faculty_request_sent_at);
+  const requestedAt = asText(metadata.faculty_training_coordination_requested_at) || explicitSentAt;
+  const sent =
+    Boolean(explicitSentAt) ||
+    ["sent", "complete", "completed", "ready"].includes(coordinationStatus);
+  const drafted = !sent && coordinationStatus === "draft_opened";
+  const requested =
+    sent ||
+    drafted ||
+    ["requested", "request_sent", "awaiting_reply", "in_progress"].includes(coordinationStatus) ||
+    asText(metadata.faculty_training_coordination_requested).toLowerCase() === "yes" ||
+    Boolean(requestedAt);
+
+  return {
+    requested,
+    drafted,
+    sent,
+    status: sent ? "sent" : drafted ? "drafted" : requested ? "requested" : "not_started",
+    requestedAt,
+    sentAt: explicitSentAt || (sent ? requestedAt : ""),
+  };
+}

@@ -38,6 +38,7 @@ import {
   getRoomTypeLabel,
 } from "../../lib/roomNaming";
 import {
+  getFacultyTrainingCoordinationState,
   type TrainingEventMetadata,
 } from "../../lib/trainingEventNotes";
 
@@ -5798,15 +5799,14 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
   const internalTraining = trainingOwnershipValue === "internal_sim";
   const facultyAvailabilityUnknown = isMetadataYes(trainingMetadata.faculty_availability_unknown);
   const trainingRecordingPlanned = isMetadataYes(trainingMetadata.training_recording_planned);
-  const facultyTrainingCoordinationRequested =
-    isMetadataYes(trainingMetadata.faculty_training_coordination_requested) ||
-    Boolean(asText(trainingMetadata.faculty_training_coordination_status)) ||
-    Boolean(asText(trainingMetadata.faculty_request_sent_at));
-  const facultyTrainingCoordinationSent = Boolean(asText(trainingMetadata.faculty_request_sent_at));
+  const facultyTrainingCoordinationState = getFacultyTrainingCoordinationState(trainingMetadata);
+  const facultyTrainingCoordinationRequested = facultyTrainingCoordinationState.requested;
+  const facultyTrainingCoordinationDrafted = facultyTrainingCoordinationState.drafted;
+  const facultyTrainingCoordinationSent = facultyTrainingCoordinationState.sent;
   const facultyTrainingCoordinationLabel = facultyLedTraining
     ? facultyTrainingCoordinationSent
       ? "Faculty request sent"
-      : trainingMetadata.faculty_training_coordination_status === "draft_opened"
+      : facultyTrainingCoordinationDrafted
       ? "Faculty request drafted"
       : facultyTrainingCoordinationRequested
         ? "Faculty availability requested"
@@ -9115,11 +9115,28 @@ Cory`;
     if (next.staffing_doc_url && !next.event_material_status) {
       next.event_material_status = "materials_uploaded";
     }
+    if (next.faculty_training_coordination_status === "draft_opened" && !next.faculty_training_coordination_requested) {
+      next.faculty_training_coordination_requested = "yes";
+    }
+    if (
+      next.faculty_training_coordination_status &&
+      ["sent", "complete", "completed", "ready"].includes(next.faculty_training_coordination_status.toLowerCase()) &&
+      !next.faculty_request_sent_at
+    ) {
+      next.faculty_request_sent_at =
+        next.faculty_training_coordination_requested_at || new Date().toISOString();
+    }
+    if (next.faculty_training_coordination_requested_at && !next.faculty_training_coordination_requested) {
+      next.faculty_training_coordination_requested = "yes";
+    }
     if (next.faculty_request_sent_at) {
       if (!next.faculty_training_coordination_requested) {
         next.faculty_training_coordination_requested = "yes";
       }
-      if (!next.faculty_training_coordination_status) {
+      if (
+        !next.faculty_training_coordination_status ||
+        next.faculty_training_coordination_status === "requested"
+      ) {
         next.faculty_training_coordination_status = "sent";
       }
       if (!next.faculty_training_coordination_requested_at) {
