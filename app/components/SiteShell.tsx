@@ -221,16 +221,14 @@ export default function SiteShell({ title, subtitle, children }: SiteShellProps)
                   <div className="flex flex-wrap items-center gap-3">
                     <Link
                       href="/dashboard"
-                      className="flex items-center gap-3 rounded-[12px] px-3 py-2 text-inherit no-underline shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
+                      className="flex items-center gap-3 rounded-[14px] px-3 py-2 text-inherit no-underline shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
                       style={{
                         border: "1px solid var(--cfsp-header-border)",
                         background: "var(--cfsp-header-bg)",
+                        boxShadow: "var(--cfsp-card-glow)",
                       }}
                     >
-                      <div
-                        className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-[10px] text-xs font-black tracking-[0.14em] text-white"
-                        style={{ background: "var(--cfsp-logo-bg)" }}
-                      >
+                      <div className="cfsp-command-mark is-compact" aria-hidden="true">
                         {logoVisible ? (
                           <Image
                             src="/branding/cfsp-logo.svg"
@@ -238,15 +236,41 @@ export default function SiteShell({ title, subtitle, children }: SiteShellProps)
                             width={40}
                             height={40}
                             unoptimized
+                            className="cfsp-command-mark-logo"
                             onError={() => setLogoVisible(false)}
                           />
                         ) : (
-                          <span>CFSP</span>
+                          <span className="relative z-[1] text-[0.62rem] font-black tracking-[0.14em] text-white">CFSP</span>
                         )}
+                        <svg className="cfsp-command-mark-grid" aria-hidden="true" viewBox="0 0 88 64" fill="none">
+                          <path
+                            d="M4 44 H15 C20 44 21 33 27 33 H34 C40 33 41 20 48 20 C56 20 57 38 65 38 H74 C79 38 80 29 84 29"
+                            stroke="currentColor"
+                            strokeWidth="2.6"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                          <path
+                            d="M12 18 H30 M58 14 H76 M16 54 H42 M58 52 H78"
+                            stroke="currentColor"
+                            strokeWidth="1.4"
+                            strokeLinecap="round"
+                            opacity="0.38"
+                          />
+                        </svg>
                       </div>
                       <div className="min-w-0">
                         <div className="text-sm font-black leading-tight text-[var(--cfsp-text)]">CFSP</div>
                         <div className="text-xs font-semibold text-[var(--cfsp-text-muted)]">Conflict-Free SP</div>
+                        <div className="mt-1 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[0.58rem] font-black uppercase tracking-[0.12em]"
+                          style={{
+                            border: "1px solid var(--cfsp-shell-chip-border)",
+                            background: "var(--cfsp-shell-chip-bg)",
+                            color: "var(--cfsp-shell-chip-text)",
+                          }}
+                        >
+                          Simulation operations platform
+                        </div>
                       </div>
                     </Link>
 
@@ -374,10 +398,14 @@ export default function SiteShell({ title, subtitle, children }: SiteShellProps)
                       href={item.href}
                       className="min-h-[42px] rounded-[10px] px-3 py-2 text-sm font-bold no-underline transition-colors"
                       style={{
-                        background: active ? "var(--cfsp-blue-dark)" : isPrimary ? "var(--cfsp-blue)" : "var(--cfsp-header-bg)",
+                        background: active
+                          ? "linear-gradient(135deg, rgba(73, 168, 255, 0.94), rgba(44, 211, 173, 0.82))"
+                          : isPrimary
+                            ? "linear-gradient(135deg, rgba(20, 91, 150, 0.98), rgba(25, 138, 112, 0.92))"
+                            : "var(--cfsp-header-bg)",
                         border: active || isPrimary ? "1px solid transparent" : "1px solid var(--cfsp-header-border)",
-                        color: active || isPrimary ? "#ffffff" : "var(--cfsp-text)",
-                        boxShadow: active || isPrimary ? "0 1px 2px rgba(15, 23, 42, 0.08)" : "none",
+                        color: active || isPrimary ? "#04111b" : "var(--cfsp-text)",
+                        boxShadow: active || isPrimary ? "0 10px 20px rgba(24, 52, 78, 0.14), 0 0 18px rgba(73, 168, 255, 0.12)" : "none",
                       }}
                     >
                       {item.label}

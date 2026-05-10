@@ -30,6 +30,10 @@
   --cfsp-shell-chip-border: #8cd4be;
   --cfsp-shell-chip-text: #13624f;
   --cfsp-logo-bg: #0f4673;
+  --cfsp-command-mark-bg: linear-gradient(145deg, rgba(15, 71, 118, 0.98), rgba(18, 108, 88, 0.9));
+  --cfsp-command-mark-border: rgba(44, 211, 173, 0.28);
+  --cfsp-command-mark-glow: 0 18px 34px rgba(20, 91, 150, 0.14), 0 0 28px rgba(44, 211, 173, 0.1);
+  --cfsp-command-signal: #94f3df;
   --cfsp-theme-toggle-bg: #edf4fb;
   --cfsp-theme-toggle-border: #d8e5f1;
   --cfsp-theme-toggle-text: #145b96;
@@ -38,18 +42,18 @@
   --cfsp-account-dropdown-bg: rgba(255, 255, 255, 0.98);
   --cfsp-account-dropdown-shadow: 0 22px 55px rgba(24, 52, 78, 0.18), 0 0 0 1px rgba(143, 194, 240, 0.14);
   --cfsp-stars-opacity: 0;
-  --cfsp-card-glow: 0 10px 28px rgba(24, 52, 78, 0.07);
-  --cfsp-dashboard-hero-bg: linear-gradient(135deg, rgba(20, 91, 150, 0.08) 0%, rgba(44, 211, 173, 0.08) 42%, #ffffff 100%);
-  --cfsp-dashboard-panel-bg: linear-gradient(180deg, var(--cfsp-surface-muted) 0%, var(--cfsp-surface) 100%);
-  --cfsp-planning-calendar-bg: linear-gradient(135deg, rgba(180, 129, 42, 0.13) 0%, rgba(255, 251, 240, 0.92) 38%, rgba(20, 91, 150, 0.06) 100%);
-  --cfsp-planning-calendar-border: rgba(190, 142, 62, 0.34);
-  --cfsp-planning-calendar-shadow: 0 18px 42px rgba(122, 88, 28, 0.11), 0 0 0 1px rgba(255, 255, 255, 0.62) inset;
-  --cfsp-planning-calendar-accent: #b4812a;
-  --cfsp-planning-calendar-accent-soft: rgba(180, 129, 42, 0.13);
-  --cfsp-planning-calendar-accent-glow: rgba(224, 178, 91, 0.22);
-  --cfsp-planning-calendar-text: #60400d;
+  --cfsp-card-glow: 0 10px 28px rgba(24, 52, 78, 0.07), 0 0 0 1px rgba(73, 168, 255, 0.04);
+  --cfsp-dashboard-hero-bg: linear-gradient(135deg, rgba(20, 91, 150, 0.1) 0%, rgba(44, 211, 173, 0.09) 42%, #ffffff 100%);
+  --cfsp-dashboard-panel-bg: linear-gradient(180deg, rgba(248, 252, 255, 0.98) 0%, rgba(255, 255, 255, 0.98) 100%);
+  --cfsp-planning-calendar-bg: linear-gradient(135deg, rgba(20, 91, 150, 0.1) 0%, rgba(12, 31, 51, 0.06) 42%, rgba(44, 211, 173, 0.08) 100%);
+  --cfsp-planning-calendar-border: rgba(73, 168, 255, 0.26);
+  --cfsp-planning-calendar-shadow: 0 18px 42px rgba(24, 52, 78, 0.12), 0 0 0 1px rgba(255, 255, 255, 0.62) inset;
+  --cfsp-planning-calendar-accent: #49a8ff;
+  --cfsp-planning-calendar-accent-soft: rgba(73, 168, 255, 0.12);
+  --cfsp-planning-calendar-accent-glow: rgba(73, 168, 255, 0.18);
+  --cfsp-planning-calendar-text: #145b96;
   --cfsp-planning-calendar-control-bg: rgba(255, 255, 255, 0.82);
-  --cfsp-planning-calendar-control-border: rgba(190, 142, 62, 0.34);
+  --cfsp-planning-calendar-control-border: rgba(73, 168, 255, 0.24);
   --cfsp-simvitals-preview-bg: linear-gradient(135deg, rgba(20, 91, 150, 0.08) 0%, rgba(25, 138, 112, 0.08) 48%, var(--cfsp-surface) 100%);
   --cfsp-simvitals-hero-bg: linear-gradient(135deg, rgba(20, 91, 150, 0.11) 0%, rgba(44, 211, 173, 0.10) 42%, var(--cfsp-surface) 100%);
   --cfsp-simvitals-composer-bg: linear-gradient(180deg, var(--cfsp-surface) 0%, var(--cfsp-surface-muted) 100%);
@@ -70,6 +74,17 @@
   --cfsp-skills-soft: #edf6ff;
   --cfsp-skills-border: #bfdcf6;
   --cfsp-skills-text: #145b96;
+  --cfsp-attention-panel-bg: linear-gradient(180deg, rgba(11, 27, 44, 0.98) 0%, rgba(10, 21, 36, 0.98) 82%, rgba(8, 15, 28, 0.99) 100%);
+  --cfsp-attention-panel-border: rgba(73, 168, 255, 0.22);
+  --cfsp-attention-panel-shadow: 0 20px 44px rgba(10, 20, 33, 0.16), inset 0 1px 0 rgba(125, 211, 252, 0.06);
+  --cfsp-attention-panel-header: linear-gradient(90deg, rgba(73, 168, 255, 0.12) 0%, rgba(243, 187, 103, 0.08) 46%, rgba(255, 255, 255, 0) 100%);
+  --cfsp-attention-title: #e7f4ff;
+  --cfsp-attention-copy: rgba(224, 238, 255, 0.76);
+  --cfsp-attention-meta: rgba(173, 197, 223, 0.72);
+  --cfsp-attention-link: #8fcfff;
+  --cfsp-attention-chip-bg: rgba(243, 187, 103, 0.14);
+  --cfsp-attention-chip-border: rgba(243, 187, 103, 0.26);
+  --cfsp-attention-chip-text: #f3bb67;
 }
 
 html[data-theme="dark"] {
@@ -107,6 +122,10 @@ html[data-theme="dark"] {
   --cfsp-shell-chip-border: rgba(74, 205, 179, 0.32);
   --cfsp-shell-chip-text: #9ce9d6;
   --cfsp-logo-bg: #08111c;
+  --cfsp-command-mark-bg: linear-gradient(145deg, rgba(8, 17, 28, 0.98), rgba(10, 38, 52, 0.96));
+  --cfsp-command-mark-border: rgba(120, 220, 255, 0.34);
+  --cfsp-command-mark-glow: 0 20px 44px rgba(0, 0, 0, 0.42), 0 0 34px rgba(44, 211, 173, 0.22), 0 0 48px rgba(73, 168, 255, 0.12);
+  --cfsp-command-signal: #8df7e2;
   --cfsp-theme-toggle-bg: #111c2a;
   --cfsp-theme-toggle-border: rgba(120, 180, 255, 0.24);
   --cfsp-theme-toggle-text: #d9ebff;
@@ -118,15 +137,15 @@ html[data-theme="dark"] {
   --cfsp-panel-strong: #101827;
   --cfsp-dashboard-hero-bg: linear-gradient(135deg, rgba(73, 168, 255, 0.13) 0%, rgba(44, 211, 173, 0.10) 42%, rgba(13, 20, 32, 0.96) 100%);
   --cfsp-dashboard-panel-bg: linear-gradient(180deg, rgba(17, 29, 45, 0.94) 0%, rgba(11, 18, 29, 0.96) 100%);
-  --cfsp-planning-calendar-bg: linear-gradient(135deg, rgba(181, 132, 47, 0.17) 0%, rgba(16, 25, 39, 0.96) 44%, rgba(8, 15, 26, 0.98) 100%);
-  --cfsp-planning-calendar-border: rgba(224, 178, 91, 0.3);
-  --cfsp-planning-calendar-shadow: 0 0 0 1px rgba(224, 178, 91, 0.08), 0 18px 48px rgba(0, 0, 0, 0.38), 0 0 32px rgba(224, 178, 91, 0.08);
-  --cfsp-planning-calendar-accent: #e0b25b;
-  --cfsp-planning-calendar-accent-soft: rgba(224, 178, 91, 0.12);
-  --cfsp-planning-calendar-accent-glow: rgba(224, 178, 91, 0.18);
-  --cfsp-planning-calendar-text: #f7d891;
+  --cfsp-planning-calendar-bg: linear-gradient(135deg, rgba(73, 168, 255, 0.16) 0%, rgba(16, 25, 39, 0.96) 44%, rgba(8, 15, 26, 0.98) 100%);
+  --cfsp-planning-calendar-border: rgba(120, 180, 255, 0.28);
+  --cfsp-planning-calendar-shadow: 0 0 0 1px rgba(120, 180, 255, 0.08), 0 18px 48px rgba(0, 0, 0, 0.38), 0 0 32px rgba(44, 211, 173, 0.08);
+  --cfsp-planning-calendar-accent: #8fcfff;
+  --cfsp-planning-calendar-accent-soft: rgba(73, 168, 255, 0.12);
+  --cfsp-planning-calendar-accent-glow: rgba(73, 168, 255, 0.18);
+  --cfsp-planning-calendar-text: #cfe7ff;
   --cfsp-planning-calendar-control-bg: rgba(16, 25, 39, 0.76);
-  --cfsp-planning-calendar-control-border: rgba(224, 178, 91, 0.28);
+  --cfsp-planning-calendar-control-border: rgba(120, 180, 255, 0.24);
   --cfsp-simvitals-preview-bg: linear-gradient(135deg, rgba(73, 168, 255, 0.12) 0%, rgba(44, 211, 173, 0.11) 46%, rgba(13, 20, 32, 0.98) 100%);
   --cfsp-simvitals-hero-bg: linear-gradient(135deg, rgba(73, 168, 255, 0.16) 0%, rgba(44, 211, 173, 0.12) 42%, rgba(8, 15, 26, 0.98) 100%);
   --cfsp-simvitals-composer-bg: linear-gradient(180deg, rgba(13, 20, 32, 0.96) 0%, rgba(17, 25, 39, 0.9) 100%);
@@ -146,6 +165,17 @@ html[data-theme="dark"] {
   --cfsp-skills-soft: rgba(73, 168, 255, 0.1);
   --cfsp-skills-border: rgba(120, 180, 255, 0.28);
   --cfsp-skills-text: #8fcfff;
+  --cfsp-attention-panel-bg: linear-gradient(180deg, rgba(10, 19, 33, 0.98) 0%, rgba(8, 15, 27, 0.98) 86%, rgba(7, 11, 21, 0.99) 100%);
+  --cfsp-attention-panel-border: rgba(120, 180, 255, 0.18);
+  --cfsp-attention-panel-shadow: 0 22px 52px rgba(0, 0, 0, 0.42), inset 0 1px 0 rgba(125, 211, 252, 0.06), 0 0 28px rgba(243, 187, 103, 0.08);
+  --cfsp-attention-panel-header: linear-gradient(90deg, rgba(73, 168, 255, 0.13) 0%, rgba(243, 187, 103, 0.09) 44%, rgba(255, 255, 255, 0) 100%);
+  --cfsp-attention-title: #e7f4ff;
+  --cfsp-attention-copy: rgba(214, 237, 244, 0.78);
+  --cfsp-attention-meta: rgba(158, 185, 204, 0.76);
+  --cfsp-attention-link: #8fcfff;
+  --cfsp-attention-chip-bg: rgba(243, 187, 103, 0.12);
+  --cfsp-attention-chip-border: rgba(243, 187, 103, 0.24);
+  --cfsp-attention-chip-text: #fde68a;
 }
 
 @theme inline {
@@ -232,7 +262,7 @@ textarea {
 .cfsp-panel {
   background: var(--cfsp-surface);
   border: 1px solid var(--cfsp-border);
-  border-radius: 14px;
+  border-radius: 16px;
   box-shadow: var(--cfsp-card-glow);
   backdrop-filter: blur(14px);
 }
@@ -309,7 +339,7 @@ textarea {
 .cfsp-theme-choice.is-active {
   background: var(--cfsp-theme-toggle-active-bg);
   color: var(--cfsp-theme-toggle-active-text);
-  box-shadow: 0 8px 18px rgba(24, 52, 78, 0.14);
+  box-shadow: 0 10px 22px rgba(24, 52, 78, 0.14), 0 0 18px rgba(73, 168, 255, 0.12);
 }
 
 .cfsp-panel-muted {
@@ -435,6 +465,7 @@ textarea {
   color: var(--cfsp-text);
   font-size: 0.8rem;
   font-weight: 700;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28);
 }
 
 .cfsp-input,
@@ -477,6 +508,19 @@ textarea {
   border-radius: 12px;
   padding: 15px;
   box-shadow: var(--cfsp-card-glow);
+  position: relative;
+  overflow: hidden;
+}
+
+.cfsp-stat-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto auto 0;
+  width: 38%;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(73, 168, 255, 0.4), transparent 100%);
+  opacity: 0.85;
+  pointer-events: none;
 }
 
 .cfsp-stat-value {
@@ -597,6 +641,61 @@ textarea {
   font-weight: 800;
   letter-spacing: 0.05em;
   text-transform: uppercase;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+.cfsp-command-mark {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 74px;
+  height: 74px;
+  flex: 0 0 auto;
+  overflow: hidden;
+  border: 1px solid var(--cfsp-command-mark-border);
+  border-radius: 18px;
+  background: var(--cfsp-command-mark-bg);
+  box-shadow: var(--cfsp-command-mark-glow);
+}
+
+.cfsp-command-mark.is-compact {
+  width: 54px;
+  height: 54px;
+  border-radius: 14px;
+}
+
+.cfsp-command-mark::before {
+  content: "";
+  position: absolute;
+  inset: -35%;
+  background:
+    linear-gradient(115deg, transparent 30%, rgba(255, 255, 255, 0.22) 45%, transparent 58%),
+    radial-gradient(circle at 78% 18%, rgba(44, 211, 173, 0.28), transparent 24%);
+  transform: translateX(-28%);
+  animation: cfspSignalSweep 7s ease-in-out infinite;
+}
+
+.cfsp-command-mark-logo {
+  position: relative;
+  z-index: 1;
+  width: 54%;
+  height: 54%;
+  object-fit: contain;
+  filter: drop-shadow(0 5px 10px rgba(0, 0, 0, 0.26));
+}
+
+.cfsp-command-mark-grid {
+  position: absolute;
+  inset: 7px;
+  z-index: 2;
+  color: var(--cfsp-command-signal);
+  opacity: 0.92;
+}
+
+.cfsp-command-mark-grid path {
+  stroke-dasharray: 96;
+  stroke-dashoffset: 96;
+  animation: cfspSignalTrace 5s ease-in-out infinite;
 }
 
 .simvitals-mark {

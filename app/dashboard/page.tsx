@@ -619,23 +619,21 @@ function WorkflowSection({
   const needsAttentionSection = sectionKey === "needsAttention";
   const sectionPanelStyle = needsAttentionSection
     ? {
-        background:
-          "linear-gradient(180deg, rgba(62, 36, 7, 0.96) 0%, rgba(34, 23, 12, 0.97) 18%, rgba(20, 20, 23, 0.98) 100%)",
-        border: "1px solid rgba(245, 158, 11, 0.22)",
-        boxShadow: "0 18px 42px rgba(120, 74, 15, 0.2), inset 0 1px 0 rgba(255, 231, 179, 0.08)",
+        background: "var(--cfsp-attention-panel-bg)",
+        border: "1px solid var(--cfsp-attention-panel-border)",
+        boxShadow: "var(--cfsp-attention-panel-shadow)",
       }
     : undefined;
   const sectionHeaderStyle = needsAttentionSection
     ? {
-        borderBottom: "1px solid rgba(245, 158, 11, 0.16)",
-        background:
-          "linear-gradient(90deg, rgba(245, 158, 11, 0.13) 0%, rgba(234, 179, 8, 0.07) 42%, rgba(255, 255, 255, 0) 100%)",
+        borderBottom: "1px solid rgba(73, 168, 255, 0.14)",
+        background: "var(--cfsp-attention-panel-header)",
       }
     : { borderBottom: "1px solid var(--cfsp-border)" };
-  const sectionTitleStyle = needsAttentionSection ? { color: "#fff2cf", textShadow: "0 0 18px rgba(245, 158, 11, 0.14)" } : undefined;
-  const sectionDescriptionStyle = needsAttentionSection ? { color: "rgba(255, 241, 204, 0.78)" } : undefined;
-  const sectionMetaStyle = needsAttentionSection ? { color: "rgba(255, 232, 191, 0.72)" } : { color: "var(--cfsp-text-muted)" };
-  const sectionLinkStyle = needsAttentionSection ? { color: "#fbbf24" } : { color: "var(--cfsp-blue)" };
+  const sectionTitleStyle = needsAttentionSection ? { color: "var(--cfsp-attention-title)", textShadow: "0 0 18px rgba(73, 168, 255, 0.12)" } : undefined;
+  const sectionDescriptionStyle = needsAttentionSection ? { color: "var(--cfsp-attention-copy)" } : undefined;
+  const sectionMetaStyle = needsAttentionSection ? { color: "var(--cfsp-attention-meta)" } : { color: "var(--cfsp-text-muted)" };
+  const sectionLinkStyle = needsAttentionSection ? { color: "var(--cfsp-attention-link)" } : { color: "var(--cfsp-blue)" };
 
   return (
     <section className="cfsp-panel overflow-hidden" style={sectionPanelStyle}>
@@ -692,12 +690,14 @@ function WorkflowSection({
                     background:
                       highlightedEventId === item.event.id
                         ? "linear-gradient(180deg, rgba(239, 246, 255, 0.98) 0%, rgba(219, 234, 254, 0.96) 100%)"
-                        : visualTone.cardBackground,
+                        : needsAttentionSection
+                          ? "linear-gradient(180deg, rgba(10, 22, 36, 0.92) 0%, rgba(12, 20, 33, 0.94) 100%)"
+                          : visualTone.cardBackground,
                     boxShadow:
                       highlightedEventId === item.event.id
                         ? "0 0 0 2px rgba(96, 165, 250, 0.18), 0 16px 36px rgba(59, 130, 246, 0.14)"
                         : needsAttentionSection
-                          ? "0 14px 30px rgba(120, 74, 15, 0.16)"
+                          ? "0 16px 34px rgba(5, 12, 22, 0.28), inset 0 1px 0 rgba(125, 211, 252, 0.04)"
                           : visualTone.cardShadow,
                     transition: "box-shadow 180ms ease, border-color 180ms ease, background 180ms ease",
                   }}
@@ -723,11 +723,11 @@ function WorkflowSection({
                         ))}
                       </div>
 
-                      <h3 className="m-0 text-[1.12rem] font-black" style={{ color: visualTone.titleText }}>
+                      <h3 className="m-0 text-[1.12rem] font-black" style={{ color: needsAttentionSection ? "var(--cfsp-attention-title)" : visualTone.titleText }}>
                         {item.event.name?.trim() || "Untitled Event"}
                       </h3>
 
-                      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm font-semibold text-[var(--cfsp-text-muted)]">
+                      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm font-semibold" style={{ color: needsAttentionSection ? "var(--cfsp-attention-meta)" : "var(--cfsp-text-muted)" }}>
                         <span>{formatEventDate(item.start, item.event.date_text)}</span>
                         <span>{eventLocation(item.event)}</span>
                         <span>
@@ -904,15 +904,22 @@ function GlobalEventFinder({
     window.requestAnimationFrame(() => inputRef.current?.focus());
   }
 
+  const consoleShellStyle = {
+    border: "1px solid rgba(120, 180, 255, 0.18)",
+    background: "linear-gradient(180deg, rgba(14, 22, 36, 0.96) 0%, rgba(10, 18, 29, 0.96) 100%)",
+    boxShadow: "0 18px 42px rgba(5, 12, 22, 0.2), inset 0 1px 0 rgba(125, 211, 252, 0.05)",
+  };
+  const consoleChipStyle = {
+    border: "1px solid rgba(120, 180, 255, 0.16)",
+    background: "rgba(255, 255, 255, 0.035)",
+    color: "var(--cfsp-attention-title)",
+  };
+
   if (collapsed) {
     return (
       <div
         className="relative rounded-[12px] px-3 py-2"
-        style={{
-          border: "1px solid var(--cfsp-border)",
-          background: "var(--cfsp-dashboard-panel-bg)",
-          boxShadow: "var(--cfsp-card-glow)",
-        }}
+        style={consoleShellStyle}
       >
         <div className="flex flex-wrap items-center justify-between gap-2">
           <button
@@ -926,10 +933,10 @@ function GlobalEventFinder({
               className="h-2.5 w-2.5 shrink-0 rounded-full"
               style={{ background: "var(--cfsp-green)", boxShadow: "0 0 12px rgba(44, 211, 173, 0.5)" }}
             />
-            <span className="truncate text-[0.72rem] font-black uppercase tracking-[0.14em] text-[var(--cfsp-text)]">
+            <span className="truncate text-[0.72rem] font-black uppercase tracking-[0.14em] text-[var(--cfsp-attention-title)]">
               Operations Console
             </span>
-            <span className="hidden text-xs font-semibold text-[var(--cfsp-text-muted)] sm:inline">
+            <span className="hidden text-xs font-semibold text-[var(--cfsp-attention-meta)] sm:inline">
               {quickStats.operations} events · {quickStats.attention} attention
             </span>
           </button>
@@ -938,9 +945,9 @@ function GlobalEventFinder({
             onClick={toggleCollapsed}
             className="rounded-full px-2.5 py-1 text-[0.68rem] font-bold transition"
             style={{
-              border: "1px solid var(--cfsp-input-border)",
-              background: "var(--cfsp-surface-muted)",
-              color: "var(--cfsp-text)",
+              border: "1px solid rgba(120, 180, 255, 0.16)",
+              background: "rgba(255,255,255,0.04)",
+              color: "var(--cfsp-attention-title)",
             }}
           >
             Open Console
@@ -953,11 +960,7 @@ function GlobalEventFinder({
   return (
     <div
       className="relative rounded-[13px] px-3 py-2"
-      style={{
-        border: "1px solid var(--cfsp-border)",
-        background: "var(--cfsp-dashboard-panel-bg)",
-        boxShadow: "var(--cfsp-card-glow)",
-      }}
+      style={consoleShellStyle}
       onKeyDown={(event) => {
         if (event.key === "Escape") {
           event.preventDefault();
@@ -972,22 +975,44 @@ function GlobalEventFinder({
     >
       <div className="flex flex-col gap-1.5 lg:flex-row lg:items-center">
         <div className="flex shrink-0 items-center gap-2 lg:w-[144px]">
-          <span
-            aria-hidden="true"
-            className="h-2.5 w-2.5 shrink-0 rounded-full"
-            style={{ background: "var(--cfsp-green)", boxShadow: "0 0 12px rgba(44, 211, 173, 0.5)" }}
-          />
+          <div className="cfsp-command-mark is-compact" aria-hidden="true">
+            <span
+              style={{
+                position: "absolute",
+                inset: "11px",
+                borderRadius: "10px",
+                border: "1px solid rgba(125, 211, 252, 0.16)",
+                zIndex: 1,
+              }}
+            />
+            <svg className="cfsp-command-mark-grid" aria-hidden="true" viewBox="0 0 88 64" fill="none">
+              <path
+                d="M4 44 H15 C20 44 21 33 27 33 H34 C40 33 41 20 48 20 C56 20 57 38 65 38 H74 C79 38 80 29 84 29"
+                stroke="currentColor"
+                strokeWidth="2.6"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              <path
+                d="M12 18 H30 M58 14 H76 M16 54 H42 M58 52 H78"
+                stroke="currentColor"
+                strokeWidth="1.4"
+                strokeLinecap="round"
+                opacity="0.38"
+              />
+            </svg>
+          </div>
           <div className="min-w-0">
-            <div className="truncate text-[0.64rem] font-black uppercase tracking-[0.13em] text-[var(--cfsp-text)]">Operations Console</div>
-            <div className="text-[0.64rem] font-semibold text-[var(--cfsp-text-muted)]">Event command lookup</div>
+            <div className="truncate text-[0.64rem] font-black uppercase tracking-[0.13em] text-[var(--cfsp-attention-title)]">Operations Console</div>
+            <div className="text-[0.64rem] font-semibold text-[var(--cfsp-attention-meta)]">Event command lookup</div>
           </div>
         </div>
 
         <div
           className="flex min-h-[36px] min-w-0 flex-1 items-center gap-2 rounded-[10px] px-2.5 py-1.5"
           style={{
-            border: "1px solid var(--cfsp-input-border)",
-            background: "var(--cfsp-input-bg)",
+            border: "1px solid rgba(120, 180, 255, 0.18)",
+            background: "rgba(5, 13, 23, 0.72)",
             boxShadow: resultsOpen ? "0 0 0 2px rgba(73, 168, 255, 0.18)" : "none",
           }}
         >
@@ -1004,14 +1029,14 @@ function GlobalEventFinder({
             aria-controls="global-event-finder-results"
             role="combobox"
             placeholder="Find events, staffing, readiness, or live operations..."
-            className="min-w-0 flex-1 bg-transparent text-[0.92rem] font-bold outline-none text-[var(--cfsp-text)] placeholder:text-[var(--cfsp-text-muted)]"
+            className="min-w-0 flex-1 bg-transparent text-[0.92rem] font-bold outline-none text-[var(--cfsp-attention-title)] placeholder:text-[var(--cfsp-attention-meta)]"
           />
           <span
             className="hidden rounded-[6px] px-1.5 py-0.5 text-[0.58rem] font-black sm:inline"
             style={{
               border: "1px solid var(--cfsp-input-border)",
-              background: "var(--cfsp-theme-toggle-bg)",
-              color: "var(--cfsp-text-muted)",
+              background: "rgba(255,255,255,0.05)",
+              color: "var(--cfsp-attention-meta)",
             }}
           >
             /
@@ -1021,7 +1046,7 @@ function GlobalEventFinder({
               type="button"
               onClick={clearSearch}
               className="rounded-[7px] px-2 py-0.5 text-[0.62rem] font-bold transition"
-              style={{ color: "var(--cfsp-text-muted)" }}
+              style={{ color: "var(--cfsp-attention-meta)" }}
               aria-label="Clear Operations Console"
             >
               Clear
@@ -1030,15 +1055,15 @@ function GlobalEventFinder({
         </div>
 
         <div className="flex shrink-0 flex-wrap items-center gap-1 text-[0.6rem] font-semibold">
-          <span className="inline-flex items-center gap-1 rounded-[8px] px-2 py-0.5" style={{ border: "1px solid var(--cfsp-input-border)", background: "var(--cfsp-surface-muted)", color: "var(--cfsp-text)" }}>
+          <span className="inline-flex items-center gap-1 rounded-[8px] px-2 py-0.5" style={consoleChipStyle}>
             <span className="inline-block h-1.5 w-1.5 rounded-full bg-[var(--cfsp-blue)]" />
             {quickStats.operations} events
           </span>
-          <span className="inline-flex items-center gap-1 rounded-[8px] px-2 py-0.5" style={{ border: "1px solid rgba(251, 191, 36, 0.35)", background: "rgba(251, 191, 36, 0.1)", color: "var(--cfsp-warning)" }}>
+          <span className="inline-flex items-center gap-1 rounded-[8px] px-2 py-0.5" style={{ border: "1px solid var(--cfsp-attention-chip-border)", background: "var(--cfsp-attention-chip-bg)", color: "var(--cfsp-attention-chip-text)" }}>
             <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-400" />
             {quickStats.attention} attention
           </span>
-          <span className="inline-flex items-center gap-1 rounded-[8px] px-2 py-0.5" style={{ border: "1px solid rgba(44, 211, 173, 0.28)", background: "rgba(44, 211, 173, 0.12)", color: "var(--cfsp-text)" }}>
+          <span className="inline-flex items-center gap-1 rounded-[8px] px-2 py-0.5" style={consoleChipStyle}>
             <span className="inline-block h-1.5 w-1.5 rounded-full bg-[var(--cfsp-green)]" />
             {quickStats.today} live / today
           </span>
@@ -1049,9 +1074,9 @@ function GlobalEventFinder({
           onClick={toggleCollapsed}
           className="shrink-0 rounded-[8px] px-2 py-0.5 text-[0.62rem] font-bold transition"
           style={{
-            border: "1px solid var(--cfsp-input-border)",
-            background: "var(--cfsp-theme-toggle-bg)",
-            color: "var(--cfsp-text-muted)",
+            border: "1px solid rgba(120, 180, 255, 0.16)",
+            background: "rgba(255,255,255,0.04)",
+            color: "var(--cfsp-attention-meta)",
           }}
           aria-expanded="true"
         >
@@ -1063,8 +1088,8 @@ function GlobalEventFinder({
         className="mt-1.5 flex flex-wrap items-center gap-1 rounded-[10px] px-1.5 py-1"
         aria-label="Operational search toggles"
         style={{
-          border: "1px solid rgba(120, 130, 150, 0.12)",
-          background: "linear-gradient(90deg, rgba(255, 255, 255, 0.03) 0%, rgba(255, 255, 255, 0.015) 100%)",
+          border: "1px solid rgba(120, 180, 255, 0.12)",
+          background: "linear-gradient(90deg, rgba(73, 168, 255, 0.06) 0%, rgba(255, 255, 255, 0.02) 100%)",
         }}
       >
         {chipOptions.map((chip) => {
@@ -1077,9 +1102,9 @@ function GlobalEventFinder({
               className="inline-flex h-6.5 items-center gap-1 rounded-[7px] border px-2 py-0 text-[0.6rem] font-semibold transition"
               style={{
                 borderColor: selected ? "rgba(73, 168, 255, 0.5)" : "rgba(120, 130, 150, 0.18)",
-                background: selected ? "rgba(73, 168, 255, 0.1)" : "rgba(255, 255, 255, 0.02)",
-                color: selected ? "var(--cfsp-blue)" : "var(--cfsp-text-muted)",
-                boxShadow: selected ? "inset 0 0 0 1px rgba(73, 168, 255, 0.12)" : "none",
+                background: selected ? "rgba(73, 168, 255, 0.12)" : "rgba(255, 255, 255, 0.025)",
+                color: selected ? "#d8f1ff" : "var(--cfsp-attention-meta)",
+                boxShadow: selected ? "inset 0 0 0 1px rgba(73, 168, 255, 0.12), 0 0 12px rgba(73, 168, 255, 0.1)" : "none",
               }}
               aria-pressed={selected}
             >
