@@ -5932,8 +5932,8 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
   const isTrainingMode = eventMeta.isTraining || activeEventTypeSet.has("training");
   const showEmbeddedTrainingPrep = canManageTrainingAttendance;
   const embeddedTrainingMetadataSourceLabel = relatedTrainingOperationalEvents.length
-    ? `${relatedTrainingOperationalEvents.length} related training node${relatedTrainingOperationalEvents.length === 1 ? "" : "s"} detected`
-    : "Primary event training metadata";
+    ? "Training data embedded here"
+    : "Primary event training data";
   const noSpStaffingRequired = activeEventTypeSet.has("skills") && !eventMeta.hasSpWorkflow;
   const staffingRelevant = eventMeta.hasSpWorkflow;
   const isTrainingOnlyEvent =
@@ -14577,7 +14577,11 @@ Cory`;
       </details>
     ) : null;
 
-  const relatedOperationalNodesPanel =
+  const relatedSimulationOperationalEvents = relatedOperationalEvents.filter((node) => node.kind !== "training");
+  const relatedOperationsDateLabels = relatedSimulationOperationalEvents
+    .map((node) => formatEventDateText(node.date_text, importedYearHint) || asText(node.date_text))
+    .filter(Boolean);
+  const relatedOperationsPanel =
     canManageTrainingAttendance ? (
       <section
         style={{
@@ -14591,11 +14595,11 @@ Cory`;
       >
         <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
           <div>
-            <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Related Course / Event Family</div>
+            <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Related Operations</div>
             <div style={{ marginTop: "4px", color: commandCenterVisual.textColor, fontWeight: 900, fontSize: "15px" }}>
               {relatedOperationalEvents.length
-                ? `${relatedOperationalEvents.length} operational node${relatedOperationalEvents.length === 1 ? "" : "s"} connected`
-                : "No related nodes detected yet"}
+                ? `${relatedOperationalEvents.length} supporting operation${relatedOperationalEvents.length === 1 ? "" : "s"} folded into this command center`
+                : "Course family operations stay centralized here"}
             </div>
           </div>
           <span style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText }}>
@@ -14603,63 +14607,143 @@ Cory`;
           </span>
         </div>
 
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "8px" }}>
+          {[
+            {
+              label: "Upcoming sim dates",
+              value: relatedOperationsDateLabels.length ? relatedOperationsDateLabels.slice(0, 2).join(" · ") : eventDateLabel || "Current event",
+              detail: relatedOperationsDateLabels.length > 2 ? `+${relatedOperationsDateLabels.length - 2} more related date${relatedOperationsDateLabels.length - 2 === 1 ? "" : "s"}` : "Same command surface",
+            },
+            {
+              label: "Linked sessions",
+              value: `${sessions.length + relatedSimulationOperationalEvents.length}`,
+              detail: `${sessions.length} on this event · ${relatedSimulationOperationalEvents.length} related`,
+            },
+            {
+              label: "Training prep",
+              value: normalEventTrainingStatusLabel,
+              detail: relatedTrainingOperationalEvents.length
+                ? `${relatedTrainingOperationalEvents.length} training record${relatedTrainingOperationalEvents.length === 1 ? "" : "s"} merged`
+                : "Managed on this page",
+            },
+            {
+              label: "Shared readiness",
+              value: workflowBoardStatusLabel,
+              detail: [materialsStatusLabel, normalEventTrainingAttendanceLabel, outreachProgressLabel].filter(Boolean).slice(0, 2).join(" · "),
+            },
+          ].map((metric) => (
+            <div
+              key={`related-operation-metric-${metric.label}`}
+              style={{
+                border: "1px solid rgba(20, 91, 150, 0.12)",
+                borderRadius: "12px",
+                background: isPlanningVisualMode ? "rgba(255,255,255,0.68)" : "rgba(255,255,255,0.04)",
+                padding: "10px",
+                display: "grid",
+                gap: "4px",
+              }}
+            >
+              <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>{metric.label}</div>
+              <div style={{ color: commandCenterVisual.textColor, fontWeight: 950, fontSize: "13px", lineHeight: 1.3, overflowWrap: "anywhere" }}>{metric.value}</div>
+              <div style={{ color: commandCenterVisual.mutedColor, fontWeight: 750, fontSize: "11px", lineHeight: 1.35 }}>{metric.detail}</div>
+            </div>
+          ))}
+        </div>
+
         {relatedOperationalEvents.length ? (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: "8px" }}>
-            {relatedOperationalEvents.map((node) => {
+          <div style={{ display: "grid", gap: "6px" }}>
+            {relatedOperationalEvents.slice(0, 5).map((node) => {
               const nodeTone =
                 node.kind === "training"
                   ? { background: "rgba(25, 138, 112, 0.12)", border: "1px solid rgba(25, 138, 112, 0.22)", color: "#0f766e" }
                   : node.kind === "virtual"
                     ? { background: "rgba(124, 58, 237, 0.1)", border: "1px solid rgba(124, 58, 237, 0.18)", color: "#5b21b6" }
                     : { background: "rgba(20, 91, 150, 0.1)", border: "1px solid rgba(20, 91, 150, 0.18)", color: "#145b96" };
+              const nodeKindLabel =
+                node.kind === "training"
+                  ? "Training prep"
+                  : node.kind === "virtual"
+                    ? "Virtual session"
+                    : node.kind === "skills"
+                      ? "Skills/IPE"
+                      : "Simulation date";
+              const nodeDetail = [
+                formatEventDateText(node.date_text, importedYearHint) || node.date_text,
+                node.location,
+                node.status,
+              ].map(asText).filter(Boolean).join(" · ");
+
               return (
                 <div
-                  key={`related-node-${node.id}`}
+                  key={`related-operation-${node.id}`}
                   style={{
-                    border: nodeTone.border,
-                    borderRadius: "14px",
-                    background: isPlanningVisualMode ? "#ffffff" : "rgba(255,255,255,0.04)",
-                    padding: "10px 11px",
-                    display: "grid",
-                    gap: "7px",
+                    border: "1px solid rgba(20, 91, 150, 0.10)",
+                    borderRadius: "12px",
+                    background: isPlanningVisualMode ? "rgba(255,255,255,0.58)" : "rgba(255,255,255,0.03)",
+                    padding: "8px 10px",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    gap: "10px",
+                    flexWrap: "wrap",
+                    alignItems: "center",
                   }}
                 >
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", alignItems: "flex-start" }}>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ color: nodeTone.color, fontSize: "11px", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.08em" }}>
-                        {node.relationship}
-                      </div>
-                      <div style={{ marginTop: "4px", color: commandCenterVisual.textColor, fontSize: "13px", fontWeight: 900, lineHeight: 1.3, overflowWrap: "anywhere" }}>
-                        {node.name || "Untitled related event"}
-                      </div>
+                  <div style={{ minWidth: "180px", flex: "1 1 220px" }}>
+                    <div style={{ color: commandCenterVisual.textColor, fontSize: "12px", fontWeight: 900, lineHeight: 1.35, overflowWrap: "anywhere" }}>
+                      {node.name || nodeKindLabel}
                     </div>
+                    <div style={{ marginTop: "2px", color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 750, lineHeight: 1.35 }}>
+                      {nodeDetail || node.relationship || "Related operation retained as supporting context"}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                    <span style={{ ...commandChipStyle, ...nodeTone, fontSize: "10px", padding: "4px 7px" }}>{nodeKindLabel}</span>
+                    {node.kind === "training" ? (
+                      <span style={{ ...commandChipStyle, background: "rgba(25, 138, 112, 0.10)", color: "#0f766e", border: "1px solid rgba(25, 138, 112, 0.18)", fontSize: "10px", padding: "4px 7px" }}>
+                        Data embedded
+                      </span>
+                    ) : null}
                     {node.exact_course_match ? (
-                      <span style={{ ...commandChipStyle, ...nodeTone, fontSize: "10px", padding: "4px 7px" }}>
+                      <span style={{ ...commandChipStyle, background: "rgba(20, 91, 150, 0.08)", color: commandCenterVisual.textColor, fontSize: "10px", padding: "4px 7px" }}>
                         Course match
                       </span>
                     ) : null}
                   </div>
-                  <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 750, lineHeight: 1.4 }}>
-                    {[formatEventDateText(node.date_text, importedYearHint) || node.date_text, node.status, node.location]
-                      .map(asText)
-                      .filter(Boolean)
-                      .join(" · ") || "Related event details available"}
-                  </div>
-                  <Link
-                    href={`/events/${encodeURIComponent(node.id)}`}
-                    style={{ ...buttonStyle, width: "fit-content", padding: "6px 9px", textDecoration: "none", display: "inline-flex", alignItems: "center", fontSize: "12px" }}
-                  >
-                    Open Source Event
-                  </Link>
                 </div>
               );
             })}
+            {relatedOperationalEvents.length > 5 ? (
+              <div style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 800 }}>
+                +{relatedOperationalEvents.length - 5} more supporting operation{relatedOperationalEvents.length - 5 === 1 ? "" : "s"} retained in the event family.
+              </div>
+            ) : null}
           </div>
         ) : (
           <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 750, lineHeight: 1.45 }}>
-            CFSP will surface related training, sim dates, skills/IPE sessions, and virtual sessions here when names, course tokens, notes, or metadata connect them.
+            Related training, sim dates, skills/IPE sessions, and virtual sessions will appear here as compact supporting context. Training operations remain managed directly on this page.
           </div>
         )}
+
+        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+          <a
+            href="#training-prep"
+            style={{ ...buttonStyle, padding: "6px 9px", textDecoration: "none", display: "inline-flex", alignItems: "center", fontSize: "12px" }}
+          >
+            Training & Prep
+          </a>
+          <a
+            href="#staffing-command-center"
+            style={{ ...buttonStyle, padding: "6px 9px", textDecoration: "none", display: "inline-flex", alignItems: "center", fontSize: "12px" }}
+          >
+            Staffing
+          </a>
+          <a
+            href="#simulation-command-file-cabinet"
+            style={{ ...buttonStyle, padding: "6px 9px", textDecoration: "none", display: "inline-flex", alignItems: "center", fontSize: "12px" }}
+          >
+            Training Materials
+          </a>
+        </div>
       </section>
     ) : null;
 
@@ -18585,7 +18669,7 @@ Cory`;
                       )}
                     </div>
 
-                    {relatedOperationalNodesPanel}
+                    {relatedOperationsPanel}
                   </>
                 ) : null}
               </section>
@@ -21004,7 +21088,7 @@ Cory`;
           </span>
         </summary>
         <div style={{ display: "grid", gap: "14px", marginTop: "14px" }}>
-          {relatedOperationalNodesPanel}
+          {relatedOperationsPanel}
         <div
           style={{
             display: "grid",
@@ -21073,7 +21157,7 @@ Cory`;
               </div>
             </section>
 
-            <section style={{ ...cardStyle, background: "var(--cfsp-surface)" }}>
+            <section id="simulation-command-file-cabinet" style={{ ...cardStyle, background: "var(--cfsp-surface)" }}>
               <div
                 style={{
                   display: "flex",
