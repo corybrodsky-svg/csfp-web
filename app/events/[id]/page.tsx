@@ -6500,18 +6500,21 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       trainingMetadata.zoom_url,
     ]
   );
-  const eventRecordingEnabled = isMetadataYes(trainingMetadata.event_recording_enabled) || isMetadataYes(trainingMetadata.event_recording_required);
+  const eventRecordingEnabled =
+    isMetadataYes(trainingMetadata.event_recording_enabled) || isMetadataYes(trainingMetadata.event_recording_required);
   const hasEventRecordingUrl = Boolean(normalizeExternalHref(trainingMetadata.event_recording_url));
   const eventRecordingStatus = useMemo(() => {
     const explicitStatus = getEventRecordingStatusOption(trainingMetadata.event_recording_status);
-    if (explicitStatus) return explicitStatus;
-
-    if (!eventRecordingEnabled || isMetadataNo(trainingMetadata.event_recording_required)) {
-      return getEventRecordingStatusOption("not_required") || eventRecordingStatusOptions[0];
+    if (explicitStatus) {
+      return explicitStatus;
     }
 
     if (hasEventRecordingUrl) {
       return getEventRecordingStatusOption("recorded") || eventRecordingStatusOptions[0];
+    }
+
+    if (!eventRecordingEnabled || isMetadataNo(trainingMetadata.event_recording_required)) {
+      return getEventRecordingStatusOption("not_required") || eventRecordingStatusOptions[0];
     }
 
     const eventDateDelta = primaryEventDate ? getDateDeltaDays(primaryEventDate) : null;
@@ -6523,8 +6526,8 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       ? getEventRecordingStatusOption("recording_planned") || eventRecordingStatusOptions[0]
       : getEventRecordingStatusOption("missing") || eventRecordingStatusOptions[0];
   }, [
-    eventRecordingEnabled,
     hasEventRecordingUrl,
+    eventRecordingEnabled,
     primaryEventDate,
     trainingMetadata.event_recording_required,
     trainingMetadata.event_recording_status,
@@ -9355,7 +9358,7 @@ Cory`;
       : []),
   ];
   const supportRequirementRows: PlanningWindowRow[] = [
-    ...(eventRecordingStatus.value !== "not_required" || trainingRecordingPlanned || operationalSupportSettings.recordingMonitorNeeded
+    ...(eventRecordingStatus.value !== "not_required" || operationalSupportSettings.recordingMonitorNeeded
       ? [
           {
             key: "recording",
@@ -10669,12 +10672,6 @@ Cory`;
     }
     if (next.zoom_url && !next.training_zoom_link) {
       next.training_zoom_link = next.zoom_url;
-    }
-    if (next.recording_url && !next.training_recording_url) {
-      next.training_recording_url = next.recording_url;
-    }
-    if (next.recording_status && !next.training_recording_status) {
-      next.training_recording_status = next.recording_status;
     }
     if (next.schedule_updated_at && !next.schedule_last_saved_at) {
       next.schedule_last_saved_at = next.schedule_updated_at;
