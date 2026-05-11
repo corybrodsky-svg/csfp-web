@@ -449,7 +449,7 @@ type LiveAttendanceMetadata = {
   previousStatus: string;
 };
 type PollResponseStatus = "available" | "maybe" | "not_available" | "no_response";
-type ImportedPollMatchType = "email" | "name" | "unmatched";
+type ImportedPollMatchType = "sp_id" | "email" | "name" | "unmatched";
 type ImportedPollResponseRecord = {
   name: string;
   email: string;
@@ -475,6 +475,28 @@ type PollImportDebugInfo = {
   matchedNotesHeader: string;
   matchedResponseHeaders: string[];
   sampleRows: Array<Record<string, string>>;
+  parsedRowCount?: number;
+  failedRows?: Array<{ rowNumber: number; reason: string; values: Record<string, string> }>;
+};
+type PollImportSummary = {
+  parsedResponses: number;
+  matchedCount: number;
+  unmatchedCount: number;
+  failedRows: number;
+  availableCount: number;
+  maybeCount: number;
+  notAvailableCount: number;
+  noResponseCount: number;
+  assignmentNotesUpdated: number;
+};
+type PollImportApiResponse = {
+  ok?: boolean;
+  message?: string;
+  error?: string;
+  eventNotes?: string;
+  debug?: PollImportDebugInfo;
+  summary?: PollImportSummary;
+  importedPollResponses?: ImportedPollResponseRecord[];
 };
 type PollMatchSort = "best_match" | "name" | "email_ready" | "recently_responded" | "assigned_last";
 type RelatedCopyOption =
@@ -2709,14 +2731,6 @@ function getEffectivePollResponseStatus(
   return importedTimestamp >= inAppTimestamp ? imported.responseStatus : inAppStatus;
 }
 
-function encodeImportedPollResponses(entries: ImportedPollResponseRecord[]) {
-  try {
-    return encodeURIComponent(JSON.stringify(entries));
-  } catch {
-    return "";
-  }
-}
-
 function parseImportedPollResponses(value?: string | null): ImportedPollResponseRecord[] {
   const text = asText(value);
   if (!text) return [] as ImportedPollResponseRecord[];
@@ -2742,7 +2756,9 @@ function parseImportedPollResponses(value?: string | null): ImportedPollResponse
           matchedSpEmail: asText((entry as ImportedPollResponseRecord).matchedSpEmail),
           matchedSpName: asText((entry as ImportedPollResponseRecord).matchedSpName),
           matchType:
-            asText((entry as ImportedPollResponseRecord).matchType) === "email"
+            asText((entry as ImportedPollResponseRecord).matchType) === "sp_id"
+              ? "sp_id"
+              : asText((entry as ImportedPollResponseRecord).matchType) === "email"
               ? "email"
               : asText((entry as ImportedPollResponseRecord).matchType) === "name"
                 ? "name"
@@ -2757,99 +2773,11 @@ function parseImportedPollResponses(value?: string | null): ImportedPollResponse
   }
 }
 
-function normalizeImportedResponseText(value: string) {
-  return asText(value)
-    .replace(/\u00a0/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .replace(/^[“”"']+|[“”"'.!?]+$/g, "")
-    .toLowerCase();
-}
-
-function responseContainsNotAvailable(value: string) {
-  const normalized = normalizeImportedResponseText(value);
-  return /\b(no|not available|unavailable|unable|cannot|can not|can't|decline|declined)\b/.test(normalized);
-}
-
-function responseContainsMaybe(value: string) {
-  return /\b(maybe|need to discuss|depends|unsure|not sure|possibly|can discuss)\b/.test(normalizeImportedResponseText(value));
-}
-
-function responseIsAvailable(value: string) {
-  return normalizeImportedResponseText(value) === "available";
-}
-
-function notesContainConcernText(value: string) {
-  const normalized = normalizeImportedResponseText(value);
-  if (!normalized) return false;
-  return /\b(concern|conflict|maybe|depends|unsure|not sure|question|issue|problem|limited|limitation|partial|only|prefer|late|early|cannot|can't|unable|need to discuss)\b/.test(normalized);
-}
-
-function classifyImportedAvailabilityResponse(value: string) {
-  const normalized = normalizeImportedResponseText(value);
-
-  if (!normalized) return { status: "no_response" as const, label: "No clear response" };
-
-  if (
-    /\b(not available|unavailable|cannot|can not|can't|decline|declined|no,? not available|not attending|unable)\b/.test(normalized) ||
-    normalized === "no"
-  ) {
-    return { status: "not_available" as const, label: "Not Available" };
-  }
-
-  if (
-    /\b(maybe|need to discuss|depends|unsure|not sure|possibly|can discuss)\b/.test(normalized)
-  ) {
-    return { status: "maybe" as const, label: "Maybe / Need to discuss" };
-  }
-
-  if (
-    /\b(available|yes|i am available|i'm available|can do|works for me|attend|attending)\b/.test(normalized) ||
-    normalized === "available"
-  ) {
-    return { status: "available" as const, label: "Available" };
-  }
-
-  return { status: "no_response" as const, label: value || "No clear response" };
-}
-
-function classifyImportedPollResponsesByField({
-  trainingResponse,
-  eventResponse,
-  notes,
-}: {
-  trainingResponse: string;
-  eventResponse: string;
-  notes: string;
-}) {
-  const training = normalizeImportedResponseText(trainingResponse);
-  const event = normalizeImportedResponseText(eventResponse);
-  const noteText = normalizeImportedResponseText(notes);
-
-  if (responseContainsNotAvailable(training) || responseContainsNotAvailable(event)) {
-    return { status: "not_available" as const, label: "Not Available" };
-  }
-
-  const trainingAvailable = responseIsAvailable(training);
-  const eventAvailable = responseIsAvailable(event);
-  const trainingMaybeOrMissing = !training || responseContainsMaybe(training);
-  const eventMaybeOrMissing = !event || responseContainsMaybe(event);
-
-  if (
-    responseContainsMaybe(training) ||
-    responseContainsMaybe(event) ||
-    notesContainConcernText(noteText) ||
-    (trainingAvailable && eventMaybeOrMissing) ||
-    (eventAvailable && trainingMaybeOrMissing)
-  ) {
-    return { status: "maybe" as const, label: "Maybe / Need to discuss" };
-  }
-
-  if (trainingAvailable && eventAvailable) {
-    return { status: "available" as const, label: "Available" };
-  }
-
-  return { status: "no_response" as const, label: "No clear response" };
+function getImportedPollMatchTypeLabel(matchType?: ImportedPollMatchType | null) {
+  if (matchType === "sp_id") return "SP ID matched";
+  if (matchType === "email") return "Email matched";
+  if (matchType === "name") return "Name matched";
+  return "";
 }
 
 function formatImportedPollAssignmentNote(note: string) {
@@ -2881,214 +2809,6 @@ function mergeImportedPollNoteIntoAssignmentNotes(
   }
 
   return `${currentNotes}\n\n${formattedPollNote}`;
-}
-
-function normalizeImportHeader(value: unknown) {
-  return asText(value)
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function getImportHeaderEntries(row: Record<string, unknown>) {
-  return Object.entries(row).map(([key, value]) => ({
-    key,
-    normalizedKey: normalizeImportHeader(key),
-    value: asText(value),
-  }));
-}
-
-function getImportFieldValue(row: Record<string, unknown>, aliases: string[]) {
-  const entries = getImportHeaderEntries(row);
-  for (const alias of aliases) {
-    const normalizedAlias = normalizeImportHeader(alias);
-    const matched = entries.find((entry) => entry.normalizedKey === normalizedAlias);
-    if (matched) return matched.value;
-  }
-  return "";
-}
-
-function getImportFieldValueFromHeader(row: Record<string, unknown>, header: string) {
-  if (!header) return "";
-  const matched = getImportHeaderEntries(row).find((entry) => entry.key === header);
-  return matched?.value || "";
-}
-
-function scoreIdentityHeader(header: string, type: "name" | "email" | "sp_id", sampleValues: string[] = []) {
-  const normalized = normalizeImportHeader(header);
-  if (!normalized) return -1;
-
-  if (type === "name") {
-    if (/(^| )(start time|completion time|submit date|timestamp|duration|id|email)( |$)/.test(normalized)) return -1;
-    if (/^(full name|enter your full name|responder full name)$/.test(normalized)) return 140;
-    if (/^(respondent full name)$/.test(normalized)) return 135;
-    if (/^(name)$/.test(normalized)) {
-      return sampleValues.some((value) => Boolean(asText(value))) ? 20 : -1;
-    }
-    if (/^(respondent name|responder name)$/.test(normalized)) return 100;
-    if (/(^| )(respondent|responder)( |$)/.test(normalized)) return 80;
-    if (/(^| )full name( |$)/.test(normalized)) return 130;
-    if (/(^| )name( |$)/.test(normalized)) return 70;
-    return -1;
-  }
-
-  if (type === "email") {
-    const hasUsableEmailValue = sampleValues.some((value) => {
-      const text = asText(value).toLowerCase();
-      return Boolean(text) && text !== "anonymous";
-    });
-    if (/^(enter your email address)$/.test(normalized)) return 140;
-    if (/^(email address)$/.test(normalized)) return 135;
-    if (/^(responder email|respondent email)$/.test(normalized)) return 130;
-    if (/^(email|e mail)$/.test(normalized)) {
-      return hasUsableEmailValue ? 20 : -1;
-    }
-    if (/(^| )email address( |$)/.test(normalized)) return 125;
-    if (/(^| )(email|e mail)( |$)/.test(normalized)) return 80;
-    return -1;
-  }
-
-  if (/^(sp id|spid|directory id|linked sp id|participant id|respondent id)$/.test(normalized)) return 100;
-  if (/(^| )(sp id|directory id|participant id)( |$)/.test(normalized)) return 80;
-  return -1;
-}
-
-function scoreResponseHeader(header: string, sampleValues: string[]) {
-  const normalized = normalizeImportHeader(header);
-  if (!normalized) return -1;
-  if (/(^| )(start time|completion time|timestamp|email|name|respondent|responder|question|comments? only)( |$)/.test(normalized) && !/available|can you work|are you available|availability/.test(normalized)) {
-    return -1;
-  }
-
-  let score = 0;
-  if (/availability|are you available|can you work|can you attend|can you do|event|training/.test(normalized)) score += 18;
-  if (/yes no maybe|available|not available|maybe/.test(normalized)) score += 22;
-
-  const classifiedMatches = sampleValues.reduce((total, value) => {
-    const status = classifyImportedAvailabilityResponse(value).status;
-    return total + (status !== "no_response" ? 1 : 0);
-  }, 0);
-  score += classifiedMatches * 8;
-
-  return score > 0 ? score : -1;
-}
-
-function scorePollAvailabilityHeader(header: string, type: "training" | "event") {
-  const normalized = normalizeImportHeader(header);
-  if (!normalized) return -1;
-  if (/(^| )(start time|completion time|timestamp|email|name|respondent|responder|comments?|notes?|questions?)( |$)/.test(normalized)) {
-    return -1;
-  }
-
-  let score = 0;
-  if (new RegExp(`(^| )${type}( |$)`).test(normalized)) score += 60;
-  if (/availability|available|not available|maybe|can you attend|can you work|can you do/.test(normalized)) score += 25;
-  return score > 0 ? score : -1;
-}
-
-function scorePollNotesHeader(header: string) {
-  const normalized = normalizeImportHeader(header);
-  if (!normalized) return -1;
-  if (/(^| )(email|name|respondent|responder|start time|completion time|timestamp)( |$)/.test(normalized)) return -1;
-  if (/^do you have any questions concerns$/.test(normalized)) return 160;
-  if (/^do you have any questions or concerns$/.test(normalized)) return 155;
-  if (/(^| )questions concerns( |$)/.test(normalized)) return 145;
-  if (/^(notes|comments|comment|questions|additional notes|anything else)$/.test(normalized)) return 100;
-  if (/(^| )(notes?|comments?|questions?|anything else)( |$)/.test(normalized)) return 80;
-  return -1;
-}
-
-function detectPollImportHeaders(rows: Array<Record<string, unknown>>): PollImportDebugInfo {
-  const detectedHeaders = Array.from(
-    new Set(
-      rows.flatMap((row) => Object.keys(row).map((key) => asText(key)).filter(Boolean))
-    )
-  );
-
-  const sampleRows = rows.slice(0, 3).map((row) => {
-    const next: Record<string, string> = {};
-    Object.entries(row).forEach(([key, value]) => {
-      next[key] = asText(value);
-    });
-    return next;
-  });
-
-  const nameCandidates = detectedHeaders
-    .map((header) => ({
-      header,
-      score: scoreIdentityHeader(
-        header,
-        "name",
-        rows.map((row) => getImportFieldValueFromHeader(row, header))
-      ),
-    }))
-    .filter((entry) => entry.score >= 0)
-    .sort((a, b) => b.score - a.score);
-  const emailCandidates = detectedHeaders
-    .map((header) => ({
-      header,
-      score: scoreIdentityHeader(
-        header,
-        "email",
-        rows.map((row) => getImportFieldValueFromHeader(row, header))
-      ),
-    }))
-    .filter((entry) => entry.score >= 0)
-    .sort((a, b) => b.score - a.score);
-  const spIdCandidates = detectedHeaders
-    .map((header) => ({ header, score: scoreIdentityHeader(header, "sp_id") }))
-    .filter((entry) => entry.score >= 0)
-    .sort((a, b) => b.score - a.score);
-
-  const responseCandidates = detectedHeaders
-    .map((header) => ({
-      header,
-      score: scoreResponseHeader(
-        header,
-        rows.slice(0, 12).map((row) => getImportFieldValueFromHeader(row, header))
-      ),
-    }))
-    .filter((entry) => entry.score >= 0)
-    .sort((a, b) => b.score - a.score);
-  const trainingResponseCandidates = detectedHeaders
-    .map((header) => ({ header, score: scorePollAvailabilityHeader(header, "training") }))
-    .filter((entry) => entry.score >= 0)
-    .sort((a, b) => b.score - a.score);
-  const eventResponseCandidates = detectedHeaders
-    .map((header) => ({ header, score: scorePollAvailabilityHeader(header, "event") }))
-    .filter((entry) => entry.score >= 0)
-    .sort((a, b) => b.score - a.score);
-  const notesCandidates = detectedHeaders
-    .map((header) => ({ header, score: scorePollNotesHeader(header) }))
-    .filter((entry) => entry.score >= 0)
-    .sort((a, b) => b.score - a.score);
-
-  return {
-    detectedHeaders,
-    matchedNameHeader: nameCandidates[0]?.header || "",
-    matchedEmailHeader: emailCandidates[0]?.header || "",
-    matchedSpIdHeader: spIdCandidates[0]?.header || "",
-    matchedTrainingResponseHeader: trainingResponseCandidates[0]?.header || "",
-    matchedEventResponseHeader:
-      eventResponseCandidates.find((entry) => entry.header !== trainingResponseCandidates[0]?.header)?.header || "",
-    matchedNotesHeader: notesCandidates[0]?.header || "",
-    matchedResponseHeaders: responseCandidates.slice(0, 3).map((entry) => entry.header),
-    sampleRows,
-  };
-}
-
-function parseImportedPollWorkbook(file: File) {
-  return file.arrayBuffer().then((buffer) => {
-    const workbook = XLSX.read(buffer, { type: "array" });
-    const firstSheetName = workbook.SheetNames[0];
-    const sheet = firstSheetName ? workbook.Sheets[firstSheetName] : null;
-    if (!sheet) return [] as Array<Record<string, unknown>>;
-    return XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
-      defval: "",
-      raw: false,
-    });
-  });
 }
 
 function getRotationRoundKeyFromParts(
@@ -3960,6 +3680,8 @@ export default function EventDetailPage() {
   const [pollMatchSort, setPollMatchSort] = useState<PollMatchSort>("best_match");
   const [pollImportSaving, setPollImportSaving] = useState(false);
   const [pollImportError, setPollImportError] = useState("");
+  const [pollImportSuccess, setPollImportSuccess] = useState("");
+  const [pollImportSummary, setPollImportSummary] = useState<PollImportSummary | null>(null);
   const [pollImportIgnoredUnmatched, setPollImportIgnoredUnmatched] = useState(false);
   const [pollImportDebugInfo, setPollImportDebugInfo] = useState<PollImportDebugInfo | null>(null);
   const [loading, setLoading] = useState(Boolean(id));
@@ -4437,8 +4159,7 @@ export default function EventDetailPage() {
           importedResponse?.responseStatus === "available" ? "Imported Available" : "",
           importedResponse?.responseStatus === "maybe" ? "Imported Maybe" : "",
           importedResponse?.responseStatus === "not_available" ? "Imported Not Available" : "",
-          importedResponse?.matchType === "email" ? "Email matched" : "",
-          importedResponse?.matchType === "name" ? "Name matched" : "",
+          getImportedPollMatchTypeLabel(importedResponse?.matchType),
           effectivePollLocationFilter === "elkins_park" && locationMatched ? "Elkins Park fit" : "",
           effectivePollLocationFilter === "center_city" && locationMatched ? "Center City fit" : "",
           effectivePollLocationFilter === "virtual" && locationMatched ? "Virtual ready" : "",
@@ -4458,7 +4179,8 @@ export default function EventDetailPage() {
           if (emailReady) total += 18;
           if (active) total += 16;
           if (hasPriorResponse) total += 14;
-          if (importedResponse?.matchType === "email") total += 12;
+          if (importedResponse?.matchType === "sp_id") total += 14;
+          else if (importedResponse?.matchType === "email") total += 12;
           else if (importedResponse?.matchType === "name") total += 5;
           if (pollResponseStatus === "available") total += 20;
           else if (pollResponseStatus === "maybe") total += 10;
@@ -4655,7 +4377,7 @@ export default function EventDetailPage() {
           pollResponseStatus === "available" ? "Imported Available" : "",
           pollResponseStatus === "maybe" ? "Imported Maybe" : "",
           pollResponseStatus === "not_available" ? "Imported Not Available" : "",
-          importedResponse.matchType === "email" ? "Email matched" : importedResponse.matchType === "name" ? "Name matched" : "",
+          getImportedPollMatchTypeLabel(importedResponse.matchType),
           locationMatched && effectivePollLocationFilter !== "any"
             ? effectivePollLocationFilter === "elkins_park"
               ? "Elkins Park fit"
@@ -8451,162 +8173,111 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     return asText(importedPollResponsesBySpId.get(String(spId))?.responseNote);
   }
 
-  async function syncImportedPollNotesToExistingAssignments(entries: ImportedPollResponseRecord[]) {
-    const noteUpdates = entries
-      .map((entry) => {
-        const assignment = entry.matchedSpId ? assignmentsBySpId.get(String(entry.matchedSpId)) : null;
-        const nextNotes = assignment
-          ? mergeImportedPollNoteIntoAssignmentNotes(assignment.notes, entry.responseNote)
-          : "";
-        return assignment && asText(entry.responseNote) && nextNotes !== asText(assignment.notes)
-          ? { assignment, nextNotes }
-          : null;
-      })
-      .filter((entry): entry is { assignment: AssignmentRow; nextNotes: string } => Boolean(entry));
-
-    for (const update of noteUpdates) {
-      await saveAssignmentRequest("PATCH", {
-        assignment_id: update.assignment.id,
-        updates: {
-          notes: update.nextNotes || null,
-        },
-      });
+  async function handlePollImportFile(file: File | null) {
+    if (!file) {
+      setPollImportError("Choose a CSV, XLSX, or XLS poll results file to upload.");
+      setPollImportSuccess("");
+      setPollImportSummary(null);
+      return;
     }
 
-    return noteUpdates.length;
-  }
+    const lowerName = file.name.toLowerCase();
+    const supportedFormat =
+      lowerName.endsWith(".csv") ||
+      lowerName.endsWith(".xlsx") ||
+      lowerName.endsWith(".xls") ||
+      /csv|spreadsheet|excel/i.test(file.type);
 
-  async function handlePollImportFile(file: File | null) {
-    if (!file) return;
+    if (!supportedFormat) {
+      setPollImportError("Unsupported file format. Upload a CSV, XLSX, or XLS poll export.");
+      setPollImportSuccess("");
+      setPollImportSummary(null);
+      if (pollImportInputRef.current) pollImportInputRef.current.value = "";
+      return;
+    }
+
+    if (file.size <= 0) {
+      setPollImportError("That file is empty. Upload a poll export with responder rows.");
+      setPollImportSuccess("");
+      setPollImportSummary(null);
+      if (pollImportInputRef.current) pollImportInputRef.current.value = "";
+      return;
+    }
 
     setPollImportSaving(true);
     setPollImportError("");
+    setPollImportSuccess("");
+    setPollImportSummary(null);
     setPollImportDebugInfo(null);
     setEventSaveError("");
     setEventSaveMessage("");
 
     try {
-      const rows = await parseImportedPollWorkbook(file);
-      const debugInfo = detectPollImportHeaders(rows);
-      setPollImportDebugInfo(debugInfo);
-      console.log("CFSP Poll Import Headers:", debugInfo.detectedHeaders);
-      console.log("CFSP Poll Import Detection:", debugInfo);
+      console.info("CFSP poll import upload start", {
+        eventId: id,
+        fileName: file.name,
+        fileSize: file.size,
+        fileType: file.type,
+      });
 
-      const rawParsedResponses = rows
-        .map((row) => {
-          const name =
-            getImportFieldValueFromHeader(row, debugInfo.matchedNameHeader) ||
-            getImportFieldValue(row, ["Name", "Full Name", "Responder", "Respondent", "Respondent Name", "Responder Name"]);
-          const email =
-            getImportFieldValueFromHeader(row, debugInfo.matchedEmailHeader) ||
-            getImportFieldValue(row, ["Email", "Email Address", "Respondent Email", "Responder Email"]);
-          const linkedSpId =
-            getImportFieldValueFromHeader(row, debugInfo.matchedSpIdHeader) ||
-            getImportFieldValue(row, ["SP ID", "Directory ID", "Linked SP ID", "Participant ID"]);
-          const notes = getImportFieldValue(row, [
-            "Do you have any questions/concerns?",
-            "Do you have any questions or concerns?",
-            "Questions/Concerns",
-            "Questions or concerns",
-            "Notes",
-            "Comments",
-            "Comment",
-            "Questions",
-            "Additional Notes",
-          ]);
-          const timestamp = getImportFieldValue(row, ["Completion time", "Start time", "Timestamp", "Submitted At", "Submission Time"]);
-          const trainingResponse =
-            getImportFieldValueFromHeader(row, debugInfo.matchedTrainingResponseHeader) ||
-            getImportFieldValue(row, ["Training", "Training Availability", "Training Response"]);
-          const eventResponse =
-            getImportFieldValueFromHeader(row, debugInfo.matchedEventResponseHeader) ||
-            getImportFieldValue(row, ["Event", "Event Availability", "Event Response"]);
-          const responseNotes = getImportFieldValueFromHeader(row, debugInfo.matchedNotesHeader) || notes;
-          const fallbackAnswer = getImportFieldValue(row, [
-            "Availability",
-            "Available",
-            "Are you available",
-            "Can you work",
-            "Can you attend",
-            "Response",
-            "Answer",
-            "Status",
-          ]);
-          const rawAnswer = fallbackAnswer;
-          const classified = classifyImportedPollResponsesByField({
-            trainingResponse,
-            eventResponse,
-            notes: responseNotes,
-          });
-          const normalizedEmail = normalizeEmail(email);
-          const normalizedName = normalizeMatchName(name);
+      const formData = new FormData();
+      formData.append("file", file, file.name);
+      console.info("CFSP poll import FormData ready", {
+        eventId: id,
+        hasFile: formData.has("file"),
+        fileName: file.name,
+      });
 
-          const linkedSp =
-            linkedSpId && spsById.has(String(linkedSpId)) ? spsById.get(String(linkedSpId)) : undefined;
-          const emailMatch =
-            !linkedSp && normalizedEmail ? spByEmail.get(normalizedEmail) : undefined;
-          const nameMatch =
-            !linkedSp && !emailMatch && normalizedName ? spByNormalizedName.get(normalizedName) : undefined;
+      const response = await fetch(`/api/events/${encodeURIComponent(id)}/poll-import`, {
+        method: "POST",
+        body: formData,
+        credentials: "include",
+      });
+      const body = (await response.json().catch(() => null)) as PollImportApiResponse | null;
 
-          const matchedSp = linkedSp || emailMatch || nameMatch;
-          const matchedSpId = matchedSp ? String(matchedSp.id) : "";
+      console.info("CFSP poll import response received", {
+        eventId: id,
+        ok: response.ok,
+        status: response.status,
+        summary: body?.summary,
+        detectedHeaders: body?.debug?.detectedHeaders,
+      });
 
-          return {
-            name,
-            email,
-            normalizedEmail,
-            responseStatus: classified.status,
-            responseLabel: classified.label,
-            responseSubmittedAt: timestamp,
-            responseNote: responseNotes,
-            matchedSpId,
-            matchedSpEmail: matchedSp ? getEmail(matchedSp) : "",
-            matchedSpName: matchedSp ? getFullName(matchedSp) : "",
-            matchType: matchedSp ? (linkedSp ? "email" : emailMatch ? "email" : nameMatch ? "name" : "unmatched") : "unmatched",
-            matchConfidence: matchedSp ? (linkedSp ? 100 : emailMatch ? 100 : 65) : 0,
-            rawAnswer,
-          } satisfies ImportedPollResponseRecord;
-        })
-        .filter((entry) => entry.name || entry.email || entry.matchedSpId || entry.rawAnswer || entry.responseStatus !== "no_response");
-
-      const parsedResponses = Array.from(
-        new Map(
-          rawParsedResponses
-            .sort((a, b) => Date.parse(a.responseSubmittedAt || "") - Date.parse(b.responseSubmittedAt || ""))
-            .map((entry, index) => [
-              entry.matchedSpId ||
-                entry.normalizedEmail ||
-                normalizeMatchName(entry.name) ||
-                entry.rawAnswer ||
-                `row-${index}`,
-              entry,
-            ])
-        ).values()
-      );
-
-      if (!parsedResponses.length) {
-        throw new Error("No responder rows were found in that poll export.");
+      if (!response.ok || !body?.ok) {
+        if (body?.debug) setPollImportDebugInfo(body.debug);
+        throw new Error(asText(body?.error) || `Poll import failed (${response.status}).`);
       }
 
-      const assignmentNotesUpdated = await syncImportedPollNotesToExistingAssignments(parsedResponses);
-
-      await persistPollMetadata(
-        {
-          importedPollResponses: encodeImportedPollResponses(parsedResponses),
-          pollImportCreatedAt: new Date().toISOString(),
-          pollImportSource: "Microsoft Forms",
-        },
-        `Imported ${parsedResponses.length} poll response${parsedResponses.length === 1 ? "" : "s"}.`
+      if (body.debug) setPollImportDebugInfo(body.debug);
+      if (body.eventNotes) {
+        setEventEditor((current) => ({ ...current, notes: body.eventNotes || current.notes }));
+        setEvent((current) => (current ? { ...current, notes: body.eventNotes || current.notes } : current));
+      }
+      setPollImportSummary(body.summary || null);
+      setPollImportSuccess(
+        body.message ||
+          `Upload successful. Parsed ${body.summary?.parsedResponses || body.importedPollResponses?.length || 0} poll response${
+            (body.summary?.parsedResponses || body.importedPollResponses?.length || 0) === 1 ? "" : "s"
+          }.`
       );
       setPollImportIgnoredUnmatched(false);
-      if (assignmentNotesUpdated > 0) {
+      showSuccessMessage(
+        `Upload successful. Parsed ${body.summary?.parsedResponses || body.importedPollResponses?.length || 0} response${
+          (body.summary?.parsedResponses || body.importedPollResponses?.length || 0) === 1 ? "" : "s"
+        }.`
+      );
+      if ((body.summary?.assignmentNotesUpdated || 0) > 0) {
         await refreshData();
       }
-      if (pollImportInputRef.current) pollImportInputRef.current.value = "";
     } catch (error) {
+      console.error("CFSP poll import failed", {
+        eventId: id,
+        error: error instanceof Error ? error.message : error,
+      });
       setPollImportError(error instanceof Error ? error.message : "Could not import poll responses.");
     } finally {
       setPollImportSaving(false);
+      if (pollImportInputRef.current) pollImportInputRef.current.value = "";
     }
   }
 
@@ -15575,6 +15246,9 @@ Cory`;
                           <button
                             type="button"
                             onClick={() => {
+                              setPollImportError("");
+                              setPollImportSuccess("");
+                              setPollImportSummary(null);
                               setPollImportDebugInfo(null);
                               void persistPollMetadata(
                                 {
@@ -15732,6 +15406,36 @@ Cory`;
                   <div className="cfsp-alert cfsp-alert-error">{pollImportError}</div>
                 ) : null}
 
+                {isPlanningVisualMode && pollImportSaving ? (
+                  <div className="cfsp-alert cfsp-alert-info">
+                    Uploading poll results and matching responders...
+                  </div>
+                ) : null}
+
+                {isPlanningVisualMode && pollImportSuccess ? (
+                  <div
+                    className="cfsp-alert cfsp-alert-info"
+                    style={{
+                      background: planningSuccessCardBackground,
+                      border: planningSuccessBorder,
+                      color: planningSuccessText,
+                      display: "grid",
+                      gap: "8px",
+                    }}
+                  >
+                    <div style={{ fontWeight: 900 }}>{pollImportSuccess}</div>
+                    {pollImportSummary ? (
+                      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", fontSize: "12px", fontWeight: 800 }}>
+                        <span>{pollImportSummary.parsedResponses} parsed</span>
+                        <span>{pollImportSummary.matchedCount} matched</span>
+                        <span>{pollImportSummary.unmatchedCount} unmatched</span>
+                        <span>{pollImportSummary.failedRows} failed row{pollImportSummary.failedRows === 1 ? "" : "s"}</span>
+                        <span>{pollImportSummary.assignmentNotesUpdated} assignment note{pollImportSummary.assignmentNotesUpdated === 1 ? "" : "s"} updated</span>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+
                 {isPlanningVisualMode && importedPollResponses.length ? (
                   <div
                     style={{
@@ -15806,7 +15510,7 @@ Cory`;
                                       <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "4px" }}>
                                         <span style={staffingSelectedChipStyle}>{responseSummary}</span>
                                         <span style={staffingSelectedChipStyle}>
-                                          {importedResponse?.matchType === "name" ? "Name matched" : "Email matched"}
+                                          {getImportedPollMatchTypeLabel(importedResponse?.matchType) || "Matched"}
                                         </span>
                                         {entry.assignmentStatus ? (
                                           <span style={staffingSelectedChipStyle}>
@@ -15939,6 +15643,17 @@ Cory`;
                             <div>Event response header: {pollImportDebugInfo.matchedEventResponseHeader || "Not detected"}</div>
                             <div>Notes header: {pollImportDebugInfo.matchedNotesHeader || "Not detected"}</div>
                             <div>Response headers: {pollImportDebugInfo.matchedResponseHeaders.join(", ") || "Not detected"}</div>
+                            <div>Parsed rows: {pollImportDebugInfo.parsedRowCount ?? "Unknown"}</div>
+                            <div>Failed rows: {pollImportDebugInfo.failedRows?.length || 0}</div>
+                            {pollImportDebugInfo.failedRows?.length ? (
+                              <div style={{ display: "grid", gap: "6px" }}>
+                                {pollImportDebugInfo.failedRows.slice(0, 5).map((row) => (
+                                  <div key={`failed-poll-row-${row.rowNumber}`} style={{ color: staffingWorkspacePalette.dangerText }}>
+                                    Row {row.rowNumber}: {row.reason}
+                                  </div>
+                                ))}
+                              </div>
+                            ) : null}
                             {pollImportDebugInfo.sampleRows.length ? (
                               <pre
                                 style={{
