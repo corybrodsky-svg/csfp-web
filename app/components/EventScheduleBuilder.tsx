@@ -798,164 +798,6 @@ function toCsv(rows: unknown[][]) {
   return `${rows.map((row) => row.map(csvCell).join(",")).join("\r\n")}\r\n`;
 }
 
-function binaryStringToUint8Array(value: string) {
-  const bytes = new Uint8Array(value.length);
-  for (let index = 0; index < value.length; index += 1) {
-    bytes[index] = value.charCodeAt(index) & 0xff;
-  }
-  return bytes;
-}
-
-function buildPdfFromJpegDataUrl(dataUrl: string, imageWidth: number, imageHeight: number) {
-  const jpegData = dataUrl.split(",")[1] || "";
-  const jpegBinary = atob(jpegData);
-  const pageWidth = 792;
-  const pageHeight = 612;
-  const margin = 24;
-  const printableWidth = pageWidth - margin * 2;
-  const printableHeight = pageHeight - margin * 2;
-  const scale = printableWidth / imageWidth;
-  const scaledHeight = imageHeight * scale;
-  const pageCount = Math.max(1, Math.ceil(scaledHeight / printableHeight));
-  const imageObjectNumber = 3 + pageCount * 2;
-
-  const pageObjects = Array.from({ length: pageCount }, (_, index) => {
-    const contentObjectNumber = 3 + pageCount + index;
-    return `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /XObject << /Im1 ${imageObjectNumber} 0 R >> >> /Contents ${contentObjectNumber} 0 R >>`;
-  });
-  const pageRefs = pageObjects.map((_, index) => `${3 + index} 0 R`).join(" ");
-  const contentObjects = Array.from({ length: pageCount }, (_, index) => {
-    const imageY = pageHeight - margin - scaledHeight + index * printableHeight;
-    const content = [
-      "q",
-      `${margin} ${margin} ${printableWidth} ${printableHeight} re W n`,
-      `${printableWidth} 0 0 ${scaledHeight.toFixed(2)} ${margin} ${imageY.toFixed(2)} cm`,
-      "/Im1 Do",
-      "Q",
-    ].join("\n");
-    return `<< /Length ${content.length} >>\nstream\n${content}\nendstream`;
-  });
-  const objects = [
-    "<< /Type /Catalog /Pages 2 0 R >>",
-    `<< /Type /Pages /Count ${pageCount} /Kids [${pageRefs}] >>`,
-    ...pageObjects,
-    ...contentObjects,
-    `<< /Type /XObject /Subtype /Image /Width ${imageWidth} /Height ${imageHeight} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpegBinary.length} >>\nstream\n${jpegBinary}\nendstream`,
-  ];
-
-  let pdf = "%PDF-1.4\n%\xE2\xE3\xCF\xD3\n";
-  const offsets = [0];
-  objects.forEach((object, index) => {
-    offsets[index + 1] = pdf.length;
-    pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
-  });
-  const xrefOffset = pdf.length;
-  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
-  offsets.slice(1).forEach((offset) => {
-    pdf += `${String(offset).padStart(10, "0")} 00000 n \n`;
-  });
-  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
-
-  return new Blob([binaryStringToUint8Array(pdf)], { type: "application/pdf" });
-}
-
-async function createStyledSchedulePdfBlob(html: string) {
-  const iframe = document.createElement("iframe");
-  iframe.setAttribute("aria-hidden", "true");
-  iframe.style.position = "fixed";
-  iframe.style.left = "-10000px";
-  iframe.style.top = "0";
-  iframe.style.width = "1200px";
-  iframe.style.height = "1px";
-  iframe.style.visibility = "hidden";
-  iframe.style.pointerEvents = "none";
-  iframe.srcdoc = html;
-  document.body.appendChild(iframe);
-
-  try {
-    await new Promise<void>((resolve, reject) => {
-      const timeout = window.setTimeout(() => reject(new Error("Styled PDF export timed out.")), 5000);
-      iframe.onload = () => {
-        window.clearTimeout(timeout);
-        resolve();
-      };
-    });
-
-    const iframeDocument = iframe.contentDocument;
-    if (!iframeDocument?.body) {
-      throw new Error("Could not render schedule for PDF export.");
-    }
-
-    await iframeDocument.fonts?.ready?.catch(() => undefined);
-    await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
-
-    const renderWidth = 1200;
-    const renderHeight = Math.min(
-      30000,
-      Math.max(
-        iframeDocument.documentElement.scrollHeight,
-        iframeDocument.body.scrollHeight,
-        iframeDocument.body.offsetHeight,
-        800
-      )
-    );
-    iframe.style.height = `${renderHeight}px`;
-    await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
-
-    const serializer = new XMLSerializer();
-    const bodyMarkup = Array.from(iframeDocument.body.childNodes)
-      .map((node) => serializer.serializeToString(node))
-      .join("");
-    const styles = getPreviewDocumentParts(html).styles;
-    const svg = `
-      <svg xmlns="http://www.w3.org/2000/svg" width="${renderWidth}" height="${renderHeight}" viewBox="0 0 ${renderWidth} ${renderHeight}">
-        <foreignObject x="0" y="0" width="100%" height="100%">
-          <div xmlns="http://www.w3.org/1999/xhtml" style="box-sizing:border-box;width:${renderWidth}px;min-height:${renderHeight}px;margin:0;padding:24px;font-family:Arial,Helvetica,sans-serif;color:#17304f;background:#f7fafc;">
-            <style>${escapeHtml(styles)}</style>
-            <style>
-              * { box-sizing: border-box; }
-              .cfsp-schedule-viewer-toolbar,
-              .cfsp-schedule-actions-menu,
-              .cfsp-schedule-no-print { display: none !important; }
-              .schedule-grid-shell { overflow: visible !important; max-width: none !important; }
-            </style>
-            ${bodyMarkup}
-          </div>
-        </foreignObject>
-      </svg>
-    `;
-    const svgUrl = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml;charset=utf-8" }));
-    const image = new Image();
-    const imageLoaded = new Promise<void>((resolve, reject) => {
-      image.onload = () => resolve();
-      image.onerror = () => reject(new Error("Could not render styled schedule image."));
-    });
-    image.src = svgUrl;
-    await imageLoaded;
-    URL.revokeObjectURL(svgUrl);
-
-    const canvas = document.createElement("canvas");
-    canvas.width = renderWidth;
-    canvas.height = renderHeight;
-    const context = canvas.getContext("2d");
-    if (!context) {
-      throw new Error("Could not prepare PDF canvas.");
-    }
-
-    context.fillStyle = "#ffffff";
-    context.fillRect(0, 0, canvas.width, canvas.height);
-    context.drawImage(image, 0, 0);
-    const jpegDataUrl = canvas.toDataURL("image/jpeg", 0.94);
-    if (!jpegDataUrl.startsWith("data:image/jpeg")) {
-      throw new Error("Could not capture schedule as a PDF image.");
-    }
-
-    return buildPdfFromJpegDataUrl(jpegDataUrl, canvas.width, canvas.height);
-  } finally {
-    iframe.remove();
-  }
-}
-
 function formatEventDate(event: EventRow) {
   const dateSource = event.earliest_session_date || event.date_text;
   if (!dateSource) return "Date TBD";
@@ -3308,7 +3150,6 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const schedulePreview = schedulePreviews[previewKind];
   const selectedPreviewBaseFileName = getSafeFileName(schedulePreview.title) || "schedule";
   const selectedPreviewExportFileName = `${selectedPreviewBaseFileName}.txt`;
-  const selectedPreviewStyledPdfFileName = `${selectedPreviewBaseFileName}.pdf`;
   const selectedPreviewCsvFileName = `${selectedPreviewBaseFileName}.csv`;
   const selectedPreviewHtmlFileName = `${selectedPreviewBaseFileName}-printable.html`;
   const autoDownloadTriggeredRef = useRef(false);
@@ -3316,24 +3157,6 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     () => getPreviewDocumentParts(schedulePreview.html),
     [schedulePreview.html]
   );
-  useEffect(() => {
-    if (loading || !props.previewOnly || !props.autoDownload || autoDownloadTriggeredRef.current || !schedulePreview.html) return;
-    autoDownloadTriggeredRef.current = true;
-    const timeout = window.setTimeout(() => {
-      setStyledPdfExporting(true);
-      showCopyMessage("Preparing styled PDF...", "success", 2200);
-      createStyledSchedulePdfBlob(schedulePreview.html)
-        .then((pdfBlob) => {
-          downloadBlob(pdfBlob, selectedPreviewStyledPdfFileName);
-          showCopyMessage(`${schedulePreview.title} styled PDF downloaded.`, "success", 2600);
-        })
-        .catch((error: unknown) => {
-          showCopyMessage(error instanceof Error ? error.message : "Could not download styled PDF.", "error", 3600);
-        })
-        .finally(() => setStyledPdfExporting(false));
-    }, 350);
-    return () => window.clearTimeout(timeout);
-  }, [loading, props.autoDownload, props.previewOnly, schedulePreview.html, schedulePreview.title, selectedPreviewStyledPdfFileName]);
   const saveStateAppearance = getSaveStateAppearance(saveState);
   const lastSavedLabel = formatSavedTimestamp(lastSavedAt);
   const advancedSettingsActive =
@@ -3413,39 +3236,24 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     showCopyMessage(`${schedulePreview.title} printable HTML downloaded.`, "success", 2200);
   }
 
-  async function handleStyledPdfDownload() {
-    if (styledPdfExporting) return;
-
-    setStyledPdfExporting(true);
-    showCopyMessage("Preparing styled PDF...", "success", 2200);
-    try {
-      const pdfBlob = await createStyledSchedulePdfBlob(schedulePreview.html);
-      downloadBlob(pdfBlob, selectedPreviewStyledPdfFileName);
-      showCopyMessage(`${schedulePreview.title} styled PDF downloaded.`, "success", 2600);
-    } catch (error) {
-      showCopyMessage(error instanceof Error ? error.message : "Could not download styled PDF.", "error", 3600);
-    } finally {
-      setStyledPdfExporting(false);
-    }
-  }
-
-  function handleRenderedSchedulePrint() {
-    if (props.previewOnly) {
-      window.print();
-      return;
-    }
+  const openSchedulePrintFlow = useCallback((): boolean => {
+    if (typeof window === "undefined") return false;
 
     const frameWindow = schedulePreviewFrameRef.current?.contentWindow;
     if (frameWindow) {
       frameWindow.focus();
       frameWindow.print();
-      return;
+      return true;
+    }
+
+    if (props.previewOnly) {
+      window.print();
+      return true;
     }
 
     const popup = window.open("", "_blank", "noopener,noreferrer");
     if (!popup) {
-      showCopyMessage("Print window blocked. Please allow popups for this site.", "error", 2500);
-      return;
+      return false;
     }
 
     popup.document.write(schedulePreview.html);
@@ -3454,6 +3262,40 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       popup.focus();
       popup.print();
     };
+    return true;
+  }, [props.previewOnly, schedulePreview.html]);
+
+  const handleStyledPdfDownload = useCallback(async () => {
+    if (styledPdfExporting) return;
+
+    setStyledPdfExporting(true);
+    showCopyMessage("Direct PDF rendering unavailable. Using browser print-to-PDF. Choose Save as PDF in the print dialog.", "success", 3400);
+    try {
+      const printed = openSchedulePrintFlow();
+      if (!printed) {
+        throw new Error("Print dialog was blocked. Please allow popups and try again.");
+      }
+    } catch (error) {
+      showCopyMessage(error instanceof Error ? error.message : "Direct PDF rendering is unavailable. Using print-to-PDF fallback failed.", "error", 3600);
+    } finally {
+      setStyledPdfExporting(false);
+    }
+  }, [openSchedulePrintFlow, styledPdfExporting]);
+
+  useEffect(() => {
+    if (loading || !props.previewOnly || !props.autoDownload || autoDownloadTriggeredRef.current || !schedulePreview.html) return;
+    autoDownloadTriggeredRef.current = true;
+    const timeout = window.setTimeout(() => {
+      void handleStyledPdfDownload();
+    }, 350);
+    return () => window.clearTimeout(timeout);
+  }, [handleStyledPdfDownload, loading, props.autoDownload, props.previewOnly, schedulePreview.html, schedulePreview.title]);
+
+  function handleRenderedSchedulePrint() {
+    const printed = openSchedulePrintFlow();
+    if (!printed) {
+      showCopyMessage("Print window blocked. Please allow popups for this site.", "error", 2500);
+    }
   }
 
   const renderScheduleViewToggle = (isDark = false) => {
@@ -3583,10 +3425,9 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
             Download/Export
           </div>
           {[
-            { label: styledPdfExporting ? "Preparing styled PDF..." : "Export Styled PDF", onClick: () => void handleStyledPdfDownload(), disabled: styledPdfExporting },
-            { label: "Export Raw Text", onClick: handleRawTextExport },
-            { label: "Export CSV", onClick: handleCsvExport },
-            { label: "Export Printable HTML", onClick: handlePrintableHtmlExport },
+            { label: "Export Raw Text", onClick: handleRawTextExport, disabled: false },
+            { label: "Export CSV", onClick: handleCsvExport, disabled: false },
+            { label: "Export Printable HTML", onClick: handlePrintableHtmlExport, disabled: false },
           ].map((action) => (
             <button
               key={action.label}
