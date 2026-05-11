@@ -1672,8 +1672,12 @@ function getFileExtension(value: string) {
   return dotIndex >= 0 ? fileName.slice(dotIndex + 1) : "";
 }
 
-function getMaterialPreviewKind(fileName: string, url: string): MaterialPreviewKind {
-  const extension = (getFileExtension(fileName) || getFileExtension(url)).toLowerCase();
+function getMaterialPreviewKind(fileName: string, ...sources: string[]): MaterialPreviewKind {
+  const extension = (
+    getFileExtension(fileName) ||
+    sources.map((source) => getFileExtension(source)).find(Boolean) ||
+    ""
+  ).toLowerCase();
   if (extension === "pdf") return "pdf";
   if (["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp"].includes(extension)) return "image";
   if (["txt", "csv", "log", "json"].includes(extension)) return "text";
@@ -1690,7 +1694,7 @@ function buildTrainingMaterialAssetUrls(args: {
 }) {
   const rawUrl = asText(args.rawUrl);
   const storagePath = asText(args.storagePath);
-  const fileName = asText(args.fileName) || getFilenameFromUrl(rawUrl) || "training-material";
+  const fileName = asText(args.fileName) || getFilenameFromUrl(rawUrl) || getFilenameFromUrl(storagePath) || "training-material";
 
   if (!storagePath || !args.eventId) {
     return {
@@ -1713,6 +1717,24 @@ function buildTrainingMaterialAssetUrls(args: {
     openInNewTabUrl: `/api/uploads/training-material?${baseParams.toString()}&mode=preview`,
     fileName,
   };
+}
+
+function isSameOriginPreviewUrl(value: string) {
+  const rawUrl = asText(value);
+  if (!rawUrl || typeof window === "undefined") return false;
+  try {
+    const resolved = new URL(rawUrl, window.location.origin);
+    return resolved.origin === window.location.origin;
+  } catch {
+    return false;
+  }
+}
+
+function getMaterialPreviewLoadError(response?: Response | null) {
+  if (response?.status === 401 || response?.status === 403 || response?.status === 404 || response?.status === 410) {
+    return "File missing or access expired. Please download the file or upload it again.";
+  }
+  return "Could not load preview. Please download the file.";
 }
 
 function normalizeCaseFileEntry(value: Partial<CaseFileEntry>, fallbackIndex: number): CaseFileEntry | null {
@@ -8643,6 +8665,13 @@ Cory`;
     });
   }
   function openCaseFilePreview(caseEntry: CaseFileEntry | null = primaryCaseFileEntry || null) {
+    console.info("CFSP case file preview requested", {
+      eventId: id,
+      caseFileName: caseEntry?.name || "",
+      hasUrl: Boolean(caseEntry?.url),
+      hasStoragePath: Boolean(caseEntry?.storagePath),
+      storagePath: caseEntry?.storagePath || "",
+    });
     if (caseEntry?.url || caseEntry?.storagePath) {
       openMaterialPreview({
         title: caseEntry.name || "Case File",
@@ -8652,6 +8681,11 @@ Cory`;
       });
       return;
     }
+    console.warn("CFSP case file preview missing file metadata", {
+      eventId: id,
+      caseEntry,
+      hasFallbackMaterial: Boolean(eventMaterialUrl),
+    });
     if (eventMaterialUrl) {
       openEventMaterialPreview();
       return;
@@ -10044,12 +10078,45 @@ Cory`;
     fileName?: string | null;
   }) {
     const safeUrl = asText(args.rawUrl);
-    if (!safeUrl) return;
+    const storagePath = asText(args.storagePath);
+    const fileName = asText(args.fileName) || getFilenameFromUrl(safeUrl) || getFilenameFromUrl(storagePath) || "training-material";
+    if (!safeUrl && !storagePath) {
+      console.warn("CFSP material preview missing URL and storage path", {
+        eventId: id,
+        title: args.title,
+        fileName,
+      });
+      setMaterialPreviewLoading(false);
+      setMaterialPreviewError("File missing or access expired. Please download the file or upload it again.");
+      setMaterialOpenInNewTabError("");
+      setMaterialPreviewText("");
+      setMaterialPreviewHtml("");
+      setMaterialPreview({
+        title: args.title,
+        previewUrl: "about:blank",
+        downloadUrl: "",
+        openInNewTabUrl: "",
+        fileName,
+        kind: "unsupported",
+      });
+      return;
+    }
     const assetUrls = buildTrainingMaterialAssetUrls({
       eventId: id,
       rawUrl: safeUrl,
-      storagePath: asText(args.storagePath),
-      fileName: asText(args.fileName) || getFilenameFromUrl(safeUrl),
+      storagePath,
+      fileName,
+    });
+    const previewKind = getMaterialPreviewKind(assetUrls.fileName, safeUrl, storagePath, assetUrls.previewUrl);
+    console.info("CFSP material preview opened", {
+      eventId: id,
+      title: args.title,
+      fileName: assetUrls.fileName,
+      kind: previewKind,
+      hasRawUrl: Boolean(safeUrl),
+      storagePath,
+      previewUrl: assetUrls.previewUrl,
+      downloadUrl: assetUrls.downloadUrl,
     });
     setMaterialPreviewLoading(true);
     setMaterialPreviewError("");
@@ -10062,7 +10129,7 @@ Cory`;
       downloadUrl: assetUrls.downloadUrl,
       openInNewTabUrl: assetUrls.openInNewTabUrl,
       fileName: assetUrls.fileName,
-      kind: getMaterialPreviewKind(assetUrls.fileName, safeUrl),
+      kind: previewKind,
     });
   }
 
@@ -10273,9 +10340,23 @@ Cory`;
 
     async function loadDocumentPreview() {
       try {
+        console.info("CFSP material preview fetch start", {
+          eventId: id,
+          fileName: preview.fileName,
+          kind: preview.kind,
+          previewUrl: preview.previewUrl,
+        });
         const response = await fetch(preview.previewUrl, { cache: "no-store" });
+        console.info("CFSP material preview API response", {
+          eventId: id,
+          fileName: preview.fileName,
+          kind: preview.kind,
+          status: response.status,
+          ok: response.ok,
+          contentType: response.headers.get("content-type") || "",
+        });
         if (!response.ok) {
-          throw new Error(await parseApiError(response));
+          throw new Error(getMaterialPreviewLoadError(response));
         }
         const text = await response.text();
         if (cancelled) return;
@@ -10284,15 +10365,29 @@ Cory`;
         } else {
           setMaterialPreviewText(text);
         }
+        console.info("CFSP material preview load success", {
+          eventId: id,
+          fileName: preview.fileName,
+          kind: preview.kind,
+          bytes: text.length,
+        });
         setMaterialPreviewLoading(false);
       } catch (error) {
         if (cancelled) return;
+        console.warn("CFSP material preview load failure", {
+          eventId: id,
+          fileName: preview.fileName,
+          kind: preview.kind,
+          error: error instanceof Error ? error.message : error,
+        });
         setMaterialPreviewError(
           preview.kind === "html"
-            ? "Preview could not be generated. Please use Open in New Tab or Download."
+            ? error instanceof Error
+              ? error.message
+              : "Could not load preview. Please download the file."
             : error instanceof Error
               ? error.message
-              : "Could not preview this document."
+              : "Could not load preview. Please download the file."
         );
         setMaterialPreviewLoading(false);
       }
@@ -10302,21 +10397,75 @@ Cory`;
     return () => {
       cancelled = true;
     };
-  }, [materialPreview]);
+  }, [id, materialPreview]);
 
   useEffect(() => {
     if (!materialPreviewLoading || !materialPreview) return;
-    if (!["pdf", "iframe"].includes(materialPreview.kind)) return;
+    if (!["pdf", "iframe", "image"].includes(materialPreview.kind)) return;
+
+    let cancelled = false;
+    const controller = new AbortController();
+    const preview = materialPreview;
+
+    async function validateInlinePreviewUrl() {
+      if (!isSameOriginPreviewUrl(preview.previewUrl)) return;
+
+      try {
+        console.info("CFSP material inline preview preflight start", {
+          eventId: id,
+          fileName: preview.fileName,
+          kind: preview.kind,
+          previewUrl: preview.previewUrl,
+        });
+        const response = await fetch(preview.previewUrl, {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        console.info("CFSP material inline preview API response", {
+          eventId: id,
+          fileName: preview.fileName,
+          kind: preview.kind,
+          status: response.status,
+          ok: response.ok,
+          contentType: response.headers.get("content-type") || "",
+        });
+        if (response.body) void response.body.cancel().catch(() => undefined);
+        if (!response.ok && !cancelled) {
+          setMaterialPreviewError(getMaterialPreviewLoadError(response));
+          setMaterialPreviewLoading(false);
+        }
+      } catch (error) {
+        if (cancelled || (error instanceof DOMException && error.name === "AbortError")) return;
+        console.warn("CFSP material inline preview preflight failed", {
+          eventId: id,
+          fileName: preview.fileName,
+          kind: preview.kind,
+          error: error instanceof Error ? error.message : error,
+        });
+        setMaterialPreviewError("Could not load preview. Please download the file.");
+        setMaterialPreviewLoading(false);
+      }
+    }
+
+    void validateInlinePreviewUrl();
 
     const timeout = window.setTimeout(() => {
+      console.warn("CFSP material preview timed out", {
+        eventId: id,
+        fileName: preview.fileName,
+        kind: preview.kind,
+        previewUrl: preview.previewUrl,
+      });
       setMaterialPreviewLoading(false);
-      setMaterialPreviewError(
-        "This document did not render inline. The browser may be blocking embedded preview for this file."
-      );
-    }, 4500);
+      setMaterialPreviewError("Could not load preview. Please download the file.");
+    }, 8000);
 
-    return () => window.clearTimeout(timeout);
-  }, [materialPreview, materialPreviewLoading]);
+    return () => {
+      cancelled = true;
+      controller.abort();
+      window.clearTimeout(timeout);
+    };
+  }, [id, materialPreview, materialPreviewLoading]);
 
   async function handleRemoveTrainingMaterial(kind: TrainingMaterialKind) {
     if (!id) return;
@@ -23858,21 +24007,31 @@ Cory`;
                 >
                   Open in New Tab
                 </button>
-                <a
-                  href={materialPreview.downloadUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  download={materialPreview.fileName}
-                  style={{
-                    ...buttonStyle,
-                    display: "inline-flex",
-                    alignItems: "center",
-                    textDecoration: "none",
-                    padding: "8px 12px",
-                  }}
-                >
-                  Download
-                </a>
+                {materialPreview.downloadUrl ? (
+                  <a
+                    href={materialPreview.downloadUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    download={materialPreview.fileName}
+                    style={{
+                      ...buttonStyle,
+                      display: "inline-flex",
+                      alignItems: "center",
+                      textDecoration: "none",
+                      padding: "8px 12px",
+                    }}
+                  >
+                    Download
+                  </a>
+                ) : (
+                  <button
+                    type="button"
+                    disabled
+                    style={{ ...buttonStyle, padding: "8px 12px", opacity: 0.55 }}
+                  >
+                    Download
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={closeMaterialPreview}
@@ -23920,11 +24079,7 @@ Cory`;
                     color: "#12314b",
                   }}
                 >
-                  <div style={{ fontSize: "18px", fontWeight: 900 }}>
-                    {getFileExtension(materialPreview.fileName) === "doc"
-                      ? "Preview is not available for legacy .doc files."
-                      : "Inline preview is not supported for this document type."}
-                  </div>
+                  <div style={{ fontSize: "18px", fontWeight: 900 }}>Preview unavailable for this file type</div>
                   <div style={{ fontSize: "14px", fontWeight: 700, color: "#50667c", lineHeight: 1.6 }}>
                     {getFileExtension(materialPreview.fileName) === "doc"
                       ? "Please open or download this file."
@@ -24021,10 +24176,22 @@ Cory`;
                       width={1600}
                       height={1200}
                       unoptimized
-                      onLoad={() => setMaterialPreviewLoading(false)}
-                      onError={() => {
+                      onLoad={() => {
+                        console.info("CFSP material image preview load success", {
+                          eventId: id,
+                          fileName: materialPreview.fileName,
+                          previewUrl: materialPreview.previewUrl,
+                        });
                         setMaterialPreviewLoading(false);
-                        setMaterialPreviewError("The browser could not render this image preview.");
+                      }}
+                      onError={() => {
+                        console.warn("CFSP material image preview load failure", {
+                          eventId: id,
+                          fileName: materialPreview.fileName,
+                          previewUrl: materialPreview.previewUrl,
+                        });
+                        setMaterialPreviewLoading(false);
+                        setMaterialPreviewError("Could not load preview. Please download the file.");
                       }}
                       style={{ width: "100%", height: "auto", maxHeight: "min(72vh, 880px)", objectFit: "contain", background: "#ffffff" }}
                     />
@@ -24061,10 +24228,24 @@ Cory`;
                     <iframe
                       title={materialPreview.title}
                       src={materialPreview.previewUrl}
-                      onLoad={() => setMaterialPreviewLoading(false)}
-                      onError={() => {
+                      onLoad={() => {
+                        console.info("CFSP material iframe preview load success", {
+                          eventId: id,
+                          fileName: materialPreview.fileName,
+                          kind: materialPreview.kind,
+                          previewUrl: materialPreview.previewUrl,
+                        });
                         setMaterialPreviewLoading(false);
-                        setMaterialPreviewError("The browser could not render this document inline.");
+                      }}
+                      onError={() => {
+                        console.warn("CFSP material iframe preview load failure", {
+                          eventId: id,
+                          fileName: materialPreview.fileName,
+                          kind: materialPreview.kind,
+                          previewUrl: materialPreview.previewUrl,
+                        });
+                        setMaterialPreviewLoading(false);
+                        setMaterialPreviewError("Could not load preview. Please download the file.");
                       }}
                       style={{ width: "100%", height: "min(72vh, 880px)", border: "none", background: "#ffffff" }}
                     />
