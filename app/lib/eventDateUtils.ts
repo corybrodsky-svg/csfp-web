@@ -8,6 +8,45 @@ export function getImportedYearHint(notes?: string | null) {
   return match ? Number(match[0]) : null;
 }
 
+export const APP_TIME_ZONE = "America/New_York";
+
+function normalizeDatePart(value: number | undefined, fallback: number) {
+  return Number.isFinite(value) && value !== undefined ? value : fallback;
+}
+
+function getDatePart(parts: ReturnType<Intl.DateTimeFormat["formatToParts"]>, type: "year" | "month" | "day") {
+  return parts.find((part) => part.type === type)?.value;
+}
+
+export function getTodayDate(timeZone: string = APP_TIME_ZONE) {
+  const now = new Date();
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      year: "numeric",
+      month: "numeric",
+      day: "numeric",
+    }).formatToParts(now);
+
+    const year = normalizeDatePart(
+      Number(getDatePart(parts, "year")),
+      now.getFullYear()
+    );
+    const month = normalizeDatePart(
+      Number(getDatePart(parts, "month")),
+      now.getMonth() + 1
+    );
+    const day = normalizeDatePart(
+      Number(getDatePart(parts, "day")),
+      now.getDate()
+    );
+
+    return new Date(year, month - 1, day);
+  } catch {
+    return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  }
+}
+
 function normalizeYear(year: number, fallbackYear?: number | null) {
   if (year >= 2000 && year <= 2100) return year;
   if (year >= 0 && year <= 99) return 2000 + year;

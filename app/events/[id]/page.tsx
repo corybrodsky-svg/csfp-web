@@ -10,6 +10,7 @@ import {
   formatHumanDate,
   getImportedYearHint,
   normalizeLooseDateToIso,
+  getTodayDate,
 } from "../../lib/eventDateUtils";
 import {
   classifyEventPresentation,
@@ -2254,6 +2255,51 @@ function parseOperationalDate(value?: string | null, fallbackYear?: number | nul
   return null;
 }
 
+function isMeaningfulDateText(value: unknown) {
+  const normalized = asText(value).toLowerCase();
+  if (!normalized) return false;
+  if (["tbd", "to be determined", "none", "unknown", "n/a", "na"].includes(normalized)) return false;
+  return true;
+}
+
+function resolveDateFromRelatedTrainingEvent(node: RelatedOperationalEventNode | null | undefined) {
+  if (!node) return "";
+  const directDate = asText(node.trainingMetadata?.training_date || node.date_text);
+  return isMeaningfulDateText(directDate) ? directDate : "";
+}
+
+function resolveTrainingDateText(args: {
+  primaryTrainingMetadata: TrainingEventMetadata;
+  relatedTrainingOperationalEvents: RelatedOperationalEventNode[];
+  eventNotes: string | null | undefined;
+  fallbackDateSources?: string[];
+}) {
+  const exactMatchDateNode = args.relatedTrainingOperationalEvents.find(
+    (node) =>
+      node.kind === "training" &&
+      (node.exact_course_match === true || asText(node.match_confidence).toLowerCase() === "exact_course") &&
+      isMeaningfulDateText(resolveDateFromRelatedTrainingEvent(node))
+  );
+
+  const exactMatchDateText = resolveDateFromRelatedTrainingEvent(exactMatchDateNode);
+  const embeddedPrimaryDate = asText(args.primaryTrainingMetadata.training_date);
+  const manualPreferredDate =
+    asText(args.primaryTrainingMetadata.preferred_training_date) ||
+    asText(args.primaryTrainingMetadata.imported_training_date);
+
+  return (
+    (
+      isMeaningfulDateText(embeddedPrimaryDate)
+        ? embeddedPrimaryDate
+        : isMeaningfulDateText(exactMatchDateText)
+          ? exactMatchDateText
+          : isMeaningfulDateText(manualPreferredDate)
+            ? manualPreferredDate
+            : ""
+    ) || args.fallbackDateSources?.find((source) => isMeaningfulDateText(source)) || ""
+  );
+}
+
 function normalizeExternalHref(value?: string | null) {
   const text = asText(value);
   if (!text) return "";
@@ -2267,7 +2313,7 @@ function getDateOnly(value: Date) {
 }
 
 function getDateDeltaDays(date: Date) {
-  const today = getDateOnly(new Date());
+  const today = getDateOnly(getTodayDate());
   return Math.round((getDateOnly(date).getTime() - today.getTime()) / 86400000);
 }
 
@@ -6546,11 +6592,19 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       : facultyReadinessComplete
         ? getWorkflowReadinessTone("Needs Action")
         : getWorkflowReadinessTone("Not Started");
+  const primaryTrainingMetadata = parsedEventMetadata.training;
   const normalEventTrainingDateText =
-    asText(trainingMetadata.training_date) ||
-    asText(trainingMetadata.preferred_training_date) ||
-    asText(trainingMetadata.imported_training_date) ||
-    getFirstNoteValue(event?.notes, ["Preferred Training Date", "Training Date", "SP Training Date", "Training Date/Time"]);
+    resolveTrainingDateText({
+      primaryTrainingMetadata,
+      relatedTrainingOperationalEvents,
+      eventNotes: getFirstNoteValue(event?.notes, [
+        "Preferred Training Date",
+        "Training Date",
+        "SP Training Date",
+        "Training Date/Time",
+      ]),
+      fallbackDateSources: [asText(trainingMetadata.training_date), asText(trainingMetadata.preferred_training_date)],
+    }) || "";
   const preferredTrainingTimeWindowText =
     asText(trainingMetadata.training_start_time) || asText(trainingMetadata.training_end_time) || asText(trainingMetadata.preferred_training_time) || asText(trainingMetadata.preferred_training_end_time)
       ? formatTimeWindowLabel(
@@ -6627,6 +6681,19 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       (normalEventTrainingCountdownTarget?.end?.getTime() ??
         normalEventTrainingCountdownTarget?.start.getTime() ??
         Number.POSITIVE_INFINITY);
+  const normalEventTrainingDateDeltaDays = normalEventTrainingDate ? getDateDeltaDays(normalEventTrainingDate) : null;
+  const normalEventTrainingDateHasPassed = normalEventTrainingDateDeltaDays !== null && normalEventTrainingDateDeltaDays < 0;
+  const normalEventTrainingDateHasEndedOrPassed =
+    Boolean(trainingWindowEnded) || normalEventTrainingDateHasPassed;
+  const normalEventTrainingHasRecordingEvidence =
+    !trainingRecordingPlanned || Boolean(trainingMetadata.training_recording_url) || Boolean(trainingMetadata.recording_url);
+  const normalEventTrainingHasMaterials =
+    materialsReadinessComplete ||
+    materialsReadinessOptional ||
+    (!materialsReadinessNeedsAttention && !materialsReadinessReviewNeeded);
+  const normalEventTrainingArtifactsSatisfied =
+    normalEventTrainingHasMaterials &&
+    normalEventTrainingHasRecordingEvidence;
   const normalEventTrainingHasInfo = Boolean(
     normalEventTrainingDateText ||
       normalEventTrainingTimeText ||
@@ -6638,7 +6705,11 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
   const trainingAttendanceReady = !trainingAttendanceFieldsMissing && selectedStaffingCount > 0 && allAssignedCheckedIn;
   const trainingCompleteMarkedManually = trainingMarkedComplete || Boolean(workflowChecks.sp_training_completed);
   const normalEventTrainingComplete =
-    !trainingNotRequired && (trainingCompleteMarkedManually || (Boolean(trainingWindowEnded) && trainingAttendanceReady));
+    !trainingNotRequired &&
+    (trainingCompleteMarkedManually ||
+      (trainingAttendanceReady &&
+        normalEventTrainingDateHasEndedOrPassed &&
+        normalEventTrainingArtifactsSatisfied));
   const normalEventTrainingAccessReady = !trainingZoomRequired || Boolean(normalEventTrainingLink);
   const normalEventTrainingReady =
     trainingNotRequired ||
@@ -6725,6 +6796,9 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
   const trainingDateMarkerValue = normalEventTrainingDate
     ? formatOperationalDate(normalEventTrainingDate, normalEventTrainingDateText)
     : formatEventDateText(normalEventTrainingDateText, importedYearHint) || normalEventTrainingDateText || "Date TBD";
+  const trainingOverviewDateLabel = normalEventTrainingDate
+    ? formatOperationalDate(normalEventTrainingDate, normalEventTrainingDateText)
+    : formatEventDateText(normalEventTrainingDateText, importedYearHint) || "Training date TBD";
   const trainingDateCountdownLabel = normalEventTrainingComplete
     ? "Training completed"
     : trainingNotRequired
@@ -21401,7 +21475,7 @@ Cory`;
               >
                 <div style={statCard}>
                   <div style={statLabel}>Date</div>
-                  <div style={{ ...statValue, fontSize: "15px" }}>{normalEventTrainingDateText || "Training date TBD"}</div>
+                  <div style={{ ...statValue, fontSize: "15px" }}>{trainingOverviewDateLabel}</div>
                 </div>
                 <div style={statCard}>
                   <div style={statLabel}>Time</div>
