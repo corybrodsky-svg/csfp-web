@@ -803,6 +803,8 @@ type StyledPdfRenderContext = {
   printView: "student" | "operations";
 };
 
+type CompactSchedulePrintKind = "student" | "operations";
+
 function isCanvasTaintError(error: unknown) {
   if (error instanceof Error) {
     return /tainted|toDataURL|cross-origin|SecurityError/i.test(error.message);
@@ -866,9 +868,10 @@ async function createStyledSchedulePdfBlob(context: StyledPdfRenderContext) {
     await containerDocument.fonts?.ready?.catch(() => undefined);
     await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
 
-    const printableWidth = Math.max(containerDocument.documentElement.scrollWidth, containerDocument.body.scrollWidth, 1200);
+    const printableWidth = Math.max(containerDocument.documentElement.scrollWidth, containerDocument.body.scrollWidth, 980);
     const printableHeight = Math.max(containerDocument.documentElement.scrollHeight, containerDocument.body.scrollHeight, 800);
-    container.style.width = `${Math.max(960, printableWidth)}px`;
+    const contentWidth = Math.min(Math.max(printableWidth, 980), 1500);
+    container.style.width = `${Math.max(980, contentWidth)}px`;
     container.style.height = `${Math.max(700, printableHeight)}px`;
     await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
 
@@ -883,14 +886,14 @@ async function createStyledSchedulePdfBlob(context: StyledPdfRenderContext) {
     await new Promise<void>((resolve, reject) => {
       let pdfRendered = false;
       scheduleDoc.html(bodyNode, {
-        x: 8,
-        y: 8,
-        width: Math.max(printableWidth, 1120),
-        windowWidth: printableWidth,
-        autoPaging: "text",
-        margin: [12, 12, 12, 12],
+        x: 6,
+        y: 6,
+        width: contentWidth,
+        windowWidth: contentWidth,
+        autoPaging: "slice",
+        margin: [8, 8, 8, 8],
         html2canvas: {
-          scale: 1.8,
+          scale: 1.4,
           useCORS: true,
           allowTaint: false,
           logging: false,
@@ -938,6 +941,192 @@ async function createStyledSchedulePdfBlob(context: StyledPdfRenderContext) {
   } finally {
     cleanup();
   }
+}
+
+function buildCompactSchedulePrintHtml(args: {
+  kind: CompactSchedulePrintKind;
+  event: EventRow | null;
+  timeline: TimelineBlock[];
+  rounds: ScheduledRound[];
+  scheduleGridRows: ScheduleGridPreviewRow[];
+  roomColumns: PreviewRoomColumn[];
+  roomContext: Parameters<typeof getRoomDisplayLabel>[2];
+  caseName?: string;
+  assignedSpNames?: string[];
+  learnerCount: number;
+  generated: {
+    rounds: Array<GeneratedRound | ScheduledRound>;
+    rotationStart: number;
+    rotationEnd: number;
+    timeline: TimelineBlock[];
+  };
+  selectedEventSummaryTime?: string;
+}) {
+  const {
+    kind,
+    event,
+    timeline,
+    rounds,
+    scheduleGridRows,
+    roomColumns,
+    roomContext,
+    caseName,
+    assignedSpNames,
+    learnerCount,
+    generated,
+    selectedEventSummaryTime,
+  } = args;
+
+  const isStudent = kind === "student";
+  const printTitle = isStudent ? "Student Schedule" : "Admin Schedule";
+  const visibleTimeline = timeline.filter((block) => !isFillerTimingLabel(block.label));
+  const timelineSummary = visibleTimeline.length
+    ? `${visibleTimeline.length} timeline block${visibleTimeline.length === 1 ? "" : "s"} • ${Math.max(generated.rotationEnd - generated.rotationStart, 0)} min`
+    : "No timeline blocks configured";
+  const roundSummary = `${Math.max(rounds.length, 0)} round${rounds.length === 1 ? "" : "s"} • ${roomColumns.length} room${roomColumns.length === 1 ? "" : "s"} • ${Math.max(
+    learnerCount,
+    0
+  )} learner${learnerCount === 1 ? "" : "s"}`;
+
+  const compactRows =
+    scheduleGridRows.length && roomColumns.length
+      ? scheduleGridRows
+          .map((entry) => {
+            if (entry.kind === "wide") {
+              const durationMinutes = Math.max(getBlockDurationMinutes(entry.block.start, entry.block.end), 1);
+              return `<section class="print-band print-band-wide">
+                <div class="print-band-title">${escapeHtml(entry.block.label)}</div>
+                <div class="print-band-meta">${escapeHtml(formatRange(entry.block.start, entry.block.end))} • ${escapeHtml(formatDurationCompact(durationMinutes))}</div>
+                ${entry.block.detail ? `<div class="print-band-note">${escapeHtml(entry.block.detail)}</div>` : ""}
+              </section>`;
+            }
+
+            const round = entry.round;
+            const rhythmSummary = getFlowRhythmSummary(round) || "Encounter 20m • Checklist 5m • Feedback 5m";
+            const roundHeaderRoomColumns = roomColumns.length
+              ? roomColumns
+              : rounds[0]?.roomSlots.map((slot, roomIndex) => ({
+                  roomName: slot.roomName,
+                  roomType: slot.roomType,
+                  capacityLabel: slot.capacityLabel,
+                  displayRoomName: formatRoomName(slot.roomName, slot.roomType, roomIndex + 1, roomContext),
+                }));
+
+            const roomCells = round.roomSlots
+              .map((slot, slotIndex) => {
+                const roomColumn = roundHeaderRoomColumns[slotIndex] || {
+                  roomName: slot.roomName,
+                  roomType: slot.roomType,
+                  capacityLabel: slot.capacityLabel,
+                  displayRoomName: formatRoomName(slot.roomName, slot.roomType, slotIndex + 1, roomContext),
+                };
+                const roomLabel = `${roomColumn.displayRoomName} (${roomColumn.capacityLabel})`;
+                const learnerText = slot.learnerLabels.length ? slot.learnerLabels.join(", ") : "No learner assigned";
+                const assignmentIndex = round.roomSlots.findIndex((item) => item.roomName === slot.roomName);
+                const spName = assignedSpNames?.[assignmentIndex] || "Unassigned";
+
+                return `<td>
+                  <div class="cell-room">${escapeHtml(roomLabel)}</div>
+                  <div class="cell-name">${escapeHtml(learnerText)}</div>
+                  ${isStudent ? "" : `<div class="cell-meta">SP: ${escapeHtml(spName)}${caseName ? ` • Case: ${escapeHtml(caseName)}` : ""}</div>`}
+                </td>`;
+              })
+              .join("");
+
+            return `<section class="print-round">
+              <div class="print-round-head">
+                <div>
+                  <div class="print-round-kicker">Round ${round.round}</div>
+                  <div class="print-round-time">${escapeHtml(formatRange(round.start, round.end))}</div>
+                </div>
+                <div class="print-round-summary">${escapeHtml(rhythmSummary)}</div>
+              </div>
+              <table class="print-grid">
+                <thead>
+                  <tr>
+                    <th class="cell-round">R</th>
+                    <th class="cell-time">Time</th>
+                    ${roundHeaderRoomColumns
+                      .map((roomColumn) => `<th class="cell-room-head">${escapeHtml(roomColumn.displayRoomName)}</th>`)
+                      .join("")}
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td class="cell-round">${round.round}</td>
+                    <td class="cell-time">${escapeHtml(formatRange(round.start, round.end))}</td>
+                    ${roomCells}
+                  </tr>
+                </tbody>
+              </table>
+            </section>`;
+          })
+          .join("")
+      : "<section class='print-empty'>No rotation schedule generated yet.</section>";
+
+  const eventTitle = escapeHtml(event ? event.name || "Untitled Event" : "Schedule Preview");
+  const eventMeta = event ? `${escapeHtml(formatEventDate(event))}${event.location ? ` · ${escapeHtml(event.location)}` : ""}` : "Schedule preview";
+  const footerMeta = `${escapeHtml(eventMeta)}${selectedEventSummaryTime ? ` · ${escapeHtml(selectedEventSummaryTime)}` : ""}`;
+
+  return `<!doctype html>
+    <html>
+      <head>
+        <meta charSet="UTF-8" />
+        <title>${escapeHtml(printTitle)}</title>
+        <style>
+          :root { color-scheme: light; }
+          html, body { margin: 0; padding: 8mm; font-family: Arial, Helvetica, sans-serif; color: #0f2335; background: #fff; }
+          body { font-size: 9.6px; }
+          .print-root { display: grid; gap: 5px; }
+          .print-head { display: grid; gap: 2px; }
+          .print-title { margin: 0; font-size: 16px; font-weight: 800; }
+          .print-meta { color: #1f2937; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; font-size: 9px; }
+          .print-summary { color: #334155; font-size: 10px; display: flex; flex-wrap: wrap; gap: 5px; }
+          .print-summary span { background: #f1f5f9; padding: 2px 5px; border-radius: 6px; }
+          .print-band { border: 1px solid #e2e8f0; border-radius: 4px; padding: 4px 7px; background: #f8fafc; }
+          .print-band-wide { display: grid; gap: 2px; }
+          .print-band-title { font-weight: 800; font-size: 9px; color: #7c3aed; }
+          .print-band-meta { font-size: 8px; color: #5b6471; font-weight: 700; }
+          .print-band-note { font-size: 8.2px; color: #334155; }
+          .print-round { margin-top: 4px; border: 1px solid #d3deeb; border-radius: 6px; padding: 4px; background: #fff; break-inside: avoid; page-break-inside: avoid; }
+          .print-round-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 6px; margin-bottom: 3px; }
+          .print-round-kicker { font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: #1d4ed8; font-size: 8px; }
+          .print-round-time { color: #334155; font-weight: 800; font-size: 10px; }
+          .print-round-summary { color: #334155; font-size: 8.3px; text-align: right; }
+          .print-grid { width: 100%; border-collapse: collapse; table-layout: fixed; }
+          .print-grid th, .print-grid td { border: 1px solid #d5deea; padding: 3px 4px; vertical-align: top; white-space: normal; word-break: break-word; line-height: 1.2; }
+          .print-grid th { background: #f1f5f9; color: #1f2937; font-size: 8px; text-transform: uppercase; }
+          .print-grid td { font-size: 8.8px; }
+          .cell-round { width: 18px; text-align: center; font-weight: 800; }
+          .cell-time { width: 82px; white-space: nowrap; font-size: 8.4px; font-weight: 700; }
+          .cell-room-head { min-width: 85px; }
+          .cell-room { display: block; font-size: 8px; line-height: 1.2; margin-bottom: 2px; }
+          .cell-name { font-weight: 700; margin-top: 1px; }
+          .cell-meta { margin-top: 1px; font-size: 7.8px; color: #475569; }
+          .print-empty { margin-top: 4px; color: #64748b; padding: 6px; border: 1px dashed #cbd5e1; border-radius: 6px; }
+          @media print {
+            @page { size: landscape; margin: 0.28in; }
+            html, body { background: #ffffff !important; }
+            body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            .print-root { gap: 4px; }
+          }
+        </style>
+      </head>
+      <body>
+        <main class="print-root">
+          <section class="print-head">
+            <h1 class="print-title">${escapeHtml(printTitle)}</h1>
+            <div class="print-meta">${eventTitle}</div>
+            <div class="print-meta">${footerMeta}</div>
+            <div class="print-summary">
+              <span>${escapeHtml(timelineSummary)}</span>
+              <span>${escapeHtml(roundSummary)}</span>
+            </div>
+          </section>
+          ${compactRows}
+        </main>
+      </body>
+    </html>`;
 }
 
 function formatEventDate(event: EventRow) {
@@ -3290,6 +3479,55 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     studentScheduleGridRows,
   ]);
   const schedulePreview = schedulePreviews[previewKind];
+  const compactPrintKind: CompactSchedulePrintKind = previewKind === "student" ? "student" : "operations";
+  const compactSchedulePrintHtml = useMemo(() => {
+    return buildCompactSchedulePrintHtml(
+      compactPrintKind === "student"
+        ? {
+            kind: "student",
+            event: selectedEvent,
+            timeline: studentPreviewTimeline,
+            rounds: studentPreviewRounds,
+            scheduleGridRows: studentScheduleGridRows,
+            roomColumns,
+            roomContext: roomNamingContext,
+            caseName: selectedEventEncounterLabel,
+            assignedSpNames: selectedEvent?.assigned_sp_names || [],
+            learnerCount: learnerRoster.length,
+            generated,
+            selectedEventSummaryTime,
+          }
+        : {
+            kind: "operations",
+            event: selectedEvent,
+            timeline: operationsPreviewTimeline,
+            rounds: operationsPreviewRounds,
+            scheduleGridRows: operationsScheduleGridRows,
+            roomColumns,
+            roomContext: roomNamingContext,
+            caseName: selectedEventEncounterLabel,
+            assignedSpNames: selectedEvent?.assigned_sp_names || [],
+            learnerCount: learnerRoster.length,
+            generated,
+            selectedEventSummaryTime,
+          }
+    );
+  }, [
+    compactPrintKind,
+    generated,
+    operationsPreviewRounds,
+    operationsPreviewTimeline,
+    operationsScheduleGridRows,
+    roomColumns,
+    roomNamingContext,
+    selectedEvent,
+    selectedEventEncounterLabel,
+    selectedEventSummaryTime,
+    studentPreviewRounds,
+    studentPreviewTimeline,
+    studentScheduleGridRows,
+    learnerRoster.length,
+  ]);
   const selectedPreviewBaseFileName = getSafeFileName(schedulePreview.title) || "schedule";
   const selectedPreviewExportFileName = `${selectedPreviewBaseFileName}.txt`;
   const selectedPreviewCsvFileName = `${selectedPreviewBaseFileName}.csv`;
@@ -3382,31 +3620,19 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const openSchedulePrintFlow = useCallback((): boolean => {
     if (typeof window === "undefined") return false;
 
-    const frameWindow = schedulePreviewFrameRef.current?.contentWindow;
-    if (frameWindow) {
-      frameWindow.focus();
-      frameWindow.print();
-      return true;
-    }
-
-    if (props.previewOnly) {
-      window.print();
-      return true;
-    }
-
     const popup = window.open("", "_blank", "noopener,noreferrer");
     if (!popup) {
       return false;
     }
-
-    popup.document.write(schedulePreview.html);
+    popup.document.open();
+    popup.document.write(compactSchedulePrintHtml);
     popup.document.close();
     popup.onload = () => {
       popup.focus();
       popup.print();
     };
     return true;
-  }, [props.previewOnly, schedulePreview.html]);
+  }, [compactSchedulePrintHtml]);
 
   const handleStyledPdfDownload = useCallback(async () => {
     if (styledPdfExporting) return;
@@ -3415,7 +3641,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     showCopyMessage("Preparing styled PDF download...", "success", 2200);
     try {
       const pdfBlob = await createStyledSchedulePdfBlob({
-        html: schedulePreview.html,
+        html: compactSchedulePrintHtml,
         printView: previewKind === "student" ? "student" : "operations",
       });
       downloadBlob(pdfBlob, selectedPreviewStyledPdfFileName);
@@ -3431,16 +3657,16 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     } finally {
       setStyledPdfExporting(false);
     }
-  }, [styledPdfExporting, selectedPreviewStyledPdfFileName, schedulePreview.html, previewKind, schedulePreview.title]);
+  }, [compactSchedulePrintHtml, selectedPreviewStyledPdfFileName, previewKind, schedulePreview.title, styledPdfExporting]);
 
   useEffect(() => {
-    if (loading || !props.previewOnly || !props.autoDownload || autoDownloadTriggeredRef.current || !schedulePreview.html) return;
+    if (loading || !props.previewOnly || !props.autoDownload || autoDownloadTriggeredRef.current || !compactSchedulePrintHtml) return;
     autoDownloadTriggeredRef.current = true;
     const timeout = window.setTimeout(() => {
       void handleStyledPdfDownload();
     }, 350);
     return () => window.clearTimeout(timeout);
-  }, [handleStyledPdfDownload, loading, props.autoDownload, props.previewOnly, schedulePreview.html, schedulePreview.title]);
+  }, [compactSchedulePrintHtml, handleStyledPdfDownload, loading, props.autoDownload, props.previewOnly]);
 
   function handleRenderedSchedulePrint() {
     const printed = openSchedulePrintFlow();
