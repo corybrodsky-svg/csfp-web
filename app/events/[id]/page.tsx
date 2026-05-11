@@ -404,6 +404,13 @@ type WorkflowReadinessItem = {
   actions?: WorkflowReadinessAction[];
 };
 
+type LearnerFlowIssue = {
+  what: string;
+  why: string;
+  fix: string;
+  actionLabel?: string;
+};
+
 type WorkflowReadinessGroup = {
   key: WorkflowGroupKey;
   title: string;
@@ -4180,6 +4187,7 @@ export default function EventDetailPage() {
   const [trainingImporting, setTrainingImporting] = useState(false);
   const [showWorkflowAdvanced, setShowWorkflowAdvanced] = useState(false);
   const [activeReadinessDetailId, setActiveReadinessDetailId] = useState<string | null>(null);
+  const [showLearnerFlowDetails, setShowLearnerFlowDetails] = useState(false);
   const [materialPreview, setMaterialPreview] = useState<MaterialPreviewState | null>(null);
   const [materialPreviewLoading, setMaterialPreviewLoading] = useState(false);
   const [materialPreviewError, setMaterialPreviewError] = useState("");
@@ -7398,6 +7406,7 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     if (effectiveRoomCount <= 0 || activeRotationCount <= 0) return 0;
     return effectiveRoomCount * Math.max(scheduleBuilderRoomCapacity, 1) * activeRotationCount;
   }, [activeRotationCount, effectiveRoomCount, scheduleBuilderRoomCapacity]);
+  const learnerFlowSelectedRoundCoverageShortage = Math.max(Math.max(selectedRoundRoomCount, needed) - confirmedAssignments.length, 0);
   const learnerPlannerRosterCount = scheduleBuilderLearnerNames.length;
   const learnerPlannerExpectedCount = Math.max(effectiveLearnerCount, learnerPlannerRosterCount);
   const learnerPlannerAssignedCount =
@@ -7415,9 +7424,138 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       ? `${learnerPlannerUnassignedCount} learner${learnerPlannerUnassignedCount === 1 ? "" : "s"} beyond current room/round capacity`
       : "",
   ].filter(Boolean);
-  const learnerAssignmentsIncomplete =
-    learnerPlannerMissingSignals.length > 0 ||
-    (learnerPlannerRosterCount > 0 && selectedRoundScheduleRows.some((row) => !row.learnerLabels.length));
+  const selectedRoundAssignedLearnerCount = selectedRoundScheduleRows.reduce((total, row) => total + row.learnerLabels.length, 0);
+  const selectedRoundExpectedLearnerCount = selectedRoundLearnerCount ?? 0;
+  const selectedRoundRoomNameCounts = selectedRoundScheduleRows.reduce<Map<string, number>>((map, row) => {
+    const roomName = asText(row.roomName).trim().toLowerCase();
+    if (!roomName || isRoomPlaceholderLabel(row.roomName)) {
+      return map;
+    }
+    map.set(roomName, (map.get(roomName) || 0) + 1);
+    return map;
+  }, new Map<string, number>());
+  const duplicateAssignedRoomLabels = Array.from(selectedRoundRoomNameCounts.entries())
+    .filter(([, count]) => count > 1)
+    .map(([roomName, count]) => `${roomName.toUpperCase()} assigned in ${count} rows`)
+    .map((item) => `Duplicate room mapping: ${item}`);
+  const sameDateRoundTimings = useMemo(() => {
+    const roundsByDate = rotationRounds.reduce<Record<string, RotationRound[]>>((acc, round) => {
+      const dateKey = asText(round.session_date) || "date-tbd";
+      if (!acc[dateKey]) acc[dateKey] = [];
+      acc[dateKey].push(round);
+      return acc;
+    }, {} as Record<string, RotationRound[]>);
+
+    return Object.entries(roundsByDate).flatMap(([dateKey, roundsForDate]) =>
+      roundsForDate
+        .map((round) => {
+          const timing = getNormalizedRotationRoundTiming(round, roundsForDate);
+          if (!timing) return null;
+          return { dateKey, round, ...timing };
+        })
+        .filter((row): row is { dateKey: string; round: RotationRound; startMinutes: number; endMinutes: number } => Boolean(row))
+        .sort((a, b) => {
+          if (a.startMinutes !== b.startMinutes) return a.startMinutes - b.startMinutes;
+          return a.endMinutes - b.endMinutes;
+        })
+        .map((entry, index, list) => {
+          const previous = index > 0 ? list[index - 1] : null;
+          if (!previous) return null;
+          if (entry.startMinutes >= previous.endMinutes) return null;
+          return {
+            dateKey: entry.dateKey,
+            current: entry.round,
+            previous: previous.round,
+            previousStart: previous.startMinutes,
+            previousEnd: previous.endMinutes,
+            currentStart: entry.startMinutes,
+          };
+        })
+        .filter((issue): issue is NonNullable<typeof issue> => Boolean(issue))
+    );
+  }, [rotationRounds]);
+  const learnerFlowTimingCollisionSignals = sameDateRoundTimings.map(
+    ({ current, previous }) => `${current.key} starts before ${previous.key} completed`
+  );
+  const learnerFlowRoundCapacitySignals =
+    selectedRoundExpectedLearnerCount > 0 && selectedRoundAssignedLearnerCount < selectedRoundExpectedLearnerCount
+      ? [
+          `${
+            selectedRoundExpectedLearnerCount - selectedRoundAssignedLearnerCount
+          } learner${selectedRoundExpectedLearnerCount - selectedRoundAssignedLearnerCount === 1 ? "" : "s"} unassigned in active round`,
+        ]
+      : [];
+  const learnerFlowMissingSignals = [
+    ...learnerPlannerMissingSignals,
+    ...duplicateAssignedRoomLabels,
+    ...learnerFlowRoundCapacitySignals,
+    ...learnerFlowTimingCollisionSignals,
+    staffingRelevant && learnerFlowSelectedRoundCoverageShortage > 0
+      ? `${learnerFlowSelectedRoundCoverageShortage} room slot${learnerFlowSelectedRoundCoverageShortage === 1 ? "" : "s"} without SP assignment in active round`
+      : "",
+  ].filter(Boolean);
+  const learnerAssignmentsIncomplete = learnerFlowMissingSignals.length > 0;
+  const learnerFlowIssues: LearnerFlowIssue[] = useMemo(
+    () =>
+      learnerFlowMissingSignals.map((signal) => {
+        if (signal.includes("not available")) {
+          return {
+            what: signal,
+            why: "The learner roster is required to build reliable round capacity and to avoid seat assignment drift.",
+            fix: "Upload or repair learner names in Student Roster files, then refresh the schedule builder surface.",
+            actionLabel: "Open Schedule",
+          };
+        }
+        if (signal.includes("No learner assigned") || signal.includes("unassigned")) {
+          return {
+            what: signal,
+            why: "Capacity and learner counts are out of sync for this active round.",
+            fix: "Re-open Schedule and continue auto-fill, then move learners manually only if needed.",
+            actionLabel: "Open Schedule",
+          };
+        }
+        if (signal.includes("Duplicate room mapping")) {
+          return {
+            what: signal,
+            why: "Two schedule entries are targeting the same room, so learner/SP rotation visibility can become ambiguous.",
+            fix: "Open Schedule and resolve room names so each room has one active slot per round.",
+            actionLabel: "Edit Schedule",
+          };
+        }
+        if (signal.includes("starts before") && signal.includes("completed")) {
+          return {
+            what: signal,
+            why: "Encounter rounds are overlapping in the schedule timeline.",
+            fix: "Update event session start/end inputs so rounds keep clean chronological order.",
+            actionLabel: "Open Schedule",
+          };
+        }
+        if (signal.includes("room plan needs review") || signal.includes("Room count is missing") || signal.includes("rotation rounds are missing")) {
+          return {
+            what: signal,
+            why: "Room count and rotation inputs are foundational to learner and SP assignment integrity.",
+            fix: "Complete the schedule builder setup fields and regenerate rounds as needed.",
+            actionLabel: "Edit Schedule",
+          };
+        }
+        if (signal.includes("without SP assignment") || signal.includes("room slot")) {
+          return {
+            what: signal,
+            why: "This room slot cannot be staffed and should be resolved before live operations.",
+            fix: "Staffing must cover every required slot or reduce active room count for that round.",
+            actionLabel: "Open Staffing Command Center",
+          };
+        }
+
+        return {
+          what: signal,
+          why: "This condition is blocking learner flow confidence for final schedule output.",
+          fix: "Open schedule planning controls and confirm missing learner/room/round inputs before run-through.",
+        };
+      }),
+    [learnerFlowMissingSignals]
+  );
+  const learnerFlowStatusReason = learnerAssignmentsIncomplete ? "Status reason: review each flagged issue" : "Status reason: no issues detected";
   const selectedRoundDayBlocks = useMemo(() => {
     if (!selectedRotationRound) return [] as RoundCompanionBlock[];
     const dayBlocks: RoundCompanionBlock[] = liveFlowBlocks
@@ -18107,6 +18245,132 @@ Cory`;
     </div>
   ) : null;
 
+  const learnerFlowDetailsDialog = showLearnerFlowDetails ? (
+    <div
+      role="presentation"
+      onClick={() => setShowLearnerFlowDetails(false)}
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 81,
+        background: "rgba(15, 23, 42, 0.32)",
+        display: "flex",
+        justifyContent: "center",
+        alignItems: "flex-start",
+        padding: "72px 16px 24px",
+      }}
+    >
+      <section
+        role="dialog"
+        aria-label="Learner flow details"
+        onClick={(event) => event.stopPropagation()}
+        style={{
+          width: "min(660px, 100%)",
+          maxHeight: "min(760px, calc(100vh - 96px))",
+          overflowY: "auto",
+          borderRadius: "16px",
+          border: "1px solid rgba(120, 180, 255, 0.24)",
+          background: "var(--cfsp-surface)",
+          boxShadow: "0 24px 70px rgba(15, 23, 42, 0.24)",
+          padding: "16px",
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", alignItems: "flex-start" }}>
+          <div>
+            <h3 style={{ margin: 0, color: "var(--cfsp-text)", fontSize: "18px", fontWeight: 950 }}>Learner Flow Status</h3>
+            <p style={{ ...compactSectionHintStyle, marginTop: "5px" }}>
+              {learnerAssignmentsIncomplete
+                ? "Review the blockers below before running this schedule operationally."
+                : "Learner flow is currently clean and ready."}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowLearnerFlowDetails(false)}
+            style={{
+              ...buttonStyle,
+              padding: "7px 10px",
+              minHeight: "30px",
+              background: "var(--cfsp-surface-muted)",
+              color: "var(--cfsp-text)",
+              border: "1px solid var(--cfsp-border)",
+            }}
+          >
+            Close
+          </button>
+        </div>
+        <div style={{ marginTop: "14px", display: "grid", gap: "10px" }}>
+          <div
+            style={{
+              borderRadius: "12px",
+              border: "1px solid rgba(96, 136, 165, 0.24)",
+              background: "var(--cfsp-surface-muted)",
+              padding: "10px",
+              color: "var(--cfsp-text)",
+            }}
+          >
+            <div style={{ fontWeight: 900, marginBottom: "6px" }}>Status reason</div>
+            <div>{learnerFlowStatusReason}</div>
+          </div>
+          {learnerFlowIssues.length === 0 ? (
+            <div style={{ color: "var(--cfsp-text-muted)", fontSize: "13px", fontWeight: 700 }}>
+              No learner flow issues detected.
+            </div>
+          ) : null}
+          {learnerFlowIssues.map((item) => {
+            const actionLabel = item.actionLabel;
+            return (
+            <div
+              key={item.what}
+              style={{
+                borderRadius: "12px",
+                border: "1px solid rgba(37, 99, 235, 0.2)",
+                background: "linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(239,246,255,0.72) 100%)",
+                padding: "10px",
+                display: "grid",
+                gap: "6px",
+                color: "var(--cfsp-text)",
+                fontSize: "13px",
+                lineHeight: 1.4,
+              }}
+            >
+              <div><strong>What:</strong> {item.what}</div>
+              <div><strong>Why it matters:</strong> {item.why}</div>
+              <div><strong>How to fix:</strong> {item.fix}</div>
+              {actionLabel ? (
+                <div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (actionLabel.includes("Open Schedule")) {
+                        handleOpenEventScheduleRouteInNewTab("operations", "schedule");
+                      } else if (actionLabel.includes("Edit Schedule")) {
+                        document
+                          .getElementById("editor-toolbar")
+                          ?.scrollIntoView({ behavior: "smooth", block: "start" });
+                        window.setTimeout(() => {
+                          setShowLearnerFlowDetails(false);
+                        }, 120);
+                        router.push(expandedScheduleBuilderHref);
+                      } else if (actionLabel.includes("Staffing")) {
+                        document.getElementById("staffing-command-center")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                      }
+                      setShowLearnerFlowDetails(false);
+                    }}
+                    style={{ ...buttonStyle, padding: "7px 10px", fontSize: "12px" }}
+                  >
+                    {actionLabel}
+                  </button>
+                </div>
+              ) : null}
+            </div>
+            );
+          })}
+        </div>
+      </section>
+    </div>
+  ) : null;
+
   if (loading) {
     return (
       <SiteShell title="Event Command Center" subtitle="Loading event details from Supabase.">
@@ -19211,16 +19475,38 @@ Cory`;
                     </div>
                   </div>
                   <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "flex-end" }}>
-                    <span
+                    <button
+                      type="button"
+                      onClick={() => setShowLearnerFlowDetails(true)}
                       style={{
                         ...commandChipStyle,
                         background: learnerAssignmentsIncomplete ? "rgba(237, 233, 254, 0.72)" : planningSuccessBackground,
                         border: learnerAssignmentsIncomplete ? "1px solid rgba(124, 58, 237, 0.16)" : planningSuccessBorder,
                         color: learnerAssignmentsIncomplete ? "#5b21b6" : planningSuccessText,
+                        cursor: "pointer",
+                        textAlign: "left",
                       }}
+                      aria-label={
+                        learnerAssignmentsIncomplete
+                          ? "Open learner flow review details"
+                          : "Open learner flow readiness details"
+                      }
                     >
                       {learnerAssignmentsIncomplete ? "Learner Flow Needs Review" : "Learner Flow Ready"}
-                    </span>
+                    </button>
+                    <div
+                      style={{
+                        ...commandChipStyle,
+                        background: "rgba(15, 23, 42, 0.08)",
+                        border: "1px solid rgba(15, 23, 42, 0.14)",
+                        color: learnerAssignmentsIncomplete ? "#be185d" : planningSuccessText,
+                        fontSize: "10px",
+                        textTransform: "none",
+                        letterSpacing: "normal",
+                      }}
+                    >
+                      {learnerFlowStatusReason}
+                    </div>
                     <button
                       type="button"
                       onClick={() => handleOpenEventScheduleRouteInNewTab("operations", "schedule")}
@@ -22744,6 +23030,7 @@ Cory`;
           {renderOperationalReadinessBoard("xl:hidden")}
           {renderOperationalReadinessBoard("hidden xl:block", { marginTop: "12px" })}
           {readinessDetailDialog}
+          {learnerFlowDetailsDialog}
         </>
       ) : null}
 
