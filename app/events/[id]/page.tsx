@@ -3954,6 +3954,7 @@ export default function EventDetailPage() {
   const [trainingImportError, setTrainingImportError] = useState("");
   const [trainingImporting, setTrainingImporting] = useState(false);
   const [showWorkflowAdvanced, setShowWorkflowAdvanced] = useState(false);
+  const [activeReadinessDetailId, setActiveReadinessDetailId] = useState<string | null>(null);
   const [materialPreview, setMaterialPreview] = useState<MaterialPreviewState | null>(null);
   const [materialPreviewLoading, setMaterialPreviewLoading] = useState(false);
   const [materialPreviewError, setMaterialPreviewError] = useState("");
@@ -9705,12 +9706,50 @@ Cory`;
     },
   ];
   const workflowRequiredReadyIds = new Set(["staffing", "faculty", "materials", "schedule", "email"]);
+  const workflowDetailActionStatuses = new Set<WorkflowReadinessStatus>(["Needs Action", "Blocked", "Not Started", "In Progress"]);
   const workflowReadyCount = workflowReportItems.filter((item) => item.status === "Ready" || item.status === "Optional").length;
-  const workflowActionCount = workflowReportItems.filter((item) => ["Needs Action", "Blocked", "Not Started"].includes(item.status)).length;
+  const workflowActionCount = workflowReportItems.filter((item) => workflowDetailActionStatuses.has(item.status)).length;
   const workflowRequiredReady = workflowReportItems
     .filter((item) => workflowRequiredReadyIds.has(item.id))
     .every((item) => item.status === "Ready");
   const workflowBoardStatus: WorkflowReadinessStatus = workflowActionCount > 0 ? "Needs Action" : "Ready";
+  const workflowBoardStatusLabel = workflowRequiredReady ? "Operationally Ready" : workflowBoardStatus;
+  const workflowBoardStatusDetail = workflowRequiredReady
+    ? "All required readiness systems are complete."
+    : `${workflowReadyCount} ready / optional · ${workflowActionCount} action${workflowActionCount === 1 ? "" : "s"}`;
+  const workflowDetailItemMap = new Map<string, WorkflowReadinessItem>();
+  workflowGroups.forEach((group) => {
+    group.items.forEach((item) => {
+      workflowDetailItemMap.set(item.id, item);
+    });
+  });
+  workflowReportItems.forEach((item) => {
+    workflowDetailItemMap.set(item.id, item);
+  });
+  const activeReadinessDetailItem =
+    activeReadinessDetailId && activeReadinessDetailId !== "board"
+      ? workflowDetailItemMap.get(activeReadinessDetailId) || null
+      : null;
+  const workflowActionDetailGroups = workflowGroups
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) => workflowDetailActionStatuses.has(item.status)),
+    }))
+    .filter((group) => group.items.length > 0);
+  const readinessDetailGroups =
+    activeReadinessDetailId === "board"
+      ? workflowActionDetailGroups.length
+        ? workflowActionDetailGroups
+        : workflowGroups.map((group) => ({
+            ...group,
+            items: group.items.filter((item) => item.status === "Ready" || item.status === "Optional"),
+          })).filter((group) => group.items.length > 0)
+      : workflowGroups
+          .map((group) => ({
+            ...group,
+            items: activeReadinessDetailItem ? group.items.filter((item) => item.id === activeReadinessDetailItem.id) : [],
+          }))
+          .filter((group) => group.items.length > 0);
   const arrivalInstructions = getFirstNoteValue(eventEditor.notes || event?.notes, [
     "Arrival Instructions",
     "Arrival",
@@ -17302,7 +17341,10 @@ Cory`;
     if (!actions?.length) return null;
 
     return (
-      <div style={{ display: "flex", flexWrap: "wrap", gap: "7px", marginTop: "10px" }}>
+      <div
+        onClick={(event) => event.stopPropagation()}
+        style={{ display: "flex", flexWrap: "wrap", gap: "7px", marginTop: "10px" }}
+      >
         {actions.map((action) => {
           const actionStyle: React.CSSProperties = {
             ...buttonStyle,
@@ -17358,16 +17400,28 @@ Cory`;
 
   function renderWorkflowReadinessItem(item: WorkflowReadinessItem, compact = false) {
     const tone = getWorkflowReadinessTone(item.status);
+    const openReadinessDetails = () => setActiveReadinessDetailId(item.id);
 
     return (
       <div
         key={item.id}
+        role="button"
+        tabIndex={0}
+        onClick={openReadinessDetails}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            openReadinessDetails();
+          }
+        }}
         style={{
           borderRadius: "14px",
           padding: compact ? "10px 12px" : "12px 14px",
           border: tone.border,
           background: tone.cardBackground,
           minWidth: compact ? "160px" : undefined,
+          cursor: "pointer",
+          outline: "none",
         }}
       >
         <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "flex-start" }}>
@@ -17377,7 +17431,12 @@ Cory`;
               {item.value}
             </div>
           </div>
-          <span
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              openReadinessDetails();
+            }}
             style={{
               flex: "0 0 auto",
               borderRadius: "999px",
@@ -17388,10 +17447,11 @@ Cory`;
               fontSize: "11px",
               fontWeight: 900,
               whiteSpace: "nowrap",
+              cursor: "pointer",
             }}
           >
             {item.status}
-          </span>
+          </button>
         </div>
         <div style={{ marginTop: "8px", color: "var(--cfsp-text-muted)", fontSize: "13px", fontWeight: 700, lineHeight: 1.45 }}>
           {item.explanation}
@@ -17403,10 +17463,6 @@ Cory`;
 
   function renderOperationalReadinessBoard(className: string, extraStyle: React.CSSProperties = {}) {
     const boardTone = workflowRequiredReady ? operationalReadinessGoldTone : getWorkflowReadinessTone(workflowBoardStatus);
-    const boardStatusLabel = workflowRequiredReady ? "Operationally Ready" : workflowBoardStatus;
-    const boardStatusDetail = workflowRequiredReady
-      ? "All required readiness systems are complete."
-      : `${workflowReadyCount} ready / optional · ${workflowActionCount} action`;
     const boardTitle = isPlanningVisualMode ? "Operational Readiness Board" : "Closeout Readiness Board";
     const boardSubtitle = isPlanningVisualMode
       ? "Event QA telemetry with clear ownership, real actions, and no cosmetic pending checks."
@@ -17430,7 +17486,9 @@ Cory`;
               {boardSubtitle}
             </p>
           </div>
-          <div
+          <button
+            type="button"
+            onClick={() => setActiveReadinessDetailId("board")}
             style={{
               borderRadius: "14px",
               padding: "9px 12px",
@@ -17443,13 +17501,15 @@ Cory`;
               gap: "2px",
               minWidth: "150px",
               boxShadow: workflowRequiredReady ? "0 8px 20px rgba(180, 138, 38, 0.14)" : undefined,
+              cursor: "pointer",
+              textAlign: "left",
             }}
           >
-            <span>{boardStatusLabel}</span>
+            <span>{workflowBoardStatusLabel}</span>
             <span style={{ fontSize: "11px", opacity: 0.82 }}>
-              {boardStatusDetail}
+              {workflowBoardStatusDetail}
             </span>
-          </div>
+          </button>
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: "10px", marginTop: "14px" }}>
@@ -17500,6 +17560,148 @@ Cory`;
       </section>
     );
   }
+
+  function renderWorkflowReadinessDetailItem(item: WorkflowReadinessItem) {
+    const tone = getWorkflowReadinessTone(item.status);
+    const isReadyState = item.status === "Ready" || item.status === "Optional";
+
+    return (
+      <div
+        key={item.id}
+        style={{
+          border: tone.border,
+          borderRadius: "12px",
+          background: tone.cardBackground,
+          padding: "11px 12px",
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "flex-start" }}>
+          <div>
+            <div style={{ color: "var(--cfsp-text)", fontWeight: 900, fontSize: "14px" }}>{item.label}</div>
+            <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800 }}>
+              {isReadyState ? "Ready explanation" : "Needs action"}
+            </div>
+          </div>
+          <span
+            style={{
+              flex: "0 0 auto",
+              borderRadius: "999px",
+              padding: "5px 9px",
+              background: tone.background,
+              color: tone.color,
+              border: tone.border,
+              fontSize: "11px",
+              fontWeight: 900,
+              whiteSpace: "nowrap",
+            }}
+          >
+            {item.status}
+          </span>
+        </div>
+        <div style={{ display: "grid", gap: "7px", marginTop: "10px", color: "var(--cfsp-text)", fontSize: "13px", lineHeight: 1.45 }}>
+          <div>
+            <strong>{isReadyState ? "Current state: " : "What is missing: "}</strong>
+            <span>{item.value}</span>
+          </div>
+          <div>
+            <strong>Why it matters: </strong>
+            <span>{item.explanation}</span>
+          </div>
+        </div>
+        {renderWorkflowReadinessActions(item.actions)}
+      </div>
+    );
+  }
+
+  const readinessDetailDialog = activeReadinessDetailId ? (
+    <div
+      role="presentation"
+      onClick={() => setActiveReadinessDetailId(null)}
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 80,
+        background: "rgba(15, 23, 42, 0.32)",
+        display: "flex",
+        justifyContent: "center",
+        alignItems: "flex-start",
+        padding: "72px 16px 24px",
+      }}
+    >
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-label={activeReadinessDetailId === "board" ? workflowBoardStatusLabel : activeReadinessDetailItem?.label || "Readiness details"}
+        onClick={(event) => event.stopPropagation()}
+        style={{
+          width: "min(680px, 100%)",
+          maxHeight: "min(760px, calc(100vh - 96px))",
+          overflowY: "auto",
+          borderRadius: "16px",
+          border: "1px solid rgba(120, 180, 255, 0.24)",
+          background: "var(--cfsp-surface)",
+          boxShadow: "0 24px 70px rgba(15, 23, 42, 0.24)",
+          padding: "16px",
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", alignItems: "flex-start" }}>
+          <div>
+            <h3 style={{ margin: 0, color: "var(--cfsp-text)", fontSize: "18px", fontWeight: 950 }}>
+              {activeReadinessDetailId === "board" ? workflowBoardStatusLabel : activeReadinessDetailItem?.label || "Readiness details"}
+            </h3>
+            <p style={{ ...compactSectionHintStyle, marginTop: "5px" }}>
+              {activeReadinessDetailId === "board"
+                ? workflowActionDetailGroups.length
+                  ? "Unresolved readiness items grouped by operational category."
+                  : "All required readiness items are clear. Ready and optional items are shown below."
+                : activeReadinessDetailItem
+                  ? `${activeReadinessDetailItem.status} · ${activeReadinessDetailItem.value}`
+                  : "No readiness detail is available for this item."}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setActiveReadinessDetailId(null)}
+            style={{
+              ...buttonStyle,
+              padding: "7px 10px",
+              minHeight: "30px",
+              background: "var(--cfsp-surface-muted)",
+              color: "var(--cfsp-text)",
+              border: "1px solid var(--cfsp-border)",
+            }}
+          >
+            Close
+          </button>
+        </div>
+
+        <div style={{ display: "grid", gap: "12px", marginTop: "14px" }}>
+          {readinessDetailGroups.length ? (
+            readinessDetailGroups.map((group) => (
+              <section
+                key={`${activeReadinessDetailId}-${group.key}`}
+                style={{
+                  border: "1px solid var(--cfsp-border)",
+                  borderRadius: "14px",
+                  background: "var(--cfsp-surface-muted)",
+                  padding: "12px",
+                }}
+              >
+                <div style={{ color: "var(--cfsp-text)", fontWeight: 950, fontSize: "13px", textTransform: "uppercase", letterSpacing: 0 }}>
+                  {group.title}
+                </div>
+                <div style={{ display: "grid", gap: "9px", marginTop: "9px" }}>
+                  {group.items.map((item) => renderWorkflowReadinessDetailItem(item))}
+                </div>
+              </section>
+            ))
+          ) : (
+            <div className="cfsp-alert cfsp-alert-info">No unresolved readiness items are currently detected.</div>
+          )}
+        </div>
+      </section>
+    </div>
+  ) : null;
 
   if (loading) {
     return (
@@ -22031,6 +22233,7 @@ Cory`;
         <>
           {renderOperationalReadinessBoard("xl:hidden")}
           {renderOperationalReadinessBoard("hidden xl:block", { marginTop: "12px" })}
+          {readinessDetailDialog}
         </>
       ) : null}
 
