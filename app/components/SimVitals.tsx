@@ -224,6 +224,18 @@ function formatSimVitalsFileSize(size: number) {
   return `${(size / (1024 * 1024)).toFixed(size >= 10 * 1024 * 1024 ? 0 : 1)} MB`;
 }
 
+function formatSimVitalsFileType(value?: string | null) {
+  const mimeType = asText(value).toLowerCase();
+  if (!mimeType) return "";
+  if (mimeType.includes("pdf")) return "PDF";
+  if (mimeType.includes("wordprocessingml") || mimeType.includes("msword")) return "DOCX";
+  if (mimeType.includes("spreadsheetml") || mimeType.includes("excel")) return "XLSX";
+  if (mimeType.includes("csv")) return "CSV";
+  if (mimeType.includes("png")) return "PNG";
+  if (mimeType.includes("jpeg") || mimeType.includes("jpg")) return "JPG";
+  return mimeType.split("/").pop()?.toUpperCase() || "";
+}
+
 function formatSimVitalsAttachmentTimestamp(value?: string | null) {
   const timestamp = Date.parse(asText(value));
   if (Number.isNaN(timestamp)) return "";
@@ -826,6 +838,11 @@ export function SimVitalsPostCard({
           >
             <SimVitalsAttachmentIcon />
             <span className="truncate">{post.attachment.fileName}</span>
+            {formatSimVitalsFileType(post.attachment.mimeType) ? (
+              <span className="shrink-0 text-[var(--cfsp-text-muted)]">
+                {formatSimVitalsFileType(post.attachment.mimeType)}
+              </span>
+            ) : null}
             {post.attachment.size ? (
               <span className="shrink-0 text-[var(--cfsp-text-muted)]">
                 {formatSimVitalsFileSize(post.attachment.size)}

@@ -11,7 +11,6 @@ import {
   normalizeSimVitalsAttachmentMetadata,
   normalizePostType,
   normalizeTags,
-  SIMVITALS_ATTACHMENT_COLUMN_MESSAGE,
   unauthorizedSimVitalsResponse,
   type SimVitalsAttachmentMetadata,
   type SimVitalsAuthorProfile,
@@ -48,6 +47,7 @@ const POST_SELECT_BASE =
   "id,author_user_id,author_name,author_role,post_type,body,linked_event_id,linked_event_name,tags,created_at,updated_at";
 const POST_SELECT_WITH_ATTACHMENT =
   "id,author_user_id,author_name,author_role,post_type,body,linked_event_id,linked_event_name,tags,attachment,created_at,updated_at";
+const ATTACHMENT_METADATA_TAG_PREFIX = "__cfsp_simvitals_attachment__:";
 
 const DEFAULT_TAG_BY_TYPE: Record<SimVitalsPostType, string> = {
   general_update: "Ops",
@@ -73,6 +73,40 @@ function normalizeRole(value: unknown): SimVitalsRole {
   return "sp";
 }
 
+function encodeAttachmentMetadataTag(attachment: SimVitalsAttachmentMetadata) {
+  return `${ATTACHMENT_METADATA_TAG_PREFIX}${encodeURIComponent(JSON.stringify(attachment))}`;
+}
+
+function decodeAttachmentMetadataTag(value: unknown) {
+  const tag = asText(value);
+  if (!tag.startsWith(ATTACHMENT_METADATA_TAG_PREFIX)) return null;
+
+  try {
+    const encoded = tag.slice(ATTACHMENT_METADATA_TAG_PREFIX.length);
+    return normalizeSimVitalsAttachmentMetadata(JSON.parse(decodeURIComponent(encoded)));
+  } catch {
+    return null;
+  }
+}
+
+function stripAttachmentMetadataTags(tags: string[] | null | undefined) {
+  return (Array.isArray(tags) ? tags : [])
+    .map(asText)
+    .filter((tag) => tag && !tag.startsWith(ATTACHMENT_METADATA_TAG_PREFIX));
+}
+
+function getAttachmentMetadataFromTags(tags: string[] | null | undefined) {
+  for (const tag of Array.isArray(tags) ? tags : []) {
+    const attachment = decodeAttachmentMetadataTag(tag);
+    if (attachment) return attachment;
+  }
+  return null;
+}
+
+function buildTagsWithAttachmentMetadata(tags: string[], attachment: SimVitalsAttachmentMetadata) {
+  return [...stripAttachmentMetadataTags(tags), encodeAttachmentMetadataTag(attachment)];
+}
+
 function toPostResponse(
   row: SimVitalsPostRow,
   counts: {
@@ -85,6 +119,9 @@ function toPostResponse(
 ) {
   const linkedEvent = linkedEventsById.get(asText(row.linked_event_id));
   const authorProfile = authorProfiles.get(asText(row.author_user_id));
+  const attachment =
+    normalizeSimVitalsAttachmentMetadata(row.attachment) ||
+    getAttachmentMetadataFromTags(row.tags);
   return {
     id: row.id,
     authorUserId: asText(row.author_user_id),
@@ -98,8 +135,8 @@ function toPostResponse(
     linkedEventName: asText(linkedEvent?.name) || asText(row.linked_event_name) || null,
     linkedEventDateText: asText(linkedEvent?.date_text),
     linkedEventStatus: asText(linkedEvent?.status),
-    tags: Array.isArray(row.tags) ? row.tags.map(asText).filter(Boolean) : [],
-    attachment: normalizeSimVitalsAttachmentMetadata(row.attachment),
+    tags: stripAttachmentMetadataTags(row.tags),
+    attachment,
     reactionCount: counts.reactionsByPostId.get(row.id) || 0,
     commentCount: counts.commentsByPostId.get(row.id) || 0,
     acknowledgedByViewer: counts.acknowledgedPostIds.has(row.id),
@@ -226,13 +263,11 @@ export async function GET(request: Request) {
     const typeFilter = asText(searchParams.get("type"));
     const normalizedType = typeFilter && typeFilter !== "all" ? normalizePostType(typeFilter) : "";
 
-    let attachmentSupportReady = true;
-    let attachmentWarning = "";
+    const attachmentSupportReady = true;
+    const attachmentWarning = "";
     let postsResult = await buildPostsQuery(context, limit, normalizedType, true);
 
     if (postsResult.error && isMissingSimVitalsAttachmentColumnError(postsResult.error)) {
-      attachmentSupportReady = false;
-      attachmentWarning = SIMVITALS_ATTACHMENT_COLUMN_MESSAGE;
       postsResult = await buildPostsQuery(context, limit, normalizedType, false);
     }
 
@@ -374,13 +409,41 @@ export async function POST(request: Request) {
 
       if (error) {
         if (isMissingSimVitalsAttachmentColumnError(error)) {
-          return applySimVitalsAuthCookies(
-            jsonNoStore(
-              { ok: false, error: SIMVITALS_ATTACHMENT_COLUMN_MESSAGE },
-              { status: 503 }
-            ),
-            context
+          const fallbackInsertPayload = {
+            ...insertPayload,
+            tags: buildTagsWithAttachmentMetadata(insertPayload.tags, attachment),
+          };
+          const fallbackResult = await context.db
+            .from("simvitals_posts")
+            .insert(fallbackInsertPayload)
+            .select(POST_SELECT_BASE)
+            .single();
+
+          if (fallbackResult.error) throw fallbackResult.error;
+
+          const fallbackLinkedEventsById = await getLinkedEventsById(
+            context,
+            [asText(fallbackResult.data.linked_event_id)].filter(Boolean)
           );
+          const fallbackCounts = await getPostCounts(context, [fallbackResult.data.id]);
+          const response = jsonNoStore(
+            {
+              ok: true,
+              warning: fallbackCounts.warnings.join(" "),
+              post: {
+                ...toPostResponse(
+                  fallbackResult.data as unknown as SimVitalsPostRow,
+                  fallbackCounts,
+                  fallbackLinkedEventsById
+                ),
+                authorAvatarUrl: context.viewer.avatarUrl,
+                authorAvatarSource: context.viewer.avatarSource,
+              },
+            },
+            { status: 201 }
+          );
+
+          return applySimVitalsAuthCookies(response, context);
         }
         throw error;
       }
