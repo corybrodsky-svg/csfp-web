@@ -3894,6 +3894,7 @@ export default function EventDetailPage() {
   );
   const canManageTrainingAttendance =
     viewerRole === "admin" || viewerRole === "sim_op" || viewerRole === "super_admin";
+  const canEditSchedule = canManageTrainingAttendance;
   const canManageAvailabilityPoll = canManageTrainingAttendance;
   const canManageSpMatchMaker = canManageTrainingAttendance;
   const canManageRoundAnnouncements = canManageTrainingAttendance;
@@ -8668,6 +8669,14 @@ Cory`;
       label: "Open Schedule",
       onClick: () => handleOpenEventScheduleRouteInNewTab("operations", "schedule"),
     },
+    ...(canEditSchedule
+      ? [
+          {
+            label: "Edit Schedule",
+            href: expandedScheduleBuilderHref,
+          },
+        ]
+      : []),
   ];
   const scheduleSummaryActions = scheduleWorkflowActions;
   const staffingTrainingRows: Array<{
@@ -13681,6 +13690,14 @@ Cory`;
                   >
                     View Full Flow
                   </button>
+                  {canEditSchedule ? (
+                    <Link
+                      href={expandedScheduleBuilderHref}
+                      style={{ ...buttonStyle, padding: "7px 10px", textDecoration: "none", display: "inline-flex", alignItems: "center" }}
+                    >
+                      Edit Schedule
+                    </Link>
+                  ) : null}
                 </div>
                 {liveFlowBlocks.length === 0 ? (
                   <div style={{ color: livePanelMutedText, fontWeight: 750 }}>
@@ -13750,6 +13767,14 @@ Cory`;
                           >
                             View Full Schedule
                           </button>
+                          {canEditSchedule ? (
+                            <Link
+                              href={expandedScheduleBuilderHref}
+                              style={{ ...buttonStyle, padding: "7px 10px", textDecoration: "none", display: "inline-flex", alignItems: "center" }}
+                            >
+                              Edit Schedule
+                            </Link>
+                          ) : null}
                           <button
                             type="button"
                             onClick={async () => {
@@ -18085,6 +18110,14 @@ Cory`;
                     >
                       Open Schedule
                     </button>
+                    {canEditSchedule ? (
+                      <Link
+                        href={expandedScheduleBuilderHref}
+                        style={{ ...buttonStyle, padding: "7px 10px", textDecoration: "none", display: "inline-flex", alignItems: "center" }}
+                      >
+                        Edit Schedule
+                      </Link>
+                    ) : null}
                   </div>
                 </div>
 
@@ -18403,6 +18436,14 @@ Cory`;
 	                        >
 	                          Open Schedule
 	                        </button>
+	                        {canEditSchedule ? (
+	                          <Link
+	                            href={expandedScheduleBuilderHref}
+	                            style={{ ...buttonStyle, padding: "8px 11px", textDecoration: "none", display: "inline-flex", alignItems: "center" }}
+	                          >
+	                            Edit Schedule
+	                          </Link>
+	                        ) : null}
 	                      </div>
 	                    </>
 	                  ) : null}
@@ -18551,6 +18592,14 @@ Cory`;
                           >
                             Open Schedule
                           </button>
+                          {canEditSchedule ? (
+                            <Link
+                              href={expandedScheduleBuilderHref}
+                              style={{ ...buttonStyle, padding: "6px 9px", textDecoration: "none", display: "inline-flex", alignItems: "center" }}
+                            >
+                              Edit Schedule
+                            </Link>
+                          ) : null}
                         </div>
                       </div>
                     ) : null}
@@ -18699,6 +18748,14 @@ Cory`;
                               >
                                 Open Schedule
                               </button>
+                              {canEditSchedule ? (
+                                <Link
+                                  href={expandedScheduleBuilderHref}
+                                  style={{ ...buttonStyle, padding: "6px 9px", textDecoration: "none", display: "inline-flex", alignItems: "center" }}
+                                >
+                                  Edit Schedule
+                                </Link>
+                              ) : null}
                             </>
                           ),
                         },
