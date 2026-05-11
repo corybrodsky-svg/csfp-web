@@ -39,8 +39,8 @@ export type SimVitalsPost = {
 
 export type SimVitalsAttachment = {
   fileName: string;
-  path: string;
-  url: string;
+  path?: string;
+  url?: string;
   previewUrl?: string;
   downloadUrl?: string;
   mimeType: string;
@@ -236,6 +236,29 @@ function formatSimVitalsFileType(value?: string | null) {
   return mimeType.split("/").pop()?.toUpperCase() || "";
 }
 
+function getSimVitalsAttachmentExtension(fileName?: string | null) {
+  const name = asText(fileName).toLowerCase();
+  const extension = name.includes(".") ? name.split(".").pop() || "" : "";
+  return extension.replace(/[^a-z0-9]+/g, "");
+}
+
+function isSimVitalsImageAttachment(attachment?: SimVitalsAttachment | null) {
+  if (!attachment) return false;
+  const mimeType = asText(attachment.mimeType).toLowerCase();
+  if (mimeType.startsWith("image/")) return true;
+  return ["png", "jpg", "jpeg", "gif", "webp"].includes(getSimVitalsAttachmentExtension(attachment.fileName));
+}
+
+function getSimVitalsAttachmentPreviewHref(attachment?: SimVitalsAttachment | null) {
+  if (!attachment) return "";
+  return asText(attachment.previewUrl) || asText(attachment.url);
+}
+
+function getSimVitalsAttachmentDownloadHref(attachment?: SimVitalsAttachment | null) {
+  if (!attachment) return "";
+  return asText(attachment.downloadUrl) || asText(attachment.url);
+}
+
 function formatSimVitalsAttachmentTimestamp(value?: string | null) {
   const timestamp = Date.parse(asText(value));
   if (Number.isNaN(timestamp)) return "";
@@ -293,7 +316,7 @@ function normalizeSimVitalsAttachment(value: unknown): SimVitalsAttachment | nul
   const fileName = asText(source.fileName);
   const path = asText(source.path);
   const url = asText(source.url);
-  if (!fileName || !path || !url) return null;
+  if (!fileName) return null;
   return {
     fileName,
     path,
@@ -619,6 +642,15 @@ export function SimVitalsPostCard({
   const typeLook = simVitalsFeedTypeAppearance[post.type];
   const roleLook = simVitalsRoleAppearance[post.authorRole];
   const timestampLabel = post.timestampLabel || formatSimVitalsTimestamp(post.createdAt);
+  const attachment = post.attachment;
+  const attachmentPreviewHref = getSimVitalsAttachmentPreviewHref(attachment);
+  const attachmentDownloadHref = getSimVitalsAttachmentDownloadHref(attachment);
+  const attachmentFileType = formatSimVitalsFileType(attachment?.mimeType);
+  const shouldRenderImagePreview = Boolean(
+    attachment &&
+    attachmentPreviewHref &&
+    isSimVitalsImageAttachment(attachment)
+  );
   const linkedEvent = eventReference || (
     post.linkedEventId || post.linkedEventName
       ? {
@@ -823,55 +855,151 @@ export function SimVitalsPostCard({
 
       <p className={`${compact ? "mt-2 text-[0.88rem] leading-5" : "mt-3 text-[0.96rem] leading-6"} font-semibold text-[var(--cfsp-text)]`}>{post.body}</p>
 
-      {post.attachment ? (
-        <div className="mt-3 flex flex-wrap gap-2">
-          <a
-            href={post.attachment.previewUrl || post.attachment.url}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex max-w-full items-center gap-2 rounded-[12px] px-3 py-2 text-xs font-black no-underline"
+      {attachment ? (
+        shouldRenderImagePreview ? (
+          <div
+            className="mt-3 grid max-w-[360px] overflow-hidden rounded-[14px]"
             style={{
-              border: "1px solid var(--cfsp-border)",
-              background: "var(--cfsp-surface-muted)",
-              color: "var(--cfsp-text)",
+              border: "1px solid rgba(20, 91, 150, 0.18)",
+              background: "linear-gradient(180deg, rgba(255,255,255,0.96), rgba(239, 249, 252, 0.78))",
+              boxShadow: "0 12px 26px rgba(24, 52, 78, 0.10)",
             }}
           >
-            <SimVitalsAttachmentIcon />
-            <span className="truncate">{post.attachment.fileName}</span>
-            {formatSimVitalsFileType(post.attachment.mimeType) ? (
-              <span className="shrink-0 text-[var(--cfsp-text-muted)]">
-                {formatSimVitalsFileType(post.attachment.mimeType)}
+            <a
+              href={attachmentPreviewHref}
+              target="_blank"
+              rel="noreferrer"
+              className="block overflow-hidden no-underline"
+              aria-label={`Preview ${attachment.fileName}`}
+            >
+              <Image
+                src={attachmentPreviewHref}
+                alt={attachment.fileName}
+                width={720}
+                height={420}
+                unoptimized
+                className="h-[180px] w-full bg-[var(--cfsp-surface-muted)] object-cover transition duration-200 hover:scale-[1.01]"
+              />
+            </a>
+            <div className="grid gap-2 px-3 py-3">
+              <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs font-black text-[var(--cfsp-text)]">
+                <SimVitalsAttachmentIcon />
+                <span className="truncate">{attachment.fileName}</span>
+                {attachmentFileType ? <span className="shrink-0 text-[var(--cfsp-text-muted)]">{attachmentFileType}</span> : null}
+                {attachment.size ? <span className="shrink-0 text-[var(--cfsp-text-muted)]">{formatSimVitalsFileSize(attachment.size)}</span> : null}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <a
+                  href={attachmentPreviewHref}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center rounded-[10px] px-3 py-1.5 text-xs font-black no-underline"
+                  style={{
+                    border: "1px solid rgba(20, 91, 150, 0.22)",
+                    background: "rgba(20, 91, 150, 0.08)",
+                    color: "var(--cfsp-blue-dark)",
+                  }}
+                >
+                  Preview
+                </a>
+                {attachmentDownloadHref ? (
+                  <a
+                    href={attachmentDownloadHref}
+                    className="inline-flex items-center rounded-[10px] px-3 py-1.5 text-xs font-black no-underline"
+                    style={{
+                      border: "1px solid var(--cfsp-border)",
+                      background: "var(--cfsp-surface)",
+                      color: "var(--cfsp-text-muted)",
+                    }}
+                  >
+                    Download
+                  </a>
+                ) : null}
+              </div>
+              {attachment.uploadedAt || attachment.uploadedBy || attachment.linkedEventName ? (
+                <div className="flex flex-wrap gap-2">
+                  {attachment.uploadedAt || attachment.uploadedBy ? (
+                    <span className="inline-flex items-center rounded-[10px] px-2.5 py-1 text-[0.72rem] font-bold text-[var(--cfsp-text-muted)]">
+                      {[attachment.uploadedBy, formatSimVitalsAttachmentTimestamp(attachment.uploadedAt)].filter(Boolean).join(" • ")}
+                    </span>
+                  ) : null}
+                  {attachment.linkedEventName ? (
+                    <span className="inline-flex items-center rounded-[10px] px-2.5 py-1 text-[0.72rem] font-bold text-[var(--cfsp-text-muted)]">
+                      Attached to {attachment.linkedEventName}
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          </div>
+        ) : (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {attachmentPreviewHref ? (
+              <a
+                href={attachmentPreviewHref}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex max-w-full items-center gap-2 rounded-[12px] px-3 py-2 text-xs font-black no-underline"
+                style={{
+                  border: "1px solid var(--cfsp-border)",
+                  background: "var(--cfsp-surface-muted)",
+                  color: "var(--cfsp-text)",
+                }}
+              >
+                <SimVitalsAttachmentIcon />
+                <span className="truncate">{attachment.fileName}</span>
+                {attachmentFileType ? (
+                  <span className="shrink-0 text-[var(--cfsp-text-muted)]">
+                    {attachmentFileType}
+                  </span>
+                ) : null}
+                {attachment.size ? (
+                  <span className="shrink-0 text-[var(--cfsp-text-muted)]">
+                    {formatSimVitalsFileSize(attachment.size)}
+                  </span>
+                ) : null}
+                <span className="shrink-0 text-[var(--cfsp-blue-dark)]">Preview</span>
+              </a>
+            ) : (
+              <span
+                className="inline-flex max-w-full items-center gap-2 rounded-[12px] px-3 py-2 text-xs font-black"
+                style={{
+                  border: "1px solid var(--cfsp-border)",
+                  background: "var(--cfsp-surface-muted)",
+                  color: "var(--cfsp-text)",
+                }}
+              >
+                <SimVitalsAttachmentIcon />
+                <span className="truncate">{attachment.fileName}</span>
+                {attachmentFileType ? <span className="shrink-0 text-[var(--cfsp-text-muted)]">{attachmentFileType}</span> : null}
+                {attachment.size ? <span className="shrink-0 text-[var(--cfsp-text-muted)]">{formatSimVitalsFileSize(attachment.size)}</span> : null}
+              </span>
+            )}
+            {attachmentDownloadHref ? (
+              <a
+                href={attachmentDownloadHref}
+                className="inline-flex items-center rounded-[12px] px-3 py-2 text-xs font-black no-underline"
+                style={{
+                  border: "1px solid var(--cfsp-border)",
+                  background: "var(--cfsp-surface)",
+                  color: "var(--cfsp-text-muted)",
+                }}
+              >
+                Download
+              </a>
+            ) : null}
+            {attachment.uploadedAt || attachment.uploadedBy ? (
+              <span className="inline-flex items-center rounded-[12px] px-3 py-2 text-xs font-bold text-[var(--cfsp-text-muted)]">
+                {[attachment.uploadedBy, formatSimVitalsAttachmentTimestamp(attachment.uploadedAt)].filter(Boolean).join(" • ")}
               </span>
             ) : null}
-            {post.attachment.size ? (
-              <span className="shrink-0 text-[var(--cfsp-text-muted)]">
-                {formatSimVitalsFileSize(post.attachment.size)}
+            {attachment.linkedEventName ? (
+              <span className="inline-flex items-center rounded-[12px] px-3 py-2 text-xs font-bold text-[var(--cfsp-text-muted)]">
+                Attached to {attachment.linkedEventName}
               </span>
             ) : null}
-            <span className="shrink-0 text-[var(--cfsp-blue-dark)]">Preview</span>
-          </a>
-          <a
-            href={post.attachment.downloadUrl || post.attachment.url}
-            className="inline-flex items-center rounded-[12px] px-3 py-2 text-xs font-black no-underline"
-            style={{
-              border: "1px solid var(--cfsp-border)",
-              background: "var(--cfsp-surface)",
-              color: "var(--cfsp-text-muted)",
-            }}
-          >
-            Download
-          </a>
-          {post.attachment.uploadedAt || post.attachment.uploadedBy ? (
-            <span className="inline-flex items-center rounded-[12px] px-3 py-2 text-xs font-bold text-[var(--cfsp-text-muted)]">
-              {[post.attachment.uploadedBy, formatSimVitalsAttachmentTimestamp(post.attachment.uploadedAt)].filter(Boolean).join(" • ")}
-            </span>
-          ) : null}
-          {post.attachment.linkedEventName ? (
-            <span className="inline-flex items-center rounded-[12px] px-3 py-2 text-xs font-bold text-[var(--cfsp-text-muted)]">
-              Attached to {post.attachment.linkedEventName}
-            </span>
-          ) : null}
-        </div>
+          </div>
+        )
       ) : null}
 
       {post.tags.length ? (
