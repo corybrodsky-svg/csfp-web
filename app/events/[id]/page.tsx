@@ -641,10 +641,10 @@ function getWorkflowReadinessTone(status: WorkflowReadinessStatus) {
 
   if (status === "Needs Action") {
     return {
-      background: "rgba(253, 230, 138, 0.34)",
-      cardBackground: "linear-gradient(180deg, rgba(255, 251, 235, 0.96) 0%, rgba(254, 243, 199, 0.76) 100%)",
-      border: "1px solid rgba(180, 83, 9, 0.32)",
-      color: "#92400e",
+      background: "rgba(219, 234, 254, 0.42)",
+      cardBackground: "linear-gradient(180deg, rgba(255,255,255,0.97) 0%, rgba(232, 244, 255, 0.78) 100%)",
+      border: "1px solid rgba(37, 99, 235, 0.22)",
+      color: "#1e40af",
     };
   }
 
@@ -8848,9 +8848,9 @@ Cory`;
           }
         : planningLivePreviewReadinessTone === "attention"
           ? {
-              border: "1px solid rgba(245, 158, 11, 0.22)",
-              chipBg: "rgba(245, 158, 11, 0.12)",
-              accent: "#a16207",
+              border: "1px solid rgba(59, 130, 246, 0.20)",
+              chipBg: "rgba(37, 99, 235, 0.10)",
+              accent: "#1e40af",
             }
           : {
               border: "1px solid rgba(20, 91, 150, 0.18)",
@@ -9437,14 +9437,14 @@ Cory`;
     }
     if (tone === "attention") {
       return {
-        border: "1px solid rgba(245, 158, 11, 0.22)",
+        border: "1px solid rgba(59, 130, 246, 0.20)",
         background: isPlanningVisualMode
-          ? "linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(255, 251, 235, 0.62) 100%)"
-          : "linear-gradient(180deg, rgba(37, 44, 50, 0.97) 0%, rgba(35, 39, 43, 0.96) 100%)",
-        glow: isPlanningVisualMode ? "inset 4px 0 0 rgba(245, 158, 11, 0.62), 0 12px 28px rgba(245, 158, 11, 0.08)" : "inset 4px 0 0 rgba(245, 158, 11, 0.58), 0 14px 30px rgba(245, 158, 11, 0.06)",
-        accent: isPlanningVisualMode ? "#a16207" : "#fde68a",
-        chipBg: "rgba(245, 158, 11, 0.12)",
-        chipColor: isPlanningVisualMode ? "#a16207" : "#ffefb0",
+          ? "linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(232, 244, 255, 0.72) 100%)"
+          : "linear-gradient(180deg, rgba(24, 38, 54, 0.97) 0%, rgba(21, 34, 49, 0.96) 100%)",
+        glow: isPlanningVisualMode ? "inset 4px 0 0 rgba(37, 99, 235, 0.46), 0 12px 28px rgba(42, 112, 140, 0.08)" : "inset 4px 0 0 rgba(96, 165, 250, 0.52), 0 14px 30px rgba(59, 130, 246, 0.06)",
+        accent: isPlanningVisualMode ? "#1d4ed8" : "#bfdbfe",
+        chipBg: isPlanningVisualMode ? "rgba(37, 99, 235, 0.10)" : "rgba(96, 165, 250, 0.14)",
+        chipColor: isPlanningVisualMode ? "#1e40af" : "#dbeafe",
       };
     }
     if (tone === "critical") {
@@ -18013,19 +18013,19 @@ Cory`;
                               ? planningSuccessBackground
                               : eventRiskLevel.tone === "red"
                                 ? "rgba(248, 113, 113, 0.14)"
-                                : "rgba(253, 230, 138, 0.16)",
+                                : "rgba(219, 234, 254, 0.34)",
                           border:
                             operationalReadinessItems.primary === "Ready"
                               ? planningSuccessBorder
                               : eventRiskLevel.tone === "red"
                                 ? "1px solid rgba(239, 68, 68, 0.24)"
-                              : "1px solid rgba(180, 83, 9, 0.22)",
+                              : "1px solid rgba(37, 99, 235, 0.20)",
                           color:
                             operationalReadinessItems.primary === "Ready"
                               ? planningSuccessText
                               : eventRiskLevel.tone === "red"
                                 ? "#dc2626"
-                                : isPlanningVisualMode ? "#92400e" : "#fde68a",
+                                : isPlanningVisualMode ? "#1e40af" : "#dbeafe",
                         }}
                       >
                         {operationalReadinessItems.primary}
@@ -18111,9 +18111,9 @@ Cory`;
                             key={`summary-alert-${item.label}`}
                             style={{
                               ...commandChipStyle,
-                              background: "rgba(253, 230, 138, 0.18)",
-                              border: "1px solid rgba(180, 83, 9, 0.22)",
-                              color: isPlanningVisualMode ? "#92400e" : "#fde68a",
+                              background: isPlanningVisualMode ? "rgba(219, 234, 254, 0.34)" : "rgba(96, 165, 250, 0.14)",
+                              border: "1px solid rgba(37, 99, 235, 0.20)",
+                              color: isPlanningVisualMode ? "#1e40af" : "#dbeafe",
                             }}
                           >
                             {item.label}
@@ -18264,7 +18264,7 @@ Cory`;
                                   padding: "11px 12px",
                                   display: "grid",
                                   gap: "8px",
-                                  boxShadow: row.tone === "ready" ? "0 0 0 1px rgba(34, 197, 94, 0.04)" : row.tone === "critical" ? "0 0 0 1px rgba(244, 114, 182, 0.04)" : row.tone === "attention" ? "0 0 0 1px rgba(245, 158, 11, 0.04)" : undefined,
+                                  boxShadow: row.tone === "ready" ? "0 0 0 1px rgba(34, 197, 94, 0.04)" : row.tone === "critical" ? "0 0 0 1px rgba(244, 114, 182, 0.04)" : row.tone === "attention" ? "0 0 0 1px rgba(37, 99, 235, 0.04)" : undefined,
                                 }}
                               >
                                 <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "baseline" }}>
