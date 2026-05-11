@@ -289,6 +289,8 @@ type ScheduleBuilderPreviewDraft = {
   originalUploadedLearners: string[];
   roundCount: string;
   examRoomCount: string;
+  flexRoomCount: string;
+  maxPairsPerFlexRoom: string;
   startTime: string;
   staffArrivalTime: string;
   spArrivalTime: string;
@@ -3058,6 +3060,53 @@ function capRotationRounds(rounds: RotationRound[], maxRounds: number) {
   return rounds.slice(0, maxRounds);
 }
 
+function buildRotationRoundsFromScheduleDraft(
+  draft: ScheduleBuilderPreviewDraft | null,
+  roundCount: number,
+  dateText: string | null | undefined,
+  fallbackYear?: number | null
+) {
+  const startMinutes = parseTimeToMinutes(draft?.startTime);
+  if (!draft || startMinutes === null || roundCount <= 0) return [] as RotationRound[];
+
+  const encounterMinutes = Math.max(1, parsePositiveInteger(draft.encounterMinutes, 20));
+  const recurringBlocks = draft.dayBlocks.filter((block) => {
+    const placement = asText(block.placement).toLowerCase();
+    return (
+      parsePositiveInteger(block.durationMinutes, 0) > 0 &&
+      (placement === "after_each_rotation" || placement === "after_every_x_rotations")
+    );
+  });
+  const roomNames = [
+    ...Array.from({ length: parsePositiveInteger(draft.examRoomCount, 0) }, (_, index) => `Exam ${index + 1}`),
+    ...Array.from({ length: parsePositiveInteger(draft.flexRoomCount, 0) }, (_, index) => `Flex ${index + 1}`),
+  ];
+  const sessionDate = normalizeLooseDateToIso(dateText, fallbackYear) || asText(dateText) || null;
+  let cursor = startMinutes;
+
+  return Array.from({ length: roundCount }, (_, index) => {
+    const roundNumber = index + 1;
+    const recurringMinutes = recurringBlocks.reduce((sum, block) => {
+      const placement = asText(block.placement).toLowerCase();
+      if (placement === "after_every_x_rotations") {
+        const interval = Math.max(1, parsePositiveInteger(block.placementInterval, 2));
+        if (roundNumber % interval !== 0) return sum;
+      }
+      return sum + parsePositiveInteger(block.durationMinutes, 0);
+    }, 0);
+    const duration = Math.max(1, encounterMinutes + recurringMinutes);
+    const round: RotationRound = {
+      key: `completed-snapshot-round-${roundNumber}`,
+      session_date: sessionDate,
+      start_time: formatDisplayTimeFromMinutes(cursor),
+      end_time: formatDisplayTimeFromMinutes(cursor + duration),
+      rooms: roomNames,
+    };
+    cursor += duration;
+    return round;
+  });
+}
+
 function formatRotationRoundLabel(
   round: RotationRound,
   fallbackYear?: number | null,
@@ -3275,6 +3324,8 @@ function parseScheduleBuilderPreviewDraft(value: string | null) {
       originalUploadedLearners: normalizeTextArray(parsed.originalUploadedLearners),
       roundCount: asText(parsed.roundCount),
       examRoomCount: asText(parsed.examRoomCount),
+      flexRoomCount: asText(parsed.flexRoomCount),
+      maxPairsPerFlexRoom: asText(parsed.maxPairsPerFlexRoom),
       startTime: asText(parsed.startTime),
       staffArrivalTime: asText(parsed.staffArrivalTime),
       spArrivalTime: asText(parsed.spArrivalTime),
@@ -3292,6 +3343,25 @@ function parseScheduleBuilderPreviewDraft(value: string | null) {
   } catch {
     return null;
   }
+}
+
+function parseCompletedScheduleBuilderSnapshot(value: unknown) {
+  const text = asText(value);
+  if (!text) return null;
+
+  const candidates = [text];
+  try {
+    candidates.unshift(decodeURIComponent(text));
+  } catch {
+    // Completed snapshots are stored URL-encoded; keep plain JSON as a legacy fallback.
+  }
+
+  for (const candidate of candidates) {
+    const parsed = parseScheduleBuilderPreviewDraft(candidate);
+    if (parsed?.startTime) return parsed;
+  }
+
+  return null;
 }
 
 function getScheduleBuilderBlockAudience(block: ScheduleBuilderPreviewDayBlock): RotationCompanionView[] {
@@ -4907,8 +4977,27 @@ export default function EventDetailPage() {
     [effectiveRotationCountSource.rounds]
   );
   const rotationRounds = useMemo(
-    () => capRotationRounds(allRotationRounds, activeRotationCount),
-    [allRotationRounds, activeRotationCount]
+    () => {
+      if (asText(trainingMetadata.schedule_status).toLowerCase() === "complete" && scheduleBuilderPreviewDraft?.startTime) {
+        const snapshotRounds = buildRotationRoundsFromScheduleDraft(
+          scheduleBuilderPreviewDraft,
+          activeRotationCount,
+          event?.date_text || sessions[0]?.session_date,
+          importedYearHint
+        );
+        if (snapshotRounds.length) return snapshotRounds;
+      }
+      return capRotationRounds(allRotationRounds, activeRotationCount);
+    },
+    [
+      activeRotationCount,
+      allRotationRounds,
+      event?.date_text,
+      importedYearHint,
+      scheduleBuilderPreviewDraft,
+      sessions,
+      trainingMetadata.schedule_status,
+    ]
   );
   useEffect(() => {
     if (!id) return;
@@ -5739,8 +5828,16 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
 
     const storageKey = getScheduleBuilderStorageKey(id);
     const loadScheduleBuilderDraft = () => {
-      setScheduleBuilderPreviewDraft(
-        parseScheduleBuilderPreviewDraft(window.localStorage.getItem(storageKey))
+      const completedSnapshot =
+        asText(trainingMetadata.schedule_status).toLowerCase() === "complete"
+          ? parseCompletedScheduleBuilderSnapshot(trainingMetadata.schedule_builder_snapshot)
+          : null;
+      const draft = completedSnapshot || parseScheduleBuilderPreviewDraft(window.localStorage.getItem(storageKey));
+      setScheduleBuilderPreviewDraft(draft);
+      console.info(
+        `Schedule source: ${
+          completedSnapshot ? "completed_snapshot" : draft ? "draft" : sessions.length ? "event_sessions" : "fallback"
+        }`
       );
     };
     const handleStorage = (event: StorageEvent) => {
@@ -5760,7 +5857,7 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       window.removeEventListener("focus", loadScheduleBuilderDraft);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [id]);
+  }, [id, sessions.length, trainingMetadata.schedule_builder_snapshot, trainingMetadata.schedule_status]);
   useEffect(() => {
     if (!materialPreview || typeof document === "undefined") return;
 
@@ -21126,11 +21223,11 @@ Cory`;
               >
                 <div style={statCard}>
                   <div style={statLabel}>Date</div>
-                  <div style={{ ...statValue, fontSize: "15px" }}>{sessionSummaryLabel || "Date TBD"}</div>
+                  <div style={{ ...statValue, fontSize: "15px" }}>{normalEventTrainingDateText || "Training date TBD"}</div>
                 </div>
                 <div style={statCard}>
                   <div style={statLabel}>Time</div>
-                  <div style={{ ...statValue, fontSize: "15px" }}>{summaryTimeLabel || "Time TBD"}</div>
+                  <div style={{ ...statValue, fontSize: "15px" }}>{normalEventTrainingTimeText || "Training time TBD"}</div>
                 </div>
                 <div style={statCard}>
                   <div style={statLabel}>Location / Modality</div>

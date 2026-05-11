@@ -198,10 +198,10 @@ type BuilderMeResponse = {
 type SaveState = "saved" | "saving" | "unsaved" | "error";
 
 type BuilderTimeSource =
-  | "event_session"
-  | "imported_event_info"
-  | "training_metadata"
+  | "event_sessions"
+  | "completed_snapshot"
   | "saved_draft"
+  | "imported_metadata"
   | "default"
   | "edited";
 
@@ -518,11 +518,6 @@ function extractTimeRange(value: string) {
   };
 }
 
-function getNotesLineValue(notes: string | null | undefined, label: "Training Time" | "Event Time") {
-  const match = asText(notes).match(new RegExp(`(?:^|\\n)${label}\\s*:\\s*(.+?)(?:\\n|$)`, "i"));
-  return asText(match?.[1]);
-}
-
 function normalizeDayBlockType(value: unknown): DayBlockType {
   const text = asText(value).toLowerCase();
   if (
@@ -685,24 +680,23 @@ function buildTimePrefill(event: EventRow | null, savedDraft: ScheduleBuilderDra
     sessionLengthMinutes: "0",
   };
 
-  if (!event) {
-    if (savedDraft?.startTime) {
-      return {
-        source: "saved_draft",
-        label: "Using saved builder draft",
-        startTime: savedDraft.startTime,
-        endTime: "",
-        sessionLengthMinutes: sanitizeSavedRoundTargetMinutes(savedDraft.sessionLengthMinutes),
-      };
-    }
-    return defaultPrefill;
+  if (savedDraft?.startTime) {
+    return {
+      source: "saved_draft",
+      label: "Using saved builder draft",
+      startTime: savedDraft.startTime,
+      endTime: "",
+      sessionLengthMinutes: sanitizeSavedRoundTargetMinutes(savedDraft.sessionLengthMinutes),
+    };
   }
+
+  if (!event) return defaultPrefill;
 
   const eventStartMinutes = parseClockTextToMinutes(asText(event.earliest_session_start));
   const eventEndMinutes = parseClockTextToMinutes(asText(event.latest_session_end));
   if (eventStartMinutes !== null) {
     return {
-      source: "event_session",
+      source: "event_sessions",
       label: "Using event session time",
       startTime: minutesToInputTime(eventStartMinutes),
       endTime: eventEndMinutes !== null ? minutesToInputTime(eventEndMinutes) : "",
@@ -716,38 +710,12 @@ function buildTimePrefill(event: EventRow | null, savedDraft: ScheduleBuilderDra
   const importedEventRange = extractTimeRange(importedEventTimeText);
   if (importedEventRange.startMinutes !== null) {
     return {
-      source: "imported_event_info",
+      source: "imported_metadata",
       label: "Using imported SP Event Info time",
       startTime: minutesToInputTime(importedEventRange.startMinutes),
       endTime:
         importedEventRange.endMinutes !== null ? minutesToInputTime(importedEventRange.endMinutes) : "",
       sessionLengthMinutes: "0",
-    };
-  }
-
-  const trainingMetadataRange = extractTimeRange(
-    asText(metadata.imported_training_time) ||
-      getNotesLineValue(event.notes, "Training Time") ||
-      getNotesLineValue(event.notes, "Event Time")
-  );
-  if (trainingMetadataRange.startMinutes !== null) {
-    return {
-      source: "training_metadata",
-      label: "Using training/session metadata",
-      startTime: minutesToInputTime(trainingMetadataRange.startMinutes),
-      endTime:
-        trainingMetadataRange.endMinutes !== null ? minutesToInputTime(trainingMetadataRange.endMinutes) : "",
-      sessionLengthMinutes: "0",
-    };
-  }
-
-  if (savedDraft?.startTime) {
-    return {
-      source: "saved_draft",
-      label: "Using saved builder draft",
-      startTime: savedDraft.startTime,
-      endTime: "",
-      sessionLengthMinutes: sanitizeSavedRoundTargetMinutes(savedDraft.sessionLengthMinutes),
     };
   }
 
@@ -806,6 +774,186 @@ function getPreviewDocumentParts(html: string) {
     styles,
     body: bodyMatch?.[1] || html,
   };
+}
+
+function downloadBlob(blob: Blob, fileName: string) {
+  const downloadUrl = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = downloadUrl;
+  anchor.download = fileName;
+  anchor.rel = "noreferrer";
+  anchor.style.display = "none";
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(downloadUrl);
+}
+
+function csvCell(value: unknown) {
+  const text = asText(value).replace(/\r?\n/g, " ");
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function toCsv(rows: unknown[][]) {
+  return `${rows.map((row) => row.map(csvCell).join(",")).join("\r\n")}\r\n`;
+}
+
+function binaryStringToUint8Array(value: string) {
+  const bytes = new Uint8Array(value.length);
+  for (let index = 0; index < value.length; index += 1) {
+    bytes[index] = value.charCodeAt(index) & 0xff;
+  }
+  return bytes;
+}
+
+function buildPdfFromJpegDataUrl(dataUrl: string, imageWidth: number, imageHeight: number) {
+  const jpegData = dataUrl.split(",")[1] || "";
+  const jpegBinary = atob(jpegData);
+  const pageWidth = 792;
+  const pageHeight = 612;
+  const margin = 24;
+  const printableWidth = pageWidth - margin * 2;
+  const printableHeight = pageHeight - margin * 2;
+  const scale = printableWidth / imageWidth;
+  const scaledHeight = imageHeight * scale;
+  const pageCount = Math.max(1, Math.ceil(scaledHeight / printableHeight));
+  const imageObjectNumber = 3 + pageCount * 2;
+
+  const pageObjects = Array.from({ length: pageCount }, (_, index) => {
+    const contentObjectNumber = 3 + pageCount + index;
+    return `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /XObject << /Im1 ${imageObjectNumber} 0 R >> >> /Contents ${contentObjectNumber} 0 R >>`;
+  });
+  const pageRefs = pageObjects.map((_, index) => `${3 + index} 0 R`).join(" ");
+  const contentObjects = Array.from({ length: pageCount }, (_, index) => {
+    const imageY = pageHeight - margin - scaledHeight + index * printableHeight;
+    const content = [
+      "q",
+      `${margin} ${margin} ${printableWidth} ${printableHeight} re W n`,
+      `${printableWidth} 0 0 ${scaledHeight.toFixed(2)} ${margin} ${imageY.toFixed(2)} cm`,
+      "/Im1 Do",
+      "Q",
+    ].join("\n");
+    return `<< /Length ${content.length} >>\nstream\n${content}\nendstream`;
+  });
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    `<< /Type /Pages /Count ${pageCount} /Kids [${pageRefs}] >>`,
+    ...pageObjects,
+    ...contentObjects,
+    `<< /Type /XObject /Subtype /Image /Width ${imageWidth} /Height ${imageHeight} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpegBinary.length} >>\nstream\n${jpegBinary}\nendstream`,
+  ];
+
+  let pdf = "%PDF-1.4\n%\xE2\xE3\xCF\xD3\n";
+  const offsets = [0];
+  objects.forEach((object, index) => {
+    offsets[index + 1] = pdf.length;
+    pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
+  });
+  const xrefOffset = pdf.length;
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  offsets.slice(1).forEach((offset) => {
+    pdf += `${String(offset).padStart(10, "0")} 00000 n \n`;
+  });
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+
+  return new Blob([binaryStringToUint8Array(pdf)], { type: "application/pdf" });
+}
+
+async function createStyledSchedulePdfBlob(html: string) {
+  const iframe = document.createElement("iframe");
+  iframe.setAttribute("aria-hidden", "true");
+  iframe.style.position = "fixed";
+  iframe.style.left = "-10000px";
+  iframe.style.top = "0";
+  iframe.style.width = "1200px";
+  iframe.style.height = "1px";
+  iframe.style.visibility = "hidden";
+  iframe.style.pointerEvents = "none";
+  iframe.srcdoc = html;
+  document.body.appendChild(iframe);
+
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const timeout = window.setTimeout(() => reject(new Error("Styled PDF export timed out.")), 5000);
+      iframe.onload = () => {
+        window.clearTimeout(timeout);
+        resolve();
+      };
+    });
+
+    const iframeDocument = iframe.contentDocument;
+    if (!iframeDocument?.body) {
+      throw new Error("Could not render schedule for PDF export.");
+    }
+
+    await iframeDocument.fonts?.ready?.catch(() => undefined);
+    await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+
+    const renderWidth = 1200;
+    const renderHeight = Math.min(
+      30000,
+      Math.max(
+        iframeDocument.documentElement.scrollHeight,
+        iframeDocument.body.scrollHeight,
+        iframeDocument.body.offsetHeight,
+        800
+      )
+    );
+    iframe.style.height = `${renderHeight}px`;
+    await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+
+    const serializer = new XMLSerializer();
+    const bodyMarkup = Array.from(iframeDocument.body.childNodes)
+      .map((node) => serializer.serializeToString(node))
+      .join("");
+    const styles = getPreviewDocumentParts(html).styles;
+    const svg = `
+      <svg xmlns="http://www.w3.org/2000/svg" width="${renderWidth}" height="${renderHeight}" viewBox="0 0 ${renderWidth} ${renderHeight}">
+        <foreignObject x="0" y="0" width="100%" height="100%">
+          <div xmlns="http://www.w3.org/1999/xhtml" style="box-sizing:border-box;width:${renderWidth}px;min-height:${renderHeight}px;margin:0;padding:24px;font-family:Arial,Helvetica,sans-serif;color:#17304f;background:#f7fafc;">
+            <style>${escapeHtml(styles)}</style>
+            <style>
+              * { box-sizing: border-box; }
+              .cfsp-schedule-viewer-toolbar,
+              .cfsp-schedule-actions-menu,
+              .cfsp-schedule-no-print { display: none !important; }
+              .schedule-grid-shell { overflow: visible !important; max-width: none !important; }
+            </style>
+            ${bodyMarkup}
+          </div>
+        </foreignObject>
+      </svg>
+    `;
+    const svgUrl = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml;charset=utf-8" }));
+    const image = new Image();
+    const imageLoaded = new Promise<void>((resolve, reject) => {
+      image.onload = () => resolve();
+      image.onerror = () => reject(new Error("Could not render styled schedule image."));
+    });
+    image.src = svgUrl;
+    await imageLoaded;
+    URL.revokeObjectURL(svgUrl);
+
+    const canvas = document.createElement("canvas");
+    canvas.width = renderWidth;
+    canvas.height = renderHeight;
+    const context = canvas.getContext("2d");
+    if (!context) {
+      throw new Error("Could not prepare PDF canvas.");
+    }
+
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(image, 0, 0);
+    const jpegDataUrl = canvas.toDataURL("image/jpeg", 0.94);
+    if (!jpegDataUrl.startsWith("data:image/jpeg")) {
+      throw new Error("Could not capture schedule as a PDF image.");
+    }
+
+    return buildPdfFromJpegDataUrl(jpegDataUrl, canvas.width, canvas.height);
+  } finally {
+    iframe.remove();
+  }
 }
 
 function formatEventDate(event: EventRow) {
@@ -1912,12 +2060,46 @@ function buildSchedulePreviewData(args: {
             </section>
           </div>
         `;
+  const csvRows =
+    kind === "timeline" || kind === "announcements"
+      ? [
+          ["Start", "End", "Activity", "Duration", "Detail"],
+          ...meaningfulPreviewTimeline.map((block) => [
+            formatTimeWithDayOffset(block.start),
+            formatTimeWithDayOffset(block.end),
+            block.label,
+            formatDurationCompact(Math.max(getBlockDurationMinutes(block.start, block.end), 1)),
+            block.detail || "",
+          ]),
+        ]
+      : [
+          ["Round", "Time", "Room", "Learner", "SP", "Case", "Seat"],
+          ...previewRounds.flatMap((round) =>
+            round.roomSlots.map((slot, slotIndex) => {
+              const displayRoomName = formatRoomName(slot.roomName, slot.roomType, slotIndex + 1, roomContext);
+              const assignmentIndex = round.roomSlots.findIndex((item) => item.roomName === slot.roomName);
+              const learnerText = slot.learnerLabels.length ? slot.learnerLabels.join(", ") : "No learner assigned";
+              const spName = assignedSpNames?.[assignmentIndex] || "";
+
+              return [
+                `Round ${round.round}`,
+                formatRange(round.start, round.end),
+                displayRoomName,
+                kind !== "sp" ? learnerText : "",
+                kind === "sp" || includeOperationsContext ? spName : "",
+                includeOperationsContext ? caseName || "" : "",
+                slot.capacityLabel,
+              ];
+            })
+          ),
+        ];
 
   return {
     kind,
     title: titleMap[kind],
     summary: timelineSummary,
     text: lines.join("\n"),
+    csv: toCsv(csvRows),
     html: `
       <!doctype html>
       <html>
@@ -2025,6 +2207,33 @@ function parseSavedDraft(raw: string | null): ScheduleBuilderDraft | null {
   } catch {
     return null;
   }
+}
+
+function encodeScheduleBuilderSnapshot(draft: ScheduleBuilderDraft) {
+  try {
+    return encodeURIComponent(JSON.stringify(draft));
+  } catch {
+    return "";
+  }
+}
+
+function parseScheduleBuilderSnapshot(raw: unknown) {
+  const text = asText(raw);
+  if (!text) return null;
+
+  const candidates = [text];
+  try {
+    candidates.unshift(decodeURIComponent(text));
+  } catch {
+    // Older local snapshots may already be plain JSON.
+  }
+
+  for (const candidate of candidates) {
+    const parsed = parseSavedDraft(candidate);
+    if (parsed) return parsed;
+  }
+
+  return null;
 }
 
 function formatSavedTimestamp(value: string | null) {
@@ -2144,12 +2353,14 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const [breakdownMinutes, setBreakdownMinutes] = useState(DEFAULT_SCHEDULE_BUILDER_DRAFT.breakdownMinutes);
   const hydratedDraftKeyRef = useRef<string>("");
   const hydratedTimePrefillKeyRef = useRef<string>("");
+  const lockedScheduleSourceRef = useRef<BuilderTimeSource | null>(null);
   const skipNextAutosaveRef = useRef(false);
   const autosaveTimeoutRef = useRef<number | null>(null);
   const workflowSyncTimeoutRef = useRef<number | null>(null);
   const [showSchedulePreview, setShowSchedulePreview] = useState(false);
   const [previewKind, setPreviewKind] = useState<SchedulePreviewKind>(props.initialPreviewKind || "timeline");
   const schedulePreviewFrameRef = useRef<HTMLIFrameElement | null>(null);
+  const [styledPdfExporting, setStyledPdfExporting] = useState(false);
   const [showExpandedFlowDetails, setShowExpandedFlowDetails] = useState(false);
   const [activeFlowDetailKey, setActiveFlowDetailKey] = useState("");
   const [me, setMe] = useState<BuilderMeResponse | null>(null);
@@ -2407,6 +2618,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    if (props.previewOnly) return;
     if (!storageKey) return;
 
     if (skipNextAutosaveRef.current) {
@@ -2443,7 +2655,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         window.clearTimeout(autosaveTimeoutRef.current);
       }
     };
-  }, [draftSnapshot, storageKey]);
+  }, [draftSnapshot, props.previewOnly, storageKey]);
 
   const selectedEvent = useMemo(
     () => events.find((event) => event.id === selectedEventId) || null,
@@ -2504,17 +2716,50 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     const hydrationKey = `${storageKey}:${selectedEvent?.id || "none"}`;
     if (hydratedTimePrefillKeyRef.current === hydrationKey) return;
 
+    const metadata = parseEventMetadata(selectedEvent?.notes).training;
+    const completedSnapshot =
+      asText(metadata.schedule_status).toLowerCase() === "complete"
+        ? parseScheduleBuilderSnapshot(metadata.schedule_builder_snapshot)
+        : null;
     const savedDraft = parseSavedDraft(window.localStorage.getItem(storageKey));
-    const nextTimeSource = buildTimePrefill(selectedEvent, savedDraft);
+    const sourceDraft = completedSnapshot || savedDraft;
+    const nextTimeSource = completedSnapshot
+      ? {
+          source: "completed_snapshot" as const,
+          label: "Using completed schedule snapshot",
+          startTime: completedSnapshot.startTime,
+          endTime: "",
+          sessionLengthMinutes: sanitizeSavedRoundTargetMinutes(completedSnapshot.sessionLengthMinutes),
+        }
+      : buildTimePrefill(selectedEvent, sourceDraft);
+
+    if (lockedScheduleSourceRef.current === "completed_snapshot" && nextTimeSource.source !== "completed_snapshot") {
+      return;
+    }
 
     hydratedTimePrefillKeyRef.current = hydrationKey;
     skipNextAutosaveRef.current = true;
+    if (completedSnapshot) {
+      lockedScheduleSourceRef.current = "completed_snapshot";
+      applyDraft(completedSnapshot);
+    } else if (!lockedScheduleSourceRef.current) {
+      lockedScheduleSourceRef.current = nextTimeSource.source;
+    }
     setTimeSource(nextTimeSource);
     setStartTime(nextTimeSource.startTime);
     if (nextTimeSource.sessionLengthMinutes !== "0") {
       setSessionLengthMinutes(nextTimeSource.sessionLengthMinutes);
     }
-  }, [selectedEvent, selectedEventId, storageKey]);
+    console.info(
+      `Schedule source: ${
+        nextTimeSource.source === "saved_draft"
+          ? "draft"
+          : nextTimeSource.source === "default"
+            ? "fallback"
+            : nextTimeSource.source
+      }`
+    );
+  }, [applyDraft, selectedEvent, selectedEventId, storageKey]);
 
   const selectedEventMetadata = useMemo(
     () => parseEventMetadata(selectedEvent?.notes).training,
@@ -2768,6 +3013,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     [generated.rounds.length, slotsPerRound, uploadedLearners]
   );
   useEffect(() => {
+    if (props.previewOnly) return;
     if (!selectedEvent?.id) return;
     if (skipNextAutosaveRef.current) return;
 
@@ -2791,6 +3037,9 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         schedule_learner_roster: serializeScheduleLearnerRosterMetadata(
           uploadedLearners.length ? uploadedLearners : originalUploadedLearners
         ),
+        ...(nextStatus === "complete"
+          ? { schedule_builder_snapshot: encodeScheduleBuilderSnapshot({ ...draftSnapshot, savedAt: now }) }
+          : {}),
         schedule_preview_enabled_for_sps: selectedEventMetadata.schedule_preview_enabled_for_sps || "no",
       };
       void persistScheduleWorkflowMetadata(partial).catch(() => {
@@ -2810,6 +3059,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     originalUploadedLearners,
     parsedRoomCapacity,
     persistScheduleWorkflowMetadata,
+    props.previewOnly,
     scheduleWorkflowStatus,
     selectedEvent?.id,
     selectedEventMetadata.schedule_preview_enabled_for_sps,
@@ -3058,6 +3308,9 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const schedulePreview = schedulePreviews[previewKind];
   const selectedPreviewBaseFileName = getSafeFileName(schedulePreview.title) || "schedule";
   const selectedPreviewExportFileName = `${selectedPreviewBaseFileName}.txt`;
+  const selectedPreviewStyledPdfFileName = `${selectedPreviewBaseFileName}.pdf`;
+  const selectedPreviewCsvFileName = `${selectedPreviewBaseFileName}.csv`;
+  const selectedPreviewHtmlFileName = `${selectedPreviewBaseFileName}-printable.html`;
   const autoDownloadTriggeredRef = useRef(false);
   const previewDocumentParts = useMemo(
     () => getPreviewDocumentParts(schedulePreview.html),
@@ -3066,11 +3319,21 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   useEffect(() => {
     if (loading || !props.previewOnly || !props.autoDownload || autoDownloadTriggeredRef.current || !schedulePreview.html) return;
     autoDownloadTriggeredRef.current = true;
-    window.setTimeout(() => {
-      showCopyMessage("Choose Save as PDF in the print dialog to export this styled schedule.", "success", 3600);
-      window.print();
+    const timeout = window.setTimeout(() => {
+      setStyledPdfExporting(true);
+      showCopyMessage("Preparing styled PDF...", "success", 2200);
+      createStyledSchedulePdfBlob(schedulePreview.html)
+        .then((pdfBlob) => {
+          downloadBlob(pdfBlob, selectedPreviewStyledPdfFileName);
+          showCopyMessage(`${schedulePreview.title} styled PDF downloaded.`, "success", 2600);
+        })
+        .catch((error: unknown) => {
+          showCopyMessage(error instanceof Error ? error.message : "Could not download styled PDF.", "error", 3600);
+        })
+        .finally(() => setStyledPdfExporting(false));
     }, 350);
-  }, [loading, props.autoDownload, props.previewOnly, schedulePreview.html]);
+    return () => window.clearTimeout(timeout);
+  }, [loading, props.autoDownload, props.previewOnly, schedulePreview.html, schedulePreview.title, selectedPreviewStyledPdfFileName]);
   const saveStateAppearance = getSaveStateAppearance(saveState);
   const lastSavedLabel = formatSavedTimestamp(lastSavedAt);
   const advancedSettingsActive =
@@ -3085,6 +3348,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const referenceEndTimeLabel = formatReferenceEndDetail(parsedStartMinutes, parsedReferenceEndMinutes);
 
   function handleStartTimeChange(value: string) {
+    lockedScheduleSourceRef.current = null;
     setStartTime(value);
     if (value !== timeSource.startTime) {
       setTimeSource((current) => ({ ...current, source: "edited" }));
@@ -3135,25 +3399,37 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   }
 
   function handleRawTextExport() {
-    const downloadBlob = new Blob([schedulePreview.text], { type: "text/plain;charset=utf-8" });
-    const downloadUrl = URL.createObjectURL(downloadBlob);
-    const anchor = document.createElement("a");
-    anchor.href = downloadUrl;
-    anchor.download = selectedPreviewExportFileName;
-    anchor.rel = "noreferrer";
-    anchor.style.display = "none";
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    URL.revokeObjectURL(downloadUrl);
+    downloadBlob(new Blob([schedulePreview.text], { type: "text/plain;charset=utf-8" }), selectedPreviewExportFileName);
     showCopyMessage(`${schedulePreview.title} raw text export downloaded.`, "success", 2200);
   }
 
-  function handleRenderedSchedulePrint(printIntent: "print" | "pdf" | "export") {
-    if (printIntent !== "print") {
-      showCopyMessage("Choose Save as PDF in the print dialog to export this styled schedule.", "success", 3600);
-    }
+  function handleCsvExport() {
+    downloadBlob(new Blob([schedulePreview.csv], { type: "text/csv;charset=utf-8" }), selectedPreviewCsvFileName);
+    showCopyMessage(`${schedulePreview.title} CSV export downloaded.`, "success", 2200);
+  }
 
+  function handlePrintableHtmlExport() {
+    downloadBlob(new Blob([schedulePreview.html], { type: "text/html;charset=utf-8" }), selectedPreviewHtmlFileName);
+    showCopyMessage(`${schedulePreview.title} printable HTML downloaded.`, "success", 2200);
+  }
+
+  async function handleStyledPdfDownload() {
+    if (styledPdfExporting) return;
+
+    setStyledPdfExporting(true);
+    showCopyMessage("Preparing styled PDF...", "success", 2200);
+    try {
+      const pdfBlob = await createStyledSchedulePdfBlob(schedulePreview.html);
+      downloadBlob(pdfBlob, selectedPreviewStyledPdfFileName);
+      showCopyMessage(`${schedulePreview.title} styled PDF downloaded.`, "success", 2600);
+    } catch (error) {
+      showCopyMessage(error instanceof Error ? error.message : "Could not download styled PDF.", "error", 3600);
+    } finally {
+      setStyledPdfExporting(false);
+    }
+  }
+
+  function handleRenderedSchedulePrint() {
     if (props.previewOnly) {
       window.print();
       return;
@@ -3264,27 +3540,28 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         }}
       >
         {[
-          { label: "Print schedule", onClick: () => handleRenderedSchedulePrint("print") },
-          { label: "Download PDF", onClick: () => handleRenderedSchedulePrint("pdf") },
-          { label: "Download/Export", onClick: () => handleRenderedSchedulePrint("export") },
-          { label: "Raw Text Export", onClick: handleRawTextExport },
+          { label: "Print Schedule", onClick: handleRenderedSchedulePrint },
+          { label: styledPdfExporting ? "Preparing PDF..." : "Download PDF", onClick: () => void handleStyledPdfDownload(), disabled: styledPdfExporting },
           { label: "Copy/share link", onClick: () => void handleShareOrCopyLink() },
         ].map((action) => (
           <button
             key={action.label}
             type="button"
             onClick={(event) => {
+              if (action.disabled) return;
               action.onClick();
               event.currentTarget.closest("details")?.removeAttribute("open");
             }}
+            disabled={action.disabled}
             style={{
               border: "none",
               borderRadius: 9,
               background: "transparent",
               color: isDark ? "rgba(240, 248, 255, 0.92)" : "#14304f",
-              cursor: "pointer",
+              cursor: action.disabled ? "not-allowed" : "pointer",
               fontSize: 13,
               fontWeight: 800,
+              opacity: action.disabled ? 0.62 : 1,
               padding: "9px 10px",
               textAlign: "left",
               whiteSpace: "nowrap",
@@ -3293,6 +3570,51 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
             {action.label}
           </button>
         ))}
+        <div
+          style={{
+            borderTop: isDark ? "1px solid rgba(120, 180, 255, 0.14)" : "1px solid #e6edf3",
+            marginTop: 4,
+            paddingTop: 7,
+            display: "grid",
+            gap: 4,
+          }}
+        >
+          <div style={{ color: isDark ? "rgba(220, 239, 255, 0.62)" : "#6b7d8f", fontSize: 11, fontWeight: 900, padding: "3px 10px", textTransform: "uppercase" }}>
+            Download/Export
+          </div>
+          {[
+            { label: styledPdfExporting ? "Preparing styled PDF..." : "Export Styled PDF", onClick: () => void handleStyledPdfDownload(), disabled: styledPdfExporting },
+            { label: "Export Raw Text", onClick: handleRawTextExport },
+            { label: "Export CSV", onClick: handleCsvExport },
+            { label: "Export Printable HTML", onClick: handlePrintableHtmlExport },
+          ].map((action) => (
+            <button
+              key={action.label}
+              type="button"
+              onClick={(event) => {
+                if (action.disabled) return;
+                action.onClick();
+                event.currentTarget.closest("details")?.removeAttribute("open");
+              }}
+              disabled={action.disabled}
+              style={{
+                border: "none",
+                borderRadius: 9,
+                background: isDark ? "rgba(255,255,255,0.04)" : "#f8fbfd",
+                color: isDark ? "rgba(240, 248, 255, 0.92)" : "#14304f",
+                cursor: action.disabled ? "not-allowed" : "pointer",
+                fontSize: 13,
+                fontWeight: 800,
+                opacity: action.disabled ? 0.62 : 1,
+                padding: "9px 10px",
+                textAlign: "left",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {action.label}
+            </button>
+          ))}
+        </div>
       </div>
     </details>
   );
@@ -3312,6 +3634,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     setSaveState("saving");
     setSaveErrorMessage("");
     try {
+      const completedSnapshot = {
+        ...draftSnapshot,
+        savedAt: now,
+      };
       await persistScheduleWorkflowMetadata({
         schedule_status: "complete",
         schedule_started_at: selectedEventMetadata.schedule_started_at || now,
@@ -3327,10 +3653,23 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         schedule_learner_roster: serializeScheduleLearnerRosterMetadata(
           uploadedLearners.length ? uploadedLearners : originalUploadedLearners
         ),
+        schedule_builder_snapshot: encodeScheduleBuilderSnapshot(completedSnapshot),
         schedule_preview_enabled_for_sps: selectedEventMetadata.schedule_preview_enabled_for_sps || "no",
+      });
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(storageKey, JSON.stringify(completedSnapshot));
+      }
+      lockedScheduleSourceRef.current = "completed_snapshot";
+      setTimeSource({
+        source: "completed_snapshot",
+        label: "Using completed schedule snapshot",
+        startTime: completedSnapshot.startTime,
+        endTime: "",
+        sessionLengthMinutes: sanitizeSavedRoundTargetMinutes(completedSnapshot.sessionLengthMinutes),
       });
       setSaveState("saved");
       setLastSavedAt(now);
+      console.info("Schedule source: completed_snapshot");
       showCopyMessage("Schedule marked complete.");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not mark schedule complete.";
