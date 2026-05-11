@@ -46,6 +46,7 @@ type EventScheduleBuilderProps = {
   initialPreviewKind?: SchedulePreviewKind | null;
   previewFamily?: SchedulePreviewFamily | null;
   previewOnly?: boolean;
+  autoDownload?: boolean;
 };
 
 type DayBlockType =
@@ -2849,10 +2850,26 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   ]);
   const schedulePreview = schedulePreviews[previewKind];
   const selectedPreviewFileName = `${getSafeFileName(schedulePreview.title)}.html`;
+  const autoDownloadTriggeredRef = useRef(false);
   const previewDocumentParts = useMemo(
     () => getPreviewDocumentParts(schedulePreview.html),
     [schedulePreview.html]
   );
+  useEffect(() => {
+    if (!props.previewOnly || !props.autoDownload || autoDownloadTriggeredRef.current || !schedulePreview.html) return;
+    autoDownloadTriggeredRef.current = true;
+    const downloadBlob = new Blob([schedulePreview.html], { type: "text/html;charset=utf-8" });
+    const downloadUrl = URL.createObjectURL(downloadBlob);
+    const anchor = document.createElement("a");
+    anchor.href = downloadUrl;
+    anchor.download = selectedPreviewFileName;
+    anchor.rel = "noreferrer";
+    anchor.style.display = "none";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
+  }, [props.autoDownload, props.previewOnly, schedulePreview.html, selectedPreviewFileName]);
   const saveStateAppearance = getSaveStateAppearance(saveState);
   const lastSavedLabel = formatSavedTimestamp(lastSavedAt);
   const advancedSettingsActive =
@@ -3182,9 +3199,11 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
             ) : null}
           </div>
           {props.backHref ? (
-            <Link href={props.backHref} className="cfsp-btn cfsp-btn-secondary">
-              {props.backLabel || "Back"}
-            </Link>
+            <div className="flex flex-wrap gap-2 sm:justify-end">
+              <Link href={props.backHref} className="cfsp-btn cfsp-btn-primary">
+                {props.backLabel || "Return to Event"}
+              </Link>
+            </div>
           ) : null}
         </div>
       </section>
@@ -3208,6 +3227,11 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
           </div>
           <div className="grid gap-3">
             <div className="flex flex-wrap gap-2">
+              {props.backHref ? (
+                <Link href={props.backHref} className="cfsp-btn cfsp-btn-secondary">
+                  {props.backLabel || "Return to Event"}
+                </Link>
+              ) : null}
               <button type="button" onClick={() => setPreviewKind("timeline")} className="cfsp-btn cfsp-btn-secondary">
                 Preview Time Ticket
               </button>
@@ -3714,9 +3738,44 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
+                <div className="inline-flex rounded-[12px] border border-[var(--cfsp-border)] bg-white p-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPreviewKind("student");
+                      setScheduleViewMode("student");
+                    }}
+                    className="rounded-[10px] px-4 py-2 text-sm font-black transition"
+                    style={{
+                      background: previewKind === "student" ? "var(--cfsp-blue)" : "transparent",
+                      color: previewKind === "student" ? "#ffffff" : "var(--cfsp-text-muted)",
+                    }}
+                  >
+                    Student View
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPreviewKind("operations");
+                      setScheduleViewMode("operations");
+                    }}
+                    className="rounded-[10px] px-4 py-2 text-sm font-black transition"
+                    style={{
+                      background: previewKind === "operations" || previewKind === "rotation" ? "var(--cfsp-blue)" : "transparent",
+                      color: previewKind === "operations" || previewKind === "rotation" ? "#ffffff" : "var(--cfsp-text-muted)",
+                    }}
+                  >
+                    Admin View
+                  </button>
+                </div>
                 <select
                   value={previewKind}
-                  onChange={(event) => setPreviewKind(event.target.value as SchedulePreviewKind)}
+                  onChange={(event) => {
+                    const nextKind = event.target.value as SchedulePreviewKind;
+                    setPreviewKind(nextKind);
+                    if (nextKind === "student") setScheduleViewMode("student");
+                    if (nextKind === "operations" || nextKind === "rotation") setScheduleViewMode("operations");
+                  }}
                   className="cfsp-input h-10 min-w-[170px] rounded-[10px] px-3"
                   aria-label="Schedule preview type"
                 >

@@ -55,6 +55,7 @@ export default function EventScopedScheduleBuilderPage() {
   const initialPreviewKind = getInitialPreviewKind(searchParams.get("preview"));
   const previewFamily = getPreviewFamily(searchParams.get("previewFamily"));
   const previewOnly = searchParams.get("previewMode") === "1";
+  const autoDownload = searchParams.get("downloadMode") === "1";
 
   if (previewOnly) {
     return (
@@ -68,6 +69,7 @@ export default function EventScopedScheduleBuilderPage() {
         initialPreviewKind={initialPreviewKind}
         previewFamily={previewFamily}
         previewOnly
+        autoDownload={autoDownload}
       />
     );
   }

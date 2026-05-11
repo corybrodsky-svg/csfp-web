@@ -5956,6 +5956,12 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
   );
   const scheduleCompleted = scheduleWorkflowStatus === "complete";
   const scheduleInProgress = scheduleWorkflowStatus === "in_progress";
+  const scheduleExists =
+    scheduleCompleted ||
+    scheduleInProgress ||
+    rotationScheduleBuilt ||
+    rotationRounds.length > 0 ||
+    (scheduleBuilderDraftLearnerRoster.length > 0 && effectiveRoomCount > 0);
   const trainingFacultyText = trainingMetadata.faculty_names || fallbackFacultyText;
   const facultyEmailText = trainingMetadata.faculty_email;
   const facultyPhoneText = trainingMetadata.faculty_phone;
@@ -8952,25 +8958,48 @@ Cory`;
     setEventSaveError("No case packet is assigned to this event yet.");
     window.setTimeout(() => setEventSaveError(""), 2400);
   }
-  const scheduleSummaryActions: Array<{
+  const scheduleWorkflowActions: Array<{
     label: string;
     href?: string;
     onClick?: () => void;
     disabled?: boolean;
-  }> = [
-    { label: "Open Schedule Builder", href: expandedScheduleBuilderHref },
-    {
-      label: "Open Time Ticket",
-      onClick: () => handleOpenEventScheduleRouteInNewTab("timeline", "ticket"),
-    },
-    {
-      label: "Preview Schedule",
-      onClick: () => handleOpenEventScheduleRouteInNewTab("rotation", "schedule"),
-    },
-    ...(scheduleCompleted
-      ? []
-      : [{ label: "Mark Schedule Complete", onClick: () => void handleMarkScheduleComplete(), disabled: saving }]),
-  ];
+  }> = scheduleExists
+    ? [
+        {
+          label: "Preview Schedule",
+          onClick: () => handleOpenEventScheduleRouteInNewTab("operations", "schedule"),
+        },
+        {
+          label: "Student View",
+          onClick: () => handleOpenEventScheduleRouteInNewTab("student", "schedule"),
+        },
+        {
+          label: "Admin View",
+          onClick: () => handleOpenEventScheduleRouteInNewTab("operations", "schedule"),
+        },
+        {
+          label: "Print Student",
+          onClick: () => handlePrintEventSchedulePreview("student", "schedule"),
+        },
+        {
+          label: "Print Admin",
+          onClick: () => handlePrintEventSchedulePreview("operations", "schedule"),
+        },
+        {
+          label: "Download Student",
+          onClick: () => handleDownloadEventSchedulePreview("student", "schedule"),
+        },
+        {
+          label: "Download Admin",
+          onClick: () => handleDownloadEventSchedulePreview("operations", "schedule"),
+        },
+        { label: "Edit Schedule", href: expandedScheduleBuilderHref },
+        ...(scheduleCompleted
+          ? []
+          : [{ label: "Mark Schedule Complete", onClick: () => void handleMarkScheduleComplete(), disabled: saving }]),
+      ]
+    : [{ label: "Open Schedule Builder", href: expandedScheduleBuilderHref }];
+  const scheduleSummaryActions = scheduleWorkflowActions;
   const staffingTrainingRows: Array<{
     key: string;
     label: string;
@@ -9564,15 +9593,7 @@ Cory`;
         : sessions.length
           ? `${sessions.length} structured session${sessions.length === 1 ? "" : "s"} exist, but rotation rounds still need QA.`
           : "Open the scheduling workspace to build or import the learner/SP flow.",
-      actions: [
-        { label: "Open Schedule Builder", href: expandedScheduleBuilderHref },
-        {
-          label: "Open Time Ticket",
-          onClick: () => handleOpenEventScheduleRouteInNewTab("timeline", "ticket"),
-        },
-        { label: "Preview Full Schedule", onClick: () => handleOpenEventScheduleRouteInNewTab("rotation", "schedule") },
-        ...(scheduleCompleted ? [] : [{ label: "Mark Schedule Complete", onClick: () => void handleMarkScheduleComplete(), disabled: saving }]),
-      ],
+      actions: scheduleWorkflowActions,
     },
     {
       id: "email",
@@ -10305,7 +10326,11 @@ Cory`;
     );
   }
 
-  function buildEventSchedulePreviewHref(kind: EventSchedulePreviewKind, previewFamily?: "ticket" | "schedule") {
+  function buildEventSchedulePreviewHref(
+    kind: EventSchedulePreviewKind,
+    previewFamily?: "ticket" | "schedule",
+    options?: { download?: boolean }
+  ) {
     const params = new URLSearchParams();
     params.set("source", "event-preview");
     params.set("view", roundCompanionView);
@@ -10313,6 +10338,9 @@ Cory`;
     params.set("previewMode", "1");
     if (previewFamily) {
       params.set("previewFamily", previewFamily);
+    }
+    if (options?.download) {
+      params.set("downloadMode", "1");
     }
 
     if (selectedRotationRound) {
@@ -10325,6 +10353,11 @@ Cory`;
 
   function handleOpenEventScheduleRouteInNewTab(kind: EventSchedulePreviewKind, previewFamily?: "ticket" | "schedule") {
     const href = buildEventSchedulePreviewHref(kind, previewFamily);
+    window.open(href, "_blank", "noopener,noreferrer");
+  }
+
+  function handleDownloadEventSchedulePreview(kind: EventSchedulePreviewKind, previewFamily?: "ticket" | "schedule") {
+    const href = buildEventSchedulePreviewHref(kind, previewFamily, { download: true });
     window.open(href, "_blank", "noopener,noreferrer");
   }
 
@@ -18340,7 +18373,7 @@ Cory`;
                       href={expandedScheduleBuilderHref}
                       style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "7px 10px" }}
                     >
-                      Open Schedule Builder
+                      {scheduleExists ? "Edit Schedule" : "Open Schedule Builder"}
                     </Link>
                   </div>
                 </div>
@@ -18664,7 +18697,7 @@ Cory`;
 	                          href={expandedScheduleBuilderHref}
 	                          style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "8px 11px" }}
 	                        >
-	                          Open Schedule Builder
+	                          {scheduleExists ? "Edit Schedule" : "Open Schedule Builder"}
 	                        </Link>
 	                      </div>
 	                    </>
@@ -18809,7 +18842,7 @@ Cory`;
                           ) : null}
                           {!scheduleCompleted ? (
                             <Link href={expandedScheduleBuilderHref} style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "6px 9px" }}>
-                              Open Schedule Builder
+                              {scheduleExists ? "Edit Schedule" : "Open Schedule Builder"}
                             </Link>
                           ) : null}
                         </div>
