@@ -56,6 +56,7 @@ export type SimFlowRow = {
 
 const EVENT_STORAGE_KEY = "cfsp_events_v1";
 const BLUEPRINT_STORAGE_KEY = "cfsp_event_blueprints_v1";
+const MINUTES_PER_DAY = 24 * 60;
 
 function readJson<T>(key: string, fallback: T): T {
   if (typeof window === "undefined") return fallback;
@@ -114,7 +115,7 @@ export function parseClockToMinutes(value?: string) {
 }
 
 export function minutesToClock(totalMinutes: number) {
-  const safe = ((totalMinutes % (24 * 60)) + 24 * 60) % (24 * 60);
+  const safe = ((totalMinutes % MINUTES_PER_DAY) + MINUTES_PER_DAY) % MINUTES_PER_DAY;
   const hours = Math.floor(safe / 60);
   const minutes = safe % 60;
   return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
@@ -130,7 +131,8 @@ export function diffMinutes(start?: string, end?: string) {
   const s = parseClockToMinutes(start);
   const e = parseClockToMinutes(end);
   if (s === null || e === null) return null;
-  const diff = e - s;
+  const normalizedEnd = e < s ? e + MINUTES_PER_DAY : e;
+  const diff = normalizedEnd - s;
   return diff > 0 ? diff : null;
 }
 
@@ -255,17 +257,28 @@ export function getEventDateLabel(event: EventRecord) {
 
 export function inferEventStartTime(event: EventRecord) {
   const starts = (event.sessions || [])
-    .map((session) => session.startTime || "")
-    .filter(Boolean)
-    .map((value) => ({
-      raw: value,
-      minutes: parseClockToMinutes(value),
-    }))
-    .filter((item) => item.minutes !== null) as { raw: string; minutes: number }[];
+    .map((session) => {
+      const minutes = parseClockToMinutes(session.startTime || "");
+      const endMinutes = parseClockToMinutes(session.endTime || "");
+      return {
+        raw: session.startTime || "",
+        minutes,
+        endMinutes,
+      };
+    })
+    .filter((item) => item.minutes !== null) as { raw: string; minutes: number; endMinutes: number | null }[];
 
   if (!starts.length) return "08:10";
 
-  starts.sort((a, b) => a.minutes - b.minutes);
+  const hasOvernightRollover =
+    starts.some((item) => item.endMinutes !== null && item.endMinutes < item.minutes) ||
+    (starts.some((item) => item.minutes >= 18 * 60) && starts.some((item) => item.minutes < 8 * 60));
+
+  starts.sort((a, b) => {
+    const aMinutes = hasOvernightRollover && a.minutes < 8 * 60 ? a.minutes + MINUTES_PER_DAY : a.minutes;
+    const bMinutes = hasOvernightRollover && b.minutes < 8 * 60 ? b.minutes + MINUTES_PER_DAY : b.minutes;
+    return aMinutes - bMinutes;
+  });
   return minutesToClock(starts[0].minutes);
 }
 

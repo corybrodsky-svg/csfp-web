@@ -9,6 +9,7 @@ import { getDateSortValue, getImportedYearHint, normalizeLooseDateToIso } from "
 import { getProfileForUser, getProfilesByIds } from "../../lib/profileServer";
 import { resolveSpAccountLink } from "../../lib/spAccountLinking";
 import { createSupabaseServerClient } from "../../lib/supabaseServerClient";
+import { MINUTES_PER_DAY, normalizeEndMinutesForRange, parseTimeToMinutes } from "../../lib/timeFormat";
 
 export const dynamic = "force-dynamic";
 
@@ -156,6 +157,15 @@ type AssignedSpApiRow = {
   email?: string | null;
 };
 
+type EventSessionApiRow = {
+  event_id: string | null;
+  session_date: string | null;
+  start_time: string | null;
+  end_time: string | null;
+  location: string | null;
+  room: string | null;
+};
+
 function extractScheduleOwnerText(notes: string | null) {
   const text = asText(notes);
   const patterns = [
@@ -173,6 +183,78 @@ function extractScheduleOwnerText(notes: string | null) {
   }
 
   return null;
+}
+
+function addDaysToIsoDate(value: string | null, days: number) {
+  if (!value) return value;
+  const parsed = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return value;
+  parsed.setDate(parsed.getDate() + days);
+  return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, "0")}-${String(
+    parsed.getDate()
+  ).padStart(2, "0")}`;
+}
+
+function getSessionTimingRows(sessions: EventSessionApiRow[], fallbackYear?: number | null) {
+  const rowsByDate = sessions.reduce<Map<string, EventSessionApiRow[]>>((map, session) => {
+    const dateKey = normalizeLooseDateToIso(session.session_date, fallbackYear) || asText(session.session_date) || "date-tbd";
+    map.set(dateKey, [...(map.get(dateKey) || []), session]);
+    return map;
+  }, new Map());
+  const overnightDateKeys = new Set<string>();
+
+  rowsByDate.forEach((dateSessions, dateKey) => {
+    const parsedStarts = dateSessions
+      .map((session) => parseTimeToMinutes(session.start_time))
+      .filter((minutes): minutes is number => minutes !== null);
+    const hasExplicitRollover = dateSessions.some((session) => {
+      const start = parseTimeToMinutes(session.start_time);
+      const end = parseTimeToMinutes(session.end_time);
+      return start !== null && end !== null && end < start;
+    });
+    const hasLateAndEarlyStarts =
+      parsedStarts.some((minutes) => minutes >= 18 * 60) &&
+      parsedStarts.some((minutes) => minutes < 8 * 60);
+
+    if (hasExplicitRollover || hasLateAndEarlyStarts) {
+      overnightDateKeys.add(dateKey);
+    }
+  });
+
+  return sessions.map((session, index) => {
+    const normalizedDate = normalizeLooseDateToIso(session.session_date, fallbackYear);
+    const dateKey = normalizedDate || asText(session.session_date) || "date-tbd";
+    const startClockMinutes = parseTimeToMinutes(session.start_time);
+    const endClockMinutes = parseTimeToMinutes(session.end_time);
+    const isOvernightDate = overnightDateKeys.has(dateKey);
+    const startsAfterMidnight =
+      isOvernightDate && startClockMinutes !== null && startClockMinutes < 8 * 60;
+    const normalizedStartMinutes =
+      startClockMinutes === null
+        ? Number.MAX_SAFE_INTEGER
+        : startClockMinutes + (startsAfterMidnight ? MINUTES_PER_DAY : 0);
+    let normalizedEndMinutes =
+      startClockMinutes !== null
+        ? normalizeEndMinutesForRange(startClockMinutes, endClockMinutes) ?? normalizedStartMinutes
+        : endClockMinutes ?? normalizedStartMinutes;
+
+    if (startsAfterMidnight && normalizedEndMinutes < MINUTES_PER_DAY) {
+      normalizedEndMinutes += MINUTES_PER_DAY;
+    }
+
+    return {
+      session,
+      index,
+      normalizedDate,
+      dateSort: getDateSortValue(normalizedDate || session.session_date, fallbackYear),
+      startMinutes: normalizedStartMinutes,
+      endMinutes: normalizedEndMinutes,
+      endDayOffset:
+        Number.isFinite(normalizedEndMinutes) && normalizedEndMinutes < Number.MAX_SAFE_INTEGER
+          ? Math.floor(Math.max(normalizedEndMinutes, 0) / MINUTES_PER_DAY)
+          : 0,
+    };
+  });
 }
 
 async function getAuthenticatedUserId() {
@@ -360,7 +442,7 @@ export async function GET() {
     }
 
     const assignmentRows = (assignments || []) as AssignmentApiRow[];
-    const sessionRows = sessions || [];
+    const sessionRows = ((sessions || []) as EventSessionApiRow[]);
     const ownerIds = Array.from(new Set((data || []).map((event) => asText(event.owner_id)).filter(Boolean)));
     const ownerProfilesResult = await getProfilesByIds(ownerIds);
     const ownerNameById = new Map(
@@ -395,6 +477,16 @@ export async function GET() {
       const needed = parseNumber(event.sp_needed);
       const eventSessions = sessionRows.filter((session) => session.event_id === event.id);
       const fallbackYear = getImportedYearHint(event.notes);
+      const sessionTimingRows = getSessionTimingRows(eventSessions, fallbackYear);
+      const sortedSessionTimingRows = [...sessionTimingRows].sort(
+        (a, b) => a.dateSort - b.dateSort || a.startMinutes - b.startMinutes || a.index - b.index
+      );
+      const latestSessionTimingRow =
+        [...sessionTimingRows].sort((a, b) => {
+          const aDateSort = a.dateSort === Number.MAX_SAFE_INTEGER ? -1 : a.dateSort;
+          const bDateSort = b.dateSort === Number.MAX_SAFE_INTEGER ? -1 : b.dateSort;
+          return bDateSort - aDateSort || b.endMinutes - a.endMinutes || a.index - b.index;
+        })[0] || null;
       const normalizedSessionDates = eventSessions
         .map((session) => normalizeLooseDateToIso(session.session_date, fallbackYear))
         .filter(Boolean)
@@ -402,7 +494,9 @@ export async function GET() {
       const earliestSessionDate =
         normalizedSessionDates[0] || null;
       const latestSessionDate =
-        normalizedSessionDates[normalizedSessionDates.length - 1] || null;
+        latestSessionTimingRow?.normalizedDate
+          ? addDaysToIsoDate(latestSessionTimingRow.normalizedDate, latestSessionTimingRow.endDayOffset)
+          : normalizedSessionDates[normalizedSessionDates.length - 1] || null;
       const assignedNames = confirmedEventAssignments
         .map((assignment) => spNameById.get(asText(assignment.sp_id)) || "")
         .filter(Boolean);
@@ -427,8 +521,8 @@ export async function GET() {
         schedule_owner_text: extractScheduleOwnerText(event.notes),
         earliest_session_date: earliestSessionDate,
         latest_session_date: latestSessionDate,
-        earliest_session_start: eventSessions[0]?.start_time || null,
-        latest_session_end: eventSessions[eventSessions.length - 1]?.end_time || null,
+        earliest_session_start: sortedSessionTimingRows[0]?.session.start_time || null,
+        latest_session_end: latestSessionTimingRow?.session.end_time || null,
         assigned_sp_names: assignedNames,
         assigned_sp_emails: assignedEmails,
         session_locations: sessionLocations,

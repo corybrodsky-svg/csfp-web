@@ -346,6 +346,7 @@ function parseNumber(value: string, fallback: number) {
 }
 
 const DEFAULT_ENCOUNTER_MINUTES = parseNumber(DEFAULT_SCHEDULE_BUILDER_DRAFT.encounterMinutes, 20);
+const MINUTES_PER_DAY = 24 * 60;
 const MAX_OPERATIONAL_ROUND_MINUTES = 120;
 const MAX_RECURRING_BLOCK_MINUTES = 90;
 const MAX_IMPORTED_ROUND_TARGET_MINUTES = 90;
@@ -374,6 +375,37 @@ function toMinutes(value: string) {
   if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
   if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
   return hours * 60 + minutes;
+}
+
+function normalizeEndMinutesForRange(startMinutes: number | null, endMinutes: number | null) {
+  if (startMinutes === null || endMinutes === null) return null;
+  return endMinutes < startMinutes ? endMinutes + MINUTES_PER_DAY : endMinutes;
+}
+
+function normalizeClockMinutesForSchedule(
+  minutes: number | null,
+  windowStartMinutes: number,
+  normalizedWindowEndMinutes: number | null
+) {
+  if (minutes === null || normalizedWindowEndMinutes === null) return minutes;
+  if (normalizedWindowEndMinutes <= windowStartMinutes || normalizedWindowEndMinutes < MINUTES_PER_DAY) {
+    return minutes;
+  }
+
+  const clockMinutes = ((minutes % MINUTES_PER_DAY) + MINUTES_PER_DAY) % MINUTES_PER_DAY;
+  const windowStartClock = ((windowStartMinutes % MINUTES_PER_DAY) + MINUTES_PER_DAY) % MINUTES_PER_DAY;
+  const nextDayCandidate =
+    (Math.floor(windowStartMinutes / MINUTES_PER_DAY) + 1) * MINUTES_PER_DAY + clockMinutes;
+
+  if (
+    minutes < windowStartMinutes &&
+    clockMinutes < windowStartClock &&
+    (nextDayCandidate <= normalizedWindowEndMinutes || clockMinutes < 8 * 60)
+  ) {
+    return nextDayCandidate;
+  }
+
+  return minutes;
 }
 
 function parseClockTextToMinutes(value: string) {
@@ -407,7 +439,7 @@ function parseClockTextToMinutes(value: string) {
 }
 
 function minutesToInputTime(totalMinutes: number) {
-  const normalized = ((totalMinutes % (24 * 60)) + 24 * 60) % (24 * 60);
+  const normalized = ((totalMinutes % MINUTES_PER_DAY) + MINUTES_PER_DAY) % MINUTES_PER_DAY;
   const hours = Math.floor(normalized / 60);
   const minutes = normalized % 60;
   return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
@@ -423,7 +455,26 @@ function extractTimeRange(value: string) {
     const text = asText(token);
     const hasMeridiem = /[ap]m$/i.test(text);
     const hasColon = /:/.test(text);
-    if (hasMeridiem || hasColon) return parseClockTextToMinutes(text);
+    if (hasMeridiem) return parseClockTextToMinutes(text);
+    if (hasColon) {
+      const parsed = parseClockTextToMinutes(text);
+      if (!inferredMeridiem || !matches[1]) return parsed;
+      const endMinutes = parseClockTextToMinutes(matches[1]);
+      const inferredCandidate = parseClockTextToMinutes(`${text} ${inferredMeridiem}`);
+      if (endMinutes === null || inferredCandidate === null) return parsed;
+      if (index === 0 && inferredMeridiem === "pm") {
+        const amCandidate = parseClockTextToMinutes(`${text} am`);
+        if (inferredCandidate >= endMinutes && amCandidate !== null && amCandidate < endMinutes) {
+          return amCandidate;
+        }
+        return inferredCandidate;
+      }
+      if (index === 0 && inferredMeridiem === "am" && parsed !== null && parsed > endMinutes) {
+        const pmCandidate = parseClockTextToMinutes(`${text} pm`);
+        if (pmCandidate !== null && pmCandidate > endMinutes) return pmCandidate;
+      }
+      return inferredCandidate;
+    }
     if (!inferredMeridiem) return null;
     const parsedWithInferred = parseClockTextToMinutes(`${text} ${inferredMeridiem}`);
     if (index === 0 && inferredMeridiem === "pm" && matches[1]) {
@@ -437,6 +488,19 @@ function extractTimeRange(value: string) {
         amCandidate < endMinutes
       ) {
         return amCandidate;
+      }
+    }
+    if (index === 0 && inferredMeridiem === "am" && matches[1]) {
+      const endMinutes = parseClockTextToMinutes(matches[1]);
+      const pmCandidate = parseClockTextToMinutes(`${text} pm`);
+      if (
+        parsedWithInferred !== null &&
+        endMinutes !== null &&
+        parsedWithInferred > endMinutes &&
+        pmCandidate !== null &&
+        pmCandidate > endMinutes
+      ) {
+        return pmCandidate;
       }
     }
     return parsedWithInferred;
@@ -697,7 +761,7 @@ function hasPhysicalEventLocation(value?: string | null) {
 }
 
 function toDisplayTime(totalMinutes: number) {
-  const normalized = ((totalMinutes % (24 * 60)) + 24 * 60) % (24 * 60);
+  const normalized = ((totalMinutes % MINUTES_PER_DAY) + MINUTES_PER_DAY) % MINUTES_PER_DAY;
   const hours = Math.floor(normalized / 60);
   const minutes = normalized % 60;
   const suffix = hours >= 12 ? "PM" : "AM";
@@ -705,8 +769,32 @@ function toDisplayTime(totalMinutes: number) {
   return `${twelveHour}:${String(minutes).padStart(2, "0")} ${suffix}`;
 }
 
+function getMinuteDayOffset(totalMinutes: number) {
+  return Math.floor(Math.max(0, Math.floor(totalMinutes)) / MINUTES_PER_DAY);
+}
+
+function formatDayOffset(offset: number) {
+  return offset > 0 ? ` (+${offset} day${offset === 1 ? "" : "s"})` : "";
+}
+
+function formatTimeWithDayOffset(totalMinutes: number) {
+  return `${toDisplayTime(totalMinutes)}${formatDayOffset(getMinuteDayOffset(totalMinutes))}`;
+}
+
 function formatRange(start: number, end: number) {
-  return `${toDisplayTime(start)} - ${toDisplayTime(end)}`;
+  const startOffset = getMinuteDayOffset(start);
+  const endOffset = getMinuteDayOffset(end);
+  if (startOffset === endOffset) {
+    return `${toDisplayTime(start)} - ${toDisplayTime(end)}${formatDayOffset(endOffset)}`;
+  }
+  return `${toDisplayTime(start)}${formatDayOffset(startOffset)} - ${toDisplayTime(end)}${formatDayOffset(endOffset)}`;
+}
+
+function formatReferenceEndDetail(startMinutes: number | null, endMinutes: number | null) {
+  const normalizedEndMinutes = normalizeEndMinutesForRange(startMinutes, endMinutes);
+  if (startMinutes === null || normalizedEndMinutes === null) return "";
+  const durationMinutes = Math.max(normalizedEndMinutes - startMinutes, 0);
+  return `Reference event end: ${formatTimeWithDayOffset(normalizedEndMinutes)} • ${durationMinutes} min window`;
 }
 
 function getPreviewDocumentParts(html: string) {
@@ -1036,45 +1124,54 @@ function buildScheduleTimeline(args: {
   beforeRotationDayBlocks: DayBlockConfig[];
   afterRotationDayBlocks: DayBlockConfig[];
   specificTimeDayBlocks: DayBlockConfig[];
+  referenceEndMinutes?: number | null;
 }) {
   const timeline: TimelineBlock[] = [];
   const rotationStart = args.parsedStartMinutes;
   const rotationEnd = args.rounds.length ? args.rounds[args.rounds.length - 1].end : rotationStart;
+  const normalizedScheduleEndReference = Math.max(rotationEnd, args.referenceEndMinutes ?? rotationEnd);
+  const normalizeTimelineClock = (minutes: number | null) =>
+    normalizeClockMinutesForSchedule(minutes, rotationStart, normalizedScheduleEndReference);
+  const staffArrivalMinutes = normalizeTimelineClock(args.parsedStaffArrival);
+  const spArrivalMinutes = normalizeTimelineClock(args.parsedSpArrival);
+  const facultyArrivalMinutes = normalizeTimelineClock(args.parsedFacultyArrival);
+  const staffArrivalBeforeRotation =
+    staffArrivalMinutes !== null && staffArrivalMinutes < rotationStart ? staffArrivalMinutes : null;
 
   if (args.parsedRoomSetup > 0) {
     timeline.push({
       label: "Room Setup",
-      start: Math.max(args.parsedStaffArrival ?? rotationStart, rotationStart - args.parsedRoomSetup),
+      start: Math.max(staffArrivalBeforeRotation ?? rotationStart - args.parsedRoomSetup, rotationStart - args.parsedRoomSetup),
       end: rotationStart,
       detail: `${args.parsedRoomSetup} minutes`,
       tone: "setup",
     });
   }
 
-  if (args.parsedStaffArrival !== null && args.parsedStaffArrival < rotationStart) {
+  if (staffArrivalMinutes !== null && staffArrivalMinutes < rotationStart) {
     timeline.push({
       label: "Staff Arrival",
-      start: args.parsedStaffArrival,
+      start: staffArrivalMinutes,
       end: rotationStart,
       detail: "Staff on site before session start",
       tone: "setup",
     });
   }
 
-  if (args.parsedSpArrival !== null && args.parsedSpArrival < rotationStart) {
+  if (spArrivalMinutes !== null && spArrivalMinutes < rotationStart) {
     timeline.push({
       label: "SP Arrival",
-      start: args.parsedSpArrival,
+      start: spArrivalMinutes,
       end: rotationStart,
       detail: "SP check-in window",
       tone: "setup",
     });
   }
 
-  if (args.parsedFacultyArrival !== null && args.parsedFacultyArrival < rotationStart) {
+  if (facultyArrivalMinutes !== null && facultyArrivalMinutes < rotationStart) {
     timeline.push({
       label: "Faculty Arrival",
-      start: args.parsedFacultyArrival,
+      start: facultyArrivalMinutes,
       end: rotationStart,
       detail: "Faculty prep window",
       tone: "setup",
@@ -1173,7 +1270,7 @@ function buildScheduleTimeline(args: {
   }
 
   args.specificTimeDayBlocks.forEach((block) => {
-    const start = toMinutes(block.specificTime);
+    const start = normalizeTimelineClock(toMinutes(block.specificTime));
     const minutes = parseNumber(block.durationMinutes, 0);
     if (start === null || minutes <= 0) return;
     timeline.push({
@@ -2550,6 +2647,11 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     roomLabel === "Breakout Room" ? "Students per breakout room" : "Students per room";
 
   const parsedStartMinutes = toMinutes(startTime);
+  const parsedReferenceEndMinutes = toMinutes(timeSource.endTime);
+  const normalizedReferenceEndMinutes =
+    parsedStartMinutes !== null
+      ? normalizeEndMinutesForRange(parsedStartMinutes, parsedReferenceEndMinutes)
+      : null;
   const parsedRounds = parseNumber(roundCount, 4);
   const parsedExamRooms = parseNumber(examRoomCount, 4);
   const parsedRoomCapacity = Math.max(1, parseNumber(roomCapacity, 1));
@@ -2645,6 +2747,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       beforeRotationDayBlocks,
       afterRotationDayBlocks,
       specificTimeDayBlocks,
+      referenceEndMinutes: normalizedReferenceEndMinutes,
     });
 
     return {
@@ -2664,20 +2767,21 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     parsedEncounter,
     parsedExamRooms,
     parsedFacultyArrival,
-      parsedFacultyPrebrief,
-      effectiveFlexCapacity,
-      effectiveFlexRoomCount,
-      parsedRoomCapacity,
-      parsedRoomSetup,
-      parsedSessionLength,
-      parsedSpArrival,
-      parsedSpPrebrief,
-      parsedStaffArrival,
-      parsedStartMinutes,
-      parsedStudentPrebrief,
-      timingVisibility,
-      specificTimeDayBlocks,
-    ]);
+    parsedFacultyPrebrief,
+    effectiveFlexCapacity,
+    effectiveFlexRoomCount,
+    parsedRoomCapacity,
+    parsedRoomSetup,
+    parsedSessionLength,
+    parsedSpArrival,
+    parsedSpPrebrief,
+    parsedStaffArrival,
+    parsedStartMinutes,
+    parsedStudentPrebrief,
+    normalizedReferenceEndMinutes,
+    timingVisibility,
+    specificTimeDayBlocks,
+  ]);
   const scheduleOverrunAdvisory = useMemo(() => {
     if (!(parsedSessionLength > 0 && generated.overrunMinutes > 0)) return "";
 
@@ -2706,6 +2810,16 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     if (parsedSessionLength > MAX_IMPORTED_ROUND_TARGET_MINUTES) {
       messages.push(`Round target ${parsedSessionLength} minutes is ignored to prevent inflated round blocks.`);
     }
+    if (asText(timeSource.endTime) && parsedReferenceEndMinutes === null) {
+      messages.push("Reference event end time could not be read; generated rounds will use configured block durations only.");
+    }
+    if (
+      parsedStartMinutes !== null &&
+      normalizedReferenceEndMinutes !== null &&
+      normalizedReferenceEndMinutes - parsedStartMinutes > 16 * 60
+    ) {
+      messages.push("Reference event window is unusually long; verify the imported start/end times before exporting.");
+    }
     const ignoredRecurringBlocks = normalizedDayBlocks.filter((block) => {
       const duration = parseNumber(block.durationMinutes, 0);
       return (
@@ -2720,7 +2834,17 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       );
     }
     return messages;
-  }, [normalizedDayBlocks, parsedEncounter, parsedSessionLength, parsedStartMinutes, startTime, timingVisibility]);
+  }, [
+    normalizedDayBlocks,
+    normalizedReferenceEndMinutes,
+    parsedEncounter,
+    parsedReferenceEndMinutes,
+    parsedSessionLength,
+    parsedStartMinutes,
+    startTime,
+    timeSource.endTime,
+    timingVisibility,
+  ]);
 
   const learnerRoster = useMemo(
     () => buildLearnerRoster(uploadedLearners, Math.max(slotsPerRound, 1), generated.rounds.length),
@@ -2888,7 +3012,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
 
   const selectedEventSummaryTime = useMemo(() => {
     if (parsedStartMinutes === null || !generated.rounds.length) return "";
-    return `${toDisplayTime(parsedStartMinutes)} - ${toDisplayTime(generated.rotationEnd)}`;
+    return formatRange(parsedStartMinutes, generated.rotationEnd);
   }, [generated.rotationEnd, generated.rounds.length, parsedStartMinutes]);
   const studentScheduleGridRows = useMemo(
     () => buildScheduleGridPreviewRows(studentPreviewRounds, studentPreviewTimeline),
@@ -3049,7 +3173,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     Boolean(parsedStaffArrival !== null || parsedSpArrival !== null || parsedFacultyArrival !== null) ||
     manualRoundOverride;
   const currentTimeSourceLabel = startTime === timeSource.startTime ? timeSource.label : "Edited in builder";
-  const referenceEndTimeLabel = timeSource.endTime ? toDisplayTime(toMinutes(timeSource.endTime) || 0) : "";
+  const referenceEndTimeLabel = formatReferenceEndDetail(parsedStartMinutes, parsedReferenceEndMinutes);
 
   function handleStartTimeChange(value: string) {
     setStartTime(value);
@@ -3768,10 +3892,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                 <div className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
                   <div className="cfsp-label">End Time</div>
                   <div className="mt-2 text-base font-black text-[#14304f]">
-                    {generated.rounds.length ? toDisplayTime(rotationEnd) : "Not generated yet"}
+                    {generated.rounds.length ? formatTimeWithDayOffset(rotationEnd) : "Not generated yet"}
                   </div>
                   <div className="mt-2 text-xs font-semibold text-[#5e7388]">
-                    {referenceEndTimeLabel ? `Reference event end: ${referenceEndTimeLabel}` : "Calculated from the builder settings"}
+                    {referenceEndTimeLabel || "Calculated from the builder settings"}
                   </div>
                 </div>
                 <div className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
@@ -3859,10 +3983,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                   <div className="grid gap-2">
                     <span className="cfsp-label">End time</span>
                     <div className="cfsp-input flex items-center bg-[#eef5fb] font-black text-[#14304f]">
-                      {generated.rounds.length ? toDisplayTime(rotationEnd) : "Not generated yet"}
+                      {generated.rounds.length ? formatTimeWithDayOffset(rotationEnd) : "Not generated yet"}
                     </div>
                     <span className="text-xs font-semibold text-[#5e7388]">
-                      {referenceEndTimeLabel ? `Reference event end: ${referenceEndTimeLabel}` : "Calculated from rounds and block settings"}
+                      {referenceEndTimeLabel || "Calculated from rounds and block settings"}
                     </span>
                   </div>
                 </div>

@@ -37,6 +37,7 @@ const EVENT_TYPE_OPTIONS: Array<{ value: EventType; label: string }> = [
 ];
 
 const STEP_TITLES = ["Event Info", "Schedule Builder", "Staffing Needs", "Review & Create"] as const;
+const MINUTES_PER_DAY = 24 * 60;
 
 const TRAINING_REQUIREMENT_OPTIONS: Array<{ value: TrainingRequirement; label: string }> = [
   { value: "tbd", label: "TBD" },
@@ -71,17 +72,23 @@ function toMinutes(value: string) {
 }
 
 function toTimeString(totalMinutes: number) {
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
+  const normalized = ((totalMinutes % MINUTES_PER_DAY) + MINUTES_PER_DAY) % MINUTES_PER_DAY;
+  const hours = Math.floor(normalized / 60);
+  const minutes = normalized % 60;
   return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:00`;
 }
 
 function toDisplayTime(totalMinutes: number) {
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
+  const normalized = ((totalMinutes % MINUTES_PER_DAY) + MINUTES_PER_DAY) % MINUTES_PER_DAY;
+  const hours = Math.floor(normalized / 60);
+  const minutes = normalized % 60;
   const suffix = hours >= 12 ? "PM" : "AM";
   const normalizedHours = hours % 12 || 12;
   return `${normalizedHours}:${String(minutes).padStart(2, "0")} ${suffix}`;
+}
+
+function normalizeEndMinutes(startMinutes: number, endMinutes: number) {
+  return endMinutes < startMinutes ? endMinutes + MINUTES_PER_DAY : endMinutes;
 }
 
 function displayStoredTime(value: string) {
@@ -136,8 +143,9 @@ function countRoundsThatFit(args: {
   feedbackLengthMinutes: number;
 }) {
   const startMinutes = toMinutes(args.startTime);
-  const endMinutes = toMinutes(args.endTime);
-  if (startMinutes === null || endMinutes === null) return 0;
+  const parsedEndMinutes = toMinutes(args.endTime);
+  if (startMinutes === null || parsedEndMinutes === null) return 0;
+  const endMinutes = normalizeEndMinutes(startMinutes, parsedEndMinutes);
   if (endMinutes <= startMinutes) return 0;
   if (args.sessionLengthMinutes <= 0) return 0;
 
@@ -164,8 +172,9 @@ function buildRotationRounds(args: {
   studentCount: number;
 }) {
   const startMinutes = toMinutes(args.startTime);
-  const endMinutes = toMinutes(args.endTime);
-  if (startMinutes === null || endMinutes === null) return [];
+  const parsedEndMinutes = toMinutes(args.endTime);
+  if (startMinutes === null || parsedEndMinutes === null) return [];
+  const endMinutes = normalizeEndMinutes(startMinutes, parsedEndMinutes);
   if (endMinutes <= startMinutes) return [];
   if (args.sessionLengthMinutes <= 0) return [];
   if (args.roomCount <= 0) return [];

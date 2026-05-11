@@ -17,7 +17,15 @@ import {
   isSkillsWorkshopEvent,
   type EventDisplayType,
 } from "../../lib/eventClassification";
-import { formatDisplayTime, parseTimeToMinutes } from "../../lib/timeFormat";
+import {
+  MINUTES_PER_DAY,
+  formatDisplayMinuteRange,
+  formatDisplayTime,
+  formatDisplayTimeFromMinutes,
+  normalizeClockMinutesForWindow,
+  normalizeEndMinutesForRange,
+  parseTimeToMinutes,
+} from "../../lib/timeFormat";
 import {
   editableEventTypeLabels,
   type EditableEventType,
@@ -2014,16 +2022,11 @@ function formatAttendanceTimestamp(value?: string | null) {
 }
 
 function formatMinutesAsClockLabel(totalMinutes: number) {
-  const normalized = ((Math.floor(totalMinutes) % 1440) + 1440) % 1440;
-  const hours = Math.floor(normalized / 60);
-  const minutes = normalized % 60;
-  const suffix = hours >= 12 ? "PM" : "AM";
-  const displayHour = hours % 12 || 12;
-  return `${displayHour}:${String(minutes).padStart(2, "0")} ${suffix}`;
+  return formatDisplayTimeFromMinutes(totalMinutes);
 }
 
 function formatMinuteRange(startMinutes: number, endMinutes: number) {
-  return `${formatMinutesAsClockLabel(startMinutes)} - ${formatMinutesAsClockLabel(endMinutes)}`;
+  return formatDisplayMinuteRange(startMinutes, endMinutes);
 }
 
 function getSpHiringWindowStartTime(startTimeText?: string | null, leadMinutes = HIRING_WORK_WINDOW_DEFAULT_LEAD_MINUTES) {
@@ -2031,7 +2034,7 @@ function getSpHiringWindowStartTime(startTimeText?: string | null, leadMinutes =
   if (startMinutes === null) return "";
 
   const effectiveLeadMinutes = Math.max(0, Number.isFinite(leadMinutes) ? leadMinutes : HIRING_WORK_WINDOW_DEFAULT_LEAD_MINUTES);
-  const windowStartMinutes = ((startMinutes - effectiveLeadMinutes) % 1440 + 1440) % 1440;
+  const windowStartMinutes = ((startMinutes - effectiveLeadMinutes) % MINUTES_PER_DAY + MINUTES_PER_DAY) % MINUTES_PER_DAY;
   return formatMinutesAsClockLabel(windowStartMinutes);
 }
 
@@ -2874,8 +2877,83 @@ function getRotationRoundDurationMinutes(round: RotationRound) {
   const startMinutes = parseTimeToMinutes(round.start_time);
   const endMinutes = parseTimeToMinutes(round.end_time);
   if (startMinutes === null || endMinutes === null) return null;
-  const adjustedEndMinutes = endMinutes < startMinutes ? endMinutes + 24 * 60 : endMinutes;
+  const adjustedEndMinutes = normalizeEndMinutesForRange(startMinutes, endMinutes);
+  if (adjustedEndMinutes === null) return null;
   return Math.max(adjustedEndMinutes - startMinutes, 0);
+}
+
+function isOvernightSessionGroup<T extends { start_time?: string | null; end_time?: string | null }>(
+  sessions: T[]
+) {
+  const starts = sessions
+    .map((session) => parseTimeToMinutes(session.start_time))
+    .filter((minutes): minutes is number => minutes !== null);
+  if (!starts.length) return false;
+
+  const hasExplicitRollover = sessions.some((session) => {
+    const start = parseTimeToMinutes(session.start_time);
+    const end = parseTimeToMinutes(session.end_time);
+    return start !== null && end !== null && end < start;
+  });
+  const hasLateAndEarlyStarts =
+    starts.some((minutes) => minutes >= 18 * 60) &&
+    starts.some((minutes) => minutes < 8 * 60);
+
+  return hasExplicitRollover || hasLateAndEarlyStarts;
+}
+
+function getOvernightAwareStartMinutes<T extends { start_time?: string | null }>(
+  item: T,
+  overnightGroup: boolean
+) {
+  const start = parseTimeToMinutes(item.start_time);
+  if (start === null) return Number.MAX_SAFE_INTEGER;
+  return overnightGroup && start < 8 * 60 ? start + MINUTES_PER_DAY : start;
+}
+
+function getNormalizedRotationRoundTiming(round: RotationRound, sameDateRounds: RotationRound[]) {
+  const rawStartMinutes = parseTimeToMinutes(round.start_time);
+  const rawEndMinutes = parseTimeToMinutes(round.end_time);
+  if (rawStartMinutes === null || rawEndMinutes === null) return null;
+
+  const overnightGroup = isOvernightSessionGroup(sameDateRounds);
+  const startMinutes = getOvernightAwareStartMinutes(round, overnightGroup);
+  let endMinutes = normalizeEndMinutesForRange(rawStartMinutes, rawEndMinutes);
+  if (startMinutes >= MINUTES_PER_DAY && endMinutes !== null && endMinutes < MINUTES_PER_DAY) {
+    endMinutes += MINUTES_PER_DAY;
+  }
+  if (endMinutes === null || endMinutes <= startMinutes) return null;
+  return { startMinutes, endMinutes };
+}
+
+function getSameDateRotationRounds(round: RotationRound, rounds: RotationRound[]) {
+  const dateKey = asText(round.session_date) || "date-tbd";
+  return rounds.filter((candidate) => (asText(candidate.session_date) || "date-tbd") === dateKey);
+}
+
+function sortEventSessionsForTimeline(sessions: EventSessionRow[], fallbackYear?: number | null) {
+  const groups = sessions.reduce<Map<string, EventSessionRow[]>>((map, session) => {
+    const dateKey = normalizeLooseDateToIso(session.session_date, fallbackYear) || asText(session.session_date) || "date-tbd";
+    map.set(dateKey, [...(map.get(dateKey) || []), session]);
+    return map;
+  }, new Map());
+  const overnightDateKeys = new Set<string>();
+  groups.forEach((dateSessions, dateKey) => {
+    if (isOvernightSessionGroup(dateSessions)) overnightDateKeys.add(dateKey);
+  });
+
+  return [...sessions].sort((a, b) => {
+    const aDate = normalizeLooseDateToIso(a.session_date, fallbackYear) || asText(a.session_date);
+    const bDate = normalizeLooseDateToIso(b.session_date, fallbackYear) || asText(b.session_date);
+    const dateCompare = aDate.localeCompare(bDate);
+    if (dateCompare !== 0) return dateCompare;
+    const aDateKey = aDate || "date-tbd";
+    const bDateKey = bDate || "date-tbd";
+    const aStart = getOvernightAwareStartMinutes(a, overnightDateKeys.has(aDateKey));
+    const bStart = getOvernightAwareStartMinutes(b, overnightDateKeys.has(bDateKey));
+    if (aStart !== bStart) return aStart - bStart;
+    return asText(a.id).localeCompare(asText(b.id));
+  });
 }
 
 function shouldKeepRotationRound(round: RotationRound, sameDateRounds: RotationRound[]) {
@@ -2939,13 +3017,18 @@ function buildRotationRounds(sessions: EventSessionRow[]): RotationRound[] {
     return shouldKeepRotationRound(round, roundsByDate.get(dateKey) || sortedRounds);
   });
   const displayRounds = filteredRounds.length ? filteredRounds : sortedRounds;
+  const overnightDateKeys = new Set<string>();
+  roundsByDate.forEach((dateRounds, dateKey) => {
+    if (isOvernightSessionGroup(dateRounds)) overnightDateKeys.add(dateKey);
+  });
 
   return displayRounds.sort((a, b) => {
     const dateCompare = asText(a.session_date).localeCompare(asText(b.session_date));
     if (dateCompare !== 0) return dateCompare;
-    const aStart = parseTimeToMinutes(a.start_time);
-    const bStart = parseTimeToMinutes(b.start_time);
-    if (aStart !== null && bStart !== null && aStart !== bStart) return aStart - bStart;
+    const dateKey = asText(a.session_date) || "date-tbd";
+    const aStart = getOvernightAwareStartMinutes(a, overnightDateKeys.has(dateKey));
+    const bStart = getOvernightAwareStartMinutes(b, overnightDateKeys.has(dateKey));
+    if (aStart !== bStart) return aStart - bStart;
     const startCompare = asText(a.start_time).localeCompare(asText(b.start_time));
     if (startCompare !== 0) return startCompare;
     const aDuration = getRotationRoundDurationMinutes(a);
@@ -3433,9 +3516,14 @@ async function fetchCommandCenterData(eventId: string): Promise<CommandCenterDat
       };
     }
 
+    const loadedEvent = body?.event || null;
+    const loadedSessions = Array.isArray(body?.sessions)
+      ? sortEventSessionsForTimeline(body.sessions, getImportedYearHint(loadedEvent?.notes))
+      : [];
+
     return {
-      event: body?.event || null,
-      sessions: Array.isArray(body?.sessions) ? body.sessions : [],
+      event: loadedEvent,
+      sessions: loadedSessions,
       sps: Array.isArray(body?.sps) ? [...body.sps].sort(sortSPs) : [],
       assignments: Array.isArray(body?.assignments) ? body.assignments : [],
       availabilityRows: Array.isArray(body?.availabilityRows) ? body.availabilityRows : [],
@@ -5054,7 +5142,34 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       return endMinutes;
     };
 
-    const firstRoundStartMinutes = parseTimeToMinutes(eventDayRounds[0]?.start_time);
+    const isOvernightEventDay = isOvernightSessionGroup(eventDayRounds);
+    const getRoundStartMinutes = (round: RotationRound | null | undefined) => {
+      if (!round || parseTimeToMinutes(round.start_time) === null) return null;
+      return getOvernightAwareStartMinutes(round, isOvernightEventDay);
+    };
+    const getRoundEndMinutes = (round: RotationRound | null | undefined) => {
+      if (!round) return null;
+      const rawStartMinutes = parseTimeToMinutes(round.start_time);
+      const rawEndMinutes = parseTimeToMinutes(round.end_time);
+      const normalizedStartMinutes = getRoundStartMinutes(round);
+      let normalizedEndMinutes = normalizeEndMinutesForRange(rawStartMinutes, rawEndMinutes);
+      if (
+        normalizedStartMinutes !== null &&
+        normalizedStartMinutes >= MINUTES_PER_DAY &&
+        normalizedEndMinutes !== null &&
+        normalizedEndMinutes < MINUTES_PER_DAY
+      ) {
+        normalizedEndMinutes += MINUTES_PER_DAY;
+      }
+      return normalizedEndMinutes;
+    };
+    const firstRoundStartMinutes = getRoundStartMinutes(eventDayRounds[0]);
+    const eventDayEndMinutes = eventDayRounds.reduce((latest, round) => {
+      const endMinutes = getRoundEndMinutes(round);
+      return endMinutes === null ? latest : Math.max(latest, endMinutes);
+    }, firstRoundStartMinutes ?? 0);
+    const normalizeEventDayClock = (minutes: number | null) =>
+      normalizeClockMinutesForWindow(minutes, firstRoundStartMinutes, eventDayEndMinutes);
     const configuredPrebriefMinutes = Math.max(
       parsePositiveInteger(scheduleBuilderPreviewDraft?.studentPrebriefMinutes, 0),
       parsePositiveInteger(scheduleBuilderPreviewDraft?.spPrebriefMinutes, 0),
@@ -5094,12 +5209,12 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     }
 
     eventDayRounds.forEach((round, index) => {
-      const startMinutes = parseTimeToMinutes(round.start_time);
-      const endMinutes = parseTimeToMinutes(round.end_time);
+      const startMinutes = getRoundStartMinutes(round);
+      const endMinutes = getRoundEndMinutes(round);
       if (startMinutes === null || endMinutes === null || endMinutes <= startMinutes) return;
 
       const nextRound = eventDayRounds[index + 1];
-      const nextStartMinutes = parseTimeToMinutes(nextRound?.start_time);
+      const nextStartMinutes = getRoundStartMinutes(nextRound);
       const applicableRecurringBlocks = recurringDayBlocks.filter((block) => {
         const placement = asText(block.placement).toLowerCase();
         if (placement === "after_each_rotation") return true;
@@ -5189,7 +5304,7 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     });
 
     specificTimeBlocks.forEach((block, index) => {
-      const startMinutes = parseTimeToMinutes(block.specificTime);
+      const startMinutes = normalizeEventDayClock(parseTimeToMinutes(block.specificTime));
       const durationMinutes = parsePositiveInteger(block.durationMinutes, 0);
       if (startMinutes === null || durationMinutes <= 0) return;
       pushScheduleBuilderBlock(
@@ -6970,7 +7085,11 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       return [] as Array<RoundCompanionBlock & { timeLabel: string }>;
     }
 
-    let cursorMinutes = parseTimeToMinutes(selectedRotationRound.end_time);
+    const selectedRoundTiming = getNormalizedRotationRoundTiming(
+      selectedRotationRound,
+      getSameDateRotationRounds(selectedRotationRound, rotationRounds)
+    );
+    let cursorMinutes = selectedRoundTiming?.endMinutes ?? null;
 
     return visibleSelectedRoundDayBlocks.map((block) => {
       const durationMinutes = block.durationMinutes ?? parseDurationMinutes(block.detail);
@@ -6983,7 +7102,7 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       }
       return { ...block, timeLabel };
     });
-  }, [selectedRotationRound, visibleSelectedRoundDayBlocks]);
+  }, [rotationRounds, selectedRotationRound, visibleSelectedRoundDayBlocks]);
   const selectedRoundLearnerScheduleReady =
     selectedRoundScheduleRows.some(
       (row) =>
@@ -7178,8 +7297,12 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       }>;
     }
 
-    const startMinutes = parseTimeToMinutes(selectedRotationRound.start_time);
-    const encounterEndMinutes = parseTimeToMinutes(selectedRotationRound.end_time);
+    const selectedRoundTiming = getNormalizedRotationRoundTiming(
+      selectedRotationRound,
+      getSameDateRotationRounds(selectedRotationRound, rotationRounds)
+    );
+    const startMinutes = selectedRoundTiming?.startMinutes ?? null;
+    const encounterEndMinutes = selectedRoundTiming?.endMinutes ?? null;
     if (startMinutes === null || encounterEndMinutes === null || encounterEndMinutes <= startMinutes) {
       return [] as Array<{
         key: string;
@@ -7191,7 +7314,10 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     }
 
     const nextRound = rotationRounds[activeSelectedRotationRoundIndex + 1] || null;
-    const nextRoundStartMinutes = nextRound ? parseTimeToMinutes(nextRound.start_time) : null;
+    const nextRoundTiming = nextRound
+      ? getNormalizedRotationRoundTiming(nextRound, getSameDateRotationRounds(nextRound, rotationRounds))
+      : null;
+    const nextRoundStartMinutes = nextRoundTiming?.startMinutes ?? null;
     const safeFeedbackMinutes = Math.max(feedbackMinutesFromMetadata, 0);
     const feedbackEndMinutes =
       safeFeedbackMinutes > 0
