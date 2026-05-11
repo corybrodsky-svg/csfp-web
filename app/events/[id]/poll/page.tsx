@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import SiteShell from "../../../components/SiteShell";
+import { ActionFeedback, useActionFeedback } from "../../../components/SaveActionFeedback";
 import { signOutUserAndRedirect } from "../../../lib/clientAuth";
 import { formatHumanDate } from "../../../lib/eventDateUtils";
 import { formatDisplayTime } from "../../../lib/timeFormat";
@@ -177,11 +178,14 @@ export default function EventPollResponsePage() {
   const [loading, setLoading] = useState(Boolean(id));
   const [saving, setSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
-  const [successMessage, setSuccessMessage] = useState("");
   const [payload, setPayload] = useState<PollPayload | null>(null);
   const [selectedResponse, setSelectedResponse] = useState<PollResponseData["current"]>(null);
   const [note, setNote] = useState("");
   const [signingOut, setSigningOut] = useState(false);
+  const { status: submitFeedback, begin: beginSubmit, done, fail } = useActionFeedback({
+    autoHideMs: 2200,
+    autoHideErrorMs: 3400,
+  });
 
   useEffect(() => {
     if (!id) return;
@@ -235,9 +239,9 @@ export default function EventPollResponsePage() {
       return;
     }
 
+    beginSubmit();
     setSaving(true);
     setErrorMessage("");
-    setSuccessMessage("");
 
     try {
       const response = await fetch(`/api/events/${encodeURIComponent(id)}/poll-response`, {
@@ -263,9 +267,11 @@ export default function EventPollResponsePage() {
             }
           : current
       );
-      setSuccessMessage("Availability saved.");
+      done("Availability saved.");
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Could not save your availability response.");
+      const message = error instanceof Error ? error.message : "Could not save your availability response.";
+      setErrorMessage(message);
+      fail(message);
     } finally {
       setSaving(false);
     }
@@ -515,9 +521,7 @@ export default function EventPollResponsePage() {
                   </div>
                 ) : null}
 
-                {successMessage ? (
-                  <div style={{ marginTop: "12px", color: "var(--cfsp-green)", fontWeight: 800 }}>{successMessage}</div>
-                ) : null}
+                <ActionFeedback feedback={submitFeedback} />
 
                 <div style={{ marginTop: "16px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
                   <button

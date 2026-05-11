@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import SiteShell from "../../components/SiteShell";
+import { ActionFeedback, useActionFeedback } from "../../components/SaveActionFeedback";
 
 type EventType = "sp" | "skills" | "training" | "virtual" | "hifi";
 type WizardStep = 0 | 1 | 2 | 3;
@@ -334,6 +335,10 @@ export default function NewEventPage() {
   const [step, setStep] = useState<WizardStep>(0);
   const [saving, setSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const { status: createEventFeedback, begin, done, fail } = useActionFeedback({
+    autoHideMs: 1200,
+    autoHideErrorMs: 3200,
+  });
 
   const [name, setName] = useState("");
   const [eventType, setEventType] = useState<EventType>("sp");
@@ -507,11 +512,13 @@ export default function NewEventPage() {
 
   async function handleCreate(event: React.FormEvent) {
     event.preventDefault();
+    begin();
     setSaving(true);
     setErrorMessage("");
 
     if (warnings.some((warning) => warning.toLowerCase().includes("required"))) {
       setErrorMessage("Please complete the required fields before creating the event.");
+      fail("Please complete the required fields before creating the event.");
       setSaving(false);
       return;
     }
@@ -538,19 +545,29 @@ export default function NewEventPage() {
 
       if (!response.ok) {
         setErrorMessage(body?.error || `Could not create event (${response.status}).`);
+        fail(body?.error || `Could not create event (${response.status}).`);
         setSaving(false);
         return;
       }
 
       const eventId = asText(body?.event?.id);
       if (eventId) {
-        router.push(`/events/${eventId}`);
+        done("Event created.");
+        setSaving(false);
+        window.setTimeout(() => {
+          router.push(`/events/${eventId}`);
+        }, 900);
         return;
       }
 
-      router.push("/events");
+      done("Event created.");
+      setSaving(false);
+      window.setTimeout(() => {
+        router.push("/events");
+      }, 900);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Could not create event.");
+      fail(error instanceof Error ? error.message : "Could not create event.");
       setSaving(false);
     }
   }
@@ -1037,6 +1054,7 @@ export default function NewEventPage() {
               <button type="submit" disabled={saving || step !== 3} className="cfsp-btn cfsp-btn-primary">
                 {saving ? "Creating..." : "Create Event"}
               </button>
+              <ActionFeedback feedback={createEventFeedback} />
             </div>
           </div>
         </form>

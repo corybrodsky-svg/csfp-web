@@ -21962,7 +21962,7 @@ Cory`;
                     disabled={saving}
                     style={{ ...buttonStyle, opacity: saving ? 0.65 : 1, position: "sticky", top: "12px" }}
                   >
-                    Save Event Details
+                    {saving ? "Saving..." : "Save Event Details"}
                   </button>
                 </div>
 

@@ -3,6 +3,7 @@
 import type { CSSProperties, FormEvent } from "react";
 import { useEffect, useMemo, useState } from "react";
 import SiteShell from "../components/SiteShell";
+import { ActionFeedback, useActionFeedback } from "../components/SaveActionFeedback";
 
 type SPRow = {
   id: string;
@@ -182,11 +183,11 @@ async function fetchSPs() {
 export default function SPPage() {
   const [sps, setSps] = useState<SPRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [query, setQuery] = useState("");
   const [form, setForm] = useState<NewSPForm>(emptyForm);
   const [showAddForm, setShowAddForm] = useState(false);
+  const { status: saveFeedback, begin, done, fail } = useActionFeedback();
 
   async function loadSPs() {
     try {
@@ -264,19 +265,19 @@ export default function SPPage() {
 
   async function handleCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setSaving(true);
+    begin();
     setErrorMessage("");
 
     if (!form.first_name.trim() && !form.last_name.trim()) {
       setErrorMessage("Enter at least a first or last name.");
-      setSaving(false);
+      fail("Enter at least one name field so CFSP can generate a full name.");
       return;
     }
 
     const fullName = buildFullName(form.first_name, form.last_name);
     if (!fullName) {
       setErrorMessage("Enter at least one name field so CFSP can generate a full name.");
-      setSaving(false);
+      fail("Enter at least one name field so CFSP can generate a full name.");
       return;
     }
 
@@ -305,17 +306,17 @@ export default function SPPage() {
 
       if (!response.ok) {
         setErrorMessage(await parseApiError(response));
-        setSaving(false);
+        fail(await parseApiError(response));
         return;
       }
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Could not create SP in Supabase.");
-      setSaving(false);
+      fail(error instanceof Error ? error.message : "Could not create SP in Supabase.");
       return;
     }
 
     setForm(emptyForm);
-    setSaving(false);
+    done("Saved SP");
     setShowAddForm(false);
     await loadSPs();
   }
@@ -446,8 +447,12 @@ export default function SPPage() {
               </div>
 
               <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-                <button type="submit" disabled={saving} style={{ ...buttonStyle, opacity: saving ? 0.7 : 1 }}>
-                  {saving ? "Saving..." : "Save SP to Supabase"}
+                <button
+                  type="submit"
+                  disabled={saveFeedback.state === "saving"}
+                  style={{ ...buttonStyle, opacity: saveFeedback.state === "saving" ? 0.7 : 1 }}
+                >
+                  {saveFeedback.state === "saving" ? "Saving..." : "Save SP to Supabase"}
                 </button>
                 <button
                   type="button"
@@ -456,6 +461,7 @@ export default function SPPage() {
                 >
                   Cancel
                 </button>
+                <ActionFeedback feedback={saveFeedback} />
               </div>
             </form>
           ) : null}

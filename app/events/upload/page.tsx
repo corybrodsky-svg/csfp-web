@@ -3,6 +3,7 @@
 import type { CSSProperties, FormEvent } from "react";
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { ActionFeedback, useActionFeedback } from "../../components/SaveActionFeedback";
 
 const shellStyle: CSSProperties = {
   minHeight: "100vh",
@@ -117,10 +118,17 @@ function toneForConfidence(label?: ImportEntry["confidenceLabel"]) {
 
 export default function EventUploadPage() {
   const [files, setFiles] = useState<File[]>([]);
-  const [saving, setSaving] = useState(false);
   const [applying, setApplying] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [summary, setSummary] = useState<ImportSummary | null>(null);
+  const { status: previewFeedback, begin: beginPreview, done: donePreview, fail: failPreview } = useActionFeedback({
+    autoHideMs: 2200,
+    autoHideErrorMs: 3200,
+  });
+  const { status: applyFeedback, begin: beginApply, done: doneApply, fail: failApply } = useActionFeedback({
+    autoHideMs: 2500,
+    autoHideErrorMs: 3500,
+  });
 
   const fileCountLabel = useMemo(() => {
     if (!files.length) return "No files selected";
@@ -160,9 +168,10 @@ export default function EventUploadPage() {
     }
 
     if (action === "preview") {
-      setSaving(true);
+      beginPreview();
       setSummary(null);
     } else {
+      beginApply();
       setApplying(true);
     }
 
@@ -179,20 +188,40 @@ export default function EventUploadPage() {
 
       if (!response.ok) {
         setErrorMessage(getErrorMessage(body, response));
+        if (action === "preview") {
+          failPreview(getErrorMessage(body, response));
+        } else {
+          failApply(getErrorMessage(body, response));
+        }
         return;
       }
 
       const normalized = normalizeSummary(body);
       if (!normalized) {
         setErrorMessage("Import finished, but the server returned an unexpected summary.");
+        if (action === "preview") {
+          failPreview("Import finished, but the server returned an unexpected summary.");
+        } else {
+          failApply("Import finished, but the server returned an unexpected summary.");
+        }
         return;
       }
 
       setSummary(normalized);
+      if (action === "preview") {
+        donePreview("Import preview built.");
+      } else {
+        doneApply("Import updates applied.");
+      }
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Import failed.");
+      const message = error instanceof Error ? error.message : "Import failed.";
+      setErrorMessage(message);
+      if (action === "preview") {
+        failPreview(message);
+      } else {
+        failApply(message);
+      }
     } finally {
-      setSaving(false);
       setApplying(false);
     }
   }
@@ -273,9 +302,10 @@ export default function EventUploadPage() {
           </div>
 
           <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-            <button type="submit" disabled={saving || applying} style={buttonStyle}>
-              {saving ? "Building Preview..." : "Preview Import"}
+            <button type="submit" disabled={previewFeedback.state === "saving" || applying} style={buttonStyle}>
+              {previewFeedback.state === "saving" ? "Building Preview..." : "Preview Import"}
             </button>
+            <ActionFeedback feedback={previewFeedback} />
             <button
               type="button"
               onClick={() => {
@@ -305,11 +335,12 @@ export default function EventUploadPage() {
               <button
                 type="button"
                 onClick={() => void submitImport("apply")}
-                disabled={applying || saving || confidentPreviewCount === 0}
+                disabled={applying || previewFeedback.state === "saving" || confidentPreviewCount === 0}
                 style={buttonStyle}
               >
                 {applying ? "Applying Updates..." : "Apply Confident Updates"}
               </button>
+              <ActionFeedback feedback={applyFeedback} />
               <div style={{ color: "#475569", fontWeight: 700, alignSelf: "center" }}>
                 Only exact and high-confidence matches are applied. Review items stay untouched.
               </div>
