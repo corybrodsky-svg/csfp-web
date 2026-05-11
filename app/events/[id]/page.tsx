@@ -370,7 +370,10 @@ type WorkflowGroupKey =
   | "staffing"
   | "materials"
   | "communications"
-  | "live_readiness";
+  | "live_readiness"
+  | "staffing_window"
+  | "operations_support_window"
+  | "materials_communications_window";
 
 type WorkflowReadinessStatus =
   | "Ready"
@@ -395,6 +398,8 @@ type WorkflowReadinessItem = {
   status: WorkflowReadinessStatus;
   value: string;
   explanation: string;
+  missingItems?: string[];
+  howToFix?: string;
   actions?: WorkflowReadinessAction[];
 };
 
@@ -9082,14 +9087,18 @@ Cory`;
       : []),
   ];
   const scheduleSummaryActions = scheduleWorkflowActions;
-  const staffingTrainingRows: Array<{
+  type PlanningWindowRow = {
     key: string;
     label: string;
     value: string;
     detail?: string;
     tone?: OperationalStatusTone;
     actions?: React.ReactNode;
-  }> = [
+    readinessActions?: WorkflowReadinessAction[];
+    readinessHowToFix?: string;
+  };
+
+  const staffingTrainingRows: PlanningWindowRow[] = [
     ...(staffingRelevant
       ? [
           {
@@ -9101,6 +9110,8 @@ Cory`;
               backupCount > 0
                 ? `${backupCount} backup selected as optional support.`
                 : "Backup optional unless the event team wants overflow coverage.",
+            readinessActions: [{ label: "Open Staffing Command Center", href: "#staffing-command-center" }],
+            readinessHowToFix: "Close staffing gaps by adding primary SP assignments in Staffing Command Center.",
           },
           {
             key: "staffing_health",
@@ -9108,6 +9119,8 @@ Cory`;
             value: staffingHealthLabel,
             tone: (coverageRiskTone === "green" ? "ready" : coverageRiskTone === "red" ? "critical" : "attention") as OperationalStatusTone,
             detail: coverageRiskTone === "green" ? "Coverage target is met." : `Short by ${Math.max(needed - confirmedCount, 0)} primary.`,
+            readinessActions: [{ label: "Open Staffing Command Center", href: "#staffing-command-center" }],
+            readinessHowToFix: "Ensure staffing health is green before schedule build and publication.",
           },
         ]
       : []),
@@ -9123,10 +9136,12 @@ Cory`;
             : trainingReadinessStatus === "Needs Action"
               ? "attention"
               : "info") as OperationalStatusTone,
-      detail: trainingBlocksEvent
-        ? eventSummaryTrainingSubvalue || "Training is blocking event readiness."
-        : eventSummaryTrainingSubvalue || normalEventTrainingTimelineLabel,
-    },
+            detail: trainingBlocksEvent
+              ? eventSummaryTrainingSubvalue || "Training is blocking event readiness."
+              : eventSummaryTrainingSubvalue || normalEventTrainingTimelineLabel,
+            readinessActions: [{ label: "Open training info", href: "#coverage-actions" }],
+            readinessHowToFix: "Resolve required training readiness items before finalizing the event.",
+          },
     ...(!trainingNotRequired
       ? [
           {
@@ -9135,6 +9150,8 @@ Cory`;
             value: normalEventTrainingAttendanceLabel,
             tone: (trainingAttendanceReady ? "ready" : selectedStaffingCount > 0 ? "info" : "attention") as OperationalStatusTone,
             detail: `${selectedStaffingCount} selected SP${selectedStaffingCount === 1 ? "" : "s"} tracked for training readiness.`,
+            readinessActions: [{ label: "Open Staffing Command Center", href: "#staffing-command-center" }],
+            readinessHowToFix: "Complete training attendance checks and mark required participants as ready.",
           },
         ]
       : []),
@@ -9146,18 +9163,13 @@ Cory`;
             value: facultyTrainingCoordinationLabel,
             tone: (facultyReadinessComplete || facultyTrainingCoordinationSent ? "ready" : facultyTrainingCoordinationRequested ? "info" : "attention") as OperationalStatusTone,
             detail: facultyContactSummary || facultyReadinessLabel,
+            readinessActions: [{ label: "Edit contact info", href: "#coverage-actions" }],
+            readinessHowToFix: "Coordinate faculty availability and finalize training facilitation ownership.",
           },
         ]
       : []),
   ];
-  const supportRequirementRows: Array<{
-    key: string;
-    label: string;
-    value: string;
-    detail?: string;
-    tone?: OperationalStatusTone;
-    actions?: React.ReactNode;
-  }> = [
+  const supportRequirementRows: PlanningWindowRow[] = [
     ...(recordingSupportActive || trainingRecordingPlanned || operationalSupportSettings.recordingMonitorNeeded
       ? [
           {
@@ -9171,6 +9183,8 @@ Cory`;
                   ? "attention"
                   : "info") as OperationalStatusTone,
             detail: recordingIndicatorLabel,
+            readinessActions: [{ label: "Open Admin Controls", onClick: () => scrollToAdminTools() }],
+            readinessHowToFix: "Confirm whether recording should be active for this run and finalize status details.",
           },
         ]
       : []),
@@ -9182,6 +9196,11 @@ Cory`;
             value: trainingAccessUrl ? `${trainingModalityLabel} link ready` : trainingZoomRequired ? "Training link needed" : trainingModalityLabel,
             tone: (trainingAccessUrl ? "ready" : trainingZoomRequired ? "attention" : "info") as OperationalStatusTone,
             detail: trainingZoomRequired ? "Training logistics depend on the access link." : "Virtual logistics are optional for this event.",
+            readinessActions: [
+              ...(trainingAccessUrl ? [{ label: "Open Training Link", href: trainingAccessUrl }] : []),
+              { label: "Edit training settings", href: "#coverage-actions" },
+            ],
+            readinessHowToFix: "Set a valid virtual access link when virtual or required training is marked.",
           },
         ]
       : []),
@@ -9192,6 +9211,8 @@ Cory`;
         value: item.label,
         tone: "attention" as OperationalStatusTone,
         detail: "Surface this only because it affects live execution or staffing support.",
+        readinessActions: [{ label: "Open Admin Controls", onClick: () => scrollToAdminTools() }],
+        readinessHowToFix: "Review and address this support dependency before starting learner flow.",
       };
     }),
     ...(eventRiskLevel.tone !== "green"
@@ -9202,18 +9223,13 @@ Cory`;
             value: eventRiskLevel.label,
             tone: (eventRiskLevel.tone === "red" ? "critical" : "attention") as OperationalStatusTone,
             detail: eventRiskLevel.detail,
+            readinessActions: [{ label: "Open Admin Controls", onClick: () => scrollToAdminTools() }],
+            readinessHowToFix: "Mitigate highlighted risks so the runbook is aligned with current risk level.",
           },
         ]
       : []),
   ];
-  const communicationMaterialRows: Array<{
-    key: string;
-    label: string;
-    value: string;
-    detail?: string;
-    tone?: OperationalStatusTone;
-    actions?: React.ReactNode;
-  }> = [
+  const communicationMaterialRows: PlanningWindowRow[] = [
     {
       key: "materials",
       label: "Materials",
@@ -9227,6 +9243,25 @@ Cory`;
               ? "critical"
               : "info") as OperationalStatusTone,
       detail: eventMaterialName || (hasUploadedEventMaterial ? "Event material uploaded." : "No staff-facing event material uploaded yet."),
+      readinessActions: eventMaterialUrl
+        ? [
+            { label: "Preview", onClick: () => openEventMaterialPreview() },
+            ...(eventMaterialDownloadUrl
+              ? [
+                  {
+                    label: "Download",
+                    href: eventMaterialDownloadUrl,
+                    target: "_blank",
+                    rel: "noreferrer",
+                  },
+                ]
+              : []),
+            { label: "Manage Materials", onClick: () => focusAdminEditField("materials_readiness") },
+          ]
+        : [{ label: "Upload Event Material", onClick: () => focusAdminEditField("materials_readiness") }],
+      readinessHowToFix: eventMaterialUrl
+        ? "Keep final materials attached and verified before the event day."
+        : "Upload required materials so staff can prepare and execute the simulation.",
       actions: (
         <>
           {eventMaterialUrl ? (
@@ -9270,6 +9305,22 @@ Cory`;
               : caseFileDisplayName || "Case uploaded",
             tone: (uploadedCaseFileCount ? "ready" : caseFileCount || caseFileDisplayName ? "info" : "attention") as OperationalStatusTone,
             detail: "Keep the room-facing encounter packet close to the schedule.",
+            readinessActions: [
+              ...(primaryCaseFileEntry && (primaryCaseFileEntry.url || primaryCaseFileEntry.storagePath)
+                ? [
+                    {
+                      label: "Preview",
+                      onClick: () => openCaseFilePreview(primaryCaseFileEntry),
+                      disabled: !primaryCaseFileEntry,
+                    },
+                  ]
+                : []),
+              { label: "Manage cases", onClick: () => focusAdminEditField("case_files") },
+            ],
+            readinessHowToFix:
+              uploadedCaseFileCount > 0
+                ? "Keep the case packet current for learner and assessor prep."
+                : "Upload a case packet and make sure at least one case file is attached.",
             actions: (
               <>
                 {primaryCaseFileEntry && (primaryCaseFileEntry.url || primaryCaseFileEntry.storagePath) ? (
@@ -9316,6 +9367,21 @@ Cory`;
             value: hiringEmailSent ? "Hiring Email Sent" : hiringEmailDrafted ? "Hiring draft ready" : "Hiring not sent",
             tone: (hiringEmailSent ? "ready" : hiringEmailDrafted ? "info" : "attention") as OperationalStatusTone,
             detail: hiringEmailSent ? hiringEmailSentAt || "Persisted in event metadata." : "Launch from the staffing workflow when outreach is ready.",
+            readinessActions: hiringEmailSent
+              ? [{ label: "Open Hiring Email", onClick: () => setShowEmailDraft(true) }]
+              : [
+                  {
+                    label: "Open Hiring Email",
+                    onClick: () => {
+                      setShowEmailDraft(true);
+                      window.requestAnimationFrame(() => {
+                        document.getElementById("staffing-command-center")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                      });
+                    },
+                  },
+                  { label: "Open Admin Controls", onClick: scrollToAdminTools },
+                ],
+            readinessHowToFix: "Send the hiring email to lock in staffing confirmation and readiness status.",
             actions: hiringEmailSent ? null : (
               <>
                 <button
@@ -9346,6 +9412,21 @@ Cory`;
             value: confirmationEmailSent ? "Confirmation Sent" : confirmationEmailDrafted ? "Confirmation draft ready" : "Confirmation pending",
             tone: (confirmationEmailSent ? "ready" : confirmationEmailDrafted ? "info" : "attention") as OperationalStatusTone,
             detail: confirmationEmailSent ? confirmationEmailSentAt || "Persisted in event metadata." : "Use after primary SP assignments are confirmed.",
+            readinessActions: confirmationEmailSent
+              ? [{ label: "Open Confirmation", onClick: () => setShowConfirmationEmailPreview(true) }]
+              : [
+                  {
+                    label: "Open Confirmation",
+                    onClick: () => {
+                      setShowConfirmationEmailPreview(true);
+                      window.requestAnimationFrame(() => {
+                        document.getElementById("staffing-command-center")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                      });
+                    },
+                  },
+                  { label: "Open Admin Controls", onClick: scrollToAdminTools },
+                ],
+            readinessHowToFix: "Send confirmation after staffing decisions are made and validated.",
             actions: confirmationEmailSent ? null : (
               <>
                 <button
@@ -9382,6 +9463,17 @@ Cory`;
             detail: facultyTrainingCoordinationSent
               ? "Faculty scheduling outreach is logged in the event metadata."
               : "Track faculty availability before training logistics are finalized.",
+            readinessActions: facultyTrainingCoordinationSent
+              ? [{ label: "Open Admin Controls", onClick: scrollToAdminTools }]
+              : facultyEmails.length
+                ? [
+                    {
+                      label: "Request Faculty Availability",
+                      onClick: () => void handleDraftFacultyTrainingAvailabilityRequest(),
+                    },
+                  ]
+                : [{ label: "Add Faculty Email", onClick: () => focusAdminEditField("faculty_names") }],
+            readinessHowToFix: "Capture faculty coordination for training and confirm outreach completion.",
             actions:
               facultyTrainingCoordinationSent || !facultyEmails.length ? (
                 !facultyEmails.length ? (
@@ -9419,6 +9511,26 @@ Cory`;
             detail: [normalEventTrainingLink ? trainingModalityLabel : "", recordingGuideUrl ? "Recording support posted" : ""]
               .filter(Boolean)
               .join(" · "),
+            readinessActions: normalEventTrainingLink
+              ? [
+                  {
+                    label: "Open Training Link",
+                    href: normalEventTrainingLink,
+                  },
+                  { label: "Open Admin Controls", onClick: scrollToAdminTools },
+                ]
+              : recordingGuideUrl
+                ? [
+                    {
+                      label: "Open Recording",
+                      href: recordingGuideUrl,
+                    },
+                    { label: "Open Admin Controls", onClick: scrollToAdminTools },
+                  ]
+                : [{ label: "Add Training Access", onClick: () => focusAdminEditField("training_access") }],
+            readinessHowToFix: normalEventTrainingLink || recordingGuideUrl
+              ? "Keep training and recording links active for pre-event prep and after-event handoff."
+              : "Add the required training or recording links in training materials.",
             actions: (
               <>
                 {normalEventTrainingLink ? (
@@ -9447,6 +9559,56 @@ Cory`;
         ]
       : []),
   ];
+
+  function buildWindowNeedsActionItems(
+    rows: PlanningWindowRow[],
+    idPrefix: string,
+    scopeLabel: string
+  ): WorkflowReadinessItem[] {
+    return rows
+      .filter((row) => row.tone === "attention")
+      .map((row) => ({
+        id: `${idPrefix}:${row.key}`,
+        label: `${scopeLabel} · ${row.label}`,
+        status: "Needs Action",
+        value: row.value,
+        explanation: row.detail || "This action is required before the event can be finalized.",
+        missingItems: [row.detail || "Action details not available."],
+        howToFix: row.readinessHowToFix || "Address this action in the corresponding module section.",
+        actions: row.readinessActions,
+      }));
+  }
+
+  const staffingWindowNeedItems = buildWindowNeedsActionItems(staffingTrainingRows, "staffing-training", "Staffing & Training");
+  const operationsSupportWindowNeedItems = buildWindowNeedsActionItems(
+    supportRequirementRows,
+    "operations-support",
+    "Operations & Support"
+  );
+  const materialsCommunicationWindowNeedItems = buildWindowNeedsActionItems(
+    communicationMaterialRows,
+    "materials-communications",
+    "Materials & Communications"
+  );
+
+  const planningWindowReadinessGroups: WorkflowReadinessGroup[] = [
+    {
+      key: "staffing_window",
+      title: "Staffing & Training",
+      items: staffingWindowNeedItems,
+    },
+    {
+      key: "operations_support_window",
+      title: "Operations & Support",
+      items: operationsSupportWindowNeedItems,
+    },
+    {
+      key: "materials_communications_window",
+      title: "Materials & Communications",
+      items: materialsCommunicationWindowNeedItems,
+    },
+  ];
+
   const windowTonePriority: Record<OperationalStatusTone, number> = {
     info: 0,
     ready: 1,
@@ -9841,6 +10003,19 @@ Cory`;
   ];
   const workflowRequiredReadyIds = new Set(["staffing", "faculty", "materials", "schedule", "email"]);
   const workflowDetailActionStatuses = new Set<WorkflowReadinessStatus>(["Needs Action", "Blocked", "Not Started", "In Progress"]);
+  const readinessGroups: WorkflowReadinessGroup[] = [...workflowGroups, ...planningWindowReadinessGroups];
+  const planningWindowReadinessGroupByKey: Record<PlanningWindowKey, WorkflowGroupKey | null> = {
+    "event-status": null,
+    "staffing-training": "staffing_window",
+    "operations-support": "operations_support_window",
+    "materials-communications": "materials_communications_window",
+  };
+  const activeWindowReadinessGroup =
+    activeReadinessDetailId && activeReadinessDetailId.startsWith("window-group:")
+      ? readinessGroups.find(
+          (group) => group.key === activeReadinessDetailId.replace("window-group:", "")
+        ) || null
+      : null;
   const workflowReadyCount = workflowReportItems.filter((item) => item.status === "Ready" || item.status === "Optional").length;
   const workflowActionCount = workflowReportItems.filter((item) => workflowDetailActionStatuses.has(item.status)).length;
   const workflowRequiredReady = workflowReportItems
@@ -9852,7 +10027,7 @@ Cory`;
     ? "All required readiness systems are complete."
     : `${workflowReadyCount} ready / optional · ${workflowActionCount} action${workflowActionCount === 1 ? "" : "s"}`;
   const workflowDetailItemMap = new Map<string, WorkflowReadinessItem>();
-  workflowGroups.forEach((group) => {
+  readinessGroups.forEach((group) => {
     group.items.forEach((item) => {
       workflowDetailItemMap.set(item.id, item);
     });
@@ -9878,7 +10053,9 @@ Cory`;
             ...group,
             items: group.items.filter((item) => item.status === "Ready" || item.status === "Optional"),
           })).filter((group) => group.items.length > 0)
-      : workflowGroups
+      : activeWindowReadinessGroup
+        ? [activeWindowReadinessGroup]
+        : readinessGroups
           .map((group) => ({
             ...group,
             items: activeReadinessDetailItem ? group.items.filter((item) => item.id === activeReadinessDetailItem.id) : [],
@@ -12576,7 +12753,7 @@ Cory`;
 	                        ) : null}
 	                      </div>
 	                    </div>
-	                  );
+                  );
                 })}
               </div>
             )}
@@ -17626,6 +17803,22 @@ Cory`;
             <strong>Why it matters: </strong>
             <span>{item.explanation}</span>
           </div>
+          {item.missingItems && item.missingItems.length > 0 ? (
+            <div>
+              <strong>Missing details: </strong>
+              <ul style={{ marginTop: "5px", paddingLeft: "18px", lineHeight: 1.45 }}>
+                {item.missingItems.map((row) => (
+                  <li key={`${item.id}-${row}`}>{row}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {item.howToFix ? (
+            <div>
+              <strong>How to fix: </strong>
+              <span>{item.howToFix}</span>
+            </div>
+          ) : null}
         </div>
         {renderWorkflowReadinessActions(item.actions)}
       </div>
@@ -17666,16 +17859,22 @@ Cory`;
         <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", alignItems: "flex-start" }}>
           <div>
             <h3 style={{ margin: 0, color: "var(--cfsp-text)", fontSize: "18px", fontWeight: 950 }}>
-              {activeReadinessDetailId === "board" ? workflowBoardStatusLabel : activeReadinessDetailItem?.label || "Readiness details"}
+              {activeReadinessDetailId === "board"
+                ? workflowBoardStatusLabel
+                : activeWindowReadinessGroup
+                  ? activeWindowReadinessGroup.title
+                  : activeReadinessDetailItem?.label || "Readiness details"}
             </h3>
             <p style={{ ...compactSectionHintStyle, marginTop: "5px" }}>
               {activeReadinessDetailId === "board"
                 ? workflowActionDetailGroups.length
                   ? "Unresolved readiness items grouped by operational category."
                   : "All required readiness items are clear. Ready and optional items are shown below."
-                : activeReadinessDetailItem
-                  ? `${activeReadinessDetailItem.status} · ${activeReadinessDetailItem.value}`
-                  : "No readiness detail is available for this item."}
+                : activeWindowReadinessGroup
+                  ? `${activeWindowReadinessGroup.items.length} unresolved action${activeWindowReadinessGroup.items.length === 1 ? "" : "s"}.`
+                  : activeReadinessDetailItem
+                    ? `${activeReadinessDetailItem.status} · ${activeReadinessDetailItem.value}`
+                    : "No readiness detail is available for this item."}
             </p>
           </div>
           <button
@@ -18652,59 +18851,99 @@ Cory`;
                     summary: [materialsStatusLabel, hiringEmailSent ? "Hiring sent" : hiringEmailDrafted ? "Hiring draft" : "", confirmationEmailSent ? "Confirmation sent" : ""].filter(Boolean).slice(0, 2).join(" · "),
                     styles: materialsCommunicationWindowStyles,
                   },
-                ].map((windowCard) => (
-                  <section
-                    key={windowCard.key}
-                    style={{
-                      borderRadius: "18px",
-                      border: windowCard.styles.border,
-                      background: windowCard.styles.background,
-                      boxShadow: windowCard.styles.glow,
-                      padding: "14px",
-                      display: "grid",
-                      gap: "12px",
-                    }}
-                  >
-                    <button
-                      type="button"
-                      onClick={() => togglePlanningWindow(windowCard.key as PlanningWindowKey)}
+                ].map((windowCard) => {
+                  const readinessGroupKey = planningWindowReadinessGroupByKey[windowCard.key as PlanningWindowKey];
+                  const readinessGroup = readinessGroupKey
+                    ? readinessGroups.find((group) => group.key === readinessGroupKey) || null
+                    : null;
+                  const hasWindowNeedsActions = windowCard.tone === "attention" && (readinessGroup?.items.length ?? 0) > 0;
+                  const openWindowReadinessDetails = () => {
+                    if (!readinessGroup || readinessGroup.items.length === 0) return;
+                    setActiveReadinessDetailId(`window-group:${readinessGroup.key}`);
+                  };
+
+                  return (
+                    <section
+                      key={windowCard.key}
                       style={{
-                        display: "flex",
-                        justifyContent: "space-between",
+                        borderRadius: "18px",
+                        border: windowCard.styles.border,
+                        background: windowCard.styles.background,
+                        boxShadow: windowCard.styles.glow,
+                        padding: "14px",
+                        display: "grid",
                         gap: "12px",
-                        flexWrap: "wrap",
-                        alignItems: "flex-start",
-                        background: "transparent",
-                        border: "none",
-                        padding: 0,
-                        textAlign: "left",
-                        cursor: "pointer",
                       }}
                     >
-                      <div>
-                        <div style={{ ...statLabel, color: windowCard.styles.accent }}>{windowCard.title}</div>
-                        <div style={{ marginTop: "4px", color: commandCenterVisual.textColor, fontSize: "14px", fontWeight: 950, lineHeight: 1.3 }}>
-                          {windowCard.summary || windowCard.subtitle}
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => togglePlanningWindow(windowCard.key as PlanningWindowKey)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            togglePlanningWindow(windowCard.key as PlanningWindowKey);
+                          }
+                        }}
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          gap: "12px",
+                          flexWrap: "wrap",
+                          alignItems: "flex-start",
+                          background: "transparent",
+                          border: "none",
+                          padding: 0,
+                          textAlign: "left",
+                          cursor: "pointer",
+                        }}
+                      >
+                        <div>
+                          <div style={{ ...statLabel, color: windowCard.styles.accent }}>{windowCard.title}</div>
+                          <div style={{ marginTop: "4px", color: commandCenterVisual.textColor, fontSize: "14px", fontWeight: 950, lineHeight: 1.3 }}>
+                            {windowCard.summary || windowCard.subtitle}
+                          </div>
+                          <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 750, lineHeight: 1.45 }}>
+                            {windowCard.subtitle}
+                          </div>
                         </div>
-                        <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 750, lineHeight: 1.45 }}>
-                          {windowCard.subtitle}
+                        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              openWindowReadinessDetails();
+                            }}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter" || event.key === " ") {
+                                event.preventDefault();
+                                openWindowReadinessDetails();
+                              }
+                            }}
+                            disabled={!hasWindowNeedsActions}
+                            aria-label={hasWindowNeedsActions ? "Open action details" : "No unresolved readiness actions"}
+                            title={hasWindowNeedsActions ? "Open action details" : "No unresolved readiness actions"}
+                            style={{
+                              ...commandChipStyle,
+                              background: hasWindowNeedsActions ? "rgba(219, 234, 254, 0.94)" : windowCard.styles.chipBg,
+                              color: hasWindowNeedsActions ? "#1d4ed8" : windowCard.styles.chipColor,
+                              border: hasWindowNeedsActions ? "1px solid rgba(59, 130, 246, 0.26)" : windowCard.styles.chipBg,
+                              cursor: hasWindowNeedsActions ? "pointer" : "default",
+                            }}
+                          >
+                            {windowCard.tone === "ready"
+                              ? "Ready"
+                              : windowCard.tone === "critical"
+                                ? "Critical"
+                                : windowCard.tone === "attention"
+                                  ? "Needs Action"
+                                  : "In Progress"}
+                          </button>
+                          <span style={{ ...commandChipStyle, background: "rgba(15, 23, 42, 0.08)", color: commandCenterVisual.textColor }}>
+                            {planningWindowExpanded[windowCard.key as PlanningWindowKey] ? "Collapse" : "Expand"}
+                          </span>
                         </div>
                       </div>
-                      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "flex-end" }}>
-                        <span style={{ ...commandChipStyle, background: windowCard.styles.chipBg, color: windowCard.styles.chipColor }}>
-                          {windowCard.tone === "ready"
-                            ? "Ready"
-                            : windowCard.tone === "critical"
-                              ? "Critical"
-                              : windowCard.tone === "attention"
-                                ? "Needs Action"
-                                : "In Progress"}
-                        </span>
-                        <span style={{ ...commandChipStyle, background: "rgba(15, 23, 42, 0.08)", color: commandCenterVisual.textColor }}>
-                          {planningWindowExpanded[windowCard.key as PlanningWindowKey] ? "Collapse" : "Expand"}
-                        </span>
-                      </div>
-                    </button>
 
                     {planningWindowExpanded[windowCard.key as PlanningWindowKey] ? (
                       windowCard.rows.length ? (
@@ -18760,7 +18999,8 @@ Cory`;
                       )
                     ) : null}
                   </section>
-                ))}
+                  );
+                })}
               </div>
 
               <section
