@@ -2149,6 +2149,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const workflowSyncTimeoutRef = useRef<number | null>(null);
   const [showSchedulePreview, setShowSchedulePreview] = useState(false);
   const [previewKind, setPreviewKind] = useState<SchedulePreviewKind>(props.initialPreviewKind || "timeline");
+  const schedulePreviewFrameRef = useRef<HTMLIFrameElement | null>(null);
   const [showExpandedFlowDetails, setShowExpandedFlowDetails] = useState(false);
   const [activeFlowDetailKey, setActiveFlowDetailKey] = useState("");
   const [me, setMe] = useState<BuilderMeResponse | null>(null);
@@ -3133,7 +3134,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     }
   }
 
-  function handleExportSchedule() {
+  function handleRawTextExport() {
     const downloadBlob = new Blob([schedulePreview.text], { type: "text/plain;charset=utf-8" });
     const downloadUrl = URL.createObjectURL(downloadBlob);
     const anchor = document.createElement("a");
@@ -3148,12 +3149,20 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     showCopyMessage(`${schedulePreview.title} raw text export downloaded.`, "success", 2200);
   }
 
-  function handleStyledSchedulePrint(printIntent: "print" | "pdf") {
+  function handleRenderedSchedulePrint(printIntent: "print" | "pdf" | "export") {
+    if (printIntent !== "print") {
+      showCopyMessage("Choose Save as PDF in the print dialog to export this styled schedule.", "success", 3600);
+    }
+
     if (props.previewOnly) {
-      if (printIntent === "pdf") {
-        showCopyMessage("Choose Save as PDF in the print dialog to export this styled schedule.", "success", 3600);
-      }
       window.print();
+      return;
+    }
+
+    const frameWindow = schedulePreviewFrameRef.current?.contentWindow;
+    if (frameWindow) {
+      frameWindow.focus();
+      frameWindow.print();
       return;
     }
 
@@ -3169,10 +3178,6 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       popup.focus();
       popup.print();
     };
-
-    if (printIntent === "pdf") {
-      showCopyMessage("Choose Save as PDF in the print dialog to export the styled schedule.", "success", 3600);
-    }
   }
 
   const renderScheduleViewToggle = (isDark = false) => {
@@ -3259,9 +3264,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         }}
       >
         {[
-          { label: "Print schedule", onClick: () => handleStyledSchedulePrint("print") },
-          { label: "Download PDF", onClick: () => handleStyledSchedulePrint("pdf") },
-          { label: "Download/Export raw .txt", onClick: handleExportSchedule },
+          { label: "Print schedule", onClick: () => handleRenderedSchedulePrint("print") },
+          { label: "Download PDF", onClick: () => handleRenderedSchedulePrint("pdf") },
+          { label: "Download/Export", onClick: () => handleRenderedSchedulePrint("export") },
+          { label: "Raw Text Export", onClick: handleRawTextExport },
           { label: "Copy/share link", onClick: () => void handleShareOrCopyLink() },
         ].map((action) => (
           <button
@@ -4706,6 +4712,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                 </div>
                 <div style={{ minHeight: 0, background: "#ffffff", overflow: "auto" }}>
                   <iframe
+                    ref={schedulePreviewFrameRef}
                     title={schedulePreview.title}
                     srcDoc={schedulePreview.html}
                     style={{ width: "100%", height: "min(76vh, 860px)", border: "none", background: "#fff", display: "block" }}
