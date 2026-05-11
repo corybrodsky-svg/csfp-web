@@ -3928,6 +3928,7 @@ export default function EventDetailPage() {
   const [commandCenterMode, setCommandCenterMode] = useState<CommandCenterMode>("planning");
   const [commandFileCabinetExpanded, setCommandFileCabinetExpanded] = useState(false);
   const [expandedCommandFileCabinetModules, setExpandedCommandFileCabinetModules] = useState<Record<string, boolean>>({});
+  const [planningLivePreviewExpanded, setPlanningLivePreviewExpanded] = useState(false);
   const [selectedRotationRoundKey, setSelectedRotationRoundKey] = useState("");
   const [roundCompanionView, setRoundCompanionView] = useState<RotationCompanionView>("announcements");
   const [roundAnnouncementDrafts, setRoundAnnouncementDrafts] = useState<Record<string, string>>({});
@@ -8795,6 +8796,44 @@ Cory`;
     : recordingStatus.value === "recording_planned" || recordingStatus.value === "recorded"
       ? "Ready"
       : "Optional";
+  const planningLivePreviewPrimaryBlock = currentLiveBlock || nextLiveBlock || liveFlowBlocks[0] || null;
+  const planningLivePreviewPrimaryBlockIndex = planningLivePreviewPrimaryBlock
+    ? liveFlowBlocks.findIndex((block) => block.key === planningLivePreviewPrimaryBlock.key)
+    : -1;
+  const planningLivePreviewBlockStartIndex =
+    planningLivePreviewPrimaryBlockIndex >= 0 ? planningLivePreviewPrimaryBlockIndex : 0;
+  const planningLivePreviewBlocks = liveFlowBlocks.slice(
+    planningLivePreviewBlockStartIndex,
+    planningLivePreviewBlockStartIndex + 5
+  );
+  const planningLivePreviewNextBlock =
+    planningLivePreviewPrimaryBlockIndex >= 0
+      ? liveFlowBlocks[planningLivePreviewPrimaryBlockIndex + 1] || null
+      : nextLiveBlock || null;
+  const planningLivePreviewAlerts = [
+    staffingRelevant && shortageCount > 0
+      ? `${shortageCount} primary SP${shortageCount === 1 ? "" : "s"} still needed`
+      : "",
+    !rotationRounds.length ? "Schedule blocks are not built yet" : "",
+    !hasRoomsBuilt || effectiveRoomCount <= 0 ? "Room plan needs review" : "",
+    ...learnerPlannerMissingSignals,
+    materialsWorkflowNeedsAction ? `Materials need attention: ${materialsStatusLabel}` : "",
+    recordingReadinessStatus === "Needs Action" ? "Recording status needs review" : "",
+    ...liveSupportNeeds.map((item) => item.label),
+  ].filter(Boolean);
+  const planningLivePreviewReadinessLabel =
+    planningLivePreviewAlerts.length === 0 && eventRiskLevel.tone === "green"
+      ? "Ready for Live Mode"
+      : eventRiskLevel.label;
+  const planningLivePreviewReadinessTone: OperationalStatusTone =
+    planningLivePreviewAlerts.length === 0 && eventRiskLevel.tone === "green"
+      ? "ready"
+      : eventRiskLevel.tone === "red"
+        ? "critical"
+        : planningLivePreviewAlerts.length > 0
+          ? "attention"
+          : "info";
+  const planningLivePreviewReadinessStyles = getOperationalWindowStyles(planningLivePreviewReadinessTone);
 
   const eventMaterialDownloadUrl = eventMaterialUrl
     ? buildTrainingMaterialAssetUrls({
@@ -18350,9 +18389,9 @@ Cory`;
                   </div>
                 ) : null}
 
-                <div style={{ display: "grid", gap: "8px" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
-                    <div style={{ ...statLabel, color: "#12617f" }}>
+	                <div style={{ display: "grid", gap: "8px" }}>
+	                  <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+	                    <div style={{ ...statLabel, color: "#12617f" }}>
                       {selectedRotationRound ? `Round ${activeSelectedRotationRoundIndex + 1} assignment preview` : "Assignment preview"}
                     </div>
                     <span style={{ color: "#4d6678", fontSize: "11px", fontWeight: 800 }}>
@@ -18383,11 +18422,234 @@ Cory`;
                         </div>
                       </div>
                     ))}
-                  </div>
-                </div>
-              </section>
+	                  </div>
+	                </div>
+	              </section>
 
-              <details>
+	              <section
+	                style={{
+	                  borderRadius: "20px",
+	                  border: "1px solid rgba(45, 125, 160, 0.18)",
+	                  background:
+	                    "radial-gradient(circle at 10% 0%, rgba(126, 231, 219, 0.16), transparent 32%), radial-gradient(circle at 86% 12%, rgba(20, 91, 150, 0.1), transparent 30%), linear-gradient(135deg, rgba(255,255,255,0.98) 0%, rgba(239, 249, 252, 0.94) 58%, rgba(245, 249, 255, 0.96) 100%)",
+	                  boxShadow: "0 14px 30px rgba(20, 65, 95, 0.08), inset 0 1px 0 rgba(255,255,255,0.76)",
+	                  padding: "14px",
+	                  display: "grid",
+	                  gap: "12px",
+	                  position: "relative",
+	                  overflow: "hidden",
+	                }}
+	              >
+	                <div
+	                  aria-hidden="true"
+	                  style={{
+	                    position: "absolute",
+	                    inset: 0,
+	                    background:
+	                      "linear-gradient(rgba(20, 91, 150, 0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(20, 91, 150, 0.035) 1px, transparent 1px)",
+	                    backgroundSize: "24px 24px",
+	                    opacity: 0.42,
+	                    pointerEvents: "none",
+	                  }}
+	                />
+	                <div style={{ position: "relative", display: "grid", gap: "12px" }}>
+	                  <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "flex-start" }}>
+	                    <div>
+	                      <div style={{ ...statLabel, color: "#12617f" }}>Live Event Preview</div>
+	                      <div style={{ marginTop: "4px", color: "#102d44", fontWeight: 950, fontSize: "18px", letterSpacing: "0.01em" }}>
+	                        Planning-side live command preview
+	                      </div>
+	                      <div style={{ marginTop: "4px", color: "#4d6678", fontSize: "12px", fontWeight: 750, lineHeight: 1.45, maxWidth: "760px" }}>
+	                        Check the live-day sequence, blockers, staffing, materials, and schedule readiness before switching into Live Mode.
+	                      </div>
+	                    </div>
+	                    <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "flex-end", alignItems: "center" }}>
+	                      <span
+	                        style={{
+	                          ...commandChipStyle,
+	                          background: planningLivePreviewReadinessStyles.chipBg,
+	                          border: planningLivePreviewReadinessStyles.border,
+	                          color: planningLivePreviewReadinessStyles.accent,
+	                        }}
+	                      >
+	                        {planningLivePreviewReadinessLabel}
+	                      </span>
+	                      <span
+	                        style={{
+	                          ...commandChipStyle,
+	                          background: planningLivePreviewAlerts.length ? "rgba(237, 233, 254, 0.68)" : planningSuccessBackground,
+	                          border: planningLivePreviewAlerts.length ? "1px solid rgba(124, 58, 237, 0.16)" : planningSuccessBorder,
+	                          color: planningLivePreviewAlerts.length ? "#5b21b6" : planningSuccessText,
+	                        }}
+	                      >
+	                        {planningLivePreviewAlerts.length ? `${planningLivePreviewAlerts.length} alert${planningLivePreviewAlerts.length === 1 ? "" : "s"}` : "No active planning blockers"}
+	                      </span>
+	                      <button
+	                        type="button"
+	                        onClick={() => setPlanningLivePreviewExpanded((current) => !current)}
+	                        style={{ ...buttonStyle, padding: "7px 10px" }}
+	                        aria-expanded={planningLivePreviewExpanded}
+	                      >
+	                        {planningLivePreviewExpanded ? "Collapse" : "Expand"}
+	                      </button>
+	                    </div>
+	                  </div>
+
+	                  <div
+	                    style={{
+	                      borderRadius: "16px",
+	                      border: "1px solid rgba(96, 137, 164, 0.14)",
+	                      background: "rgba(255,255,255,0.66)",
+	                      padding: "10px 11px",
+	                      display: "grid",
+	                      gap: "8px",
+	                    }}
+	                  >
+	                    <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "baseline" }}>
+	                      <div>
+	                        <div style={{ color: "#57768a", fontSize: "10px", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.1em" }}>
+	                          Next live block
+	                        </div>
+	                        <div style={{ marginTop: "3px", color: "#122f46", fontSize: "15px", fontWeight: 950 }}>
+	                          {planningLivePreviewPrimaryBlock?.label || "No schedule blocks yet"}
+	                        </div>
+	                      </div>
+	                      <div style={{ color: "#496678", fontSize: "12px", fontWeight: 850, textAlign: "right" }}>
+	                        {planningLivePreviewPrimaryBlock
+	                          ? `${formatMinuteRange(planningLivePreviewPrimaryBlock.startMinutes, planningLivePreviewPrimaryBlock.endMinutes)}${planningLivePreviewPrimaryBlock.roundNumber ? ` · Round ${planningLivePreviewPrimaryBlock.roundNumber}` : ""}`
+	                          : "Build schedule to preview live flow"}
+	                      </div>
+	                    </div>
+	                    <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+	                      {planningLivePreviewBlocks.length ? (
+	                        planningLivePreviewBlocks.map((block, index) => {
+	                          const isPrimary = block.key === planningLivePreviewPrimaryBlock?.key;
+	                          const blockToneColor =
+	                            block.tone === "rotation"
+	                              ? "#145b96"
+	                              : block.tone === "break"
+	                                ? "#0f766e"
+	                                : block.tone === "support"
+	                                  ? "#5b21b6"
+	                                  : "#4d6678";
+	                          return (
+	                            <span
+	                              key={`planning-live-preview-block-${block.key}-${index}`}
+	                              title={`${block.label} • ${formatMinuteRange(block.startMinutes, block.endMinutes)} • ${block.detail}`}
+	                              style={{
+	                                ...commandChipStyle,
+	                                background: isPrimary ? `${blockToneColor}14` : "rgba(255,255,255,0.66)",
+	                                border: isPrimary ? `1px solid ${blockToneColor}33` : "1px solid rgba(96, 137, 164, 0.14)",
+	                                color: blockToneColor,
+	                                maxWidth: "220px",
+	                              }}
+	                            >
+	                              {block.roundNumber ? `Round ${block.roundNumber} · ` : ""}
+	                              {block.label}
+	                            </span>
+	                          );
+	                        })
+	                      ) : (
+	                        <span style={{ color: "#496678", fontSize: "12px", fontWeight: 800 }}>
+	                          No live flow blocks available yet.
+	                        </span>
+	                      )}
+	                    </div>
+	                  </div>
+
+	                  {planningLivePreviewExpanded ? (
+	                    <>
+	                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(145px, 1fr))", gap: "9px" }}>
+	                        {[
+	                          { label: "Event time", value: summaryTimeLabel || "Time TBD", detail: eventDateMarkerValue || "Date TBD" },
+	                          { label: "Rounds", value: String(activeRotationCount || rotationRounds.length || 0), detail: planningLivePreviewNextBlock ? `Next: ${planningLivePreviewNextBlock.label}` : "No next block" },
+	                          { label: "Rooms", value: String(effectiveRoomCount || selectedRoundRoomCount || 0), detail: hasRoomsBuilt ? "Room surface ready" : "Room plan pending" },
+	                          { label: "Learners", value: String(effectiveLearnerCount || learnerPlannerRosterCount || 0), detail: learnerAssignmentsIncomplete ? "Assignment review needed" : "Learner flow ready" },
+	                          { label: "SP coverage", value: needed > 0 ? `${confirmedCount}/${needed}` : `${confirmedCount}`, detail: shortageCount > 0 ? "Staffing gap" : "Coverage stable" },
+	                          { label: "Materials", value: materialsStatusLabel, detail: eventMaterialName || (hasUploadedEventMaterial ? "Packet loaded" : "No event packet uploaded") },
+	                          { label: "Recording", value: recordingStatus.label, detail: recordingIndicatorLabel || "Recording optional/not set" },
+	                          { label: "Support", value: liveSupportNeeds.length ? `${liveSupportNeeds.length} active` : "Clear", detail: liveSupportNeeds[0]?.label || "No active support signals" },
+	                        ].map((metric) => (
+	                          <div
+	                            key={`planning-live-preview-metric-${metric.label}`}
+	                            style={{
+	                              borderRadius: "14px",
+	                              border: "1px solid rgba(96, 137, 164, 0.16)",
+	                              background: "rgba(255,255,255,0.76)",
+	                              padding: "10px 11px",
+	                              display: "grid",
+	                              gap: "4px",
+	                              boxShadow: "inset 0 1px 0 rgba(255,255,255,0.72)",
+	                            }}
+	                          >
+	                            <div style={{ ...statLabel, color: "#57768a" }}>{metric.label}</div>
+	                            <div style={{ color: "#122f46", fontSize: "18px", fontWeight: 950, lineHeight: 1.1 }}>{metric.value}</div>
+	                            <div style={{ color: "#496678", fontSize: "11px", fontWeight: 750, lineHeight: 1.35 }}>{metric.detail}</div>
+	                          </div>
+	                        ))}
+	                      </div>
+
+	                      <div
+	                        style={{
+	                          borderRadius: "15px",
+	                          border: planningLivePreviewAlerts.length ? "1px solid rgba(124, 58, 237, 0.16)" : planningSuccessBorder,
+	                          background: planningLivePreviewAlerts.length ? "rgba(250, 245, 255, 0.72)" : planningSuccessBackground,
+	                          padding: "10px 11px",
+	                          display: "grid",
+	                          gap: "6px",
+	                        }}
+	                      >
+	                        <div style={{ ...statLabel, color: planningLivePreviewAlerts.length ? "#5b21b6" : planningSuccessText }}>
+	                          Planning-side operational alerts
+	                        </div>
+	                        {planningLivePreviewAlerts.length ? (
+	                          <div style={{ display: "grid", gap: "5px" }}>
+	                            {planningLivePreviewAlerts.slice(0, 6).map((alert) => (
+	                              <div key={`planning-live-preview-alert-${alert}`} style={{ color: "#4c1d95", fontSize: "12px", fontWeight: 820 }}>
+	                                {alert}
+	                              </div>
+	                            ))}
+	                          </div>
+	                        ) : (
+	                          <div style={{ color: planningSuccessText, fontSize: "12px", fontWeight: 820 }}>
+	                            No active planning blockers.
+	                          </div>
+	                        )}
+	                      </div>
+
+	                      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+	                        <button
+	                          type="button"
+	                          onClick={() => {
+	                            handleRotationCommandSurfaceOpenChange(true);
+	                            window.requestAnimationFrame(() => {
+	                              document.getElementById("round-operations")?.scrollIntoView({ behavior: "smooth", block: "start" });
+	                            });
+	                          }}
+	                          style={{ ...buttonStyle, padding: "8px 11px" }}
+	                        >
+	                          Open Round Operations
+	                        </button>
+	                        <button
+	                          type="button"
+	                          onClick={() => handleOpenEventScheduleRouteInNewTab("rotation", "schedule")}
+	                          style={{ ...buttonStyle, padding: "8px 11px" }}
+	                        >
+	                          Preview Schedule
+	                        </button>
+	                        <Link
+	                          href={expandedScheduleBuilderHref}
+	                          style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "8px 11px" }}
+	                        >
+	                          Open Schedule Builder
+	                        </Link>
+	                      </div>
+	                    </>
+	                  ) : null}
+	                </div>
+	              </section>
+
+	              <details>
                 <summary style={{ cursor: "pointer", color: commandCenterVisual.textColor, fontWeight: 800 }}>
                   Show full event details
                 </summary>
@@ -19072,8 +19334,8 @@ Cory`;
 
             </div>
 
-            {sessions.length ? (
-              <div style={{ marginTop: "10px" }}>
+	            {sessions.length ? (
+	              <div id="round-operations" style={{ marginTop: "10px" }}>
                 <div
                   style={{
                     padding: "2px 0 8px",
