@@ -1421,124 +1421,6 @@ function getSafeFileName(name: string) {
     .replace(/(^-|-$)/g, "");
 }
 
-function normalizePdfText(text: string) {
-  const replacements: Record<string, string> = {
-    "\u2013": "-",
-    "\u2014": "-",
-    "\u2018": "'",
-    "\u2019": "'",
-    "\u201c": '"',
-    "\u201d": '"',
-    "\u2022": "*",
-    "\u00b7": "-",
-    "\u00a0": " ",
-  };
-
-  return text.replace(/[^\x09\x0a\x0d\x20-\x7e]/g, (character) => replacements[character] || " ");
-}
-
-function escapePdfText(text: string) {
-  return normalizePdfText(text)
-    .replace(/\\/g, "\\\\")
-    .replace(/\(/g, "\\(")
-    .replace(/\)/g, "\\)");
-}
-
-function wrapPdfLine(line: string, maxCharacters: number) {
-  const normalizedLine = normalizePdfText(line).replace(/\s+/g, " ").trim();
-  if (!normalizedLine) return [""];
-  if (normalizedLine.length <= maxCharacters) return [normalizedLine];
-
-  const wrapped: string[] = [];
-  const words = normalizedLine.split(" ");
-  let currentLine = "";
-
-  words.forEach((word) => {
-    if (word.length > maxCharacters) {
-      if (currentLine) {
-        wrapped.push(currentLine);
-        currentLine = "";
-      }
-      for (let index = 0; index < word.length; index += maxCharacters) {
-        wrapped.push(word.slice(index, index + maxCharacters));
-      }
-      return;
-    }
-
-    const nextLine = currentLine ? `${currentLine} ${word}` : word;
-    if (nextLine.length > maxCharacters) {
-      wrapped.push(currentLine);
-      currentLine = word;
-    } else {
-      currentLine = nextLine;
-    }
-  });
-
-  if (currentLine) wrapped.push(currentLine);
-  return wrapped;
-}
-
-function buildSchedulePdfBlob(title: string, text: string) {
-  const normalizedTitle = normalizePdfText(title || "Schedule");
-  const sourceLines = [normalizedTitle, "", ...text.split(/\r?\n/)];
-  const wrappedLines = sourceLines.flatMap((line) => wrapPdfLine(line, 96));
-  const linesPerPage = 48;
-  const pages: string[][] = [];
-
-  for (let index = 0; index < wrappedLines.length; index += linesPerPage) {
-    pages.push(wrappedLines.slice(index, index + linesPerPage));
-  }
-
-  if (!pages.length) pages.push([normalizedTitle]);
-
-  const objects: string[] = [];
-  const addObject = (body: string) => {
-    objects.push(`${objects.length + 1} 0 obj\n${body}\nendobj\n`);
-    return objects.length;
-  };
-
-  addObject("<< /Type /Catalog /Pages 2 0 R >>");
-  addObject("");
-  const fontObjectNumber = addObject("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
-  const pageObjectNumbers: number[] = [];
-
-  pages.forEach((pageLines, pageIndex) => {
-    const contentLines = ["BT", "72 744 Td"];
-    pageLines.forEach((line, lineIndex) => {
-      const isTitle = pageIndex === 0 && lineIndex === 0;
-      contentLines.push(`/F1 ${isTitle ? "18" : "10"} Tf`);
-      contentLines.push(`(${escapePdfText(line)}) Tj`);
-      contentLines.push(`0 -${isTitle ? "24" : "14"} Td`);
-    });
-    contentLines.push("ET");
-
-    const stream = contentLines.join("\n");
-    const contentObjectNumber = addObject(`<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`);
-    const pageObjectNumber = addObject(
-      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 ${fontObjectNumber} 0 R >> >> /Contents ${contentObjectNumber} 0 R >>`
-    );
-    pageObjectNumbers.push(pageObjectNumber);
-  });
-
-  objects[1] = `2 0 obj\n<< /Type /Pages /Kids [${pageObjectNumbers.map((number) => `${number} 0 R`).join(" ")}] /Count ${pageObjectNumbers.length} >>\nendobj\n`;
-
-  let pdf = "%PDF-1.4\n";
-  const offsets = [0];
-  objects.forEach((object) => {
-    offsets.push(pdf.length);
-    pdf += object;
-  });
-
-  const xrefOffset = pdf.length;
-  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
-  offsets.slice(1).forEach((offset) => {
-    pdf += `${String(offset).padStart(10, "0")} 00000 n \n`;
-  });
-  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
-
-  return new Blob([pdf], { type: "application/pdf" });
-}
-
 function escapeHtml(text: string) {
   return text
     .replace(/&/g, "&amp;")
@@ -2095,9 +1977,14 @@ function buildSchedulePreviewData(args: {
             .wide-band-meta, .wide-band-note { font-size: 12px; font-weight: 700; opacity: 0.9; }
             .empty-state { border: 1px dashed #cbd5e1; border-radius: 12px; padding: 14px; color: #64748b; background: #fff; font-size: 13px; font-weight: 600; }
             @media print {
+              @page { margin: 0.35in; }
+              html, body { background: #ffffff !important; }
               body { background: #ffffff; padding: 0; }
+              body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
               .preview-shell { gap: 12px; }
               .schedule-grid-shell { border: none; }
+              .round-section, .rhythm-row, .event-meta-card, .schedule-room-card, .wide-band { break-inside: avoid; page-break-inside: avoid; }
+              .schedule-grid-shell { overflow: visible; max-width: none; }
             }
           </style>
         </head>
@@ -3169,7 +3056,6 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   ]);
   const schedulePreview = schedulePreviews[previewKind];
   const selectedPreviewBaseFileName = getSafeFileName(schedulePreview.title) || "schedule";
-  const selectedPreviewPdfFileName = `${selectedPreviewBaseFileName}.pdf`;
   const selectedPreviewExportFileName = `${selectedPreviewBaseFileName}.txt`;
   const autoDownloadTriggeredRef = useRef(false);
   const previewDocumentParts = useMemo(
@@ -3179,18 +3065,11 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   useEffect(() => {
     if (loading || !props.previewOnly || !props.autoDownload || autoDownloadTriggeredRef.current || !schedulePreview.html) return;
     autoDownloadTriggeredRef.current = true;
-    const downloadBlob = buildSchedulePdfBlob(schedulePreview.title, schedulePreview.text);
-    const downloadUrl = URL.createObjectURL(downloadBlob);
-    const anchor = document.createElement("a");
-    anchor.href = downloadUrl;
-    anchor.download = selectedPreviewPdfFileName;
-    anchor.rel = "noreferrer";
-    anchor.style.display = "none";
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
-  }, [loading, props.autoDownload, props.previewOnly, schedulePreview.html, schedulePreview.text, schedulePreview.title, selectedPreviewPdfFileName]);
+    window.setTimeout(() => {
+      showCopyMessage("Choose Save as PDF in the print dialog to export this styled schedule.", "success", 3600);
+      window.print();
+    }, 350);
+  }, [loading, props.autoDownload, props.previewOnly, schedulePreview.html]);
   const saveStateAppearance = getSaveStateAppearance(saveState);
   const lastSavedLabel = formatSavedTimestamp(lastSavedAt);
   const advancedSettingsActive =
@@ -3254,21 +3133,6 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     }
   }
 
-  function handleDownloadPdf() {
-    const downloadBlob = buildSchedulePdfBlob(schedulePreview.title, schedulePreview.text);
-    const downloadUrl = URL.createObjectURL(downloadBlob);
-    const anchor = document.createElement("a");
-    anchor.href = downloadUrl;
-    anchor.download = selectedPreviewPdfFileName;
-    anchor.rel = "noreferrer";
-    anchor.style.display = "none";
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    URL.revokeObjectURL(downloadUrl);
-    showCopyMessage(`${schedulePreview.title} PDF downloaded.`, "success", 2200);
-  }
-
   function handleExportSchedule() {
     const downloadBlob = new Blob([schedulePreview.text], { type: "text/plain;charset=utf-8" });
     const downloadUrl = URL.createObjectURL(downloadBlob);
@@ -3281,10 +3145,18 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     anchor.click();
     anchor.remove();
     URL.revokeObjectURL(downloadUrl);
-    showCopyMessage(`${schedulePreview.title} exported.`, "success", 2200);
+    showCopyMessage(`${schedulePreview.title} raw text export downloaded.`, "success", 2200);
   }
 
-  async function handlePrintPreview() {
+  function handleStyledSchedulePrint(printIntent: "print" | "pdf") {
+    if (props.previewOnly) {
+      if (printIntent === "pdf") {
+        showCopyMessage("Choose Save as PDF in the print dialog to export this styled schedule.", "success", 3600);
+      }
+      window.print();
+      return;
+    }
+
     const popup = window.open("", "_blank", "noopener,noreferrer");
     if (!popup) {
       showCopyMessage("Print window blocked. Please allow popups for this site.", "error", 2500);
@@ -3297,6 +3169,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       popup.focus();
       popup.print();
     };
+
+    if (printIntent === "pdf") {
+      showCopyMessage("Choose Save as PDF in the print dialog to export the styled schedule.", "success", 3600);
+    }
   }
 
   const renderScheduleViewToggle = (isDark = false) => {
@@ -3383,9 +3259,9 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         }}
       >
         {[
-          { label: "Print schedule", onClick: handlePrintPreview },
-          { label: "Download PDF", onClick: handleDownloadPdf },
-          { label: "Download/Export", onClick: handleExportSchedule },
+          { label: "Print schedule", onClick: () => handleStyledSchedulePrint("print") },
+          { label: "Download PDF", onClick: () => handleStyledSchedulePrint("pdf") },
+          { label: "Download/Export raw .txt", onClick: handleExportSchedule },
           { label: "Copy/share link", onClick: () => void handleShareOrCopyLink() },
         ].map((action) => (
           <button
@@ -3576,8 +3452,30 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         ) : null}
         <style>{`
           .cfsp-schedule-actions-menu > summary::-webkit-details-marker { display: none; }
+          .cfsp-schedule-print-root { background: #f7fafc; }
           @media print {
-            .cfsp-schedule-viewer-toolbar { display: none !important; }
+            @page { margin: 0.35in; }
+            html, body { background: #ffffff !important; }
+            body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            .cfsp-schedule-viewer-toolbar,
+            .cfsp-schedule-actions-menu,
+            .cfsp-schedule-no-print {
+              display: none !important;
+            }
+            .cfsp-schedule-print-root { background: #ffffff !important; }
+            .preview-shell { break-inside: auto; }
+            .round-section,
+            .rhythm-row,
+            .event-meta-card,
+            .schedule-room-card,
+            .wide-band {
+              break-inside: avoid;
+              page-break-inside: avoid;
+            }
+            .schedule-grid-shell {
+              overflow: visible !important;
+              max-width: none !important;
+            }
           }
         `}</style>
         <div
@@ -3612,7 +3510,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
             {renderScheduleActionsMenu(false)}
           </div>
         </div>
-        <div dangerouslySetInnerHTML={{ __html: previewDocumentParts.body }} />
+        <div className="cfsp-schedule-print-root" dangerouslySetInnerHTML={{ __html: previewDocumentParts.body }} />
       </div>
     );
   }
