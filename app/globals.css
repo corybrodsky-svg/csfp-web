@@ -1068,6 +1068,81 @@ textarea {
     drop-shadow(0 6px 10px rgba(0, 0, 0, 0.2));
 }
 
+.cfsp-hologram-avatar {
+  --cfsp-holo-foreground: #3b82f6;
+  --cfsp-holo-background: color-mix(in srgb, var(--cfsp-holo-foreground) 22%, transparent);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--cfsp-holo-foreground) 56%, transparent);
+  color: var(--cfsp-holo-foreground);
+  background:
+    radial-gradient(circle at 40% 34%, color-mix(in srgb, var(--cfsp-holo-foreground) 34%, transparent), transparent 62%),
+    var(--cfsp-holo-background);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--cfsp-holo-foreground) 28%, transparent);
+  animation: cfspHologramOrbit 4.5s ease-in-out infinite;
+}
+
+.cfsp-hologram-avatar::before {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  border-radius: inherit;
+  border: 1px solid color-mix(in srgb, var(--cfsp-holo-foreground) 42%, transparent);
+  opacity: 0.7;
+  animation: cfspHologramPulse 2.2s ease-in-out infinite;
+}
+
+.cfsp-hologram-avatar::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border-radius: inherit;
+  border: 1px dashed color-mix(in srgb, var(--cfsp-holo-foreground) 22%, transparent);
+  opacity: 0.42;
+  animation: cfspHologramScan 5.8s linear infinite;
+}
+
+.cfsp-hologram-avatar.is-student {
+  --cfsp-holo-foreground: #2dd4bf;
+}
+
+.cfsp-hologram-avatar.is-sp {
+  --cfsp-holo-foreground: #a855f7;
+}
+
+.cfsp-hologram-avatar.is-operations {
+  --cfsp-holo-foreground: #38bdf8;
+}
+
+.cfsp-hologram-avatar-icon,
+.cfsp-hologram-avatar-text {
+  position: relative;
+  z-index: 1;
+  font-size: 7px;
+  line-height: 1;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  transform: translateZ(0);
+}
+
+.cfsp-hologram-avatar-icon {
+  opacity: 0.75;
+}
+
+.cfsp-hologram-avatar-text {
+  position: absolute;
+  top: 1px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 6px;
+  color: color-mix(in srgb, currentColor 98%, transparent);
+}
+
 .cfsp-presence-figure {
   --presence-ring: #b8e4d4;
   --presence-fill: rgba(25, 138, 112, 0.12);
@@ -1459,6 +1534,46 @@ textarea {
   }
 }
 
+@keyframes cfspHologramOrbit {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-1deg);
+  }
+  40% {
+    transform: translateY(-0.8px) rotate(1.5deg);
+  }
+}
+
+@keyframes cfspHologramPulse {
+  0%,
+  100% {
+    opacity: 0.34;
+    transform: scale(0.9);
+  }
+  50% {
+    opacity: 0.72;
+    transform: scale(1.08);
+  }
+}
+
+@keyframes cfspHologramScan {
+  0% {
+    transform: rotate(0deg) scale(1);
+    opacity: 0;
+  }
+  20% {
+    opacity: 0.28;
+  }
+  60% {
+    transform: rotate(-7deg) scale(1.05);
+    opacity: 0.08;
+  }
+  100% {
+    transform: rotate(-18deg) scale(1.08);
+    opacity: 0;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .simvitals-mark::before,
   .simvitals-mark-signal path,
@@ -1468,6 +1583,9 @@ textarea {
   .cfsp-blueprint-marker.is-checked-in,
   .cfsp-blueprint-room-x.is-checked-in,
   .cfsp-presence-figure,
+  .cfsp-hologram-avatar,
+  .cfsp-hologram-avatar::before,
+  .cfsp-hologram-avatar::after,
   .cfsp-presence-arm,
   .cfsp-presence-leg,
   .cfsp-presence-step {

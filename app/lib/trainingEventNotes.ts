@@ -29,6 +29,11 @@ export type TrainingEventMetadata = {
   recording_monitor_needed: string;
   recording_url: string;
   recording_status: string;
+  event_recording_enabled: string;
+  event_recording_required: string;
+  event_recording_status: string;
+  event_recording_url: string;
+  event_recording_notes: string;
   case_name: string;
   case_file_url: string;
   case_file_name: string;
@@ -150,6 +155,11 @@ const TRAINING_METADATA_KEYS = [
   "recording_monitor_needed",
   "recording_url",
   "recording_status",
+  "event_recording_enabled",
+  "event_recording_required",
+  "event_recording_status",
+  "event_recording_url",
+  "event_recording_notes",
   "case_name",
   "case_file_url",
   "case_file_name",
@@ -280,6 +290,11 @@ export function emptyTrainingEventMetadata(): TrainingEventMetadata {
     recording_monitor_needed: "",
     recording_url: "",
     recording_status: "",
+    event_recording_enabled: "",
+    event_recording_required: "",
+    event_recording_status: "",
+    event_recording_url: "",
+    event_recording_notes: "",
     case_name: "",
     case_file_url: "",
     case_file_name: "",

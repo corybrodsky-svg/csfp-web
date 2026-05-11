@@ -745,7 +745,17 @@ const operationalReadinessGoldTone = {
   glow: "0 14px 36px rgba(180, 138, 38, 0.14)",
 };
 
-const recordingStatusOptions = [
+const eventRecordingStatusOptions = [
+  { value: "not_required", label: "Not Required", active: false, tone: "#64748b", chip: "Not required" },
+  { value: "recording_planned", label: "Planned", active: false, tone: "#145b96", chip: "Planned" },
+  { value: "recording_in_progress", label: "Recording In Progress", active: true, tone: "#ea580c", chip: "In progress" },
+  { value: "recorded", label: "Recorded", active: true, tone: "#14b8a6", chip: "Recorded" },
+  { value: "missing", label: "Missing", active: false, tone: "#dc2626", chip: "Missing" },
+] as const;
+
+type EventRecordingStatusValue = (typeof eventRecordingStatusOptions)[number]["value"];
+
+const trainingRecordingStatusOptions = [
   { value: "not_recorded", label: "Not Recorded", active: false, tone: "#94a3b8", chip: "Disabled" },
   { value: "recorded", label: "Recorded", active: true, tone: "#ff6b6b", chip: "Recorded" },
   { value: "recording_planned", label: "Recording Planned", active: true, tone: "#145b96", chip: "Planned" },
@@ -753,7 +763,7 @@ const recordingStatusOptions = [
   { value: "recording_not_allowed", label: "Recording Not Allowed", active: false, tone: "#ef4444", chip: "Not allowed" },
 ] as const;
 
-type RecordingStatusValue = (typeof recordingStatusOptions)[number]["value"];
+type TrainingRecordingStatusValue = (typeof trainingRecordingStatusOptions)[number]["value"];
 
 const trainingRequirementOptions = [
   { value: "tbd", label: "TBD" },
@@ -1135,7 +1145,50 @@ function buildOperationalBadgePipeline(badges: OperationalBadgePipelineItem[]) {
   return Array.from(merged.values());
 }
 
-function normalizeRecordingStatusValue(value: unknown): RecordingStatusValue | "" {
+function normalizeEventRecordingStatusValue(value: unknown): EventRecordingStatusValue | "" {
+  const normalized = asText(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+
+  if (!normalized) return "";
+  if (normalized === "not_required" || normalized === "not_recorded" || normalized === "not_recorded_but_required" || normalized === "disabled") return "not_required";
+  if (
+    normalized === "recorded" ||
+    normalized === "recording_complete" ||
+    normalized === "complete" ||
+    normalized === "finished" ||
+    normalized === "recording_enabled" ||
+    normalized === "recording_live" ||
+    normalized === "live_recording"
+  ) {
+    return "recorded";
+  }
+  if (
+    normalized === "recording_planned" ||
+    normalized === "planned" ||
+    normalized === "recording_scheduled"
+  ) return "recording_planned";
+  if (
+    normalized === "recording_in_progress" ||
+    normalized === "in_progress" ||
+    normalized === "pending" ||
+    normalized === "recording_pending"
+  ) {
+    return "recording_in_progress";
+  }
+  if (normalized === "missing" || normalized === "not_found") return "missing";
+  return "";
+}
+
+function getEventRecordingStatusOption(value: unknown) {
+  const normalized = normalizeEventRecordingStatusValue(value);
+  return normalized
+    ? eventRecordingStatusOptions.find((option) => option.value === normalized) || null
+    : null;
+}
+
+function normalizeTrainingRecordingStatusValue(value: unknown): TrainingRecordingStatusValue | "" {
   const normalized = asText(value)
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "_")
@@ -1157,10 +1210,10 @@ function normalizeRecordingStatusValue(value: unknown): RecordingStatusValue | "
   return "";
 }
 
-function getRecordingStatusOption(value: unknown) {
-  const normalized = normalizeRecordingStatusValue(value);
+function getTrainingRecordingStatusOption(value: unknown) {
+  const normalized = normalizeTrainingRecordingStatusValue(value);
   return normalized
-    ? recordingStatusOptions.find((option) => option.value === normalized) || null
+    ? trainingRecordingStatusOptions.find((option) => option.value === normalized) || null
     : null;
 }
 
@@ -1283,6 +1336,42 @@ function getInitials(value: string) {
   const first = parts[0]?.[0] || "";
   const last = parts.length > 1 ? parts[parts.length - 1]?.[0] || "" : parts[0]?.[1] || "";
   return `${first}${last}`.toUpperCase() || "SP";
+}
+
+type RoundOperationAvatarRole = "student" | "sp" | "operations";
+
+function getRoundOperationAvatarLabel(value: string, role: RoundOperationAvatarRole) {
+  const text = asText(value).trim();
+  if (!text) {
+    return role === "sp" ? "SP" : role === "student" ? "L" : "OP";
+  }
+
+  return role === "operations" ? "OP" : getInitials(text);
+}
+
+function getRoundOperationAvatarSymbol(role: RoundOperationAvatarRole) {
+  if (role === "student") return "◈";
+  if (role === "sp") return "◉";
+  return "✦";
+}
+
+function RoundOperationAvatar({
+  name,
+  role,
+}: {
+  name: string;
+  role: RoundOperationAvatarRole;
+}) {
+  const label = asText(name).trim() || (role === "sp" ? "SP" : role === "student" ? "Learner" : "Operations");
+  const initials = getRoundOperationAvatarLabel(name, role);
+  const symbol = getRoundOperationAvatarSymbol(role);
+
+  return (
+    <span className={`cfsp-hologram-avatar is-${role}`} aria-hidden="true" title={label}>
+      <span className="cfsp-hologram-avatar-icon" aria-hidden="true">{symbol}</span>
+      <span className="cfsp-hologram-avatar-text">{initials}</span>
+    </span>
+  );
 }
 
 function getRoomDisplayNumber(label?: string | null) {
@@ -6353,7 +6442,7 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
   }, [event?.location, trainingMetadata.zoom_url]);
   const eventSummarySourceText = useMemo(
     () =>
-      [event?.name, event?.location, event?.notes, eventEditor.notes, trainingMetadata.recording_url, trainingMetadata.zoom_url]
+      [event?.name, event?.location, event?.notes, eventEditor.notes, trainingMetadata.zoom_url]
         .map(asText)
         .join(" ")
         .toLowerCase(),
@@ -6362,32 +6451,50 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       event?.name,
       event?.notes,
       eventEditor.notes,
-      trainingMetadata.recording_url,
       trainingMetadata.zoom_url,
     ]
   );
-  const inferredRecordingActive = useMemo(() => {
-    const hasRecordingGuide = Boolean(asText(trainingMetadata.recording_url));
-    const hasZoomRecording = /\bzoom\b/.test(eventSummarySourceText) && /\brecord/i.test(eventSummarySourceText);
-    const hasSimCaptureRecording = /\bsim\s*capture\b|\bsimcapture\b/.test(eventSummarySourceText);
-    return hasRecordingGuide || hasZoomRecording || hasSimCaptureRecording || /\brecording enabled\b|\brecorded\b/.test(eventSummarySourceText);
-  }, [eventSummarySourceText, trainingMetadata.recording_url]);
-  const hasSavedRecordingStatus = Boolean(normalizeRecordingStatusValue(trainingMetadata.recording_status));
-  const recordingStatus = useMemo(() => {
-    const savedRecordingStatus = getRecordingStatusOption(trainingMetadata.recording_status);
-    if (savedRecordingStatus) return savedRecordingStatus;
+  const eventRecordingEnabled = isMetadataYes(trainingMetadata.event_recording_enabled) || isMetadataYes(trainingMetadata.event_recording_required);
+  const hasEventRecordingUrl = Boolean(normalizeExternalHref(trainingMetadata.event_recording_url));
+  const eventRecordingStatus = useMemo(() => {
+    const explicitStatus = getEventRecordingStatusOption(trainingMetadata.event_recording_status);
+    if (explicitStatus) return explicitStatus;
 
-    return getRecordingStatusOption("not_recorded") || recordingStatusOptions[0];
-  }, [trainingMetadata.recording_status]);
-  const recordingSupportActive = recordingStatus.active || (!hasSavedRecordingStatus && inferredRecordingActive);
-  const recordingIndicatorActive = recordingStatus.active;
-  const recordingIndicatorHot = recordingIndicatorActive && commandCenterMode === "live" && recordingStatus.value === "recorded";
-  const recordingIndicatorLabel =
-    recordingStatus.value === "recording_planned"
+    if (!eventRecordingEnabled || isMetadataNo(trainingMetadata.event_recording_required)) {
+      return getEventRecordingStatusOption("not_required") || eventRecordingStatusOptions[0];
+    }
+
+    if (hasEventRecordingUrl) {
+      return getEventRecordingStatusOption("recorded") || eventRecordingStatusOptions[0];
+    }
+
+    const eventDateDelta = primaryEventDate ? getDateDeltaDays(primaryEventDate) : null;
+    if (eventDateDelta === null) {
+      return getEventRecordingStatusOption("recording_planned") || eventRecordingStatusOptions[0];
+    }
+
+    return eventDateDelta >= 0
+      ? getEventRecordingStatusOption("recording_planned") || eventRecordingStatusOptions[0]
+      : getEventRecordingStatusOption("missing") || eventRecordingStatusOptions[0];
+  }, [
+    eventRecordingEnabled,
+    hasEventRecordingUrl,
+    primaryEventDate,
+    trainingMetadata.event_recording_required,
+    trainingMetadata.event_recording_status,
+  ]);
+  const eventRecordingSupportActive = eventRecordingStatus.value === "recording_in_progress" || eventRecordingStatus.value === "recording_planned";
+  const eventRecordingIndicatorActive = eventRecordingStatus.active;
+  const eventRecordingIndicatorHot =
+    eventRecordingIndicatorActive && commandCenterMode === "live" && eventRecordingStatus.value === "recorded";
+  const eventRecordingIndicatorLabel =
+    eventRecordingStatus.value === "recording_planned"
       ? "REC planned"
-      : recordingStatus.value === "recording_pending"
-        ? "REC pending"
-        : "REC";
+      : eventRecordingStatus.value === "recording_in_progress"
+        ? "REC in progress"
+        : eventRecordingStatus.value === "missing"
+          ? "REC missing"
+          : "REC";
   const trainingRequirementValue = normalizeTrainingRequirementValue(trainingMetadata.training_required);
   const trainingOwnershipValue = normalizeTrainingOwnershipValue(trainingMetadata.training_ownership);
   const trainingSchedulingValue = normalizeTrainingSchedulingValue(trainingMetadata.training_scheduling_status);
@@ -6399,6 +6506,7 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
   const internalTraining = trainingOwnershipValue === "internal_sim";
   const facultyAvailabilityUnknown = isMetadataYes(trainingMetadata.faculty_availability_unknown);
   const trainingRecordingPlanned = isMetadataYes(trainingMetadata.training_recording_planned);
+  const trainingRecordingStatusOption = getTrainingRecordingStatusOption(trainingMetadata.training_recording_status);
   const facultyTrainingCoordinationState = getFacultyTrainingCoordinationState(trainingMetadata);
   const facultyTrainingCoordinationRequested = facultyTrainingCoordinationState.requested;
   const facultyTrainingCoordinationDrafted = facultyTrainingCoordinationState.drafted;
@@ -6578,13 +6686,13 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     ? (trainingMetadata.training_recording_url || trainingMetadata.recording_url)
       ? "Training recording ready"
       : "Training recording planned"
-    : (trainingMetadata.training_recording_url || trainingMetadata.recording_url)
-    ? "Recording guide ready"
-    : trainingMetadata.training_recording_status
-      ? trainingMetadata.training_recording_status
-      : recordingStatus.active
-        ? recordingStatus.label
-      : "No recording posted";
+    : trainingMetadata.training_recording_url
+    ? "Training recording ready"
+      : trainingMetadata.recording_url
+      ? "Training recording ready (legacy link)"
+      : trainingRecordingStatusOption
+      ? trainingRecordingStatusOption.label
+      : "No training recording posted";
   const normalEventTrainingRecordingHref = normalizeExternalHref(
     trainingMetadata.training_recording_url || trainingMetadata.recording_url
   );
@@ -6725,7 +6833,7 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
         key: "recording-date",
         label: "Recording",
         value: formatOperationalDate(recordingAvailabilityDate, recordingAvailabilityDateText),
-        detail: recordingStatus.label,
+        detail: eventRecordingStatus.label,
         countdown,
         tone: recordingAvailabilityDate && getDateDeltaDays(recordingAvailabilityDate) <= 0 ? "ready" : "scheduled",
       });
@@ -6767,7 +6875,7 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     materialsStatusLabel,
     recordingAvailabilityDate,
     recordingAvailabilityDateText,
-    recordingStatus.label,
+    eventRecordingStatus.label,
     summaryTimeLabel,
   ]);
   const eventIdentityChips = useMemo(() => {
@@ -6911,7 +7019,7 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       (!isMetadataNo(trainingMetadata.sim_tech_required) && (activeEventTypeSet.has("hifi") || /sim tech|simcapture|recording/i.test(eventSummarySourceText)));
     const recordingMonitorNeeded =
       isMetadataYes(trainingMetadata.recording_monitor_needed) ||
-      (!isMetadataNo(trainingMetadata.recording_monitor_needed) && recordingSupportActive);
+      (!isMetadataNo(trainingMetadata.recording_monitor_needed) && eventRecordingSupportActive);
 
     return {
       avSupportRequired,
@@ -6921,10 +7029,10 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
   }, [
     activeEventTypeSet,
     eventSummarySourceText,
-    recordingSupportActive,
     trainingMetadata.av_support_required,
     trainingMetadata.sim_tech_required,
     trainingMetadata.recording_monitor_needed,
+    eventRecordingSupportActive,
   ]);
   const liveSupportNeeds = useMemo(() => {
     const needs = [
@@ -8860,11 +8968,14 @@ Cory`;
         ? "Ready"
         : "Blocked"
       : "Optional";
-  const recordingReadinessStatus: WorkflowReadinessStatus = recordingStatus.value === "recording_pending"
+  const recordingReadinessStatus: WorkflowReadinessStatus =
+    eventRecordingStatus.value === "recording_in_progress"
     ? "Needs Action"
-    : recordingStatus.value === "recording_planned" || recordingStatus.value === "recorded"
+    : eventRecordingStatus.value === "recording_planned" || eventRecordingStatus.value === "recorded"
       ? "Ready"
-      : "Optional";
+      : eventRecordingStatus.value === "missing"
+        ? "Needs Action"
+        : "Optional";
   const planningLivePreviewPrimaryBlock = currentLiveBlock || nextLiveBlock || liveFlowBlocks[0] || null;
   const planningLivePreviewPrimaryBlockIndex = planningLivePreviewPrimaryBlock
     ? liveFlowBlocks.findIndex((block) => block.key === planningLivePreviewPrimaryBlock.key)
@@ -9170,19 +9281,19 @@ Cory`;
       : []),
   ];
   const supportRequirementRows: PlanningWindowRow[] = [
-    ...(recordingSupportActive || trainingRecordingPlanned || operationalSupportSettings.recordingMonitorNeeded
+    ...(eventRecordingStatus.value !== "not_required" || trainingRecordingPlanned || operationalSupportSettings.recordingMonitorNeeded
       ? [
           {
             key: "recording",
             label: "Recording",
-            value: recordingStatus.label,
+            value: eventRecordingStatus.label,
             tone: (
               recordingReadinessStatus === "Ready"
                 ? "ready"
                 : recordingReadinessStatus === "Needs Action"
                   ? "attention"
                   : "info") as OperationalStatusTone,
-            detail: recordingIndicatorLabel,
+            detail: eventRecordingIndicatorLabel,
             readinessActions: [{ label: "Open Admin Controls", onClick: () => scrollToAdminTools() }],
             readinessHowToFix: "Confirm whether recording should be active for this run and finalize status details.",
           },
@@ -9989,13 +10100,17 @@ Cory`;
           id: "recording",
           label: "Recording",
           status: recordingReadinessStatus,
-          value: recordingStatus.label,
+          value: eventRecordingStatus.label,
           explanation:
-            recordingStatus.value === "recording_pending"
+            eventRecordingStatus.value === "recording_in_progress"
               ? "Recording is pending; confirm production ownership or update recording status."
-              : recordingStatus.active
-                ? "Recording status is active for this event."
-                : "Recording is not required or not active for this event.",
+              : eventRecordingStatus.value === "recording_planned"
+                ? "Recording is planned for this event; add final recording details when complete."
+                : eventRecordingStatus.value === "recorded"
+                  ? "Recording has been completed for this event."
+                  : eventRecordingStatus.value === "missing"
+                    ? "Recording has not yet been captured."
+                    : "Recording is not required for this event.",
           actions: [{ label: "Edit recording status", href: "#coverage-actions" }],
         },
       ],
@@ -12473,11 +12588,11 @@ Cory`;
               </div>
             </div>
             <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
-              {recordingIndicatorActive ? (
+              {eventRecordingIndicatorActive ? (
                 <RecordingStatusIndicator
-                  label={recordingIndicatorLabel}
+                  label={eventRecordingIndicatorLabel}
                   compact
-                  hot={recordingIndicatorHot}
+                  hot={eventRecordingIndicatorHot}
                   liveMode
                 />
               ) : null}
@@ -19235,7 +19350,7 @@ Cory`;
 	                          { label: "Learners", value: String(effectiveLearnerCount || learnerPlannerRosterCount || 0), detail: learnerAssignmentsIncomplete ? "Assignment review needed" : "Learner flow ready" },
 	                          { label: "SP coverage", value: needed > 0 ? `${confirmedCount}/${needed}` : `${confirmedCount}`, detail: shortageCount > 0 ? "Staffing gap" : "Coverage stable" },
 	                          { label: "Materials", value: materialsStatusLabel, detail: eventMaterialName || (hasUploadedEventMaterial ? "Packet loaded" : "No event packet uploaded") },
-	                          { label: "Recording", value: recordingStatus.label, detail: recordingIndicatorLabel || "Recording optional/not set" },
+                          { label: "Recording", value: eventRecordingStatus.label, detail: eventRecordingIndicatorLabel || "Recording optional/not set" },
 	                          { label: "Support", value: liveSupportNeeds.length ? `${liveSupportNeeds.length} active` : "Clear", detail: liveSupportNeeds[0]?.label || "No active support signals" },
 	                        ].map((metric) => (
 	                          <div
@@ -19332,7 +19447,7 @@ Cory`;
                     },
                     { label: "Training", value: eventSummaryTrainingValue, detail: eventSummaryTrainingSubvalue },
                     { label: "Materials", value: materialsStatusLabel, detail: hasUploadedEventMaterial ? "Event material uploaded" : "Materials status is admin-set" },
-                    { label: "Recording", value: recordingStatus.label, detail: recordingIndicatorLabel },
+                    { label: "Recording", value: eventRecordingStatus.label, detail: eventRecordingIndicatorLabel },
                     {
                       label: "Coverage",
                       value: needed > 0 ? `${confirmedCount} primary / ${needed} needed` : `${selectedStaffingCount} selected`,
@@ -19666,7 +19781,10 @@ Cory`;
                           status: recordingGuideUrl ? "available" : "missing",
                           accent: recordingGuideUrl ? "#6366f1" : "#64748b",
                           primaryHref: recordingGuideUrl || "",
-                          metadata: [recordingStatus.label, recordingGuideUrl ? "Support posted" : "Awaiting link"].filter(Boolean),
+                          metadata: [
+                            trainingRecordingStatusOption?.label || "No status set",
+                            recordingGuideUrl ? "Support posted" : "Awaiting link",
+                          ].filter(Boolean),
                           actions: (
                             <>
                               {recordingGuideUrl ? (
@@ -20482,24 +20600,46 @@ Cory`;
                                     </div>
 
                                     <div style={{ display: "grid", gap: "8px" }}>
-                                      {[
-                                        { label: "SP", value: row.sp ? getFullName(row.sp) : staffingRelevant ? "Unassigned" : "No SP required" },
-                                        { label: "Learner / Group", value: row.learnerLabels.length ? row.learnerLabels.join(", ") : "Learner TBD" },
-                                        { label: "Encounter", value: encounterLabel },
-                                        {
-                                          label: "Timing",
-                                          value: selectedRotationRound.start_time && selectedRotationRound.end_time
-                                            ? `${formatDisplayTime(selectedRotationRound.start_time)} - ${formatDisplayTime(selectedRotationRound.end_time)}`
-                                            : formatDisplayTime(selectedRotationRound.start_time || selectedRotationRound.end_time) || "Time TBD",
-                                        },
-                                      ].map((item) => (
-                                        <div key={`${row.key}-${item.label}`} style={{ display: "grid", gap: "2px" }}>
-                                          <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>{item.label}</div>
-                                          <div style={{ color: commandCenterVisual.textColor, fontSize: "13px", fontWeight: 800, lineHeight: 1.35, overflowWrap: "anywhere" }}>
-                                            {item.value}
-                                          </div>
+                                      <div style={{ display: "grid", gap: "2px" }}>
+                                        <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>SP</div>
+                                        <div style={{ color: commandCenterVisual.textColor, fontSize: "13px", fontWeight: 800, lineHeight: 1.35, overflowWrap: "anywhere", display: "flex", alignItems: "center", gap: "6px" }}>
+                                          <RoundOperationAvatar
+                                            name={row.sp ? getFullName(row.sp) : staffingRelevant ? "Unassigned" : "No SP required"}
+                                            role="sp"
+                                          />
+                                          <span>{row.sp ? getFullName(row.sp) : staffingRelevant ? "Unassigned" : "No SP required"}</span>
                                         </div>
-                                      ))}
+                                      </div>
+                                      <div style={{ display: "grid", gap: "2px" }}>
+                                        <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Learner / Group</div>
+                                        {row.learnerLabels.length ? (
+                                          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                                            {row.learnerLabels.map((learner, learnerIndex) => {
+                                              const learnerName = normalizeLearnerName(learner);
+                                              return (
+                                                <span key={`${row.key}-${learnerIndex}-${learnerName || "unassigned"}`} style={{ display: "inline-flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+                                                  <RoundOperationAvatar name={learnerName} role="student" />
+                                                  <span>{learnerName || "Learner TBD"}</span>
+                                                </span>
+                                              );
+                                            })}
+                                          </div>
+                                        ) : (
+                                          <div style={{ color: commandCenterVisual.textColor, fontSize: "13px", fontWeight: 800, lineHeight: 1.35, overflowWrap: "anywhere" }}>Learner TBD</div>
+                                        )}
+                                      </div>
+                                      <div style={{ display: "grid", gap: "2px" }}>
+                                        <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Encounter</div>
+                                        <div style={{ color: commandCenterVisual.textColor, fontSize: "13px", fontWeight: 800, lineHeight: 1.35, overflowWrap: "anywhere" }}>{encounterLabel}</div>
+                                      </div>
+                                      <div style={{ display: "grid", gap: "2px" }}>
+                                        <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Timing</div>
+                                        <div style={{ color: commandCenterVisual.textColor, fontSize: "13px", fontWeight: 800, lineHeight: 1.35, overflowWrap: "anywhere" }}>
+                                          {selectedRotationRound.start_time && selectedRotationRound.end_time
+                                            ? `${formatDisplayTime(selectedRotationRound.start_time)} - ${formatDisplayTime(selectedRotationRound.end_time)}`
+                                            : formatDisplayTime(selectedRotationRound.start_time || selectedRotationRound.end_time) || "Time TBD"}
+                                        </div>
+                                      </div>
                                     </div>
 
                                     <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
@@ -20785,8 +20925,20 @@ Cory`;
                                     ) : null}
                                     {row.learnerLabels.length ? (
                                       <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                                        {row.learnerLabels.map((learner) => (
-                                          <span key={`${row.key}-${learner}`} style={{ ...commandChipStyle, background: "rgba(255, 255, 255, 0.76)", color: commandCenterVisual.textColor, border: commandCenterVisual.rowBorder }}>
+                                        {row.learnerLabels.map((learner, learnerIndex) => (
+                                          <span
+                                            key={`${row.key}-${learnerIndex}-${learner || "unassigned"}`}
+                                            style={{
+                                              ...commandChipStyle,
+                                              background: "rgba(255, 255, 255, 0.76)",
+                                              color: commandCenterVisual.textColor,
+                                              border: commandCenterVisual.rowBorder,
+                                              display: "inline-flex",
+                                              alignItems: "center",
+                                              gap: "6px",
+                                            }}
+                                          >
+                                            <RoundOperationAvatar name={normalizeLearnerName(learner)} role="student" />
                                             {learner}
                                           </span>
                                         ))}
@@ -20821,7 +20973,8 @@ Cory`;
                                   <div key={`${row.key}-sp`} style={{ borderRadius: "12px", border: commandCenterVisual.rowBorder, background: commandCenterVisual.rowBackground, padding: "12px 14px", display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
                                     <div>
                                       <div style={{ color: commandCenterVisual.textColor, fontWeight: 800 }}>{row.roomName || `Room ${index + 1}`}</div>
-                                      <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 700 }}>
+                                      <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 700, display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                                        <RoundOperationAvatar name={row.sp ? getFullName(row.sp) : "SP TBD"} role="sp" />
                                         {row.sp ? getFullName(row.sp) : "SP TBD"}
                                       </div>
                                       {row.caseLabel || row.stationLabel ? (
@@ -20938,13 +21091,26 @@ Cory`;
                                     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "8px" }}>
                                       <div>
                                         <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Learner</div>
-                                        <div style={{ color: commandCenterVisual.textColor, fontWeight: 800, fontSize: "13px" }}>
-                                          {row.learnerLabels.length ? row.learnerLabels.join(", ") : "Learner TBD"}
+                                        <div style={{ color: commandCenterVisual.textColor, fontWeight: 800, fontSize: "13px", display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                                          {row.learnerLabels.length ? (
+                                            row.learnerLabels.map((learner, learnerIndex) => (
+                                              <span
+                                                key={`${row.key}-ops-learner-${learnerIndex}-${learner || "unassigned"}`}
+                                                style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}
+                                              >
+                                                <RoundOperationAvatar name={normalizeLearnerName(learner)} role="student" />
+                                                {learner}
+                                              </span>
+                                            ))
+                                          ) : (
+                                            "Learner TBD"
+                                          )}
                                         </div>
                                       </div>
                                       <div>
                                         <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>SP</div>
-                                        <div style={{ color: commandCenterVisual.textColor, fontWeight: 800, fontSize: "13px" }}>
+                                        <div style={{ color: commandCenterVisual.textColor, fontWeight: 800, fontSize: "13px", display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                                          <RoundOperationAvatar name={row.sp ? getFullName(row.sp) : "SP TBD"} role="sp" />
                                           {row.sp ? getFullName(row.sp) : "SP TBD"}
                                         </div>
                                       </div>
@@ -21866,21 +22032,101 @@ Cory`;
                       style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
                     />
                   </label>
-                  <label style={{ display: "grid", gap: "6px" }}>
-                    <span style={statLabel}>Recording Status</span>
-                    <select
-                      value={normalizeRecordingStatusValue(trainingMetadata.recording_status) || "not_recorded"}
-                      onChange={(event) => handleTrainingMetadataChange("recording_status", event.target.value)}
-                      disabled={saving}
-                      style={{ ...selectStyle, width: "100%", maxWidth: "none", boxSizing: "border-box" }}
-                    >
-                      {recordingStatusOptions.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                  <section
+                    style={{
+                      gridColumn: "1 / -1",
+                      border: "1px solid rgba(20, 91, 150, 0.16)",
+                      borderRadius: "14px",
+                      padding: "10px 12px",
+                      background: "rgba(20, 91, 150, 0.05)",
+                      display: "grid",
+                      gap: "8px",
+                    }}
+                  >
+                    <div style={{ ...statLabel, fontSize: "12px", color: "#145b96" }}>Event Recording Controls</div>
+                    <label style={{ display: "grid", gap: "6px" }}>
+                      <span style={statLabel}>Recording Enabled</span>
+                      <select
+                        value={eventRecordingEnabled ? "yes" : "no"}
+                        onChange={(event) =>
+                          handleTrainingMetadataFieldsChange({
+                            event_recording_enabled: event.target.value,
+                            ...(event.target.value === "no" && !isMetadataYes(trainingMetadata.event_recording_required)
+                              ? {
+                                  event_recording_required: "no",
+                                }
+                              : {}),
+                          })
+                        }
+                        disabled={saving}
+                        style={{ ...selectStyle, width: "100%", maxWidth: "none", boxSizing: "border-box" }}
+                      >
+                        <option value="yes">Yes</option>
+                        <option value="no">No</option>
+                      </select>
+                    </label>
+                    <label style={{ display: "grid", gap: "6px" }}>
+                      <span style={statLabel}>Recording Required</span>
+                      <select
+                        value={isMetadataYes(trainingMetadata.event_recording_required) ? "yes" : "no"}
+                        onChange={(event) =>
+                          handleTrainingMetadataChange(
+                            "event_recording_required",
+                            event.target.value
+                          )
+                        }
+                        disabled={saving}
+                        style={{ ...selectStyle, width: "100%", maxWidth: "none", boxSizing: "border-box" }}
+                      >
+                        <option value="yes">Yes</option>
+                        <option value="no">No</option>
+                      </select>
+                    </label>
+                    <label style={{ display: "grid", gap: "6px" }}>
+                      <span style={statLabel}>Recording Status</span>
+                      <select
+                        value={
+                          getEventRecordingStatusOption(trainingMetadata.event_recording_status)?.value ||
+                          (eventRecordingEnabled ? "recording_planned" : "not_required")
+                        }
+                        onChange={(event) =>
+                          handleTrainingMetadataChange("event_recording_status", event.target.value)
+                        }
+                        disabled={saving}
+                        style={{ ...selectStyle, width: "100%", maxWidth: "none", boxSizing: "border-box" }}
+                      >
+                        {eventRecordingStatusOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label style={{ display: "grid", gap: "6px" }}>
+                      <span style={statLabel}>Event recording link</span>
+                      <input
+                        value={trainingMetadata.event_recording_url}
+                        onChange={(event) =>
+                          handleTrainingMetadataChange("event_recording_url", event.target.value)
+                        }
+                        disabled={saving}
+                        placeholder="https://..."
+                        style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                      />
+                    </label>
+                    <label style={{ display: "grid", gap: "6px" }}>
+                      <span style={statLabel}>Event recording notes</span>
+                      <input
+                        value={trainingMetadata.event_recording_notes}
+                        onChange={(event) =>
+                          handleTrainingMetadataChange("event_recording_notes", event.target.value)
+                        }
+                        disabled={saving}
+                        placeholder="Notes, IDs, links, or handoff requirements"
+                        style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                      />
+                    </label>
+                  </section>
                   <label style={{ display: "grid", gap: "6px" }}>
                     <span style={statLabel}>Case File URL</span>
                     <input
@@ -22658,22 +22904,97 @@ Cory`;
 
               {advancedTrainingPlanningControls}
 
-              <label style={{ display: "grid", gap: "6px" }}>
-                <span style={statLabel}>Recording Status</span>
-                <select
-                  value={normalizeRecordingStatusValue(trainingMetadata.recording_status) || "not_recorded"}
-                  onChange={(event) => handleTrainingMetadataChange("recording_status", event.target.value)}
-                  disabled={saving}
-                  data-admin-field="recording_status"
-                  style={{ ...selectStyle, width: "100%", maxWidth: "none", boxSizing: "border-box" }}
-                >
-                  {recordingStatusOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <section
+                style={{
+                  gridColumn: "1 / -1",
+                  border: "1px solid rgba(20, 91, 150, 0.16)",
+                  borderRadius: "14px",
+                  padding: "10px 12px",
+                  background: "rgba(20, 91, 150, 0.05)",
+                  display: "grid",
+                  gap: "8px",
+                }}
+              >
+                <div style={{ ...statLabel, fontSize: "12px", color: "#145b96" }}>Event Recording Controls</div>
+                <label style={{ display: "grid", gap: "6px" }}>
+                  <span style={statLabel}>Recording Enabled</span>
+                  <select
+                    value={eventRecordingEnabled ? "yes" : "no"}
+                    onChange={(event) =>
+                      handleTrainingMetadataFieldsChange({
+                        event_recording_enabled: event.target.value,
+                        ...(event.target.value === "no" && !isMetadataYes(trainingMetadata.event_recording_required)
+                          ? {
+                              event_recording_required: "no",
+                            }
+                          : {}),
+                      })
+                    }
+                    disabled={saving}
+                    data-admin-field="event_recording_enabled"
+                    style={{ ...selectStyle, width: "100%", maxWidth: "none", boxSizing: "border-box" }}
+                  >
+                    <option value="yes">Yes</option>
+                    <option value="no">No</option>
+                  </select>
+                </label>
+                <label style={{ display: "grid", gap: "6px" }}>
+                  <span style={statLabel}>Recording Required</span>
+                  <select
+                    value={isMetadataYes(trainingMetadata.event_recording_required) ? "yes" : "no"}
+                    onChange={(event) =>
+                      handleTrainingMetadataChange("event_recording_required", event.target.value)
+                    }
+                    disabled={saving}
+                    data-admin-field="event_recording_required"
+                    style={{ ...selectStyle, width: "100%", maxWidth: "none", boxSizing: "border-box" }}
+                  >
+                    <option value="yes">Yes</option>
+                    <option value="no">No</option>
+                  </select>
+                </label>
+                <label style={{ display: "grid", gap: "6px" }}>
+                  <span style={statLabel}>Recording Status</span>
+                  <select
+                    value={
+                      getEventRecordingStatusOption(trainingMetadata.event_recording_status)?.value ||
+                      (eventRecordingEnabled ? "recording_planned" : "not_required")
+                    }
+                    onChange={(event) => handleTrainingMetadataChange("event_recording_status", event.target.value)}
+                    disabled={saving}
+                    data-admin-field="event_recording_status"
+                    style={{ ...selectStyle, width: "100%", maxWidth: "none", boxSizing: "border-box" }}
+                  >
+                    {eventRecordingStatusOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label style={{ display: "grid", gap: "6px" }}>
+                  <span style={statLabel}>Event recording link</span>
+                  <input
+                    value={trainingMetadata.event_recording_url}
+                    onChange={(event) => handleTrainingMetadataChange("event_recording_url", event.target.value)}
+                    disabled={saving}
+                    data-admin-field="event_recording_url"
+                    placeholder="https://..."
+                    style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                  />
+                </label>
+                <label style={{ display: "grid", gap: "6px" }}>
+                  <span style={statLabel}>Event recording notes</span>
+                  <input
+                    value={trainingMetadata.event_recording_notes}
+                    onChange={(event) => handleTrainingMetadataChange("event_recording_notes", event.target.value)}
+                    disabled={saving}
+                    data-admin-field="event_recording_notes"
+                    placeholder="Notes, IDs, links, or handoff requirements"
+                    style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                  />
+                </label>
+              </section>
 
               <label style={{ display: "grid", gap: "6px" }}>
                 <span style={statLabel}>Materials Readiness</span>
