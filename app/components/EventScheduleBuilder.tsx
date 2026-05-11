@@ -345,6 +345,28 @@ function parseNumber(value: string, fallback: number) {
   return Math.max(0, Math.floor(parsed));
 }
 
+const DEFAULT_ENCOUNTER_MINUTES = parseNumber(DEFAULT_SCHEDULE_BUILDER_DRAFT.encounterMinutes, 20);
+const MAX_OPERATIONAL_ROUND_MINUTES = 120;
+const MAX_RECURRING_BLOCK_MINUTES = 90;
+const MAX_IMPORTED_ROUND_TARGET_MINUTES = 90;
+
+function sanitizeRecurringBlockMinutes(value: string) {
+  const parsed = parseNumber(value, 0);
+  return parsed > MAX_RECURRING_BLOCK_MINUTES ? 0 : parsed;
+}
+
+function sanitizeEncounterMinutes(value: number) {
+  if (!Number.isFinite(value) || value <= 0 || value > MAX_OPERATIONAL_ROUND_MINUTES) {
+    return DEFAULT_ENCOUNTER_MINUTES;
+  }
+  return Math.max(1, Math.floor(value));
+}
+
+function sanitizeSavedRoundTargetMinutes(value?: string | null) {
+  const parsed = parseNumber(asText(value), 0);
+  return parsed > 0 && parsed <= MAX_IMPORTED_ROUND_TARGET_MINUTES ? String(parsed) : "0";
+}
+
 function toMinutes(value: string) {
   const [hoursText, minutesText] = asText(value).split(":");
   const hours = Number(hoursText);
@@ -392,10 +414,35 @@ function minutesToInputTime(totalMinutes: number) {
 }
 
 function extractTimeRange(value: string) {
-  const matches =
-    value.match(/\b(?:\d{1,2}:\d{2}(?::\d{2})?\s*(?:AM|PM)?|\d{1,2}\s*(?:AM|PM))\b/gi) || [];
+  const matches = value.match(/\b\d{1,2}(?::\d{2})?(?::\d{2})?\s*(?:AM|PM)?\b/gi) || [];
+  const meridiemHints = matches
+    .map((match) => asText(match.match(/([ap]m)$/i)?.[1]).toLowerCase())
+    .filter(Boolean);
+  const inferredMeridiem = meridiemHints[meridiemHints.length - 1] || "";
+  const parseRangeToken = (token: string, index: number) => {
+    const text = asText(token);
+    const hasMeridiem = /[ap]m$/i.test(text);
+    const hasColon = /:/.test(text);
+    if (hasMeridiem || hasColon) return parseClockTextToMinutes(text);
+    if (!inferredMeridiem) return null;
+    const parsedWithInferred = parseClockTextToMinutes(`${text} ${inferredMeridiem}`);
+    if (index === 0 && inferredMeridiem === "pm" && matches[1]) {
+      const endMinutes = parseClockTextToMinutes(matches[1]);
+      const amCandidate = parseClockTextToMinutes(`${text} am`);
+      if (
+        parsedWithInferred !== null &&
+        endMinutes !== null &&
+        parsedWithInferred >= endMinutes &&
+        amCandidate !== null &&
+        amCandidate < endMinutes
+      ) {
+        return amCandidate;
+      }
+    }
+    return parsedWithInferred;
+  };
   const parsed = matches
-    .map((match) => parseClockTextToMinutes(match))
+    .map(parseRangeToken)
     .filter((item): item is number => item !== null);
 
   if (!parsed.length) return { startMinutes: null, endMinutes: null };
@@ -580,7 +627,7 @@ function buildTimePrefill(event: EventRow | null, savedDraft: ScheduleBuilderDra
         label: "Using saved builder draft",
         startTime: savedDraft.startTime,
         endTime: "",
-        sessionLengthMinutes: savedDraft.sessionLengthMinutes || "0",
+        sessionLengthMinutes: sanitizeSavedRoundTargetMinutes(savedDraft.sessionLengthMinutes),
       };
     }
     return defaultPrefill;
@@ -589,16 +636,12 @@ function buildTimePrefill(event: EventRow | null, savedDraft: ScheduleBuilderDra
   const eventStartMinutes = parseClockTextToMinutes(asText(event.earliest_session_start));
   const eventEndMinutes = parseClockTextToMinutes(asText(event.latest_session_end));
   if (eventStartMinutes !== null) {
-    const derivedLength =
-      eventEndMinutes !== null && eventEndMinutes > eventStartMinutes
-        ? String(eventEndMinutes - eventStartMinutes)
-        : "0";
     return {
       source: "event_session",
       label: "Using event session time",
       startTime: minutesToInputTime(eventStartMinutes),
       endTime: eventEndMinutes !== null ? minutesToInputTime(eventEndMinutes) : "",
-      sessionLengthMinutes: derivedLength,
+      sessionLengthMinutes: "0",
     };
   }
 
@@ -613,10 +656,7 @@ function buildTimePrefill(event: EventRow | null, savedDraft: ScheduleBuilderDra
       startTime: minutesToInputTime(importedEventRange.startMinutes),
       endTime:
         importedEventRange.endMinutes !== null ? minutesToInputTime(importedEventRange.endMinutes) : "",
-      sessionLengthMinutes:
-        importedEventRange.endMinutes !== null && importedEventRange.endMinutes > importedEventRange.startMinutes
-          ? String(importedEventRange.endMinutes - importedEventRange.startMinutes)
-          : "0",
+      sessionLengthMinutes: "0",
     };
   }
 
@@ -632,10 +672,7 @@ function buildTimePrefill(event: EventRow | null, savedDraft: ScheduleBuilderDra
       startTime: minutesToInputTime(trainingMetadataRange.startMinutes),
       endTime:
         trainingMetadataRange.endMinutes !== null ? minutesToInputTime(trainingMetadataRange.endMinutes) : "",
-      sessionLengthMinutes:
-        trainingMetadataRange.endMinutes !== null && trainingMetadataRange.endMinutes > trainingMetadataRange.startMinutes
-          ? String(trainingMetadataRange.endMinutes - trainingMetadataRange.startMinutes)
-          : "0",
+      sessionLengthMinutes: "0",
     };
   }
 
@@ -645,7 +682,7 @@ function buildTimePrefill(event: EventRow | null, savedDraft: ScheduleBuilderDra
       label: "Using saved builder draft",
       startTime: savedDraft.startTime,
       endTime: "",
-      sessionLengthMinutes: savedDraft.sessionLengthMinutes || "0",
+      sessionLengthMinutes: sanitizeSavedRoundTargetMinutes(savedDraft.sessionLengthMinutes),
     };
   }
 
@@ -729,6 +766,10 @@ function formatDurationCompact(minutes: number) {
   return `${minutes}m`;
 }
 
+function isFillerTimingLabel(label: string) {
+  return /\b(open buffer|remaining scheduled time|remaining time|unused time|filler)\b/i.test(asText(label));
+}
+
 function getFlowRhythmSegmentStyles(label: string) {
   const normalized = asText(label).toLowerCase();
 
@@ -777,9 +818,9 @@ function getFlowRhythmSegmentStyles(label: string) {
 
 function getFlowRhythmSummary(round: ScheduledRound) {
   return round.subBlocks
-    .filter((subBlock) => !isMajorScheduleDividerBlock(subBlock))
+    .filter((subBlock) => !isMajorScheduleDividerBlock(subBlock) && !isFillerTimingLabel(subBlock.label))
     .map((subBlock) => `${subBlock.label} ${formatDurationCompact(getBlockDurationMinutes(subBlock.start, subBlock.end))}`)
-    .join(" · ");
+    .join(" • ");
 }
 
 function isRoundTimelineLabel(label: string) {
@@ -813,13 +854,13 @@ function filterRoundsForView(rounds: ScheduledRound[], viewMode: ScheduleBuilder
   return rounds.map((round) => ({
     ...round,
     subBlocks: round.subBlocks.filter((block) =>
-      isDayBlockVisibleToView(block.visibleTo || "both", viewMode)
+      isDayBlockVisibleToView(block.visibleTo || "both", viewMode) && !isFillerTimingLabel(block.label)
     ),
   }));
 }
 
 function filterTimelineForView(timeline: TimelineBlock[], viewMode: ScheduleBuilderViewMode) {
-  return timeline.filter((block) => isDayBlockVisibleToView(block.visibleTo || "both", viewMode));
+  return timeline.filter((block) => isDayBlockVisibleToView(block.visibleTo || "both", viewMode) && !isFillerTimingLabel(block.label));
 }
 
 function buildScheduleGridPreviewRows(rounds: ScheduledRound[], timeline: TimelineBlock[]): ScheduleGridPreviewRow[] {
@@ -874,7 +915,7 @@ function calculateRoundTimingsWithBlocks(args: {
   timingVisibility?: ScheduleTimingVisibility;
 }) {
   const recurringBlocks = args.dayBlocks.filter((block) => {
-    const duration = parseNumber(block.durationMinutes, 0);
+    const duration = sanitizeRecurringBlockMinutes(block.durationMinutes);
     return (
       duration > 0 &&
       (block.placement === "after_each_rotation" || block.placement === "after_every_x_rotations") &&
@@ -882,9 +923,7 @@ function calculateRoundTimingsWithBlocks(args: {
     );
   });
   const configuredLengthValues: number[] = [];
-  const bufferLengthValues: number[] = [];
 
-  const sessionLengthMinutes = Math.max(0, args.sessionLengthMinutes);
   const rounds: GeneratedRound[] = [];
   let roundStart = args.startMinutes;
 
@@ -892,7 +931,7 @@ function calculateRoundTimingsWithBlocks(args: {
     const roundNumber = roundIndex + 1;
     const subBlocks: RoundSubBlock[] = [];
     let current = roundStart;
-    const encounterEnd = current + args.encounterMinutes;
+    const encounterEnd = current + sanitizeEncounterMinutes(args.encounterMinutes);
     subBlocks.push({
       label: "Encounter",
       start: current,
@@ -902,7 +941,7 @@ function calculateRoundTimingsWithBlocks(args: {
     current = encounterEnd;
 
     recurringBlocks.forEach((block) => {
-      const minutes = parseNumber(block.durationMinutes, 0);
+      const minutes = sanitizeRecurringBlockMinutes(block.durationMinutes);
       if (!minutes) return;
       if (block.placement === "after_every_x_rotations") {
         const interval = Math.max(1, parseNumber(block.placementInterval, 2));
@@ -920,22 +959,7 @@ function calculateRoundTimingsWithBlocks(args: {
 
     const configuredRoundLength = current - roundStart;
     configuredLengthValues.push(configuredRoundLength);
-    const roundTargetLength =
-      sessionLengthMinutes > 0
-        ? Math.max(configuredRoundLength, sessionLengthMinutes, 1)
-        : Math.max(configuredRoundLength, 1);
-    const roundBufferMinutes =
-      sessionLengthMinutes > 0 ? Math.max(sessionLengthMinutes - configuredRoundLength, 0) : 0;
-    bufferLengthValues.push(roundBufferMinutes);
-
-    if (roundBufferMinutes > 0) {
-      subBlocks.push({
-        label: "Open Buffer",
-        start: current,
-        end: current + roundBufferMinutes,
-        visibleTo: "both",
-      });
-    }
+    const roundTargetLength = Math.max(configuredRoundLength, 1);
 
     const examSlots: GeneratedRoomSlot[] = Array.from({ length: args.examRoomCount }, (_, index) => ({
       roomName: `Exam ${index + 1}`,
@@ -963,14 +987,13 @@ function calculateRoundTimingsWithBlocks(args: {
   }
 
   const configuredLength = configuredLengthValues.length ? Math.max(...configuredLengthValues, 0) : 0;
-  const roundLength =
-    sessionLengthMinutes > 0
-      ? Math.max(configuredLength, sessionLengthMinutes, 1)
-      : Math.max(configuredLength, 1);
-  const bufferMinutes = bufferLengthValues.length ? Math.max(...bufferLengthValues, 0) : 0;
-  const overrunMinutes = sessionLengthMinutes > 0 ? Math.max(configuredLength - sessionLengthMinutes, 0) : 0;
+  const roundLength = Math.max(configuredLength, 1);
+  const overrunMinutes =
+    args.sessionLengthMinutes > 0 && args.sessionLengthMinutes <= MAX_IMPORTED_ROUND_TARGET_MINUTES
+      ? Math.max(configuredLength - args.sessionLengthMinutes, 0)
+      : 0;
 
-  return { rounds, roundLength, configuredLength, bufferMinutes, overrunMinutes };
+  return { rounds, roundLength, configuredLength, overrunMinutes };
 }
 
 function getTimingDayBlocksByVisibility(
@@ -1119,7 +1142,7 @@ function buildScheduleTimeline(args: {
         visibleTo: "both",
       });
       round.subBlocks
-        .filter((block) => block.label !== "Encounter" && block.label !== "Open Buffer")
+        .filter((block) => block.label !== "Encounter" && !isFillerTimingLabel(block.label))
         .forEach((block) => {
           timeline.push({
             label: block.label,
@@ -1476,6 +1499,7 @@ function buildSchedulePreviewData(args: {
   const previewTimeline = isStudentPreview
     ? timeline.filter((block) => !isMajorScheduleDividerBlock(block) && !/lunch/i.test(asText(block.label)))
     : timeline;
+  const meaningfulPreviewTimeline = previewTimeline.filter((block) => !isFillerTimingLabel(block.label));
   const previewRounds = isStudentPreview
     ? rounds.map((round) => ({
         ...round,
@@ -1504,10 +1528,10 @@ function buildSchedulePreviewData(args: {
   if (kind === "timeline") {
     lines.push("EVENT FLOW");
     lines.push("-----------");
-    if (!previewTimeline.length) {
+    if (!meaningfulPreviewTimeline.length) {
       lines.push("No flow blocks yet. Add day blocks to build a full-day timeline.");
     } else {
-      previewTimeline.forEach((block) => {
+      meaningfulPreviewTimeline.forEach((block) => {
         const duration = `${block.detail ? ` (${block.detail})` : ""}`;
         lines.push(`${formatRange(block.start, block.end)}  ${block.label}${duration}`);
       });
@@ -1517,8 +1541,9 @@ function buildSchedulePreviewData(args: {
     lines.push("------------");
     previewRounds.forEach((round) => {
       lines.push(`Round ${round.round}: ${formatRange(round.start, round.end)}`);
-      if (round.subBlocks.length) {
-        round.subBlocks.forEach((subBlock) => {
+      const meaningfulSubBlocks = round.subBlocks.filter((subBlock) => !isFillerTimingLabel(subBlock.label));
+      if (meaningfulSubBlocks.length) {
+        meaningfulSubBlocks.forEach((subBlock) => {
           lines.push(`  ${subBlock.label}: ${formatRange(subBlock.start, subBlock.end)}`);
         });
       }
@@ -1541,10 +1566,10 @@ function buildSchedulePreviewData(args: {
   } else if (kind === "announcements") {
     lines.push("ANNOUNCEMENT SCHEDULE");
     lines.push("---------------------");
-    if (!previewTimeline.length) {
+    if (!meaningfulPreviewTimeline.length) {
       lines.push("No announcement schedule has been generated yet.");
     } else {
-      previewTimeline.forEach((block) => {
+      meaningfulPreviewTimeline.forEach((block) => {
         lines.push(`${formatRange(block.start, block.end)}  ${block.label}${block.detail ? ` (${block.detail})` : ""}`);
       });
     }
@@ -1553,8 +1578,9 @@ function buildSchedulePreviewData(args: {
     lines.push("=".repeat(Math.max(30, previewLabel.length)));
     previewRounds.forEach((round) => {
       lines.push(`\nRound ${round.round}: ${formatRange(round.start, round.end)}`);
-      if (round.subBlocks.length) {
-        round.subBlocks.forEach((subBlock) => {
+      const meaningfulSubBlocks = round.subBlocks.filter((subBlock) => !isFillerTimingLabel(subBlock.label));
+      if (meaningfulSubBlocks.length) {
+        meaningfulSubBlocks.forEach((subBlock) => {
           lines.push(`  ${subBlock.label}: ${formatRange(subBlock.start, subBlock.end)}`);
         });
       }
@@ -1582,8 +1608,8 @@ function buildSchedulePreviewData(args: {
     }
   }
 
-  const timelineSummary = previewTimeline.length
-    ? `${previewTimeline.length} timeline block${previewTimeline.length === 1 ? "" : "s"} · ${Math.max(generated.rotationEnd - generated.rotationStart, 0)} min planned`
+  const timelineSummary = meaningfulPreviewTimeline.length
+    ? `${meaningfulPreviewTimeline.length} timeline block${meaningfulPreviewTimeline.length === 1 ? "" : "s"} · ${Math.max(generated.rotationEnd - generated.rotationStart, 0)} min planned`
     : "No timeline blocks configured";
   const renderCountSummary = `${previewRounds.length} round${previewRounds.length === 1 ? "" : "s"} rendered • ${roomColumns.length} room${roomColumns.length === 1 ? "" : "s"} rendered • ${learnerCount} learner${learnerCount === 1 ? "" : "s"} rendered`;
 
@@ -1616,8 +1642,8 @@ function buildSchedulePreviewData(args: {
       `
     : "";
 
-  const timelineStripBlocks = previewTimeline.filter((block) => !isPrimaryScheduleWideTimelineBlock(block));
-  const scheduleWideBlocks = isStudentPreview ? [] : previewTimeline.filter((block) => isPrimaryScheduleWideTimelineBlock(block));
+  const timelineStripBlocks = meaningfulPreviewTimeline.filter((block) => !isPrimaryScheduleWideTimelineBlock(block));
+  const scheduleWideBlocks = isStudentPreview ? [] : meaningfulPreviewTimeline.filter((block) => isPrimaryScheduleWideTimelineBlock(block));
   const renderTimelineRail = (blocks: TimelineBlock[]) =>
     blocks.length
       ? `
@@ -1643,7 +1669,9 @@ function buildSchedulePreviewData(args: {
     previewRounds.length
       ? previewRounds
           .map((round) => {
-            const visibleRhythmBlocks = round.subBlocks.filter((subBlock) => !isMajorScheduleDividerBlock(subBlock));
+            const visibleRhythmBlocks = round.subBlocks.filter(
+              (subBlock) => !isMajorScheduleDividerBlock(subBlock) && !isFillerTimingLabel(subBlock.label)
+            );
             const rhythmSegments = visibleRhythmBlocks.length
               ? visibleRhythmBlocks
                   .map((subBlock) => {
@@ -1756,15 +1784,7 @@ function buildSchedulePreviewData(args: {
                 }
 
                 const round = entry.round;
-                const visibleRoundBlocks = round.subBlocks.filter((subBlock) => !isMajorScheduleDividerBlock(subBlock));
-                const subBlockSummary = visibleRoundBlocks.length
-                  ? visibleRoundBlocks
-                      .map(
-                        (subBlock) =>
-                          `${subBlock.label} ${formatDurationCompact(getBlockDurationMinutes(subBlock.start, subBlock.end))}`
-                      )
-                      .join(" · ")
-                  : "Encounter flow only";
+                const subBlockSummary = getFlowRhythmSummary(round) || "Encounter flow only";
 
                 return `
                   <tr class="round-grid-row">
@@ -2177,7 +2197,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     setStudentPrebriefMinutes(draft.studentPrebriefMinutes);
     setSpPrebriefMinutes(draft.spPrebriefMinutes);
     setFacultyPrebriefMinutes(draft.facultyPrebriefMinutes);
-    setSessionLengthMinutes(draft.sessionLengthMinutes);
+    setSessionLengthMinutes(sanitizeSavedRoundTargetMinutes(draft.sessionLengthMinutes));
     setRoundCount(draft.roundCount);
     setExamRoomCount(draft.examRoomCount);
     setFlexRoomCount(draft.flexRoomCount);
@@ -2592,7 +2612,6 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         rounds: [] as GeneratedRound[],
         roundLength: 0,
         configuredLength: 0,
-        bufferMinutes: 0,
         overrunMinutes: 0,
         rotationStart: 0,
         rotationEnd: 0,
@@ -2600,7 +2619,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       };
     }
 
-    const { rounds, roundLength, configuredLength, bufferMinutes, overrunMinutes } =
+    const { rounds, roundLength, configuredLength, overrunMinutes } =
       calculateRoundTimingsWithBlocks({
       startMinutes: parsedStartMinutes,
       rounds: effectiveRoundCount,
@@ -2632,7 +2651,6 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       rounds,
       roundLength,
       configuredLength,
-      bufferMinutes,
       overrunMinutes,
       rotationStart,
       rotationEnd,
@@ -2669,10 +2687,40 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         }`
       : "configured timing blocks";
 
-    return `Operational schedule adjusted to fit configured timing blocks. Added ${blockSummary} increased the scheduled round length by ${generated.overrunMinutes} minute${
+    return `Configured round blocks exceed the manual round target by ${generated.overrunMinutes} minute${
       generated.overrunMinutes === 1 ? "" : "s"
-    }.`;
+    }. ${blockSummary} are preserved, but the builder no longer pads rounds with extra unused time.`;
   }, [generated.overrunMinutes, parsedSessionLength, scheduleExtensionBlockLabels]);
+  const absurdRoundLengthAdvisory = useMemo(() => {
+    if (!generated.configuredLength || generated.configuredLength <= MAX_OPERATIONAL_ROUND_MINUTES) return "";
+    return `Round timing is unusually long at ${generated.configuredLength} minutes. Check encounter and recurring block durations; imported event windows are not used as per-round duration.`;
+  }, [generated.configuredLength]);
+  const timingValidationMessages = useMemo(() => {
+    const messages: string[] = [];
+    if (asText(startTime) && parsedStartMinutes === null) {
+      messages.push("Start time could not be read. The builder will wait for a valid time before generating rounds.");
+    }
+    if (parsedEncounter !== sanitizeEncounterMinutes(parsedEncounter)) {
+      messages.push(`Encounter duration is outside the operational range; using ${DEFAULT_ENCOUNTER_MINUTES} minutes for generated rounds.`);
+    }
+    if (parsedSessionLength > MAX_IMPORTED_ROUND_TARGET_MINUTES) {
+      messages.push(`Round target ${parsedSessionLength} minutes is ignored to prevent inflated round blocks.`);
+    }
+    const ignoredRecurringBlocks = normalizedDayBlocks.filter((block) => {
+      const duration = parseNumber(block.durationMinutes, 0);
+      return (
+        duration > MAX_RECURRING_BLOCK_MINUTES &&
+        (block.placement === "after_each_rotation" || block.placement === "after_every_x_rotations") &&
+        shouldTimingBlockApply(block, timingVisibility)
+      );
+    });
+    if (ignoredRecurringBlocks.length) {
+      messages.push(
+        `${ignoredRecurringBlocks.length} recurring timing block${ignoredRecurringBlocks.length === 1 ? "" : "s"} over ${MAX_RECURRING_BLOCK_MINUTES} minutes ignored.`
+      );
+    }
+    return messages;
+  }, [normalizedDayBlocks, parsedEncounter, parsedSessionLength, parsedStartMinutes, startTime, timingVisibility]);
 
   const learnerRoster = useMemo(
     () => buildLearnerRoster(uploadedLearners, Math.max(slotsPerRound, 1), generated.rounds.length),
@@ -3776,9 +3824,14 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                   {isVirtualEvent ? "breakout rooms, or students per breakout room" : "exam rooms, flex rooms, or room capacity"}.
                 </div>
               ) : null}
-              {parsedSessionLength > 0 && generated.bufferMinutes > 0 ? (
-                <div className="cfsp-alert cfsp-alert-info mt-4">
-                  Each round includes {generated.bufferMinutes} minutes of open buffer so the generated timeline matches the {parsedSessionLength}-minute session target.
+              {timingValidationMessages.length ? (
+                <div className="cfsp-alert cfsp-alert-error mt-4">
+                  {timingValidationMessages.join(" ")}
+                </div>
+              ) : null}
+              {absurdRoundLengthAdvisory ? (
+                <div className="cfsp-alert cfsp-alert-error mt-4">
+                  {absurdRoundLengthAdvisory}
                 </div>
               ) : null}
               {scheduleOverrunAdvisory ? (
@@ -3824,7 +3877,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                   </>
                 ) : null}
                 <NumberInput label="Encounter minutes" value={encounterMinutes} onChange={setEncounterMinutes} />
-                <NumberInput label="Session length override" value={sessionLengthMinutes} onChange={setSessionLengthMinutes} />
+                <NumberInput label="Round target minutes (optional)" value={sessionLengthMinutes} onChange={setSessionLengthMinutes} />
               </div>
               <div className="mt-4 rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -4012,7 +4065,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                       {advancedSettingsActive ? "Active" : "Inactive"}
                     </div>
                     <div className="mt-2 text-sm font-semibold text-[#5e7388]">
-                      Set arrival, prebrief, manual round overrides, or session targets only when you want them included in the builder. Use reusable schedule blocks for breaks, checklist steps, SOAP notes, feedback, and debrief timing.
+                      Set arrival, prebrief, manual round overrides, or optional round targets only when you want them included in the builder. Use reusable schedule blocks for breaks, checklist steps, SOAP notes, feedback, and debrief timing.
                     </div>
                   </div>
                 </div>
@@ -4197,7 +4250,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                           </div>
                           <div className="flex flex-1 flex-wrap gap-2 lg:justify-end">
                             {entry.round.subBlocks
-                              .filter((subBlock) => !isMajorScheduleDividerBlock(subBlock))
+                              .filter((subBlock) => !isMajorScheduleDividerBlock(subBlock) && !isFillerTimingLabel(subBlock.label))
                               .map((subBlock) => {
                               const durationMinutes = Math.max(getBlockDurationMinutes(subBlock.start, subBlock.end), 1);
                               const rhythmStyles = getFlowRhythmSegmentStyles(subBlock.label);
@@ -4244,7 +4297,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                     </div>
                     <div className="mt-4 flex flex-wrap gap-2">
                       {selectedBuilderRoundContext.subBlocks
-                        .filter((subBlock) => !isMajorScheduleDividerBlock(subBlock))
+                        .filter((subBlock) => !isMajorScheduleDividerBlock(subBlock) && !isFillerTimingLabel(subBlock.label))
                         .map((subBlock) => (
                         <button
                           key={`${selectedBuilderRoundContext.round}-${subBlock.label}-${subBlock.start}`}
@@ -4280,7 +4333,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                       ))}
                     </div>
                     {selectedBuilderRoundContext.subBlocks
-                      .filter((subBlock) => !isMajorScheduleDividerBlock(subBlock))
+                      .filter((subBlock) => !isMajorScheduleDividerBlock(subBlock) && !isFillerTimingLabel(subBlock.label))
                       .map((subBlock) => {
                       const detailKey = `selected-round-${subBlock.label}-${subBlock.start}`;
                       if (activeFlowDetailKey !== detailKey) return null;

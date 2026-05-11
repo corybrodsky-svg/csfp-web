@@ -2053,6 +2053,27 @@ function formatUploadedTimestamp(value?: string | null) {
   return parsed.toLocaleString();
 }
 
+function getPollImportSummaryFromResponses(entries: ImportedPollResponseRecord[]): PollImportSummary {
+  const matchedCount = entries.filter((entry) => Boolean(entry.matchedSpId)).length;
+  return {
+    parsedResponses: entries.length,
+    matchedCount,
+    unmatchedCount: entries.length - matchedCount,
+    failedRows: 0,
+    availableCount: entries.filter((entry) => entry.responseStatus === "available").length,
+    maybeCount: entries.filter((entry) => entry.responseStatus === "maybe").length,
+    notAvailableCount: entries.filter((entry) => entry.responseStatus === "not_available").length,
+    noResponseCount: entries.filter((entry) => entry.responseStatus === "no_response").length,
+    assignmentNotesUpdated: 0,
+  };
+}
+
+function buildPollImportSuccessMessage(summary: PollImportSummary, uploadedAt: string) {
+  const responseLabel = summary.parsedResponses === 1 ? "response" : "responses";
+  const candidateLabel = summary.matchedCount === 1 ? "SP candidate" : "SP candidates";
+  return `Poll sync complete - ${summary.parsedResponses} ${responseLabel} processed | ${summary.matchedCount} matched ${candidateLabel} | ${summary.availableCount} available | ${summary.notAvailableCount} unavailable/declined | uploaded ${formatUploadedTimestamp(uploadedAt)}`;
+}
+
 function formatSessionDate(value?: string | null, fallbackYear?: number | null) {
   return formatHumanDate(value, fallbackYear);
 }
@@ -3684,6 +3705,13 @@ export default function EventDetailPage() {
   const [pollImportSummary, setPollImportSummary] = useState<PollImportSummary | null>(null);
   const [pollImportIgnoredUnmatched, setPollImportIgnoredUnmatched] = useState(false);
   const [pollImportDebugInfo, setPollImportDebugInfo] = useState<PollImportDebugInfo | null>(null);
+  useEffect(() => {
+    if (!pollImportSuccess) return;
+    const timeout = window.setTimeout(() => {
+      setPollImportSuccess("");
+    }, 6500);
+    return () => window.clearTimeout(timeout);
+  }, [pollImportSuccess]);
   const [loading, setLoading] = useState(Boolean(id));
   const [saving, setSaving] = useState(false);
   const [assigningSpId, setAssigningSpId] = useState("");
@@ -8174,6 +8202,14 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
   }
 
   async function handlePollImportFile(file: File | null) {
+    if (pollImportSaving) {
+      setPollImportError("Upload already in progress. Please wait for the current poll import to finish.");
+      setPollImportSuccess("");
+      setPollImportSummary(null);
+      if (pollImportInputRef.current) pollImportInputRef.current.value = "";
+      return;
+    }
+
     if (!file) {
       setPollImportError("Choose a CSV, XLSX, or XLS poll results file to upload.");
       setPollImportSuccess("");
@@ -8248,25 +8284,21 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
         throw new Error(asText(body?.error) || `Poll import failed (${response.status}).`);
       }
 
+      setPollImportError("");
       if (body.debug) setPollImportDebugInfo(body.debug);
+      const importedResponses = body.importedPollResponses || [];
+      const importSummary = body.summary || getPollImportSummaryFromResponses(importedResponses);
+      const latestUploadAt =
+        (body.eventNotes ? parsePollMetadata(body.eventNotes).pollImportCreatedAt : "") || new Date().toISOString();
       if (body.eventNotes) {
         setEventEditor((current) => ({ ...current, notes: body.eventNotes || current.notes }));
         setEvent((current) => (current ? { ...current, notes: body.eventNotes || current.notes } : current));
       }
-      setPollImportSummary(body.summary || null);
-      setPollImportSuccess(
-        body.message ||
-          `Upload successful. Parsed ${body.summary?.parsedResponses || body.importedPollResponses?.length || 0} poll response${
-            (body.summary?.parsedResponses || body.importedPollResponses?.length || 0) === 1 ? "" : "s"
-          }.`
-      );
+      setPollImportSummary(importSummary);
+      setPollImportSuccess(buildPollImportSuccessMessage(importSummary, latestUploadAt));
       setPollImportIgnoredUnmatched(false);
-      showSuccessMessage(
-        `Upload successful. Parsed ${body.summary?.parsedResponses || body.importedPollResponses?.length || 0} response${
-          (body.summary?.parsedResponses || body.importedPollResponses?.length || 0) === 1 ? "" : "s"
-        }.`
-      );
-      if ((body.summary?.assignmentNotesUpdated || 0) > 0) {
+      showSuccessMessage(buildPollImportSuccessMessage(importSummary, latestUploadAt));
+      if ((importSummary.assignmentNotesUpdated || 0) > 0) {
         await refreshData();
       }
     } catch (error) {
@@ -8274,6 +8306,8 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
         eventId: id,
         error: error instanceof Error ? error.message : error,
       });
+      setPollImportSuccess("");
+      setPollImportSummary(null);
       setPollImportError(error instanceof Error ? error.message : "Could not import poll responses.");
     } finally {
       setPollImportSaving(false);
@@ -8423,6 +8457,7 @@ Cory`;
   const pollReadyEmailCount = pollSelectedEmails.length || pollSelectedSpEmailsFromMetadata.length;
   const pollCreatedLabel = formatUploadedTimestamp(pollMetadata.pollCreatedAt);
   const pollSentLabel = formatUploadedTimestamp(pollMetadata.pollSentAt);
+  const latestPollImportLabel = formatUploadedTimestamp(pollMetadata.pollImportCreatedAt);
   const staffingReadinessStatus: WorkflowReadinessStatus = noSpStaffingRequired
     ? "Optional"
     : needed > 0 && confirmedCount >= needed
@@ -15104,6 +15139,7 @@ Cory`;
                             ref={pollImportInputRef}
                             type="file"
                             accept=".csv,.xlsx,.xls"
+                            disabled={pollImportSaving}
                             onChange={(event) => void handlePollImportFile(event.target.files?.[0] || null)}
                             style={{ display: "none" }}
                           />
@@ -15237,11 +15273,13 @@ Cory`;
                           </button>
                           <button
                             type="button"
-                            onClick={() => pollImportInputRef.current?.click()}
+                            onClick={() => {
+                              if (!pollImportSaving) pollImportInputRef.current?.click();
+                            }}
                             disabled={pollImportSaving}
                             style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px", opacity: pollImportSaving ? 0.65 : 1 }}
                           >
-                            {pollImportSaving ? "Uploading..." : "Upload Poll Results"}
+                            {pollImportSaving ? "Uploading Poll Results..." : "Upload Poll Results"}
                           </button>
                           <button
                             type="button"
@@ -15266,6 +15304,37 @@ Cory`;
                           >
                             Clear Poll Results
                           </button>
+                        </div>
+                        <div
+                          style={{
+                            display: "flex",
+                            gap: "8px",
+                            flexWrap: "wrap",
+                            alignItems: "center",
+                            fontSize: "12px",
+                            fontWeight: 800,
+                            color: staffingWorkspacePalette.textMuted,
+                          }}
+                        >
+                          <span
+                            style={{
+                              ...staffingSelectedChipStyle,
+                              background: pollMetadata.pollImportCreatedAt
+                                ? "rgba(236, 253, 245, 0.88)"
+                                : staffingWorkspacePalette.buttonBg,
+                              border: pollMetadata.pollImportCreatedAt
+                                ? "1px solid rgba(25, 138, 112, 0.2)"
+                                : staffingSelectedChipStyle.border,
+                              color: pollMetadata.pollImportCreatedAt ? planningSuccessText : staffingWorkspacePalette.textMuted,
+                            }}
+                          >
+                            Latest poll upload: {pollImportSaving ? "Uploading Poll Results..." : latestPollImportLabel}
+                          </span>
+                          {importedPollResponses.length ? (
+                            <span style={staffingMutedTextStyle}>
+                              {importedPollResponses.length} stored response{importedPollResponses.length === 1 ? "" : "s"}
+                            </span>
+                          ) : null}
                         </div>
                         {viewerRole !== "sp" ? (
                           <div style={{ display: "grid", gap: "4px", fontSize: "12px", fontWeight: 800, color: staffingWorkspacePalette.textMuted }}>
@@ -15403,12 +15472,14 @@ Cory`;
                 ) : null}
 
                 {isPlanningVisualMode && pollImportError ? (
-                  <div className="cfsp-alert cfsp-alert-error">{pollImportError}</div>
+                  <div className="cfsp-alert cfsp-alert-error" role="alert">
+                    <strong>Poll import failed.</strong> {pollImportError}
+                  </div>
                 ) : null}
 
                 {isPlanningVisualMode && pollImportSaving ? (
-                  <div className="cfsp-alert cfsp-alert-info">
-                    Uploading poll results and matching responders...
+                  <div className="cfsp-alert cfsp-alert-info" role="status" aria-live="polite">
+                    Uploading Poll Results... matching responders and updating staffing counts.
                   </div>
                 ) : null}
 
@@ -15422,12 +15493,16 @@ Cory`;
                       display: "grid",
                       gap: "8px",
                     }}
+                    role="status"
+                    aria-live="polite"
                   >
                     <div style={{ fontWeight: 900 }}>{pollImportSuccess}</div>
                     {pollImportSummary ? (
                       <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", fontSize: "12px", fontWeight: 800 }}>
                         <span>{pollImportSummary.parsedResponses} parsed</span>
                         <span>{pollImportSummary.matchedCount} matched</span>
+                        <span>{pollImportSummary.availableCount} available</span>
+                        <span>{pollImportSummary.notAvailableCount} unavailable/declined</span>
                         <span>{pollImportSummary.unmatchedCount} unmatched</span>
                         <span>{pollImportSummary.failedRows} failed row{pollImportSummary.failedRows === 1 ? "" : "s"}</span>
                         <span>{pollImportSummary.assignmentNotesUpdated} assignment note{pollImportSummary.assignmentNotesUpdated === 1 ? "" : "s"} updated</span>
