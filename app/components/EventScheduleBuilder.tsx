@@ -870,13 +870,12 @@ async function createStyledSchedulePdfBlob(context: StyledPdfRenderContext) {
 
     const printableWidth = Math.max(containerDocument.documentElement.scrollWidth, containerDocument.body.scrollWidth, 700);
     const printableHeight = Math.max(containerDocument.documentElement.scrollHeight, containerDocument.body.scrollHeight, 700);
-    const compactTargetWidth = 980;
-    const contentWidth = Math.max(Math.min(printableWidth, compactTargetWidth), 760);
-    container.style.width = `${Math.max(980, contentWidth)}px`;
+    const compactTargetWidth = 840;
+    const contentWidth = Math.max(Math.min(printableWidth, compactTargetWidth), 700);
+    container.style.width = `${contentWidth}px`;
     container.style.height = `${Math.max(620, printableHeight)}px`;
     await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
 
-    const pageWidth = 1122;
     const pdfSidePadding = 8;
     const scheduleDoc = new jsPDF({
       orientation: "landscape",
@@ -896,7 +895,7 @@ async function createStyledSchedulePdfBlob(context: StyledPdfRenderContext) {
         autoPaging: "slice",
         margin: [pdfSidePadding, pdfSidePadding, pdfSidePadding, pdfSidePadding],
         html2canvas: {
-          scale: 0.98,
+          scale: 0.82,
           useCORS: true,
           allowTaint: false,
           logging: false,
@@ -917,7 +916,7 @@ async function createStyledSchedulePdfBlob(context: StyledPdfRenderContext) {
             }
             const compactRoot = cloneDoc.querySelector(".print-root");
             if (compactRoot instanceof HTMLElement) {
-              compactRoot.style.width = `${Math.min(Math.max(contentWidth, 760), 1000)}px`;
+              compactRoot.style.width = `${Math.min(Math.max(contentWidth, 700), 900)}px`;
             }
           },
         },
@@ -1081,7 +1080,7 @@ function buildCompactSchedulePrintHtml(args: {
         <meta charSet="UTF-8" />
         <title>${escapeHtml(printTitle)}</title>
       <style>
-          :root { color-scheme: light; --pdf-scale: 0.88; }
+          :root { color-scheme: light; --pdf-scale: 0.78; }
           html, body {
             margin: 0;
             padding: 0;
@@ -1091,51 +1090,51 @@ function buildCompactSchedulePrintHtml(args: {
             background: #fff;
           }
           body {
-            font-size: 8px;
+            font-size: 7px;
           }
           .print-root {
             transform: scale(var(--pdf-scale));
             transform-origin: top left;
             width: calc(100% / var(--pdf-scale));
             display: grid;
-            gap: 3px;
-            padding: 5mm 4mm 6mm;
+            gap: 2px;
+            padding: 4mm 3.5mm 5mm;
           }
           .print-head { display: grid; gap: 1px; }
-          .print-title { margin: 0; font-size: 13px; font-weight: 800; }
-          .print-meta { color: #1f2937; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; font-size: 8px; }
-          .print-summary { color: #334155; font-size: 8.4px; display: flex; flex-wrap: wrap; gap: 4px; }
+          .print-title { margin: 0; font-size: 11px; font-weight: 800; }
+          .print-meta { color: #1f2937; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; font-size: 7px; }
+          .print-summary { color: #334155; font-size: 7.4px; display: flex; flex-wrap: wrap; gap: 3px; }
           .print-summary span { background: #f1f5f9; padding: 1px 4px; border-radius: 5px; }
           .print-band {
             border: 1px solid #e2e8f0;
             border-radius: 4px;
-            padding: 2px 5px;
+            padding: 1.5px 4px;
             background: #f8fafc;
             break-inside: avoid;
             page-break-inside: avoid;
           }
           .print-band-wide { display: grid; gap: 2px; }
-          .print-band-title { font-weight: 800; font-size: 8px; color: #7c3aed; }
-          .print-band-meta { font-size: 7.4px; color: #5b6471; font-weight: 700; }
-          .print-band-note { font-size: 7.6px; color: #334155; }
+          .print-band-title { font-weight: 800; font-size: 7px; color: #7c3aed; }
+          .print-band-meta { font-size: 6.7px; color: #5b6471; font-weight: 700; }
+          .print-band-note { font-size: 6.8px; color: #334155; }
           .print-round {
-            margin-top: 3px;
+            margin-top: 2px;
             border: 1px solid #d3deeb;
-            border-radius: 5px;
-            padding: 3px;
+            border-radius: 4px;
+            padding: 2px;
             background: #fff;
             break-inside: avoid;
             page-break-inside: avoid;
           }
-          .print-round-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 5px; margin-bottom: 2px; }
-          .print-round-kicker { font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: #1d4ed8; font-size: 7px; }
-          .print-round-time { color: #334155; font-weight: 800; font-size: 8px; }
-          .print-round-summary { color: #334155; font-size: 7.2px; text-align: right; }
+          .print-round-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 4px; margin-bottom: 1px; }
+          .print-round-kicker { font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: #1d4ed8; font-size: 6px; }
+          .print-round-time { color: #334155; font-weight: 800; font-size: 7px; }
+          .print-round-summary { color: #334155; font-size: 6.7px; text-align: right; }
           .print-grid { width: 100%; border-collapse: collapse; table-layout: fixed; }
           .print-grid th,
           .print-grid td {
             border: 1px solid #d5deea;
-            padding: 2px 3px;
+            padding: 1px 2px;
             vertical-align: top;
             white-space: normal;
             word-break: break-word;
@@ -1144,22 +1143,23 @@ function buildCompactSchedulePrintHtml(args: {
           .print-grid th {
             background: #f1f5f9;
             color: #1f2937;
-            font-size: 7px;
+            font-size: 6px;
             text-transform: uppercase;
           }
-          .print-grid td { font-size: 7.6px; }
-          .cell-round { width: 16px; text-align: center; font-weight: 800; }
-          .cell-time { width: 70px; white-space: nowrap; font-size: 7.5px; font-weight: 700; }
+          .print-grid td { font-size: 6.8px; }
+          .cell-round { width: 14px; text-align: center; font-weight: 800; }
+          .cell-time { width: 64px; white-space: nowrap; font-size: 6.7px; font-weight: 700; }
           .cell-room-head { min-width: 74px; }
-          .cell-room { display: block; font-size: 7px; line-height: 1.2; margin-bottom: 2px; }
+          .cell-room { display: block; font-size: 6.4px; line-height: 1.18; margin-bottom: 1.5px; }
           .cell-name { font-weight: 700; margin-top: 1px; }
-          .cell-meta { margin-top: 1px; font-size: 6.8px; color: #475569; }
-          .print-empty { margin-top: 4px; color: #64748b; padding: 6px; border: 1px dashed #cbd5e1; border-radius: 6px; }
+          .cell-meta { margin-top: 0.8px; font-size: 6px; color: #475569; }
+          .print-empty { margin-top: 4px; color: #64748b; padding: 4px; border: 1px dashed #cbd5e1; border-radius: 5px; }
           @media print {
             @page { size: landscape; margin: 0.2in 0.2in 0.2in 0.22in; }
             html, body { background: #ffffff !important; }
             body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
             .print-root { gap: 2px; }
+            .print-summary { gap: 2px; }
           }
         </style>
       </head>
