@@ -8833,7 +8833,30 @@ Cory`;
         : planningLivePreviewAlerts.length > 0
           ? "attention"
           : "info";
-  const planningLivePreviewReadinessStyles = getOperationalWindowStyles(planningLivePreviewReadinessTone);
+  const planningLivePreviewReadinessStyles =
+    planningLivePreviewReadinessTone === "ready"
+      ? {
+          border: "1px solid rgba(25, 138, 112, 0.24)",
+          chipBg: "rgba(25, 138, 112, 0.12)",
+          accent: "#0f766e",
+        }
+      : planningLivePreviewReadinessTone === "critical"
+        ? {
+            border: "1px solid rgba(244, 114, 182, 0.24)",
+            chipBg: "rgba(244, 114, 182, 0.12)",
+            accent: "#be185d",
+          }
+        : planningLivePreviewReadinessTone === "attention"
+          ? {
+              border: "1px solid rgba(245, 158, 11, 0.22)",
+              chipBg: "rgba(245, 158, 11, 0.12)",
+              accent: "#a16207",
+            }
+          : {
+              border: "1px solid rgba(20, 91, 150, 0.18)",
+              chipBg: "rgba(20, 91, 150, 0.12)",
+              accent: "#145b96",
+            };
 
   const eventMaterialDownloadUrl = eventMaterialUrl
     ? buildTrainingMaterialAssetUrls({
