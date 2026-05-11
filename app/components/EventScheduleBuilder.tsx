@@ -798,6 +798,148 @@ function toCsv(rows: unknown[][]) {
   return `${rows.map((row) => row.map(csvCell).join(",")).join("\r\n")}\r\n`;
 }
 
+type StyledPdfRenderContext = {
+  html: string;
+  printView: "student" | "operations";
+};
+
+function isCanvasTaintError(error: unknown) {
+  if (error instanceof Error) {
+    return /tainted|toDataURL|cross-origin|SecurityError/i.test(error.message);
+  }
+  return false;
+}
+
+async function createStyledSchedulePdfBlob(context: StyledPdfRenderContext) {
+  const { html, printView } = context;
+  const { jsPDF } = await import("jspdf");
+  const htmlSource = html;
+  if (typeof window === "undefined") {
+    throw new Error("PDF export is not available in this environment.");
+  }
+
+  const container = document.createElement("iframe");
+  container.setAttribute("aria-hidden", "true");
+  container.style.position = "fixed";
+  container.style.left = "-10000px";
+  container.style.top = "0";
+  container.style.width = "0";
+  container.style.height = "0";
+  container.style.opacity = "0";
+  container.style.pointerEvents = "none";
+  container.srcdoc = htmlSource;
+  document.body.appendChild(container);
+
+  const cleanup = () => {
+    container.remove();
+  };
+
+  try {
+    await new Promise<void>((resolve, reject) => {
+      let settled = false;
+      const timeout = window.setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          reject(new Error("Styled PDF generation timed out."));
+        }
+      }, 25000);
+
+      container.onload = () => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timeout);
+        resolve();
+      };
+      container.onerror = () => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timeout);
+        reject(new Error("Could not render schedule for PDF generation."));
+      };
+    });
+
+    const containerDocument = container.contentDocument;
+    if (!containerDocument?.body) {
+      throw new Error("Could not render schedule for PDF generation.");
+    }
+
+    await containerDocument.fonts?.ready?.catch(() => undefined);
+    await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+
+    const printableWidth = Math.max(containerDocument.documentElement.scrollWidth, containerDocument.body.scrollWidth, 1200);
+    const printableHeight = Math.max(containerDocument.documentElement.scrollHeight, containerDocument.body.scrollHeight, 800);
+    container.style.width = `${Math.max(960, printableWidth)}px`;
+    container.style.height = `${Math.max(700, printableHeight)}px`;
+    await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+
+    const scheduleDoc = new jsPDF({
+      orientation: "landscape",
+      unit: "px",
+      format: "a4",
+      hotfixes: ["px_scaling"],
+    });
+    const bodyNode = containerDocument.body;
+
+    await new Promise<void>((resolve, reject) => {
+      let pdfRendered = false;
+      scheduleDoc.html(bodyNode, {
+        x: 8,
+        y: 8,
+        width: Math.max(printableWidth, 1120),
+        windowWidth: printableWidth,
+        autoPaging: "text",
+        margin: [12, 12, 12, 12],
+        html2canvas: {
+          scale: 1.8,
+          useCORS: true,
+          allowTaint: false,
+          logging: false,
+          onclone: (cloneDoc) => {
+            const scheduleFrames = cloneDoc.querySelectorAll(".cfsp-schedule-actions-menu, .cfsp-schedule-viewer-toolbar, .cfsp-schedule-no-print");
+            scheduleFrames.forEach((node) => {
+              (node as HTMLElement).style.display = "none";
+            });
+            cloneDoc.querySelectorAll("body").forEach((bodyNodeToStyle) => {
+              bodyNodeToStyle.style.background = "#ffffff";
+            });
+            if (printView === "student") {
+              cloneDoc.querySelectorAll("button").forEach((button) => {
+                if (!button.closest(".cfsp-schedule-viewer-toolbar")) {
+                  button.style.display = "none";
+                }
+              });
+            }
+          },
+        },
+        callback: () => {
+          if (pdfRendered) return;
+          pdfRendered = true;
+          resolve();
+        },
+      });
+      window.setTimeout(() => {
+        if (!pdfRendered) {
+          pdfRendered = true;
+          reject(new Error("Styled PDF rendering callback did not complete."));
+        }
+      }, 20000);
+    });
+
+    const finalBlob = scheduleDoc.output("blob") as Blob;
+    if (!finalBlob || finalBlob.size <= 0) {
+      throw new Error("Styled PDF output was empty.");
+    }
+    return finalBlob;
+  } catch (error) {
+    if (isCanvasTaintError(error)) {
+      throw new Error("Direct PDF rendering blocked by browser CORS/canvas safety. Check image and asset access policies.");
+    }
+    throw error;
+  } finally {
+    cleanup();
+  }
+}
+
 function formatEventDate(event: EventRow) {
   const dateSource = event.earliest_session_date || event.date_text;
   if (!dateSource) return "Date TBD";
@@ -3152,6 +3294,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const selectedPreviewExportFileName = `${selectedPreviewBaseFileName}.txt`;
   const selectedPreviewCsvFileName = `${selectedPreviewBaseFileName}.csv`;
   const selectedPreviewHtmlFileName = `${selectedPreviewBaseFileName}-printable.html`;
+  const selectedPreviewStyledPdfFileName = previewKind === "student" ? "student-schedule.pdf" : "admin-schedule.pdf";
   const autoDownloadTriggeredRef = useRef(false);
   const previewDocumentParts = useMemo(
     () => getPreviewDocumentParts(schedulePreview.html),
@@ -3269,18 +3412,26 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     if (styledPdfExporting) return;
 
     setStyledPdfExporting(true);
-    showCopyMessage("Direct PDF rendering unavailable. Using browser print-to-PDF. Choose Save as PDF in the print dialog.", "success", 3400);
+    showCopyMessage("Preparing styled PDF download...", "success", 2200);
     try {
-      const printed = openSchedulePrintFlow();
-      if (!printed) {
-        throw new Error("Print dialog was blocked. Please allow popups and try again.");
-      }
+      const pdfBlob = await createStyledSchedulePdfBlob({
+        html: schedulePreview.html,
+        printView: previewKind === "student" ? "student" : "operations",
+      });
+      downloadBlob(pdfBlob, selectedPreviewStyledPdfFileName);
+      showCopyMessage(`${schedulePreview.title} styled PDF downloaded.`, "success", 2600);
     } catch (error) {
-      showCopyMessage(error instanceof Error ? error.message : "Direct PDF rendering is unavailable. Using print-to-PDF fallback failed.", "error", 3600);
+      showCopyMessage(
+        error instanceof Error
+          ? error.message
+          : "Could not download styled PDF. Raw text and printable HTML remain available in Export.",
+        "error",
+        3600
+      );
     } finally {
       setStyledPdfExporting(false);
     }
-  }, [openSchedulePrintFlow, styledPdfExporting]);
+  }, [styledPdfExporting, selectedPreviewStyledPdfFileName, schedulePreview.html, previewKind, schedulePreview.title]);
 
   useEffect(() => {
     if (loading || !props.previewOnly || !props.autoDownload || autoDownloadTriggeredRef.current || !schedulePreview.html) return;
