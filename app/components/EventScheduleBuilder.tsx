@@ -949,235 +949,143 @@ async function createStyledSchedulePdfBlob(context: StyledPdfRenderContext) {
   }
 }
 
-function buildCompactSchedulePrintHtml(args: {
-  kind: CompactSchedulePrintKind;
-  event: EventRow | null;
-  timeline: TimelineBlock[];
-  rounds: ScheduledRound[];
-  scheduleGridRows: ScheduleGridPreviewRow[];
-  roomColumns: PreviewRoomColumn[];
-  roomContext: Parameters<typeof getRoomDisplayLabel>[2];
-  caseName?: string;
-  assignedSpNames?: string[];
-  learnerCount: number;
-  generated: {
-    rounds: Array<GeneratedRound | ScheduledRound>;
-    rotationStart: number;
-    rotationEnd: number;
-    timeline: TimelineBlock[];
-  };
-  selectedEventSummaryTime?: string;
-}) {
-  const {
-    kind,
-    event,
-    timeline,
-    rounds,
-    scheduleGridRows,
-    roomColumns,
-    roomContext,
-    caseName,
-    assignedSpNames,
-    learnerCount,
-    generated,
-    selectedEventSummaryTime,
-  } = args;
+function buildCompactScheduleExportHtml(previewHtml: string, printView: CompactSchedulePrintKind) {
+  if (!previewHtml) return "";
+  const printTitle = printView === "student" ? "Student Schedule PDF" : "Admin Schedule PDF";
+  const compactModeStyle = [
+    ":root { color-scheme: light; }",
+    "html, body { margin: 0; }",
+    "body {",
+    "  font-size: 11px;",
+    "  background: #fff;",
+    "  print-color-adjust: exact;",
+    "  -webkit-print-color-adjust: exact;",
+    "}",
+    ".cfsp-schedule-export {",
+    "  padding: 0 !important;",
+    "  margin: 0 !important;",
+    "  transform: none !important;",
+    "  overflow: visible !important;",
+    "  width: 100%;",
+    "}",
+    ".cfsp-schedule-export .preview-shell { gap: 5px; width: 100%; }",
+    ".cfsp-schedule-export .preview-header { gap: 3px; }",
+    ".cfsp-schedule-export h1 { margin: 0; font-size: 24px; }",
+    ".cfsp-schedule-export .meta,",
+    ".cfsp-schedule-export .event-meta-label,",
+    ".cfsp-schedule-export .detail-label,",
+    ".cfsp-schedule-export .round-kicker {",
+    "  font-size: 9px;",
+    "  letter-spacing: 0.03em;",
+    "}",
+    ".cfsp-schedule-export .event-meta,",
+    ".cfsp-schedule-export .round-section,",
+    ".cfsp-schedule-export .rhythm-row,",
+    ".cfsp-schedule-export .room-row,",
+    ".cfsp-schedule-export .schedule-room-card,",
+    ".cfsp-schedule-export .wide-band,",
+    ".cfsp-schedule-export .divider-band {",
+    "  border-radius: 8px;",
+    "  page-break-inside: avoid;",
+    "  break-inside: avoid;",
+    "}",
+    ".cfsp-schedule-export .event-meta-card,",
+    ".cfsp-schedule-export .round-section { padding: 6px 7px; }",
+    ".cfsp-schedule-export .event-meta { gap: 5px; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }",
+    ".cfsp-schedule-export .event-meta-value,",
+    ".cfsp-schedule-export .detail-value,",
+    ".cfsp-schedule-export .timeline-segment-title,",
+    ".cfsp-schedule-export .timeline-segment-detail,",
+    ".cfsp-schedule-export .rhythm-row-summary,",
+    ".cfsp-schedule-export .schedule-room-card .detail-value {",
+    "  font-size: 10px;",
+    "  line-height: 1.2;",
+    "}",
+    ".cfsp-schedule-export .round-section { gap: 4px; }",
+    ".cfsp-schedule-export .round-header { gap: 6px; }",
+    ".cfsp-schedule-export h2 { margin: 0; font-size: 14px; }",
+    ".cfsp-schedule-export .timeline-rail,",
+    ".cfsp-schedule-export .rhythm-strip,",
+    ".cfsp-schedule-export .divider-stack,",
+    ".cfsp-schedule-export .room-grid {",
+    "  gap: 4px;",
+    "}",
+    ".cfsp-schedule-export .timeline-segment,",
+    ".cfsp-schedule-export .rhythm-chip,",
+    ".cfsp-schedule-export .divider-band,",
+    ".cfsp-schedule-export .room-row {",
+    "  padding: 4px 6px;",
+    "  min-width: 54px;",
+    "  border-radius: 8px;",
+    "}",
+    ".cfsp-schedule-export .timeline-segment-title { font-size: 10px; }",
+    ".cfsp-schedule-export .timeline-segment-detail,",
+    ".cfsp-schedule-export .rhythm-chip small,",
+    ".cfsp-schedule-export .wide-band-meta,",
+    ".cfsp-schedule-export .wide-band-note,",
+    ".cfsp-schedule-export .room-capacity,",
+    ".cfsp-schedule-export .room-row-detail,",
+    ".cfsp-schedule-export .wide-band-title {",
+    "  font-size: 8px;",
+    "}",
+    ".cfsp-schedule-export .schedule-grid-shell { border: none; }",
+    ".cfsp-schedule-export .schedule-grid-table th,",
+    ".cfsp-schedule-export .schedule-grid-table td {",
+    "  padding: 4px 5px;",
+    "  font-size: 10px;",
+    "  line-height: 1.15;",
+    "  vertical-align: top;",
+    "}",
+    ".cfsp-schedule-export .schedule-grid-table th { font-size: 8px; }",
+    ".cfsp-schedule-export .round-index,",
+    ".cfsp-schedule-export .round-time,",
+    ".cfsp-schedule-export .round-time-summary,",
+    ".cfsp-schedule-export .room-name {",
+    "  font-size: 10px;",
+    "  line-height: 1.2;",
+    "}",
+    ".cfsp-schedule-export .schedule-room-card { gap: 4px; }",
+    ".cfsp-schedule-export .empty-state {",
+    "  padding: 7px;",
+    "  border-radius: 8px;",
+    "  font-size: 10px;",
+    "}",
+    ".cfsp-schedule-export .cfsp-schedule-no-print,",
+    ".cfsp-schedule-export .cfsp-schedule-viewer-toolbar,",
+    ".cfsp-schedule-export .cfsp-schedule-actions-menu,",
+    ".cfsp-schedule-export .cfsp-schedule-export-no-print,",
+    ".cfsp-schedule-viewer-toolbar,",
+    ".cfsp-schedule-actions-menu {",
+    "  display: none !important;",
+    "}",
+    ".cfsp-schedule-export .preview-shell { padding: 6mm; }",
+    "@page {",
+    "  size: landscape;",
+    "  margin: 0.14in;",
+    "}",
+    "@media print {",
+    "  html, body { background: #fff !important; }",
+    "  .cfsp-schedule-export { background: #fff !important; }",
+    "  .round-section,",
+    "  .rhythm-row,",
+    "  .event-meta-card,",
+    "  .schedule-room-card,",
+    "  .wide-band,",
+    "  .divider-band {",
+    "    break-inside: avoid;",
+    "    page-break-inside: avoid;",
+    "  }",
+    "}",
+    "",
+  ].join("\n");
 
-  const isStudent = kind === "student";
-  const printTitle = isStudent ? "Student Schedule" : "Admin Schedule";
-  const visibleTimeline = timeline.filter((block) => !isFillerTimingLabel(block.label));
-  const timelineSummary = visibleTimeline.length
-    ? `${visibleTimeline.length} timeline block${visibleTimeline.length === 1 ? "" : "s"} • ${Math.max(generated.rotationEnd - generated.rotationStart, 0)} min`
-    : "No timeline blocks configured";
-  const roundSummary = `${Math.max(rounds.length, 0)} round${rounds.length === 1 ? "" : "s"} • ${roomColumns.length} room${roomColumns.length === 1 ? "" : "s"} • ${Math.max(
-    learnerCount,
-    0
-  )} learner${learnerCount === 1 ? "" : "s"}`;
+  let printableHtml = previewHtml.replace(/<body([^>]*)>/i, `<body$1 class="cfsp-schedule-export">`);
+  printableHtml = printableHtml.replace(/<title>(.*?)<\/title>/i, `<title>${printTitle}</title>`);
+  if (printableHtml.includes("</head>")) {
+    printableHtml = printableHtml.replace("</head>", `<style>${compactModeStyle}</style></head>`);
+  }
 
-  const compactRows =
-    scheduleGridRows.length && roomColumns.length
-      ? scheduleGridRows
-          .map((entry) => {
-            if (entry.kind === "wide") {
-              const durationMinutes = Math.max(getBlockDurationMinutes(entry.block.start, entry.block.end), 1);
-              return `<section class="print-band print-band-wide">
-                <div class="print-band-title">${escapeHtml(entry.block.label)}</div>
-                <div class="print-band-meta">${escapeHtml(formatRange(entry.block.start, entry.block.end))} • ${escapeHtml(formatDurationCompact(durationMinutes))}</div>
-                ${entry.block.detail ? `<div class="print-band-note">${escapeHtml(entry.block.detail)}</div>` : ""}
-              </section>`;
-            }
-
-            const round = entry.round;
-            const rhythmSummary = getFlowRhythmSummary(round) || "Encounter 20m • Checklist 5m • Feedback 5m";
-            const roundHeaderRoomColumns = roomColumns.length
-              ? roomColumns
-              : rounds[0]?.roomSlots.map((slot, roomIndex) => ({
-                  roomName: slot.roomName,
-                  roomType: slot.roomType,
-                  capacityLabel: slot.capacityLabel,
-                  displayRoomName: formatRoomName(slot.roomName, slot.roomType, roomIndex + 1, roomContext),
-                }));
-
-            const roomCells = round.roomSlots
-              .map((slot, slotIndex) => {
-                const roomColumn = roundHeaderRoomColumns[slotIndex] || {
-                  roomName: slot.roomName,
-                  roomType: slot.roomType,
-                  capacityLabel: slot.capacityLabel,
-                  displayRoomName: formatRoomName(slot.roomName, slot.roomType, slotIndex + 1, roomContext),
-                };
-                const roomLabel = `${roomColumn.displayRoomName} (${roomColumn.capacityLabel})`;
-                const learnerText = slot.learnerLabels.length ? slot.learnerLabels.join(", ") : "No learner assigned";
-                const assignmentIndex = round.roomSlots.findIndex((item) => item.roomName === slot.roomName);
-                const spName = assignedSpNames?.[assignmentIndex] || "Unassigned";
-
-                return `<td>
-                  <div class="cell-room">${escapeHtml(roomLabel)}</div>
-                  <div class="cell-name">${escapeHtml(learnerText)}</div>
-                  ${isStudent ? "" : `<div class="cell-meta">SP: ${escapeHtml(spName)}${caseName ? ` • Case: ${escapeHtml(caseName)}` : ""}</div>`}
-                </td>`;
-              })
-              .join("");
-
-            return `<section class="print-round">
-              <div class="print-round-head">
-                <div>
-                  <div class="print-round-kicker">Round ${round.round}</div>
-                  <div class="print-round-time">${escapeHtml(formatRange(round.start, round.end))}</div>
-                </div>
-                <div class="print-round-summary">${escapeHtml(rhythmSummary)}</div>
-              </div>
-              <table class="print-grid">
-                <thead>
-                  <tr>
-                    <th class="cell-round">R</th>
-                    <th class="cell-time">Time</th>
-                    ${roundHeaderRoomColumns
-                      .map((roomColumn) => `<th class="cell-room-head">${escapeHtml(roomColumn.displayRoomName)}</th>`)
-                      .join("")}
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td class="cell-round">${round.round}</td>
-                    <td class="cell-time">${escapeHtml(formatRange(round.start, round.end))}</td>
-                    ${roomCells}
-                  </tr>
-                </tbody>
-              </table>
-            </section>`;
-          })
-          .join("")
-      : "<section class='print-empty'>No rotation schedule generated yet.</section>";
-
-  const eventTitle = escapeHtml(event ? event.name || "Untitled Event" : "Schedule Preview");
-  const eventMeta = event ? `${escapeHtml(formatEventDate(event))}${event.location ? ` · ${escapeHtml(event.location)}` : ""}` : "Schedule preview";
-  const footerMeta = `${escapeHtml(eventMeta)}${selectedEventSummaryTime ? ` · ${escapeHtml(selectedEventSummaryTime)}` : ""}`;
-
-  return `<!doctype html>
-    <html>
-      <head>
-        <meta charSet="UTF-8" />
-        <title>${escapeHtml(printTitle)}</title>
-      <style>
-          :root { color-scheme: light; --pdf-scale: 0.78; }
-          html, body {
-            margin: 0;
-            padding: 0;
-            width: 100%;
-            font-family: Arial, Helvetica, sans-serif;
-            color: #0f2335;
-            background: #fff;
-          }
-          body {
-            font-size: 7px;
-          }
-          .print-root {
-            transform: scale(var(--pdf-scale));
-            transform-origin: top left;
-            width: calc(100% / var(--pdf-scale));
-            display: grid;
-            gap: 2px;
-            padding: 4mm 3.5mm 5mm;
-          }
-          .print-head { display: grid; gap: 1px; }
-          .print-title { margin: 0; font-size: 11px; font-weight: 800; }
-          .print-meta { color: #1f2937; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; font-size: 7px; }
-          .print-summary { color: #334155; font-size: 7.4px; display: flex; flex-wrap: wrap; gap: 3px; }
-          .print-summary span { background: #f1f5f9; padding: 1px 4px; border-radius: 5px; }
-          .print-band {
-            border: 1px solid #e2e8f0;
-            border-radius: 4px;
-            padding: 1.5px 4px;
-            background: #f8fafc;
-            break-inside: avoid;
-            page-break-inside: avoid;
-          }
-          .print-band-wide { display: grid; gap: 2px; }
-          .print-band-title { font-weight: 800; font-size: 7px; color: #7c3aed; }
-          .print-band-meta { font-size: 6.7px; color: #5b6471; font-weight: 700; }
-          .print-band-note { font-size: 6.8px; color: #334155; }
-          .print-round {
-            margin-top: 2px;
-            border: 1px solid #d3deeb;
-            border-radius: 4px;
-            padding: 2px;
-            background: #fff;
-            break-inside: avoid;
-            page-break-inside: avoid;
-          }
-          .print-round-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 4px; margin-bottom: 1px; }
-          .print-round-kicker { font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: #1d4ed8; font-size: 6px; }
-          .print-round-time { color: #334155; font-weight: 800; font-size: 7px; }
-          .print-round-summary { color: #334155; font-size: 6.7px; text-align: right; }
-          .print-grid { width: 100%; border-collapse: collapse; table-layout: fixed; }
-          .print-grid th,
-          .print-grid td {
-            border: 1px solid #d5deea;
-            padding: 1px 2px;
-            vertical-align: top;
-            white-space: normal;
-            word-break: break-word;
-            line-height: 1.2;
-          }
-          .print-grid th {
-            background: #f1f5f9;
-            color: #1f2937;
-            font-size: 6px;
-            text-transform: uppercase;
-          }
-          .print-grid td { font-size: 6.8px; }
-          .cell-round { width: 14px; text-align: center; font-weight: 800; }
-          .cell-time { width: 64px; white-space: nowrap; font-size: 6.7px; font-weight: 700; }
-          .cell-room-head { min-width: 74px; }
-          .cell-room { display: block; font-size: 6.4px; line-height: 1.18; margin-bottom: 1.5px; }
-          .cell-name { font-weight: 700; margin-top: 1px; }
-          .cell-meta { margin-top: 0.8px; font-size: 6px; color: #475569; }
-          .print-empty { margin-top: 4px; color: #64748b; padding: 4px; border: 1px dashed #cbd5e1; border-radius: 5px; }
-          @media print {
-            @page { size: landscape; margin: 0.2in 0.2in 0.2in 0.22in; }
-            html, body { background: #ffffff !important; }
-            body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-            .print-root { gap: 2px; }
-            .print-summary { gap: 2px; }
-          }
-        </style>
-      </head>
-      <body>
-        <main class="print-root">
-          <section class="print-head">
-            <h1 class="print-title">${escapeHtml(printTitle)}</h1>
-            <div class="print-meta">${eventTitle}</div>
-            <div class="print-meta">${footerMeta}</div>
-            <div class="print-summary">
-              <span>${escapeHtml(timelineSummary)}</span>
-              <span>${escapeHtml(roundSummary)}</span>
-            </div>
-          </section>
-          ${compactRows}
-        </main>
-      </body>
-    </html>`;
+  return printableHtml;
 }
 
 function formatEventDate(event: EventRow) {
@@ -3532,53 +3440,8 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const schedulePreview = schedulePreviews[previewKind];
   const compactPrintKind: CompactSchedulePrintKind = previewKind === "student" ? "student" : "operations";
   const compactSchedulePrintHtml = useMemo(() => {
-    return buildCompactSchedulePrintHtml(
-      compactPrintKind === "student"
-        ? {
-            kind: "student",
-            event: selectedEvent,
-            timeline: studentPreviewTimeline,
-            rounds: studentPreviewRounds,
-            scheduleGridRows: studentScheduleGridRows,
-            roomColumns,
-            roomContext: roomNamingContext,
-            caseName: selectedEventEncounterLabel,
-            assignedSpNames: selectedEvent?.assigned_sp_names || [],
-            learnerCount: learnerRoster.length,
-            generated,
-            selectedEventSummaryTime,
-          }
-        : {
-            kind: "operations",
-            event: selectedEvent,
-            timeline: operationsPreviewTimeline,
-            rounds: operationsPreviewRounds,
-            scheduleGridRows: operationsScheduleGridRows,
-            roomColumns,
-            roomContext: roomNamingContext,
-            caseName: selectedEventEncounterLabel,
-            assignedSpNames: selectedEvent?.assigned_sp_names || [],
-            learnerCount: learnerRoster.length,
-            generated,
-            selectedEventSummaryTime,
-          }
-    );
-  }, [
-    compactPrintKind,
-    generated,
-    operationsPreviewRounds,
-    operationsPreviewTimeline,
-    operationsScheduleGridRows,
-    roomColumns,
-    roomNamingContext,
-    selectedEvent,
-    selectedEventEncounterLabel,
-    selectedEventSummaryTime,
-    studentPreviewRounds,
-    studentPreviewTimeline,
-    studentScheduleGridRows,
-    learnerRoster.length,
-  ]);
+    return buildCompactScheduleExportHtml(schedulePreview.html, compactPrintKind);
+  }, [compactPrintKind, schedulePreview.html]);
   const selectedPreviewBaseFileName = getSafeFileName(schedulePreview.title) || "schedule";
   const selectedPreviewExportFileName = `${selectedPreviewBaseFileName}.txt`;
   const selectedPreviewCsvFileName = `${selectedPreviewBaseFileName}.csv`;
