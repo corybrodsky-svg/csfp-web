@@ -304,12 +304,26 @@ type ScheduleBuilderPreviewDraft = {
   savedAt: string;
 };
 
+type RelatedOperationalEventNode = {
+  id: string;
+  name: string | null;
+  status: string | null;
+  date_text: string | null;
+  location: string | null;
+  kind: "training" | "simulation" | "skills" | "virtual";
+  relationship: string;
+  score?: number;
+  exact_course_match?: boolean;
+  trainingMetadata?: TrainingEventMetadata | null;
+};
+
 type CommandCenterData = {
   event: EventDetailRow | null;
   sessions: EventSessionRow[];
   sps: SPRow[];
   assignments: AssignmentRow[];
   availabilityRows: AvailabilityRow[];
+  relatedEvents: RelatedOperationalEventNode[];
   viewerRole?: "sp" | "sim_op" | "admin" | "super_admin" | "unknown";
   spPortal?: {
     sp_link_status?: string | null;
@@ -3094,6 +3108,85 @@ function normalizeTextArray(value: unknown) {
   return normalizeLearnerNames(value);
 }
 
+function hasMeaningfulTrainingValue(value: unknown) {
+  const normalized = asText(value).toLowerCase();
+  if (!normalized) return false;
+  return !["not assigned", "none", "n/a", "na", "unknown", "unassigned", "tbd"].includes(normalized);
+}
+
+const EVENT_FAMILY_TRAINING_MERGE_KEYS = [
+  "training_required",
+  "training_ownership",
+  "training_scheduling_status",
+  "training_date",
+  "training_start_time",
+  "training_end_time",
+  "preferred_training_date",
+  "preferred_training_time",
+  "preferred_training_end_time",
+  "faculty_availability_unknown",
+  "training_zoom_required",
+  "training_zoom_link",
+  "training_recording_planned",
+  "faculty_training_coordination_requested",
+  "faculty_training_coordination_status",
+  "faculty_training_coordination_requested_at",
+  "faculty_request_sent_at",
+  "zoom_url",
+  "training_password",
+  "training_recording_url",
+  "training_recording_status",
+  "training_attendance_status",
+  "recording_url",
+  "recording_status",
+  "case_name",
+  "case_file_url",
+  "case_file_name",
+  "case_file_storage_path",
+  "case_file_uploaded_at",
+  "case_file_uploaded_by",
+  "case_files",
+  "doorsign_url",
+  "doorsign_file_url",
+  "doorsign_file_name",
+  "doorsign_storage_path",
+  "doorsign_uploaded_at",
+  "doorsign_uploaded_by",
+  "additional_materials",
+  "supplemental_doc_url",
+  "supplemental_doc_name",
+  "supplemental_doc_storage_path",
+  "supplemental_doc_uploaded_at",
+  "supplemental_doc_uploaded_by",
+  "faculty_names",
+  "faculty_program",
+  "faculty_email",
+  "faculty_phone",
+  "sim_contact",
+  "contact_internal_notes",
+  "training_notes",
+] as const satisfies readonly (keyof TrainingEventMetadata)[];
+
+function mergeEventFamilyTrainingMetadata(
+  primary: TrainingEventMetadata,
+  relatedNodes: RelatedOperationalEventNode[]
+) {
+  const merged = { ...primary };
+  const relatedMetadata = relatedNodes
+    .map((node) => node.trainingMetadata)
+    .filter((metadata): metadata is TrainingEventMetadata => Boolean(metadata));
+
+  if (!relatedMetadata.length) return merged;
+
+  EVENT_FAMILY_TRAINING_MERGE_KEYS.forEach((key) => {
+    if (hasMeaningfulTrainingValue(merged[key])) return;
+    const source = relatedMetadata.find((metadata) => hasMeaningfulTrainingValue(metadata[key]));
+    if (source) merged[key] = source[key];
+  });
+
+  return merged;
+}
+
 const UNASSIGNED_LEARNER_ROOM_LABEL = "No learner assigned for this room/round";
 const LEGACY_UNASSIGNED_LEARNER_LABEL = "Learner not assigned";
 
@@ -3508,6 +3601,7 @@ async function fetchCommandCenterData(eventId: string): Promise<CommandCenterDat
         sps: [],
         assignments: [],
         availabilityRows: [],
+        relatedEvents: [],
         errorMessage: body?.error || `Could not load event (${response.status}).`,
         sessionErrorMessage: "",
         availabilityErrorMessage: "",
@@ -3527,6 +3621,7 @@ async function fetchCommandCenterData(eventId: string): Promise<CommandCenterDat
       sps: Array.isArray(body?.sps) ? [...body.sps].sort(sortSPs) : [],
       assignments: Array.isArray(body?.assignments) ? body.assignments : [],
       availabilityRows: Array.isArray(body?.availabilityRows) ? body.availabilityRows : [],
+      relatedEvents: Array.isArray(body?.relatedEvents) ? body.relatedEvents : [],
       viewerRole: body?.viewerRole || "unknown",
       spPortal: body?.spPortal || null,
       errorMessage: body?.errorMessage || "",
@@ -3542,6 +3637,7 @@ async function fetchCommandCenterData(eventId: string): Promise<CommandCenterDat
       sps: [],
       assignments: [],
       availabilityRows: [],
+      relatedEvents: [],
       errorMessage: error instanceof Error ? error.message : "Could not load event.",
       sessionErrorMessage: "",
       availabilityErrorMessage: "",
@@ -3752,6 +3848,7 @@ export default function EventDetailPage() {
   const [sps, setSps] = useState<SPRow[]>([]);
   const [assignments, setAssignments] = useState<AssignmentRow[]>([]);
   const [availabilityRows, setAvailabilityRows] = useState<AvailabilityRow[]>([]);
+  const [relatedOperationalEvents, setRelatedOperationalEvents] = useState<RelatedOperationalEventNode[]>([]);
   const [selectedSpId, setSelectedSpId] = useState("");
   const [quickStaffingQuery, setQuickStaffingQuery] = useState("");
   const [quickStaffingSpId, setQuickStaffingSpId] = useState("");
@@ -4629,7 +4726,14 @@ export default function EventDetailPage() {
     isNeedsSpOperationalBadge(eventStatusLabel) && !hasPrimaryStaffingShortage;
   const isWorkshop = eventMeta.isSkillsWorkshop;
   const parsedEventMetadata = useMemo(() => parseEventMetadata(eventEditor.notes), [eventEditor.notes]);
-  const trainingMetadata = parsedEventMetadata.training;
+  const relatedTrainingOperationalEvents = useMemo(
+    () => relatedOperationalEvents.filter((node) => node.kind === "training"),
+    [relatedOperationalEvents]
+  );
+  const trainingMetadata = useMemo(
+    () => mergeEventFamilyTrainingMetadata(parsedEventMetadata.training, relatedTrainingOperationalEvents),
+    [parsedEventMetadata.training, relatedTrainingOperationalEvents]
+  );
   const explicitEventTypes = parsedEventMetadata.eventTypes;
   const explicitEventTypeSet = useMemo(() => new Set(explicitEventTypes), [explicitEventTypes]);
   const activeEventTypes = (explicitEventTypes.length
@@ -5825,6 +5929,10 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
   );
   const shortageCount = isWorkshop ? 0 : shortage;
   const isTrainingMode = eventMeta.isTraining || activeEventTypeSet.has("training");
+  const showEmbeddedTrainingPrep = canManageTrainingAttendance;
+  const embeddedTrainingMetadataSourceLabel = relatedTrainingOperationalEvents.length
+    ? `${relatedTrainingOperationalEvents.length} related training node${relatedTrainingOperationalEvents.length === 1 ? "" : "s"} detected`
+    : "Primary event training metadata";
   const noSpStaffingRequired = activeEventTypeSet.has("skills") && !eventMeta.hasSpWorkflow;
   const staffingRelevant = eventMeta.hasSpWorkflow;
   const isTrainingOnlyEvent =
@@ -9739,6 +9847,7 @@ Cory`;
     setSps(result.sps);
     setAssignments(result.assignments);
     setAvailabilityRows(result.availabilityRows);
+    setRelatedOperationalEvents(result.relatedEvents);
     setViewerRole(result.viewerRole || "unknown");
     setSpPortal(result.spPortal || null);
     setErrorMessage(result.errorMessage);
@@ -10947,6 +11056,7 @@ Cory`;
         setSps(result.sps);
         setAssignments(result.assignments);
         setAvailabilityRows(result.availabilityRows);
+        setRelatedOperationalEvents(result.relatedEvents);
         setViewerRole(result.viewerRole || "unknown");
         setSpPortal(result.spPortal || null);
         setErrorMessage(result.errorMessage);
@@ -14426,6 +14536,92 @@ Cory`;
           </div>
         </div>
       </details>
+    ) : null;
+
+  const relatedOperationalNodesPanel =
+    canManageTrainingAttendance ? (
+      <section
+        style={{
+          border: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.18)" : commandCenterVisual.rowBorder,
+          borderRadius: "16px",
+          padding: "12px 14px",
+          background: isPlanningVisualMode ? "rgba(255, 255, 255, 0.76)" : commandCenterVisual.rowBackground,
+          display: "grid",
+          gap: "10px",
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+          <div>
+            <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Related Course / Event Family</div>
+            <div style={{ marginTop: "4px", color: commandCenterVisual.textColor, fontWeight: 900, fontSize: "15px" }}>
+              {relatedOperationalEvents.length
+                ? `${relatedOperationalEvents.length} operational node${relatedOperationalEvents.length === 1 ? "" : "s"} connected`
+                : "No related nodes detected yet"}
+            </div>
+          </div>
+          <span style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText }}>
+            {embeddedTrainingMetadataSourceLabel}
+          </span>
+        </div>
+
+        {relatedOperationalEvents.length ? (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: "8px" }}>
+            {relatedOperationalEvents.map((node) => {
+              const nodeTone =
+                node.kind === "training"
+                  ? { background: "rgba(25, 138, 112, 0.12)", border: "1px solid rgba(25, 138, 112, 0.22)", color: "#0f766e" }
+                  : node.kind === "virtual"
+                    ? { background: "rgba(124, 58, 237, 0.1)", border: "1px solid rgba(124, 58, 237, 0.18)", color: "#5b21b6" }
+                    : { background: "rgba(20, 91, 150, 0.1)", border: "1px solid rgba(20, 91, 150, 0.18)", color: "#145b96" };
+              return (
+                <div
+                  key={`related-node-${node.id}`}
+                  style={{
+                    border: nodeTone.border,
+                    borderRadius: "14px",
+                    background: isPlanningVisualMode ? "#ffffff" : "rgba(255,255,255,0.04)",
+                    padding: "10px 11px",
+                    display: "grid",
+                    gap: "7px",
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", alignItems: "flex-start" }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ color: nodeTone.color, fontSize: "11px", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                        {node.relationship}
+                      </div>
+                      <div style={{ marginTop: "4px", color: commandCenterVisual.textColor, fontSize: "13px", fontWeight: 900, lineHeight: 1.3, overflowWrap: "anywhere" }}>
+                        {node.name || "Untitled related event"}
+                      </div>
+                    </div>
+                    {node.exact_course_match ? (
+                      <span style={{ ...commandChipStyle, ...nodeTone, fontSize: "10px", padding: "4px 7px" }}>
+                        Course match
+                      </span>
+                    ) : null}
+                  </div>
+                  <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 750, lineHeight: 1.4 }}>
+                    {[formatEventDateText(node.date_text, importedYearHint) || node.date_text, node.status, node.location]
+                      .map(asText)
+                      .filter(Boolean)
+                      .join(" · ") || "Related event details available"}
+                  </div>
+                  <Link
+                    href={`/events/${encodeURIComponent(node.id)}`}
+                    style={{ ...buttonStyle, width: "fit-content", padding: "6px 9px", textDecoration: "none", display: "inline-flex", alignItems: "center", fontSize: "12px" }}
+                  >
+                    Open Source Event
+                  </Link>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 750, lineHeight: 1.45 }}>
+            CFSP will surface related training, sim dates, skills/IPE sessions, and virtual sessions here when names, course tokens, notes, or metadata connect them.
+          </div>
+        )}
+      </section>
     ) : null;
 
   const normalEventTrainingReadinessPanel =
@@ -18186,6 +18382,8 @@ Cory`;
                         )
                       )}
                     </div>
+
+                    {relatedOperationalNodesPanel}
                   </>
                 ) : null}
               </section>
@@ -20584,7 +20782,27 @@ Cory`;
         </div>
       </details>
 
-      {isTrainingMode ? (
+      {showEmbeddedTrainingPrep ? (
+      <details
+        id="training-prep"
+        open={trainingReadinessExpanded}
+        onToggle={(event) => handleTrainingReadinessExpandedChange(event.currentTarget.open)}
+        style={{
+          ...cardStyle,
+          border: normalEventTrainingPrimaryTone.border,
+          background: isPlanningVisualMode
+            ? "linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(246, 251, 253, 0.98) 100%)"
+            : commandCenterVisual.cardBackground,
+        }}
+      >
+        <summary style={{ cursor: "pointer", color: commandCenterVisual.headingColor, fontWeight: 950, fontSize: "20px" }}>
+          Training & Prep
+          <span style={{ marginLeft: "10px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 800 }}>
+            {normalEventTrainingStatusLabel} · {embeddedTrainingMetadataSourceLabel}
+          </span>
+        </summary>
+        <div style={{ display: "grid", gap: "14px", marginTop: "14px" }}>
+          {relatedOperationalNodesPanel}
         <div
           style={{
             display: "grid",
@@ -20664,7 +20882,7 @@ Cory`;
                 }}
               >
                 <div>
-                  <h2 style={compactSectionTitleStyle}>Training Materials</h2>
+                  <h2 style={compactSectionTitleStyle}>Simulation Command File Cabinet</h2>
                   <p style={compactSectionHintStyle}>
                     Keep case docs, doorsigns, and recording details in one compact place.
                   </p>
@@ -21034,7 +21252,7 @@ Cory`;
                 }}
               >
                 <div>
-                  <h2 style={compactSectionTitleStyle}>Training Communication</h2>
+                  <h2 style={compactSectionTitleStyle}>Training Communications</h2>
                   <p style={compactSectionHintStyle}>
                     Preview the training email only when you need to draft or send it.
                   </p>
@@ -21805,6 +22023,8 @@ Cory`;
             </section>
           </aside>
         </div>
+        </div>
+      </details>
       ) : null}
 
       {!isTrainingMode ? (

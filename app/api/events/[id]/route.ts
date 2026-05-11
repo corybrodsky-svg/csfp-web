@@ -149,6 +149,16 @@ type AssignmentApiRow = {
   training_checked_in_at?: string | null;
 };
 
+type RelatedEventRow = {
+  id: string;
+  name: string | null;
+  status: string | null;
+  date_text: string | null;
+  location: string | null;
+  notes: string | null;
+  created_at?: string | null;
+};
+
 type AuthenticatedUserResult = {
   accessToken: string;
   refreshToken: string;
@@ -267,6 +277,173 @@ function unauthorizedResponse(viewer?: ViewerContext | null) {
     clearAuthCookies(response);
   }
   return response;
+}
+
+function tokenizeFamilyText(value: unknown) {
+  return asText(value)
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 3);
+}
+
+function extractCourseToken(value: unknown) {
+  const text = asText(value).toUpperCase().replace(/\s+/g, " ");
+  const match =
+    text.match(/\b[A-Z]{2,}\s*-?\s*\d{3,4}[A-Z]?\b/) ||
+    text.match(/\b\d{3,4}[A-Z]?\b/);
+  return match ? match[0].replace(/\s*-\s*/g, " ").replace(/\s+/g, " ").trim() : "";
+}
+
+function getEventFamilySignals(event: RelatedEventRow) {
+  const metadata = parseTrainingEventMetadata(event.notes);
+  const familySource = [
+    event.name,
+    event.status,
+    event.date_text,
+    event.location,
+    metadata.faculty_program,
+    metadata.linked_event_title,
+    metadata.training_notes,
+  ]
+    .map(asText)
+    .filter(Boolean)
+    .join(" ");
+  const courseToken = extractCourseToken(familySource);
+  const tokens = Array.from(new Set(tokenizeFamilyText(familySource))).filter(
+    (token) =>
+      ![
+        "training",
+        "event",
+        "session",
+        "simulation",
+        "sim",
+        "date",
+        "prep",
+        "orientation",
+        "virtual",
+        "skills",
+      ].includes(token)
+  );
+
+  return {
+    courseToken,
+    tokens,
+    metadata,
+  };
+}
+
+function classifyRelatedEventNode(event: RelatedEventRow) {
+  const metadata = parseTrainingEventMetadata(event.notes);
+  const visibleSource = [event.name, event.status, event.location].map(asText).join(" ").toLowerCase();
+  const notes = asText(event.notes).toLowerCase();
+  const explicitTrainingType =
+    /\b(event[_\s-]*types?|active[_\s-]*event[_\s-]*types?|type)\s*:\s*[^\n]*\btraining\b/.test(notes);
+  if (
+    /\b(training|orientation|onboarding|prep)\b/.test(visibleSource) ||
+    explicitTrainingType ||
+    (asText(metadata.training_date) && !asText(metadata.event_session_date) && /\btraining\b/.test(notes))
+  ) {
+    return "training";
+  }
+  if (/\b(ipe|skills|workshop)\b/.test(visibleSource)) return "skills";
+  if (/\b(virtual|zoom|telehealth|online)\b/.test(visibleSource)) return "virtual";
+  return "simulation";
+}
+
+function getRelatedEventScore(source: RelatedEventRow, candidate: RelatedEventRow) {
+  if (source.id === candidate.id) return 0;
+
+  const sourceSignals = getEventFamilySignals(source);
+  const candidateSignals = getEventFamilySignals(candidate);
+  const sourceText = [source.name, source.status, source.date_text, source.location, source.notes]
+    .map(asText)
+    .join(" ")
+    .toLowerCase();
+  const candidateText = [candidate.name, candidate.status, candidate.date_text, candidate.location, candidate.notes]
+    .map(asText)
+    .join(" ")
+    .toLowerCase();
+  let score = 0;
+
+  if (sourceSignals.courseToken && candidateSignals.courseToken === sourceSignals.courseToken) score += 70;
+
+  const sharedTokens = sourceSignals.tokens.filter((token) => candidateSignals.tokens.includes(token));
+  score += Math.min(sharedTokens.length * 12, 36);
+
+  const sourceProgram = normalizeMatchValue(sourceSignals.metadata.faculty_program);
+  const candidateProgram = normalizeMatchValue(candidateSignals.metadata.faculty_program);
+  if (sourceProgram && candidateProgram && sourceProgram === candidateProgram) score += 30;
+
+  const explicitLinkedId = asText(sourceSignals.metadata.linked_event_id);
+  if (explicitLinkedId && explicitLinkedId === candidate.id) score += 100;
+  const reverseLinkedId = asText(candidateSignals.metadata.linked_event_id);
+  if (reverseLinkedId && reverseLinkedId === source.id) score += 100;
+  if (candidateText.includes(source.id.toLowerCase()) || sourceText.includes(candidate.id.toLowerCase())) score += 80;
+
+  const sourceDate = normalizeLooseDateToIso(source.date_text, getImportedYearHint(source.notes));
+  const candidateDate = normalizeLooseDateToIso(candidate.date_text, getImportedYearHint(candidate.notes));
+  if (sourceDate && candidateDate) {
+    const deltaDays = Math.abs(new Date(candidateDate).getTime() - new Date(sourceDate).getTime()) / 86400000;
+    if (deltaDays <= 45) score += 12;
+  }
+
+  if (classifyRelatedEventNode(candidate) === "training") score += 8;
+  return score;
+}
+
+async function loadRelatedOperationalEvents(
+  supabaseServer: ReturnType<typeof createSupabaseServerClient>,
+  sourceEvent: RelatedEventRow
+) {
+  const sourceSignals = getEventFamilySignals(sourceEvent);
+  const fallbackKeyword = sourceSignals.courseToken || sourceSignals.tokens[0] || "";
+  if (!fallbackKeyword) return [] as Array<Record<string, unknown>>;
+
+  const { data, error } = await supabaseServer
+    .from("events")
+    .select("id,name,status,date_text,location,notes,created_at")
+    .limit(250);
+
+  if (error) return [] as Array<Record<string, unknown>>;
+
+  return ((data || []) as RelatedEventRow[])
+    .map((candidate) => {
+      const score = getRelatedEventScore(sourceEvent, candidate);
+      if (score < 45) return null;
+      const kind = classifyRelatedEventNode(candidate);
+      const metadata = parseTrainingEventMetadata(candidate.notes);
+      return {
+        id: candidate.id,
+        name: candidate.name,
+        status: candidate.status,
+        date_text: candidate.date_text,
+        location: candidate.location,
+        kind,
+        score,
+        exact_course_match: Boolean(
+          sourceSignals.courseToken &&
+            getEventFamilySignals(candidate).courseToken === sourceSignals.courseToken
+        ),
+        relationship:
+          kind === "training"
+            ? "Training"
+            : kind === "skills"
+              ? "Related skills/IPE session"
+              : kind === "virtual"
+                ? "Related virtual session"
+                : "Simulation date",
+        trainingMetadata: kind === "training" ? metadata : null,
+      };
+    })
+    .filter((event): event is NonNullable<typeof event> => Boolean(event))
+    .sort((a, b) => {
+      if (a.kind === "training" && b.kind !== "training") return -1;
+      if (a.kind !== "training" && b.kind === "training") return 1;
+      if (b.score !== a.score) return b.score - a.score;
+      return asText(a.name).localeCompare(asText(b.name));
+    })
+    .slice(0, 12);
 }
 
 function viewerMatchesAssignedSp(sp: AssignedSpApiRow, viewer: ViewerContext) {
@@ -643,6 +820,10 @@ export async function GET(
       );
     }
 
+    const relatedOperationalEvents = isOperatorRole(viewer.role)
+      ? await loadRelatedOperationalEvents(supabaseServer, event as RelatedEventRow)
+      : [];
+
     return applyAuthCookies(
       NextResponse.json({
         viewerRole: viewer.role,
@@ -651,6 +832,7 @@ export async function GET(
         sps: [...(sps || [])],
         assignments: assignments || [],
         availabilityRows: availabilityRows || [],
+        relatedEvents: relatedOperationalEvents,
         errorMessage: "",
         sessionErrorMessage: sessionError
           ? sessionError.message || "Could not load event sessions from Supabase."
