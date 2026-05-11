@@ -263,7 +263,7 @@ const schedulePreviewKindOptions: Array<{ value: SchedulePreviewKind; label: str
   { value: "student", label: "Student Schedule" },
   { value: "timeline", label: "Faculty Schedule" },
   { value: "sp", label: "SP Schedule" },
-  { value: "operations", label: "Operations/Admin Schedule" },
+  { value: "operations", label: "Admin Schedule" },
   { value: "announcements", label: "Announcement Schedule" },
 ];
 
@@ -1298,6 +1298,124 @@ function getSafeFileName(name: string) {
     .replace(/(^-|-$)/g, "");
 }
 
+function normalizePdfText(text: string) {
+  const replacements: Record<string, string> = {
+    "\u2013": "-",
+    "\u2014": "-",
+    "\u2018": "'",
+    "\u2019": "'",
+    "\u201c": '"',
+    "\u201d": '"',
+    "\u2022": "*",
+    "\u00b7": "-",
+    "\u00a0": " ",
+  };
+
+  return text.replace(/[^\x09\x0a\x0d\x20-\x7e]/g, (character) => replacements[character] || " ");
+}
+
+function escapePdfText(text: string) {
+  return normalizePdfText(text)
+    .replace(/\\/g, "\\\\")
+    .replace(/\(/g, "\\(")
+    .replace(/\)/g, "\\)");
+}
+
+function wrapPdfLine(line: string, maxCharacters: number) {
+  const normalizedLine = normalizePdfText(line).replace(/\s+/g, " ").trim();
+  if (!normalizedLine) return [""];
+  if (normalizedLine.length <= maxCharacters) return [normalizedLine];
+
+  const wrapped: string[] = [];
+  const words = normalizedLine.split(" ");
+  let currentLine = "";
+
+  words.forEach((word) => {
+    if (word.length > maxCharacters) {
+      if (currentLine) {
+        wrapped.push(currentLine);
+        currentLine = "";
+      }
+      for (let index = 0; index < word.length; index += maxCharacters) {
+        wrapped.push(word.slice(index, index + maxCharacters));
+      }
+      return;
+    }
+
+    const nextLine = currentLine ? `${currentLine} ${word}` : word;
+    if (nextLine.length > maxCharacters) {
+      wrapped.push(currentLine);
+      currentLine = word;
+    } else {
+      currentLine = nextLine;
+    }
+  });
+
+  if (currentLine) wrapped.push(currentLine);
+  return wrapped;
+}
+
+function buildSchedulePdfBlob(title: string, text: string) {
+  const normalizedTitle = normalizePdfText(title || "Schedule");
+  const sourceLines = [normalizedTitle, "", ...text.split(/\r?\n/)];
+  const wrappedLines = sourceLines.flatMap((line) => wrapPdfLine(line, 96));
+  const linesPerPage = 48;
+  const pages: string[][] = [];
+
+  for (let index = 0; index < wrappedLines.length; index += linesPerPage) {
+    pages.push(wrappedLines.slice(index, index + linesPerPage));
+  }
+
+  if (!pages.length) pages.push([normalizedTitle]);
+
+  const objects: string[] = [];
+  const addObject = (body: string) => {
+    objects.push(`${objects.length + 1} 0 obj\n${body}\nendobj\n`);
+    return objects.length;
+  };
+
+  addObject("<< /Type /Catalog /Pages 2 0 R >>");
+  addObject("");
+  const fontObjectNumber = addObject("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
+  const pageObjectNumbers: number[] = [];
+
+  pages.forEach((pageLines, pageIndex) => {
+    const contentLines = ["BT", "72 744 Td"];
+    pageLines.forEach((line, lineIndex) => {
+      const isTitle = pageIndex === 0 && lineIndex === 0;
+      contentLines.push(`/F1 ${isTitle ? "18" : "10"} Tf`);
+      contentLines.push(`(${escapePdfText(line)}) Tj`);
+      contentLines.push(`0 -${isTitle ? "24" : "14"} Td`);
+    });
+    contentLines.push("ET");
+
+    const stream = contentLines.join("\n");
+    const contentObjectNumber = addObject(`<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`);
+    const pageObjectNumber = addObject(
+      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 ${fontObjectNumber} 0 R >> >> /Contents ${contentObjectNumber} 0 R >>`
+    );
+    pageObjectNumbers.push(pageObjectNumber);
+  });
+
+  objects[1] = `2 0 obj\n<< /Type /Pages /Kids [${pageObjectNumbers.map((number) => `${number} 0 R`).join(" ")}] /Count ${pageObjectNumbers.length} >>\nendobj\n`;
+
+  let pdf = "%PDF-1.4\n";
+  const offsets = [0];
+  objects.forEach((object) => {
+    offsets.push(pdf.length);
+    pdf += object;
+  });
+
+  const xrefOffset = pdf.length;
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  offsets.slice(1).forEach((offset) => {
+    pdf += `${String(offset).padStart(10, "0")} 00000 n \n`;
+  });
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+
+  return new Blob([pdf], { type: "application/pdf" });
+}
+
 function escapeHtml(text: string) {
   return text
     .replace(/&/g, "&amp;")
@@ -1352,7 +1470,7 @@ function buildSchedulePreviewData(args: {
     announcements: "Announcement Schedule",
     student: "Student Schedule",
     sp: "SP Schedule",
-    operations: "Operations/Admin Schedule",
+    operations: "Admin Schedule",
     rotation: "Rotation Schedule",
   };
   const previewTimeline = isStudentPreview
@@ -2849,27 +2967,29 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     studentScheduleGridRows,
   ]);
   const schedulePreview = schedulePreviews[previewKind];
-  const selectedPreviewFileName = `${getSafeFileName(schedulePreview.title)}.html`;
+  const selectedPreviewBaseFileName = getSafeFileName(schedulePreview.title) || "schedule";
+  const selectedPreviewPdfFileName = `${selectedPreviewBaseFileName}.pdf`;
+  const selectedPreviewExportFileName = `${selectedPreviewBaseFileName}.txt`;
   const autoDownloadTriggeredRef = useRef(false);
   const previewDocumentParts = useMemo(
     () => getPreviewDocumentParts(schedulePreview.html),
     [schedulePreview.html]
   );
   useEffect(() => {
-    if (!props.previewOnly || !props.autoDownload || autoDownloadTriggeredRef.current || !schedulePreview.html) return;
+    if (loading || !props.previewOnly || !props.autoDownload || autoDownloadTriggeredRef.current || !schedulePreview.html) return;
     autoDownloadTriggeredRef.current = true;
-    const downloadBlob = new Blob([schedulePreview.html], { type: "text/html;charset=utf-8" });
+    const downloadBlob = buildSchedulePdfBlob(schedulePreview.title, schedulePreview.text);
     const downloadUrl = URL.createObjectURL(downloadBlob);
     const anchor = document.createElement("a");
     anchor.href = downloadUrl;
-    anchor.download = selectedPreviewFileName;
+    anchor.download = selectedPreviewPdfFileName;
     anchor.rel = "noreferrer";
     anchor.style.display = "none";
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
     window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
-  }, [props.autoDownload, props.previewOnly, schedulePreview.html, selectedPreviewFileName]);
+  }, [loading, props.autoDownload, props.previewOnly, schedulePreview.html, schedulePreview.text, schedulePreview.title, selectedPreviewPdfFileName]);
   const saveStateAppearance = getSaveStateAppearance(saveState);
   const lastSavedLabel = formatSavedTimestamp(lastSavedAt);
   const advancedSettingsActive =
@@ -2898,46 +3018,72 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     setRoomCapacity(String(Math.max(1, parseNumber(value, 1))));
   }
 
-  async function handleCopyPreview() {
+  async function handleShareOrCopyLink() {
+    const shareUrl = typeof window !== "undefined" ? window.location.href : "";
+    if (!shareUrl) return;
+
     try {
-      await navigator.clipboard.writeText(schedulePreview.text);
-      setCopyMessage("Schedule preview copied.");
+      if (navigator.share) {
+        await navigator.share({ title: schedulePreview.title, url: shareUrl });
+        setCopyMessage("Schedule link shared.");
+      } else if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(shareUrl);
+        setCopyMessage("Schedule link copied.");
+      } else {
+        setCopyMessage("Copy/share is not supported in this browser.");
+      }
       window.setTimeout(() => setCopyMessage(""), 2400);
     } catch (error) {
-      setCopyMessage(error instanceof Error ? error.message : "Could not copy schedule preview.");
-      window.setTimeout(() => setCopyMessage(""), 2400);
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      setCopyMessage(error instanceof Error ? error.message : "Could not share schedule link.");
+      window.setTimeout(() => setCopyMessage(""), 2600);
     }
   }
 
-  async function handleOpenPreviewInNewTab() {
-    if (!schedulePreview.html) return;
-    const htmlBlob = new Blob([schedulePreview.html], { type: "text/html;charset=utf-8" });
-    const htmlUrl = URL.createObjectURL(htmlBlob);
-    const openWindow = window.open(htmlUrl, "_blank", "noopener,noreferrer");
-    if (!openWindow) {
-      setCopyMessage("Preview window blocked. Please allow popups for this site.");
-      window.setTimeout(() => setCopyMessage(""), 2500);
-      URL.revokeObjectURL(htmlUrl);
-      return;
+  function handleSchedulePreviewViewChange(nextView: ScheduleBuilderViewMode) {
+    const nextKind: SchedulePreviewKind = nextView === "student" ? "student" : "operations";
+    setScheduleViewMode(nextView);
+    setPreviewKind(nextKind);
+
+    if (props.previewOnly && typeof window !== "undefined") {
+      const nextUrl = new URL(window.location.href);
+      nextUrl.searchParams.set("view", nextView === "student" ? "student" : "operations");
+      nextUrl.searchParams.set("preview", nextKind);
+      nextUrl.searchParams.set("previewFamily", "schedule");
+      nextUrl.searchParams.delete("downloadMode");
+      window.history.replaceState(null, "", `${nextUrl.pathname}?${nextUrl.searchParams.toString()}`);
     }
-    window.setTimeout(() => {
-      URL.revokeObjectURL(htmlUrl);
-    }, 12000);
   }
 
-  function handleDownloadPreview() {
-    const downloadBlob = new Blob([schedulePreview.html], { type: "text/html;charset=utf-8" });
+  function handleDownloadPdf() {
+    const downloadBlob = buildSchedulePdfBlob(schedulePreview.title, schedulePreview.text);
     const downloadUrl = URL.createObjectURL(downloadBlob);
     const anchor = document.createElement("a");
     anchor.href = downloadUrl;
-    anchor.download = selectedPreviewFileName;
+    anchor.download = selectedPreviewPdfFileName;
     anchor.rel = "noreferrer";
     anchor.style.display = "none";
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
     URL.revokeObjectURL(downloadUrl);
-    setCopyMessage(`${schedulePreview.title} downloaded.`);
+    setCopyMessage(`${schedulePreview.title} PDF downloaded.`);
+    window.setTimeout(() => setCopyMessage(""), 2200);
+  }
+
+  function handleExportSchedule() {
+    const downloadBlob = new Blob([schedulePreview.text], { type: "text/plain;charset=utf-8" });
+    const downloadUrl = URL.createObjectURL(downloadBlob);
+    const anchor = document.createElement("a");
+    anchor.href = downloadUrl;
+    anchor.download = selectedPreviewExportFileName;
+    anchor.rel = "noreferrer";
+    anchor.style.display = "none";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(downloadUrl);
+    setCopyMessage(`${schedulePreview.title} exported.`);
     window.setTimeout(() => setCopyMessage(""), 2200);
   }
 
@@ -2956,6 +3102,122 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       popup.print();
     };
   }
+
+  const renderScheduleViewToggle = (isDark = false) => {
+    const activeView = previewKind === "student" ? "student" : "operations";
+    const baseBorder = isDark ? "1px solid rgba(220, 239, 255, 0.18)" : "1px solid var(--cfsp-border)";
+    return (
+      <div
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          border: baseBorder,
+          borderRadius: 12,
+          padding: 4,
+          background: isDark ? "rgba(15, 35, 53, 0.78)" : "#ffffff",
+          gap: 3,
+        }}
+        aria-label="Schedule view"
+      >
+        {[
+          { value: "student", label: "Student Schedule" },
+          { value: "operations", label: "Admin Schedule" },
+        ].map((option) => {
+          const selected = activeView === option.value;
+          return (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => handleSchedulePreviewViewChange(option.value as ScheduleBuilderViewMode)}
+              aria-pressed={selected}
+              style={{
+                border: "none",
+                borderRadius: 9,
+                padding: "8px 11px",
+                fontSize: 13,
+                fontWeight: 900,
+                cursor: "pointer",
+                background: selected ? "var(--cfsp-blue)" : "transparent",
+                color: selected ? "#ffffff" : isDark ? "rgba(220, 239, 255, 0.78)" : "var(--cfsp-text-muted)",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {option.label}
+            </button>
+          );
+        })}
+      </div>
+    );
+  };
+
+  const renderScheduleActionsMenu = (isDark = false) => (
+    <details
+      className="cfsp-schedule-actions-menu"
+      style={{
+        position: "relative",
+        display: "inline-block",
+      }}
+    >
+      <summary
+        className="cfsp-btn"
+        style={{
+          listStyle: "none",
+          cursor: "pointer",
+          background: isDark ? "var(--cfsp-button-secondary-bg)" : undefined,
+          border: isDark ? "1px solid var(--cfsp-button-secondary-border)" : undefined,
+          color: isDark ? "var(--cfsp-button-secondary-text)" : undefined,
+        }}
+      >
+        Actions
+      </summary>
+      <div
+        style={{
+          position: "absolute",
+          right: 0,
+          top: "calc(100% + 8px)",
+          zIndex: 20,
+          minWidth: 190,
+          borderRadius: 12,
+          border: isDark ? "1px solid rgba(120, 180, 255, 0.18)" : "1px solid #dce6ee",
+          background: isDark ? "#102d44" : "#ffffff",
+          boxShadow: "0 18px 38px rgba(15, 35, 53, 0.18)",
+          padding: 6,
+          display: "grid",
+          gap: 4,
+        }}
+      >
+        {[
+          { label: "Print schedule", onClick: handlePrintPreview },
+          { label: "Download PDF", onClick: handleDownloadPdf },
+          { label: "Download/Export", onClick: handleExportSchedule },
+          { label: "Copy/share link", onClick: () => void handleShareOrCopyLink() },
+        ].map((action) => (
+          <button
+            key={action.label}
+            type="button"
+            onClick={(event) => {
+              action.onClick();
+              event.currentTarget.closest("details")?.removeAttribute("open");
+            }}
+            style={{
+              border: "none",
+              borderRadius: 9,
+              background: "transparent",
+              color: isDark ? "rgba(240, 248, 255, 0.92)" : "#14304f",
+              cursor: "pointer",
+              fontSize: 13,
+              fontWeight: 800,
+              padding: "9px 10px",
+              textAlign: "left",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {action.label}
+          </button>
+        ))}
+      </div>
+    </details>
+  );
 
   async function handleCompleteSchedule() {
     if (!selectedEvent?.id) return;
@@ -3106,6 +3368,42 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         {previewDocumentParts.styles ? (
           <style dangerouslySetInnerHTML={{ __html: previewDocumentParts.styles }} />
         ) : null}
+        <style>{`
+          .cfsp-schedule-actions-menu > summary::-webkit-details-marker { display: none; }
+          @media print {
+            .cfsp-schedule-viewer-toolbar { display: none !important; }
+          }
+        `}</style>
+        <div
+          className="cfsp-schedule-viewer-toolbar"
+          style={{
+            position: "sticky",
+            top: 0,
+            zIndex: 50,
+            borderBottom: "1px solid rgba(20, 91, 150, 0.16)",
+            background: "rgba(247, 250, 252, 0.96)",
+            backdropFilter: "blur(12px)",
+            padding: "10px 14px",
+            display: "flex",
+            justifyContent: "space-between",
+            gap: 10,
+            alignItems: "center",
+            flexWrap: "wrap",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            {renderScheduleViewToggle(false)}
+            <div style={{ color: "#5e7388", fontSize: 12, fontWeight: 800 }}>
+              {schedulePreview.summary}
+            </div>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            {copyMessage ? (
+              <span style={{ color: "#0f766e", fontSize: 12, fontWeight: 850 }}>{copyMessage}</span>
+            ) : null}
+            {renderScheduleActionsMenu(false)}
+          </div>
+        </div>
         <div dangerouslySetInnerHTML={{ __html: previewDocumentParts.body }} />
       </div>
     );
@@ -3113,6 +3411,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
 
   return (
     <div className="grid gap-5">
+      <style>{`.cfsp-schedule-actions-menu > summary::-webkit-details-marker { display: none; }`}</style>
       {errorMessage ? <div className="cfsp-alert cfsp-alert-error">{errorMessage}</div> : null}
 
       <section className="rounded-[14px] border border-[#cfe6ef] bg-[linear-gradient(180deg,#f8fcfd_0%,#edf8fa_55%,#eef5fb_100%)] px-5 py-5 shadow-[0_18px_44px_rgba(42,112,140,0.08)]">
@@ -3232,15 +3531,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                   {props.backLabel || "Return to Event"}
                 </Link>
               ) : null}
-              <button type="button" onClick={() => setPreviewKind("timeline")} className="cfsp-btn cfsp-btn-secondary">
-                Preview Time Ticket
-              </button>
-              <button type="button" onClick={handlePrintPreview} className="cfsp-btn cfsp-btn-secondary">
-                Print
-              </button>
-              <button type="button" onClick={handleDownloadPreview} className="cfsp-btn cfsp-btn-secondary">
-                Download
-              </button>
+              {renderScheduleActionsMenu(false)}
               <button type="button" onClick={() => void handleCompleteSchedule()} className="cfsp-btn">
                 Mark Schedule Complete
               </button>
@@ -3738,36 +4029,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
-                <div className="inline-flex rounded-[12px] border border-[var(--cfsp-border)] bg-white p-1">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setPreviewKind("student");
-                      setScheduleViewMode("student");
-                    }}
-                    className="rounded-[10px] px-4 py-2 text-sm font-black transition"
-                    style={{
-                      background: previewKind === "student" ? "var(--cfsp-blue)" : "transparent",
-                      color: previewKind === "student" ? "#ffffff" : "var(--cfsp-text-muted)",
-                    }}
-                  >
-                    Student View
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setPreviewKind("operations");
-                      setScheduleViewMode("operations");
-                    }}
-                    className="rounded-[10px] px-4 py-2 text-sm font-black transition"
-                    style={{
-                      background: previewKind === "operations" || previewKind === "rotation" ? "var(--cfsp-blue)" : "transparent",
-                      color: previewKind === "operations" || previewKind === "rotation" ? "#ffffff" : "var(--cfsp-text-muted)",
-                    }}
-                  >
-                    Admin View
-                  </button>
-                </div>
+                {renderScheduleViewToggle(false)}
                 <select
                   value={previewKind}
                   onChange={(event) => {
@@ -3833,19 +4095,8 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
               </button>
             </div>
             <div className="mt-3 grid gap-3 rounded-[16px] border border-[#dce6ee] bg-[#f8fbfd] p-3">
-              <div className="flex flex-wrap gap-2">
-                <button type="button" onClick={() => setShowSchedulePreview(true)} className="cfsp-btn cfsp-btn-secondary">
-                  Preview Time Ticket
-                </button>
-                <button type="button" onClick={handleOpenPreviewInNewTab} className="cfsp-btn cfsp-btn-secondary">
-                  Open in New Tab
-                </button>
-                <button type="button" onClick={handleDownloadPreview} className="cfsp-btn cfsp-btn-secondary">
-                  Download
-                </button>
-                <button type="button" onClick={handlePrintPreview} className="cfsp-btn cfsp-btn-secondary">
-                  Print
-                </button>
+              <div className="flex flex-wrap items-center gap-2">
+                {renderScheduleActionsMenu(false)}
                 <button type="button" onClick={() => void handleCompleteSchedule()} className="cfsp-btn">
                   Complete Schedule
                 </button>
@@ -4105,7 +4356,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                     color: scheduleViewMode === "operations" ? "#ffffff" : "var(--cfsp-text-muted)",
                   }}
                 >
-                  Operations View
+                  Admin Schedule
                 </button>
               </div>
             </div>
@@ -4119,7 +4370,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                 <div className="border-b border-[#dce6ee] px-4 py-3 text-sm font-semibold text-[#5e7388]">
                   {scheduleViewMode === "student"
                     ? "Student Schedule excludes internal SP and case details."
-                    : "Operations View includes assigned SP and case details when available."}
+                    : "Admin Schedule includes assigned SP, room, learner, and case details when available."}
                 </div>
                 <div className="max-w-full overflow-x-auto">
                 <table className="w-full border-collapse text-left">
@@ -4319,19 +4570,9 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                       {schedulePreview.summary}
                     </div>
                   </div>
-                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    <button type="button" onClick={() => void handleCopyPreview()} className="cfsp-btn" style={{ background: "var(--cfsp-button-secondary-bg)", border: "1px solid var(--cfsp-button-secondary-border)", color: "var(--cfsp-button-secondary-text)" }}>
-                      Copy
-                    </button>
-                    <button type="button" onClick={handleOpenPreviewInNewTab} className="cfsp-btn">
-                      Open in New Tab
-                    </button>
-                    <button type="button" onClick={handleDownloadPreview} className="cfsp-btn">
-                      Download
-                    </button>
-                    <button type="button" onClick={handlePrintPreview} className="cfsp-btn" style={{ background: "var(--cfsp-button-secondary-bg)", border: "1px solid var(--cfsp-button-secondary-border)", color: "var(--cfsp-button-secondary-text)" }}>
-                      Print
-                    </button>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                    {renderScheduleViewToggle(true)}
+                    {renderScheduleActionsMenu(true)}
                     <button
                       type="button"
                       onClick={() => setShowSchedulePreview(false)}

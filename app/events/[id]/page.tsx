@@ -5956,12 +5956,6 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
   );
   const scheduleCompleted = scheduleWorkflowStatus === "complete";
   const scheduleInProgress = scheduleWorkflowStatus === "in_progress";
-  const scheduleExists =
-    scheduleCompleted ||
-    scheduleInProgress ||
-    rotationScheduleBuilt ||
-    rotationRounds.length > 0 ||
-    (scheduleBuilderDraftLearnerRoster.length > 0 && effectiveRoomCount > 0);
   const trainingFacultyText = trainingMetadata.faculty_names || fallbackFacultyText;
   const facultyEmailText = trainingMetadata.faculty_email;
   const facultyPhoneText = trainingMetadata.faculty_phone;
@@ -8963,42 +8957,12 @@ Cory`;
     href?: string;
     onClick?: () => void;
     disabled?: boolean;
-  }> = scheduleExists
-    ? [
-        {
-          label: "Preview Schedule",
-          onClick: () => handleOpenEventScheduleRouteInNewTab("operations", "schedule"),
-        },
-        {
-          label: "Student View",
-          onClick: () => handleOpenEventScheduleRouteInNewTab("student", "schedule"),
-        },
-        {
-          label: "Admin View",
-          onClick: () => handleOpenEventScheduleRouteInNewTab("operations", "schedule"),
-        },
-        {
-          label: "Print Student",
-          onClick: () => handlePrintEventSchedulePreview("student", "schedule"),
-        },
-        {
-          label: "Print Admin",
-          onClick: () => handlePrintEventSchedulePreview("operations", "schedule"),
-        },
-        {
-          label: "Download Student",
-          onClick: () => handleDownloadEventSchedulePreview("student", "schedule"),
-        },
-        {
-          label: "Download Admin",
-          onClick: () => handleDownloadEventSchedulePreview("operations", "schedule"),
-        },
-        { label: "Edit Schedule", href: expandedScheduleBuilderHref },
-        ...(scheduleCompleted
-          ? []
-          : [{ label: "Mark Schedule Complete", onClick: () => void handleMarkScheduleComplete(), disabled: saving }]),
-      ]
-    : [{ label: "Open Schedule Builder", href: expandedScheduleBuilderHref }];
+  }> = [
+    {
+      label: "Open Schedule",
+      onClick: () => handleOpenEventScheduleRouteInNewTab("operations", "schedule"),
+    },
+  ];
   const scheduleSummaryActions = scheduleWorkflowActions;
   const staffingTrainingRows: Array<{
     key: string;
@@ -10243,28 +10207,6 @@ Cory`;
     return persistTrainingNotes(nextNotes, successMessage);
   }
 
-  async function handleMarkScheduleComplete() {
-    const confirmed = window.confirm("Mark this schedule complete?");
-    if (!confirmed) return;
-    const now = new Date().toISOString();
-    await persistTrainingMetadataFields(
-      {
-        schedule_status: "complete",
-        schedule_started_at: trainingMetadata.schedule_started_at || now,
-        schedule_updated_at: now,
-        schedule_last_saved_at: now,
-        schedule_completed_at: now,
-        schedule_completed_by: me?.fullName || me?.scheduleName || me?.email || "",
-        rotation_schedule_status: "complete",
-        schedule_learner_count: effectiveLearnerCount > 0 ? String(effectiveLearnerCount) : "",
-        schedule_room_count: effectiveRoomCount > 0 ? String(effectiveRoomCount) : "",
-        schedule_round_count: activeRotationCount > 0 ? String(activeRotationCount) : "",
-        schedule_preview_enabled_for_sps: trainingMetadata.schedule_preview_enabled_for_sps || "no",
-      },
-      "Schedule marked complete."
-    );
-  }
-
   async function persistLiveRoomAdjustments(nextAdjustments: LiveRoomAdjustmentsMap) {
     const cleaned = Object.fromEntries(
       Object.entries(nextAdjustments).filter(
@@ -10354,29 +10296,6 @@ Cory`;
   function handleOpenEventScheduleRouteInNewTab(kind: EventSchedulePreviewKind, previewFamily?: "ticket" | "schedule") {
     const href = buildEventSchedulePreviewHref(kind, previewFamily);
     window.open(href, "_blank", "noopener,noreferrer");
-  }
-
-  function handleDownloadEventSchedulePreview(kind: EventSchedulePreviewKind, previewFamily?: "ticket" | "schedule") {
-    const href = buildEventSchedulePreviewHref(kind, previewFamily, { download: true });
-    window.open(href, "_blank", "noopener,noreferrer");
-  }
-
-  function handlePrintEventSchedulePreview(kind: EventSchedulePreviewKind, previewFamily?: "ticket" | "schedule") {
-    const href = buildEventSchedulePreviewHref(kind, previewFamily);
-    const popup = window.open(href, "_blank", "noopener,noreferrer");
-    if (!popup) {
-      setEventSaveError("Print window blocked. Please allow popups for this site.");
-      return;
-    }
-
-    window.setTimeout(() => {
-      try {
-        popup.focus();
-        popup.print();
-      } catch {
-        setEventSaveError("Could not open print view. Open the schedule in a new tab and print from there.");
-      }
-    }, 1400);
   }
 
   async function saveFacultyContactFields(
@@ -18369,12 +18288,13 @@ Cory`;
                     >
                       {learnerAssignmentsIncomplete ? "Assignment review" : "Learner flow ready"}
                     </span>
-                    <Link
-                      href={expandedScheduleBuilderHref}
-                      style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "7px 10px" }}
+                    <button
+                      type="button"
+                      onClick={() => handleOpenEventScheduleRouteInNewTab("operations", "schedule")}
+                      style={{ ...buttonStyle, padding: "7px 10px" }}
                     >
-                      {scheduleExists ? "Edit Schedule" : "Open Schedule Builder"}
-                    </Link>
+                      Open Schedule
+                    </button>
                   </div>
                 </div>
 
@@ -18688,17 +18608,11 @@ Cory`;
 	                        </button>
 	                        <button
 	                          type="button"
-	                          onClick={() => handleOpenEventScheduleRouteInNewTab("rotation", "schedule")}
+	                          onClick={() => handleOpenEventScheduleRouteInNewTab("operations", "schedule")}
 	                          style={{ ...buttonStyle, padding: "8px 11px" }}
 	                        >
-	                          Preview Schedule
+	                          Open Schedule
 	                        </button>
-	                        <Link
-	                          href={expandedScheduleBuilderHref}
-	                          style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "8px 11px" }}
-	                        >
-	                          {scheduleExists ? "Edit Schedule" : "Open Schedule Builder"}
-	                        </Link>
 	                      </div>
 	                    </>
 	                  ) : null}
@@ -18840,11 +18754,13 @@ Cory`;
                               Upload Case
                             </button>
                           ) : null}
-                          {!scheduleCompleted ? (
-                            <Link href={expandedScheduleBuilderHref} style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "6px 9px" }}>
-                              {scheduleExists ? "Edit Schedule" : "Open Schedule Builder"}
-                            </Link>
-                          ) : null}
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEventScheduleRouteInNewTab("operations", "schedule")}
+                            style={{ ...buttonStyle, padding: "6px 9px" }}
+                          >
+                            Open Schedule
+                          </button>
                         </div>
                       </div>
                     ) : null}
@@ -18973,119 +18889,25 @@ Cory`;
                         },
                         {
                           key: "schedule",
-                          title: "ROTATION BLUEPRINT",
+                          title: "SCHEDULE",
                           detail: scheduleStatusLabel,
                           status: scheduleCompleted ? "complete" : scheduleInProgress ? "draft" : "missing",
                           featured: true,
                           accent: scheduleCompleted ? "#198a70" : scheduleInProgress ? "#145b96" : "#64748b",
-                          primaryHref: expandedScheduleBuilderHref,
+                          primaryAction: () => handleOpenEventScheduleRouteInNewTab("operations", "schedule"),
                           metadata: [
-                            scheduleCompleted ? "Export ready" : "",
-                            scheduleCompleted ? "Print ready" : "",
+                            scheduleCompleted ? "Ready" : "",
                             scheduleInProgress ? "Builder active" : "",
+                            "Student/Admin viewer",
                           ].filter(Boolean),
                           actions: (
                             <>
-                              <Link
-                                href={expandedScheduleBuilderHref}
-                                style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "6px 9px" }}
-                              >
-                                Open
-                              </Link>
                               <button
                                 type="button"
-                                onClick={() => handleOpenEventScheduleRouteInNewTab("rotation", "schedule")}
+                                onClick={() => handleOpenEventScheduleRouteInNewTab("operations", "schedule")}
                                 style={{ ...buttonStyle, padding: "6px 9px" }}
                               >
-                                Preview
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handlePrintEventSchedulePreview("rotation", "schedule")}
-                                style={{ ...buttonStyle, padding: "6px 9px" }}
-                              >
-                                Print
-                              </button>
-                            </>
-                          ),
-                        },
-                        {
-                          key: "student_schedule",
-                          title: "STUDENT EXPORT",
-                          detail: "Learner-safe export view",
-                          status: scheduleCompleted ? "complete" : scheduleInProgress ? "draft" : "missing",
-                          accent: "#145b96",
-                          primaryAction: () => handleOpenEventScheduleRouteInNewTab("student", "schedule"),
-                          metadata: ["Learner-safe", scheduleCompleted ? "Print ready" : "Draft only"].filter(Boolean),
-                          actions: (
-                            <>
-                              <button
-                                type="button"
-                                onClick={() => handleOpenEventScheduleRouteInNewTab("student", "schedule")}
-                                style={{ ...buttonStyle, padding: "6px 9px" }}
-                              >
-                                Open
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handlePrintEventSchedulePreview("student", "schedule")}
-                                style={{ ...buttonStyle, padding: "6px 9px" }}
-                              >
-                                Print
-                              </button>
-                            </>
-                          ),
-                        },
-                        {
-                          key: "sp_schedule",
-                          title: "SP ASSIGNMENT GRID",
-                          detail: "Staff-facing room assignment view",
-                          status: scheduleCompleted ? "complete" : scheduleInProgress ? "draft" : "missing",
-                          accent: "#198a70",
-                          primaryAction: () => handleOpenEventScheduleRouteInNewTab("sp", "schedule"),
-                          metadata: ["Staffing ops", scheduleCompleted ? "Ready for live ops" : "Builder-linked"].filter(Boolean),
-                          actions: (
-                            <>
-                              <button
-                                type="button"
-                                onClick={() => handleOpenEventScheduleRouteInNewTab("sp", "schedule")}
-                                style={{ ...buttonStyle, padding: "6px 9px" }}
-                              >
-                                Open
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handlePrintEventSchedulePreview("sp", "schedule")}
-                                style={{ ...buttonStyle, padding: "6px 9px" }}
-                              >
-                                Print
-                              </button>
-                            </>
-                          ),
-                        },
-                        {
-                          key: "time_ticket",
-                          title: "FACULTY / SIMOPS TIME TICKET",
-                          detail: "Compact timing and flow view",
-                          status: scheduleCompleted ? "complete" : scheduleInProgress ? "draft" : "missing",
-                          accent: "#0f4776",
-                          primaryAction: () => handleOpenEventScheduleRouteInNewTab("timeline", "ticket"),
-                          metadata: ["Flow brief", scheduleCompleted ? "Print ready" : "Draft timing"].filter(Boolean),
-                          actions: (
-                            <>
-                              <button
-                                type="button"
-                                onClick={() => handleOpenEventScheduleRouteInNewTab("timeline", "ticket")}
-                                style={{ ...buttonStyle, padding: "6px 9px" }}
-                              >
-                                Open
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handlePrintEventSchedulePreview("timeline", "ticket")}
-                                style={{ ...buttonStyle, padding: "6px 9px" }}
-                              >
-                                Print
+                                Open Schedule
                               </button>
                             </>
                           ),
