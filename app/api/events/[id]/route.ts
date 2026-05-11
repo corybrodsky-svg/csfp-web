@@ -782,6 +782,7 @@ export async function PATCH(
 
     if (eventId && (eventUpdates || sessionUpdates)) {
       const nextEventUpdates = eventUpdates ? { ...eventUpdates } : {};
+      let updatedEvent: Record<string, unknown> | null = null;
       if (eventUpdates && Object.prototype.hasOwnProperty.call(eventUpdates, "notes")) {
         const requestedNotes =
           typeof eventUpdates.notes === "string" || eventUpdates.notes === null
@@ -814,10 +815,12 @@ export async function PATCH(
       }
 
       if (Object.keys(nextEventUpdates).length > 0) {
-        const { error } = await supabaseServer
+        const { data: savedEvent, error } = await supabaseServer
           .from("events")
           .update(nextEventUpdates)
-          .eq("id", eventId);
+          .eq("id", eventId)
+          .select("id,name,status,date_text,sp_needed,location,notes")
+          .maybeSingle();
 
         if (error) {
           return applyAuthCookies(
@@ -828,6 +831,7 @@ export async function PATCH(
             viewer
           );
         }
+        updatedEvent = (savedEvent as Record<string, unknown> | null) || null;
       }
 
       if (sessionUpdates) {
@@ -891,7 +895,7 @@ export async function PATCH(
         }
       }
 
-      return applyAuthCookies(NextResponse.json({ ok: true }), viewer);
+      return applyAuthCookies(NextResponse.json({ ok: true, event: updatedEvent }), viewer);
     }
 
     if (eventId && (attendanceAction === "confirm_all" || attendanceAction === "clear_all")) {

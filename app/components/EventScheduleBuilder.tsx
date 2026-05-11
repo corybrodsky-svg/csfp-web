@@ -2191,6 +2191,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const [errorMessage, setErrorMessage] = useState("");
   const [selectedEventId, setSelectedEventId] = useState(props.fixedEventId || "");
   const [copyMessage, setCopyMessage] = useState("");
+  const [copyMessageTone, setCopyMessageTone] = useState<"success" | "error">("success");
   const [learnerFileName, setLearnerFileName] = useState("");
   const [learnerUploadError, setLearnerUploadError] = useState("");
   const [showClearRosterDialog, setShowClearRosterDialog] = useState(false);
@@ -2208,6 +2209,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [saveErrorMessage, setSaveErrorMessage] = useState("");
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
+  const [scheduleCompletionSaving, setScheduleCompletionSaving] = useState(false);
   const [timeSource, setTimeSource] = useState<BuilderTimePrefill>({
     source: "default",
     label: "Using default time",
@@ -2556,6 +2558,14 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     () => events.find((event) => event.id === selectedEventId) || null,
     [events, selectedEventId]
   );
+  function showCopyMessage(message: string, tone: "success" | "error" = "success", timeoutMs = 2400) {
+    setCopyMessageTone(tone);
+    setCopyMessage(message);
+    if (typeof window !== "undefined") {
+      window.setTimeout(() => setCopyMessage(""), timeoutMs);
+    }
+  }
+
   const persistScheduleWorkflowMetadata = useCallback(
     async (partial: Record<string, string>) => {
       if (!selectedEvent?.id) return false;
@@ -2569,11 +2579,27 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
           },
         }),
       });
+      const body = (await response.json().catch(() => null)) as {
+        error?: string;
+        event?: Partial<EventRow> | null;
+      } | null;
       if (!response.ok) {
-        throw new Error(`Could not save schedule workflow state (${response.status}).`);
+        throw new Error(body?.error || `Could not save schedule workflow state (${response.status}).`);
       }
+      const persistedNotes =
+        typeof body?.event?.notes === "string" || body?.event?.notes === null
+          ? body.event.notes
+          : nextNotes;
       setEvents((current) =>
-        current.map((event) => (event.id === selectedEvent.id ? { ...event, notes: nextNotes } : event))
+        current.map((event) =>
+          event.id === selectedEvent.id
+            ? {
+                ...event,
+                ...body?.event,
+                notes: persistedNotes,
+              }
+            : event
+        )
       );
       return true;
     },
@@ -3197,18 +3223,16 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     try {
       if (navigator.share) {
         await navigator.share({ title: schedulePreview.title, url: shareUrl });
-        setCopyMessage("Schedule link shared.");
+        showCopyMessage("Schedule link shared.");
       } else if (navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(shareUrl);
-        setCopyMessage("Schedule link copied.");
+        showCopyMessage("Schedule link copied.");
       } else {
-        setCopyMessage("Copy/share is not supported in this browser.");
+        showCopyMessage("Copy/share is not supported in this browser.");
       }
-      window.setTimeout(() => setCopyMessage(""), 2400);
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") return;
-      setCopyMessage(error instanceof Error ? error.message : "Could not share schedule link.");
-      window.setTimeout(() => setCopyMessage(""), 2600);
+      showCopyMessage(error instanceof Error ? error.message : "Could not share schedule link.", "error", 2600);
     }
   }
 
@@ -3239,8 +3263,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     anchor.click();
     anchor.remove();
     URL.revokeObjectURL(downloadUrl);
-    setCopyMessage(`${schedulePreview.title} PDF downloaded.`);
-    window.setTimeout(() => setCopyMessage(""), 2200);
+    showCopyMessage(`${schedulePreview.title} PDF downloaded.`, "success", 2200);
   }
 
   function handleExportSchedule() {
@@ -3255,15 +3278,13 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     anchor.click();
     anchor.remove();
     URL.revokeObjectURL(downloadUrl);
-    setCopyMessage(`${schedulePreview.title} exported.`);
-    window.setTimeout(() => setCopyMessage(""), 2200);
+    showCopyMessage(`${schedulePreview.title} exported.`, "success", 2200);
   }
 
   async function handlePrintPreview() {
     const popup = window.open("", "_blank", "noopener,noreferrer");
     if (!popup) {
-      setCopyMessage("Print window blocked. Please allow popups for this site.");
-      window.setTimeout(() => setCopyMessage(""), 2500);
+      showCopyMessage("Print window blocked. Please allow popups for this site.", "error", 2500);
       return;
     }
 
@@ -3392,11 +3413,19 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   );
 
   async function handleCompleteSchedule() {
-    if (!selectedEvent?.id) return;
+    if (!selectedEvent?.id || scheduleCompletionSaving) return;
     const confirmed = window.confirm("Mark this schedule complete?");
     if (!confirmed) return;
 
     const now = new Date().toISOString();
+    if (workflowSyncTimeoutRef.current) {
+      window.clearTimeout(workflowSyncTimeoutRef.current);
+      workflowSyncTimeoutRef.current = null;
+    }
+
+    setScheduleCompletionSaving(true);
+    setSaveState("saving");
+    setSaveErrorMessage("");
     try {
       await persistScheduleWorkflowMetadata({
         schedule_status: "complete",
@@ -3415,11 +3444,16 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         ),
         schedule_preview_enabled_for_sps: selectedEventMetadata.schedule_preview_enabled_for_sps || "no",
       });
-      setCopyMessage("Schedule marked complete.");
-      window.setTimeout(() => setCopyMessage(""), 2400);
+      setSaveState("saved");
+      setLastSavedAt(now);
+      showCopyMessage("Schedule marked complete.");
     } catch (error) {
-      setCopyMessage(error instanceof Error ? error.message : "Could not mark schedule complete.");
-      window.setTimeout(() => setCopyMessage(""), 2600);
+      const message = error instanceof Error ? error.message : "Could not mark schedule complete.";
+      setSaveState("error");
+      setSaveErrorMessage(message);
+      showCopyMessage(message, "error", 3200);
+    } finally {
+      setScheduleCompletionSaving(false);
     }
   }
 
@@ -3428,8 +3462,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     setOriginalUploadedLearners([]);
     setUploadedLearners([]);
     setSaveState("unsaved");
-    setCopyMessage("Learner roster cleared. Placeholder learner names restored.");
-    window.setTimeout(() => setCopyMessage(""), 2400);
+    showCopyMessage("Learner roster cleared. Placeholder learner names restored.");
   }
 
   function confirmClearRoster() {
@@ -3462,15 +3495,13 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     const source = uploadedLearners.length ? uploadedLearners : learnerRoster;
     if (!source.length) return;
     setUploadedLearners(shuffleRoster(source));
-    setCopyMessage("Learner spread randomized.");
-    window.setTimeout(() => setCopyMessage(""), 2600);
+    showCopyMessage("Learner spread randomized.", "success", 2600);
   }
 
   function handleResetLearnerOrder() {
     if (!originalUploadedLearners.length) return;
     setUploadedLearners(originalUploadedLearners);
-    setCopyMessage("Uploaded learner order restored.");
-    window.setTimeout(() => setCopyMessage(""), 2600);
+    showCopyMessage("Uploaded learner order restored.", "success", 2600);
   }
 
   function handleAddDayBlock() {
@@ -3571,7 +3602,9 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             {copyMessage ? (
-              <span style={{ color: "#0f766e", fontSize: 12, fontWeight: 850 }}>{copyMessage}</span>
+              <span style={{ color: copyMessageTone === "error" ? "#c23b3b" : "#0f766e", fontSize: 12, fontWeight: 850 }}>
+                {copyMessage}
+              </span>
             ) : null}
             {renderScheduleActionsMenu(false)}
           </div>
@@ -3704,8 +3737,14 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                 </Link>
               ) : null}
               {renderScheduleActionsMenu(false)}
-              <button type="button" onClick={() => void handleCompleteSchedule()} className="cfsp-btn">
-                Mark Schedule Complete
+              <button
+                type="button"
+                onClick={() => void handleCompleteSchedule()}
+                disabled={scheduleCompletionSaving}
+                className="cfsp-btn"
+                style={{ opacity: scheduleCompletionSaving ? 0.65 : 1 }}
+              >
+                {scheduleCompletionSaving ? "Marking Complete..." : "Mark Schedule Complete"}
               </button>
             </div>
             {learnerRoster.length > 1 ? (
@@ -4230,7 +4269,11 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
               Output: {schedulePreview.summary}
             </div>
 
-            {copyMessage ? <div className="mt-4 text-sm font-semibold text-[#196b57]">{copyMessage}</div> : null}
+            {copyMessage ? (
+              <div className={`mt-4 text-sm font-semibold ${copyMessageTone === "error" ? "text-[#c23b3b]" : "text-[#196b57]"}`}>
+                {copyMessage}
+              </div>
+            ) : null}
             <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
               <div className="text-sm font-black text-[#14304f]">Live source: {schedulePreview.title}</div>
               <span
