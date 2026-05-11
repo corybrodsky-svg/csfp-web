@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { formatHumanDate, getImportedYearHint } from "../lib/eventDateUtils";
 import { parseEventMetadata, upsertEventMetadata } from "../lib/eventMetadata";
+import { normalizeLearnerName, normalizeLearnerNames } from "../lib/learnerNames";
 import { getRoomDisplayLabel, getRoomTypeLabel } from "../lib/roomNaming";
 
 type EventRow = {
@@ -282,7 +283,7 @@ function asText(value: unknown) {
 }
 
 function serializeScheduleLearnerRosterMetadata(learners: string[]) {
-  const roster = learners.map(asText).filter(Boolean);
+  const roster = normalizeLearnerNames(learners);
   return roster.length ? encodeURIComponent(JSON.stringify(roster)) : "";
 }
 
@@ -1289,7 +1290,7 @@ function buildScheduleTimeline(args: {
 
 function getFirstNonEmptyCell(row: unknown[]) {
   for (const cell of row) {
-    const text = asText(cell);
+    const text = normalizeLearnerName(cell);
     if (text) return text;
   }
   return "";
@@ -1326,7 +1327,7 @@ function parseLearnerNamesFromWorkbook(workbook: XLSX.WorkBook) {
 
     if (sourceKey) {
       return objectRows
-        .map((row) => asText(row[sourceKey]))
+        .map((row) => normalizeLearnerName(row[sourceKey]))
         .filter(Boolean);
     }
   }
@@ -1348,7 +1349,7 @@ function parseLearnerNamesFromWorkbook(workbook: XLSX.WorkBook) {
     rest.length > 0 &&
     /\b(name|learner|student|group|participant|email|email address|notes)\b/i.test(firstName);
 
-  return (skipHeader ? rest : names).filter(Boolean);
+  return normalizeLearnerNames(skipHeader ? rest : names);
 }
 
 async function parseLearnerFile(file: File) {
@@ -1373,7 +1374,7 @@ function downloadStudentRosterTemplate() {
 }
 
 function shuffleRoster(names: string[]) {
-  const next = [...names];
+  const next = normalizeLearnerNames(names);
   for (let index = next.length - 1; index > 0; index -= 1) {
     const swapIndex = Math.floor(Math.random() * (index + 1));
     [next[index], next[swapIndex]] = [next[swapIndex], next[index]];
@@ -1382,13 +1383,15 @@ function shuffleRoster(names: string[]) {
 }
 
 function buildLearnerRoster(uploadedLearners: string[], slotCount: number, roundCount: number) {
-  if (uploadedLearners.length) return uploadedLearners;
+  const roster = normalizeLearnerNames(uploadedLearners);
+  if (roster.length) return roster;
   const fallbackCount = Math.max(slotCount * Math.max(roundCount, 1), slotCount, 1);
   return Array.from({ length: fallbackCount }, (_, index) => `Learner ${index + 1}`);
 }
 
 function attachLearners(rounds: GeneratedRound[], learnerRoster: string[]) {
-  if (!rounds.length || !learnerRoster.length) return [] as ScheduledRound[];
+  const normalizedLearnerRoster = normalizeLearnerNames(learnerRoster);
+  if (!rounds.length || !normalizedLearnerRoster.length) return [] as ScheduledRound[];
 
   const slotsPerRound = rounds[0]?.roomSlots.reduce((sum, slot) => sum + slot.capacity, 0) || 0;
 
@@ -1400,7 +1403,7 @@ function attachLearners(rounds: GeneratedRound[], learnerRoster: string[]) {
       roomSlots: round.roomSlots.map((slot) => {
         const learnerLabels = Array.from({ length: slot.capacity }, (_, offset) => {
           const learnerIndex = cursor + offset;
-          return learnerIndex < learnerRoster.length ? learnerRoster[learnerIndex] : "";
+          return learnerIndex < normalizedLearnerRoster.length ? normalizedLearnerRoster[learnerIndex] : "";
         }).filter(Boolean);
         cursor += slot.capacity;
         return { ...slot, learnerLabels };
@@ -2122,10 +2125,10 @@ function parseSavedDraft(raw: string | null): ScheduleBuilderDraft | null {
       builderMode: parsed.builderMode === "advanced" ? "advanced" : "simple",
       scheduleViewMode: parsed.scheduleViewMode === "operations" ? "operations" : "student",
       originalUploadedLearners: Array.isArray(parsed.originalUploadedLearners)
-        ? parsed.originalUploadedLearners.map((item) => asText(item)).filter(Boolean)
+        ? normalizeLearnerNames(parsed.originalUploadedLearners)
         : [],
       uploadedLearners: Array.isArray(parsed.uploadedLearners)
-        ? parsed.uploadedLearners.map((item) => asText(item)).filter(Boolean)
+        ? normalizeLearnerNames(parsed.uploadedLearners)
         : [],
       dayBlocks: normalizedDayBlocks.length ? normalizedDayBlocks : buildLegacyDayBlocks(parsed),
       selectedEventId: asText(parsed.selectedEventId),

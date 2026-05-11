@@ -34,6 +34,7 @@ import {
   parseEventMetadata,
   upsertEventMetadata,
 } from "../../lib/eventMetadata";
+import { normalizeLearnerName, normalizeLearnerNames } from "../../lib/learnerNames";
 import {
   getFacultyText,
   getSimStaffNames,
@@ -3090,8 +3091,7 @@ function parsePositiveInteger(value: unknown, fallback = 0) {
 }
 
 function normalizeTextArray(value: unknown) {
-  if (!Array.isArray(value)) return [];
-  return value.map(asText).filter(Boolean);
+  return normalizeLearnerNames(value);
 }
 
 const UNASSIGNED_LEARNER_ROOM_LABEL = "No learner assigned for this room/round";
@@ -3120,12 +3120,12 @@ function parseScheduleLearnerRosterMetadata(value: unknown) {
 
   return text
     .split(/\r?\n|,/)
-    .map((item) => item.trim())
+    .map((item) => normalizeLearnerName(item))
     .filter(Boolean);
 }
 
 function getLearnerRoomAssignmentLabel(learnerLabels: string[]) {
-  const labels = learnerLabels.map(asText).filter(Boolean);
+  const labels = normalizeLearnerNames(learnerLabels);
   return labels.length ? labels.join(", ") : UNASSIGNED_LEARNER_ROOM_LABEL;
 }
 
