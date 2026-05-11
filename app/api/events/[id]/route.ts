@@ -279,20 +279,121 @@ function unauthorizedResponse(viewer?: ViewerContext | null) {
   return response;
 }
 
+type CourseSignature = {
+  full: string;
+  prefix: string;
+  number: string;
+  hasPrefix: boolean;
+};
+
+type RelatedMatchReason =
+  | "Matched by exact course"
+  | "Matched by exact course + title family"
+  | "Matched by source batch + exact course"
+  | "No stable match";
+
+type RelatedMatchConfidence = "exact_course" | "title_family" | "source_batch" | "none";
+
+const COURSE_MATCH_STOPWORDS = new Set([
+  "training",
+  "event",
+  "session",
+  "simulation",
+  "sim",
+  "date",
+  "prep",
+  "orientation",
+  "virtual",
+  "skills",
+  "workshop",
+  "ire",
+]);
+
 function tokenizeFamilyText(value: unknown) {
   return asText(value)
     .toLowerCase()
     .split(/[^a-z0-9]+/)
     .map((token) => token.trim())
-    .filter((token) => token.length >= 3);
+    .filter((token) => token.length >= 3 && !COURSE_MATCH_STOPWORDS.has(token));
 }
 
-function extractCourseToken(value: unknown) {
-  const text = asText(value).toUpperCase().replace(/\s+/g, " ");
-  const match =
-    text.match(/\b[A-Z]{2,}\s*-?\s*\d{3,4}[A-Z]?\b/) ||
-    text.match(/\b\d{3,4}[A-Z]?\b/);
-  return match ? match[0].replace(/\s*-\s*/g, " ").replace(/\s+/g, " ").trim() : "";
+function normalizeCoursePrefix(value: string) {
+  return asText(value).toUpperCase().replace(/\s+/g, " ").trim();
+}
+
+function asCourseToken(value: unknown) {
+  return asText(value)
+    .toUpperCase()
+    .replace(/\s*-\s*/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function extractCourseSignatures(value: unknown) {
+  const text = asText(value).toUpperCase();
+  const matchTokens = Array.from(text.matchAll(/\b([A-Z]{2,})\s*-?\s*(\d{3,4}[A-Z]?)\b/g));
+  const numericMatches = Array.from(text.matchAll(/\b(\d{3,4}[A-Z]?)\b/g));
+  const courseTokens = matchTokens.map((match) => ({
+    full: asCourseToken(`${match[1]} ${match[2]}`),
+    prefix: normalizeCoursePrefix(match[1]),
+    number: asCourseToken(match[2]),
+    hasPrefix: true,
+  }));
+
+  if (courseTokens.length) {
+    return Array.from(
+      new Map(courseTokens.map((item) => [item.full, item])).values()
+    );
+  }
+
+  const numericCourses = numericMatches.map((match) => ({
+    full: asCourseToken(match[1]),
+    prefix: "",
+    number: asCourseToken(match[1]),
+    hasPrefix: false,
+  }));
+
+  const yearFilteredNumericCourses = numericCourses.filter((item) => {
+    const numeric = Number(item.number);
+    return !(Number.isFinite(numeric) && numeric >= 1900 && numeric <= 2600);
+  });
+
+  return Array.from(new Map(yearFilteredNumericCourses.map((item) => [item.full, item])).values());
+}
+
+function parseHiddenRelatedIds(value: string | null | undefined) {
+  return Array.from(
+    new Set(
+      asText(value)
+        .split(/[,;\n]/g)
+        .map((entry) => asText(entry))
+        .filter(Boolean)
+    )
+  );
+}
+
+function normalizeSourceBatchKey(metadata: ReturnType<typeof parseTrainingEventMetadata>) {
+  const linkedId = asText(metadata.linked_event_id);
+  const signalType = asText(metadata.signal_type);
+  if (linkedId) return `link:${linkedId}`;
+  if (signalType) return `signal:${signalType}`;
+  return "";
+}
+
+function extractTitleFamily(value: unknown) {
+  return Array.from(new Set(tokenizeFamilyText(value))).sort();
+}
+
+function resolveCourseIdentifier(
+  signals: ReturnType<typeof getEventFamilySignals>,
+  signature: CourseSignature
+) {
+  if (signature.hasPrefix) return signature.full;
+  if (!signature.number) return "";
+  if (signature.prefix) return "";
+
+  const program = normalizeCoursePrefix(signals.facultyProgram);
+  return program ? `${program} ${signature.number}`.trim() : "";
 }
 
 function getEventFamilySignals(event: RelatedEventRow) {
@@ -300,8 +401,8 @@ function getEventFamilySignals(event: RelatedEventRow) {
   const familySource = [
     event.name,
     event.status,
-    event.date_text,
     event.location,
+    event.date_text,
     metadata.faculty_program,
     metadata.linked_event_title,
     metadata.training_notes,
@@ -309,28 +410,111 @@ function getEventFamilySignals(event: RelatedEventRow) {
     .map(asText)
     .filter(Boolean)
     .join(" ");
-  const courseToken = extractCourseToken(familySource);
-  const tokens = Array.from(new Set(tokenizeFamilyText(familySource))).filter(
-    (token) =>
-      ![
-        "training",
-        "event",
-        "session",
-        "simulation",
-        "sim",
-        "date",
-        "prep",
-        "orientation",
-        "virtual",
-        "skills",
-      ].includes(token)
-  );
+  const facultyProgram = normalizeCoursePrefix(metadata.faculty_program);
+  const titleFamily = extractTitleFamily(event.name);
+  const courseSignatures = extractCourseSignatures(familySource);
 
   return {
-    courseToken,
-    tokens,
+    courseSignatures,
+    titleFamilyTokens: titleFamily,
+    facultyProgram,
+    sourceBatchKey: normalizeSourceBatchKey(metadata),
     metadata,
   };
+}
+
+function getTitleFamilyMatch(sourceTokens: string[], targetTokens: string[]) {
+  if (!sourceTokens.length || !targetTokens.length) return false;
+  const targetSet = new Set(targetTokens);
+  const overlap = sourceTokens.filter((token) => targetSet.has(token)).length;
+  if (overlap < 1) return false;
+
+  const sourceWeight = sourceTokens.length;
+  const targetWeight = targetTokens.length;
+  const normalized = overlap / Math.min(sourceWeight, targetWeight);
+  return normalized >= 0.6;
+}
+
+function pickExactCourseMatch(
+  source: ReturnType<typeof getEventFamilySignals>,
+  candidate: ReturnType<typeof getEventFamilySignals>
+) {
+  const sourceCourses = source.courseSignatures;
+  const candidateCourses = candidate.courseSignatures;
+
+  for (const sourceCourse of sourceCourses) {
+    const sourceIdentifier = resolveCourseIdentifier(source, sourceCourse);
+    if (!sourceIdentifier) continue;
+
+    const matches = candidateCourses.filter((candidateCourse) => {
+      const candidateIdentifier = resolveCourseIdentifier(candidate, candidateCourse);
+      if (!candidateIdentifier) return false;
+      return candidateIdentifier === sourceIdentifier;
+    });
+    if (!matches.length) continue;
+
+    const exactCourse = matches[0];
+    const sameCourse = sourceIdentifier;
+    return { matchedCourse: sameCourse, sourceCourse, candidateCourse: exactCourse };
+  }
+
+  return null;
+}
+
+function buildRelatedMatchAssessment(
+  sourceSignals: ReturnType<typeof getEventFamilySignals>,
+  candidateSignals: ReturnType<typeof getEventFamilySignals>
+) {
+  const exactMatch = pickExactCourseMatch(sourceSignals, candidateSignals);
+  if (!exactMatch) {
+    return {
+      matchReason: "No stable match" as RelatedMatchReason,
+      matchConfidence: "none" as RelatedMatchConfidence,
+      matchCourse: "",
+      isMatched: false,
+    };
+  }
+
+  const matchedCourse = exactMatch.matchedCourse;
+  const sourceBatch = sourceSignals.sourceBatchKey;
+  const candidateBatch = candidateSignals.sourceBatchKey;
+  const sameBatch = Boolean(sourceBatch && candidateBatch && sourceBatch === candidateBatch);
+  const titleFamilyMatch = getTitleFamilyMatch(
+    sourceSignals.titleFamilyTokens,
+    candidateSignals.titleFamilyTokens
+  );
+
+  if (sameBatch) {
+    return {
+      matchReason: `Matched by source batch + exact course: ${matchedCourse}` as RelatedMatchReason,
+      matchConfidence: "source_batch" as RelatedMatchConfidence,
+      matchCourse: matchedCourse,
+      isMatched: true,
+    };
+  }
+
+  if (titleFamilyMatch) {
+    return {
+      matchReason: `Matched by exact course + title family: ${matchedCourse}` as RelatedMatchReason,
+      matchConfidence: "title_family" as RelatedMatchConfidence,
+      matchCourse: matchedCourse,
+      isMatched: true,
+    };
+  }
+
+  return {
+    matchReason: `Matched by exact course: ${matchedCourse}` as RelatedMatchReason,
+    matchConfidence: "exact_course" as RelatedMatchConfidence,
+    matchCourse: matchedCourse,
+    isMatched: true,
+  };
+}
+
+function getMatchSortValue(confidence: RelatedMatchConfidence) {
+  if (confidence === "source_batch") return 0;
+  if (confidence === "title_family") return 1;
+  if (confidence === "exact_course") return 2;
+  return 99;
 }
 
 function classifyRelatedEventNode(event: RelatedEventRow) {
@@ -351,54 +535,16 @@ function classifyRelatedEventNode(event: RelatedEventRow) {
   return "simulation";
 }
 
-function getRelatedEventScore(source: RelatedEventRow, candidate: RelatedEventRow) {
-  if (source.id === candidate.id) return 0;
-
-  const sourceSignals = getEventFamilySignals(source);
-  const candidateSignals = getEventFamilySignals(candidate);
-  const sourceText = [source.name, source.status, source.date_text, source.location, source.notes]
-    .map(asText)
-    .join(" ")
-    .toLowerCase();
-  const candidateText = [candidate.name, candidate.status, candidate.date_text, candidate.location, candidate.notes]
-    .map(asText)
-    .join(" ")
-    .toLowerCase();
-  let score = 0;
-
-  if (sourceSignals.courseToken && candidateSignals.courseToken === sourceSignals.courseToken) score += 70;
-
-  const sharedTokens = sourceSignals.tokens.filter((token) => candidateSignals.tokens.includes(token));
-  score += Math.min(sharedTokens.length * 12, 36);
-
-  const sourceProgram = normalizeMatchValue(sourceSignals.metadata.faculty_program);
-  const candidateProgram = normalizeMatchValue(candidateSignals.metadata.faculty_program);
-  if (sourceProgram && candidateProgram && sourceProgram === candidateProgram) score += 30;
-
-  const explicitLinkedId = asText(sourceSignals.metadata.linked_event_id);
-  if (explicitLinkedId && explicitLinkedId === candidate.id) score += 100;
-  const reverseLinkedId = asText(candidateSignals.metadata.linked_event_id);
-  if (reverseLinkedId && reverseLinkedId === source.id) score += 100;
-  if (candidateText.includes(source.id.toLowerCase()) || sourceText.includes(candidate.id.toLowerCase())) score += 80;
-
-  const sourceDate = normalizeLooseDateToIso(source.date_text, getImportedYearHint(source.notes));
-  const candidateDate = normalizeLooseDateToIso(candidate.date_text, getImportedYearHint(candidate.notes));
-  if (sourceDate && candidateDate) {
-    const deltaDays = Math.abs(new Date(candidateDate).getTime() - new Date(sourceDate).getTime()) / 86400000;
-    if (deltaDays <= 45) score += 12;
-  }
-
-  if (classifyRelatedEventNode(candidate) === "training") score += 8;
-  return score;
-}
-
 async function loadRelatedOperationalEvents(
   supabaseServer: ReturnType<typeof createSupabaseServerClient>,
   sourceEvent: RelatedEventRow
 ) {
   const sourceSignals = getEventFamilySignals(sourceEvent);
-  const fallbackKeyword = sourceSignals.courseToken || sourceSignals.tokens[0] || "";
-  if (!fallbackKeyword) return [] as Array<Record<string, unknown>>;
+  const hiddenRelatedIds = new Set(
+    parseHiddenRelatedIds(
+      parseTrainingEventMetadata(sourceEvent.notes).related_events_hidden
+    )
+  );
 
   const { data, error } = await supabaseServer
     .from("events")
@@ -409,8 +555,12 @@ async function loadRelatedOperationalEvents(
 
   return ((data || []) as RelatedEventRow[])
     .map((candidate) => {
-      const score = getRelatedEventScore(sourceEvent, candidate);
-      if (score < 45) return null;
+      if (candidate.id === sourceEvent.id || hiddenRelatedIds.has(candidate.id)) return null;
+
+      const candidateSignals = getEventFamilySignals(candidate);
+      const assessment = buildRelatedMatchAssessment(sourceSignals, candidateSignals);
+      if (!assessment.isMatched) return null;
+
       const kind = classifyRelatedEventNode(candidate);
       const metadata = parseTrainingEventMetadata(candidate.notes);
       return {
@@ -419,12 +569,10 @@ async function loadRelatedOperationalEvents(
         status: candidate.status,
         date_text: candidate.date_text,
         location: candidate.location,
+        match_reason: assessment.matchReason,
+        match_confidence: assessment.matchConfidence,
         kind,
-        score,
-        exact_course_match: Boolean(
-          sourceSignals.courseToken &&
-            getEventFamilySignals(candidate).courseToken === sourceSignals.courseToken
-        ),
+        exact_course_match: true,
         relationship:
           kind === "training"
             ? "Training"
@@ -440,10 +588,12 @@ async function loadRelatedOperationalEvents(
     .sort((a, b) => {
       if (a.kind === "training" && b.kind !== "training") return -1;
       if (a.kind !== "training" && b.kind === "training") return 1;
-      if (b.score !== a.score) return b.score - a.score;
+      const aSort = getMatchSortValue(a.match_confidence);
+      const bSort = getMatchSortValue(b.match_confidence);
+      if (aSort !== bSort) return aSort - bSort;
       return asText(a.name).localeCompare(asText(b.name));
     })
-    .slice(0, 12);
+    .slice(0, 20);
 }
 
 function viewerMatchesAssignedSp(sp: AssignedSpApiRow, viewer: ViewerContext) {

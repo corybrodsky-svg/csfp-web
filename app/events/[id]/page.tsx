@@ -314,6 +314,8 @@ type RelatedOperationalEventNode = {
   location: string | null;
   kind: "training" | "simulation" | "skills" | "virtual";
   relationship: string;
+  match_reason?: string;
+  match_confidence?: "exact_course" | "title_family" | "source_batch" | "none";
   score?: number;
   exact_course_match?: boolean;
   trainingMetadata?: TrainingEventMetadata | null;
@@ -3835,6 +3837,17 @@ function getDefaultRelatedEventKeyword(title?: string | null) {
   return tokens[0] || "";
 }
 
+function parseRelatedEventsHiddenIds(value: string | null | undefined) {
+  return Array.from(
+    new Set(
+      asText(value)
+        .split(/[,;\n]/g)
+        .map((entry) => asText(entry))
+        .filter(Boolean)
+    )
+  );
+}
+
 function getSheetCellText(sheet: XLSX.WorkSheet, address: string) {
   return asText(sheet[address]?.v);
 }
@@ -3919,6 +3932,8 @@ export default function EventDetailPage() {
   const [assignments, setAssignments] = useState<AssignmentRow[]>([]);
   const [availabilityRows, setAvailabilityRows] = useState<AvailabilityRow[]>([]);
   const [relatedOperationalEvents, setRelatedOperationalEvents] = useState<RelatedOperationalEventNode[]>([]);
+  const [showRelatedMatchesModal, setShowRelatedMatchesModal] = useState(false);
+  const [removingRelatedMatchId, setRemovingRelatedMatchId] = useState("");
   const [selectedSpId, setSelectedSpId] = useState("");
   const [quickStaffingQuery, setQuickStaffingQuery] = useState("");
   const [quickStaffingSpId, setQuickStaffingSpId] = useState("");
@@ -4963,14 +4978,6 @@ export default function EventDetailPage() {
     scheduleBuilderAutoRoundCount,
     scheduleBuilderDraftRoomCapacity,
   ]);
-  const relatedTrainingEventId = useMemo(
-    () => parseNoteValue(event?.notes, "Related Training Event ID"),
-    [event?.notes]
-  );
-  const relatedTrainingEventName = useMemo(
-    () => parseNoteValue(event?.notes, "Related Training Event"),
-    [event?.notes]
-  );
   const activeRotationCount = useMemo(
     () =>
       effectiveRotationCountSource.rounds,
@@ -9021,6 +9028,32 @@ Cory`;
     setEventSaveError("No case packet is assigned to this event yet.");
     window.setTimeout(() => setEventSaveError(""), 2400);
   }
+  async function handleHideRelatedMatch(eventIdToHide: string) {
+    if (!id || !event) return;
+    const currentHidden = new Set(parseRelatedEventsHiddenIds(parsedEventMetadata.training.related_events_hidden));
+    if (currentHidden.has(eventIdToHide)) return;
+
+    setRemovingRelatedMatchId(eventIdToHide);
+    setEventSaveError("");
+
+    const nextHidden = Array.from(new Set([...currentHidden, eventIdToHide])).sort().join(", ");
+    try {
+      await persistTrainingMetadataFields(
+        { related_events_hidden: nextHidden },
+        "Related match removed from embedded view."
+      );
+      setRelatedOperationalEvents((current) =>
+        current.filter((node) => node.id !== eventIdToHide)
+      );
+      setShowRelatedMatchesModal(false);
+    } catch (error) {
+      setEventSaveError(
+        error instanceof Error ? error.message : "Could not remove related match."
+      );
+    } finally {
+      setRemovingRelatedMatchId("");
+    }
+  }
   const scheduleWorkflowActions: Array<{
     label: string;
     href?: string;
@@ -9036,6 +9069,14 @@ Cory`;
           {
             label: "Edit Schedule",
             href: expandedScheduleBuilderHref,
+          },
+        ]
+      : []),
+    ...(canManageTrainingAttendance
+      ? [
+          {
+            label: "Review Related Matches",
+            onClick: () => setShowRelatedMatchesModal(true),
           },
         ]
       : []),
@@ -14670,176 +14711,6 @@ Cory`;
       </details>
     ) : null;
 
-  const relatedSimulationOperationalEvents = relatedOperationalEvents.filter((node) => node.kind !== "training");
-  const relatedOperationsDateLabels = relatedSimulationOperationalEvents
-    .map((node) => formatEventDateText(node.date_text, importedYearHint) || asText(node.date_text))
-    .filter(Boolean);
-  const relatedOperationsPanel =
-    canManageTrainingAttendance ? (
-      <section
-        style={{
-          border: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.18)" : commandCenterVisual.rowBorder,
-          borderRadius: "16px",
-          padding: "12px 14px",
-          background: isPlanningVisualMode ? "rgba(255, 255, 255, 0.76)" : commandCenterVisual.rowBackground,
-          display: "grid",
-          gap: "10px",
-        }}
-      >
-        <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
-          <div>
-            <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Related Operations</div>
-            <div style={{ marginTop: "4px", color: commandCenterVisual.textColor, fontWeight: 900, fontSize: "15px" }}>
-              {relatedOperationalEvents.length
-                ? `${relatedOperationalEvents.length} supporting operation${relatedOperationalEvents.length === 1 ? "" : "s"} folded into this command center`
-                : "Course family operations stay centralized here"}
-            </div>
-          </div>
-          <span style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText }}>
-            {embeddedTrainingMetadataSourceLabel}
-          </span>
-        </div>
-
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "8px" }}>
-          {[
-            {
-              label: "Upcoming sim dates",
-              value: relatedOperationsDateLabels.length ? relatedOperationsDateLabels.slice(0, 2).join(" · ") : eventDateLabel || "Current event",
-              detail: relatedOperationsDateLabels.length > 2 ? `+${relatedOperationsDateLabels.length - 2} more related date${relatedOperationsDateLabels.length - 2 === 1 ? "" : "s"}` : "Same command surface",
-            },
-            {
-              label: "Linked sessions",
-              value: `${sessions.length + relatedSimulationOperationalEvents.length}`,
-              detail: `${sessions.length} on this event · ${relatedSimulationOperationalEvents.length} related`,
-            },
-            {
-              label: "Training prep",
-              value: normalEventTrainingStatusLabel,
-              detail: relatedTrainingOperationalEvents.length
-                ? `${relatedTrainingOperationalEvents.length} training record${relatedTrainingOperationalEvents.length === 1 ? "" : "s"} merged`
-                : "Managed on this page",
-            },
-            {
-              label: "Shared readiness",
-              value: workflowBoardStatusLabel,
-              detail: [materialsStatusLabel, normalEventTrainingAttendanceLabel, outreachProgressLabel].filter(Boolean).slice(0, 2).join(" · "),
-            },
-          ].map((metric) => (
-            <div
-              key={`related-operation-metric-${metric.label}`}
-              style={{
-                border: "1px solid rgba(20, 91, 150, 0.12)",
-                borderRadius: "12px",
-                background: isPlanningVisualMode ? "rgba(255,255,255,0.68)" : "rgba(255,255,255,0.04)",
-                padding: "10px",
-                display: "grid",
-                gap: "4px",
-              }}
-            >
-              <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>{metric.label}</div>
-              <div style={{ color: commandCenterVisual.textColor, fontWeight: 950, fontSize: "13px", lineHeight: 1.3, overflowWrap: "anywhere" }}>{metric.value}</div>
-              <div style={{ color: commandCenterVisual.mutedColor, fontWeight: 750, fontSize: "11px", lineHeight: 1.35 }}>{metric.detail}</div>
-            </div>
-          ))}
-        </div>
-
-        {relatedOperationalEvents.length ? (
-          <div style={{ display: "grid", gap: "6px" }}>
-            {relatedOperationalEvents.slice(0, 5).map((node) => {
-              const nodeTone =
-                node.kind === "training"
-                  ? { background: "rgba(25, 138, 112, 0.12)", border: "1px solid rgba(25, 138, 112, 0.22)", color: "#0f766e" }
-                  : node.kind === "virtual"
-                    ? { background: "rgba(124, 58, 237, 0.1)", border: "1px solid rgba(124, 58, 237, 0.18)", color: "#5b21b6" }
-                    : { background: "rgba(20, 91, 150, 0.1)", border: "1px solid rgba(20, 91, 150, 0.18)", color: "#145b96" };
-              const nodeKindLabel =
-                node.kind === "training"
-                  ? "Training prep"
-                  : node.kind === "virtual"
-                    ? "Virtual session"
-                    : node.kind === "skills"
-                      ? "Skills/IPE"
-                      : "Simulation date";
-              const nodeDetail = [
-                formatEventDateText(node.date_text, importedYearHint) || node.date_text,
-                node.location,
-                node.status,
-              ].map(asText).filter(Boolean).join(" · ");
-
-              return (
-                <div
-                  key={`related-operation-${node.id}`}
-                  style={{
-                    border: "1px solid rgba(20, 91, 150, 0.10)",
-                    borderRadius: "12px",
-                    background: isPlanningVisualMode ? "rgba(255,255,255,0.58)" : "rgba(255,255,255,0.03)",
-                    padding: "8px 10px",
-                    display: "flex",
-                    justifyContent: "space-between",
-                    gap: "10px",
-                    flexWrap: "wrap",
-                    alignItems: "center",
-                  }}
-                >
-                  <div style={{ minWidth: "180px", flex: "1 1 220px" }}>
-                    <div style={{ color: commandCenterVisual.textColor, fontSize: "12px", fontWeight: 900, lineHeight: 1.35, overflowWrap: "anywhere" }}>
-                      {node.name || nodeKindLabel}
-                    </div>
-                    <div style={{ marginTop: "2px", color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 750, lineHeight: 1.35 }}>
-                      {nodeDetail || node.relationship || "Related operation retained as supporting context"}
-                    </div>
-                  </div>
-                  <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
-                    <span style={{ ...commandChipStyle, ...nodeTone, fontSize: "10px", padding: "4px 7px" }}>{nodeKindLabel}</span>
-                    {node.kind === "training" ? (
-                      <span style={{ ...commandChipStyle, background: "rgba(25, 138, 112, 0.10)", color: "#0f766e", border: "1px solid rgba(25, 138, 112, 0.18)", fontSize: "10px", padding: "4px 7px" }}>
-                        Data embedded
-                      </span>
-                    ) : null}
-                    {node.exact_course_match ? (
-                      <span style={{ ...commandChipStyle, background: "rgba(20, 91, 150, 0.08)", color: commandCenterVisual.textColor, fontSize: "10px", padding: "4px 7px" }}>
-                        Course match
-                      </span>
-                    ) : null}
-                  </div>
-                </div>
-              );
-            })}
-            {relatedOperationalEvents.length > 5 ? (
-              <div style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 800 }}>
-                +{relatedOperationalEvents.length - 5} more supporting operation{relatedOperationalEvents.length - 5 === 1 ? "" : "s"} retained in the event family.
-              </div>
-            ) : null}
-          </div>
-        ) : (
-          <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 750, lineHeight: 1.45 }}>
-            Related training, sim dates, skills/IPE sessions, and virtual sessions will appear here as compact supporting context. Training operations remain managed directly on this page.
-          </div>
-        )}
-
-        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-          <a
-            href="#training-prep"
-            style={{ ...buttonStyle, padding: "6px 9px", textDecoration: "none", display: "inline-flex", alignItems: "center", fontSize: "12px" }}
-          >
-            Training & Prep
-          </a>
-          <a
-            href="#staffing-command-center"
-            style={{ ...buttonStyle, padding: "6px 9px", textDecoration: "none", display: "inline-flex", alignItems: "center", fontSize: "12px" }}
-          >
-            Staffing
-          </a>
-          <a
-            href="#simulation-command-file-cabinet"
-            style={{ ...buttonStyle, padding: "6px 9px", textDecoration: "none", display: "inline-flex", alignItems: "center", fontSize: "12px" }}
-          >
-            Training Materials
-          </a>
-        </div>
-      </section>
-    ) : null;
-
   const normalEventTrainingReadinessPanel =
     staffingRelevant && !isTrainingMode ? (
       <section
@@ -15524,35 +15395,6 @@ Cory`;
                   ))}
                 </div>
               </section>
-            ) : null}
-
-            {relatedTrainingEventId ? (
-              <div
-                style={{
-                  borderRadius: "14px",
-                  border: "1px solid rgba(125, 211, 252, 0.16)",
-                  background: "rgba(125, 211, 252, 0.08)",
-                  padding: "12px 14px",
-                  display: "flex",
-                  justifyContent: "space-between",
-                  gap: "10px",
-                  flexWrap: "wrap",
-                  alignItems: "center",
-                }}
-              >
-                <div>
-                  <div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Related Training Event</div>
-                  <div style={{ marginTop: "4px", color: staffingWorkspacePalette.textStrong, fontWeight: 900 }}>
-                    {relatedTrainingEventName || "Open linked SP training event"}
-                  </div>
-                </div>
-                <Link
-                  href={`/events/${encodeURIComponent(relatedTrainingEventId)}`}
-                  style={{ ...staffingSecondaryButtonStyle, display: "inline-flex", alignItems: "center", textDecoration: "none" }}
-                >
-                  Open Training Event
-                </Link>
-              </div>
             ) : null}
 
             <section
@@ -18762,7 +18604,6 @@ Cory`;
                       )}
                     </div>
 
-                    {relatedOperationsPanel}
                   </>
                 ) : null}
               </section>
@@ -21117,7 +20958,6 @@ Cory`;
           </span>
         </summary>
         <div style={{ display: "grid", gap: "14px", marginTop: "14px" }}>
-          {relatedOperationsPanel}
         <div
           style={{
             display: "grid",
@@ -24914,6 +24754,114 @@ Cory`;
                   )}
                 </>
               ) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {showRelatedMatchesModal ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setShowRelatedMatchesModal(false)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 72,
+            background: "rgba(5, 21, 34, 0.78)",
+            display: "grid",
+            placeItems: "center",
+            padding: "24px",
+            color: "var(--cfsp-text)",
+          }}
+        >
+          <div
+            onClick={(event) => event.stopPropagation()}
+            style={{
+              width: "min(840px, 100%)",
+              maxHeight: "calc(100vh - 48px)",
+              borderRadius: "16px",
+              border: "1px solid rgba(148, 163, 184, 0.24)",
+              background: "var(--cfsp-surface)",
+              boxShadow: "0 24px 55px rgba(3, 10, 20, 0.42)",
+              display: "grid",
+              gap: "12px",
+              padding: "16px",
+              overflow: "auto",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px" }}>
+              <h2 style={{ margin: 0, fontSize: "18px", fontWeight: 900 }}>Review Related Matches</h2>
+              <button
+                type="button"
+                onClick={() => setShowRelatedMatchesModal(false)}
+                style={{ ...buttonStyle, padding: "6px 10px", background: "rgba(71, 85, 105, 0.1)" }}
+              >
+                Close
+              </button>
+            </div>
+
+            <p style={{ margin: 0, color: "var(--cfsp-text-muted)", fontWeight: 700, fontSize: "13px", lineHeight: 1.5 }}>
+              These records are currently auto-embedded into this command center. Remove incorrect matches if needed.
+            </p>
+
+            <div style={{ display: "grid", gap: "8px", maxHeight: "56vh", overflowY: "auto", paddingRight: "2px" }}>
+              {relatedOperationalEvents.length === 0 ? (
+                <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700, padding: "10px 2px" }}>
+                  No related matches were auto-detected for this event.
+                </div>
+              ) : null}
+              {relatedOperationalEvents.map((node) => (
+                <div
+                  key={`related-match-${node.id}`}
+                  style={{
+                    border: "1px solid var(--cfsp-border)",
+                    borderRadius: "12px",
+                    background: "var(--cfsp-surface-muted)",
+                    padding: "10px",
+                    display: "grid",
+                    gap: "8px",
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+                    <div style={{ fontWeight: 900, color: "var(--cfsp-text)" }}>
+                      {node.name || "Related operation"}
+                    </div>
+                    <span
+                      style={{
+                        ...commandChipStyle,
+                        background: "rgba(14, 116, 144, 0.1)",
+                        color: "rgba(14, 116, 144, 0.95)",
+                        border: "1px solid rgba(14, 116, 144, 0.22)",
+                      }}
+                    >
+                      {node.match_confidence ? node.match_confidence.replace("_", " ") : "matched"}
+                    </span>
+                  </div>
+                  <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 750, lineHeight: 1.5 }}>
+                    {[
+                      formatEventDateText(node.date_text, importedYearHint),
+                      node.location,
+                      node.status,
+                    ]
+                      .map(asText)
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </div>
+                  <div style={{ color: "var(--cfsp-text)", fontSize: "12px", fontWeight: 800, lineHeight: 1.5 }}>
+                    {node.match_reason || "Matched by exact course"}
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                    <button
+                      type="button"
+                      onClick={() => void handleHideRelatedMatch(node.id)}
+                      disabled={removingRelatedMatchId === node.id}
+                      style={{ ...buttonStyle, background: "#fef2f2", color: "#b91c1c", border: "1px solid #fecaca", padding: "7px 10px" }}
+                    >
+                      {removingRelatedMatchId === node.id ? "Removing..." : "Remove from Related Matches"}
+                    </button>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         </div>
