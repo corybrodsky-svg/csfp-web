@@ -7208,10 +7208,6 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       ? Math.min(learnerPlannerRosterCount, learnerPlannerCapacity)
       : 0;
   const learnerPlannerUnassignedCount = Math.max(learnerPlannerRosterCount - learnerPlannerAssignedCount, 0);
-  const selectedRoundAssignedLearnerCount = selectedRoundScheduleRows.reduce(
-    (total, row) => total + row.learnerLabels.length,
-    0
-  );
   const learnerPlannerMissingSignals = [
     learnerPlannerExpectedCount > 0 && learnerPlannerRosterCount === 0
       ? `${learnerPlannerExpectedCount} expected learner${learnerPlannerExpectedCount === 1 ? "" : "s"} counted, but roster names are not available`
@@ -18928,11 +18924,10 @@ Cory`;
 
               <section
                 style={{
-                  borderRadius: "20px",
+                  borderRadius: "18px",
                   border: "1px solid rgba(20, 91, 150, 0.16)",
-                  background:
-                    "linear-gradient(135deg, rgba(255,255,255,0.98) 0%, rgba(239, 249, 252, 0.94) 54%, rgba(246, 248, 255, 0.96) 100%)",
-                  boxShadow: "0 14px 30px rgba(20, 65, 95, 0.08), inset 0 1px 0 rgba(255,255,255,0.72)",
+                  background: "rgba(255,255,255,0.98)",
+                  boxShadow: "0 10px 24px rgba(20, 65, 95, 0.08)",
                   padding: "14px",
                   display: "grid",
                   gap: "12px",
@@ -18940,12 +18935,12 @@ Cory`;
               >
                 <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "flex-start" }}>
                   <div>
-                    <div style={{ ...statLabel, color: "#12617f" }}>Learner Arrival & Room Assignment Planner</div>
-                    <div style={{ marginTop: "4px", color: "#102d44", fontWeight: 950, fontSize: "18px" }}>
-                      Planning-side attendance surface
+                    <div style={{ ...statLabel, color: "#12617f" }}>Learner Flow</div>
+                    <div style={{ marginTop: "4px", color: "#102d44", fontWeight: 950, fontSize: "17px" }}>
+                      Learner planning summary
                     </div>
-                    <div style={{ marginTop: "4px", color: "#4d6678", fontSize: "12px", fontWeight: 750, lineHeight: 1.45, maxWidth: "760px" }}>
-                      Verify the roster, room assignment coverage, and selected-round learner flow before Live Mode check-in begins.
+                    <div style={{ marginTop: "4px", color: "#4d6678", fontSize: "12px", fontWeight: 750, lineHeight: 1.45, maxWidth: "740px" }}>
+                      Imported roster and assignment coverage from the current schedule surface.
                     </div>
                   </div>
                   <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "flex-end" }}>
@@ -18957,7 +18952,7 @@ Cory`;
                         color: learnerAssignmentsIncomplete ? "#5b21b6" : planningSuccessText,
                       }}
                     >
-                      {learnerAssignmentsIncomplete ? "Assignment review" : "Learner flow ready"}
+                      {learnerAssignmentsIncomplete ? "Learner Flow Needs Review" : "Learner Flow Ready"}
                     </span>
                     <button
                       type="button"
@@ -18976,110 +18971,47 @@ Cory`;
                     ) : null}
                   </div>
                 </div>
-
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "9px" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "9px" }}>
                   {[
-                    {
-                      label: "Imported roster",
-                      value: learnerPlannerRosterCount ? String(learnerPlannerRosterCount) : "Missing",
-                      detail: learnerPlannerRosterCount ? "Learner names available" : "Upload or restore roster names",
-                    },
-                    {
-                      label: "Expected learners",
-                      value: learnerPlannerExpectedCount ? String(learnerPlannerExpectedCount) : "TBD",
-                      detail: effectiveLearnerCount ? "Event/schedule count" : "No learner count found",
-                    },
+                    { label: "Imported roster", value: String(learnerPlannerRosterCount || 0) },
+                    { label: "Expected learners", value: String(learnerPlannerExpectedCount || 0) },
                     {
                       label: "Assigned capacity",
-                      value: learnerPlannerCapacity ? String(Math.min(learnerPlannerCapacity, learnerPlannerRosterCount || learnerPlannerCapacity)) : "TBD",
-                      detail: learnerPlannerCapacity ? `${effectiveRoomCount || 0} rooms · ${activeRotationCount || 0} rounds` : "Build schedule assignments",
+                      value: String(
+                        learnerPlannerCapacity
+                          ? Math.min(learnerPlannerCapacity, learnerPlannerRosterCount || learnerPlannerCapacity)
+                          : 0
+                      ),
                     },
-                    {
-                      label: "Unassigned",
-                      value: learnerPlannerRosterCount ? String(learnerPlannerUnassignedCount) : "Unknown",
-                      detail: learnerPlannerUnassignedCount ? "Needs schedule adjustment" : "No overflow detected",
-                    },
-                    {
-                      label: "Selected round",
-                      value: selectedRoundAssignedLearnerCount ? String(selectedRoundAssignedLearnerCount) : "None",
-                      detail: selectedRotationRound ? `${selectedRoundRoomCount} room${selectedRoundRoomCount === 1 ? "" : "s"} visible` : "No round selected",
-                    },
+                    { label: "Unassigned", value: String(learnerPlannerUnassignedCount || 0) },
+                    { label: "Rooms/Rounds", value: `${effectiveRoomCount || 0} rooms • ${activeRotationCount || 0} rounds` },
                   ].map((metric) => (
                     <div
-                      key={`learner-planner-${metric.label}`}
+                      key={`learner-flow-${metric.label}`}
                       style={{
-                        borderRadius: "15px",
+                        borderRadius: "14px",
                         border: "1px solid rgba(96, 137, 164, 0.16)",
-                        background: "rgba(255,255,255,0.78)",
-                        boxShadow: "inset 0 1px 0 rgba(255,255,255,0.68)",
-                        padding: "11px 12px",
+                        background: "rgba(255,255,255,0.82)",
+                        padding: "10px",
                         display: "grid",
                         gap: "4px",
                       }}
                     >
                       <div style={{ ...statLabel, color: "#57768a" }}>{metric.label}</div>
-                      <div style={{ color: "#122f46", fontSize: "20px", fontWeight: 950, lineHeight: 1.1 }}>{metric.value}</div>
-                      <div style={{ color: "#496678", fontSize: "12px", fontWeight: 750, lineHeight: 1.35 }}>{metric.detail}</div>
+                      <div style={{ color: "#122f46", fontSize: "20px", fontWeight: 950, lineHeight: 1.1 }}>
+                        {metric.value}
+                      </div>
                     </div>
                   ))}
                 </div>
-
                 {learnerPlannerMissingSignals.length ? (
-                  <div
-                    style={{
-                      borderRadius: "14px",
-                      border: "1px solid rgba(124, 58, 237, 0.16)",
-                      background: "rgba(237, 233, 254, 0.56)",
-                      color: "#4c1d95",
-                      padding: "9px 11px",
-                      display: "grid",
-                      gap: "5px",
-                      fontSize: "12px",
-                      fontWeight: 800,
-                    }}
-                  >
-                    {learnerPlannerMissingSignals.map((signal) => (
-                      <div key={`learner-planner-signal-${signal}`}>{signal}</div>
+                  <div style={{ color: "#5e7388", fontSize: "12px", fontWeight: 750, display: "grid", gap: "4px" }}>
+                    {learnerPlannerMissingSignals.map((signal, index) => (
+                      <div key={`learner-planner-signal-${index}`}>{signal}</div>
                     ))}
                   </div>
                 ) : null}
-
-	                <div style={{ display: "grid", gap: "8px" }}>
-	                  <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
-	                    <div style={{ ...statLabel, color: "#12617f" }}>
-                      {selectedRotationRound ? `Round ${activeSelectedRotationRoundIndex + 1} assignment preview` : "Assignment preview"}
-                    </div>
-                    <span style={{ color: "#4d6678", fontSize: "11px", fontWeight: 800 }}>
-                      {selectedRoundAssignedLearnerCount} learner{selectedRoundAssignedLearnerCount === 1 ? "" : "s"} paired to visible rooms
-                    </span>
-                  </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: "8px" }}>
-                    {selectedRoundScheduleRows.slice(0, Math.max(selectedRoundRoomCount, 1)).map((row, index) => (
-                      <div
-                        key={`learner-planner-preview-${row.key}`}
-                        style={{
-                          borderRadius: "14px",
-                          border: row.learnerLabels.length ? "1px solid rgba(25, 138, 112, 0.18)" : "1px solid rgba(124, 58, 237, 0.14)",
-                          background: row.learnerLabels.length ? "rgba(240, 253, 250, 0.72)" : "rgba(248, 250, 252, 0.82)",
-                          padding: "9px 10px",
-                          display: "grid",
-                          gap: "4px",
-                        }}
-                      >
-                        <div style={{ color: "#57768a", fontSize: "10px", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.08em" }}>
-                          {row.roomName || getFallbackRoomLabel(index, roomNamingContext)}
-                        </div>
-                        <div style={{ color: "#122f46", fontSize: "13px", fontWeight: 900, overflowWrap: "anywhere" }}>
-                          {row.learnerLabels.length ? row.learnerLabels.join(", ") : "No learner assigned"}
-                        </div>
-                        <div style={{ color: row.learnerLabels.length ? "#0f766e" : "#5b21b6", fontSize: "11px", fontWeight: 850 }}>
-                          {row.learnerLabels.length ? "Ready for live check-in" : "Assign in Schedule Builder"}
-                        </div>
-                      </div>
-                    ))}
-	                  </div>
-	                </div>
-	              </section>
+              </section>
 
 	              <section
 	                style={{
