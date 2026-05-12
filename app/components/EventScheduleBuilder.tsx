@@ -107,6 +107,16 @@ type GeneratedRoomSlot = {
   caseIndex?: number;
 };
 
+type ScheduleSlotActivityState = Pick<GeneratedRoomSlot, "roomType" | "capacity" | "caseLabel"> & {
+  learnerLabels?: string[];
+};
+
+function isActiveScheduleSlot(slot: ScheduleSlotActivityState, singleCaseMode: boolean) {
+  if (slot.roomType !== "exam" || slot.capacity <= 0) return false;
+  if (singleCaseMode) return true;
+  return Boolean(slot.caseLabel || (slot.learnerLabels?.length || 0));
+}
+
 type GeneratedRound = {
   round: number;
   start: number;
@@ -1374,14 +1384,18 @@ function getUniqueAssignedSpIndexPool(assignedSpNames: string[]) {
   }, []);
 }
 
-function assignUniquePrimarySpIndexes(rounds: ScheduledRound[], assignedSpNames: string[]) {
+function assignUniquePrimarySpIndexes(
+  rounds: ScheduledRound[],
+  assignedSpNames: string[],
+  singleCaseMode = true
+) {
   const uniqueSpIndexes = getUniqueAssignedSpIndexPool(assignedSpNames);
   return rounds.map((round) => {
     let activeRoomCursor = 0;
     return {
       ...round,
       roomSlots: round.roomSlots.map((slot) => {
-        const isActiveRoom = slot.roomType === "exam" && slot.capacity > 0 && (slot.caseLabel || slot.learnerLabels.length);
+        const isActiveRoom = isActiveScheduleSlot(slot, singleCaseMode);
         if (!isActiveRoom) return { ...slot, assignedSpIndex: undefined };
         const assignedSpIndex = uniqueSpIndexes[activeRoomCursor];
         activeRoomCursor += 1;
@@ -2127,16 +2141,17 @@ function attachLearners(
   learnerRoster: string[],
   groupSize = 1,
   caseCount = 0,
+  isMultiCaseMode = true,
   isVirtualEvent = false
 ) {
   const normalizedLearnerRoster = normalizeLearnerNames(learnerRoster);
   if (!rounds.length || !normalizedLearnerRoster.length) return [] as ScheduledRound[];
 
   const slotsPerRound = rounds[0]?.roomSlots.reduce((sum, slot) => sum + slot.capacity, 0) || 0;
-  const activeCaseSlots = rounds[0]?.roomSlots.filter((slot) => slot.roomType === "exam" && slot.capacity > 0 && slot.caseLabel) || [];
+  const activeCaseSlots = rounds[0]?.roomSlots.filter((slot) => isActiveScheduleSlot(slot, !isMultiCaseMode)) || [];
   const learnerGroups = buildLearnerGroups(normalizedLearnerRoster, groupSize);
 
-  if (caseCount > 1 && activeCaseSlots.length) {
+  if (isMultiCaseMode && caseCount > 1 && activeCaseSlots.length) {
     const activeRoomCount = activeCaseSlots.length;
     const groupCount = learnerGroups.length;
     return rounds.map((round, roundIndex) => {
@@ -2146,11 +2161,11 @@ function attachLearners(
           slot,
           roundSlotIndex,
         }))
-        .filter(({ slot }) => slot.roomType === "exam" && slot.capacity > 0 && slot.caseLabel);
+        .filter(({ slot }) => isActiveScheduleSlot(slot, !isMultiCaseMode));
       return {
         ...round,
         roomSlots: round.roomSlots.map((slot, slotIndex) => {
-          if (!(slot.roomType === "exam" && slot.capacity > 0 && slot.caseLabel)) {
+          if (!isActiveScheduleSlot(slot, !isMultiCaseMode)) {
             return { ...slot, learnerIndexes: [], learnerLabels: [] };
           }
           const activeRoomIndex = activeRoundSlots.findIndex((entry) => entry.roundSlotIndex === slotIndex);
@@ -3832,6 +3847,9 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const parsedFacultyPrebrief = parseNumber(facultyPrebriefMinutes, 0);
   const effectiveFlexRoomCount = isVirtualEvent ? 0 : parsedFlexRooms;
   const effectiveFlexCapacity = isVirtualEvent ? 0 : parsedMaxPairs;
+  const singleCaseMode = !multipleCasesEnabled;
+  const scheduleMathFlexRoomCount = singleCaseMode ? 0 : effectiveFlexRoomCount;
+  const scheduleMathFlexCapacity = singleCaseMode ? 0 : effectiveFlexCapacity;
   const normalizedDayBlocks = useMemo(
     () =>
       dayBlocks.map((block) =>
@@ -3848,18 +3866,48 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     return scheduleCasesForMath.length;
   }, [scheduleCasesForMath, multipleCasesEnabled]);
   const singleCaseSlotsPerRound = Math.max(parsedExamRooms * parsedRoomCapacity, 1);
+  const singleCaseDefinitionName = useMemo(
+    () =>
+      asText(scheduleCaseDefinitions[0]?.name) ||
+      asText(selectedEventMetadata.case_name) ||
+      getCaseLabelFromBuilderEvent(selectedEvent, selectedEventMetadata.case_name),
+    [selectedEvent, selectedEventMetadata.case_name, scheduleCaseDefinitions]
+  );
+  const scheduleCasesForGeneration = useMemo(() => {
+    if (multipleCasesEnabled) return scheduleCasesForMath;
+    const caseCount = Math.max(parsedExamRooms, 0);
+    if (caseCount <= 0) return [];
+    const label = singleCaseDefinitionName || "Case 1";
+    const template = scheduleCaseDefinitions[0] || {
+      id: "single-case-template",
+      name: label,
+      active: true,
+    };
+    return Array.from({ length: caseCount }, (_, index) => ({
+      ...template,
+      id: `${template.id}-room-${index + 1}`,
+      name: template.name || label,
+      roomAssignment: `Exam ${index + 1}`,
+      active: true,
+    }));
+  }, [multipleCasesEnabled, parsedExamRooms, scheduleCasesForMath, scheduleCaseDefinitions, singleCaseDefinitionName]);
   const handleRebuildScheduleMath = useCallback(() => {
     setScheduleMathEpoch((current) => current + 1);
     setSelectedBuilderRound(null);
     setSaveState("unsaved");
     showCopyMessage("Invalid generated schedule detected. Please rebuild schedule math.", "success", 3200);
   }, [showCopyMessage]);
-  const activeCaseRoomCount = multipleCasesEnabled && activeCaseCount > 0 ? Math.min(parsedExamRooms, activeCaseCount) : 0;
+  const activeCaseRoomCount = multipleCasesEnabled && activeCaseCount > 0 ? Math.min(parsedExamRooms, activeCaseCount) : parsedExamRooms;
+  const isSingleCaseMode = !multipleCasesEnabled;
+  const activeCaseDisplayCount = isSingleCaseMode ? 1 : activeCaseCount;
+  const configuredFlexRoomCountForDisplay = multipleCasesEnabled && parsedExamRooms > activeCaseCount
+    ? parsedExamRooms - activeCaseCount
+    : 0;
   const singleCaseRoundCapacity = parsedExamRooms * parsedRoomCapacity;
   const slotsPerRound = activeCaseCount
     ? activeCaseRoomCount * parsedRoomCapacity
     : singleCaseRoundCapacity;
-  const totalRoomCount = parsedExamRooms + effectiveFlexRoomCount;
+  const totalRoomCount = parsedExamRooms + scheduleMathFlexRoomCount;
   const learnerGroupCount =
     uploadedLearners.length && parsedRoomCapacity > 0
       ? Math.ceil(uploadedLearners.length / parsedRoomCapacity)
@@ -3958,9 +4006,9 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       sessionLengthMinutes: parsedSessionLength,
       examRoomCount: parsedExamRooms,
       examRoomCapacity: parsedRoomCapacity,
-      flexRoomCount: effectiveFlexRoomCount,
-      maxPairsPerFlexRoom: effectiveFlexCapacity,
-      cases: scheduleCasesForMath,
+      flexRoomCount: scheduleMathFlexRoomCount,
+      maxPairsPerFlexRoom: scheduleMathFlexCapacity,
+      cases: scheduleCasesForGeneration,
       encounterMinutes: parsedEncounter,
       dayBlocks: normalizedDayBlocks,
       timingVisibility,
@@ -3993,7 +4041,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       validation,
     };
   }, [
-    scheduleCasesForMath,
+    scheduleCasesForGeneration,
     effectiveRoundCount,
     afterRotationDayBlocks,
     beforeRotationDayBlocks,
@@ -4002,8 +4050,8 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     parsedExamRooms,
     parsedFacultyArrival,
     parsedFacultyPrebrief,
-    effectiveFlexCapacity,
-    effectiveFlexRoomCount,
+    scheduleMathFlexCapacity,
+    scheduleMathFlexRoomCount,
     parsedRoomCapacity,
     parsedRoomSetup,
     parsedSessionLength,
@@ -4473,13 +4521,21 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     () =>
       applyScheduleRoomAdjustments(
         assignUniquePrimarySpIndexes(
-          attachLearners(generated.rounds, learnerRoster, parsedRoomCapacity, activeCaseCount, isVirtualEvent),
-          assignedNames
+          attachLearners(
+            generated.rounds,
+            learnerRoster,
+            parsedRoomCapacity,
+            activeCaseCount,
+            multipleCasesEnabled,
+            isVirtualEvent
+          ),
+          assignedNames,
+          !multipleCasesEnabled
         ),
         assignedNames,
         roomAdjustments
       ),
-    [activeCaseCount, assignedNames, generated.rounds, isVirtualEvent, learnerRoster, parsedRoomCapacity, roomAdjustments]
+    [activeCaseCount, assignedNames, generated.rounds, isVirtualEvent, learnerRoster, multipleCasesEnabled, parsedRoomCapacity, roomAdjustments]
   );
   const scheduleValidationMessages = useMemo(() => {
     const messages: string[] = [];
@@ -4503,7 +4559,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       let activeRoomCount = 0;
       round.roomSlots.forEach((slot, slotIndex) => {
         const caseLabel = asText(slot.caseLabel);
-        const isActiveRoom = slot.roomType === "exam" && slot.capacity > 0 && (caseLabel || slot.learnerLabels.length > 0);
+        const isActiveRoom = isActiveScheduleSlot(slot, !multipleCasesEnabled);
         if (isActiveRoom) activeRoomCount += 1;
         const spName = typeof slot.assignedSpIndex === "number" ? asText(assignedNames[slot.assignedSpIndex]) : "";
         const roomLabel = slot.roomName || `Room ${slotIndex + 1}`;
@@ -4551,12 +4607,22 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     }
 
     const activeCaseRoomCountForSchedule =
-      scheduledRounds[0]?.roomSlots.filter((slot) => slot.roomType === "exam" && slot.capacity > 0 && slot.caseLabel).length || 0;
-    if (activeCaseRoomCountForSchedule !== Math.min(activeCaseCount, parsedExamRooms)) {
+      scheduledRounds[0]?.roomSlots.filter((slot) => isActiveScheduleSlot(slot, !multipleCasesEnabled)).length || 0;
+    const expectedActiveCaseRoomCount = !multipleCasesEnabled ? parsedExamRooms : Math.min(activeCaseCount, parsedExamRooms);
+    if (activeCaseRoomCountForSchedule !== expectedActiveCaseRoomCount) {
       messages.push("Active case room count does not match the configured active cases and exam rooms.");
     }
     return messages;
-  }, [activeCaseCount, activeScheduleCases, assignedNames, learnerRoster, parsedExamRooms, parsedRoomCapacity, scheduledRounds]);
+  }, [
+    activeCaseCount,
+    activeScheduleCases,
+    assignedNames,
+    learnerRoster,
+    multipleCasesEnabled,
+    parsedExamRooms,
+    parsedRoomCapacity,
+    scheduledRounds,
+  ]);
   const studentPreviewTimeline = useMemo(
     () => filterTimelineForView(generated.timeline, "student"),
     [generated.timeline]
@@ -5471,9 +5537,9 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
               <span className="cfsp-chip">Rooms {totalRoomCount}</span>
               <span className="cfsp-chip">Rounds {effectiveRoundCount}</span>
               <span className="cfsp-chip">
-                Cases {activeCaseCount || 0}
-                {activeCaseCount && parsedExamRooms > activeCaseCount
-                  ? ` • ${parsedExamRooms - activeCaseCount} flex`
+                Cases {activeCaseDisplayCount}
+                {configuredFlexRoomCountForDisplay
+                  ? ` • ${configuredFlexRoomCountForDisplay} flex/empty`
                   : ""}
               </span>
               <span className="cfsp-chip">{scheduleWorkflowBadgeLabel}</span>
@@ -5884,11 +5950,13 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                   <div className="rounded-[12px] border border-[#c7dcee] bg-white px-3 py-3">
                     <div className="cfsp-label">Extra rooms</div>
                     <div className="mt-2 text-base font-black text-[#14304f]">
-                      {parsedExamRooms > activeCaseCount ? `${parsedExamRooms - activeCaseCount} flex/empty` : "None"}
+                      {multipleCasesEnabled && parsedExamRooms > activeCaseCount
+                        ? `${parsedExamRooms - activeCaseCount} flex/empty`
+                        : "None"}
                     </div>
                   </div>
                 </div>
-                {activeCaseCount > parsedExamRooms && parsedExamRooms > 0 ? (
+                {multipleCasesEnabled && activeCaseCount > parsedExamRooms && parsedExamRooms > 0 ? (
                   <div className="cfsp-alert cfsp-alert-error mt-4">
                     {activeCaseCount} active cases exceed {parsedExamRooms} exam rooms. Add rooms, deactivate cases, or expect additional rotation waves.
                   </div>
@@ -5896,7 +5964,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                 {multipleCasesEnabled ? (
                   <div className="cfsp-alert cfsp-alert-info mt-4">
                     {uploadedLearners.length || 0} learner{uploadedLearners.length === 1 ? "" : "s"} in groups of {parsedRoomCapacity} rotating through {activeCaseCount} active case{activeCaseCount === 1 ? "" : "s"} requires {effectiveRoundCount} round{effectiveRoundCount === 1 ? "" : "s"}.
-                    {parsedExamRooms > activeCaseCount ? ` ${parsedExamRooms - activeCaseCount} room${parsedExamRooms - activeCaseCount === 1 ? "" : "s"} will stay flex/empty.` : ""}
+                    {configuredFlexRoomCountForDisplay ? ` ${configuredFlexRoomCountForDisplay} room${configuredFlexRoomCountForDisplay === 1 ? "" : "s"} will stay flex/empty.` : ""}
                   </div>
                 ) : null}
                 <div className="mt-4 grid gap-3">
