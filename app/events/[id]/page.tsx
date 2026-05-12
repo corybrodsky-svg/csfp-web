@@ -28568,48 +28568,95 @@ Cory`;
                       <div className="cfsp-chest-drawer">
                         <div className="cfsp-chest-new">New content detected when files update</div>
                         <div className="cfsp-chest-grid">
-                          {[
-                            ["Materials Cabinet", "simulation-command-file-cabinet", "material"],
-                            ["Training Files", "training-center", "training"],
-                            ["Communication", "communication-center", "communication"],
-                            ["Staffing", "coverage-actions", "staffing"],
-                            ["Schedule", "schedule-builder", "schedule"],
-                            ["Recording", "recording-status", "recording"],
-                          ].map(([label, idTarget, textTarget]) => (
-                            <button
-                              key={label}
-                              type="button"
-                              className="cfsp-chest-link"
-                              onClick={() => {
-                                const direct = document.getElementById(idTarget);
+                          <button
+                            type="button"
+                            className="cfsp-chest-link"
+                            onClick={() => {
+                              const target = document.getElementById("simulation-command-file-cabinet");
+                              target?.scrollIntoView({ behavior: "smooth", block: "start" });
+                            }}
+                          >
+                            Materials Cabinet
+                          </button>
 
-                                if (direct) {
-                                  direct.scrollIntoView({
-                                    behavior: "smooth",
-                                    block: "start",
-                                  });
-                                  return;
-                                }
-
-                                const fallback = Array.from(
-                                  document.querySelectorAll("section, div, article, details")
-                                ).find((node) =>
-                                  (node.textContent || "")
-                                    .toLowerCase()
-                                    .includes(textTarget)
+                          <button
+                            type="button"
+                            className="cfsp-chest-link"
+                            onClick={() => {
+                              const target =
+                                document.getElementById("training-center") ||
+                                Array.from(document.querySelectorAll("section, div, details")).find((node) =>
+                                  (node.textContent || "").toLowerCase().includes("training center")
                                 );
 
-                                if (fallback instanceof HTMLElement) {
-                                  fallback.scrollIntoView({
-                                    behavior: "smooth",
-                                    block: "start",
-                                  });
-                                }
-                              }}
-                            >
-                              {label}
-                            </button>
-                          ))}
+                              if (target instanceof HTMLElement) {
+                                target.scrollIntoView({ behavior: "smooth", block: "start" });
+                              }
+                            }}
+                          >
+                            Training Files
+                          </button>
+
+                          <button
+                            type="button"
+                            className="cfsp-chest-link"
+                            onClick={() => {
+                              const target =
+                                document.getElementById("communication-center") ||
+                                Array.from(document.querySelectorAll("section, div, details")).find((node) =>
+                                  (node.textContent || "").toLowerCase().includes("communication")
+                                );
+
+                              if (target instanceof HTMLElement) {
+                                target.scrollIntoView({ behavior: "smooth", block: "start" });
+                              }
+                            }}
+                          >
+                            Communication
+                          </button>
+
+                          <button
+                            type="button"
+                            className="cfsp-chest-link"
+                            onClick={() => {
+                              const target = document.getElementById("coverage-actions");
+                              target?.scrollIntoView({ behavior: "smooth", block: "start" });
+                            }}
+                          >
+                            Staffing
+                          </button>
+
+                          <button
+                            type="button"
+                            className="cfsp-chest-link"
+                            onClick={() => {
+                              const targetHref = scheduleCompleted
+                                ? buildScheduleBuilderHref("session-builder")
+                                : buildScheduleBuilderHref("builder");
+
+                              router.push(targetHref);
+                            }}
+                          >
+                            {scheduleCompleted ? "Session Builder" : "Schedule Builder"}
+                          </button>
+
+                          <button
+                            type="button"
+                            className="cfsp-chest-link"
+                            onClick={() => {
+                              const target =
+                                document.getElementById("recording-status") ||
+                                Array.from(document.querySelectorAll("section, div, details")).find((node) =>
+                                  (node.textContent || "").toLowerCase().includes("recording")
+                                );
+
+                              if (target instanceof HTMLElement) {
+                                target.scrollIntoView({ behavior: "smooth", block: "start" });
+                              }
+                            }}
+                          >
+                            Recording
+                          </button>
                         </div>
                       </div>
                     </details>
