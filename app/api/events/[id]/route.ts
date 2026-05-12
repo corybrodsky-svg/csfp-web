@@ -542,7 +542,7 @@ function isStandaloneTrainingRecord(event: RelatedEventRow & { sp_needed?: numbe
   const notes = asText(event.notes).toLowerCase();
   const visibleSource = [event.name, event.status, event.location].map(asText).join(" ").toLowerCase();
   const explicitlyMixedWorkflow =
-    /\b(event[_\s-]*types?|active[_\s-]*event[_\s-]*types?|type)\s*:\s*[^\n]*\b(sp|skills|hifi|virtual)\b/.test(notes) ||
+    /\b(event[_\s-]*types?|active[_\s-]*event[_\s-]*types?|type)\s*:\s*[^\n]*\b(sp|skills|hifi)\b/.test(notes) ||
     /\b(simulation|encounter|osce|skills|ipe|hifi|high fidelity)\b/.test(visibleSource);
 
   return !explicitlyMixedWorkflow;
@@ -1044,7 +1044,7 @@ export async function GET(
         viewerRole: viewer.role,
         redirectToPrimaryEventId: primaryEventForTrainingRecord ? asText(primaryEventForTrainingRecord.id) : "",
         redirectToPrimaryEventName: primaryEventForTrainingRecord ? asText(primaryEventForTrainingRecord.name) : "",
-        sourceTrainingEventId: primaryEventForTrainingRecord ? event.id : "",
+        sourceTrainingEventId: primaryEventForTrainingRecord || trainingRecordSearch ? event.id : "",
         redirectToEventsSearch: !primaryEventForTrainingRecord ? trainingRecordSearch : "",
         event,
         sessions: sessions || [],

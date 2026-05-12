@@ -6201,8 +6201,26 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     !staffingRelevant &&
     !activeEventTypeSet.has("sp") &&
     !activeEventTypeSet.has("skills") &&
-    !activeEventTypeSet.has("hifi") &&
-    !activeEventTypeSet.has("virtual");
+    !activeEventTypeSet.has("hifi");
+  const trainingOnlyRedirectSearch = useMemo(() => {
+    if (!isTrainingOnlyEvent) return "";
+    const courseKeyword = getDefaultRelatedEventKeyword(event?.name);
+    if (courseKeyword) return courseKeyword;
+    return asText(event?.name)
+      .replace(/\b(SP\s*)?Training\b/gi, " ")
+      .replace(/\b(VIR|Virtual|Orientation|Prep|Onboarding)\b/gi, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }, [event?.name, isTrainingOnlyEvent]);
+  useEffect(() => {
+    if (!id || !isTrainingOnlyEvent) return;
+    const primaryMatch = relatedOperationalEvents.find((node) => ["simulation", "skills", "virtual"].includes(node.kind));
+    if (primaryMatch?.id && primaryMatch.id !== id) {
+      router.replace(`/events/${encodeURIComponent(primaryMatch.id)}?trainingSource=${encodeURIComponent(id)}`);
+      return;
+    }
+    router.replace(`/events?search=${encodeURIComponent(trainingOnlyRedirectSearch || asText(event?.name) || "training")}&trainingSource=${encodeURIComponent(id)}`);
+  }, [event?.name, id, isTrainingOnlyEvent, relatedOperationalEvents, router, trainingOnlyRedirectSearch]);
   const hasFaculty = hasNotesLine(event?.notes, /^(Course Faculty|Faculty)\s*:/im);
   const hasTrainingScheduled = hasNotesLine(event?.notes, /^Training Date\s*:/im);
   const hasZoomReady = hasNotesLine(event?.notes, /^(Zoom|SimIQ)\s*:/im) || /zoom|simiq|online|virtual/i.test(asText(event?.notes));
@@ -18420,6 +18438,10 @@ Cory`;
         </div>
       </SiteShell>
     );
+  }
+
+  if (isTrainingOnlyEvent) {
+    return null;
   }
 
   if (viewerRole === "sp") {
