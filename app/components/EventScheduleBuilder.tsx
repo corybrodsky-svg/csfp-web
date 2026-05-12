@@ -103,6 +103,8 @@ type GeneratedRoomSlot = {
   roomType: "exam" | "flex";
   capacity: number;
   capacityLabel: string;
+  caseLabel?: string;
+  caseIndex?: number;
 };
 
 type GeneratedRound = {
@@ -118,6 +120,7 @@ type ScheduledRoomSlot = GeneratedRoomSlot & {
   learnerIndexes: number[];
   assignedSpIndex?: number;
   caseLabel?: string;
+  caseIndex?: number;
 };
 
 type ScheduledRound = Omit<GeneratedRound, "roomSlots"> & {
@@ -129,6 +132,17 @@ type PreviewRoomColumn = {
   displayRoomName: string;
   roomType: GeneratedRoomSlot["roomType"];
   capacityLabel: string;
+};
+
+type ScheduleCaseDefinition = {
+  id: string;
+  name: string;
+  encounterMinutes?: number;
+  checklistMinutes?: number;
+  feedbackMinutes?: number;
+  roomAssignment?: string;
+  notes?: string;
+  active: boolean;
 };
 
 type ScheduleGridPreviewRow =
@@ -1344,6 +1358,44 @@ function getCaseLabelFromBuilderEvent(event: EventRow | null, caseName?: string 
   return caseFileLabel;
 }
 
+function parseScheduleCaseDefinitions(raw: string | null | undefined, fallbackCaseName = "") {
+  const text = asText(raw);
+  const cases: ScheduleCaseDefinition[] = [];
+  if (text) {
+    try {
+      const parsed = JSON.parse(text);
+      if (Array.isArray(parsed)) {
+        parsed.forEach((entry, index) => {
+          const record = entry as Record<string, unknown>;
+          const name = asText(record.name) || asText(record.title) || `Case ${index + 1}`;
+          cases.push({
+            id: asText(record.id) || `${name}-${index}`,
+            name,
+            encounterMinutes: parseNumber(asText(record.encounterMinutes || record.encounter_minutes), 0) || undefined,
+            checklistMinutes: parseNumber(asText(record.checklistMinutes || record.checklist_minutes), 0) || undefined,
+            feedbackMinutes: parseNumber(asText(record.feedbackMinutes || record.feedback_minutes), 0) || undefined,
+            roomAssignment: asText(record.roomAssignment || record.room_assignment),
+            notes: asText(record.notes),
+            active: asText(record.status).toLowerCase() !== "inactive",
+          });
+        });
+      }
+    } catch {
+      // Ignore malformed case metadata and fall back to the legacy single case label.
+    }
+  }
+
+  if (!cases.length && asText(fallbackCaseName)) {
+    cases.push({
+      id: "legacy-case",
+      name: asText(fallbackCaseName),
+      active: true,
+    });
+  }
+
+  return cases;
+}
+
 function getToneStyles(tone: TimelineBlock["tone"]) {
   if (tone === "setup") return { background: "#edf5fb", border: "#c7dcee", color: "#165a96" };
   if (tone === "prebrief") return { background: "#eefbf6", border: "#bfe4d6", color: "#196b57" };
@@ -1509,6 +1561,7 @@ function calculateRoundTimingsWithBlocks(args: {
   examRoomCapacity: number;
   flexRoomCount: number;
   maxPairsPerFlexRoom: number;
+  cases?: ScheduleCaseDefinition[];
   encounterMinutes: number;
   dayBlocks: DayBlockConfig[];
   timingVisibility?: ScheduleTimingVisibility;
@@ -1560,12 +1613,20 @@ function calculateRoundTimingsWithBlocks(args: {
     configuredLengthValues.push(configuredRoundLength);
     const roundTargetLength = Math.max(configuredRoundLength, 1);
 
-    const examSlots: GeneratedRoomSlot[] = Array.from({ length: args.examRoomCount }, (_, index) => ({
-      roomName: `Exam ${index + 1}`,
-      roomType: "exam",
-      capacity: args.examRoomCapacity,
-      capacityLabel: `${args.examRoomCapacity} learner${args.examRoomCapacity === 1 ? "" : "s"}`,
-    }));
+    const activeCases = (args.cases || []).filter((caseDef) => caseDef.active);
+    const examSlots: GeneratedRoomSlot[] = Array.from({ length: args.examRoomCount }, (_, index) => {
+      const caseDef = activeCases[index] || null;
+      return {
+        roomName: caseDef?.roomAssignment || `Exam ${index + 1}`,
+        roomType: "exam",
+        capacity: caseDef || !activeCases.length ? args.examRoomCapacity : 0,
+        capacityLabel: caseDef || !activeCases.length
+          ? `${args.examRoomCapacity} learner${args.examRoomCapacity === 1 ? "" : "s"}`
+          : "Flex / empty",
+        caseLabel: caseDef?.name,
+        caseIndex: caseDef ? index : undefined,
+      };
+    });
 
     const flexSlots: GeneratedRoomSlot[] = Array.from({ length: args.flexRoomCount }, (_, index) => ({
       roomName: `Flex ${index + 1}`,
@@ -1899,11 +1960,51 @@ function buildLearnerRoster(uploadedLearners: string[], slotCount: number, round
   return Array.from({ length: fallbackCount }, (_, index) => `Learner ${index + 1}`);
 }
 
-function attachLearners(rounds: GeneratedRound[], learnerRoster: string[]) {
+function buildLearnerGroups(learnerRoster: string[], groupSize: number) {
+  const normalizedLearnerRoster = normalizeLearnerNames(learnerRoster);
+  const safeGroupSize = Math.max(1, groupSize);
+  const groups: { labels: string[]; indexes: number[] }[] = [];
+  for (let index = 0; index < normalizedLearnerRoster.length; index += safeGroupSize) {
+    const labels = normalizedLearnerRoster.slice(index, index + safeGroupSize);
+    groups.push({
+      labels,
+      indexes: labels.map((_, offset) => index + offset),
+    });
+  }
+  return groups;
+}
+
+function attachLearners(rounds: GeneratedRound[], learnerRoster: string[], groupSize = 1, caseCount = 0) {
   const normalizedLearnerRoster = normalizeLearnerNames(learnerRoster);
   if (!rounds.length || !normalizedLearnerRoster.length) return [] as ScheduledRound[];
 
   const slotsPerRound = rounds[0]?.roomSlots.reduce((sum, slot) => sum + slot.capacity, 0) || 0;
+  const activeCaseSlots = rounds[0]?.roomSlots.filter((slot) => slot.roomType === "exam" && slot.capacity > 0 && slot.caseLabel) || [];
+  const learnerGroups = buildLearnerGroups(normalizedLearnerRoster, groupSize);
+
+  if (caseCount > 1 && activeCaseSlots.length) {
+    const activeRoomCount = activeCaseSlots.length;
+    return rounds.map((round, roundIndex) => {
+      const waveIndex = Math.floor(roundIndex / caseCount);
+      const rotationIndex = roundIndex % caseCount;
+      return {
+        ...round,
+        roomSlots: round.roomSlots.map((slot) => {
+          if (!(slot.roomType === "exam" && slot.capacity > 0 && slot.caseLabel)) {
+            return { ...slot, learnerIndexes: [], learnerLabels: [] };
+          }
+          const caseSlotIndex = Math.max(0, slot.caseIndex ?? activeCaseSlots.findIndex((candidate) => candidate.roomName === slot.roomName));
+          const initialGroupOffset = ((caseSlotIndex - rotationIndex) % activeRoomCount + activeRoomCount) % activeRoomCount;
+          const group = learnerGroups[waveIndex * activeRoomCount + initialGroupOffset];
+          return {
+            ...slot,
+            learnerIndexes: group?.indexes || [],
+            learnerLabels: group?.labels || [],
+          };
+        }),
+      };
+    });
+  }
 
   return rounds.map((round, roundIndex) => {
     let cursor = roundIndex * slotsPerRound;
@@ -3326,6 +3427,18 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     () => parseEventMetadata(selectedEvent?.notes).training,
     [selectedEvent?.notes]
   );
+  const scheduleCaseDefinitions = useMemo(
+    () =>
+      parseScheduleCaseDefinitions(
+        selectedEventMetadata.case_manager_cases || selectedEventMetadata.case_files,
+        selectedEventMetadata.case_name
+      ),
+    [selectedEventMetadata.case_files, selectedEventMetadata.case_manager_cases, selectedEventMetadata.case_name]
+  );
+  const activeScheduleCases = useMemo(
+    () => scheduleCaseDefinitions.filter((caseDef) => caseDef.active),
+    [scheduleCaseDefinitions]
+  );
   const parsedScheduleRoomAdjustments = useMemo(
     () => normalizeScheduleRoomAdjustments(parseScheduleRoomAdjustments(selectedEventMetadata.schedule_room_adjustments)),
     [selectedEventMetadata.schedule_room_adjustments]
@@ -3400,10 +3513,24 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const parsedFacultyPrebrief = parseNumber(facultyPrebriefMinutes, 0);
   const effectiveFlexRoomCount = isVirtualEvent ? 0 : parsedFlexRooms;
   const effectiveFlexCapacity = isVirtualEvent ? 0 : parsedMaxPairs;
-  const slotsPerRound = parsedExamRooms * parsedRoomCapacity + effectiveFlexRoomCount * effectiveFlexCapacity;
+  const activeCaseCount = activeScheduleCases.length;
+  const activeCaseRoomCount = activeCaseCount ? Math.min(parsedExamRooms, activeCaseCount) : parsedExamRooms;
+  const slotsPerRound = activeCaseCount
+    ? activeCaseRoomCount * parsedRoomCapacity
+    : parsedExamRooms * parsedRoomCapacity + effectiveFlexRoomCount * effectiveFlexCapacity;
   const totalRoomCount = parsedExamRooms + effectiveFlexRoomCount;
+  const learnerGroupCount =
+    uploadedLearners.length && parsedRoomCapacity > 0
+      ? Math.ceil(uploadedLearners.length / parsedRoomCapacity)
+      : 0;
+  const caseRotationRoundCount =
+    activeCaseCount > 1
+      ? Math.max(activeCaseCount, Math.ceil(Math.max(learnerGroupCount, 1) / Math.max(activeCaseRoomCount, 1)) * activeCaseCount)
+      : 0;
   const autoCalculatedRounds =
-    uploadedLearners.length && slotsPerRound > 0
+    caseRotationRoundCount > 0
+      ? caseRotationRoundCount
+      : uploadedLearners.length && slotsPerRound > 0
       ? Math.max(1, Math.ceil(uploadedLearners.length / slotsPerRound))
       : Math.max(parsedRounds, 1);
   const effectiveRoundCount =
@@ -3462,6 +3589,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       examRoomCapacity: parsedRoomCapacity,
       flexRoomCount: effectiveFlexRoomCount,
       maxPairsPerFlexRoom: effectiveFlexCapacity,
+      cases: activeScheduleCases,
       encounterMinutes: parsedEncounter,
       dayBlocks: normalizedDayBlocks,
       timingVisibility,
@@ -3492,6 +3620,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       timeline,
     };
   }, [
+    activeScheduleCases,
     effectiveRoundCount,
     afterRotationDayBlocks,
     beforeRotationDayBlocks,
@@ -3542,6 +3671,12 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     if (parsedSessionLength > MAX_IMPORTED_ROUND_TARGET_MINUTES) {
       messages.push(`Round target ${parsedSessionLength} minutes is ignored to prevent inflated round blocks.`);
     }
+    if (activeCaseCount > parsedExamRooms && parsedExamRooms > 0) {
+      messages.push(`${activeCaseCount} active cases exceed ${parsedExamRooms} exam rooms. The builder adds rotation rounds and flags this as a case/room capacity conflict.`);
+    }
+    if (activeCaseCount > 0 && parsedExamRooms > activeCaseCount) {
+      messages.push(`${parsedExamRooms - activeCaseCount} extra exam room${parsedExamRooms - activeCaseCount === 1 ? "" : "s"} will remain empty/flex because only ${activeCaseCount} case${activeCaseCount === 1 ? "" : "s"} are active.`);
+    }
     if (asText(timeSource.endTime) && parsedReferenceEndMinutes === null) {
       messages.push("Reference event end time could not be read; generated rounds will use configured block durations only.");
     }
@@ -3568,8 +3703,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     return messages;
   }, [
     normalizedDayBlocks,
+    activeCaseCount,
     normalizedReferenceEndMinutes,
     parsedEncounter,
+    parsedExamRooms,
     parsedReferenceEndMinutes,
     parsedSessionLength,
     parsedStartMinutes,
@@ -3688,8 +3825,13 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   ]);
 
   const scheduledRounds = useMemo(
-    () => applyScheduleRoomAdjustments(attachLearners(generated.rounds, learnerRoster), selectedEvent?.assigned_sp_names || [], roomAdjustments),
-    [generated.rounds, learnerRoster, roomAdjustments, selectedEvent?.assigned_sp_names]
+    () =>
+      applyScheduleRoomAdjustments(
+        attachLearners(generated.rounds, learnerRoster, parsedRoomCapacity, activeCaseCount),
+        selectedEvent?.assigned_sp_names || [],
+        roomAdjustments
+      ),
+    [activeCaseCount, generated.rounds, learnerRoster, parsedRoomCapacity, roomAdjustments, selectedEvent?.assigned_sp_names]
   );
   const studentPreviewTimeline = useMemo(
     () => filterTimelineForView(generated.timeline, "student"),
@@ -3764,6 +3906,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     () => getCaseLabelFromBuilderEvent(selectedEvent, selectedEventMetadata.case_name),
     [selectedEvent, selectedEventMetadata.case_name]
   );
+  const previewCaseFallbackLabel = activeCaseCount > 1 ? "" : selectedEventEncounterLabel;
   const rotationEnd = generated.rotationEnd;
   const totalEventEnd = useMemo(() => {
     const lastTimeline = generated.timeline[generated.timeline.length - 1];
@@ -3818,7 +3961,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       scheduleGridRows: operationsScheduleGridRows,
       roomColumns,
       roomContext: roomNamingContext,
-      caseName: selectedEventEncounterLabel,
+      caseName: previewCaseFallbackLabel,
       assignedSpNames: selectedEvent?.assigned_sp_names || [],
       learnerCount: learnerRoster.length,
       generated,
@@ -3833,7 +3976,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       scheduleGridRows: operationsScheduleGridRows,
       roomColumns,
       roomContext: roomNamingContext,
-      caseName: selectedEventEncounterLabel,
+      caseName: previewCaseFallbackLabel,
       assignedSpNames: selectedEvent?.assigned_sp_names || [],
       learnerCount: learnerRoster.length,
       generated,
@@ -3848,7 +3991,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       scheduleGridRows: studentScheduleGridRows,
       roomColumns,
       roomContext: roomNamingContext,
-      caseName: selectedEventEncounterLabel,
+      caseName: previewCaseFallbackLabel,
       assignedSpNames: selectedEvent?.assigned_sp_names || [],
       learnerCount: learnerRoster.length,
       generated,
@@ -3863,7 +4006,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       scheduleGridRows: operationsScheduleGridRows,
       roomColumns,
       roomContext: roomNamingContext,
-      caseName: selectedEventEncounterLabel,
+      caseName: previewCaseFallbackLabel,
       assignedSpNames: selectedEvent?.assigned_sp_names || [],
       learnerCount: learnerRoster.length,
       generated,
@@ -3878,7 +4021,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       scheduleGridRows: operationsScheduleGridRows,
       roomColumns,
       roomContext: roomNamingContext,
-      caseName: selectedEventEncounterLabel,
+      caseName: previewCaseFallbackLabel,
       assignedSpNames: selectedEvent?.assigned_sp_names || [],
       learnerCount: learnerRoster.length,
       generated,
@@ -3893,7 +4036,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       scheduleGridRows: operationsScheduleGridRows,
       roomColumns,
       roomContext: roomNamingContext,
-      caseName: selectedEventEncounterLabel,
+      caseName: previewCaseFallbackLabel,
       assignedSpNames: selectedEvent?.assigned_sp_names || [],
       learnerCount: learnerRoster.length,
       generated,
@@ -3917,7 +4060,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     roomNamingContext,
     roomColumns,
     selectedEvent,
-    selectedEventEncounterLabel,
+    previewCaseFallbackLabel,
     selectedEventSummaryTime,
     props.previewFamily,
     studentPreviewRounds,
@@ -4604,6 +4747,12 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
               <span className="cfsp-chip">Learners {learnerRoster.length}</span>
               <span className="cfsp-chip">Rooms {totalRoomCount}</span>
               <span className="cfsp-chip">Rounds {effectiveRoundCount}</span>
+              <span className="cfsp-chip">
+                Cases {activeCaseCount || 0}
+                {activeCaseCount && parsedExamRooms > activeCaseCount
+                  ? ` • ${parsedExamRooms - activeCaseCount} flex`
+                  : ""}
+              </span>
               <span className="cfsp-chip">{scheduleWorkflowBadgeLabel}</span>
             </div>
           </div>

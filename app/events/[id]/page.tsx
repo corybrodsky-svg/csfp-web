@@ -466,6 +466,12 @@ type CaseFileEntry = {
   storagePath: string;
   uploadedAt: string;
   uploadedBy: string;
+  encounterMinutes?: string;
+  checklistMinutes?: string;
+  feedbackMinutes?: string;
+  notes?: string;
+  roomAssignment?: string;
+  status?: "active" | "inactive";
 };
 type CaseFileUploadTarget = {
   mode: "add" | "replace";
@@ -1898,6 +1904,12 @@ function normalizeCaseFileEntry(value: Partial<CaseFileEntry>, fallbackIndex: nu
     storagePath,
     uploadedAt: asText(value.uploadedAt),
     uploadedBy: asText(value.uploadedBy),
+    encounterMinutes: asText(value.encounterMinutes),
+    checklistMinutes: asText(value.checklistMinutes),
+    feedbackMinutes: asText(value.feedbackMinutes),
+    notes: asText(value.notes),
+    roomAssignment: asText(value.roomAssignment),
+    status: value.status === "inactive" ? "inactive" : "active",
   };
 }
 
@@ -1923,6 +1935,20 @@ function parseCaseFileEntries(value: string | null | undefined) {
             uploadedBy:
               (entry as Partial<CaseFileEntry>)?.uploadedBy ||
               (entry as { uploaded_by?: string })?.uploaded_by,
+            encounterMinutes:
+              (entry as Partial<CaseFileEntry>)?.encounterMinutes ||
+              (entry as { encounter_minutes?: string })?.encounter_minutes,
+            checklistMinutes:
+              (entry as Partial<CaseFileEntry>)?.checklistMinutes ||
+              (entry as { checklist_minutes?: string })?.checklist_minutes,
+            feedbackMinutes:
+              (entry as Partial<CaseFileEntry>)?.feedbackMinutes ||
+              (entry as { feedback_minutes?: string })?.feedback_minutes,
+            notes: (entry as Partial<CaseFileEntry>)?.notes,
+            roomAssignment:
+              (entry as Partial<CaseFileEntry>)?.roomAssignment ||
+              (entry as { room_assignment?: string })?.room_assignment,
+            status: (entry as Partial<CaseFileEntry>)?.status,
           },
           index
         )
@@ -1942,6 +1968,12 @@ function serializeCaseFileEntries(entries: CaseFileEntry[]) {
       storagePath: entry.storagePath,
       uploadedAt: entry.uploadedAt,
       uploadedBy: entry.uploadedBy,
+      encounterMinutes: asText(entry.encounterMinutes),
+      checklistMinutes: asText(entry.checklistMinutes),
+      feedbackMinutes: asText(entry.feedbackMinutes),
+      notes: asText(entry.notes),
+      roomAssignment: asText(entry.roomAssignment),
+      status: entry.status === "inactive" ? "inactive" : "active",
     }))
   );
 }
@@ -1962,6 +1994,14 @@ function mergeLegacyCaseFileEntry(
     return nextEntries;
   }
   return [legacyEntry, ...entries];
+}
+
+function patchCaseFileEntry(entries: CaseFileEntry[], index: number, partial: Partial<CaseFileEntry>) {
+  return entries.map((entry, entryIndex) =>
+    entryIndex === index
+      ? normalizeCaseFileEntry({ ...entry, ...partial }, entryIndex) || entry
+      : entry
+  );
 }
 
 function getAvailabilitySpId(row: AvailabilityRow) {
@@ -11442,6 +11482,7 @@ Cory`;
 
       const uploadedCaseEntry = normalizeCaseFileEntry(
         {
+          ...(replaceCaseEntry || {}),
           id: body.material.storage_path || body.material.url || `${Date.now()}-${body.material.filename}`,
           name: asText(body.material.filename),
           url: asText(body.material.url),
@@ -11479,6 +11520,7 @@ Cory`;
         ...(kind === "case_file"
           ? {
               case_files: serializeCaseFileEntries(nextCaseEntries),
+              case_manager_cases: serializeCaseFileEntries(nextCaseEntries),
             }
           : {}),
         ...(kind === "staffing_doc"
@@ -11749,11 +11791,40 @@ Cory`;
         case_file_uploaded_at: asText(primaryCaseEntry?.uploadedAt),
         case_file_uploaded_by: asText(primaryCaseEntry?.uploadedBy),
         case_files: nextCaseEntries.length ? serializeCaseFileEntries(nextCaseEntries) : "",
+        case_manager_cases: nextCaseEntries.length ? serializeCaseFileEntries(nextCaseEntries) : "",
       }});
 
       await persistTrainingNotes(nextNotes, "Case file removed.");
     } catch (error) {
       setEventSaveError(error instanceof Error ? error.message : "Could not remove case file.");
+    } finally {
+      setTrainingMaterialSavingState("case_file", false);
+    }
+  }
+
+  async function handleSaveCaseManagerEntry(index: number, partial: Partial<CaseFileEntry>, message = "Case updated.") {
+    if (!id) return;
+    const nextCaseEntries = patchCaseFileEntry(caseFileEntries, index, partial);
+    const primaryCaseEntry = nextCaseEntries[0] || null;
+    setTrainingMaterialSavingState("case_file", true);
+    setEventSaveMessage("");
+    setEventSaveError("");
+
+    try {
+      const nextNotes = upsertEventMetadata(eventEditor.notes, { training: {
+        case_name: asText(primaryCaseEntry?.name),
+        case_file_url: asText(primaryCaseEntry?.url),
+        case_file_name: asText(primaryCaseEntry?.name),
+        case_file_storage_path: asText(primaryCaseEntry?.storagePath),
+        case_file_uploaded_at: asText(primaryCaseEntry?.uploadedAt),
+        case_file_uploaded_by: asText(primaryCaseEntry?.uploadedBy),
+        case_files: serializeCaseFileEntries(nextCaseEntries),
+        case_manager_cases: serializeCaseFileEntries(nextCaseEntries),
+        event_material_status: nextCaseEntries.length ? "materials_uploaded" : trainingMetadata.event_material_status,
+      }});
+      await persistTrainingNotes(nextNotes, message);
+    } catch (error) {
+      setEventSaveError(error instanceof Error ? error.message : "Could not save case details.");
     } finally {
       setTrainingMaterialSavingState("case_file", false);
     }
@@ -24106,9 +24177,16 @@ Cory`;
                               }}
                             >
                               <div style={{ minWidth: 0 }}>
-                                <div style={{ color: "var(--cfsp-text)", fontSize: "13px", fontWeight: 900, overflowWrap: "anywhere" }}>
-                                  Case {caseIndex + 1}: {caseEntry.name || "Untitled case"}
-                                </div>
+                                <label style={{ display: "grid", gap: "4px" }}>
+                                  <span style={{ ...statLabel, fontSize: "11px" }}>Case {caseIndex + 1} title</span>
+                                  <input
+                                    defaultValue={caseEntry.name || ""}
+                                    onBlur={(event) => void handleSaveCaseManagerEntry(caseIndex, { name: event.target.value }, "Case title saved.")}
+                                    disabled={trainingMaterialSaving.case_file}
+                                    placeholder={`Case ${caseIndex + 1}`}
+                                    style={{ ...inputStyle, width: "100%", boxSizing: "border-box", padding: "7px 9px", fontSize: "12px" }}
+                                  />
+                                </label>
                                 <div style={{ marginTop: "3px", color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750, overflowWrap: "anywhere" }}>
                                   {caseEntry.uploadedAt ? `Uploaded ${formatHumanDate(caseEntry.uploadedAt)}` : "Uploaded"}{caseEntry.uploadedBy ? ` by ${caseEntry.uploadedBy}` : ""}
                                 </div>
@@ -24149,6 +24227,77 @@ Cory`;
                                 >
                                   Remove
                                 </button>
+                              </div>
+                              <div
+                                style={{
+                                  gridColumn: "1 / -1",
+                                  display: "grid",
+                                  gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))",
+                                  gap: "8px",
+                                }}
+                              >
+                                <label style={{ display: "grid", gap: "4px" }}>
+                                  <span style={{ ...statLabel, fontSize: "11px" }}>Encounter</span>
+                                  <input
+                                    defaultValue={caseEntry.encounterMinutes || ""}
+                                    onBlur={(event) => void handleSaveCaseManagerEntry(caseIndex, { encounterMinutes: event.target.value }, "Case timing saved.")}
+                                    disabled={trainingMaterialSaving.case_file}
+                                    placeholder="20"
+                                    style={{ ...inputStyle, width: "100%", boxSizing: "border-box", padding: "7px 9px" }}
+                                  />
+                                </label>
+                                <label style={{ display: "grid", gap: "4px" }}>
+                                  <span style={{ ...statLabel, fontSize: "11px" }}>Checklist</span>
+                                  <input
+                                    defaultValue={caseEntry.checklistMinutes || ""}
+                                    onBlur={(event) => void handleSaveCaseManagerEntry(caseIndex, { checklistMinutes: event.target.value }, "Case timing saved.")}
+                                    disabled={trainingMaterialSaving.case_file}
+                                    placeholder="5"
+                                    style={{ ...inputStyle, width: "100%", boxSizing: "border-box", padding: "7px 9px" }}
+                                  />
+                                </label>
+                                <label style={{ display: "grid", gap: "4px" }}>
+                                  <span style={{ ...statLabel, fontSize: "11px" }}>Feedback</span>
+                                  <input
+                                    defaultValue={caseEntry.feedbackMinutes || ""}
+                                    onBlur={(event) => void handleSaveCaseManagerEntry(caseIndex, { feedbackMinutes: event.target.value }, "Case timing saved.")}
+                                    disabled={trainingMaterialSaving.case_file}
+                                    placeholder="5"
+                                    style={{ ...inputStyle, width: "100%", boxSizing: "border-box", padding: "7px 9px" }}
+                                  />
+                                </label>
+                                <label style={{ display: "grid", gap: "4px" }}>
+                                  <span style={{ ...statLabel, fontSize: "11px" }}>Room</span>
+                                  <input
+                                    defaultValue={caseEntry.roomAssignment || ""}
+                                    onBlur={(event) => void handleSaveCaseManagerEntry(caseIndex, { roomAssignment: event.target.value }, "Case room saved.")}
+                                    disabled={trainingMaterialSaving.case_file}
+                                    placeholder={`Exam ${caseIndex + 1}`}
+                                    style={{ ...inputStyle, width: "100%", boxSizing: "border-box", padding: "7px 9px" }}
+                                  />
+                                </label>
+                                <label style={{ display: "grid", gap: "4px" }}>
+                                  <span style={{ ...statLabel, fontSize: "11px" }}>Status</span>
+                                  <select
+                                    value={caseEntry.status === "inactive" ? "inactive" : "active"}
+                                    onChange={(event) => void handleSaveCaseManagerEntry(caseIndex, { status: event.target.value === "inactive" ? "inactive" : "active" }, "Case status saved.")}
+                                    disabled={trainingMaterialSaving.case_file}
+                                    style={{ ...selectStyle, width: "100%", maxWidth: "none", boxSizing: "border-box", padding: "7px 9px" }}
+                                  >
+                                    <option value="active">Active</option>
+                                    <option value="inactive">Inactive</option>
+                                  </select>
+                                </label>
+                                <label style={{ display: "grid", gap: "4px", gridColumn: "1 / -1" }}>
+                                  <span style={{ ...statLabel, fontSize: "11px" }}>Case notes/details</span>
+                                  <textarea
+                                    defaultValue={caseEntry.notes || ""}
+                                    onBlur={(event) => void handleSaveCaseManagerEntry(caseIndex, { notes: event.target.value }, "Case notes saved.")}
+                                    disabled={trainingMaterialSaving.case_file}
+                                    placeholder="Optional patient details, setup notes, checklist cues, or faculty guidance"
+                                    style={{ ...inputStyle, minHeight: "54px", width: "100%", boxSizing: "border-box", resize: "vertical" }}
+                                  />
+                                </label>
                               </div>
                             </div>
                           );
