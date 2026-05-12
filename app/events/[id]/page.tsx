@@ -28497,7 +28497,7 @@ Cory`;
           gap: 8px;
         }
 
-        .cfsp-chest-link {
+        .cfsp-chest-link {\n          appearance: none;\n          cursor: pointer;\n          text-align: left;
           border-radius: 14px;
           border: 1px solid var(--cfsp-border);
           background: linear-gradient(135deg, var(--cfsp-surface-muted), var(--cfsp-surface));
@@ -28556,12 +28556,48 @@ Cory`;
                       <div className="cfsp-chest-drawer">
                         <div className="cfsp-chest-new">New content detected when files update</div>
                         <div className="cfsp-chest-grid">
-                          <a className="cfsp-chest-link" href="#cfsp-floating-command-chest">Materials Cabinet</a>
-                          <a className="cfsp-chest-link" href="#training-center">Training Files</a>
-                          <a className="cfsp-chest-link" href="#communication-center">Communication</a>
-                          <a className="cfsp-chest-link" href="#coverage-actions">Staffing</a>
-                          <a className="cfsp-chest-link" href="#schedule-builder">Schedule</a>
-                          <a className="cfsp-chest-link" href="#recording-status">Recording</a>
+                          {[
+                            ["Materials Cabinet", "simulation-command-file-cabinet", "material"],
+                            ["Training Files", "training-center", "training"],
+                            ["Communication", "communication-center", "communication"],
+                            ["Staffing", "coverage-actions", "staffing"],
+                            ["Schedule", "schedule-builder", "schedule"],
+                            ["Recording", "recording-status", "recording"],
+                          ].map(([label, idTarget, textTarget]) => (
+                            <button
+                              key={label}
+                              type="button"
+                              className="cfsp-chest-link"
+                              onClick={() => {
+                                const direct = document.getElementById(idTarget);
+
+                                if (direct) {
+                                  direct.scrollIntoView({
+                                    behavior: "smooth",
+                                    block: "start",
+                                  });
+                                  return;
+                                }
+
+                                const fallback = Array.from(
+                                  document.querySelectorAll("section, div, article, details")
+                                ).find((node) =>
+                                  (node.textContent || "")
+                                    .toLowerCase()
+                                    .includes(textTarget)
+                                );
+
+                                if (fallback instanceof HTMLElement) {
+                                  fallback.scrollIntoView({
+                                    behavior: "smooth",
+                                    block: "start",
+                                  });
+                                }
+                              }}
+                            >
+                              {label}
+                            </button>
+                          ))}
                         </div>
                       </div>
                     </details>
