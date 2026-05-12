@@ -3243,6 +3243,8 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const [saveErrorMessage, setSaveErrorMessage] = useState("");
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
   const [scheduleCompletionSaving, setScheduleCompletionSaving] = useState(false);
+  const [multipleCasesEnabled, setMultipleCasesEnabled] = useState(false);
+  const [scheduleMathEpoch, setScheduleMathEpoch] = useState(0);
   const [timeSource, setTimeSource] = useState<BuilderTimePrefill>({
     source: "default",
     label: "Using default time",
@@ -3723,6 +3725,13 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     () => parseEventMetadata(selectedEvent?.notes).training,
     [selectedEvent?.notes]
   );
+  const caseRotationFeatureFlag = useMemo(() => {
+    const raw = asText(selectedEventMetadata.case_rotation_required).toLowerCase();
+    if (raw === "yes" || raw === "true" || raw === "1") return true;
+    if (raw === "no" || raw === "false" || raw === "0") return false;
+    return false;
+  }, [selectedEventMetadata.case_rotation_required]);
+  const configuredCaseCountFromMetadata = parseNumber(selectedEventMetadata.case_count, 0);
   const scheduleCaseDefinitions = useMemo(
     () =>
       parseScheduleCaseDefinitions(
@@ -3735,6 +3744,14 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     () => scheduleCaseDefinitions.filter((caseDef) => caseDef.active),
     [scheduleCaseDefinitions]
   );
+  const scheduleCasesForMath = useMemo(() => {
+    if (!multipleCasesEnabled) return [];
+    if (activeScheduleCases.length > 0) return activeScheduleCases;
+    if (configuredCaseCountFromMetadata > 0) {
+      return scheduleCaseDefinitions.slice(0, configuredCaseCountFromMetadata);
+    }
+    return scheduleCaseDefinitions.slice(0, Math.max(1, scheduleCaseDefinitions.length));
+  }, [activeScheduleCases, configuredCaseCountFromMetadata, multipleCasesEnabled, scheduleCaseDefinitions]);
   const parsedScheduleRoomAdjustments = useMemo(
     () => normalizeScheduleRoomAdjustments(parseScheduleRoomAdjustments(selectedEventMetadata.schedule_room_adjustments)),
     [selectedEventMetadata.schedule_room_adjustments]
@@ -3743,6 +3760,12 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   useEffect(() => {
     setRoomAdjustments(parsedScheduleRoomAdjustments);
   }, [parsedScheduleRoomAdjustments]);
+
+  useEffect(() => {
+    const nextMode = caseRotationFeatureFlag || configuredCaseCountFromMetadata > 1;
+    setMultipleCasesEnabled(nextMode);
+    setScheduleMathEpoch((current) => current + 1);
+  }, [selectedEvent?.id, caseRotationFeatureFlag, configuredCaseCountFromMetadata]);
 
   const scheduleWorkflowStatus = asText(selectedEventMetadata.schedule_status).toLowerCase();
   const scheduleWorkflowBadgeLabel =
@@ -3809,8 +3832,28 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const parsedFacultyPrebrief = parseNumber(facultyPrebriefMinutes, 0);
   const effectiveFlexRoomCount = isVirtualEvent ? 0 : parsedFlexRooms;
   const effectiveFlexCapacity = isVirtualEvent ? 0 : parsedMaxPairs;
-  const activeCaseCount = activeScheduleCases.length;
-  const activeCaseRoomCount = activeCaseCount ? Math.min(parsedExamRooms, activeCaseCount) : parsedExamRooms;
+  const normalizedDayBlocks = useMemo(
+    () =>
+      dayBlocks.map((block) =>
+        createDayBlock({
+          ...block,
+          label: asText(block.label) || getDefaultDayBlockLabel(block.type),
+          durationMinutes: asText(block.durationMinutes) || "0",
+        })
+      ),
+    [dayBlocks]
+  );
+  const activeCaseCount = useMemo(() => {
+    if (!multipleCasesEnabled) return 0;
+    return scheduleCasesForMath.length;
+  }, [scheduleCasesForMath, multipleCasesEnabled]);
+  const handleRebuildScheduleMath = useCallback(() => {
+    setScheduleMathEpoch((current) => current + 1);
+    setSelectedBuilderRound(null);
+    setSaveState("unsaved");
+    showCopyMessage("Invalid generated schedule detected. Please rebuild schedule math.", "success", 3200);
+  }, [showCopyMessage]);
+  const activeCaseRoomCount = multipleCasesEnabled && activeCaseCount > 0 ? Math.min(parsedExamRooms, activeCaseCount) : 0;
   const slotsPerRound = activeCaseCount
     ? activeCaseRoomCount * parsedRoomCapacity
     : parsedExamRooms * parsedRoomCapacity + effectiveFlexRoomCount * effectiveFlexCapacity;
@@ -3824,7 +3867,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     [parsedRoomCapacity, uploadedLearners]
   );
   const caseRotationRoundCount =
-    activeCaseCount > 1
+    multipleCasesEnabled && activeCaseCount > 1
       ? Math.max(activeCaseCount, learnerGroupCount, 1)
       : 0;
   const autoCalculatedRounds =
@@ -3837,17 +3880,6 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     builderMode === "advanced" && manualRoundOverride
       ? Math.max(parsedRounds, 1)
       : autoCalculatedRounds;
-  const normalizedDayBlocks = useMemo(
-    () =>
-      dayBlocks.map((block) =>
-        createDayBlock({
-          ...block,
-          label: asText(block.label) || getDefaultDayBlockLabel(block.type),
-          durationMinutes: asText(block.durationMinutes) || "0",
-        })
-      ),
-    [dayBlocks]
-  );
   const timingVisibility = scheduleViewMode === "operations" ? "operations" : "student";
   const { beforeRotationDayBlocks, afterRotationDayBlocks, specificTimeDayBlocks } = useMemo(
     () => getTimingDayBlocksByVisibility(normalizedDayBlocks, timingVisibility),
@@ -3894,14 +3926,14 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
 
     const { rounds, roundLength, configuredLength, overrunMinutes, validation } =
       calculateRoundTimingsWithBlocks({
-      startMinutes: parsedStartMinutes,
+      startMinutes: parsedStartMinutes + scheduleMathEpoch * 0,
       rounds: effectiveRoundCount,
       sessionLengthMinutes: parsedSessionLength,
       examRoomCount: parsedExamRooms,
       examRoomCapacity: parsedRoomCapacity,
       flexRoomCount: effectiveFlexRoomCount,
       maxPairsPerFlexRoom: effectiveFlexCapacity,
-      cases: activeScheduleCases,
+      cases: scheduleCasesForMath,
       encounterMinutes: parsedEncounter,
       dayBlocks: normalizedDayBlocks,
       timingVisibility,
@@ -3934,7 +3966,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       validation,
     };
   }, [
-    activeScheduleCases,
+    scheduleCasesForMath,
     effectiveRoundCount,
     afterRotationDayBlocks,
     beforeRotationDayBlocks,
@@ -3956,6 +3988,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     normalizedReferenceEndMinutes,
     timingVisibility,
     specificTimeDayBlocks,
+    scheduleMathEpoch,
   ]);
   const scheduleOverrunAdvisory = useMemo(() => {
     if (!(parsedSessionLength > 0 && generated.overrunMinutes > 0)) return "";
@@ -3978,7 +4011,9 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     const messages: string[] = [];
     if (generated.validation.invalid) {
       const details = generated.validation.reason ? ` ${generated.validation.reason}` : "";
-      messages.push(`Schedule generation failed — invalid timing expansion detected.${details}`);
+      messages.push(
+        `Schedule generation failed — invalid timing expansion detected.${details} Rebuild schedule math to refresh from current config.`
+      );
     }
     if (asText(startTime) && parsedStartMinutes === null) {
       messages.push("Start time could not be read. The builder will wait for a valid time before generating rounds.");
@@ -4277,7 +4312,9 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   );
   const handleMultipleCasesToggle = useCallback(
     (enabled: boolean) => {
+      setMultipleCasesEnabled(enabled);
       if (enabled) {
+        setScheduleMathEpoch((current) => current + 1);
         if (scheduleCaseDefinitions.length > 1) return;
         const base = scheduleCaseDefinitions[0] || {
           id: `builder-case-${Date.now()}-0`,
@@ -4301,7 +4338,15 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       }
       const single = scheduleCaseDefinitions[0]
         ? [{ ...scheduleCaseDefinitions[0], active: true }]
-        : [];
+        : [
+            {
+              id: `builder-case-${Date.now()}-0`,
+              name: "Case 1",
+              roomAssignment: "Exam 1",
+              active: true,
+            },
+          ];
+      setScheduleMathEpoch((current) => current + 1);
       void handleSaveBuilderCaseList(single, "Multiple-case rotation disabled.");
     },
     [handleSaveBuilderCaseList, scheduleCaseDefinitions]
@@ -5437,7 +5482,14 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                 ) : null}
                 {saveButtonLabel}
               </button>
-              {renderScheduleActionsMenu(false)}
+                {renderScheduleActionsMenu(false)}
+              <button
+                type="button"
+                onClick={handleRebuildScheduleMath}
+                className="cfsp-btn cfsp-btn-secondary"
+              >
+                Rebuild Schedule Math
+              </button>
               <button
                 type="button"
                 onClick={() => void handleCompleteSchedule()}
@@ -5743,14 +5795,14 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                 <NumberInput label="Encounter minutes" value={encounterMinutes} onChange={setEncounterMinutes} />
                 <NumberInput label="Round target minutes (optional)" value={sessionLengthMinutes} onChange={setSessionLengthMinutes} />
               </div>
-              {scheduleCaseDefinitions.length > 1 || activeCaseCount > 1 ? (
+              {multipleCasesEnabled ? (
               <div className="mt-4 rounded-[16px] border-2 border-[#145b96] bg-[#eef7ff] px-4 py-4 shadow-[0_14px_30px_rgba(20,91,150,0.12)]">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>
                     <div className="text-[0.78rem] font-black uppercase tracking-[0.1em] text-[#145b96]">Case Rotation Setup</div>
                     <h3 className="mt-2 mb-0 text-[1.3rem] font-black text-[#14304f]">Cases drive the schedule math</h3>
                     <div className="mt-2 text-sm font-bold leading-6 text-[#365a76]">
-                      {(scheduleCaseDefinitions.length > 1 || activeCaseCount > 1)
+                      {multipleCasesEnabled
                         ? "CFSP will build rounds so every group sees every active case once."
                         : "Single-case events stay simple. Turn on multiple cases when case rotation should drive the schedule math."}
                     </div>
@@ -5759,7 +5811,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                     <label className="inline-flex items-center gap-2 rounded-full border border-[#c7dcee] bg-white px-3 py-2 text-xs font-black text-[#14304f]">
                       <input
                         type="checkbox"
-                        checked={scheduleCaseDefinitions.length > 1 || activeCaseCount > 1}
+                        checked={multipleCasesEnabled}
                         onChange={(event) => handleMultipleCasesToggle(event.target.checked)}
                         style={{ accentColor: "#145b96" }}
                       />
@@ -5794,7 +5846,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                   <div className="rounded-[12px] border border-[#c7dcee] bg-white px-3 py-3">
                     <div className="cfsp-label">Every group sees every case?</div>
                     <div className="mt-2 text-base font-black text-[#14304f]">
-                      {scheduleCaseDefinitions.length > 1 || activeCaseCount > 1 ? "Yes" : "Not needed"}
+                      {multipleCasesEnabled ? "Yes" : "Not needed"}
                     </div>
                   </div>
                   <NumberInput label="Students per group" value={roomCapacity} onChange={handleRoomCapacityChange} />
@@ -5814,7 +5866,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                     {activeCaseCount} active cases exceed {parsedExamRooms} exam rooms. Add rooms, deactivate cases, or expect additional rotation waves.
                   </div>
                 ) : null}
-                {scheduleCaseDefinitions.length > 1 || activeCaseCount > 1 ? (
+                {multipleCasesEnabled ? (
                   <div className="cfsp-alert cfsp-alert-info mt-4">
                     {uploadedLearners.length || 0} learner{uploadedLearners.length === 1 ? "" : "s"} in groups of {parsedRoomCapacity} rotating through {activeCaseCount} active case{activeCaseCount === 1 ? "" : "s"} requires {effectiveRoundCount} round{effectiveRoundCount === 1 ? "" : "s"}.
                     {parsedExamRooms > activeCaseCount ? ` ${parsedExamRooms - activeCaseCount} room${parsedExamRooms - activeCaseCount === 1 ? "" : "s"} will stay flex/empty.` : ""}
@@ -5938,7 +5990,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                     </div>
                   ))}
                 </div>
-                {scheduleCaseDefinitions.length > 1 || activeCaseCount > 1 ? (
+                {multipleCasesEnabled ? (
                 <div className="mt-4 rounded-[12px] border border-[#c7dcee] bg-white px-3 py-3">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div>
@@ -6018,7 +6070,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                     <label className="inline-flex items-center gap-2 rounded-full border border-[#c7dcee] bg-white px-3 py-2 text-xs font-black text-[#14304f]">
                       <input
                         type="checkbox"
-                        checked={false}
+                        checked={multipleCasesEnabled}
                         onChange={(event) => handleMultipleCasesToggle(event.target.checked)}
                         style={{ accentColor: "#145b96" }}
                       />
