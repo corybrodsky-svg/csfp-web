@@ -1402,6 +1402,21 @@ function parseScheduleCaseDefinitions(raw: string | null | undefined, fallbackCa
   return cases;
 }
 
+function serializeScheduleCaseDefinitions(cases: ScheduleCaseDefinition[]) {
+  return JSON.stringify(
+    cases.map((caseDef, index) => ({
+      id: caseDef.id || `case-${index + 1}`,
+      name: caseDef.name || `Case ${index + 1}`,
+      encounterMinutes: caseDef.encounterMinutes ? String(caseDef.encounterMinutes) : "",
+      checklistMinutes: caseDef.checklistMinutes ? String(caseDef.checklistMinutes) : "",
+      feedbackMinutes: caseDef.feedbackMinutes ? String(caseDef.feedbackMinutes) : "",
+      roomAssignment: caseDef.roomAssignment || "",
+      notes: caseDef.notes || "",
+      status: caseDef.active ? "active" : "inactive",
+    }))
+  );
+}
+
 function getToneStyles(tone: TimelineBlock["tone"]) {
   if (tone === "setup") return { background: "#edf5fb", border: "#c7dcee", color: "#165a96" };
   if (tone === "prebrief") return { background: "#eefbf6", border: "#bfe4d6", color: "#196b57" };
@@ -3857,6 +3872,77 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     showCopyMessage,
     storageKey,
   ]);
+  const handleSaveBuilderCase = useCallback(
+    async (caseIndex: number, partial: Partial<ScheduleCaseDefinition>) => {
+      if (!selectedEvent?.id) return;
+      const nextCases = scheduleCaseDefinitions.length ? [...scheduleCaseDefinitions] : [];
+      while (nextCases.length <= caseIndex) {
+        nextCases.push({
+          id: `builder-case-${Date.now()}-${nextCases.length}`,
+          name: `Case ${nextCases.length + 1}`,
+          active: true,
+        });
+      }
+      nextCases[caseIndex] = {
+        ...nextCases[caseIndex],
+        ...partial,
+        active: partial.active ?? nextCases[caseIndex].active,
+      };
+      const serialized = serializeScheduleCaseDefinitions(nextCases);
+      setSaveState("saving");
+      setSaveErrorMessage("");
+      try {
+        await persistScheduleWorkflowMetadata({
+          case_count: String(nextCases.length),
+          case_name: nextCases[0]?.name || "",
+          case_files: serialized,
+          case_manager_cases: serialized,
+        });
+        setSaveState("saved");
+        setLastSavedAt(new Date().toISOString());
+        showCopyMessage("Case setup saved.");
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Could not save case setup.";
+        setSaveState("error");
+        setSaveErrorMessage(message);
+        showCopyMessage(message, "error", 3200);
+      }
+    },
+    [persistScheduleWorkflowMetadata, scheduleCaseDefinitions, selectedEvent?.id, showCopyMessage]
+  );
+  const handleEnsureBuilderCaseCount = useCallback(
+    async (value: string) => {
+      const count = Math.max(0, Math.min(20, Number.parseInt(value, 10) || 0));
+      const nextCases = [...scheduleCaseDefinitions];
+      while (nextCases.length < count) {
+        nextCases.push({
+          id: `builder-case-${Date.now()}-${nextCases.length}`,
+          name: `Case ${nextCases.length + 1}`,
+          roomAssignment: `Exam ${nextCases.length + 1}`,
+          active: true,
+        });
+      }
+      const serialized = serializeScheduleCaseDefinitions(nextCases.slice(0, count));
+      setSaveState("saving");
+      try {
+        await persistScheduleWorkflowMetadata({
+          case_count: String(count),
+          case_name: nextCases[0]?.name || "",
+          case_files: serialized,
+          case_manager_cases: serialized,
+        });
+        setSaveState("saved");
+        setLastSavedAt(new Date().toISOString());
+        showCopyMessage("Case count saved.");
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Could not save case count.";
+        setSaveState("error");
+        setSaveErrorMessage(message);
+        showCopyMessage(message, "error", 3200);
+      }
+    },
+    [persistScheduleWorkflowMetadata, scheduleCaseDefinitions, showCopyMessage]
+  );
 
   useEffect(() => {
     if (props.previewOnly) return;
@@ -5153,6 +5239,98 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                 ) : null}
                 <NumberInput label="Encounter minutes" value={encounterMinutes} onChange={setEncounterMinutes} />
                 <NumberInput label="Round target minutes (optional)" value={sessionLengthMinutes} onChange={setSessionLengthMinutes} />
+              </div>
+              <div className="mt-4 rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <div className="cfsp-label">Case Setup</div>
+                    <div className="mt-2 text-sm font-semibold leading-6 text-[#5e7388]">
+                      Cases are rotation stations. Fixed case rooms use active cases first; extra exam rooms remain flex/empty unless manually assigned in Round Operations.
+                    </div>
+                  </div>
+                  <label className="grid gap-2 sm:w-40">
+                    <span className="cfsp-label">How many cases?</span>
+                    <input
+                      className="cfsp-input"
+                      defaultValue={String(scheduleCaseDefinitions.length || activeCaseCount || "")}
+                      onBlur={(event) => void handleEnsureBuilderCaseCount(event.target.value)}
+                      placeholder="4"
+                    />
+                  </label>
+                </div>
+                <div className="mt-4 grid gap-3">
+                  {(scheduleCaseDefinitions.length ? scheduleCaseDefinitions : [{ id: "case-placeholder", name: "", active: true }]).map((caseDef, caseIndex) => (
+                    <div key={`${caseDef.id}-${caseIndex}`} className="rounded-[12px] border border-[#dce6ee] bg-white px-3 py-3">
+                      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                        <label className="grid gap-2">
+                          <span className="cfsp-label">Case title</span>
+                          <input
+                            className="cfsp-input"
+                            defaultValue={caseDef.name}
+                            onBlur={(event) => void handleSaveBuilderCase(caseIndex, { name: event.target.value })}
+                            placeholder={`Case ${caseIndex + 1}`}
+                          />
+                        </label>
+                        <label className="grid gap-2">
+                          <span className="cfsp-label">Fixed room</span>
+                          <input
+                            className="cfsp-input"
+                            defaultValue={caseDef.roomAssignment || `Exam ${caseIndex + 1}`}
+                            onBlur={(event) => void handleSaveBuilderCase(caseIndex, { roomAssignment: event.target.value })}
+                            placeholder={`Exam ${caseIndex + 1}`}
+                          />
+                        </label>
+                        <label className="grid gap-2">
+                          <span className="cfsp-label">Encounter min</span>
+                          <input
+                            className="cfsp-input"
+                            defaultValue={caseDef.encounterMinutes ? String(caseDef.encounterMinutes) : ""}
+                            onBlur={(event) => void handleSaveBuilderCase(caseIndex, { encounterMinutes: parseNumber(event.target.value, 0) || undefined })}
+                            placeholder={encounterMinutes}
+                          />
+                        </label>
+                        <label className="grid gap-2">
+                          <span className="cfsp-label">Status</span>
+                          <select
+                            className="cfsp-input"
+                            defaultValue={caseDef.active ? "active" : "inactive"}
+                            onChange={(event) => void handleSaveBuilderCase(caseIndex, { active: event.target.value === "active" })}
+                          >
+                            <option value="active">Active</option>
+                            <option value="inactive">Inactive</option>
+                          </select>
+                        </label>
+                        <label className="grid gap-2">
+                          <span className="cfsp-label">Checklist min</span>
+                          <input
+                            className="cfsp-input"
+                            defaultValue={caseDef.checklistMinutes ? String(caseDef.checklistMinutes) : ""}
+                            onBlur={(event) => void handleSaveBuilderCase(caseIndex, { checklistMinutes: parseNumber(event.target.value, 0) || undefined })}
+                            placeholder={checklistMinutes}
+                          />
+                        </label>
+                        <label className="grid gap-2">
+                          <span className="cfsp-label">Feedback min</span>
+                          <input
+                            className="cfsp-input"
+                            defaultValue={caseDef.feedbackMinutes ? String(caseDef.feedbackMinutes) : ""}
+                            onBlur={(event) => void handleSaveBuilderCase(caseIndex, { feedbackMinutes: parseNumber(event.target.value, 0) || undefined })}
+                            placeholder={feedbackMinutes}
+                          />
+                        </label>
+                        <label className="grid gap-2 md:col-span-2">
+                          <span className="cfsp-label">Role names/descriptions</span>
+                          <input
+                            className="cfsp-input"
+                            defaultValue={caseDef.notes || ""}
+                            onBlur={(event) => void handleSaveBuilderCase(caseIndex, { notes: event.target.value })}
+                            placeholder="Patient, nurse, family member, observer notes..."
+                          />
+                        </label>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
               <div className="mt-4 rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">

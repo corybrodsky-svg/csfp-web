@@ -42,6 +42,11 @@ export type TrainingEventMetadata = {
   case_file_uploaded_by: string;
   case_files: string;
   case_manager_cases: string;
+  case_count: string;
+  case_roles_per_case: string;
+  case_rotation_required: string;
+  case_fixed_rooms: string;
+  case_extra_rooms_mode: string;
   doorsign_url: string;
   doorsign_file_url: string;
   doorsign_file_name: string;
@@ -170,6 +175,11 @@ const TRAINING_METADATA_KEYS = [
   "case_file_uploaded_by",
   "case_files",
   "case_manager_cases",
+  "case_count",
+  "case_roles_per_case",
+  "case_rotation_required",
+  "case_fixed_rooms",
+  "case_extra_rooms_mode",
   "doorsign_url",
   "doorsign_file_url",
   "doorsign_file_name",
@@ -307,6 +317,11 @@ export function emptyTrainingEventMetadata(): TrainingEventMetadata {
     case_file_uploaded_by: "",
     case_files: "",
     case_manager_cases: "",
+    case_count: "",
+    case_roles_per_case: "",
+    case_rotation_required: "",
+    case_fixed_rooms: "",
+    case_extra_rooms_mode: "",
     doorsign_url: "",
     doorsign_file_url: "",
     doorsign_file_name: "",

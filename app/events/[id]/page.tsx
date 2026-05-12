@@ -3409,6 +3409,12 @@ const EVENT_FAMILY_TRAINING_MERGE_KEYS = [
   "case_file_uploaded_at",
   "case_file_uploaded_by",
   "case_files",
+  "case_manager_cases",
+  "case_count",
+  "case_roles_per_case",
+  "case_rotation_required",
+  "case_fixed_rooms",
+  "case_extra_rooms_mode",
   "doorsign_url",
   "doorsign_file_url",
   "doorsign_file_name",
@@ -9538,8 +9544,12 @@ Cory`;
     ]
   );
   const caseFileEntries = useMemo(
-    () => mergeLegacyCaseFileEntry(parseCaseFileEntries(trainingMetadata.case_files), legacyCaseFileEntry),
-    [legacyCaseFileEntry, trainingMetadata.case_files]
+    () =>
+      mergeLegacyCaseFileEntry(
+        parseCaseFileEntries(trainingMetadata.case_manager_cases || trainingMetadata.case_files),
+        legacyCaseFileEntry
+      ),
+    [legacyCaseFileEntry, trainingMetadata.case_files, trainingMetadata.case_manager_cases]
   );
   const primaryCaseFileEntry = caseFileEntries[0] || legacyCaseFileEntry;
   const caseFileCount = caseFileEntries.length;
@@ -9587,6 +9597,8 @@ Cory`;
       storagePath: caseEntry?.storagePath || "",
     });
     if (caseEntry?.url || caseEntry?.storagePath) {
+      setMaterialPreviewLoading(false);
+      setMaterialPreviewError("");
       openMaterialPreview({
         title: caseEntry.name || "Case File",
         rawUrl: caseEntry.url,
@@ -11421,7 +11433,7 @@ Cory`;
       previewUrl: assetUrls.previewUrl,
       downloadUrl: assetUrls.downloadUrl,
     });
-    setMaterialPreviewLoading(true);
+    setMaterialPreviewLoading(previewKind !== "unsupported");
     setMaterialPreviewError("");
     setMaterialOpenInNewTabError("");
     setMaterialPreviewText("");
@@ -11901,6 +11913,44 @@ Cory`;
       setEventSaveError(error instanceof Error ? error.message : "Could not save case details.");
     } finally {
       setTrainingMaterialSavingState("case_file", false);
+    }
+  }
+
+  async function handleEnsureCaseCount(nextCountValue: string) {
+    const nextCount = Math.max(0, Math.min(20, Number.parseInt(nextCountValue, 10) || 0));
+    const nextCaseEntries = [...caseFileEntries];
+    while (nextCaseEntries.length < nextCount) {
+      const caseIndex = nextCaseEntries.length;
+      nextCaseEntries.push({
+        id: `manual-case-${Date.now()}-${caseIndex}`,
+        name: `Case ${caseIndex + 1}`,
+        url: "",
+        storagePath: "",
+        uploadedAt: "",
+        uploadedBy: "",
+        encounterMinutes: trainingMetadata.case_roles_per_case ? "" : "",
+        checklistMinutes: "",
+        feedbackMinutes: "",
+        notes: "",
+        roomAssignment: `Exam ${caseIndex + 1}`,
+        status: "active",
+      });
+    }
+    const trimmedEntries = nextCaseEntries.slice(0, nextCount);
+    const primaryCaseEntry = trimmedEntries[0] || null;
+    try {
+      const nextNotes = upsertEventMetadata(eventEditor.notes, { training: {
+        case_count: String(nextCount),
+        case_name: asText(primaryCaseEntry?.name),
+        case_file_url: asText(primaryCaseEntry?.url),
+        case_file_name: asText(primaryCaseEntry?.name),
+        case_file_storage_path: asText(primaryCaseEntry?.storagePath),
+        case_files: serializeCaseFileEntries(trimmedEntries),
+        case_manager_cases: serializeCaseFileEntries(trimmedEntries),
+      }});
+      await persistTrainingNotes(nextNotes, "Case count saved.");
+    } catch (error) {
+      setEventSaveError(error instanceof Error ? error.message : "Could not save case count.");
     }
   }
 
@@ -22183,6 +22233,16 @@ Cory`;
                                         </select>
                                       </label>
                                       <label style={{ display: "grid", gap: "4px" }}>
+                                        <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Manual case title</span>
+                                        <input
+                                          value={row.caseLabel}
+                                          onChange={(event) => void handleRoundRoomAdjustment(row.slotIndex, { caseLabel: event.target.value })}
+                                          disabled={saving}
+                                          placeholder="Type case title"
+                                          style={{ ...inputStyle, width: "100%", boxSizing: "border-box", fontSize: "11px", padding: "6px 7px" }}
+                                        />
+                                      </label>
+                                      <label style={{ display: "grid", gap: "4px" }}>
                                         <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Role / portrayal</span>
                                         <input
                                           value={row.roleLabel}
@@ -24298,6 +24358,86 @@ Cory`;
                       style={{ ...inputStyle, width: "100%", boxSizing: "border-box", background: "var(--cfsp-surface-muted)" }}
                     />
                   </label>
+
+                  <section
+                    data-admin-field="case_setup"
+                    style={{
+                      gridColumn: "1 / -1",
+                      border: "1px solid rgba(20, 91, 150, 0.16)",
+                      borderRadius: "16px",
+                      padding: "12px 14px",
+                      background: "rgba(20, 91, 150, 0.05)",
+                      display: "grid",
+                      gap: "12px",
+                    }}
+                  >
+                    <div>
+                      <div style={{ ...statLabel, color: "#145b96" }}>Case Setup</div>
+                      <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 750 }}>
+                        First-class case objects used by File Cabinet, Schedule Builder, Round Operations, Viewer, and exports.
+                      </div>
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "10px" }}>
+                      <label style={{ display: "grid", gap: "6px" }}>
+                        <span style={statLabel}>How many cases?</span>
+                        <input
+                          value={trainingMetadata.case_count || String(caseFileEntries.length || "")}
+                          onChange={(event) => handleTrainingMetadataChange("case_count", event.target.value)}
+                          onBlur={(event) => void handleEnsureCaseCount(event.target.value)}
+                          disabled={saving}
+                          placeholder="4"
+                          style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                        />
+                      </label>
+                      <label style={{ display: "grid", gap: "6px" }}>
+                        <span style={statLabel}>Roles per case</span>
+                        <input
+                          value={trainingMetadata.case_roles_per_case}
+                          onChange={(event) => handleTrainingMetadataChange("case_roles_per_case", event.target.value)}
+                          onBlur={(event) => void saveTrainingMetadataField("case_roles_per_case", event.target.value, "Case role count saved.")}
+                          disabled={saving}
+                          placeholder="1"
+                          style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                        />
+                      </label>
+                      <label style={{ display: "grid", gap: "6px" }}>
+                        <span style={statLabel}>Every group sees every case?</span>
+                        <select
+                          value={trainingMetadata.case_rotation_required || "yes"}
+                          onChange={(event) => void saveTrainingMetadataField("case_rotation_required", event.target.value, "Case rotation rule saved.")}
+                          disabled={saving}
+                          style={{ ...selectStyle, width: "100%", maxWidth: "none", boxSizing: "border-box" }}
+                        >
+                          <option value="yes">Yes</option>
+                          <option value="no">No</option>
+                        </select>
+                      </label>
+                      <label style={{ display: "grid", gap: "6px" }}>
+                        <span style={statLabel}>Cases fixed to rooms?</span>
+                        <select
+                          value={trainingMetadata.case_fixed_rooms || "yes"}
+                          onChange={(event) => void saveTrainingMetadataField("case_fixed_rooms", event.target.value, "Case room rule saved.")}
+                          disabled={saving}
+                          style={{ ...selectStyle, width: "100%", maxWidth: "none", boxSizing: "border-box" }}
+                        >
+                          <option value="yes">Yes</option>
+                          <option value="no">No</option>
+                        </select>
+                      </label>
+                      <label style={{ display: "grid", gap: "6px" }}>
+                        <span style={statLabel}>Extra rooms</span>
+                        <select
+                          value={trainingMetadata.case_extra_rooms_mode || "flex_empty"}
+                          onChange={(event) => void saveTrainingMetadataField("case_extra_rooms_mode", event.target.value, "Extra room rule saved.")}
+                          disabled={saving}
+                          style={{ ...selectStyle, width: "100%", maxWidth: "none", boxSizing: "border-box" }}
+                        >
+                          <option value="flex_empty">Flex / empty</option>
+                          <option value="manual">Manual assignment</option>
+                        </select>
+                      </label>
+                    </div>
+                  </section>
 
                   <div
                     data-admin-field="case_files"
