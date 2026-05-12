@@ -117,6 +117,7 @@ type ScheduledRoomSlot = GeneratedRoomSlot & {
   learnerLabels: string[];
   learnerIndexes: number[];
   assignedSpIndex?: number;
+  caseLabel?: string;
 };
 
 type ScheduledRound = Omit<GeneratedRound, "roomSlots"> & {
@@ -190,6 +191,7 @@ type ScheduleRoomAdjustmentSlot = {
   slotIndex: number;
   learnerLabels: string[];
   spName?: string;
+  caseLabel?: string;
 };
 
 type ParsedScheduleRoomAdjustments = {
@@ -1944,7 +1946,7 @@ function parseScheduleRoomAdjustments(raw: string | null): ParsedScheduleRoomAdj
       v?: number;
       rounds?: Array<{
         round: number;
-        slots?: Array<{ slotIndex?: number; learnerLabels?: string[]; spName?: string }>;
+      slots?: Array<{ slotIndex?: number; learnerLabels?: string[]; spName?: string; caseLabel?: string }>;
       }>;
     };
 
@@ -1965,7 +1967,8 @@ function parseScheduleRoomAdjustments(raw: string | null): ParsedScheduleRoomAdj
 
           const learnerLabels = normalizeLearnerNames((slotEntry as { learnerLabels?: unknown }).learnerLabels || []);
           const spName = asText((slotEntry as { spName?: unknown }).spName);
-          return { slotIndex, learnerLabels, ...(spName ? { spName } : {}) } as ScheduleRoomAdjustmentSlot;
+          const caseLabel = asText((slotEntry as { caseLabel?: unknown }).caseLabel);
+          return { slotIndex, learnerLabels, ...(spName ? { spName } : {}), ...(caseLabel ? { caseLabel } : {}) } as ScheduleRoomAdjustmentSlot;
         })
         .filter(Boolean) as ScheduleRoomAdjustmentSlot[];
 
@@ -1997,10 +2000,12 @@ function normalizeScheduleRoomAdjustments(value: ParsedScheduleRoomAdjustments) 
       .map((slot) => {
         const learnerLabels = normalizeLearnerNames(slot.learnerLabels || []);
         const spName = asText(slot.spName);
+        const caseLabel = asText(slot.caseLabel);
         return {
           slotIndex: slot.slotIndex,
           learnerLabels,
           ...(spName ? { spName } : {}),
+          ...(caseLabel ? { caseLabel } : {}),
         } as ScheduleRoomAdjustmentSlot;
       })
       .filter((slot) => slot.learnerLabels.length || slot.spName)
@@ -2019,7 +2024,8 @@ function serializeScheduleRoomAdjustments(value: ParsedScheduleRoomAdjustments) 
         .map((slot) => {
           const base = { slotIndex: slot.slotIndex, learnerLabels: normalizeLearnerNames(slot.learnerLabels || []) };
           const spName = asText(slot.spName);
-          return spName ? { ...base, spName } : base;
+          const caseLabel = asText(slot.caseLabel);
+          return { ...base, ...(spName ? { spName } : {}), ...(caseLabel ? { caseLabel } : {}) };
         }),
     }))
     .filter((entry) => entry.slots.length);
@@ -2056,6 +2062,7 @@ function applyScheduleRoomAdjustments(
       return {
         ...slot,
         learnerLabels: nextLearners,
+        caseLabel: asText(overrides?.caseLabel) || slot.caseLabel,
         learnerIndexes: nextLearners.length
           ? nextLearners.map((value) => slot.learnerLabels.indexOf(value)).filter((value) => value >= 0)
           : [],
@@ -2191,7 +2198,7 @@ function buildSchedulePreviewData(args: {
         if (isOperations) {
           const spName = assignedSpNames?.[assignmentIndex] || "Unassigned";
           lines.push(`    SP: ${spName}`);
-          if (caseName) lines.push(`    Case: ${caseName}`);
+          if (asText(slot.caseLabel) || caseName) lines.push(`    Case: ${asText(slot.caseLabel) || caseName}`);
         }
       });
       lines.push("");
@@ -2233,7 +2240,7 @@ function buildSchedulePreviewData(args: {
         }
         if (includeOperationsContext) {
           lines.push(`    SP: ${assignedSpNames?.[assignmentIndex] || "Unassigned SP"}`);
-          if (caseName) lines.push(`    Case: ${caseName}`);
+          if (asText(slot.caseLabel) || caseName) lines.push(`    Case: ${asText(slot.caseLabel) || caseName}`);
         }
       });
       lines.push("");
@@ -2441,6 +2448,7 @@ function buildSchedulePreviewData(args: {
                         const assignmentIndex = slot.assignedSpIndex ?? round.roomSlots.findIndex((item) => item.roomName === slot.roomName);
                         const learnerText = slot.learnerLabels.length ? slot.learnerLabels.join(", ") : "No learner assigned";
                         const spName = assignedSpNames?.[assignmentIndex] || "Unassigned";
+                        const slotCaseName = asText(slot.caseLabel) || caseName;
 
                         return `
                           <td class="schedule-room-cell">
@@ -2461,8 +2469,8 @@ function buildSchedulePreviewData(args: {
                                   : ""
                               }
                               ${
-                                isOperations && caseName
-                                  ? `<div><span class="detail-label">Case</span><span class="detail-value">${escapeHtml(caseName)}</span></div>`
+                                isOperations && slotCaseName
+                                  ? `<div><span class="detail-label">Case</span><span class="detail-value">${escapeHtml(slotCaseName)}</span></div>`
                                   : ""
                               }
                               <div><span class="detail-label">Seat</span><span class="detail-value">${escapeHtml(slot.capacityLabel)}</span></div>
