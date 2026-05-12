@@ -549,10 +549,47 @@ function isStandaloneTrainingRecord(event: RelatedEventRow & { sp_needed?: numbe
 }
 
 function pickPrimaryEventForTrainingRecord(relatedEvents: Array<Record<string, unknown>>) {
-  return relatedEvents.find((node) => {
-    const kind = asText(node.kind);
-    return kind === "simulation" || kind === "skills" || kind === "virtual";
-  });
+  const ranked = relatedEvents
+    .filter((node) => {
+      const kind = asText(node.kind);
+      return kind === "simulation" || kind === "skills" || kind === "virtual";
+    })
+    .map((node) => {
+      const confidence = asText(node.match_confidence) as RelatedMatchConfidence;
+      const kind = asText(node.kind);
+      const dateText = asText(node.date_text);
+      const dateValue = Date.parse(dateText);
+      const isFutureOrUnknown = !Number.isFinite(dateValue) || dateValue >= Date.now() - 24 * 60 * 60 * 1000;
+      const kindScore = kind === "simulation" ? 0 : kind === "skills" ? 1 : 2;
+      return {
+        node,
+        score:
+          getMatchSortValue(confidence) * 100 +
+          kindScore * 10 +
+          (isFutureOrUnknown ? 0 : 5),
+      };
+    })
+    .sort((a, b) => {
+      if (a.score !== b.score) return a.score - b.score;
+      return asText(a.node.name).localeCompare(asText(b.node.name));
+    });
+
+  return ranked[0]?.node || null;
+}
+
+function getTrainingRecordFallbackSearch(event: RelatedEventRow) {
+  const signals = getEventFamilySignals(event);
+  const exactCourse =
+    signals.courseSignatures
+      .map((signature) => resolveCourseIdentifier(signals, signature))
+      .find(Boolean) || "";
+  if (exactCourse) return exactCourse;
+
+  return asText(event.name)
+    .replace(/\b(SP\s*)?Training\b/gi, " ")
+    .replace(/\b(VIR|Virtual|Orientation|Prep|Onboarding)\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 async function loadRelatedOperationalEvents(
@@ -997,6 +1034,10 @@ export async function GET(
       isOperatorRole(viewer.role) && isStandaloneTrainingRecord(event as RelatedEventRow & { sp_needed?: number | null })
         ? pickPrimaryEventForTrainingRecord(relatedOperationalEvents)
         : null;
+    const trainingRecordSearch =
+      isOperatorRole(viewer.role) && isStandaloneTrainingRecord(event as RelatedEventRow & { sp_needed?: number | null })
+        ? getTrainingRecordFallbackSearch(event as RelatedEventRow)
+        : "";
 
     return applyAuthCookies(
       NextResponse.json({
@@ -1004,6 +1045,7 @@ export async function GET(
         redirectToPrimaryEventId: primaryEventForTrainingRecord ? asText(primaryEventForTrainingRecord.id) : "",
         redirectToPrimaryEventName: primaryEventForTrainingRecord ? asText(primaryEventForTrainingRecord.name) : "",
         sourceTrainingEventId: primaryEventForTrainingRecord ? event.id : "",
+        redirectToEventsSearch: !primaryEventForTrainingRecord ? trainingRecordSearch : "",
         event,
         sessions: sessions || [],
         sps: [...(sps || [])],

@@ -174,10 +174,12 @@ export default function EventsPage() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const requestedView = new URLSearchParams(window.location.search).get("view");
+    const params = new URLSearchParams(window.location.search);
+    const requestedView = params.get("view");
     if (requestedView === "archive" || requestedView === "all" || requestedView === "current") {
       setView(requestedView);
     }
+    setSearchQuery(params.get("search") || "");
   }, []);
 
   useEffect(() => {

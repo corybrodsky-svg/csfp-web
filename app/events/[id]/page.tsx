@@ -327,6 +327,7 @@ type CommandCenterData = {
   redirectToPrimaryEventId?: string;
   redirectToPrimaryEventName?: string;
   sourceTrainingEventId?: string;
+  redirectToEventsSearch?: string;
   sessions: EventSessionRow[];
   sps: SPRow[];
   assignments: AssignmentRow[];
@@ -3842,6 +3843,7 @@ async function fetchCommandCenterData(eventId: string): Promise<CommandCenterDat
       redirectToPrimaryEventId: body?.redirectToPrimaryEventId || "",
       redirectToPrimaryEventName: body?.redirectToPrimaryEventName || "",
       sourceTrainingEventId: body?.sourceTrainingEventId || "",
+      redirectToEventsSearch: body?.redirectToEventsSearch || "",
       sessions: loadedSessions,
       sps: Array.isArray(body?.sps) ? [...body.sps].sort(sortSPs) : [],
       assignments: Array.isArray(body?.assignments) ? body.assignments : [],
@@ -10512,6 +10514,10 @@ Cory`;
     const result = await fetchCommandCenterData(id);
     if (result.redirectToPrimaryEventId && result.redirectToPrimaryEventId !== id) {
       router.replace(`/events/${encodeURIComponent(result.redirectToPrimaryEventId)}?trainingSource=${encodeURIComponent(result.sourceTrainingEventId || id)}`);
+      return;
+    }
+    if (result.redirectToEventsSearch) {
+      router.replace(`/events?search=${encodeURIComponent(result.redirectToEventsSearch)}&trainingSource=${encodeURIComponent(result.sourceTrainingEventId || id)}`);
       return;
     }
     setEvent(result.event);
@@ -18557,36 +18563,6 @@ Cory`;
                 </div>
               ))
             )}
-          </div>
-        </section>
-      </SiteShell>
-    );
-  }
-
-  if (isTrainingOnlyEvent) {
-    return (
-      <SiteShell
-        title="Training Supporting Record"
-        subtitle="Training records are embedded inside the primary Event Command Center."
-      >
-        <section style={cardStyle}>
-          <Link
-            href="/events"
-            style={{ display: "inline-flex", alignItems: "center", gap: "8px", color: "var(--cfsp-blue)", fontWeight: 900, textDecoration: "none" }}
-          >
-            <span aria-hidden="true">←</span>
-            <span>Back to Events</span>
-          </Link>
-          <div style={{ display: "grid", gap: "10px", marginTop: "16px" }}>
-            <div style={statLabel}>Embedded training record</div>
-            <h1 style={{ margin: 0, color: "var(--cfsp-text)", fontSize: "28px" }}>{event?.name || "Training record"}</h1>
-            <p style={{ margin: 0, color: "var(--cfsp-text-muted)", fontWeight: 750, lineHeight: 1.5, maxWidth: "760px" }}>
-              This record is preserved for history, attendance, materials, recordings, and training metadata. It is no longer a standalone Training Command Center.
-              Open the matching primary simulation event to manage Training & Prep from the centralized command surface.
-            </p>
-            <div className="cfsp-alert cfsp-alert-info">
-              No primary event match was available for automatic redirect. Use the Event Browser to open the actual simulation/course event.
-            </div>
           </div>
         </section>
       </SiteShell>
