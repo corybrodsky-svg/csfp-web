@@ -28349,7 +28349,7 @@ Cory`;
         .cfsp-floating-command-chest {
           position: fixed !important;
           right: 24px !important;
-          bottom: 24px !important;
+          top: 155px !important;
           z-index: 9999 !important;
           width: min(390px, calc(100vw - 32px));
           font-family: inherit;
