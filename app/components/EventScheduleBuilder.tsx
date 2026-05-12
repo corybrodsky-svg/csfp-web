@@ -3070,7 +3070,7 @@ function buildSchedulePreviewData(args: {
               <div class="round-header">
                 <div>
                   <div class="round-kicker">Schedule rhythm</div>
-                  <h2>Operational cadence</h2>
+                  <h2>Day Rhythm</h2>
                 </div>
               </div>
               ${renderTimelineRail(timelineStripBlocks)}
