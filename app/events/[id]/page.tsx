@@ -4449,6 +4449,7 @@ export default function EventDetailPage() {
   const staffingDocInputRef = useRef<HTMLInputElement | null>(null);
   const feedbackTimeoutRef = useRef<number | null>(null);
   const hydratedConfirmationEmailOptionsRef = useRef("");
+  const scheduleRoundCountDebugRef = useRef("");
 
   const spsById = useMemo(() => {
     const next = new Map<string, SPRow>();
@@ -5286,7 +5287,11 @@ export default function EventDetailPage() {
         : 0,
     [scheduleBuilderDraftManualRoundOverride, scheduleBuilderDraftRoundCount]
   );
-  const effectiveRotationCountSource = useMemo(() => {
+  const metadataBasedRotationCount = useMemo(
+    () => parsePositiveInteger(trainingMetadata.schedule_round_count, 0),
+    [trainingMetadata.schedule_round_count]
+  );
+  const fallbackRotationCountSource = useMemo(() => {
     if (overrideRoundCount > 0) {
       return {
         rounds: overrideRoundCount,
@@ -5330,10 +5335,95 @@ export default function EventDetailPage() {
     scheduleBuilderAutoRoundCount,
     scheduleBuilderDraftRoomCapacity,
   ]);
+  const scheduleRoundCountResolution = useMemo(() => {
+    const scheduleStatus = asText(trainingMetadata.schedule_status).toLowerCase();
+    const hasDraftTiming = Boolean(scheduleBuilderPreviewDraft?.startTime);
+    const completedCandidate =
+      scheduleStatus === "complete" && hasDraftTiming
+        ? metadataBasedRotationCount || scheduleBuilderDraftRoundCount
+        : 0;
+    const draftCandidate =
+      !completedCandidate && hasDraftTiming
+        ? scheduleBuilderDraftRoundCount
+        : 0;
+    const generatedCandidate = allRotationRounds.length;
+    const fallbackCandidate = fallbackRotationCountSource.rounds;
+
+    const candidates: Array<{ source: string; rounds: number; label: string }> = [];
+    if (completedCandidate > 0) {
+      candidates.push({
+        source: "completed_snapshot",
+        rounds: completedCandidate,
+        label: "Using completed schedule snapshot",
+      });
+    } else if (draftCandidate > 0) {
+      candidates.push({
+        source: "saved_draft",
+        rounds: draftCandidate,
+        label: "Using saved builder draft round count",
+      });
+    }
+
+    if (generatedCandidate > 0) {
+      candidates.push({
+        source: "generated",
+        rounds: generatedCandidate,
+        label: "Using generated schedule rounds from current schedule state",
+      });
+    }
+
+    if (fallbackCandidate > 0) {
+      candidates.push({
+        source: "fallback",
+        rounds: fallbackCandidate,
+        label: fallbackRotationCountSource.label,
+      });
+    }
+
+    let resolved = 0;
+    let sourceLabel = "fetched_rounds";
+    let source: "completed_snapshot" | "saved_draft" | "generated" | "fallback" = "fallback";
+    if (completedCandidate > 0) {
+      resolved = completedCandidate;
+      source = "completed_snapshot";
+      sourceLabel = "Completed schedule snapshot";
+    } else if (draftCandidate > 0) {
+      resolved = draftCandidate;
+      source = "saved_draft";
+      sourceLabel = "Saved in-progress builder draft";
+    } else if (generatedCandidate > 0) {
+      resolved = generatedCandidate;
+      source = "generated";
+      sourceLabel = "Generated schedule state";
+    } else if (fallbackCandidate > 0) {
+      resolved = fallbackCandidate;
+      source = "fallback";
+      sourceLabel = fallbackRotationCountSource.label;
+    }
+
+    const nonZeroValues = Array.from(new Set(candidates.map((candidate) => candidate.rounds).filter((value) => value > 0)));
+    const hasConflict = nonZeroValues.length > 1;
+
+    return {
+      rounds: resolved,
+      source,
+      sourceLabel,
+      label: sourceLabel,
+      hasConflict,
+      fallback: fallbackRotationCountSource,
+      candidates,
+    };
+  }, [
+    allRotationRounds.length,
+    fallbackRotationCountSource,
+    metadataBasedRotationCount,
+    scheduleBuilderDraftRoundCount,
+    scheduleBuilderPreviewDraft,
+    trainingMetadata.schedule_status,
+  ]);
   const activeRotationCount = useMemo(
-    () =>
-      effectiveRotationCountSource.rounds,
-    [effectiveRotationCountSource.rounds]
+    () => Math.max(scheduleRoundCountResolution.rounds, 0),
+    [scheduleRoundCountResolution.rounds]
   );
   const rotationRounds = useMemo(
     () => {
@@ -5358,6 +5448,35 @@ export default function EventDetailPage() {
       trainingMetadata.schedule_status,
     ]
   );
+  useEffect(() => {
+    if (!scheduleRoundCountResolution.hasConflict || !scheduleRoundCountResolution.candidates.length) return;
+
+    const signature = `${scheduleRoundCountResolution.candidates
+      .map((candidate) => `${candidate.source}:${candidate.rounds}`)
+      .sort()
+      .join("|")}|resolved=${scheduleRoundCountResolution.rounds}:${scheduleRoundCountResolution.source}`;
+    if (scheduleRoundCountDebugRef.current === signature) return;
+
+    scheduleRoundCountDebugRef.current = signature;
+    console.warn(
+      `Round count mismatch detected from multiple sources: ${signature}.`
+    );
+    if (typeof window !== "undefined") {
+      window.console.info(
+        "Loaded round count sources:",
+        scheduleRoundCountResolution.candidates.map((candidate) => ({
+          source: candidate.source,
+          rounds: candidate.rounds,
+          label: candidate.label,
+        }))
+      );
+    }
+  }, [
+    scheduleRoundCountResolution.hasConflict,
+    scheduleRoundCountResolution.rounds,
+    scheduleRoundCountResolution.source,
+    scheduleRoundCountResolution.candidates,
+  ]);
   useEffect(() => {
     if (!id) return;
     const hydrationKey = `${id}:${trainingMetadata.include_backups_in_email}:${trainingMetadata.selected_hiring_sp_ids}`;
@@ -6520,12 +6639,6 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
   const confirmationEmailSentAt =
     asText(trainingMetadata.confirmation_email_sent_at) || asText(trainingMetadata.confirmation_email_sent_or_marked_at);
   const confirmationEmailSent = Boolean(confirmationEmailSentAt);
-  const staffingEmailWorkflowDetail = [
-    hiringEmailSent ? "Hiring sent" : hiringEmailDrafted ? "Hiring drafted" : "",
-    confirmationEmailSent ? "Confirmation sent" : confirmationEmailDrafted ? "Confirmation drafted" : "",
-  ]
-    .filter(Boolean)
-    .join(" · ");
   const facultyReadinessComplete = Boolean(
     trainingFacultyText || facultyEmailText || facultyPhoneText || trainingMetadata.sim_contact || hasFaculty
   );
@@ -6548,46 +6661,35 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       ? "Schedule In Progress"
       : "Schedule Not Started";
   const staffingCoverageMet = staffingRelevant && (needed > 0 ? confirmedCount >= needed : selectedStaffingCount > 0);
-  const staffingCommunicationComplete = hiringEmailSent && confirmationEmailSent;
-  const staffingCommandCenterCanCollapse =
-    staffingRelevant && staffingCoverageMet && staffingCommunicationComplete;
-  useEffect(() => {
-    if (typeof window === "undefined" || !id) return;
-
-    const storageKey = getFacultyContactPanelStorageKey(id);
-    const savedState = window.localStorage.getItem(storageKey);
-    if (savedState === "expanded") {
-      setContactPanelExpanded(true);
-      return;
-    }
-    if (savedState === "collapsed") {
-      setContactPanelExpanded(false);
-      return;
-    }
-    setContactPanelExpanded(!facultyReadinessComplete);
-  }, [facultyReadinessComplete, id]);
-  useEffect(() => {
-    if (typeof window === "undefined" || !id) return;
-
-    const storageKey = getStaffingCommandCenterStorageKey(id);
-    const savedState = window.localStorage.getItem(storageKey);
-    if (savedState === "expanded") {
-      setStaffingCommandCenterExpanded(true);
-      return;
-    }
-    if (savedState === "collapsed") {
-      setStaffingCommandCenterExpanded(false);
-      return;
-    }
-    setStaffingCommandCenterExpanded(commandCenterMode === "planning" ? !staffingCommandCenterCanCollapse : false);
-  }, [commandCenterMode, id, staffingCommandCenterCanCollapse]);
-  useEffect(() => {
-    if (typeof window === "undefined" || !id) return;
-
-    const savedState = window.localStorage.getItem(getCommandFileCabinetStorageKey(id));
-    if (savedState === "expanded") setCommandFileCabinetExpanded(true);
-    if (savedState === "collapsed") setCommandFileCabinetExpanded(false);
-  }, [id]);
+  const hasUnfilledPrimarySlots = staffingRelevant && needed > 0 && confirmedCount < needed;
+  const hasUnconfirmedSelectedPrimaryAssignments = assignments.some(
+    (assignment) =>
+      getAssignmentStatus(assignment) === "invited" || getAssignmentStatus(assignment) === "contacted"
+  );
+  let hiringEmailNeededByLifecycle = staffingRelevant && hasUnfilledPrimarySlots;
+  let confirmationEmailNeededByLifecycle = staffingRelevant && staffingCoverageMet && hasUnconfirmedSelectedPrimaryAssignments;
+  let hiringEmailLifecycleComplete = !hiringEmailNeededByLifecycle || hiringEmailSent;
+  let confirmationEmailLifecycleComplete = !confirmationEmailNeededByLifecycle || confirmationEmailSent;
+  let staffingEmailWorkflowDetail = [
+    hiringEmailSent
+      ? "Hiring sent"
+      : hiringEmailNeededByLifecycle
+        ? hiringEmailDrafted
+          ? "Hiring drafted"
+          : "Hiring not sent"
+        : "Hiring not needed",
+    confirmationEmailSent
+      ? "Confirmation sent"
+      : confirmationEmailNeededByLifecycle
+        ? confirmationEmailDrafted
+          ? "Confirmation drafted"
+          : "Confirmation pending"
+        : "Confirmation not needed",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  let staffingCommunicationComplete = staffingRelevant && hiringEmailLifecycleComplete && confirmationEmailLifecycleComplete;
+  let staffingCommandCenterCanCollapse = staffingRelevant && staffingCoverageMet && staffingCommunicationComplete;
   const outreachProgressLabel = assignments.some(
     (assignment) =>
       Boolean(assignment.last_contacted_at) || ["contacted", "confirmed", "declined"].includes(getAssignmentStatus(assignment))
@@ -6942,6 +7044,72 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       (trainingAttendanceReady &&
         normalEventTrainingDateHasEndedOrPassed &&
         normalEventTrainingArtifactsSatisfied));
+  if (normalEventTrainingComplete && staffingCoverageMet) {
+    hiringEmailNeededByLifecycle = false;
+    confirmationEmailNeededByLifecycle = false;
+    hiringEmailLifecycleComplete = true;
+    confirmationEmailLifecycleComplete = true;
+  } else if (!normalEventTrainingComplete && staffingCoverageMet) {
+    confirmationEmailNeededByLifecycle = hasUnconfirmedSelectedPrimaryAssignments;
+    confirmationEmailLifecycleComplete = confirmationEmailNeededByLifecycle ? confirmationEmailSent : true;
+  }
+  staffingEmailWorkflowDetail = [
+    hiringEmailSent
+      ? "Hiring sent"
+      : hiringEmailNeededByLifecycle
+        ? hiringEmailDrafted
+          ? "Hiring drafted"
+          : "Hiring not sent"
+        : "Hiring not needed",
+    confirmationEmailSent
+      ? "Confirmation sent"
+      : confirmationEmailNeededByLifecycle
+        ? confirmationEmailDrafted
+          ? "Confirmation drafted"
+          : "Confirmation pending"
+        : "Confirmation not needed",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  staffingCommunicationComplete = staffingRelevant && hiringEmailLifecycleComplete && confirmationEmailLifecycleComplete;
+  staffingCommandCenterCanCollapse = staffingRelevant && staffingCoverageMet && staffingCommunicationComplete;
+  useEffect(() => {
+    if (typeof window === "undefined" || !id) return;
+
+    const storageKey = getFacultyContactPanelStorageKey(id);
+    const savedState = window.localStorage.getItem(storageKey);
+    if (savedState === "expanded") {
+      setContactPanelExpanded(true);
+      return;
+    }
+    if (savedState === "collapsed") {
+      setContactPanelExpanded(false);
+      return;
+    }
+    setContactPanelExpanded(!facultyReadinessComplete);
+  }, [facultyReadinessComplete, id]);
+  useEffect(() => {
+    if (typeof window === "undefined" || !id) return;
+
+    const storageKey = getStaffingCommandCenterStorageKey(id);
+    const savedState = window.localStorage.getItem(storageKey);
+    if (savedState === "expanded") {
+      setStaffingCommandCenterExpanded(true);
+      return;
+    }
+    if (savedState === "collapsed") {
+      setStaffingCommandCenterExpanded(false);
+      return;
+    }
+    setStaffingCommandCenterExpanded(commandCenterMode === "planning" ? !staffingCommandCenterCanCollapse : false);
+  }, [commandCenterMode, id, staffingCommandCenterCanCollapse]);
+  useEffect(() => {
+    if (typeof window === "undefined" || !id) return;
+
+    const savedState = window.localStorage.getItem(getCommandFileCabinetStorageKey(id));
+    if (savedState === "expanded") setCommandFileCabinetExpanded(true);
+    if (savedState === "collapsed") setCommandFileCabinetExpanded(false);
+  }, [id]);
   const normalEventTrainingAccessReady = !trainingZoomRequired || Boolean(normalEventTrainingLink);
   const normalEventTrainingReady =
     trainingNotRequired ||
@@ -9417,7 +9585,7 @@ Cory`;
         ? "Needs Action"
         : "Not Started";
   const emailReadinessStatus: WorkflowReadinessStatus =
-    hiringEmailSent && confirmationEmailSent
+    hiringEmailLifecycleComplete && confirmationEmailLifecycleComplete
       ? "Ready"
       : outreachProgressLabel === "In progress" || outreachProgressLabel === "Draft opened"
         ? "In Progress"
@@ -9945,16 +10113,30 @@ Cory`;
           },
         ]
       : []),
-    ...(staffingRelevant
+        ...(staffingRelevant
       ? [
           {
             key: "hiring_email",
             label: "Hiring email",
-            value: hiringEmailSent ? "Hiring Email Sent" : hiringEmailDrafted ? "Hiring draft ready" : "Hiring not sent",
-            tone: (hiringEmailSent ? "ready" : hiringEmailDrafted ? "info" : "attention") as OperationalStatusTone,
-            detail: hiringEmailSent ? hiringEmailSentAt || "Persisted in event metadata." : "Launch from the staffing workflow when outreach is ready.",
-            readinessActions: hiringEmailSent
-              ? [{ label: "Open Hiring Email", onClick: () => setShowEmailDraft(true) }]
+            value: hiringEmailLifecycleComplete
+              ? "Hiring complete"
+              : hiringEmailNeededByLifecycle
+                ? hiringEmailSent
+                  ? "Hiring Email Sent"
+                  : hiringEmailDrafted
+                    ? "Hiring draft ready"
+                    : "Hiring not sent"
+                : "Hiring not needed",
+            tone: (hiringEmailLifecycleComplete || !hiringEmailNeededByLifecycle ? "ready" : hiringEmailDrafted ? "info" : "attention") as OperationalStatusTone,
+            detail: hiringEmailNeededByLifecycle
+              ? hiringEmailSent
+                ? hiringEmailSentAt || "Persisted in event metadata."
+                : hiringEmailDrafted
+                  ? "Hiring draft has been prepared. Send when recruitment is still open."
+                  : "Open the staffing workflow to recruit remaining SP slots."
+              : "No further hiring outreach is needed.",
+            readinessActions: hiringEmailLifecycleComplete || !hiringEmailNeededByLifecycle
+              ? []
               : [
                   {
                     label: "Open Hiring Email",
@@ -9967,39 +10149,55 @@ Cory`;
                   },
                   { label: "Open Admin Controls", onClick: scrollToAdminTools },
                 ],
-            readinessHowToFix: "Send the hiring email to lock in staffing confirmation and readiness status.",
-            actions: hiringEmailSent ? null : (
-              <>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowEmailDraft(true);
-                    window.requestAnimationFrame(() => {
-                      document.getElementById("staffing-command-center")?.scrollIntoView({ behavior: "smooth", block: "start" });
-                    });
-                  }}
-                  style={{ ...buttonStyle, padding: "7px 10px" }}
-                >
-                  Open Hiring Email
-                </button>
-                <button
-                  type="button"
-                  onClick={scrollToAdminTools}
-                  style={{ ...buttonStyle, padding: "7px 10px" }}
-                >
-                  Open Admin Controls
-                </button>
-              </>
-            ),
+            readinessHowToFix: hiringEmailNeededByLifecycle
+              ? "Send the hiring email to fill remaining primary SP slots."
+              : "Hiring is complete or not required for this staffing state.",
+            actions: hiringEmailLifecycleComplete || !hiringEmailNeededByLifecycle
+              ? null
+              : (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowEmailDraft(true);
+                      window.requestAnimationFrame(() => {
+                        document.getElementById("staffing-command-center")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                      });
+                    }}
+                    style={{ ...buttonStyle, padding: "7px 10px" }}
+                  >
+                    Open Hiring Email
+                  </button>
+                  <button
+                    type="button"
+                    onClick={scrollToAdminTools}
+                    style={{ ...buttonStyle, padding: "7px 10px" }}
+                  >
+                    Open Admin Controls
+                  </button>
+                </>
+              ),
           },
           {
             key: "confirmation_email",
             label: "Confirmation",
-            value: confirmationEmailSent ? "Confirmation Sent" : confirmationEmailDrafted ? "Confirmation draft ready" : "Confirmation pending",
-            tone: (confirmationEmailSent ? "ready" : confirmationEmailDrafted ? "info" : "attention") as OperationalStatusTone,
-            detail: confirmationEmailSent ? confirmationEmailSentAt || "Persisted in event metadata." : "Use after primary SP assignments are confirmed.",
-            readinessActions: confirmationEmailSent
-              ? [{ label: "Open Confirmation", onClick: () => setShowConfirmationEmailPreview(true) }]
+            value: confirmationEmailLifecycleComplete
+              ? "Confirmation complete"
+              : confirmationEmailNeededByLifecycle
+                ? confirmationEmailSent
+                  ? "Confirmation Sent"
+                  : confirmationEmailDrafted
+                    ? "Confirmation draft ready"
+                    : "Confirmation pending"
+                : "Confirmation not needed",
+            tone: (confirmationEmailLifecycleComplete || !confirmationEmailNeededByLifecycle ? "ready" : confirmationEmailDrafted ? "info" : "attention") as OperationalStatusTone,
+            detail: confirmationEmailNeededByLifecycle
+              ? confirmationEmailSent
+                ? confirmationEmailSentAt || "Persisted in event metadata."
+                : "Use after primary SP assignments are confirmed and before event prep communications."
+              : "Confirmation is not needed after the staffing target is fully met and training is complete.",
+            readinessActions: confirmationEmailLifecycleComplete || !confirmationEmailNeededByLifecycle
+              ? []
               : [
                   {
                     label: "Open Confirmation",
@@ -10012,30 +10210,35 @@ Cory`;
                   },
                   { label: "Open Admin Controls", onClick: scrollToAdminTools },
                 ],
-            readinessHowToFix: "Send confirmation after staffing decisions are made and validated.",
-            actions: confirmationEmailSent ? null : (
-              <>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowConfirmationEmailPreview(true);
-                    window.requestAnimationFrame(() => {
-                      document.getElementById("staffing-command-center")?.scrollIntoView({ behavior: "smooth", block: "start" });
-                    });
-                  }}
-                  style={{ ...buttonStyle, padding: "7px 10px" }}
-                >
-                  Open Confirmation
-                </button>
-                <button
-                  type="button"
-                  onClick={scrollToAdminTools}
-                  style={{ ...buttonStyle, padding: "7px 10px" }}
-                >
-                  Open Admin Controls
-                </button>
-              </>
-            ),
+            readinessHowToFix: confirmationEmailNeededByLifecycle
+              ? "Send confirmation after staffing decisions are finalized."
+              : "This communication is complete or not needed for this event state.",
+            actions:
+              confirmationEmailLifecycleComplete || !confirmationEmailNeededByLifecycle
+                ? null
+                : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowConfirmationEmailPreview(true);
+                        window.requestAnimationFrame(() => {
+                          document.getElementById("staffing-command-center")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                        });
+                      }}
+                      style={{ ...buttonStyle, padding: "7px 10px" }}
+                    >
+                      Open Confirmation
+                    </button>
+                    <button
+                      type="button"
+                      onClick={scrollToAdminTools}
+                      style={{ ...buttonStyle, padding: "7px 10px" }}
+                    >
+                      Open Admin Controls
+                    </button>
+                  </>
+                ),
           },
         ]
       : []),
@@ -10419,7 +10622,7 @@ Cory`;
         : scheduleInProgress
           ? "The scheduling workspace has active builder progress saved for this event."
           : rotationRounds.length
-        ? `${effectiveRotationCountSource.label}. Rotation schedule is available for ${summaryTimeLabel}.`
+        ? `${scheduleRoundCountResolution.label}. Rotation schedule is available for ${summaryTimeLabel}.`
         : sessions.length
           ? `${sessions.length} structured session${sessions.length === 1 ? "" : "s"} exist, but rotation rounds still need QA.`
           : "Open the scheduling workspace to build or import the learner/SP flow.",
@@ -10429,9 +10632,14 @@ Cory`;
       id: "email",
       label: "Email / contact",
       status: emailReadinessStatus,
-      value: staffingEmailWorkflowDetail || outreachProgressLabel,
+      value:
+        !hiringEmailNeededByLifecycle && !confirmationEmailNeededByLifecycle
+          ? "Training + staffing communications complete"
+          : staffingEmailWorkflowDetail || outreachProgressLabel,
       explanation:
-        hiringEmailSent && confirmationEmailSent
+        !hiringEmailNeededByLifecycle && !confirmationEmailNeededByLifecycle
+          ? "Communication flow has passed staffing recruitment and training completion. Next step is Event Prep Email before event."
+          : hiringEmailSent && confirmationEmailSent
           ? "Hiring and confirmation emails are both marked sent."
           : hiringEmailSent || confirmationEmailSent
             ? "One staffing email workflow is complete. Send the remaining hiring or confirmation email to finish communications."
@@ -10440,17 +10648,19 @@ Cory`;
               : outreachProgressLabel === "Draft opened"
                 ? "A staffing email draft has been prepared, but the send step is still waiting for confirmation."
                 : "Hiring communication has not been finalized from this event page.",
-      actions: [
-        {
-          label: "Open Hiring Email",
-          onClick: () => {
-            setShowEmailDraft(true);
-            window.requestAnimationFrame(() => {
-              document.getElementById("staffing-command-center")?.scrollIntoView({ behavior: "smooth", block: "start" });
-            });
-          },
-        },
-      ],
+      actions: !hiringEmailNeededByLifecycle && !confirmationEmailNeededByLifecycle
+        ? []
+        : [
+            {
+              label: "Open Hiring Email",
+              onClick: () => {
+                setShowEmailDraft(true);
+                window.requestAnimationFrame(() => {
+                  document.getElementById("staffing-command-center")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                });
+              },
+            },
+          ],
     },
   ];
   const workflowGroups: WorkflowReadinessGroup[] = [
@@ -19643,7 +19853,7 @@ Cory`;
                       {[
                         { label: "Learners", value: effectiveLearnerCount > 0 ? String(effectiveLearnerCount) : "TBD", detail: "Current roster source" },
                         { label: "Rooms", value: effectiveRoomCount || "TBD", detail: "Operational room surface" },
-                        { label: "Rounds", value: activeRotationCount || 0, detail: effectiveRotationCountSource.label },
+                          { label: "Rounds", value: activeRotationCount || 0, detail: scheduleRoundCountResolution.label },
                         {
                           label: "Coverage",
                           value: needed > 0 ? `${confirmedCount}/${needed}` : `${confirmedCount}`,
@@ -20185,7 +20395,7 @@ Cory`;
 	                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(145px, 1fr))", gap: "9px" }}>
 	                        {[
 	                          { label: "Event time", value: summaryTimeLabel || "Time TBD", detail: eventDateMarkerValue || "Date TBD" },
-	                          { label: "Rounds", value: String(activeRotationCount || rotationRounds.length || 0), detail: planningLivePreviewNextBlock ? `Next: ${planningLivePreviewNextBlock.label}` : "No next block" },
+	                          { label: "Rounds", value: String(activeRotationCount || 0), detail: planningLivePreviewNextBlock ? `Next: ${planningLivePreviewNextBlock.label}` : "No next block" },
 	                          { label: "Rooms", value: String(effectiveRoomCount || selectedRoundRoomCount || 0), detail: hasRoomsBuilt ? "Room surface ready" : "Room plan pending" },
 	                          { label: "Learners", value: String(effectiveLearnerCount || learnerPlannerRosterCount || 0), detail: learnerAssignmentsIncomplete ? "Assignment review needed" : "Learner flow ready" },
 	                          { label: "SP coverage", value: needed > 0 ? `${confirmedCount}/${needed}` : `${confirmedCount}`, detail: shortageCount > 0 ? "Staffing gap" : "Coverage stable" },
