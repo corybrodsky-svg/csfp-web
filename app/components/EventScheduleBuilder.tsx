@@ -115,6 +115,19 @@ type GeneratedRound = {
   subBlocks: RoundSubBlock[];
 };
 
+type RoundGenerationValidation = {
+  generated: boolean;
+  expectedRounds: number;
+  generatedRounds: number;
+  generatedMinutes: number;
+  computedEndMinutes: number;
+  stoppedByWindow: boolean;
+  stoppedByRoundLimit: boolean;
+  invalid: boolean;
+  reason: string;
+  lastRoundEnd: number;
+};
+
 type ScheduledRoomSlot = GeneratedRoomSlot & {
   learnerLabels: string[];
   learnerIndexes: number[];
@@ -1628,6 +1641,7 @@ function calculateRoundTimingsWithBlocks(args: {
   encounterMinutes: number;
   dayBlocks: DayBlockConfig[];
   timingVisibility?: ScheduleTimingVisibility;
+  referenceEndMinutes?: number | null;
 }) {
   const recurringBlocks = args.dayBlocks.filter((block) => {
     const duration = sanitizeRecurringBlockMinutes(block.durationMinutes);
@@ -1641,8 +1655,20 @@ function calculateRoundTimingsWithBlocks(args: {
 
   const rounds: GeneratedRound[] = [];
   let roundStart = args.startMinutes;
+  const validation: RoundGenerationValidation = {
+    generated: false,
+    expectedRounds: Math.max(args.rounds, 0),
+    generatedRounds: 0,
+    generatedMinutes: 0,
+    computedEndMinutes: 0,
+    stoppedByWindow: false,
+    stoppedByRoundLimit: false,
+    invalid: false,
+    reason: "",
+    lastRoundEnd: args.startMinutes,
+  };
 
-  for (let roundIndex = 0; roundIndex < args.rounds; roundIndex += 1) {
+  for (let roundIndex = 0; roundIndex < validation.expectedRounds; roundIndex += 1) {
     const roundNumber = roundIndex + 1;
     const subBlocks: RoundSubBlock[] = [];
     let current = roundStart;
@@ -1675,6 +1701,13 @@ function calculateRoundTimingsWithBlocks(args: {
     const configuredRoundLength = current - roundStart;
     configuredLengthValues.push(configuredRoundLength);
     const roundTargetLength = Math.max(configuredRoundLength, 1);
+    const candidateRoundEnd = roundStart + roundTargetLength;
+    if (args.referenceEndMinutes !== null && args.referenceEndMinutes !== undefined && candidateRoundEnd > args.referenceEndMinutes) {
+      validation.stoppedByWindow = true;
+      validation.invalid = true;
+      validation.reason = `Cannot fit round ${roundNumber} inside event end window (${formatTimeWithDayOffset(candidateRoundEnd)} > ${formatTimeWithDayOffset(args.referenceEndMinutes)}).`;
+      break;
+    }
 
     const activeCases = (args.cases || []).filter((caseDef) => caseDef.active);
     const examSlots: GeneratedRoomSlot[] = Array.from({ length: args.examRoomCount }, (_, index) => {
@@ -1701,22 +1734,59 @@ function calculateRoundTimingsWithBlocks(args: {
     rounds.push({
       round: roundNumber,
       start: roundStart,
-      end: roundStart + roundTargetLength,
+      end: candidateRoundEnd,
       roomSlots: [...examSlots, ...flexSlots],
       subBlocks,
     });
 
-    roundStart += roundTargetLength;
+    roundStart = candidateRoundEnd;
+    validation.generatedRounds += 1;
+  }
+
+  if (validation.generatedRounds < validation.expectedRounds && validation.expectedRounds > 0 && !validation.invalid) {
+    validation.stoppedByRoundLimit = true;
+    validation.invalid = true;
+    validation.reason = "Schedule round generation reached configured round limit with an incomplete pass.";
+  }
+
+  if (validation.generatedRounds === validation.expectedRounds) {
+    validation.stoppedByRoundLimit = false;
   }
 
   const configuredLength = configuredLengthValues.length ? Math.max(...configuredLengthValues, 0) : 0;
   const roundLength = Math.max(configuredLength, 1);
+  validation.generated = true;
+  validation.generatedMinutes = rounds.reduce((total, round) => total + Math.max(0, getBlockDurationMinutes(round.start, round.end)), 0);
+  validation.computedEndMinutes = rounds.length ? rounds[rounds.length - 1].end : args.startMinutes;
+  validation.lastRoundEnd = validation.computedEndMinutes;
+
+  if (typeof window !== "undefined") {
+    if (validation.invalid) {
+      window.console.warn("Schedule generation validation failed", {
+        expectedRounds: validation.expectedRounds,
+        generatedRounds: validation.generatedRounds,
+        generatedMinutes: validation.generatedMinutes,
+        computedEndMinutes: validation.computedEndMinutes,
+        stoppedByWindow: validation.stoppedByWindow,
+        stoppedByRoundLimit: validation.stoppedByRoundLimit,
+        reason: validation.reason,
+      });
+    } else {
+      window.console.info("Schedule generation summary", {
+        computedRounds: validation.generatedRounds,
+        generatedMinutes: validation.generatedMinutes,
+        computedEndMinutes: validation.computedEndMinutes,
+        expectedRounds: validation.expectedRounds,
+      });
+    }
+  }
+
   const overrunMinutes =
     args.sessionLengthMinutes > 0 && args.sessionLengthMinutes <= MAX_IMPORTED_ROUND_TARGET_MINUTES
       ? Math.max(configuredLength - args.sessionLengthMinutes, 0)
       : 0;
 
-  return { rounds, roundLength, configuredLength, overrunMinutes };
+  return { rounds, roundLength, configuredLength, overrunMinutes, validation };
 }
 
 function getTimingDayBlocksByVisibility(
@@ -1764,7 +1834,7 @@ function buildScheduleTimeline(args: {
   const timeline: TimelineBlock[] = [];
   const rotationStart = args.parsedStartMinutes;
   const rotationEnd = args.rounds.length ? args.rounds[args.rounds.length - 1].end : rotationStart;
-  const normalizedScheduleEndReference = Math.max(rotationEnd, args.referenceEndMinutes ?? rotationEnd);
+  const normalizedScheduleEndReference = args.referenceEndMinutes ?? rotationEnd;
   const normalizeTimelineClock = (minutes: number | null) =>
     normalizeClockMinutesForSchedule(minutes, rotationStart, normalizedScheduleEndReference);
   const staffArrivalMinutes = normalizeTimelineClock(args.parsedStaffArrival);
@@ -1890,28 +1960,43 @@ function buildScheduleTimeline(args: {
 
   if (args.afterRotationDayBlocks.length) {
     let current = rotationEnd;
-    args.afterRotationDayBlocks.forEach((block) => {
+    const referenceEnd = args.referenceEndMinutes;
+    for (const block of args.afterRotationDayBlocks) {
       const minutes = parseNumber(block.durationMinutes, 0);
+      const blockEnd = current + minutes;
+      const visibleEnd = referenceEnd !== null && referenceEnd !== undefined ? Math.min(blockEnd, referenceEnd) : blockEnd;
+      if (visibleEnd <= current) {
+        break;
+      }
       timeline.push({
         label: asText(block.label) || getDefaultDayBlockLabel(block.type),
         start: current,
-        end: current + minutes,
+        end: visibleEnd,
         detail: `${minutes} minutes`,
         tone: getDayBlockTone(block.type),
         visibleTo: block.visibleTo,
       });
-      current += minutes;
-    });
+      current = visibleEnd;
+      if (referenceEnd !== null && referenceEnd !== undefined && current >= referenceEnd) {
+        break;
+      }
+    }
   }
 
   args.specificTimeDayBlocks.forEach((block) => {
     const start = normalizeTimelineClock(toMinutes(block.specificTime));
     const minutes = parseNumber(block.durationMinutes, 0);
     if (start === null || minutes <= 0) return;
+    const blockEnd = start + minutes;
+    const visibleEnd =
+      args.referenceEndMinutes !== null && args.referenceEndMinutes !== undefined
+        ? Math.min(blockEnd, args.referenceEndMinutes)
+        : blockEnd;
+    if (visibleEnd <= start) return;
     timeline.push({
       label: asText(block.label) || getDefaultDayBlockLabel(block.type),
       start,
-      end: start + minutes,
+      end: visibleEnd,
       detail: `${minutes} minutes`,
       tone: getDayBlockTone(block.type),
       visibleTo: block.visibleTo,
@@ -3784,18 +3869,30 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
 
   const generated = useMemo(() => {
     if (parsedStartMinutes === null) {
-      return {
-        rounds: [] as GeneratedRound[],
-        roundLength: 0,
-        configuredLength: 0,
-        overrunMinutes: 0,
-        rotationStart: 0,
-        rotationEnd: 0,
-        timeline: [] as TimelineBlock[],
-      };
-    }
+    return {
+      rounds: [] as GeneratedRound[],
+      roundLength: 0,
+      configuredLength: 0,
+      overrunMinutes: 0,
+      rotationStart: 0,
+      rotationEnd: 0,
+      timeline: [] as TimelineBlock[],
+      validation: {
+        generated: false,
+        expectedRounds: 0,
+        generatedRounds: 0,
+        generatedMinutes: 0,
+        computedEndMinutes: 0,
+        stoppedByWindow: false,
+        stoppedByRoundLimit: false,
+        invalid: false,
+        reason: "Start time not available.",
+        lastRoundEnd: 0,
+      } as RoundGenerationValidation,
+    };
+  }
 
-    const { rounds, roundLength, configuredLength, overrunMinutes } =
+    const { rounds, roundLength, configuredLength, overrunMinutes, validation } =
       calculateRoundTimingsWithBlocks({
       startMinutes: parsedStartMinutes,
       rounds: effectiveRoundCount,
@@ -3808,6 +3905,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       encounterMinutes: parsedEncounter,
       dayBlocks: normalizedDayBlocks,
       timingVisibility,
+      referenceEndMinutes: normalizedReferenceEndMinutes,
     });
     const { rotationStart, rotationEnd, timeline } = buildScheduleTimeline({
       parsedStartMinutes,
@@ -3833,6 +3931,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       rotationStart,
       rotationEnd,
       timeline,
+      validation,
     };
   }, [
     activeScheduleCases,
@@ -3877,6 +3976,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   }, [generated.configuredLength]);
   const timingValidationMessages = useMemo(() => {
     const messages: string[] = [];
+    if (generated.validation.invalid) {
+      const details = generated.validation.reason ? ` ${generated.validation.reason}` : "";
+      messages.push(`Schedule generation failed — invalid timing expansion detected.${details}`);
+    }
     if (asText(startTime) && parsedStartMinutes === null) {
       messages.push("Start time could not be read. The builder will wait for a valid time before generating rounds.");
     }
@@ -3928,6 +4031,8 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     startTime,
     timeSource.endTime,
     timingVisibility,
+    generated.validation.invalid,
+    generated.validation.reason,
   ]);
 
   const learnerRoster = useMemo(

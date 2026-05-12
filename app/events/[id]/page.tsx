@@ -3286,9 +3286,12 @@ function buildRotationRoundsFromScheduleDraft(
   draft: ScheduleBuilderPreviewDraft | null,
   roundCount: number,
   dateText: string | null | undefined,
+  endTimeText?: string | null,
   fallbackYear?: number | null
 ) {
   const startMinutes = parseTimeToMinutes(draft?.startTime);
+  const normalizedEndMinutes = parseTimeToMinutes(endTimeText);
+  const normalizedEnd = normalizedEndMinutes === null || startMinutes === null ? null : normalizeEndMinutesForRange(startMinutes, normalizedEndMinutes);
   if (!draft || startMinutes === null || roundCount <= 0) return [] as RotationRound[];
 
   const encounterMinutes = Math.max(1, parsePositiveInteger(draft.encounterMinutes, 20));
@@ -3306,27 +3309,36 @@ function buildRotationRoundsFromScheduleDraft(
   const sessionDate = normalizeLooseDateToIso(dateText, fallbackYear) || asText(dateText) || null;
   let cursor = startMinutes;
 
-  return Array.from({ length: roundCount }, (_, index) => {
-    const roundNumber = index + 1;
-    const recurringMinutes = recurringBlocks.reduce((sum, block) => {
-      const placement = asText(block.placement).toLowerCase();
-      if (placement === "after_every_x_rotations") {
-        const interval = Math.max(1, parsePositiveInteger(block.placementInterval, 2));
-        if (roundNumber % interval !== 0) return sum;
+  return (() => {
+    const rounds: RotationRound[] = [];
+
+    for (let index = 0; index < roundCount; index += 1) {
+      const roundNumber = index + 1;
+      const recurringMinutes = recurringBlocks.reduce((sum, block) => {
+        const placement = asText(block.placement).toLowerCase();
+        if (placement === "after_every_x_rotations") {
+          const interval = Math.max(1, parsePositiveInteger(block.placementInterval, 2));
+          if (roundNumber % interval !== 0) return sum;
+        }
+        return sum + parsePositiveInteger(block.durationMinutes, 0);
+      }, 0);
+      const duration = Math.max(1, encounterMinutes + recurringMinutes);
+      const roundEnd = cursor + duration;
+      if (normalizedEnd !== null && roundEnd > normalizedEnd) {
+        return rounds;
       }
-      return sum + parsePositiveInteger(block.durationMinutes, 0);
-    }, 0);
-    const duration = Math.max(1, encounterMinutes + recurringMinutes);
-    const round: RotationRound = {
-      key: `completed-snapshot-round-${roundNumber}`,
-      session_date: sessionDate,
-      start_time: formatDisplayTimeFromMinutes(cursor),
-      end_time: formatDisplayTimeFromMinutes(cursor + duration),
-      rooms: roomNames,
-    };
-    cursor += duration;
-    return round;
-  });
+      const round: RotationRound = {
+        key: `completed-snapshot-round-${roundNumber}`,
+        session_date: sessionDate,
+        start_time: formatDisplayTimeFromMinutes(cursor),
+        end_time: formatDisplayTimeFromMinutes(roundEnd),
+        rooms: roomNames,
+      };
+      rounds.push(round);
+      cursor += duration;
+    }
+    return rounds;
+  })();
 }
 
 function formatRotationRoundLabel(
@@ -5439,6 +5451,9 @@ export default function EventDetailPage() {
     () => Math.max(scheduleRoundCountResolution.rounds, 0),
     [scheduleRoundCountResolution.rounds]
   );
+  const eventEndTimeText = asText(trainingMetadata.event_end_time);
+  const lastSessionEndTimeText = asText(sessions[sessions.length - 1]?.end_time);
+  const resolvedRotationDraftEndText = eventEndTimeText || lastSessionEndTimeText;
   const rotationRounds = useMemo(
     () => {
       if (asText(trainingMetadata.schedule_status).toLowerCase() === "complete" && scheduleBuilderPreviewDraft?.startTime) {
@@ -5446,6 +5461,7 @@ export default function EventDetailPage() {
           scheduleBuilderPreviewDraft,
           activeRotationCount,
           event?.date_text || sessions[0]?.session_date,
+          resolvedRotationDraftEndText,
           importedYearHint
         );
         if (snapshotRounds.length) return snapshotRounds;
@@ -5460,6 +5476,7 @@ export default function EventDetailPage() {
       scheduleBuilderPreviewDraft,
       sessions,
       trainingMetadata.schedule_status,
+      resolvedRotationDraftEndText,
     ]
   );
   useEffect(() => {
