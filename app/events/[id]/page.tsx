@@ -28556,7 +28556,73 @@ Cory`;
       {typeof document !== "undefined"
         ? createPortal(
             (
-              <details id="cfsp-floating-command-chest" className="cfsp-floating-command-chest">
+              
+      <style>{`
+        #simulation-command-file-cabinet,
+        #simulation-command-file-cabinet * {
+          text-shadow: none !important;
+        }
+
+        #simulation-command-file-cabinet {
+          background:
+            radial-gradient(circle at 18% 0%, rgba(20,184,166,0.14), transparent 32%),
+            radial-gradient(circle at 85% 12%, rgba(132,204,22,0.12), transparent 30%),
+            linear-gradient(135deg, rgba(255,255,255,0.98), rgba(236,253,245,0.96)) !important;
+          color: #12324a !important;
+          border: 1px solid rgba(20,184,166,0.28) !important;
+          box-shadow: 0 18px 42px rgba(15,91,120,0.12) !important;
+        }
+
+        #simulation-command-file-cabinet > *,
+        #simulation-command-file-cabinet div {
+          background-color: transparent;
+        }
+
+        #simulation-command-file-cabinet [style*="background"] {
+          background:
+            linear-gradient(135deg, rgba(255,255,255,0.92), rgba(240,253,250,0.86)) !important;
+          color: #12324a !important;
+          border-color: rgba(20,184,166,0.22) !important;
+          box-shadow: 0 12px 26px rgba(15,91,120,0.10) !important;
+        }
+
+        #simulation-command-file-cabinet h1,
+        #simulation-command-file-cabinet h2,
+        #simulation-command-file-cabinet h3,
+        #simulation-command-file-cabinet strong,
+        #simulation-command-file-cabinet span,
+        #simulation-command-file-cabinet p {
+          color: #12324a !important;
+        }
+
+        #simulation-command-file-cabinet button {
+          background: linear-gradient(135deg, #145b96, #11806f) !important;
+          color: white !important;
+          border: 1px solid rgba(20,184,166,0.35) !important;
+          box-shadow: 0 10px 22px rgba(20,91,150,0.16) !important;
+        }
+
+        #simulation-command-file-cabinet button:disabled {
+          background: rgba(226,232,240,0.8) !important;
+          color: #64748b !important;
+        }
+
+        .cfsp-floating-command-chest {
+          width: min(390px, calc(100vw - 32px)) !important;
+        }
+
+        .cfsp-chest-summary {
+          width: min(390px, calc(100vw - 32px)) !important;
+          min-height: 78px !important;
+          justify-content: flex-start !important;
+        }
+
+        .cfsp-floating-command-chest:not([open]) .cfsp-chest-title {
+          display: grid !important;
+        }
+      `}</style>
+
+<details id="cfsp-floating-command-chest" className="cfsp-floating-command-chest">
                       <summary className="cfsp-chest-summary">
                         <div className="cfsp-chest-box" aria-hidden="true" />
                         <div className="cfsp-chest-title">
