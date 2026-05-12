@@ -28383,16 +28383,19 @@ Cory`;
 
         .cfsp-floating-command-chest {
           position: fixed !important;
-          right: 24px !important;
-          top: 155px !important;
+          right: 28px !important;
+          top: 128px !important;
           z-index: 9999 !important;
-          width: min(390px, calc(100vw - 32px));
+          width: auto;
           font-family: inherit;
         }
 
         .cfsp-chest-summary {
           list-style: none;
           cursor: pointer;
+          width: 74px;
+          min-height: 66px;
+          justify-content: center;
           border-radius: 24px;
           border: 1px solid rgba(126, 87, 194, 0.35);
           background:
@@ -28455,6 +28458,15 @@ Cory`;
           border-radius: 999px;
           background: rgba(250, 204, 21, 0.95);
           box-shadow: 0 0 14px rgba(250, 204, 21, 0.8);
+        }
+
+        .cfsp-floating-command-chest[open] .cfsp-chest-summary {
+          width: min(390px, calc(100vw - 32px));
+          justify-content: flex-start;
+        }
+
+        .cfsp-floating-command-chest:not([open]) .cfsp-chest-title {
+          display: none;
         }
 
         .cfsp-floating-command-chest[open] .cfsp-chest-box::before {
