@@ -1532,6 +1532,10 @@ function isPrimaryScheduleWideTimelineBlock(block: TimelineBlock) {
 function filterRoundsForView(rounds: ScheduledRound[], viewMode: ScheduleBuilderViewMode) {
   return rounds.map((round) => ({
     ...round,
+    roomSlots:
+      viewMode === "student"
+        ? round.roomSlots.filter((slot) => slot.learnerLabels.length > 0)
+        : round.roomSlots,
     subBlocks: round.subBlocks.filter((block) =>
       isDayBlockVisibleToView(block.visibleTo || "both", viewMode) && !isFillerTimingLabel(block.label)
     ),
@@ -2012,9 +2016,9 @@ function attachLearners(rounds: GeneratedRound[], learnerRoster: string[], group
 
   if (caseCount > 1 && activeCaseSlots.length) {
     const activeRoomCount = activeCaseSlots.length;
+    const groupCount = learnerGroups.length;
     return rounds.map((round, roundIndex) => {
-      const waveIndex = Math.floor(roundIndex / caseCount);
-      const rotationIndex = roundIndex % caseCount;
+      const rotationIndex = roundIndex % Math.max(caseCount, groupCount, 1);
       return {
         ...round,
         roomSlots: round.roomSlots.map((slot) => {
@@ -2022,8 +2026,14 @@ function attachLearners(rounds: GeneratedRound[], learnerRoster: string[], group
             return { ...slot, learnerIndexes: [], learnerLabels: [] };
           }
           const caseSlotIndex = Math.max(0, slot.caseIndex ?? activeCaseSlots.findIndex((candidate) => candidate.roomName === slot.roomName));
-          const initialGroupOffset = ((caseSlotIndex - rotationIndex) % activeRoomCount + activeRoomCount) % activeRoomCount;
-          const group = learnerGroups[waveIndex * activeRoomCount + initialGroupOffset];
+          let groupIndex: number | null = null;
+          if (groupCount >= activeRoomCount) {
+            groupIndex = (rotationIndex + caseSlotIndex) % groupCount;
+          } else {
+            const candidateGroup = ((caseSlotIndex - rotationIndex) % activeRoomCount + activeRoomCount) % activeRoomCount;
+            groupIndex = candidateGroup < groupCount ? candidateGroup : null;
+          }
+          const group = groupIndex === null ? null : learnerGroups[groupIndex];
           return {
             ...slot,
             learnerIndexes: group?.indexes || [],
@@ -3685,7 +3695,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   );
   const caseRotationRoundCount =
     activeCaseCount > 1
-      ? Math.max(activeCaseCount, Math.ceil(Math.max(learnerGroupCount, 1) / Math.max(activeCaseRoomCount, 1)) * activeCaseCount)
+      ? Math.max(activeCaseCount, learnerGroupCount, 1)
       : 0;
   const autoCalculatedRounds =
     caseRotationRoundCount > 0
@@ -4245,6 +4255,45 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       ),
     [activeCaseCount, generated.rounds, learnerRoster, parsedRoomCapacity, roomAdjustments, selectedEvent?.assigned_sp_names]
   );
+  const scheduleValidationMessages = useMemo(() => {
+    const messages: string[] = [];
+    if (activeCaseCount <= 1) return messages;
+    const groups = buildLearnerGroups(learnerRoster, parsedRoomCapacity);
+    const caseNames = activeScheduleCases.map((caseDef) => caseDef.name).filter(Boolean);
+    if (!groups.length || !caseNames.length) return messages;
+
+    const coverageByGroup = new Map<number, Set<string>>();
+    groups.forEach((_, index) => coverageByGroup.set(index, new Set()));
+    const learnerToGroup = new Map<string, number>();
+    groups.forEach((group, groupIndex) => {
+      group.labels.forEach((label) => learnerToGroup.set(label, groupIndex));
+    });
+
+    scheduledRounds.forEach((round) => {
+      round.roomSlots.forEach((slot) => {
+        const caseLabel = asText(slot.caseLabel);
+        if (!caseLabel || !slot.learnerLabels.length) return;
+        const firstLearner = slot.learnerLabels[0];
+        const groupIndex = learnerToGroup.get(firstLearner);
+        if (groupIndex === undefined) return;
+        coverageByGroup.get(groupIndex)?.add(caseLabel);
+      });
+    });
+
+    coverageByGroup.forEach((seenCases, groupIndex) => {
+      const missingCases = caseNames.filter((caseName) => !seenCases.has(caseName));
+      if (missingCases.length) {
+        messages.push(`Group ${groupIndex + 1} is missing ${missingCases.join(", ")}.`);
+      }
+    });
+
+    const activeCaseRoomCountForSchedule =
+      scheduledRounds[0]?.roomSlots.filter((slot) => slot.roomType === "exam" && slot.capacity > 0 && slot.caseLabel).length || 0;
+    if (activeCaseRoomCountForSchedule !== Math.min(activeCaseCount, parsedExamRooms)) {
+      messages.push("Active case room count does not match the configured active cases and exam rooms.");
+    }
+    return messages;
+  }, [activeCaseCount, activeScheduleCases, learnerRoster, parsedExamRooms, parsedRoomCapacity, scheduledRounds]);
   const studentPreviewTimeline = useMemo(
     () => filterTimelineForView(generated.timeline, "student"),
     [generated.timeline]
@@ -5996,6 +6045,11 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
             {copyMessage ? (
               <div className={`mt-4 text-sm font-semibold ${copyMessageTone === "error" ? "text-[#c23b3b]" : "text-[#196b57]"}`}>
                 {copyMessage}
+              </div>
+            ) : null}
+            {scheduleValidationMessages.length ? (
+              <div className="cfsp-alert cfsp-alert-error mt-4">
+                <strong>Schedule validation failed.</strong> {scheduleValidationMessages.join(" ")}
               </div>
             ) : null}
             <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
