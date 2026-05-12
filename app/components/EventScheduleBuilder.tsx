@@ -115,6 +115,8 @@ type GeneratedRound = {
 
 type ScheduledRoomSlot = GeneratedRoomSlot & {
   learnerLabels: string[];
+  learnerIndexes: number[];
+  assignedSpIndex?: number;
 };
 
 type ScheduledRound = Omit<GeneratedRound, "roomSlots"> & {
@@ -182,6 +184,17 @@ type ScheduleBuilderDraft = {
   debriefMinutes: string;
   breakdownMinutes: string;
   savedAt?: string | null;
+};
+
+type ScheduleRoomAdjustmentSlot = {
+  slotIndex: number;
+  learnerLabels: string[];
+  spName?: string;
+};
+
+type ParsedScheduleRoomAdjustments = {
+  roundsByNumber: Map<number, ScheduleRoomAdjustmentSlot[]>;
+  slotKey: (roundNumber: number, slotIndex: number) => string;
 };
 
 type BuilderMeResponse = {
@@ -1869,14 +1882,160 @@ function attachLearners(rounds: GeneratedRound[], learnerRoster: string[]) {
     return {
       ...round,
       roomSlots: round.roomSlots.map((slot) => {
+        const learnerIndexes = Array.from({ length: slot.capacity }, (_, offset) => {
+          const learnerIndex = cursor + offset;
+          return learnerIndex < normalizedLearnerRoster.length ? learnerIndex : -1;
+        }).filter((value) => value >= 0);
         const learnerLabels = Array.from({ length: slot.capacity }, (_, offset) => {
           const learnerIndex = cursor + offset;
           return learnerIndex < normalizedLearnerRoster.length ? normalizedLearnerRoster[learnerIndex] : "";
         }).filter(Boolean);
         cursor += slot.capacity;
-        return { ...slot, learnerLabels };
+        return {
+          ...slot,
+          learnerIndexes,
+          learnerLabels,
+        };
       }),
     };
+  });
+}
+
+function createEmptyScheduleRoomAdjustments(): ParsedScheduleRoomAdjustments {
+  return {
+    roundsByNumber: new Map(),
+    slotKey: (roundNumber: number, slotIndex: number) => `${roundNumber}:${slotIndex}`,
+  };
+}
+
+function parseScheduleRoomAdjustments(raw: string | null): ParsedScheduleRoomAdjustments {
+  const clean = asText(raw);
+  if (!clean) return createEmptyScheduleRoomAdjustments();
+
+  try {
+    const parsed = JSON.parse(clean) as {
+      v?: number;
+      rounds?: Array<{
+        round: number;
+        slots?: Array<{ slotIndex?: number; learnerLabels?: string[]; spName?: string }>;
+      }>;
+    };
+
+    if (!parsed || typeof parsed !== "object") return createEmptyScheduleRoomAdjustments();
+
+    const roundsByNumber = new Map<number, ScheduleRoomAdjustmentSlot[]>();
+
+    parsed.rounds?.forEach((roundEntry) => {
+      if (!roundEntry || typeof roundEntry !== "object") return;
+      const roundNumber = parseInt(String((roundEntry as { round?: unknown }).round || ""), 10);
+      if (!Number.isFinite(roundNumber) || roundNumber < 1) return;
+
+      const slots = (roundEntry.slots || [])
+        .map((slotEntry) => {
+          if (!slotEntry || typeof slotEntry !== "object") return null;
+          const slotIndex = parseInt(String((slotEntry as { slotIndex?: unknown }).slotIndex || ""), 10);
+          if (!Number.isFinite(slotIndex) || slotIndex < 0) return null;
+
+          const learnerLabels = normalizeLearnerNames((slotEntry as { learnerLabels?: unknown }).learnerLabels || []);
+          const spName = asText((slotEntry as { spName?: unknown }).spName);
+          return { slotIndex, learnerLabels, ...(spName ? { spName } : {}) } as ScheduleRoomAdjustmentSlot;
+        })
+        .filter(Boolean) as ScheduleRoomAdjustmentSlot[];
+
+      if (slots.length) {
+        const deduped = new Map<number, ScheduleRoomAdjustmentSlot>();
+        slots.forEach((slot) => {
+          deduped.set(slot.slotIndex, slot);
+        });
+        roundsByNumber.set(roundNumber, Array.from(deduped.values()));
+      }
+    });
+
+    return {
+      roundsByNumber,
+      slotKey: (roundNumber: number, slotIndex: number) => `${roundNumber}:${slotIndex}`,
+    };
+  } catch {
+    return createEmptyScheduleRoomAdjustments();
+  }
+}
+
+function normalizeScheduleRoomAdjustments(value: ParsedScheduleRoomAdjustments) {
+  const normalized = createEmptyScheduleRoomAdjustments();
+  const payload = value && value.roundsByNumber instanceof Map ? value : createEmptyScheduleRoomAdjustments();
+  payload.roundsByNumber.forEach((slots, roundNumber) => {
+    normalized.roundsByNumber.set(
+      roundNumber,
+      slots
+      .map((slot) => {
+        const learnerLabels = normalizeLearnerNames(slot.learnerLabels || []);
+        const spName = asText(slot.spName);
+        return {
+          slotIndex: slot.slotIndex,
+          learnerLabels,
+          ...(spName ? { spName } : {}),
+        } as ScheduleRoomAdjustmentSlot;
+      })
+      .filter((slot) => slot.learnerLabels.length || slot.spName)
+    );
+  });
+  return normalized;
+}
+
+function serializeScheduleRoomAdjustments(value: ParsedScheduleRoomAdjustments) {
+  const rounds = Array.from(value.roundsByNumber.entries())
+    .sort((a, b) => a[0] - b[0])
+    .map(([roundNumber, slots]) => ({
+      round: roundNumber,
+      slots: slots
+        .sort((a, b) => a.slotIndex - b.slotIndex)
+        .map((slot) => {
+          const base = { slotIndex: slot.slotIndex, learnerLabels: normalizeLearnerNames(slot.learnerLabels || []) };
+          const spName = asText(slot.spName);
+          return spName ? { ...base, spName } : base;
+        }),
+    }))
+    .filter((entry) => entry.slots.length);
+
+  return JSON.stringify({
+    v: 1,
+    rounds,
+  });
+}
+
+function applyScheduleRoomAdjustments(
+  rounds: ScheduledRound[],
+  assignedSpNames: string[],
+  adjustments: ParsedScheduleRoomAdjustments
+) {
+  return rounds.map((round) => {
+    if (!rounds.length) return round;
+    const nextSlots = round.roomSlots.map((slot, slotIndex) => {
+      const overrides = (adjustments.roundsByNumber.get(round.round) || []).find(
+        (entry) => entry.slotIndex === slotIndex
+      );
+      const nextLearners =
+        overrides?.learnerLabels?.length ? normalizeLearnerNames(overrides.learnerLabels) : slot.learnerLabels;
+      const nextSpName = asText(overrides?.spName) || "";
+      const assignedSpIndex =
+        nextSpName
+          ? Math.max(
+              0,
+              assignedSpNames.findIndex((candidate) =>
+                (candidate || "").trim().toLowerCase() === nextSpName.trim().toLowerCase()
+              )
+            )
+          : undefined;
+      return {
+        ...slot,
+        learnerLabels: nextLearners,
+        learnerIndexes: nextLearners.length
+          ? nextLearners.map((value) => slot.learnerLabels.indexOf(value)).filter((value) => value >= 0)
+          : [],
+        assignedSpIndex: assignedSpIndex === -1 ? undefined : assignedSpIndex,
+      };
+    });
+    return { ...round, roomSlots: nextSlots };
   });
 }
 
@@ -1999,7 +2158,7 @@ function buildSchedulePreviewData(args: {
       }
       round.roomSlots.forEach((slot, slotIndex) => {
         const displayRoomName = formatRoomName(slot.roomName, slot.roomType, slotIndex + 1, roomContext);
-        const assignmentIndex = round.roomSlots.findIndex((item) => item.roomName === slot.roomName);
+        const assignmentIndex = slot.assignedSpIndex ?? round.roomSlots.findIndex((item) => item.roomName === slot.roomName);
         const learnerText = slot.learnerLabels.length ? slot.learnerLabels.join(", ") : "No learner assigned";
         lines.push(`  ${displayRoomName}: ${learnerText}`);
         if (isOperations) {
@@ -2036,7 +2195,7 @@ function buildSchedulePreviewData(args: {
       }
       round.roomSlots.forEach((slot, slotIndex) => {
         const displayRoomName = formatRoomName(slot.roomName, slot.roomType, slotIndex + 1, roomContext);
-        const assignmentIndex = round.roomSlots.findIndex((item) => item.roomName === slot.roomName);
+        const assignmentIndex = slot.assignedSpIndex ?? round.roomSlots.findIndex((item) => item.roomName === slot.roomName);
         const learnerText = slot.learnerLabels.length ? slot.learnerLabels.join(", ") : "No learner assigned";
         lines.push(`  ${displayRoomName}`);
         if (kind !== "sp") {
@@ -2170,7 +2329,7 @@ function buildSchedulePreviewData(args: {
                     ? round.roomSlots
                         .map((slot, slotIndex) => {
                           const displayRoomName = formatRoomName(slot.roomName, slot.roomType, slotIndex + 1, roomContext);
-                          const assignmentIndex = round.roomSlots.findIndex((item) => item.roomName === slot.roomName);
+                          const assignmentIndex = slot.assignedSpIndex ?? round.roomSlots.findIndex((item) => item.roomName === slot.roomName);
                           const learnerText = slot.learnerLabels.length ? slot.learnerLabels.join(", ") : "No learner assigned";
                           const spName = assignedSpNames?.[assignmentIndex] || "Unassigned";
                           const ticketDetail =
@@ -2252,7 +2411,7 @@ function buildSchedulePreviewData(args: {
                     </td>
                     ${round.roomSlots
                       .map((slot) => {
-                        const assignmentIndex = round.roomSlots.findIndex((item) => item.roomName === slot.roomName);
+                        const assignmentIndex = slot.assignedSpIndex ?? round.roomSlots.findIndex((item) => item.roomName === slot.roomName);
                         const learnerText = slot.learnerLabels.length ? slot.learnerLabels.join(", ") : "No learner assigned";
                         const spName = assignedSpNames?.[assignmentIndex] || "Unassigned";
 
@@ -2402,7 +2561,7 @@ function buildSchedulePreviewData(args: {
           ...previewRounds.flatMap((round) =>
             round.roomSlots.map((slot, slotIndex) => {
               const displayRoomName = formatRoomName(slot.roomName, slot.roomType, slotIndex + 1, roomContext);
-              const assignmentIndex = round.roomSlots.findIndex((item) => item.roomName === slot.roomName);
+        const assignmentIndex = slot.assignedSpIndex ?? round.roomSlots.findIndex((item) => item.roomName === slot.roomName);
               const learnerText = slot.learnerLabels.length ? slot.learnerLabels.join(", ") : "No learner assigned";
               const spName = assignedSpNames?.[assignmentIndex] || "";
 
@@ -2689,6 +2848,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const [showExpandedFlowDetails, setShowExpandedFlowDetails] = useState(false);
   const [activeFlowDetailKey, setActiveFlowDetailKey] = useState("");
   const [me, setMe] = useState<BuilderMeResponse | null>(null);
+  const [roomAdjustments, setRoomAdjustments] = useState<ParsedScheduleRoomAdjustments>(createEmptyScheduleRoomAdjustments());
 
   useEffect(() => {
     if (!showSchedulePreview || typeof document === "undefined") return;
@@ -3034,6 +3194,111 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     [selectedEvent]
   );
 
+  const persistRoomAdjustments = useCallback(
+    async (nextAdjustments: ParsedScheduleRoomAdjustments) => {
+      if (!selectedEvent?.id) return false;
+      const normalized = normalizeScheduleRoomAdjustments(nextAdjustments);
+      setRoomAdjustments(normalized);
+      const payload = serializeScheduleRoomAdjustments(normalized);
+      return persistScheduleWorkflowMetadata({
+        schedule_room_adjustments: payload,
+      });
+    },
+    [persistScheduleWorkflowMetadata]
+  );
+
+  const applyRoomAdjustments = useCallback(
+    (
+      updater: (current: ParsedScheduleRoomAdjustments) => ParsedScheduleRoomAdjustments
+    ): ParsedScheduleRoomAdjustments => {
+      const next = updater(roomAdjustments);
+      const normalized = normalizeScheduleRoomAdjustments(next);
+      void persistRoomAdjustments(normalized).catch(() => {
+        showCopyMessage("Room reassignment failed to save.", "error");
+      });
+      return normalized;
+    },
+    [persistRoomAdjustments, roomAdjustments]
+  );
+
+  const handleRoomMove = useCallback(
+    (roundNumber: number, sourceSlotIndex: number, targetSlotIndex: number, moveKind: "learner" | "sp") => {
+      if (sourceSlotIndex === targetSlotIndex) return;
+      const baseRounds = roomAdjustments.roundsByNumber.get(roundNumber) || [];
+      const sourceOverride = baseRounds.find((slot) => slot.slotIndex === sourceSlotIndex);
+      const targetOverride = baseRounds.find((slot) => slot.slotIndex === targetSlotIndex);
+
+      const next = new Map(roomAdjustments.roundsByNumber);
+      const sourceNext: ScheduleRoomAdjustmentSlot = {
+        slotIndex: sourceSlotIndex,
+        learnerLabels: [],
+      };
+      const targetNext: ScheduleRoomAdjustmentSlot = {
+        slotIndex: targetSlotIndex,
+        learnerLabels: [],
+      };
+
+      next.set(
+        roundNumber,
+        next.get(roundNumber) || []
+      );
+
+      if (moveKind === "learner") {
+        const sourceLearners = normalizeLearnerNames(sourceOverride?.learnerLabels || []);
+        const targetLearners = normalizeLearnerNames(targetOverride?.learnerLabels || []);
+        sourceNext.learnerLabels = [];
+        targetNext.learnerLabels = sourceLearners.length ? [...sourceLearners] : targetLearners;
+      } else {
+        const sourceSpName = asText(sourceOverride?.spName);
+        const targetSpName = asText(targetOverride?.spName);
+        if (sourceSpName) {
+          targetNext.spName = sourceSpName;
+          sourceNext.spName = "";
+        } else if (targetSpName) {
+          targetNext.spName = "";
+        }
+      }
+
+      if (!targetNext.learnerLabels.length && !targetNext.spName) {
+        const sourceRoundSlots = roomAdjustments.roundsByNumber.get(roundNumber) || [];
+        const sourceRow = (sourceRoundSlots || []).find((slot) => slot.slotIndex === targetSlotIndex);
+        const sourceLearners = sourceRow?.learnerLabels || [];
+        const sourceSp = sourceRow?.spName || "";
+        if (sourceLearners.length) targetNext.learnerLabels = sourceLearners;
+        if (sourceSp) targetNext.spName = sourceSp;
+      }
+
+      const nextSlots = (next.get(roundNumber) || []).filter(
+        (slot) => slot.slotIndex !== sourceSlotIndex && slot.slotIndex !== targetSlotIndex
+      );
+      if (moveKind === "learner" && (sourceOverride?.learnerLabels?.length || targetOverride?.learnerLabels?.length)) {
+        nextSlots.push(targetNext);
+        nextSlots.push(sourceNext);
+      } else if (moveKind === "sp" && (sourceOverride?.spName || targetOverride?.spName)) {
+        nextSlots.push(targetNext);
+        nextSlots.push(sourceNext);
+      }
+
+      next.set(
+        roundNumber,
+        nextSlots
+          .filter((slot) => slot.learnerLabels.length || asText(slot.spName))
+          .map((slot) => ({
+            slotIndex: slot.slotIndex,
+            learnerLabels: normalizeLearnerNames(slot.learnerLabels),
+            ...(slot.spName ? { spName: asText(slot.spName) } : {}),
+          }))
+      );
+
+      applyRoomAdjustments(() => ({
+        roundsByNumber: next,
+        slotKey: roomAdjustments.slotKey,
+      }));
+      showCopyMessage("Room assignment updated.");
+    },
+    [applyRoomAdjustments, roomAdjustments, showCopyMessage]
+  );
+
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (!storageKey || !selectedEventId) return;
@@ -3113,6 +3378,15 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     () => parseEventMetadata(selectedEvent?.notes).training,
     [selectedEvent?.notes]
   );
+  const parsedScheduleRoomAdjustments = useMemo(
+    () => normalizeScheduleRoomAdjustments(parseScheduleRoomAdjustments(selectedEventMetadata.schedule_room_adjustments)),
+    [selectedEventMetadata.schedule_room_adjustments]
+  );
+
+  useEffect(() => {
+    setRoomAdjustments(parsedScheduleRoomAdjustments);
+  }, [parsedScheduleRoomAdjustments]);
+
   const scheduleWorkflowStatus = asText(selectedEventMetadata.schedule_status).toLowerCase();
   const scheduleWorkflowBadgeLabel =
     scheduleWorkflowStatus === "complete"
@@ -3415,8 +3689,8 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   ]);
 
   const scheduledRounds = useMemo(
-    () => attachLearners(generated.rounds, learnerRoster),
-    [generated.rounds, learnerRoster]
+    () => applyScheduleRoomAdjustments(attachLearners(generated.rounds, learnerRoster), selectedEvent?.assigned_sp_names || [], roomAdjustments),
+    [generated.rounds, learnerRoster, roomAdjustments, selectedEvent?.assigned_sp_names]
   );
   const studentPreviewTimeline = useMemo(
     () => filterTimelineForView(generated.timeline, "student"),
