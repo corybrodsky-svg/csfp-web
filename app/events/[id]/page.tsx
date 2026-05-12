@@ -10777,7 +10777,7 @@ Cory`;
       : "linear-gradient(135deg, rgba(31, 41, 55, 0.96) 0%, rgba(30, 41, 59, 0.96) 100%)",
     iconShadow: isPlanningVisualMode
       ? "0 8px 18px rgba(20, 91, 150, 0.08), inset 0 1px 0 rgba(255,255,255,0.84)"
-      : "0 12px 24px rgba(30, 27, 75, 0.35), inset 0 1px 0 rgba(255,255,255,0.06)",
+      : "0 12px 24px rgba(236,253,245, 0.35), inset 0 1px 0 rgba(255,255,255,0.06)",
     moduleTextColor: isPlanningVisualMode ? "#122f46" : "#ecedff",
     moduleMetaColor: isPlanningVisualMode ? "#496678" : "#a6adc8",
     moduleLabelColor: isPlanningVisualMode ? "#57768a" : "#94a3b8",
@@ -23928,7 +23928,7 @@ Cory`;
                 }
                 .cfsp-file-cabinet-legacy-module-ready {
                   border-color: rgba(250, 204, 21, 0.4) !important;
-                  background: linear-gradient(170deg, rgba(30, 27, 75, 0.94), rgba(24, 11, 52, 0.92));
+                  background: linear-gradient(170deg, rgba(236,253,245, 0.94), rgba(24, 11, 52, 0.92));
                   box-shadow: 0 14px 28px rgba(132, 204, 22, 0.18), inset 0 1px 0 rgba(255,255,255,0.08);
                 }
                 .cfsp-file-cabinet-legacy-module-missing {
@@ -28549,7 +28549,7 @@ Cory`;
           background:
             radial-gradient(circle at 20% 0%, rgba(20, 184, 166, 0.34), transparent 36%),
             radial-gradient(circle at 82% 12%, rgba(34, 197, 94, 0.26), transparent 34%),
-            linear-gradient(135deg, rgba(15,23,42,0.96), rgba(236, 253, 245,0.94));
+            linear-gradient(135deg, rgba(240,253,250,0.98), rgba(236,253,245,0.96)), rgba(236, 253, 245,0.94));
         }
       `}</style>
 
