@@ -1025,7 +1025,7 @@ const assignmentStatusStyles: Record<AssignmentStatus, React.CSSProperties> = {
 const confirmationStyles = {
   confirmed: {
     background: "rgba(20, 91, 150, 0.18)",
-    color: "#0f2f3f",
+    color: "#ffffff",
     border: "1px solid rgba(120, 180, 255, 0.28)",
   },
   pending: {
@@ -3981,7 +3981,7 @@ function getOperationalDateToneStyles(tone: OperationalDateTone, planningMode: b
           glow: "0 8px 18px rgba(100, 116, 139, 0.08)",
         }
       : {
-          background: "rgba(240, 253, 250, 0.52)",
+          background: "rgba(15, 23, 42, 0.52)",
           border: "1px solid rgba(148, 163, 184, 0.2)",
           accent: "#cbd5e1",
           text: "#e2e8f0",
@@ -10733,7 +10733,7 @@ Cory`;
       : "linear-gradient(180deg, rgba(21, 38, 55, 0.98) 0%, rgba(19, 35, 51, 0.96) 100%)",
     shellShadow: isPlanningVisualMode ? "0 14px 32px rgba(24, 52, 78, 0.08)" : "none",
     labelColor: isPlanningVisualMode ? "#0f4f7a" : "#eef8ff",
-    headingColor: isPlanningVisualMode ? "#0f2940" : "#0f2f3f",
+    headingColor: isPlanningVisualMode ? "#0f2940" : "#ffffff",
     textColor: isPlanningVisualMode ? "#102d44" : "#f8fbff",
     mutedColor: isPlanningVisualMode ? "#2f5268" : "#dce8f2",
     cardBackground: isPlanningVisualMode
@@ -10754,7 +10754,7 @@ Cory`;
   const commandFileCabinetVisual = {
     shellBackground: isPlanningVisualMode
       ? "radial-gradient(circle at 18% 0%, rgba(126, 231, 219, 0.16), transparent 34%), radial-gradient(circle at 86% 12%, rgba(20, 91, 150, 0.12), transparent 32%), linear-gradient(135deg, rgba(248, 252, 255, 0.96) 0%, rgba(236, 247, 250, 0.94) 52%, rgba(242, 246, 255, 0.92) 100%)"
-      : "linear-gradient(145deg, rgba(18, 28, 46, 0.98) 0%, rgba(16, 20, 34, 0.95) 46%, rgba(26, 15, 37, 0.92) 100%), radial-gradient(circle at 18% -10%, rgba(132, 204, 22, 0.2), transparent 40%), radial-gradient(circle at 84% 108%, rgba(126, 90, 255, 0.26), transparent 44%)",
+      : "linear-gradient(145deg, rgba(18, 28, 46, 0.98) 0%, rgba(16, 20, 34, 0.95) 46%, rgba(26, 15, 37, 0.92) 100%), radial-gradient(circle at 18% -10%, rgba(234, 179, 8, 0.2), transparent 40%), radial-gradient(circle at 84% 108%, rgba(126, 90, 255, 0.26), transparent 44%)",
     shellBorder: isPlanningVisualMode ? "1px solid rgba(95, 140, 168, 0.2)" : "1px solid rgba(178, 132, 255, 0.35)",
     shellShadow: isPlanningVisualMode
       ? "0 18px 36px rgba(15, 56, 86, 0.1), inset 0 1px 0 rgba(255,255,255,0.7)"
@@ -10770,14 +10770,14 @@ Cory`;
     cardShadow: isPlanningVisualMode
       ? "0 14px 28px rgba(20, 65, 95, 0.08), inset 0 1px 0 rgba(255,255,255,0.78)"
       : "0 22px 36px rgba(3, 7, 18, 0.42), inset 0 1px 0 rgba(255,255,255,0.06)",
-    rowBackground: isPlanningVisualMode ? "rgba(255,255,255,0.62)" : "rgba(240, 253, 250, 0.8)",
+    rowBackground: isPlanningVisualMode ? "rgba(255,255,255,0.62)" : "rgba(15, 23, 42, 0.8)",
     rowBorder: isPlanningVisualMode ? "1px solid rgba(96, 137, 164, 0.14)" : "1px solid rgba(148, 163, 184, 0.24)",
     iconBackground: isPlanningVisualMode
       ? "linear-gradient(135deg, rgba(255,255,255,0.92) 0%, rgba(235, 248, 251, 0.84) 100%)"
       : "linear-gradient(135deg, rgba(31, 41, 55, 0.96) 0%, rgba(30, 41, 59, 0.96) 100%)",
     iconShadow: isPlanningVisualMode
       ? "0 8px 18px rgba(20, 91, 150, 0.08), inset 0 1px 0 rgba(255,255,255,0.84)"
-      : "0 12px 24px rgba(236,253,245, 0.35), inset 0 1px 0 rgba(255,255,255,0.06)",
+      : "0 12px 24px rgba(30, 27, 75, 0.35), inset 0 1px 0 rgba(255,255,255,0.06)",
     moduleTextColor: isPlanningVisualMode ? "#122f46" : "#ecedff",
     moduleMetaColor: isPlanningVisualMode ? "#496678" : "#a6adc8",
     moduleLabelColor: isPlanningVisualMode ? "#57768a" : "#94a3b8",
@@ -14148,7 +14148,7 @@ Cory`;
     }));
   }
 
-  const livePanelTitleText = "#0f2f3f";
+  const livePanelTitleText = "#ffffff";
   const livePanelBodyText = "#e8f1f8";
   const livePanelMutedText = "#cbd5e1";
   const livePanelLabelText = "#d7efff";
@@ -17348,13 +17348,13 @@ Cory`;
                     setQuickStaffingSpId("");
                   }}
                   placeholder="Search name, email, schedule, phone..."
-                  style={{ ...inputStyle, width: "100%", boxSizing: "border-box", background: "#0f2f3f" }}
+                  style={{ ...inputStyle, width: "100%", boxSizing: "border-box", background: "#ffffff" }}
                 />
                 <select
                   value={quickStaffingSpId}
                   onChange={(event) => setQuickStaffingSpId(event.target.value)}
                   disabled={saving || quickStaffingOptions.length === 0}
-                  style={{ ...selectStyle, width: "100%", maxWidth: "none", background: "#0f2f3f" }}
+                  style={{ ...selectStyle, width: "100%", maxWidth: "none", background: "#ffffff" }}
                 >
                   <option value="">
                     {quickStaffingOptions.length === 0 ? "No uncontacted SPs match" : "Select SP"}
@@ -19626,7 +19626,7 @@ Cory`;
         position: "fixed",
         inset: 0,
         zIndex: 80,
-        background: "rgba(240, 253, 250, 0.32)",
+        background: "rgba(15, 23, 42, 0.32)",
         cursor: "pointer",
       }}
     >
@@ -19646,7 +19646,7 @@ Cory`;
           borderRadius: "16px",
           border: "1px solid rgba(120, 180, 255, 0.24)",
           background: "var(--cfsp-surface)",
-          boxShadow: "0 24px 70px rgba(240, 253, 250, 0.24)",
+          boxShadow: "0 24px 70px rgba(15, 23, 42, 0.24)",
           padding: "16px",
           cursor: "auto",
         }}
@@ -19724,7 +19724,7 @@ Cory`;
         position: "fixed",
         inset: 0,
         zIndex: 81,
-        background: "rgba(240, 253, 250, 0.32)",
+        background: "rgba(15, 23, 42, 0.32)",
         display: "flex",
         justifyContent: "center",
         alignItems: "flex-start",
@@ -19742,7 +19742,7 @@ Cory`;
           borderRadius: "16px",
           border: "1px solid rgba(120, 180, 255, 0.24)",
           background: "var(--cfsp-surface)",
-          boxShadow: "0 24px 70px rgba(240, 253, 250, 0.24)",
+          boxShadow: "0 24px 70px rgba(15, 23, 42, 0.24)",
           padding: "16px",
         }}
       >
@@ -19846,8 +19846,7 @@ Cory`;
     return (
       <SiteShell title="Event Command Center" subtitle="Loading event details from Supabase.">
         <div style={cardStyle}>Loading...</div>
-
-</SiteShell>
+      </SiteShell>
     );
   }
 
@@ -20281,7 +20280,7 @@ Cory`;
                       style={{
                         ...buttonStyle,
                         background: selected ? "var(--cfsp-blue)" : "var(--cfsp-surface)",
-                        color: selected ? "#0f2f3f" : "var(--cfsp-text)",
+                        color: selected ? "#ffffff" : "var(--cfsp-text)",
                         border: selected ? "1px solid var(--cfsp-blue)" : "1px solid var(--cfsp-border)",
                         padding: "8px 12px",
                       }}
@@ -20616,7 +20615,7 @@ Cory`;
                       </span>
                       <span style={{ ...commandChipStyle, background: eventStatusWindowStyles.chipBg, color: eventStatusWindowStyles.chipColor }}>{eventRiskLevel.label}</span>
                       <span style={{ ...commandChipStyle, background: eventStatusWindowStyles.chipBg, color: eventStatusWindowStyles.chipColor }}>{scheduleStatusLabel}</span>
-                      <span style={{ ...commandChipStyle, background: "rgba(240, 253, 250, 0.08)", color: commandCenterVisual.textColor }}>
+                      <span style={{ ...commandChipStyle, background: "rgba(15, 23, 42, 0.08)", color: commandCenterVisual.textColor }}>
                         {planningWindowExpanded["event-status"] ? "Collapse" : "Expand"}
                       </span>
                     </div>
@@ -20878,7 +20877,7 @@ Cory`;
                                   ? "Needs Action"
                                   : "In Progress"}
                           </button>
-                          <span style={{ ...commandChipStyle, background: "rgba(240, 253, 250, 0.08)", color: commandCenterVisual.textColor }}>
+                          <span style={{ ...commandChipStyle, background: "rgba(15, 23, 42, 0.08)", color: commandCenterVisual.textColor }}>
                             {planningWindowExpanded[windowCard.key as PlanningWindowKey] ? "Collapse" : "Expand"}
                           </span>
                         </div>
@@ -20986,8 +20985,8 @@ Cory`;
                     <div
                       style={{
                         ...commandChipStyle,
-                        background: "rgba(240, 253, 250, 0.08)",
-                        border: "1px solid rgba(240, 253, 250, 0.14)",
+                        background: "rgba(15, 23, 42, 0.08)",
+                        border: "1px solid rgba(15, 23, 42, 0.14)",
                         color: learnerAssignmentsIncomplete ? "#be185d" : planningSuccessText,
                         fontSize: "10px",
                         textTransform: "none",
@@ -21234,7 +21233,7 @@ Cory`;
 	                        {planningLivePreviewAlerts.length ? (
 	                          <div style={{ display: "grid", gap: "5px" }}>
 	                            {planningLivePreviewAlerts.slice(0, 6).map((alert) => (
-	                              <div key={`planning-live-preview-alert-${alert}`} style={{ color: "#ccfbf1", fontSize: "12px", fontWeight: 820 }}>
+	                              <div key={`planning-live-preview-alert-${alert}`} style={{ color: "#4c1d95", fontSize: "12px", fontWeight: 820 }}>
 	                                {alert}
 	                              </div>
 	                            ))}
@@ -21418,7 +21417,7 @@ Cory`;
                       }
                       .cfsp-button-tactical:hover {
                         transform: translateY(-1px);
-                        box-shadow: 0 10px 18px rgba(240, 253, 250, 0.22);
+                        box-shadow: 0 10px 18px rgba(15, 23, 42, 0.22);
                         filter: brightness(1.06);
                       }
                       .cfsp-button-tactical:active {
@@ -21535,7 +21534,7 @@ Cory`;
                         style={{
                           borderRadius: "16px",
                           border: isPlanningVisualMode ? "1px solid rgba(96, 137, 164, 0.14)" : `1px solid ${commandFileCabinetVisual.railGlow}`,
-                          background: isPlanningVisualMode ? "rgba(255,255,255,0.62)" : "rgba(240, 253, 250, 0.5)",
+                          background: isPlanningVisualMode ? "rgba(255,255,255,0.62)" : "rgba(15, 23, 42, 0.5)",
                           padding: "10px 11px",
                           display: "flex",
                           gap: "8px",
@@ -22075,8 +22074,8 @@ Cory`;
                     border: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.2)" : "1px solid rgba(129, 140, 248, 0.28)",
                     background: isPlanningVisualMode
                       ? "rgba(255, 255, 255, 0.88)"
-                      : "linear-gradient(90deg, rgba(240, 253, 250, 0.9) 0%, rgba(30, 41, 59, 0.92) 100%)",
-                    boxShadow: isPlanningVisualMode ? "0 10px 24px rgba(42, 112, 140, 0.08)" : "0 12px 28px rgba(240, 253, 250, 0.45)",
+                      : "linear-gradient(90deg, rgba(15, 23, 42, 0.9) 0%, rgba(30, 41, 59, 0.92) 100%)",
+                    boxShadow: isPlanningVisualMode ? "0 10px 24px rgba(42, 112, 140, 0.08)" : "0 12px 28px rgba(15, 23, 42, 0.45)",
                   }}
                 >
                   <div
@@ -22084,7 +22083,7 @@ Cory`;
                       color: isPlanningVisualMode ? commandCenterVisual.mutedColor : "#e2e8f0",
                       fontSize: "12px",
                       fontWeight: 800,
-                      background: "rgba(240, 253, 250, 0.5)",
+                      background: "rgba(15, 23, 42, 0.5)",
                       border: "1px solid rgba(129, 140, 248, 0.2)",
                       borderRadius: "10px",
                       padding: "4px 10px",
@@ -22103,14 +22102,14 @@ Cory`;
                       background: rotationCommandSurfaceOpen
                         ? isPlanningVisualMode
                           ? "rgba(255, 255, 255, 0.92)"
-                          : "linear-gradient(135deg, rgba(99, 102, 241, 0.22), rgba(20, 184, 166, 0.2))"
+                          : "linear-gradient(135deg, rgba(99, 102, 241, 0.22), rgba(168, 85, 247, 0.2))"
                         : isPlanningVisualMode
                           ? "linear-gradient(135deg, #0f766e 0%, #0369a1 100%)"
                           : "linear-gradient(135deg, rgba(25, 138, 112, 0.95) 0%, rgba(20, 91, 150, 0.9) 100%)",
                       color: rotationCommandSurfaceOpen
                         ? commandCenterVisual.textColor
                         : isPlanningVisualMode
-                          ? "#0f2f3f"
+                          ? "#ffffff"
                           : "#06111d",
                       border: rotationCommandSurfaceOpen
                         ? isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.22)" : "1px solid rgba(126, 231, 219, 0.22)"
@@ -22138,9 +22137,9 @@ Cory`;
                     border: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.18)" : "1px solid rgba(129, 140, 248, 0.24)",
                     background: isPlanningVisualMode
                       ? "rgba(255, 255, 255, 0.94)"
-                      : "linear-gradient(135deg, rgba(30, 41, 59, 0.96), rgba(240, 253, 250, 0.96))",
+                      : "linear-gradient(135deg, rgba(30, 41, 59, 0.96), rgba(15, 23, 42, 0.96))",
                     backdropFilter: isPlanningVisualMode ? "none" : "blur(12px)",
-                    boxShadow: isPlanningVisualMode ? "0 10px 24px rgba(42, 112, 140, 0.08)" : "0 12px 28px rgba(240, 253, 250, 0.5), inset 0 1px 0 rgba(255,255,255,0.08)",
+                    boxShadow: isPlanningVisualMode ? "0 10px 24px rgba(42, 112, 140, 0.08)" : "0 12px 28px rgba(15, 23, 42, 0.5), inset 0 1px 0 rgba(255,255,255,0.08)",
                     padding: "12px 14px",
                     display: "flex",
                     justifyContent: "space-between",
@@ -22240,7 +22239,7 @@ Cory`;
                                 : "linear-gradient(180deg, rgba(20, 43, 62, 0.96) 0%, rgba(15, 31, 48, 0.94) 100%)"
                               : isPlanningVisualMode
                                 ? "linear-gradient(180deg, rgba(255, 255, 255, 0.97) 0%, rgba(248, 250, 255, 0.95) 100%)"
-                                : "linear-gradient(180deg, rgba(18, 22, 42, 0.92) 0%, rgba(240, 253, 250, 0.92) 100%)",
+                                : "linear-gradient(180deg, rgba(18, 22, 42, 0.92) 0%, rgba(15, 23, 42, 0.92) 100%)",
                             boxShadow: selected
                               ? isPlanningVisualMode
                                 ? "0 14px 30px rgba(24, 52, 78, 0.1), inset 4px 0 0 rgba(20, 91, 150, 0.72)"
@@ -22339,7 +22338,7 @@ Cory`;
                                   : "rgba(126, 231, 219, 0.18)"
                                 : isPlanningVisualMode
                                   ? "rgba(255, 255, 255, 0.84)"
-                                  : "rgba(240, 253, 250, 0.62)",
+                                  : "rgba(15, 23, 42, 0.62)",
                               color: roundCompanionView === view.value
                                 ? isPlanningVisualMode
                                   ? "#0f766e"
@@ -23929,8 +23928,8 @@ Cory`;
                 }
                 .cfsp-file-cabinet-legacy-module-ready {
                   border-color: rgba(250, 204, 21, 0.4) !important;
-                  background: linear-gradient(170deg, rgba(236,253,245, 0.94), rgba(24, 11, 52, 0.92));
-                  box-shadow: 0 14px 28px rgba(132, 204, 22, 0.18), inset 0 1px 0 rgba(255,255,255,0.08);
+                  background: linear-gradient(170deg, rgba(30, 27, 75, 0.94), rgba(24, 11, 52, 0.92));
+                  box-shadow: 0 14px 28px rgba(234, 179, 8, 0.18), inset 0 1px 0 rgba(255,255,255,0.08);
                 }
                 .cfsp-file-cabinet-legacy-module-missing {
                   border-color: rgba(248, 113, 113, 0.44) !important;
@@ -23951,7 +23950,7 @@ Cory`;
                 .cfsp-file-cabinet-legacy-button:hover {
                   transform: translateY(-1px);
                   filter: brightness(1.08);
-                  box-shadow: 0 12px 24px rgba(240, 253, 250, 0.38);
+                  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.38);
                 }
                 .cfsp-file-cabinet-legacy-button:active {
                   transform: translateY(0px);
@@ -24010,7 +24009,7 @@ Cory`;
                     </div>
                     <h2 style={{ ...compactSectionTitleStyle, color: "#f5f7ff" }}>Simulation Command File Cabinet</h2>
                     <p style={{ ...compactSectionHintStyle, color: "#c4c7d6", maxWidth: "680px" }}>
-                      Keep case docs, doorsigns, training files, and recording details in one clean operational drawer.
+                      Keep case docs, doorsigns, and recording details in one complete tactical operations rack.
                     </p>
                   </div>
                 </div>
@@ -24057,7 +24056,7 @@ Cory`;
                       >
                         <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "flex-start" }}>
                           <div>
-                            <div style={{ color: "#0f2f3f", fontWeight: 900, fontSize: "16px" }}>{material.title}</div>
+                            <div style={{ color: "#f2f4ff", fontWeight: 900, fontSize: "16px" }}>{material.title}</div>
                             <div style={{ marginTop: "4px", color: "#c9d0df", fontWeight: 700, fontSize: "13px", lineHeight: 1.45 }}>
                               {displayName}
                             </div>
@@ -24240,7 +24239,7 @@ Cory`;
                   >
                     <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "flex-start" }}>
                       <div>
-                        <div style={{ color: "#0f2f3f", fontWeight: 900, fontSize: "16px" }}>Recording Guide</div>
+                        <div style={{ color: "#f2f4ff", fontWeight: 900, fontSize: "16px" }}>Recording Guide</div>
                         <div style={{ marginTop: "4px", color: "#c9d0df", fontWeight: 700, fontSize: "13px", lineHeight: 1.45 }}>
                           {trainingMetadata.recording_url ? getFilenameFromUrl(trainingMetadata.recording_url) || "Recording link ready" : "No recording guide linked"}
                         </div>
@@ -24399,7 +24398,7 @@ Cory`;
               </summary>
               <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "flex-start", marginTop: "10px" }}>
                 <div>
-                  <h2 id="communication-center" style={compactSectionTitleStyle}>Communication</h2>
+                  <h2 style={compactSectionTitleStyle}>Communication</h2>
                   <p style={compactSectionHintStyle}>
                     Draft event emails for hiring, confirmation, training prep, post-training follow-up, and payroll wrap-up.
                   </p>
@@ -26341,7 +26340,7 @@ Cory`;
               style={{
                 ...buttonStyle,
                 background: assignmentFilter === filter.value ? "var(--cfsp-blue)" : "var(--cfsp-surface)",
-                color: assignmentFilter === filter.value ? "#0f2f3f" : "var(--cfsp-text)",
+                color: assignmentFilter === filter.value ? "#ffffff" : "var(--cfsp-text)",
                 border: assignmentFilter === filter.value
                   ? "1px solid var(--cfsp-blue)"
                   : "1px solid var(--cfsp-border)",
@@ -26850,7 +26849,7 @@ Cory`;
                             ...buttonStyle,
                             padding: "8px 12px",
                             background: filter.active ? "var(--cfsp-blue)" : "var(--cfsp-surface)",
-                            color: filter.active ? "#0f2f3f" : "var(--cfsp-text)",
+                            color: filter.active ? "#ffffff" : "var(--cfsp-text)",
                             border: filter.active ? "1px solid var(--cfsp-blue)" : "1px solid var(--cfsp-border)",
                           }}
                         >
@@ -27189,7 +27188,7 @@ Cory`;
                       ...buttonStyle,
                       padding: "8px 12px",
                       background: suggestedAssignmentFilter === filter.value ? "var(--cfsp-blue)" : "var(--cfsp-surface)",
-                      color: suggestedAssignmentFilter === filter.value ? "#0f2f3f" : "var(--cfsp-text)",
+                      color: suggestedAssignmentFilter === filter.value ? "#ffffff" : "var(--cfsp-text)",
                       border:
                         suggestedAssignmentFilter === filter.value
                           ? "1px solid var(--cfsp-blue)"
@@ -27350,7 +27349,7 @@ Cory`;
                       style={{
                         ...buttonStyle,
                         background: filter.active ? "var(--cfsp-blue)" : "var(--cfsp-surface)",
-                        color: filter.active ? "#0f2f3f" : "var(--cfsp-text)",
+                        color: filter.active ? "#ffffff" : "var(--cfsp-text)",
                         padding: "8px 12px",
                       }}
                     >
@@ -27864,7 +27863,7 @@ Cory`;
             >
               <div>
                 <div style={{ ...statLabel, color: "#7ee7db" }}>Preview</div>
-                <div style={{ color: "#0f2f3f", fontWeight: 900, fontSize: "18px" }}>{materialPreview.title}</div>
+                <div style={{ color: "#ffffff", fontWeight: 900, fontSize: "18px" }}>{materialPreview.title}</div>
                 <div style={{ marginTop: "4px", color: "rgba(220, 239, 255, 0.68)", fontSize: "12px", fontWeight: 700 }}>
                   {materialPreview.fileName}
                 </div>
@@ -27938,7 +27937,7 @@ Cory`;
             <div
               style={{
                 minHeight: "min(72vh, 880px)",
-                background: "#0f2f3f",
+                background: "#ffffff",
                 position: "relative",
                 display: "grid",
               }}
@@ -27988,7 +27987,7 @@ Cory`;
                       overflow: "auto",
                       fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
                       color: "#12314b",
-                      background: "#0f2f3f",
+                      background: "#ffffff",
                     }}
                   >
                     {materialPreviewText || "This text file is empty."}
@@ -28019,7 +28018,7 @@ Cory`;
                     title={materialPreview.title}
                     srcDoc={materialPreviewHtml}
                     sandbox=""
-                    style={{ width: "100%", height: "min(72vh, 880px)", border: "none", background: "#0f2f3f" }}
+                    style={{ width: "100%", height: "min(72vh, 880px)", border: "none", background: "#ffffff" }}
                   />
                 )
               ) : null}
@@ -28068,7 +28067,7 @@ Cory`;
                         setMaterialPreviewLoading(false);
                         setMaterialPreviewError("Could not load preview. Please download the file.");
                       }}
-                      style={{ width: "100%", height: "auto", maxHeight: "min(72vh, 880px)", objectFit: "contain", background: "#0f2f3f" }}
+                      style={{ width: "100%", height: "auto", maxHeight: "min(72vh, 880px)", objectFit: "contain", background: "#ffffff" }}
                     />
                   )}
                 </>
@@ -28122,7 +28121,7 @@ Cory`;
                         setMaterialPreviewLoading(false);
                         setMaterialPreviewError("Could not load preview. Please download the file.");
                       }}
-                      style={{ width: "100%", height: "min(72vh, 880px)", border: "none", background: "#0f2f3f" }}
+                      style={{ width: "100%", height: "min(72vh, 880px)", border: "none", background: "#ffffff" }}
                     />
                   )}
                 </>
@@ -28243,7 +28242,7 @@ Cory`;
                 style={{
                   ...buttonStyle,
                   background: "#0f766e",
-                  color: "#0f2f3f",
+                  color: "#ffffff",
                   border: "1px solid rgba(13, 148, 136, 0.4)",
                   padding: "7px 12px",
                 }}
@@ -28400,12 +28399,12 @@ Cory`;
           border-radius: 24px;
           border: 1px solid rgba(126, 87, 194, 0.35);
           background:
-            radial-gradient(circle at 20% 0%, rgba(20, 184, 166, 0.22), transparent 34%),
+            radial-gradient(circle at 20% 0%, rgba(168, 85, 247, 0.22), transparent 34%),
             radial-gradient(circle at 80% 20%, rgba(34, 197, 94, 0.2), transparent 30%),
             linear-gradient(135deg, rgba(255,255,255,0.94), rgba(236,253,245,0.92));
           box-shadow:
-            0 18px 40px rgba(240, 253, 250, 0.18),
-            0 0 24px rgba(20, 184, 166, 0.16),
+            0 18px 40px rgba(15, 23, 42, 0.18),
+            0 0 24px rgba(168, 85, 247, 0.16),
             inset 0 1px 0 rgba(255,255,255,0.8);
           padding: 14px;
           display: flex;
@@ -28417,8 +28416,8 @@ Cory`;
         .cfsp-chest-summary:hover {
           transform: translateY(-2px);
           box-shadow:
-            0 22px 48px rgba(240, 253, 250, 0.22),
-            0 0 32px rgba(132, 204, 22, 0.2),
+            0 22px 48px rgba(15, 23, 42, 0.22),
+            0 0 32px rgba(234, 179, 8, 0.2),
             0 0 28px rgba(34, 197, 94, 0.18);
         }
 
@@ -28429,10 +28428,10 @@ Cory`;
           position: relative;
           flex: 0 0 auto;
           background:
-            linear-gradient(180deg, rgba(14, 165, 233, 0.95), rgba(20, 184, 166, 0.9));
-          border: 1px solid rgba(132, 204, 22, 0.75);
+            linear-gradient(180deg, rgba(126, 34, 206, 0.95), rgba(22, 101, 52, 0.9));
+          border: 1px solid rgba(234, 179, 8, 0.75);
           box-shadow:
-            0 0 16px rgba(20, 184, 166, 0.5),
+            0 0 16px rgba(168, 85, 247, 0.5),
             inset 0 8px 14px rgba(255,255,255,0.18);
           overflow: hidden;
         }
@@ -28498,7 +28497,7 @@ Cory`;
           border-radius: 22px;
           border: 1px solid rgba(126, 87, 194, 0.28);
           background: var(--cfsp-surface);
-          box-shadow: 0 22px 48px rgba(240, 253, 250, 0.22);
+          box-shadow: 0 22px 48px rgba(15, 23, 42, 0.22);
           padding: 14px;
           display: grid;
           gap: 10px;
@@ -28524,8 +28523,8 @@ Cory`;
 
         .cfsp-chest-link:hover {
           transform: translateY(-1px);
-          border-color: rgba(132, 204, 22, 0.55);
-          box-shadow: 0 0 18px rgba(20, 184, 166, 0.14);
+          border-color: rgba(234, 179, 8, 0.55);
+          box-shadow: 0 0 18px rgba(168, 85, 247, 0.14);
         }
 
         .cfsp-chest-new {
@@ -28548,82 +28547,16 @@ Cory`;
         [data-theme="dark"] .cfsp-chest-summary,
         .dark .cfsp-chest-summary {
           background:
-            radial-gradient(circle at 20% 0%, rgba(20, 184, 166, 0.34), transparent 36%),
+            radial-gradient(circle at 20% 0%, rgba(168, 85, 247, 0.34), transparent 36%),
             radial-gradient(circle at 82% 12%, rgba(34, 197, 94, 0.26), transparent 34%),
-            linear-gradient(135deg, rgba(240,253,250,0.98), rgba(236,253,245,0.96)), rgba(236, 253, 245,0.94));
+            linear-gradient(135deg, rgba(15,23,42,0.96), rgba(30,27,75,0.94));
         }
       `}</style>
 
       {typeof document !== "undefined"
         ? createPortal(
             (
-              
-      <style>{`
-        #simulation-command-file-cabinet,
-        #simulation-command-file-cabinet * {
-          text-shadow: none !important;
-        }
-
-        #simulation-command-file-cabinet {
-          background:
-            radial-gradient(circle at 18% 0%, rgba(20,184,166,0.14), transparent 32%),
-            radial-gradient(circle at 85% 12%, rgba(132,204,22,0.12), transparent 30%),
-            linear-gradient(135deg, rgba(255,255,255,0.98), rgba(236,253,245,0.96)) !important;
-          color: #12324a !important;
-          border: 1px solid rgba(20,184,166,0.28) !important;
-          box-shadow: 0 18px 42px rgba(15,91,120,0.12) !important;
-        }
-
-        #simulation-command-file-cabinet > *,
-        #simulation-command-file-cabinet div {
-          background-color: transparent;
-        }
-
-        #simulation-command-file-cabinet [style*="background"] {
-          background:
-            linear-gradient(135deg, rgba(255,255,255,0.92), rgba(240,253,250,0.86)) !important;
-          color: #12324a !important;
-          border-color: rgba(20,184,166,0.22) !important;
-          box-shadow: 0 12px 26px rgba(15,91,120,0.10) !important;
-        }
-
-        #simulation-command-file-cabinet h1,
-        #simulation-command-file-cabinet h2,
-        #simulation-command-file-cabinet h3,
-        #simulation-command-file-cabinet strong,
-        #simulation-command-file-cabinet span,
-        #simulation-command-file-cabinet p {
-          color: #12324a !important;
-        }
-
-        #simulation-command-file-cabinet button {
-          background: linear-gradient(135deg, #145b96, #11806f) !important;
-          color: white !important;
-          border: 1px solid rgba(20,184,166,0.35) !important;
-          box-shadow: 0 10px 22px rgba(20,91,150,0.16) !important;
-        }
-
-        #simulation-command-file-cabinet button:disabled {
-          background: rgba(226,232,240,0.8) !important;
-          color: #64748b !important;
-        }
-
-        .cfsp-floating-command-chest {
-          width: min(390px, calc(100vw - 32px)) !important;
-        }
-
-        .cfsp-chest-summary {
-          width: min(390px, calc(100vw - 32px)) !important;
-          min-height: 78px !important;
-          justify-content: flex-start !important;
-        }
-
-        .cfsp-floating-command-chest:not([open]) .cfsp-chest-title {
-          display: grid !important;
-        }
-      `}</style>
-
-<details id="cfsp-floating-command-chest" className="cfsp-floating-command-chest">
+              <details id="cfsp-floating-command-chest" className="cfsp-floating-command-chest">
                       <summary className="cfsp-chest-summary">
                         <div className="cfsp-chest-box" aria-hidden="true" />
                         <div className="cfsp-chest-title">
@@ -28697,11 +28630,11 @@ Cory`;
                             type="button"
                             className="cfsp-chest-link"
                             onClick={() => {
-                              const params = new URLSearchParams();
-                              params.set("source", "command-chest");
-                              params.set("view", scheduleCompleted ? "session-builder" : "builder");
+                              const targetHref = scheduleCompleted
+                                ? buildScheduleBuilderHref("session-builder")
+                                : buildScheduleBuilderHref("builder");
 
-                              router.push(`/events/${encodeURIComponent(id)}/schedule-builder?${params.toString()}`);
+                              router.push(targetHref);
                             }}
                           >
                             {scheduleCompleted ? "Session Builder" : "Schedule Builder"}
@@ -28727,7 +28660,6 @@ Cory`;
                         </div>
                       </div>
                     </details>
-              </>
             ),
             document.body
           )
