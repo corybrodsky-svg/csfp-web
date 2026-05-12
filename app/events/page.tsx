@@ -96,6 +96,27 @@ function getEventBadges(event: EventRow) {
   }));
 }
 
+function isStandaloneTrainingEvent(event: EventRow) {
+  const presentation = classifyEventPresentation({
+    name: event.name,
+    status: event.status,
+    notes: event.notes,
+    location: event.location,
+    spNeeded: Number(event.sp_needed || 0),
+    assignmentCount: Number(event.total_assignments || 0),
+    confirmedCount: Number(event.confirmed_assignments || 0),
+  });
+  const activeTypes = new Set(presentation.activeEventTypes);
+  return (
+    presentation.isTraining &&
+    !presentation.hasSpWorkflow &&
+    !activeTypes.has("sp") &&
+    !activeTypes.has("skills") &&
+    !activeTypes.has("hifi") &&
+    !activeTypes.has("virtual")
+  );
+}
+
 function getEventSearchText(event: EventRow) {
   const badges = getEventBadges(event);
   const teamInfo = getBestEventTeamInfo(event);
@@ -207,8 +228,14 @@ export default function EventsPage() {
     };
   }, []);
 
+  const primaryWorkflowEvents = useMemo(
+    () => events.filter((event) => !isStandaloneTrainingEvent(event)),
+    [events]
+  );
+  const hiddenTrainingRecordCount = events.length - primaryWorkflowEvents.length;
+
   const eventBuckets = useMemo(() => {
-    const upcoming = events
+    const upcoming = primaryWorkflowEvents
       .filter((event) =>
         !isPastEvent({
           latestSessionDate: event.latest_session_date,
@@ -237,7 +264,7 @@ export default function EventsPage() {
         )
       );
 
-    const archive = events
+    const archive = primaryWorkflowEvents
       .filter((event) =>
         isPastEvent({
           latestSessionDate: event.latest_session_date,
@@ -271,7 +298,7 @@ export default function EventsPage() {
       archive,
       all: [...upcoming, ...archive],
     };
-  }, [events]);
+  }, [primaryWorkflowEvents]);
 
   const filteredEvents = useMemo(() => {
     if (view === "archive") return eventBuckets.archive;
@@ -362,6 +389,9 @@ export default function EventsPage() {
           </div>
           <div style={{ marginTop: 10, color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
             Showing {Math.min(visibleEvents.length, searchedEvents.length)} of {searchedEvents.length} events
+            {hiddenTrainingRecordCount > 0
+              ? ` · ${hiddenTrainingRecordCount} training record${hiddenTrainingRecordCount === 1 ? "" : "s"} embedded in primary event pages`
+              : ""}
           </div>
           <div
             style={{

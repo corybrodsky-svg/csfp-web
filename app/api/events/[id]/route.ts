@@ -535,6 +535,26 @@ function classifyRelatedEventNode(event: RelatedEventRow) {
   return "simulation";
 }
 
+function isStandaloneTrainingRecord(event: RelatedEventRow & { sp_needed?: number | null }) {
+  const kind = classifyRelatedEventNode(event);
+  if (kind !== "training") return false;
+
+  const notes = asText(event.notes).toLowerCase();
+  const visibleSource = [event.name, event.status, event.location].map(asText).join(" ").toLowerCase();
+  const explicitlyMixedWorkflow =
+    /\b(event[_\s-]*types?|active[_\s-]*event[_\s-]*types?|type)\s*:\s*[^\n]*\b(sp|skills|hifi|virtual)\b/.test(notes) ||
+    /\b(simulation|encounter|osce|skills|ipe|hifi|high fidelity)\b/.test(visibleSource);
+
+  return !explicitlyMixedWorkflow;
+}
+
+function pickPrimaryEventForTrainingRecord(relatedEvents: Array<Record<string, unknown>>) {
+  return relatedEvents.find((node) => {
+    const kind = asText(node.kind);
+    return kind === "simulation" || kind === "skills" || kind === "virtual";
+  });
+}
+
 async function loadRelatedOperationalEvents(
   supabaseServer: ReturnType<typeof createSupabaseServerClient>,
   sourceEvent: RelatedEventRow
@@ -973,10 +993,17 @@ export async function GET(
     const relatedOperationalEvents = isOperatorRole(viewer.role)
       ? await loadRelatedOperationalEvents(supabaseServer, event as RelatedEventRow)
       : [];
+    const primaryEventForTrainingRecord =
+      isOperatorRole(viewer.role) && isStandaloneTrainingRecord(event as RelatedEventRow & { sp_needed?: number | null })
+        ? pickPrimaryEventForTrainingRecord(relatedOperationalEvents)
+        : null;
 
     return applyAuthCookies(
       NextResponse.json({
         viewerRole: viewer.role,
+        redirectToPrimaryEventId: primaryEventForTrainingRecord ? asText(primaryEventForTrainingRecord.id) : "",
+        redirectToPrimaryEventName: primaryEventForTrainingRecord ? asText(primaryEventForTrainingRecord.name) : "",
+        sourceTrainingEventId: primaryEventForTrainingRecord ? event.id : "",
         event,
         sessions: sessions || [],
         sps: [...(sps || [])],
