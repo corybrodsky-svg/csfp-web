@@ -47,10 +47,7 @@ import {
   type RoomTypeHint,
   getRoomTypeLabel,
 } from "../../lib/roomNaming";
-import {
-  getFacultyTrainingCoordinationState,
-  type TrainingEventMetadata,
-} from "../../lib/trainingEventNotes";
+import { type TrainingEventMetadata } from "../../lib/trainingEventNotes";
 
 type EventDetailRow = {
   id: string;
@@ -4188,21 +4185,6 @@ function hasMaterialEvidence(metadata: TrainingEventMetadata) {
   ].some((value) => Boolean(asText(value)));
 }
 
-function getEmailStatusLabel(metadata: TrainingEventMetadata) {
-  const hiringSent = Boolean(asText(metadata.hiring_email_sent_or_marked_at));
-  const confirmationSent = Boolean(asText(metadata.confirmation_email_sent_or_marked_at));
-  const hiringDrafted = Boolean(asText(metadata.hiring_email_drafted_at));
-  const confirmationDrafted = Boolean(asText(metadata.confirmation_email_drafted_at));
-
-  if (hiringSent && confirmationSent) return "Sent";
-  if (hiringSent || confirmationSent || hiringDrafted || confirmationDrafted) return "In progress";
-
-  const status = asText(metadata.email_status).toLowerCase();
-  if (status === "sent") return "Sent";
-  if (status === "draft_opened") return "Draft opened";
-  return "Not started";
-}
-
 function getDefaultRelatedEventKeyword(title?: string | null) {
   const text = asText(title);
   if (!text) return "";
@@ -4424,7 +4406,6 @@ export default function EventDetailPage() {
     fullName: string;
     scheduleName: string;
   } | null>(null);
-  const [showTrainingEmailDraft, setShowTrainingEmailDraft] = useState(false);
   const [showAllTrainingRoster, setShowAllTrainingRoster] = useState(false);
   const [attendanceSaving, setAttendanceSaving] = useState(false);
   const [attendanceError, setAttendanceError] = useState("");
@@ -6556,6 +6537,19 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     () => Array.from(new Set(confirmationEmailRecipients.map((item) => item.email))),
     [confirmationEmailRecipients]
   );
+  const confirmationTargetRecipientFingerprint = useMemo(() => {
+    const ids = confirmationTargetAssignments
+      .map((assignment) => {
+        if (assignment.sp_id) return String(assignment.sp_id);
+        if (assignment.id) return String(assignment.id);
+        return "";
+      })
+      .filter(Boolean)
+      .map((id) => id.trim())
+      .filter(Boolean)
+      .sort();
+    return ids.join("|");
+  }, [confirmationTargetAssignments]);
   const confirmationMissingEmailAssignments = useMemo(
     () =>
       confirmationTargetAssignments
@@ -6695,15 +6689,37 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     "Recording Date",
   ]);
   const recordingAvailabilityDate = parseOperationalDate(recordingAvailabilityDateText, importedYearHint);
-  const emailStatusLabel = getEmailStatusLabel(trainingMetadata);
+  const hiringEmailRecipientFingerprint = useMemo(
+    () =>
+      Array.from(new Set(hiringEmailBccEmails.map((item) => item.toLowerCase().trim()).filter(Boolean)))
+        .sort()
+        .join("|"),
+    [hiringEmailBccEmails]
+  );
+  const hiringEmailRecipientSnapshot = asText(trainingMetadata.hiring_email_recipient_snapshot);
   const hiringEmailDrafted = Boolean(asText(trainingMetadata.hiring_email_drafted_at));
   const hiringEmailSentAt =
     asText(trainingMetadata.hiring_email_sent_at) || asText(trainingMetadata.hiring_email_sent_or_marked_at);
   const hiringEmailSent = Boolean(hiringEmailSentAt);
+  const hiringEmailProofs = hiringEmailDrafted || hiringEmailSent;
+  const hiringEmailFingerprintMatches =
+    Boolean(hiringEmailRecipientFingerprint) && hiringEmailRecipientFingerprint === hiringEmailRecipientSnapshot;
+  const hiringEmailProofComplete = hiringEmailProofs && hiringEmailFingerprintMatches;
+  const hiringEmailSentProof = hiringEmailSent && hiringEmailFingerprintMatches;
+  const canMarkHiringEmailSent = hiringEmailRecipientFingerprint.length > 0 && hiringEmailFingerprintMatches;
   const confirmationEmailDrafted = Boolean(asText(trainingMetadata.confirmation_email_drafted_at));
   const confirmationEmailSentAt =
     asText(trainingMetadata.confirmation_email_sent_at) || asText(trainingMetadata.confirmation_email_sent_or_marked_at);
   const confirmationEmailSent = Boolean(confirmationEmailSentAt);
+  const confirmationEmailRecipientSnapshot = asText(trainingMetadata.confirmation_email_recipient_snapshot);
+  const confirmationEmailProofs = confirmationEmailDrafted || confirmationEmailSent;
+  const confirmationEmailFingerprintMatches =
+    Boolean(confirmationEmailRecipientSnapshot) && confirmationEmailRecipientSnapshot === confirmationTargetRecipientFingerprint;
+  const confirmationEmailSentProof = confirmationEmailSent && confirmationEmailFingerprintMatches;
+  const confirmationProofComplete = confirmationEmailProofs && confirmationEmailFingerprintMatches;
+  const confirmationEmailProofComplete = confirmationProofComplete;
+  const canMarkConfirmationEmailSent =
+    confirmationEmailFingerprintMatches && confirmationTargetRecipientFingerprint.length > 0;
   const facultyReadinessComplete = Boolean(
     trainingFacultyText || facultyEmailText || facultyPhoneText || trainingMetadata.sim_contact || hasFaculty
   );
@@ -6730,45 +6746,82 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
   const staffingReadinessCoverageMet = needed > 0
     ? staffingRelevant && confirmedCount >= needed
     : staffingRelevant && selectedStaffingCount > 0;
-  const hasUnconfirmedSelectedPrimaryAssignments = assignments.some(
-    (assignment) =>
-      getAssignmentStatus(assignment) === "invited" || getAssignmentStatus(assignment) === "contacted"
-  );
-  let hiringEmailNeededByLifecycle = staffingRelevant && hasUnfilledPrimarySlots;
-  let confirmationEmailNeededByLifecycle = staffingRelevant && staffingCoverageMet && hasUnconfirmedSelectedPrimaryAssignments;
-  let hiringEmailLifecycleComplete = !hiringEmailNeededByLifecycle || hiringEmailSent;
-  let confirmationEmailLifecycleComplete = !confirmationEmailNeededByLifecycle || confirmationEmailSent;
-  let staffingEmailWorkflowDetail = [
-    hiringEmailSent
-      ? "Hiring sent"
-      : hiringEmailNeededByLifecycle
-        ? hiringEmailDrafted
-          ? "Hiring drafted"
-          : "Hiring not sent"
-        : "Hiring not needed",
-    confirmationEmailSent
-      ? "Confirmation sent"
-      : confirmationEmailNeededByLifecycle
-        ? confirmationEmailDrafted
+  const hiringEmailNeeded = staffingRelevant && hasUnfilledPrimarySlots;
+  const confirmationEmailNeeded = staffingRelevant && staffingCoverageMet && confirmationTargetAssignments.length > 0;
+  const confirmationEmailStatusReady = !confirmationEmailNeeded || confirmationProofComplete;
+  const hiringEmailStatusReady = !hiringEmailNeeded || hiringEmailProofComplete;
+  const hiringEmailStatusLabel = hiringEmailStatusReady
+    ? hiringEmailNeeded
+      ? hiringEmailProofs
+        ? hiringEmailSentProof
+          ? "Hiring email sent"
+          : "Hiring email drafted"
+        : "Hiring email draft needed"
+      : "Hiring not needed"
+    : "Hiring needs action";
+  const confirmationEmailStatusLabel = confirmationEmailStatusReady
+    ? confirmationEmailNeeded
+      ? confirmationEmailSentProof
+        ? "Confirmation sent"
+        : confirmationEmailProofs
           ? "Confirmation drafted"
-          : "Confirmation pending"
-        : "Confirmation not needed",
+          : "Confirmation draft needed"
+      : "Confirmation not needed"
+    : "Confirmation needs action";
+  const facultyTrainingDateEmailRequired =
+    normalizeTrainingOwnershipValue(trainingMetadata.training_ownership) === "faculty_led" ||
+    normalizeTrainingOwnershipValue(trainingMetadata.training_ownership) === "shared";
+  const facultyTrainingDateEmailRecipientFingerprint = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          [trainingFacultyText, facultyEmailText]
+            .join(" ")
+            .match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) || []
+        )
+      )
+        .map((item) => item.toLowerCase().trim())
+        .filter(Boolean)
+        .sort()
+        .join("|"),
+    [facultyEmailText, trainingFacultyText]
+  );
+  const facultyTrainingDateEmailRecipientSnapshot = asText(trainingMetadata.faculty_training_date_email_recipient_snapshot);
+  const facultyTrainingDateEmailDrafted = Boolean(asText(trainingMetadata.faculty_training_date_email_drafted_at));
+  const facultyTrainingDateEmailSentAt = asText(trainingMetadata.faculty_training_date_email_sent_at);
+  const facultyTrainingDateEmailSent = Boolean(facultyTrainingDateEmailSentAt);
+  const facultyTrainingDateEmailProofs = facultyTrainingDateEmailDrafted || facultyTrainingDateEmailSent;
+  const facultyTrainingDateEmailFingerprintMatches =
+    Boolean(facultyTrainingDateEmailRecipientSnapshot) &&
+    facultyTrainingDateEmailRecipientSnapshot === facultyTrainingDateEmailRecipientFingerprint;
+  const facultyTrainingDateEmailProofComplete = facultyTrainingDateEmailProofs && facultyTrainingDateEmailFingerprintMatches;
+  const facultyTrainingDateEmailSentProof = facultyTrainingDateEmailSent && facultyTrainingDateEmailFingerprintMatches;
+  const facultyTrainingDateEmailNeedsAction = facultyTrainingDateEmailRequired && !facultyTrainingDateEmailProofComplete;
+  const staffingEmailWorkflowDetail = [
+    hiringEmailStatusLabel,
+    confirmationEmailStatusLabel,
   ]
     .filter(Boolean)
     .join(" · ");
-  let staffingCommunicationComplete = staffingRelevant && hiringEmailLifecycleComplete && confirmationEmailLifecycleComplete;
-  let staffingCommandCenterCanCollapse = staffingRelevant && staffingCoverageMet && staffingCommunicationComplete;
-  const outreachProgressLabel = assignments.some(
+  const staffingCommunicationComplete =
+    staffingRelevant &&
+    hiringEmailStatusReady &&
+    confirmationEmailStatusReady &&
+    (!facultyTrainingDateEmailRequired || facultyTrainingDateEmailProofComplete);
+  const staffingCommandCenterCanCollapse = staffingRelevant && staffingCoverageMet && staffingCommunicationComplete;
+  const staffingOutreachStarted = assignments.some(
     (assignment) =>
-      Boolean(assignment.last_contacted_at) || ["contacted", "confirmed", "declined"].includes(getAssignmentStatus(assignment))
-  )
+      Boolean(assignment.last_contacted_at) ||
+      ["contacted", "confirmed", "declined"].includes(getAssignmentStatus(assignment))
+  );
+  const outreachProgressLabel = staffingOutreachStarted
     ? "In progress"
-    : hiringEmailSent && confirmationEmailSent
+    : staffingCommunicationComplete
       ? "Ready"
-      : hiringEmailSent || confirmationEmailSent || hiringEmailDrafted || confirmationEmailDrafted
+      : (hiringEmailProofs || confirmationEmailProofs || hiringEmailSentProof || confirmationEmailSentProof)
         ? "In progress"
-        : emailStatusLabel === "Draft opened"
-          ? "Draft opened"
+        : hiringEmailStatusLabel === "Hiring email drafted" || confirmationEmailStatusLabel === "Confirmation drafted"
+          ? "Drafted"
           : "Not started";
   const trainingLocationModality =
     selectedModalityLabel === "Hybrid"
@@ -6952,48 +7005,55 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
   const trainingNotRequired = trainingRequirementValue === "no" || noSpStaffingRequired;
   const facultyLedTraining = trainingOwnershipValue === "faculty_led" || trainingOwnershipValue === "shared";
   const internalTraining = trainingOwnershipValue === "internal_sim";
+  const facultyTrainingDateEmailNeedsInfo = facultyTrainingDateEmailRequired && !facultyTrainingDateEmailRecipientFingerprint;
+  const facultyTrainingDateEmailRequested = Boolean(
+    asText(trainingMetadata.faculty_training_coordination_requested).toLowerCase() === "yes" ||
+      asText(trainingMetadata.faculty_training_coordination_requested_at) ||
+      asText(trainingMetadata.faculty_request_sent_at)
+  );
   const facultyAvailabilityUnknown = isMetadataYes(trainingMetadata.faculty_availability_unknown);
   const trainingRecordingPlanned = isMetadataYes(trainingMetadata.training_recording_planned);
   const trainingRecordingStatusOption = getTrainingRecordingStatusOption(trainingMetadata.training_recording_status);
-  const facultyTrainingCoordinationState = getFacultyTrainingCoordinationState(trainingMetadata);
-  const facultyTrainingCoordinationRequested = facultyTrainingCoordinationState.requested;
-  const facultyTrainingCoordinationDrafted = facultyTrainingCoordinationState.drafted;
-  const facultyTrainingCoordinationSent = facultyTrainingCoordinationState.sent;
+  const facultyTrainingCoordinationRequested =
+    facultyTrainingDateEmailRequested || facultyTrainingDateEmailProofs;
+  const facultyTrainingCoordinationSent = facultyTrainingDateEmailSentProof;
   const facultyTrainingCoordinationLabel = facultyLedTraining
-    ? facultyTrainingCoordinationSent
-      ? "Faculty request sent"
-      : facultyTrainingCoordinationDrafted
-      ? "Faculty request drafted"
-      : facultyTrainingCoordinationRequested
-        ? "Faculty availability requested"
-        : facultyAvailabilityUnknown
-          ? "Faculty availability needed"
-          : facultyReadinessComplete
-            ? "Faculty contact ready"
-            : "Faculty contact needed"
+    ? facultyTrainingDateEmailSentProof
+      ? "Faculty training date email sent"
+      : facultyTrainingDateEmailDrafted
+        ? "Faculty training date email drafted"
+        : facultyTrainingDateEmailNeedsInfo
+          ? "Faculty email needed"
+          : facultyTrainingDateEmailNeedsAction
+            ? "Faculty training date email needed"
+            : facultyReadinessComplete
+              ? "Faculty readiness recorded"
+              : "Faculty contact needed"
     : internalTraining
       ? "Owned by Sim Ops"
       : "Ownership TBD";
   const facultyCoordinationComplete =
-    facultyReadinessComplete && (!facultyLedTraining || facultyTrainingCoordinationSent);
+    facultyReadinessComplete && (!facultyLedTraining || !facultyTrainingDateEmailNeedsAction);
   const facultyPanelStatusLabel = facultyCoordinationComplete
-    ? facultyTrainingCoordinationSent
-      ? "Faculty coordinated"
-      : "Contact ready"
-    : facultyTrainingCoordinationDrafted
-      ? "Request drafted"
-      : facultyTrainingCoordinationRequested
-        ? "Request in progress"
+    ? facultyTrainingDateEmailSentProof
+      ? "Faculty date email sent"
+      : "Faculty date email ready"
+    : facultyTrainingDateEmailDrafted
+      ? "Date email drafted"
+      : facultyTrainingDateEmailNeedsAction
+        ? "Needs faculty date email"
         : facultyReadinessComplete
-          ? "Needs faculty request"
+          ? "Needs setup"
           : "Needs setup";
   const facultyPanelTone = facultyCoordinationComplete
     ? operationalReadinessGoldTone
-    : facultyTrainingCoordinationDrafted || facultyTrainingCoordinationRequested
+    : facultyTrainingDateEmailDrafted
       ? getWorkflowReadinessTone("In Progress")
-      : facultyReadinessComplete
+      : facultyTrainingDateEmailNeedsAction
         ? getWorkflowReadinessTone("Needs Action")
-        : getWorkflowReadinessTone("Not Started");
+        : facultyReadinessComplete
+          ? getWorkflowReadinessTone("Needs Action")
+          : getWorkflowReadinessTone("Not Started");
   const primaryTrainingMetadata = parsedEventMetadata.training;
   const normalEventTrainingDateText =
     resolveTrainingDateText({
@@ -7140,39 +7200,6 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     primaryEventDate,
   ]);
   const isTrainingAttendanceInteractive = normalEventTrainingLifecyclePhase === "pre_training" || normalEventTrainingLifecyclePhase === "training_live";
-  const trainingLifecycleCompleteOrAfter = ["event_prep", "event_live", "post_event"].includes(
-    normalEventTrainingLifecyclePhase
-  );
-
-  if (trainingLifecycleCompleteOrAfter) {
-    hiringEmailNeededByLifecycle = false;
-    confirmationEmailNeededByLifecycle = false;
-    hiringEmailLifecycleComplete = true;
-    confirmationEmailLifecycleComplete = true;
-  } else if (!normalEventTrainingComplete && staffingCoverageMet) {
-    confirmationEmailNeededByLifecycle = hasUnconfirmedSelectedPrimaryAssignments;
-    confirmationEmailLifecycleComplete = confirmationEmailNeededByLifecycle ? confirmationEmailSent : true;
-  }
-  staffingEmailWorkflowDetail = [
-    hiringEmailSent
-      ? "Hiring sent"
-      : hiringEmailNeededByLifecycle
-        ? hiringEmailDrafted
-          ? "Hiring drafted"
-          : "Hiring not sent"
-        : "Hiring not needed",
-    confirmationEmailSent
-      ? "Confirmation sent"
-      : confirmationEmailNeededByLifecycle
-        ? confirmationEmailDrafted
-          ? "Confirmation drafted"
-          : "Confirmation pending"
-        : "Confirmation not needed",
-  ]
-    .filter(Boolean)
-    .join(" · ");
-  staffingCommunicationComplete = staffingRelevant && hiringEmailLifecycleComplete && confirmationEmailLifecycleComplete;
-  staffingCommandCenterCanCollapse = staffingRelevant && staffingCoverageMet && staffingCommunicationComplete;
   useEffect(() => {
     if (typeof window === "undefined" || !id) return;
 
@@ -7317,7 +7344,7 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
   const trainingUrgentMissingItems = [
     trainingZoomRequired && !normalEventTrainingLink ? "Zoom link missing" : "",
     trainingRecordingPlanned && !normalEventTrainingRecordingHref ? "Recording link missing" : "",
-    facultyLedTraining && facultyReadinessComplete && !facultyTrainingCoordinationRequested ? "Faculty request not sent" : "",
+    facultyLedTraining && facultyReadinessComplete && facultyTrainingDateEmailNeedsAction ? "Faculty training date email needed" : "",
   ]
     .filter(Boolean)
     .slice(0, 3);
@@ -7337,8 +7364,7 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     normalEventTrainingDateText &&
       selectedStaffingCount > 0 &&
       (trainingAttendanceReady ||
-        facultyTrainingCoordinationRequested ||
-        facultyTrainingCoordinationSent ||
+        !facultyTrainingDateEmailNeedsAction ||
         Boolean(normalEventTrainingLink) ||
         Boolean(normalEventTrainingRecordingHref) ||
         Boolean(normalEventTrainingInfoText))
@@ -9290,6 +9316,17 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       .match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) || [];
     return Array.from(new Set(matches.map((item) => item.trim())));
   }, [facultyEmailText, trainingFacultyText]);
+  const communicationCcEmails = useMemo(() => {
+    const simContactMatches =
+      [
+        asText(trainingMetadata.sim_contact),
+        asText(trainingMetadata.faculty_email),
+        getFirstNoteValue(event?.notes, ["Sim Staff", "Sim Staff Contact", "Sim Contact", "Simulation Operations Contact"]),
+      ]
+        .join(" ")
+        .match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) || [];
+    return Array.from(new Set([...(facultyEmails || []), ...simContactMatches.map((item) => item.trim())]));
+  }, [event?.notes, facultyEmails, trainingMetadata.faculty_email, trainingMetadata.sim_contact]);
   useEffect(() => {
     setSelectedPollSpIds(pollSelectedSpIdsFromMetadata);
   }, [pollSelectedSpIdsFromMetadata]);
@@ -9300,26 +9337,29 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     eventDateLabel ||
     "Date TBD";
   const trainingEmailTimeLabel = normalEventTrainingTimeText || summaryTimeLabel || "Time TBD";
+  const trainingRoleNeedLabel = needed > 0 ? `${needed} SP${needed === 1 ? "" : "s"} required` : "Role need TBD";
   const trainingEmailSubject = `${event?.name || "Event"}: SP Training - ${trainingEmailDateLabel}`;
   const trainingEmailBody = [
-    "SPs,",
+    "<b>SPs,</b>",
     "",
     `In preparation for ${event?.name || "this"} SP training, please review the following:`,
     "",
-    `• Date: ${trainingEmailDateLabel}`,
-    `• Time: ${trainingEmailTimeLabel}`,
-    `• Zoom Link: ${trainingMetadata.zoom_url || "INPUT ZOOM LINK"}`,
-    `• Password: ${trainingMetadata.training_password || "INPUT PASSWORD"}`,
-    `• Case: ${trainingMetadata.case_name || "Name of CASE"}`,
-    `• Sim Contact: ${trainingSimContact || "Sim Team Assigned"}`,
+    `<b>Date:</b> ${trainingEmailDateLabel}`,
+    `<b>Time:</b> ${trainingEmailTimeLabel}`,
+    `<b>Location/Modality:</b> ${trainingLocationModality || "TBD"}`,
+    `<b>Role Need:</b> ${trainingRoleNeedLabel}`,
+    `<b>Case:</b> ${trainingMetadata.case_name || "Case name TBD"}`,
+    `<b>Zoom Link:</b> ${normalEventTrainingLink || trainingMetadata.zoom_url || "TBD"}`,
+    `<b>Materials:</b> ${eventMaterialName || trainingMetadata.case_name || "TBD"}`,
+    `<b>Sim Contact:</b> ${trainingSimContact || "Sim Team Assigned"}`,
     "",
     "Thank you,",
     "",
-    me?.fullName || me?.scheduleName || me?.email || "CFSP",
+    `<b>From:</b> ${me?.fullName || me?.scheduleName || me?.email || "CFSP Simulation Operations"}`,
   ].join("\n");
   const trainingMailtoHref = buildMailtoHref({
     to: me?.email || "",
-    cc: facultyEmails,
+    cc: communicationCcEmails,
     bcc: assignedBccEmails,
     subject: trainingEmailSubject,
     body: trainingEmailBody,
@@ -9696,13 +9736,17 @@ Cory`;
         ? "In Progress"
         : rotationRounds.length && summaryTimeLabel !== "Time TBD"
       ? "Ready"
-      : sessions.length || asText(event?.date_text)
-        ? "Needs Action"
-        : "Not Started";
+    : sessions.length || asText(event?.date_text)
+      ? "Needs Action"
+      : "Not Started";
+  const communicationReadinessReady =
+    (!hiringEmailNeeded || hiringEmailStatusReady) &&
+    (!confirmationEmailNeeded || confirmationEmailStatusReady) &&
+    (!facultyTrainingDateEmailRequired || facultyTrainingDateEmailProofComplete);
   const emailReadinessStatus: WorkflowReadinessStatus =
-    hiringEmailLifecycleComplete && confirmationEmailLifecycleComplete
+    communicationReadinessReady
       ? "Ready"
-      : outreachProgressLabel === "In progress" || outreachProgressLabel === "Draft opened"
+      : outreachProgressLabel === "In progress" || outreachProgressLabel === "Drafted"
         ? "In Progress"
         : "Not Started";
   const trainingReadinessStatus: WorkflowReadinessStatus = trainingNotRequired
@@ -10316,31 +10360,39 @@ Cory`;
       : []),
         ...(staffingRelevant
       ? [
-          {
-            key: "hiring_email",
-            label: "Hiring email",
-            value: hiringEmailLifecycleComplete
-              ? "Hiring complete"
-              : hiringEmailNeededByLifecycle
-                ? hiringEmailSent
-                  ? "Hiring Email Sent"
-                  : hiringEmailDrafted
-                    ? "Hiring draft ready"
-                    : "Hiring not sent"
-                : "Hiring not needed",
-            tone: (hiringEmailLifecycleComplete || !hiringEmailNeededByLifecycle ? "ready" : hiringEmailDrafted ? "info" : "attention") as OperationalStatusTone,
-            detail: hiringEmailNeededByLifecycle
-              ? hiringEmailSent
-                ? hiringEmailSentAt || "Persisted in event metadata."
-                : hiringEmailDrafted
-                  ? "Hiring draft has been prepared. Send when recruitment is still open."
-                  : "Open the staffing workflow to recruit remaining SP slots."
-              : "No further hiring outreach is needed.",
-            readinessActions: hiringEmailLifecycleComplete || !hiringEmailNeededByLifecycle
+        {
+          key: "hiring_email",
+          label: "Hiring Poll Email",
+          value: !hiringEmailNeeded
+            ? "Hiring Poll not needed"
+            : hiringEmailSentProof
+              ? `Hiring Poll sent · ${hiringEmailSentAt || "timestamp available"}`
+              : hiringEmailProofs
+                ? hiringEmailFingerprintMatches
+                  ? "Hiring Poll drafted"
+                  : "Hiring poll draft logged for a different recipient set."
+                : hiringEmailBccEmails.length
+                  ? "Hiring Poll ready to draft"
+                  : "Needs candidate recipients",
+            tone: (!hiringEmailNeeded || hiringEmailProofComplete
+              ? "ready"
+              : hiringEmailDrafted
+                ? "info"
+                : "attention") as OperationalStatusTone,
+            detail: !hiringEmailNeeded
+              ? "No hiring outreach required for current staffing state."
+              : hiringEmailProofs
+                ? hiringEmailFingerprintMatches
+                  ? "Hiring poll draft is logged for the current candidate set."
+                  : "Hiring poll draft was logged for a different recipient set."
+                  : hiringEmailBccEmails.length
+                    ? "Draft and send the hiring poll for remaining SP slots."
+                    : "Add candidate SP recipients before drafting the hiring poll.",
+            readinessActions: !hiringEmailNeeded
               ? []
               : [
                   {
-                    label: "Open Hiring Email",
+                    label: "Draft Hiring Poll",
                     onClick: () => {
                       setShowEmailDraft(true);
                       window.requestAnimationFrame(() => {
@@ -10350,10 +10402,10 @@ Cory`;
                   },
                   { label: "Open Admin Controls", onClick: scrollToAdminTools },
                 ],
-            readinessHowToFix: hiringEmailNeededByLifecycle
-              ? "Send the hiring email to fill remaining primary SP slots."
-              : "Hiring is complete or not required for this staffing state.",
-            actions: hiringEmailLifecycleComplete || !hiringEmailNeededByLifecycle
+            readinessHowToFix: hiringEmailNeeded
+              ? "Send the hiring poll once candidate recipients are confirmed."
+              : "Hiring outreach is not required for this staffing state.",
+            actions: !hiringEmailNeeded
               ? null
               : (
                 <>
@@ -10367,7 +10419,7 @@ Cory`;
                     }}
                     style={{ ...buttonStyle, padding: "7px 10px" }}
                   >
-                    Open Hiring Email
+                    Draft Hiring Poll
                   </button>
                   <button
                     type="button"
@@ -10382,26 +10434,36 @@ Cory`;
           {
             key: "confirmation_email",
             label: "Confirmation",
-            value: confirmationEmailLifecycleComplete
-              ? "Confirmation complete"
-              : confirmationEmailNeededByLifecycle
-                ? confirmationEmailSent
-                  ? "Confirmation Sent"
-                  : confirmationEmailDrafted
-                    ? "Confirmation draft ready"
-                    : "Confirmation pending"
-                : "Confirmation not needed",
-            tone: (confirmationEmailLifecycleComplete || !confirmationEmailNeededByLifecycle ? "ready" : confirmationEmailDrafted ? "info" : "attention") as OperationalStatusTone,
-            detail: confirmationEmailNeededByLifecycle
-              ? confirmationEmailSent
-                ? confirmationEmailSentAt || "Persisted in event metadata."
-                : "Use after primary SP assignments are confirmed and before event prep communications."
-              : "Confirmation is not needed after the staffing target is fully met and training is complete.",
-            readinessActions: confirmationEmailLifecycleComplete || !confirmationEmailNeededByLifecycle
+            value: !confirmationEmailNeeded
+              ? "Confirmation not needed"
+              : confirmationEmailSentProof
+                ? `Confirmation sent · ${confirmationEmailSentAt || "timestamp available"}`
+                : confirmationEmailProofs
+                  ? confirmationEmailFingerprintMatches
+                    ? "Confirmation drafted"
+                    : "Draft logged for a different roster."
+                  : confirmationBccEmails.length
+                    ? "Confirmation ready to draft"
+                    : "Needs roster recipients",
+            tone: (!confirmationEmailNeeded || confirmationEmailStatusReady
+              ? "ready"
+              : confirmationEmailProofs
+                ? "info"
+                : "attention") as OperationalStatusTone,
+            detail: !confirmationEmailNeeded
+              ? "Confirmation is not required until a confirmed roster is established."
+              : confirmationEmailProofs
+                ? confirmationEmailFingerprintMatches
+                  ? "Confirmation draft is linked to the current confirmed roster."
+                  : "Draft was logged for a different confirmed roster."
+                : confirmationBccEmails.length
+                  ? "Draft confirmation for all confirmed SPs (and backups if included)."
+                  : "Assign confirmed SPs with email addresses before drafting confirmation.",
+            readinessActions: !confirmationEmailNeeded
               ? []
               : [
                   {
-                    label: "Open Confirmation",
+                    label: "Draft Confirmation",
                     onClick: () => {
                       setShowConfirmationEmailPreview(true);
                       window.requestAnimationFrame(() => {
@@ -10411,72 +10473,82 @@ Cory`;
                   },
                   { label: "Open Admin Controls", onClick: scrollToAdminTools },
                 ],
-            readinessHowToFix: confirmationEmailNeededByLifecycle
-              ? "Send confirmation after staffing decisions are finalized."
-              : "This communication is complete or not needed for this event state.",
-            actions:
-              confirmationEmailLifecycleComplete || !confirmationEmailNeededByLifecycle
-                ? null
-                : (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowConfirmationEmailPreview(true);
-                        window.requestAnimationFrame(() => {
-                          document.getElementById("staffing-command-center")?.scrollIntoView({ behavior: "smooth", block: "start" });
-                        });
-                      }}
-                      style={{ ...buttonStyle, padding: "7px 10px" }}
-                    >
-                      Open Confirmation
-                    </button>
-                    <button
-                      type="button"
-                      onClick={scrollToAdminTools}
-                      style={{ ...buttonStyle, padding: "7px 10px" }}
-                    >
-                      Open Admin Controls
-                    </button>
-                  </>
-                ),
+            readinessHowToFix: confirmationEmailNeeded
+              ? "Draft confirmation email for the current confirmed roster, then mark sent when dispatched."
+              : "No confirmation communication is needed right now.",
+            actions: !confirmationEmailNeeded
+              ? null
+              : (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowConfirmationEmailPreview(true);
+                      window.requestAnimationFrame(() => {
+                        document.getElementById("staffing-command-center")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                      });
+                    }}
+                    style={{ ...buttonStyle, padding: "7px 10px" }}
+                  >
+                    Draft Confirmation
+                  </button>
+                  <button
+                    type="button"
+                    onClick={scrollToAdminTools}
+                    style={{ ...buttonStyle, padding: "7px 10px" }}
+                  >
+                    Open Admin Controls
+                  </button>
+                </>
+              ),
           },
         ]
       : []),
     ...(facultyLedTraining
       ? [
           {
-            key: "faculty_request",
-            label: "Faculty request",
-            value: facultyTrainingCoordinationLabel,
-            tone: (facultyTrainingCoordinationSent ? "ready" : facultyTrainingCoordinationRequested ? "info" : "attention") as OperationalStatusTone,
-            detail: facultyTrainingCoordinationSent
-              ? "Faculty scheduling outreach is logged in the event metadata."
-              : "Track faculty availability before training logistics are finalized.",
-            readinessActions: facultyTrainingCoordinationSent
+            key: "faculty_training_date_email",
+            label: "Faculty Training Date Email",
+            value: !facultyTrainingDateEmailRequired
+              ? "Faculty coordination module not required"
+              : facultyTrainingDateEmailSentProof
+                ? "Faculty training date email sent"
+                : facultyTrainingDateEmailDrafted
+                  ? facultyTrainingDateEmailFingerprintMatches
+                    ? "Faculty training date draft logged"
+                    : "Draft was logged for a different faculty recipient set."
+                  : facultyTrainingDateEmailNeedsInfo
+                    ? "Needs faculty email"
+                    : "Ready to draft",
+            tone: (!facultyTrainingDateEmailRequired
+              ? "info"
+              : facultyTrainingDateEmailProofComplete
+                ? "ready"
+                : facultyTrainingDateEmailDrafted
+                  ? "info"
+                  : "attention") as OperationalStatusTone,
+            detail: !facultyTrainingDateEmailRequired
+              ? "Faculty-led training requires this communication."
+              : facultyTrainingDateEmailSentProof
+                ? "Faculty date email has been marked sent."
+                : facultyTrainingDateEmailDrafted
+                  ? facultyTrainingDateEmailFingerprintMatches
+                    ? "Draft is logged for the current faculty lead."
+                    : "Draft was logged for a different faculty recipient set."
+                  : facultyTrainingDateEmailNeedsInfo
+                    ? "Add faculty email or faculty contact before drafting."
+                    : "Draft and send the faculty training date email before the training session.",
+            readinessActions: !facultyTrainingDateEmailRequired
               ? [{ label: "Open Admin Controls", onClick: scrollToAdminTools }]
-              : facultyEmails.length
-                ? [
-                    {
-                      label: "Request Faculty Availability",
-                      onClick: () => void handleDraftFacultyTrainingAvailabilityRequest(),
-                    },
-                  ]
-                : [{ label: "Add Faculty Email", onClick: () => focusAdminEditField("faculty_names") }],
+              : facultyTrainingDateEmailNeedsInfo
+                ? [{ label: "Add Faculty Contact", onClick: () => focusAdminEditField("faculty_names") }]
+                : [{ label: "Draft Faculty Training Date Email", onClick: () => void handleDraftFacultyTrainingAvailabilityRequest() }],
             readinessHowToFix: "Capture faculty coordination for training and confirm outreach completion.",
             actions:
-              facultyTrainingCoordinationSent || !facultyEmails.length ? (
-                !facultyEmails.length ? (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => focusAdminEditField("faculty_names")}
-                      style={{ ...buttonStyle, padding: "7px 10px" }}
-                    >
-                      Add Faculty Email
-                    </button>
-                  </>
-                ) : null
+              facultyTrainingDateEmailSentProof ? (
+                <span style={{ ...commandChipStyle, background: planningSuccessCardBackground, border: planningSuccessBorder, color: planningSuccessText, padding: "7px 10px" }}>
+                  Faculty email logged as sent
+                </span>
               ) : (
                 <>
                   <button
@@ -10484,7 +10556,7 @@ Cory`;
                     onClick={() => void handleDraftFacultyTrainingAvailabilityRequest()}
                     style={{ ...buttonStyle, padding: "7px 10px" }}
                   >
-                    Request Faculty Availability
+                    Draft Faculty Training Date Email
                   </button>
                 </>
               ),
@@ -10857,22 +10929,22 @@ Cory`;
       label: "Email / contact",
       status: emailReadinessStatus,
       value:
-        !hiringEmailNeededByLifecycle && !confirmationEmailNeededByLifecycle
+        communicationReadinessReady
           ? "Training + staffing communications complete"
           : staffingEmailWorkflowDetail || outreachProgressLabel,
       explanation:
-        !hiringEmailNeededByLifecycle && !confirmationEmailNeededByLifecycle
+        communicationReadinessReady
           ? "Communication flow has passed staffing recruitment and training completion. Next step is Event Prep Email before event."
-          : hiringEmailSent && confirmationEmailSent
-          ? "Hiring and confirmation emails are both marked sent."
-          : hiringEmailSent || confirmationEmailSent
-            ? "One staffing email workflow is complete. Send the remaining hiring or confirmation email to finish communications."
-            : outreachProgressLabel === "In progress"
-              ? "SP contact activity exists; finalize both hiring and confirmation communication in the staffing workflow."
-              : outreachProgressLabel === "Draft opened"
-                ? "A staffing email draft has been prepared, but the send step is still waiting for confirmation."
-                : "Hiring communication has not been finalized from this event page.",
-      actions: !hiringEmailNeededByLifecycle && !confirmationEmailNeededByLifecycle
+          : hiringEmailSentProof || confirmationEmailSentProof || facultyTrainingDateEmailSentProof
+            ? "Hiring and confirmation emails are both marked sent."
+            : hiringEmailProofs || confirmationEmailProofs || facultyTrainingDateEmailProofs
+              ? "At least one staffing communication workflow is logged. Draft and send the remaining communication to finish."
+              : outreachProgressLabel === "In progress"
+                ? "SP contact activity exists; finalize both hiring and confirmation communication in the staffing workflow."
+                  : outreachProgressLabel === "Drafted"
+                    ? "A staffing email draft has been prepared, but the send step is still waiting for confirmation."
+                  : "Hiring communication has not been finalized from this event page.",
+      actions: !communicationReadinessReady
         ? []
         : [
             {
@@ -11123,15 +11195,19 @@ Cory`;
     "",
     "You are confirmed for the following CFSP simulation event:",
     "",
-    `Event: ${event?.name || "TBD"}`,
-    `Date(s): ${sessionSummaryLabel || eventDateLabel || "TBD"}`,
-    `Time: ${summaryTimeLabel || "TBD"}`,
-    `Location: ${event?.location || "TBD"}`,
+    `<b>Event:</b> ${event?.name || "TBD"}`,
+    `<b>Date(s):</b> ${sessionSummaryLabel || eventDateLabel || "TBD"}`,
+    `<b>Time:</b> ${summaryTimeLabel || "TBD"}`,
+    `<b>Location:</b> ${event?.location || "TBD"}`,
+    `<b>Location / Zoom:</b> ${trainingLocationModality || "TBD"}`,
+    `<b>Case:</b> ${trainingMetadata.case_name || "Case name TBD"}`,
     "",
     ...confirmationContactLine,
-    ...(confirmationTrainingDetails.length
-      ? ["Training / Preparation:", ...confirmationTrainingDetails.map((line) => `- ${line}`), ""]
-      : []),
+    ...[
+      "Training / Preparation:",
+      ...confirmationTrainingDetails,
+      "",
+    ],
     arrivalInstructions ? `Arrival / Report Instructions: ${arrivalInstructions}` : "",
     eventMaterialUrl ? `Event Material: ${eventMaterialName} - ${eventMaterialUrl}` : "",
     "",
@@ -11146,12 +11222,38 @@ Cory`;
   ].filter((line, index, lines) => line !== "" || lines[index - 1] !== "").join("\n");
   const confirmationMailtoHref = buildMailtoHref({
     to: me?.email || "",
-    cc: facultyEmails,
+    cc: communicationCcEmails,
     bcc: confirmationBccEmails,
     subject: confirmationEmailSubject,
     body: confirmationEmailBody,
   });
   const hiringEmailSubjectDateLabel = hiringWindowDateLabel || eventDateLabel || "Date TBD";
+  const hiringPollEmailSubject = `SP Hiring Poll: ${event?.name || "CFSP Event"} - ${hiringEmailSubjectDateLabel}`;
+  const hiringPollEmailBody = [
+    "SPs,",
+    "",
+    `CFSP needs staffing support for ${event?.name || "the upcoming simulation event"}.`,
+    "",
+    `<b>Event:</b> ${event?.name || "TBD"}`,
+    `<b>Date/Time:</b> ${hiringWindowDateLabel || eventDateLabel || "TBD"} · ${hiringWorkWindowLabel || summaryTimeLabel || "TBD"}`,
+    `<b>Location / Modality:</b> ${trainingLocationModality || "TBD"}`,
+    `<b>Role Need:</b> ${trainingRoleNeedLabel}`,
+    `<b>Poll / Form Link:</b> ${eventPollLink || "TBD"}`,
+    "",
+    "Reply with your availability as soon as possible. Confirmed details will be reviewed before assignment finalization.",
+    "",
+    "Thank you,",
+    `<b>From:</b> ${me?.fullName || me?.scheduleName || me?.email || "CFSP Simulation Operations"}`,
+  ].join("\n");
+  const hiringPollBccEmails = hiringEmailBccEmails.length ? hiringEmailBccEmails : assignedBccEmails;
+  const hiringPollMailtoHref = buildMailtoHref({
+    to: me?.email || "",
+    cc: communicationCcEmails,
+    bcc: hiringPollBccEmails,
+    subject: hiringPollEmailSubject,
+    body: hiringPollEmailBody,
+  });
+  const hiringPollReady = Boolean(hiringPollBccEmails.length && eventPollLink);
   const emailSubject = `[CFSP] ${event?.name || "CFSP Event"} - ${hiringEmailSubjectDateLabel}`;
   const emailBody = [
     "Hello,",
@@ -11169,6 +11271,284 @@ Cory`;
     "Thank you,",
     "CFSP Simulation Operations",
   ].join("\n");
+  const postTrainingEmailDateLabel =
+    formatEventDateText(normalEventTrainingDateText, importedYearHint) ||
+    normalEventTrainingDateText ||
+    "Date TBD";
+  const postTrainingRecordingUrl =
+    trainingMetadata.training_recording_url ||
+    trainingMetadata.recording_url ||
+    trainingMetadata.zoom_url ||
+    normalEventTrainingLink ||
+    "";
+  const postTrainingContactLabel =
+    trainingFacultyText && facultyEmailText
+      ? `${trainingFacultyText} (${facultyEmailText})`
+      : facultyEmailText || trainingFacultyText || asText(trainingMetadata.sim_contact) || "faculty contact";
+  const postTrainingEmailSubject = `${event?.name || "Event"}: Link to Recorded SP Training - ${postTrainingEmailDateLabel}`;
+  const postTrainingEmailBody = [
+    "SPs,",
+    "",
+    `In preparation for ${event?.name || "this event"}, please review the following:`,
+    "",
+    `<b>Date(s)/Time(s) of events:</b> ${sessionSummaryLabel || eventDateLabel || "TBD"}`,
+    `<b>Link to Today’s SP Training:</b> ${postTrainingRecordingUrl || "TBD"}`,
+    `<b>Contact ${postTrainingContactLabel}:</b> if you have any questions after the training,`,
+    "",
+    `If you were not at training but are reviewing the video, add 1 hour to your timesheet on ${postTrainingEmailDateLabel}.`,
+    "",
+    "Thank you,",
+    `<b>From:</b> ${me?.fullName || me?.scheduleName || me?.email || "CFSP Simulation Operations"}`,
+  ].join("\n");
+  const postTrainingMailtoHref = buildMailtoHref({
+    to: me?.email || "",
+    cc: communicationCcEmails,
+    bcc: assignedBccEmails,
+    subject: postTrainingEmailSubject,
+    body: postTrainingEmailBody,
+  });
+  const payrollDurationFromRoundsMinutes = useMemo(
+    () =>
+      rotationRounds.reduce((totalMinutes, round) => {
+        const duration = getRotationRoundDurationMinutes(round);
+        if (duration === null) return totalMinutes;
+        return totalMinutes + duration;
+      }, 0),
+    [rotationRounds]
+  );
+  const fallbackEventEndMinutes = normalizeEndMinutesForRange(
+    parseTimeToMinutes(primaryEventCountdownStartTimeText),
+    parseTimeToMinutes(primaryEventCountdownEndTimeText)
+  );
+  const eventDurationMinutes = useMemo(() => {
+    if (payrollDurationFromRoundsMinutes > 0) return payrollDurationFromRoundsMinutes;
+    if (parseTimeToMinutes(primaryEventCountdownStartTimeText) !== null && fallbackEventEndMinutes !== null) {
+      const startMinutes = parseTimeToMinutes(primaryEventCountdownStartTimeText);
+      if (startMinutes === null) return 0;
+      return Math.max(fallbackEventEndMinutes - startMinutes, 0);
+    }
+    return 0;
+  }, [fallbackEventEndMinutes, payrollDurationFromRoundsMinutes, primaryEventCountdownStartTimeText]);
+  const eventDurationHoursLabel = useMemo(() => {
+    const hours = Math.floor(Math.max(eventDurationMinutes, 0) / 60);
+    const minutes = Math.max(Math.floor(eventDurationMinutes), 0) % 60;
+    if (hours > 0 && minutes > 0) return `${hours}h ${minutes}m`;
+    if (hours > 0) return `${hours}h`;
+    return `${minutes}m`;
+  }, [eventDurationMinutes]);
+  const trainingReviewMinutes = useMemo(() => {
+    const trainingStartMinutes = parseTimeToMinutes(normalEventTrainingCountdownStartTimeText);
+    const trainingEndMinutes = parseTimeToMinutes(normalEventTrainingCountdownEndTimeText);
+    const normalizedEnd = normalizeEndMinutesForRange(trainingStartMinutes, trainingEndMinutes);
+    if (trainingStartMinutes === null || normalizedEnd === null) return null;
+    return Math.max(normalizedEnd - trainingStartMinutes, 0);
+  }, [normalEventTrainingCountdownEndTimeText, normalEventTrainingCountdownStartTimeText]);
+  const trainingReviewHoursLabel = useMemo(() => {
+    if (!trainingReviewMinutes) return "";
+    const hours = Math.floor(trainingReviewMinutes / 60);
+    const minutes = trainingReviewMinutes % 60;
+    if (hours > 0 && minutes > 0) return `${hours}h ${minutes}m`;
+    if (hours > 0) return `${hours}h`;
+    return `${minutes}m`;
+  }, [trainingReviewMinutes]);
+  const payrollEmailBccEmails = useMemo(() => {
+    const assignmentEmails = sortedAssignments
+      .map((assignment) => {
+        const status = getAssignmentStatus(assignment);
+        if (status === "declined" || status === "no_show") return null;
+        const spId = assignment.sp_id ? String(assignment.sp_id) : "";
+        const sp = spId ? spsById.get(spId) : undefined;
+        return sp ? getEmail(sp) : null;
+      })
+      .filter((email): email is string => Boolean(email));
+    return Array.from(new Set(assignmentEmails));
+  }, [spsById, sortedAssignments]);
+  const payrollEmailSubject = `Post-Event Payroll: ${event?.name || "CFSP Event"} - ${sessionSummaryLabel || eventDateLabel || "Date TBD"}`;
+  const payrollEmailBody = [
+    "SPs,",
+    "",
+    "Please review your payroll guidance for the upcoming assignment:",
+    "",
+    `<b>Event:</b> ${event?.name || "TBD"}`,
+    `<b>Date:</b> ${sessionSummaryLabel || eventDateLabel || "TBD"}`,
+    `<b>Scheduled Time Range:</b> ${summaryTimeLabel || "TBD"}`,
+    `<b>Total Event Hours:</b> ${eventDurationHoursLabel}`,
+    ...(trainingReviewHoursLabel ? [`<b>Training Review Hour:</b> ${trainingReviewHoursLabel}`] : []),
+    ...(eventMaterialUrl ? [`<b>Notes / Materials:</b> ${eventMaterialName} (${eventMaterialUrl})`] : []),
+    ...(event?.notes ? [`<b>Notes:</b> ${String(event.notes).trim()}`] : []),
+    "",
+    `Submit payroll for ${eventDurationHoursLabel} plus any approved training review hour${trainingReviewHoursLabel ? "s" : ""}.`,
+    "",
+    "Thank you,",
+    `<b>From:</b> ${me?.fullName || me?.scheduleName || me?.email || "CFSP Simulation Operations"}`,
+  ].join("\n");
+  const payrollMailtoHref = buildMailtoHref({
+    to: me?.email || "",
+    cc: communicationCcEmails,
+    bcc: payrollEmailBccEmails,
+    subject: payrollEmailSubject,
+    body: payrollEmailBody,
+  });
+  const hiringPollCardStatus = hiringEmailNeeded
+    ? hiringEmailSentProof
+      ? "Sent"
+      : hiringEmailProofs
+        ? "Drafted"
+        : hiringPollReady
+          ? "Ready to draft"
+          : "Needs info"
+    : "Ready to draft";
+  const confirmationCardStatus = confirmationEmailNeeded
+    ? confirmationEmailSentProof
+      ? "Sent"
+      : confirmationEmailProofs
+        ? "Drafted"
+        : confirmationBccEmails.length
+          ? "Ready to draft"
+          : "Needs info"
+    : "Ready to draft";
+  const facultyTrainingDateEmailCardStatus = !facultyTrainingDateEmailRequired
+    ? "Ready to draft"
+    : facultyTrainingDateEmailSentProof
+      ? "Sent"
+      : facultyTrainingDateEmailProofs
+        ? "Drafted"
+        : facultyTrainingDateEmailRecipientFingerprint.length
+          ? "Ready to draft"
+          : "Needs info";
+  const communicationCards = [
+    {
+      key: "hiring-poll",
+      title: "SP Hiring Poll Email",
+      description: "Send a hiring/availability poll to candidate SPs.",
+      status: hiringPollCardStatus,
+      statusDetail: hiringPollCardStatus === "Needs info"
+        ? !hiringPollBccEmails.length
+          ? "No candidate recipients are available."
+          : !eventPollLink
+            ? "Missing poll link."
+            : "Draft available for the current candidate set."
+        : "Draft available for the current candidate set.",
+      ready: hiringPollCardStatus !== "Needs info",
+      href: hiringPollMailtoHref,
+      cc: communicationCcEmails.length,
+      onClick: async () => {
+        if (!hiringEmailNeeded) {
+          setEventSaveError("Hiring poll is not needed for current staffing status.");
+          return;
+        }
+        if (!hiringPollBccEmails.length) {
+          setEventSaveError("Add candidate SPs or selected staffing emails before drafting the hiring poll email.");
+          return;
+        }
+        setEventSaveError("");
+        if (!eventPollLink) {
+          setEventSaveError("Add a poll link path before drafting the hiring poll email.");
+          return;
+        }
+        window.location.href = hiringPollMailtoHref;
+      },
+    },
+    {
+      key: "hire-confirmation",
+      title: "Hire Confirmation Email",
+      description: "Draft confirmation for selected SPs with finalized event details.",
+      status: confirmationCardStatus,
+      statusDetail: confirmationCardStatus === "Needs info"
+        ? "No confirmed SP recipients are ready for the current roster."
+        : "Draft available for the current confirmed roster.",
+      ready: confirmationCardStatus !== "Needs info",
+      href: confirmationMailtoHref,
+      onClick: async () => {
+        if (!confirmationBccEmails.length) {
+          setShowConfirmationEmailPreview(true);
+          setEventSaveError(
+            includeBackupConfirmationEmails
+              ? "No confirmed primary or backup SP emails are ready for a confirmation draft."
+              : "No confirmed primary SP emails are ready for a confirmation draft."
+          );
+          return;
+        }
+        await handleOpenConfirmationEmailDraft();
+      },
+    },
+    {
+      key: "prep-training",
+      title: "Prep for Training Email",
+      description: "Draft the SP training prep email with event logistics and materials.",
+      status: assignedBccEmails.length ? "Ready to draft" : "Needs info",
+      statusDetail: assignedBccEmails.length
+        ? "Draft the SP training prep message."
+        : "Assign SPs with email addresses before drafting.",
+      ready: Boolean(assignedBccEmails.length),
+      href: trainingMailtoHref,
+      onClick: async () => {
+        if (!assignedBccEmails.length) {
+          setEventSaveError("Assign SPs with email addresses before drafting the training email.");
+          return;
+        }
+        window.location.href = trainingMailtoHref;
+      },
+    },
+    {
+      key: "post-training",
+      title: "Post-Training / Pre-Event Email",
+      description: "Share the recorded training link and pre-event touchpoints.",
+      status: assignedBccEmails.length ? "Ready to draft" : "Needs info",
+      statusDetail: assignedBccEmails.length
+        ? "Draft the follow-up and recorded-training communication."
+        : "Assign SPs with email addresses before drafting.",
+      ready: Boolean(assignedBccEmails.length),
+      href: postTrainingMailtoHref,
+      onClick: async () => {
+        if (!assignedBccEmails.length) {
+          setEventSaveError("Assign SPs with email addresses before drafting the training follow-up email.");
+          return;
+        }
+        window.location.href = postTrainingMailtoHref;
+      },
+    },
+    {
+      key: "payroll-wrapup",
+      title: "Post-Event Payroll / Wrap-Up Email",
+      description: "Draft payroll timing and hours guidance for assigned/confirmed SPs.",
+      status: payrollEmailBccEmails.length ? "Ready to draft" : "Needs info",
+      statusDetail: payrollEmailBccEmails.length
+        ? "Draft payroll guidance and hours for this event."
+        : "Assign SPs with email addresses before drafting.",
+      ready: Boolean(payrollEmailBccEmails.length),
+      href: payrollMailtoHref,
+      onClick: async () => {
+        if (!payrollEmailBccEmails.length) {
+          setEventSaveError("Assign SPs with email addresses before drafting payroll follow-up.");
+          return;
+        }
+        window.location.href = payrollMailtoHref;
+      },
+    },
+    {
+      key: "faculty-training-date-email",
+      title: "Faculty Training Date Email",
+      description: "Draft a scheduling email to faculty with date/time, location, and expectations.",
+      status: facultyTrainingDateEmailCardStatus,
+      statusDetail: facultyTrainingDateEmailCardStatus === "Needs info"
+        ? "Add faculty email and/or faculty contact before drafting."
+        : facultyTrainingDateEmailCardStatus === "Ready to draft"
+          ? "Draft the faculty scheduling message."
+          : facultyTrainingDateEmailCardStatus === "Drafted"
+            ? "Faculty draft logged for this recipient set."
+            : "Faculty email marked sent.",
+      ready: facultyTrainingDateEmailCardStatus !== "Needs info",
+      href: "javascript:void(0)",
+      onClick: async () => {
+        if (!facultyTrainingDateEmailRequired) {
+          setEventSaveError("Faculty-led training date email is not required for this event.");
+          return;
+        }
+        await handleDraftFacultyTrainingAvailabilityRequest();
+      },
+    },
+  ];
   const mailtoHref = buildMailtoHref({
     bcc: hiringEmailBccEmails.length ? hiringEmailBccEmails : bccEmails,
     subject: emailSubject,
@@ -12952,11 +13332,13 @@ Cory`;
     }
 
     setEventSaveError("");
+    const now = new Date().toISOString();
     await persistTrainingMetadataFields(
       {
         email_status: "draft_opened",
-        email_draft_opened_at: new Date().toISOString(),
-        hiring_email_drafted_at: new Date().toISOString(),
+        email_draft_opened_at: now,
+        hiring_email_drafted_at: now,
+        hiring_email_recipient_snapshot: hiringEmailRecipientFingerprint,
         selected_hiring_sp_ids: selectedHiringEmailSpIds.join(","),
         staffing_status: staffingCoverageMet ? "coverage_met" : "needs_staffing",
         last_email_workflow_type: "hiring",
@@ -13025,6 +13407,8 @@ Cory`;
           faculty_training_coordination_status: "sent",
           faculty_training_coordination_requested_at: sentAt,
           faculty_request_sent_at: sentAt,
+          faculty_training_date_email_drafted_at: sentAt,
+          faculty_training_date_email_recipient_snapshot: facultyTrainingDateEmailRecipientFingerprint,
         },
         "Faculty training availability request sent."
       );
@@ -13055,6 +13439,7 @@ Cory`;
         email_status: "draft_opened",
         email_draft_opened_at: new Date().toISOString(),
         confirmation_email_drafted_at: new Date().toISOString(),
+        confirmation_email_recipient_snapshot: confirmationTargetRecipientFingerprint,
         include_backups_in_email: includeBackupConfirmationEmails ? "yes" : "no",
         staffing_status: staffingCoverageMet ? "coverage_met" : "needs_staffing",
         last_email_workflow_type: "confirmation",
@@ -13616,25 +14001,48 @@ Cory`;
 
   async function handleMarkStaffingEmailSent(kind: "hiring" | "confirmation") {
     const sentAt = new Date().toISOString();
+    if (kind === "hiring") {
+      if (!canMarkHiringEmailSent) {
+        setEventSaveError("Hiring poll email cannot be marked sent until a current candidate recipient set is prepared.");
+        return;
+      }
+    } else if (!canMarkConfirmationEmailSent) {
+      setEventSaveError("Confirmation email cannot be marked sent until a current confirmed roster is prepared.");
+      return;
+    }
+
     try {
+      const nextHiringProofComplete = kind === "hiring"
+        ? true
+        : hiringEmailProofComplete;
+      const nextConfirmationProofComplete = kind === "confirmation"
+        ? true
+        : confirmationProofComplete;
+      const staffingCommunicationReady = staffingRelevant &&
+        (!hiringEmailNeeded || nextHiringProofComplete) &&
+        (!confirmationEmailNeeded || nextConfirmationProofComplete) &&
+        (!facultyTrainingDateEmailRequired || facultyTrainingDateEmailProofComplete);
+
       await persistTrainingMetadataFields(
         kind === "hiring"
           ? {
-              email_status: confirmationEmailSent ? "sent" : "draft_opened",
+              email_status: "sent",
               email_sent_at: sentAt,
               hiring_email_sent_at: sentAt,
               hiring_email_sent_or_marked_at: sentAt,
-              staffing_status: confirmationEmailSent && staffingCoverageMet ? "complete" : staffingCoverageMet ? "coverage_met" : "needs_staffing",
+              hiring_email_recipient_snapshot: hiringEmailRecipientFingerprint,
+              staffing_status: staffingCommunicationReady && staffingCoverageMet ? "complete" : staffingCoverageMet ? "coverage_met" : "needs_staffing",
               selected_hiring_sp_ids: selectedHiringEmailSpIds.join(","),
               last_email_workflow_type: "hiring",
               last_email_recipient_count: String(hiringEmailBccEmails.length),
             }
           : {
-              email_status: hiringEmailSent ? "sent" : "draft_opened",
+              email_status: "sent",
               email_sent_at: sentAt,
               confirmation_email_sent_at: sentAt,
               confirmation_email_sent_or_marked_at: sentAt,
-              staffing_status: hiringEmailSent && staffingCoverageMet ? "complete" : staffingCoverageMet ? "coverage_met" : "needs_staffing",
+              confirmation_email_recipient_snapshot: confirmationTargetRecipientFingerprint,
+              staffing_status: staffingCommunicationReady && staffingCoverageMet ? "complete" : staffingCoverageMet ? "coverage_met" : "needs_staffing",
               include_backups_in_email: includeBackupConfirmationEmails ? "yes" : "no",
               last_email_workflow_type: "confirmation",
               last_email_recipient_count: String(confirmationBccEmails.length),
@@ -17160,7 +17568,7 @@ Cory`;
                           >
                             Confirm All Selected SPs
                           </button>
-                          {!hiringEmailSent ? (
+                          {!hiringEmailProofComplete ? (
                             <button
                               type="button"
                               onClick={() => void handleOpenAvailabilityRequest()}
@@ -17179,10 +17587,10 @@ Cory`;
                                 padding: "8px 11px",
                               }}
                             >
-                              Hiring Email Sent
+                              {hiringEmailSentProof ? "Hiring Email Sent" : "Hiring Poll Draft Logged"}
                             </span>
                           )}
-                          {!confirmationEmailSent ? (
+                          {!confirmationEmailProofComplete ? (
                             <button
                               type="button"
                               onClick={() => void handleOpenConfirmationEmailDraft()}
@@ -17201,22 +17609,24 @@ Cory`;
                                 padding: "8px 11px",
                               }}
                             >
-                              Confirmation Sent
+                              {confirmationEmailSentProof ? "Confirmation Sent" : "Confirmation Draft Logged"}
                             </span>
                           )}
-                          {!hiringEmailSent ? (
+                          {!hiringEmailProofComplete ? (
                             <button
                               type="button"
                               onClick={() => void handleMarkStaffingEmailSent("hiring")}
+                              disabled={!canMarkHiringEmailSent}
                               style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px" }}
                             >
                               Mark Hiring Email Sent
                             </button>
                           ) : null}
-                          {!confirmationEmailSent ? (
+                          {!confirmationEmailProofComplete ? (
                             <button
                               type="button"
                               onClick={() => void handleMarkStaffingEmailSent("confirmation")}
+                              disabled={!canMarkConfirmationEmailSent}
                               style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px" }}
                             >
                               Mark Confirmation Sent
@@ -17249,7 +17659,7 @@ Cory`;
                           <span style={{ ...staffingMutedTextStyle, alignSelf: "center" }}>
                             Backup emails are optional support.
                           </span>
-                          {!hiringEmailSent ? (
+                          {!hiringEmailProofComplete ? (
                             <button
                               type="button"
                               onClick={() => setShowEmailDraft((current) => !current)}
@@ -17261,7 +17671,7 @@ Cory`;
                               {showEmailDraft ? "Hide Email Preview" : "Show Email Preview"}
                             </button>
                           ) : null}
-                          {!confirmationEmailSent ? (
+                          {!confirmationEmailProofComplete ? (
                             <button
                               type="button"
                               onClick={() => setShowConfirmationEmailPreview((current) => !current)}
@@ -17762,7 +18172,7 @@ Cory`;
                   </div>
                 ) : null}
 
-                {isPlanningVisualMode && showEmailDraft && !hiringEmailSent ? (
+                {isPlanningVisualMode && showEmailDraft && !hiringEmailProofComplete ? (
                   <div style={{ ...staffingMetricCardStyle, padding: "12px 14px" }}>
                     <div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Email Draft Preview</div>
                     <div style={{ marginTop: "8px", color: staffingWorkspacePalette.textStrong, lineHeight: 1.7 }}>
@@ -17774,7 +18184,7 @@ Cory`;
                   </div>
                 ) : null}
 
-                {isPlanningVisualMode && showConfirmationEmailPreview && !confirmationEmailSent ? (
+                {isPlanningVisualMode && showConfirmationEmailPreview && !confirmationEmailProofComplete ? (
                   <div style={{ ...staffingMetricCardStyle, padding: "12px 14px" }}>
                     <div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Confirmation Email Preview</div>
                     <div style={{ marginTop: "8px", color: staffingWorkspacePalette.textStrong, lineHeight: 1.7 }}>
@@ -20315,7 +20725,14 @@ Cory`;
                     subtitle: "Case access, materials, outreach, and training links in one place.",
                     rows: communicationMaterialRows,
                     tone: materialsCommunicationWindowTone,
-                    summary: [materialsStatusLabel, hiringEmailSent ? "Hiring sent" : hiringEmailDrafted ? "Hiring draft" : "", confirmationEmailSent ? "Confirmation sent" : ""].filter(Boolean).slice(0, 2).join(" · "),
+                    summary: [
+                      materialsStatusLabel,
+                      hiringEmailProofComplete ? "Hiring sent" : hiringEmailDrafted ? "Hiring draft" : "",
+                      confirmationEmailProofComplete ? "Confirmation sent" : "",
+                    ]
+                      .filter(Boolean)
+                      .slice(0, 2)
+                      .join(" · "),
                     styles: materialsCommunicationWindowStyles,
                   },
                 ].map((windowCard) => {
@@ -23354,437 +23771,655 @@ Cory`;
               </div>
             </section>
 
-            <section id="simulation-command-file-cabinet" style={{ ...cardStyle, background: "var(--cfsp-surface)" }}>
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  gap: "12px",
-                  flexWrap: "wrap",
-                  alignItems: "flex-start",
-                }}
-              >
-                <div>
-                  <h2 style={compactSectionTitleStyle}>Simulation Command File Cabinet</h2>
-                  <p style={compactSectionHintStyle}>
-                    Keep case docs, doorsigns, and recording details in one compact place.
-                  </p>
-                </div>
-              </div>
-
-              <div
-                style={{
-                  ...detailGridStyle,
-                  marginTop: "14px",
-                  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-                }}
-              >
-                {trainingMaterialCards.map((material) => {
-                  const fieldConfig = trainingMaterialFieldMap[material.kind];
-                  const fileUrl = asText(trainingMetadata[fieldConfig.urlKey]);
-                  const fileName = asText(trainingMetadata[fieldConfig.nameKey]);
-                  const storagePath = asText(trainingMetadata[fieldConfig.storagePathKey]);
-                  const isBusy = trainingMaterialSaving[material.kind];
-                  const materialCaseEntries = material.kind === "case_file" ? caseFileEntries : [];
-                  const materialHasFile = material.kind === "case_file"
-                    ? materialCaseEntries.some((entry) => Boolean(entry.url || entry.storagePath))
-                    : Boolean(fileUrl);
-                  const displayName =
-                    material.kind === "case_file"
-                      ? materialHasFile
-                        ? `${uploadedCaseFileCount} case${uploadedCaseFileCount === 1 ? "" : "s"} loaded`
-                        : materialCaseEntries.length
-                          ? `${materialCaseEntries.length} case${materialCaseEntries.length === 1 ? "" : "s"} named · upload needed`
-                        : "No cases uploaded"
-                      : fileName || getFilenameFromUrl(fileUrl) || "No document attached";
-
-                  return (
+            <section
+              id="simulation-command-file-cabinet"
+              style={{
+                ...cardStyle,
+                position: "relative",
+                overflow: "hidden",
+                background: "linear-gradient(135deg, #090d2a 0%, #190f34 48%, #1f1b3d 100%)",
+                border: "1px solid rgba(193, 165, 57, 0.35)",
+                boxShadow: "0 28px 48px rgba(2, 4, 12, 0.5), 0 0 0 1px rgba(139, 92, 246, 0.3)",
+              }}
+            >
+              <style>{`
+                @keyframes cfspCabinetLegacyPulse {
+                  0%, 100% { box-shadow: 0 20px 40px rgba(3, 5, 20, 0.45), 0 0 0 1px rgba(139, 92, 246, 0.23); }
+                  50% { box-shadow: 0 26px 50px rgba(3, 5, 20, 0.62), 0 0 0 1px rgba(250, 204, 21, 0.28); }
+                }
+                @keyframes cfspCabinetLegacySweep {
+                  0% { transform: translateX(-58%); opacity: 0; }
+                  12% { opacity: 0.26; }
+                  50% { transform: translateX(58%); opacity: 0.16; }
+                  100% { transform: translateX(-58%); opacity: 0; }
+                }
+                @keyframes cfspCabinetLegacySheen {
+                  0% { transform: translateX(-130%); }
+                  100% { transform: translateX(130%); }
+                }
+                @keyframes cfspCabinetLegacyFloat {
+                  0%, 100% { transform: translateY(0px); }
+                  50% { transform: translateY(-1.5px); }
+                }
+                .cfsp-file-cabinet-legacy-shell {
+                  position: relative;
+                  overflow: hidden;
+                  border-radius: 20px;
+                }
+                .cfsp-file-cabinet-legacy-shell::before {
+                  content: "";
+                  position: absolute;
+                  inset: -40% auto auto -22%;
+                  width: 45%;
+                  height: 120%;
+                  pointer-events: none;
+                  background: linear-gradient(100deg, transparent 0%, rgba(255,255,255,0.3) 46%, rgba(249, 218, 102, 0.2) 68%, transparent 100%);
+                  opacity: 0.12;
+                  transform: rotate(-18deg);
+                  animation: cfspCabinetLegacySweep 8.5s ease-in-out infinite;
+                  filter: blur(1px);
+                }
+                .cfsp-file-cabinet-legacy-shell::after {
+                  content: "";
+                  position: absolute;
+                  inset: 0;
+                  border: 1px solid rgba(167, 139, 250, 0.28);
+                  border-radius: 20px;
+                  pointer-events: none;
+                  box-shadow: inset 0 0 0 1px rgba(250, 204, 21, 0.16), inset 0 0 45px rgba(99, 102, 241, 0.2);
+                  animation: cfspCabinetLegacyPulse 5s ease-in-out infinite;
+                }
+                .cfsp-file-cabinet-legacy-rail {
+                  position: absolute;
+                  left: 0;
+                  right: 0;
+                  top: 70px;
+                  height: 34px;
+                  pointer-events: none;
+                  background: linear-gradient(90deg, rgba(250, 204, 21, 0.16), rgba(139, 92, 246, 0.2), rgba(20, 184, 166, 0.12));
+                  border-top: 1px solid rgba(250, 204, 21, 0.3);
+                  border-bottom: 1px solid rgba(139, 92, 246, 0.25);
+                  box-shadow: inset 0 0 28px rgba(6, 10, 24, 0.45);
+                  opacity: 0.8;
+                }
+                .cfsp-file-cabinet-legacy-rack {
+                  position: absolute;
+                  inset: 10px;
+                  border: 1px solid rgba(14, 116, 144, 0.16);
+                  border-radius: 14px;
+                  pointer-events: none;
+                  background:
+                    linear-gradient(rgba(250, 204, 21, 0.05) 1px, transparent 1px),
+                    linear-gradient(90deg, rgba(139, 92, 246, 0.06) 1px, transparent 1px);
+                  background-size: 18px 18px, 18px 18px;
+                  opacity: 0.32;
+                }
+                .cfsp-file-cabinet-legacy-module {
+                  border-radius: 18px;
+                  padding: 14px;
+                  position: relative;
+                  overflow: hidden;
+                  transition: transform 180ms ease, box-shadow 180ms ease;
+                  animation: cfspCabinetLegacyFloat 8s ease-in-out infinite;
+                }
+                .cfsp-file-cabinet-legacy-module:hover {
+                  transform: translateY(-2px);
+                  box-shadow: 0 22px 38px rgba(3, 7, 24, 0.42) !important;
+                }
+                .cfsp-file-cabinet-legacy-module::before {
+                  content: "";
+                  position: absolute;
+                  inset: 0;
+                  pointer-events: none;
+                  background: linear-gradient(110deg, transparent 36%, rgba(255,255,255,0.18) 52%, transparent 66%);
+                  transform: translateX(-150%);
+                  transition: transform 260ms ease;
+                }
+                .cfsp-file-cabinet-legacy-module-ready::before {
+                  animation: cfspCabinetLegacySheen 5.8s linear infinite;
+                }
+                .cfsp-file-cabinet-legacy-module-ready {
+                  border-color: rgba(250, 204, 21, 0.4) !important;
+                  background: linear-gradient(170deg, rgba(30, 27, 75, 0.94), rgba(24, 11, 52, 0.92));
+                  box-shadow: 0 14px 28px rgba(234, 179, 8, 0.18), inset 0 1px 0 rgba(255,255,255,0.08);
+                }
+                .cfsp-file-cabinet-legacy-module-missing {
+                  border-color: rgba(248, 113, 113, 0.44) !important;
+                  background: linear-gradient(170deg, rgba(31, 20, 43, 0.96), rgba(21, 11, 38, 0.9));
+                  box-shadow: inset 0 0 0 1px rgba(248, 113, 113, 0.15);
+                }
+                .cfsp-file-cabinet-legacy-module-note {
+                  border: 1px solid rgba(168, 139, 250, 0.28);
+                  background: linear-gradient(170deg, rgba(23, 23, 58, 0.93), rgba(24, 17, 45, 0.9));
+                }
+                .cfsp-file-cabinet-legacy-button {
+                  border: 1px solid rgba(168, 139, 250, 0.38);
+                  background: linear-gradient(180deg, rgba(45, 31, 73, 0.93) 0%, rgba(27, 17, 46, 0.92) 100%);
+                  color: #e0e7ff;
+                  box-shadow: 0 8px 18px rgba(3, 7, 18, 0.3);
+                  transition: transform 160ms ease, box-shadow 160ms ease, filter 160ms ease !important;
+                }
+                .cfsp-file-cabinet-legacy-button:hover {
+                  transform: translateY(-1px);
+                  filter: brightness(1.08);
+                  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.38);
+                }
+                .cfsp-file-cabinet-legacy-button:active {
+                  transform: translateY(0px);
+                  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.25);
+                }
+                .cfsp-file-cabinet-legacy-button-danger {
+                  border: 1px solid rgba(248, 113, 113, 0.4);
+                  color: #fef2f2;
+                  background: linear-gradient(180deg, rgba(69, 22, 32, 0.92), rgba(88, 28, 38, 0.92));
+                }
+                .cfsp-file-cabinet-legacy-chip {
+                  border-radius: 999px;
+                  padding: 5px 10px;
+                  font-size: 11px;
+                  font-weight: 900;
+                  letter-spacing: 0.04em;
+                  text-transform: uppercase;
+                }
+                .cfsp-file-cabinet-legacy-chip-ready {
+                  background: rgba(250, 204, 21, 0.18);
+                  color: #fef3c7;
+                  border: 1px solid rgba(250, 204, 21, 0.36);
+                  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.18);
+                }
+                .cfsp-file-cabinet-legacy-chip-missing {
+                  background: rgba(248, 113, 113, 0.16);
+                  color: #fee2e2;
+                  border: 1px solid rgba(248, 113, 113, 0.38);
+                }
+              `}</style>
+              <div className="cfsp-file-cabinet-legacy-shell">
+                <div className="cfsp-file-cabinet-legacy-rack" aria-hidden="true" />
+                <div className="cfsp-file-cabinet-legacy-rail" aria-hidden="true" />
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    gap: "12px",
+                    flexWrap: "wrap",
+                    alignItems: "flex-start",
+                    position: "relative",
+                  }}
+                >
+                  <div>
                     <div
-                      key={material.kind}
                       style={{
-                        border: "1px solid rgba(61, 201, 184, 0.16)",
-                        borderRadius: "18px",
-                        padding: "14px",
-                        background: "linear-gradient(180deg, rgba(248, 251, 253, 0.98) 0%, rgba(238, 245, 251, 0.94) 100%)",
+                        fontSize: "12px",
+                        color: "rgba(167, 139, 250, 0.85)",
+                        letterSpacing: "0.08em",
+                        textTransform: "uppercase",
+                        fontWeight: 900,
+                        marginBottom: "6px",
                       }}
                     >
-                      <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "flex-start" }}>
-                        <div>
-                          <div style={{ color: "var(--cfsp-text)", fontWeight: 900, fontSize: "16px" }}>{material.title}</div>
-                          <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontWeight: 700, fontSize: "13px", lineHeight: 1.45 }}>
-                            {displayName}
-                          </div>
-                        </div>
-                        <span style={commandChipStyle}>{materialHasFile ? "Ready" : "Missing"}</span>
-                      </div>
-                      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "12px" }}>
-                        {material.kind === "case_file" ? (
-                          materialCaseEntries.length ? (
-                            <div style={{ display: "grid", gap: "7px", width: "100%" }}>
-                              {materialCaseEntries.map((caseEntry, caseIndex) => {
-                                const assetUrls = buildTrainingMaterialAssetUrls({
-                                  eventId: id,
-                                  rawUrl: caseEntry.url,
-                                  storagePath: caseEntry.storagePath,
-                                  fileName: caseEntry.name || `case-${caseIndex + 1}`,
-                                });
-                                return (
-                                  <div
-                                    key={`admin-case-${caseEntry.id}-${caseIndex}`}
-                                    style={{
-                                      border: "1px solid rgba(61, 201, 184, 0.14)",
-                                      borderRadius: "12px",
-                                      padding: "8px",
-                                      background: "rgba(255,255,255,0.72)",
-                                      display: "grid",
-                                      gap: "7px",
-                                    }}
-                                  >
-                                    <div style={{ color: "var(--cfsp-text)", fontSize: "12px", fontWeight: 900 }}>
-                                      Case {caseIndex + 1}: {caseEntry.name || "Untitled case"}
-                                    </div>
-                                    <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                                      <button
-                                        type="button"
-                                        onClick={() => openCaseFilePreview(caseEntry)}
-                                        disabled={!caseEntry.url && !caseEntry.storagePath}
-                                        style={{ ...buttonStyle, padding: "7px 10px", opacity: caseEntry.url || caseEntry.storagePath ? 1 : 0.55 }}
-                                      >
-                                        Preview
-                                      </button>
-                                      {caseEntry.url || caseEntry.storagePath ? (
-                                        <a
-                                          href={assetUrls.downloadUrl}
-                                          target="_blank"
-                                          rel="noreferrer"
-                                          download={assetUrls.fileName}
-                                          style={{
-                                            ...buttonStyle,
-                                            display: "inline-flex",
-                                            alignItems: "center",
-                                            textDecoration: "none",
-                                            padding: "7px 10px",
-                                          }}
-                                        >
-                                          Download
-                                        </a>
-                                      ) : null}
-                                      <button
-                                        type="button"
-                                        onClick={() => openCaseFilePicker({ mode: "replace", index: caseIndex })}
-                                        disabled={isBusy}
-                                        style={{ ...buttonStyle, padding: "7px 10px", opacity: isBusy ? 0.65 : 1 }}
-                                      >
-                                        Replace
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => void handleRemoveCaseFile(caseIndex)}
-                                        disabled={isBusy}
-                                        style={{ ...dangerButtonStyle, padding: "7px 10px", opacity: isBusy ? 0.65 : 1 }}
-                                      >
-                                        Remove
-                                      </button>
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          ) : null
-                        ) : (
-                          <>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                openMaterialPreview({
-                                  title: material.title,
-                                  rawUrl: fileUrl,
-                                  storagePath,
-                                  fileName: displayName,
-                                })
-                              }
-                              disabled={!fileUrl}
-                              style={{ ...buttonStyle, padding: "8px 12px", opacity: fileUrl ? 1 : 0.55 }}
-                            >
-                              Preview
-                            </button>
-                            {fileUrl ? (
-                              (() => {
-                                const assetUrls = buildTrainingMaterialAssetUrls({
-                                  eventId: id,
-                                  rawUrl: fileUrl,
-                                  storagePath,
-                                  fileName: displayName,
-                                });
-                                return (
-                                  <a
-                                    href={assetUrls.downloadUrl}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    download={assetUrls.fileName}
-                                    style={{
-                                      ...buttonStyle,
-                                      display: "inline-flex",
-                                      alignItems: "center",
-                                      textDecoration: "none",
-                                      padding: "8px 12px",
-                                    }}
-                                  >
-                                    Download
-                                  </a>
-                                );
-                              })()
-                            ) : null}
-                          </>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() =>
-                            material.kind === "case_file"
-                              ? openCaseFilePicker(uploadedCaseFileCount ? { mode: "add" } : { mode: "replace", index: 0 })
-                              : openTrainingMaterialPicker(material.kind)
-                          }
-                          disabled={isBusy}
-                          style={{ ...buttonStyle, padding: "8px 12px", opacity: isBusy ? 0.65 : 1 }}
-                        >
-                          {material.kind === "case_file"
-                            ? uploadedCaseFileCount
-                              ? "Add Another Case"
-                              : "Upload Case"
-                            : fileUrl
-                              ? "Replace"
-                              : "Add"}
-                        </button>
-                        {material.kind === "case_file" ? null : (
-                          <button
-                            type="button"
-                            onClick={() => void handleRemoveTrainingMaterial(material.kind)}
-                            disabled={isBusy || (!fileUrl && !storagePath && !fileName)}
-                            style={{
-                              ...dangerButtonStyle,
-                              padding: "8px 12px",
-                              opacity: isBusy || (!fileUrl && !storagePath && !fileName) ? 0.65 : 1,
-                            }}
-                          >
-                            Remove
-                          </button>
-                        )}
-                      </div>
+                      Simulation Operations Rack
                     </div>
-                  );
-                })}
+                    <h2 style={{ ...compactSectionTitleStyle, color: "#f5f7ff" }}>Simulation Command File Cabinet</h2>
+                    <p style={{ ...compactSectionHintStyle, color: "#c4c7d6", maxWidth: "680px" }}>
+                      Keep case docs, doorsigns, and recording details in one complete tactical operations rack.
+                    </p>
+                  </div>
+                </div>
 
                 <div
                   style={{
-                    border: "1px solid rgba(61, 201, 184, 0.16)",
-                    borderRadius: "18px",
-                    padding: "14px",
-                    background: "linear-gradient(180deg, rgba(248, 251, 253, 0.98) 0%, rgba(238, 245, 251, 0.94) 100%)",
+                    ...detailGridStyle,
+                    marginTop: "14px",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                    position: "relative",
                   }}
                 >
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "flex-start" }}>
-                    <div>
-                      <div style={{ color: "var(--cfsp-text)", fontWeight: 900, fontSize: "16px" }}>Recording Guide</div>
-                      <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontWeight: 700, fontSize: "13px", lineHeight: 1.45 }}>
-                        {trainingMetadata.recording_url ? getFilenameFromUrl(trainingMetadata.recording_url) || "Recording link ready" : "No recording guide linked"}
-                      </div>
-                    </div>
-                    <span style={commandChipStyle}>{trainingMetadata.recording_url ? "Ready" : "Missing"}</span>
-                  </div>
-                  <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "12px" }}>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        openMaterialPreview({
-                          title: "Recording Guide",
-                          rawUrl: trainingMetadata.recording_url,
-                          fileName: getFilenameFromUrl(trainingMetadata.recording_url) || "recording-guide",
-                        })
-                      }
-                      disabled={!trainingMetadata.recording_url}
-                      style={{ ...buttonStyle, padding: "8px 12px", opacity: trainingMetadata.recording_url ? 1 : 0.55 }}
-                    >
-                      Preview
-                    </button>
-                    {trainingMetadata.recording_url ? (
-                      <a
-                        href={buildTrainingMaterialAssetUrls({
-                          eventId: id,
-                          rawUrl: trainingMetadata.recording_url,
-                          storagePath: "",
-                          fileName: getFilenameFromUrl(trainingMetadata.recording_url) || "recording-guide",
-                        }).downloadUrl}
-                        target="_blank"
-                        rel="noreferrer"
+                  {trainingMaterialCards.map((material) => {
+                    const fieldConfig = trainingMaterialFieldMap[material.kind];
+                    const fileUrl = asText(trainingMetadata[fieldConfig.urlKey]);
+                    const fileName = asText(trainingMetadata[fieldConfig.nameKey]);
+                    const storagePath = asText(trainingMetadata[fieldConfig.storagePathKey]);
+                    const isBusy = trainingMaterialSaving[material.kind];
+                    const materialCaseEntries = material.kind === "case_file" ? caseFileEntries : [];
+                    const materialHasFile = material.kind === "case_file"
+                      ? materialCaseEntries.some((entry) => Boolean(entry.url || entry.storagePath))
+                      : Boolean(fileUrl);
+                    const moduleStatusClass = materialHasFile
+                      ? "cfsp-file-cabinet-legacy-module-ready"
+                      : "cfsp-file-cabinet-legacy-module-missing";
+                    const displayName =
+                      material.kind === "case_file"
+                        ? materialHasFile
+                          ? `${uploadedCaseFileCount} case${uploadedCaseFileCount === 1 ? "" : "s"} loaded`
+                          : materialCaseEntries.length
+                            ? `${materialCaseEntries.length} case${materialCaseEntries.length === 1 ? "" : "s"} named · upload needed`
+                          : "No cases uploaded"
+                        : fileName || getFilenameFromUrl(fileUrl) || "No document attached";
+
+                    return (
+                      <div
+                        key={material.kind}
+                        className={`cfsp-file-cabinet-legacy-module ${moduleStatusClass}`}
                         style={{
-                          ...buttonStyle,
-                          display: "inline-flex",
-                          alignItems: "center",
-                          textDecoration: "none",
-                          padding: "8px 12px",
+                          border: materialHasFile
+                            ? "1px solid rgba(250, 204, 21, 0.42)"
+                            : "1px solid rgba(248, 113, 113, 0.34)",
                         }}
                       >
-                        Download
-                      </a>
-                    ) : null}
-                    <button
-                      type="button"
-                      onClick={() => setShowRecordingGuideEditor((current) => !current)}
-                      style={{ ...buttonStyle, padding: "8px 12px" }}
-                    >
-                      {showRecordingGuideEditor ? "Hide Replace" : "Replace"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        void persistTrainingMetadataFields(
-                          { recording_url: "", training_password: "" },
-                          "Recording guide removed."
-                        )
-                      }
-                      disabled={!trainingMetadata.recording_url && !trainingMetadata.training_password}
-                      style={{
-                        ...dangerButtonStyle,
-                        padding: "8px 12px",
-                        opacity: !trainingMetadata.recording_url && !trainingMetadata.training_password ? 0.55 : 1,
-                      }}
-                    >
-                      Remove
-                    </button>
-                  </div>
-                  {showRecordingGuideEditor ? (
-                    <div style={{ display: "grid", gap: "8px", marginTop: "12px" }}>
-                      <input
-                        value={trainingMetadata.recording_url}
-                        onChange={(event) => handleTrainingMetadataChange("recording_url", event.target.value)}
-                        placeholder="Recording or guide URL"
-                        style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
-                      />
-                      <input
-                        value={trainingMetadata.training_password}
-                        onChange={(event) => handleTrainingMetadataChange("training_password", event.target.value)}
-                        placeholder="Password or access note"
-                        style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
-                      />
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "flex-start" }}>
+                          <div>
+                            <div style={{ color: "#f2f4ff", fontWeight: 900, fontSize: "16px" }}>{material.title}</div>
+                            <div style={{ marginTop: "4px", color: "#c9d0df", fontWeight: 700, fontSize: "13px", lineHeight: 1.45 }}>
+                              {displayName}
+                            </div>
+                          </div>
+                          <span
+                            className={`cfsp-file-cabinet-legacy-chip ${
+                              materialHasFile ? "cfsp-file-cabinet-legacy-chip-ready" : "cfsp-file-cabinet-legacy-chip-missing"
+                            }`}
+                          >
+                            {materialHasFile ? "Ready" : "Missing"}
+                          </span>
+                        </div>
+                        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "12px" }}>
+                          {material.kind === "case_file" ? (
+                            materialCaseEntries.length ? (
+                              <div style={{ display: "grid", gap: "7px", width: "100%" }}>
+                                {materialCaseEntries.map((caseEntry, caseIndex) => {
+                                  const assetUrls = buildTrainingMaterialAssetUrls({
+                                    eventId: id,
+                                    rawUrl: caseEntry.url,
+                                    storagePath: caseEntry.storagePath,
+                                    fileName: caseEntry.name || `case-${caseIndex + 1}`,
+                                  });
+                                  return (
+                                    <div
+                                      key={`admin-case-${caseEntry.id}-${caseIndex}`}
+                                      style={{
+                                        border: "1px solid rgba(148, 163, 184, 0.24)",
+                                        borderRadius: "12px",
+                                        padding: "8px",
+                                        background: "rgba(11, 13, 29, 0.66)",
+                                        display: "grid",
+                                        gap: "7px",
+                                      }}
+                                    >
+                                      <div style={{ color: "#dbeafe", fontSize: "12px", fontWeight: 900 }}>
+                                        Case {caseIndex + 1}: {caseEntry.name || "Untitled case"}
+                                      </div>
+                                      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                                        <button
+                                          type="button"
+                                          onClick={() => openCaseFilePreview(caseEntry)}
+                                          disabled={!caseEntry.url && !caseEntry.storagePath}
+                                          className="cfsp-file-cabinet-legacy-button"
+                                          style={{ padding: "7px 10px", opacity: caseEntry.url || caseEntry.storagePath ? 1 : 0.55 }}
+                                        >
+                                          Preview
+                                        </button>
+                                        {caseEntry.url || caseEntry.storagePath ? (
+                                          <a
+                                            href={assetUrls.downloadUrl}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            download={assetUrls.fileName}
+                                            className="cfsp-file-cabinet-legacy-button"
+                                            style={{
+                                              display: "inline-flex",
+                                              alignItems: "center",
+                                              textDecoration: "none",
+                                              padding: "7px 10px",
+                                            }}
+                                          >
+                                            Download
+                                          </a>
+                                        ) : null}
+                                        <button
+                                          type="button"
+                                          onClick={() => openCaseFilePicker({ mode: "replace", index: caseIndex })}
+                                          disabled={isBusy}
+                                          className="cfsp-file-cabinet-legacy-button"
+                                          style={{ padding: "7px 10px", opacity: isBusy ? 0.65 : 1 }}
+                                        >
+                                          Replace
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => void handleRemoveCaseFile(caseIndex)}
+                                          disabled={isBusy}
+                                          className="cfsp-file-cabinet-legacy-button cfsp-file-cabinet-legacy-button-danger"
+                                          style={{ padding: "7px 10px", opacity: isBusy ? 0.65 : 1 }}
+                                        >
+                                          Remove
+                                        </button>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            ) : null
+                          ) : (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  openMaterialPreview({
+                                    title: material.title,
+                                    rawUrl: fileUrl,
+                                    storagePath,
+                                    fileName: displayName,
+                                  })
+                                }
+                                disabled={!fileUrl}
+                                className="cfsp-file-cabinet-legacy-button"
+                                style={{ padding: "8px 12px", opacity: fileUrl ? 1 : 0.55 }}
+                              >
+                                Preview
+                              </button>
+                              {fileUrl ? (
+                                (() => {
+                                  const assetUrls = buildTrainingMaterialAssetUrls({
+                                    eventId: id,
+                                    rawUrl: fileUrl,
+                                    storagePath,
+                                    fileName: displayName,
+                                  });
+                                  return (
+                                    <a
+                                      href={assetUrls.downloadUrl}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      download={assetUrls.fileName}
+                                      className="cfsp-file-cabinet-legacy-button"
+                                      style={{
+                                        display: "inline-flex",
+                                        alignItems: "center",
+                                        textDecoration: "none",
+                                        padding: "8px 12px",
+                                      }}
+                                    >
+                                      Download
+                                    </a>
+                                  );
+                                })()
+                              ) : null}
+                            </>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() =>
+                              material.kind === "case_file"
+                                ? openCaseFilePicker(uploadedCaseFileCount ? { mode: "add" } : { mode: "replace", index: 0 })
+                                : openTrainingMaterialPicker(material.kind)
+                            }
+                            disabled={isBusy}
+                            className="cfsp-file-cabinet-legacy-button"
+                            style={{ padding: "8px 12px", opacity: isBusy ? 0.65 : 1 }}
+                          >
+                            {material.kind === "case_file"
+                              ? uploadedCaseFileCount
+                                ? "Add Another Case"
+                                : "Upload Case"
+                              : fileUrl
+                                ? "Replace"
+                                : "Add"}
+                          </button>
+                          {material.kind === "case_file" ? null : (
+                            <button
+                              type="button"
+                              onClick={() => void handleRemoveTrainingMaterial(material.kind)}
+                              disabled={isBusy || (!fileUrl && !storagePath && !fileName)}
+                              className="cfsp-file-cabinet-legacy-button cfsp-file-cabinet-legacy-button-danger"
+                              style={{
+                                padding: "8px 12px",
+                                opacity: isBusy || (!fileUrl && !storagePath && !fileName) ? 0.65 : 1,
+                              }}
+                            >
+                              Remove
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  <div
+                    className="cfsp-file-cabinet-legacy-module cfsp-file-cabinet-legacy-module-ready"
+                    style={{
+                      border: "1px solid rgba(250, 204, 21, 0.38)",
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "flex-start" }}>
+                      <div>
+                        <div style={{ color: "#f2f4ff", fontWeight: 900, fontSize: "16px" }}>Recording Guide</div>
+                        <div style={{ marginTop: "4px", color: "#c9d0df", fontWeight: 700, fontSize: "13px", lineHeight: 1.45 }}>
+                          {trainingMetadata.recording_url ? getFilenameFromUrl(trainingMetadata.recording_url) || "Recording link ready" : "No recording guide linked"}
+                        </div>
+                      </div>
+                      <span
+                        className={`cfsp-file-cabinet-legacy-chip ${
+                          trainingMetadata.recording_url ? "cfsp-file-cabinet-legacy-chip-ready" : "cfsp-file-cabinet-legacy-chip-missing"
+                        }`}
+                      >
+                        {trainingMetadata.recording_url ? "Ready" : "Missing"}
+                      </span>
+                    </div>
+                    <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "12px" }}>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          openMaterialPreview({
+                            title: "Recording Guide",
+                            rawUrl: trainingMetadata.recording_url,
+                            fileName: getFilenameFromUrl(trainingMetadata.recording_url) || "recording-guide",
+                          })
+                        }
+                        disabled={!trainingMetadata.recording_url}
+                        className="cfsp-file-cabinet-legacy-button"
+                        style={{ padding: "8px 12px", opacity: trainingMetadata.recording_url ? 1 : 0.55 }}
+                      >
+                        Preview
+                      </button>
+                      {trainingMetadata.recording_url ? (
+                        <a
+                          href={buildTrainingMaterialAssetUrls({
+                            eventId: id,
+                            rawUrl: trainingMetadata.recording_url,
+                            storagePath: "",
+                            fileName: getFilenameFromUrl(trainingMetadata.recording_url) || "recording-guide",
+                          }).downloadUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="cfsp-file-cabinet-legacy-button"
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            textDecoration: "none",
+                            padding: "8px 12px",
+                          }}
+                        >
+                          Download
+                        </a>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() => setShowRecordingGuideEditor((current) => !current)}
+                        className="cfsp-file-cabinet-legacy-button"
+                        style={{ padding: "8px 12px" }}
+                      >
+                        {showRecordingGuideEditor ? "Hide Replace" : "Replace"}
+                      </button>
                       <button
                         type="button"
                         onClick={() =>
                           void persistTrainingMetadataFields(
-                            {
-                              recording_url: trainingMetadata.recording_url,
-                              training_password: trainingMetadata.training_password,
-                            },
-                            "Recording guide updated."
+                            { recording_url: "", training_password: "" },
+                            "Recording guide removed."
                           )
                         }
-                        style={{ ...buttonStyle, padding: "8px 12px", justifySelf: "start" }}
+                        disabled={!trainingMetadata.recording_url && !trainingMetadata.training_password}
+                        className="cfsp-file-cabinet-legacy-button cfsp-file-cabinet-legacy-button-danger"
+                        style={{
+                          padding: "8px 12px",
+                          opacity: !trainingMetadata.recording_url && !trainingMetadata.training_password ? 0.55 : 1,
+                        }}
                       >
-                        Save Recording Guide
+                        Remove
                       </button>
                     </div>
-                  ) : null}
+                    {showRecordingGuideEditor ? (
+                      <div style={{ display: "grid", gap: "8px", marginTop: "12px" }}>
+                        <input
+                          value={trainingMetadata.recording_url}
+                          onChange={(event) => handleTrainingMetadataChange("recording_url", event.target.value)}
+                          placeholder="Recording or guide URL"
+                          style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                        />
+                        <input
+                          value={trainingMetadata.training_password}
+                          onChange={(event) => handleTrainingMetadataChange("training_password", event.target.value)}
+                          placeholder="Password or access note"
+                          style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void persistTrainingMetadataFields(
+                              {
+                                recording_url: trainingMetadata.recording_url,
+                                training_password: trainingMetadata.training_password,
+                              },
+                              "Recording guide updated."
+                            )
+                          }
+                          className="cfsp-file-cabinet-legacy-button"
+                          style={{ padding: "8px 12px", justifySelf: "start" }}
+                        >
+                          Save Recording Guide
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div
+                    className="cfsp-file-cabinet-legacy-module cfsp-file-cabinet-legacy-module-note"
+                    style={{
+                      border: "1px solid rgba(168, 139, 250, 0.32)",
+                    }}
+                  >
+                    <div style={{ ...statLabel, color: "#d8def1" }}>Training Notes</div>
+                    <div style={{ marginTop: "8px", color: "#f8fbff", fontSize: "15px", lineHeight: 1.45, fontWeight: 800 }}>
+                      {trainingMetadata.training_notes || "No training notes added"}
+                    </div>
+                  </div>
                 </div>
 
-                <div style={{ ...statCard, background: "var(--cfsp-surface-muted)" }}>
-                  <div style={statLabel}>Training Notes</div>
-                  <div style={{ ...statValue, fontSize: "15px" }}>{trainingMetadata.training_notes || "No training notes added"}</div>
-                </div>
+                <input
+                  ref={caseFileInputRef}
+                  type="file"
+                  onChange={(event) => {
+                    void handleTrainingMaterialUpload("case_file", event.target.files?.[0] || null);
+                    event.currentTarget.value = "";
+                  }}
+                  style={{ display: "none" }}
+                />
+                <input
+                  ref={doorsignInputRef}
+                  type="file"
+                  onChange={(event) => {
+                    void handleTrainingMaterialUpload("doorsign", event.target.files?.[0] || null);
+                    event.currentTarget.value = "";
+                  }}
+                  style={{ display: "none" }}
+                />
+                <input
+                  ref={supplementalDocInputRef}
+                  type="file"
+                  onChange={(event) => {
+                    void handleTrainingMaterialUpload("supplemental_doc", event.target.files?.[0] || null);
+                    event.currentTarget.value = "";
+                  }}
+                  style={{ display: "none" }}
+                />
               </div>
-
-              <input
-                ref={caseFileInputRef}
-                type="file"
-                onChange={(event) => {
-                  void handleTrainingMaterialUpload("case_file", event.target.files?.[0] || null);
-                  event.currentTarget.value = "";
-                }}
-                style={{ display: "none" }}
-              />
-              <input
-                ref={doorsignInputRef}
-                type="file"
-                onChange={(event) => {
-                  void handleTrainingMaterialUpload("doorsign", event.target.files?.[0] || null);
-                  event.currentTarget.value = "";
-                }}
-                style={{ display: "none" }}
-              />
-              <input
-                ref={supplementalDocInputRef}
-                type="file"
-                onChange={(event) => {
-                  void handleTrainingMaterialUpload("supplemental_doc", event.target.files?.[0] || null);
-                  event.currentTarget.value = "";
-                }}
-                style={{ display: "none" }}
-              />
             </section>
 
-            <details open={showTrainingEmailDraft} style={{ ...cardStyle, background: "var(--cfsp-surface)" }}>
+            <details open style={{ ...cardStyle, background: "var(--cfsp-surface)" }}>
               <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 900, fontSize: "20px" }}>
-                Training Communication
+                Communication
               </summary>
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  gap: "12px",
-                  flexWrap: "wrap",
-                  alignItems: "flex-start",
-                  marginTop: "12px",
-                }}
-              >
+              <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "flex-start", marginTop: "10px" }}>
                 <div>
-                  <h2 style={compactSectionTitleStyle}>Training Communications</h2>
+                  <h2 style={compactSectionTitleStyle}>Communication</h2>
                   <p style={compactSectionHintStyle}>
-                    Preview the training email only when you need to draft or send it.
+                    Draft event emails for hiring, confirmation, training prep, post-training follow-up, and payroll wrap-up.
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setShowTrainingEmailDraft((current) => !current)}
-                  style={{ ...buttonStyle }}
-                >
-                  {showTrainingEmailDraft
-                    ? "Hide SP Training Email"
-                    : "Preview / Draft SP Training Email"}
-                </button>
               </div>
-
-              {showTrainingEmailDraft ? (
-                <div
-                  style={{
-                    marginTop: "14px",
-                    border: "1px solid var(--cfsp-border)",
-                    borderRadius: "16px",
-                    padding: "14px",
-                    background: "var(--cfsp-surface-muted)",
-                  }}
-                >
-                  <div style={statLabel}>Email Draft Preview</div>
-                  <div style={{ marginTop: "10px", color: "var(--cfsp-text)", lineHeight: 1.7 }}>
-                    <div><strong>From:</strong> {me?.email || "Current logged-in user"}</div>
-                    <div><strong>To:</strong> {me?.email || "Current logged-in user"}</div>
-                    <div><strong>CC:</strong> {facultyEmails.length ? facultyEmails.join(", ") : trainingFacultyText || "No faculty emails parsed yet"}</div>
-                    <div><strong>BCC:</strong> {assignedBccEmails.length ? assignedBccEmails.join(", ") : "No selected staffing SP emails found."}</div>
-                    <div style={{ marginTop: "8px" }}><strong>Subject:</strong> {trainingEmailSubject}</div>
-                    <div style={{ marginTop: "8px", whiteSpace: "pre-wrap" }}><strong>Body:</strong>{"\n"}{trainingEmailBody}</div>
-                  </div>
-                  <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "12px" }}>
-                    <a
-                      href={trainingMailtoHref}
+              <div
+                style={{
+                  marginTop: "12px",
+                  display: "grid",
+                  gap: "10px",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))",
+                }}
+              >
+                {communicationCards.map((card) => {
+                  const isReady = card.ready;
+                  return (
+                    <div
+                      key={card.key}
                       style={{
-                        ...buttonStyle,
-                        display: "inline-flex",
-                        alignItems: "center",
-                        textDecoration: "none",
+                        border: `1px solid ${isReady ? "rgba(110, 231, 183, 0.34)" : "rgba(248, 113, 113, 0.32)"}`,
+                        borderRadius: "12px",
+                        padding: "10px 12px",
+                        background: isReady ? "rgba(16, 185, 129, 0.04)" : "var(--cfsp-surface-muted)",
+                        display: "grid",
+                        gap: "8px",
                       }}
                     >
-                      Open Draft in Email
-                    </a>
-                  </div>
-                </div>
-              ) : null}
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px" }}>
+                        <div style={{ fontWeight: 800, color: "var(--cfsp-text)" }}>{card.title}</div>
+                        <span
+                          style={{
+                            borderRadius: "999px",
+                            padding: "4px 10px",
+                            fontSize: "11px",
+                            fontWeight: 800,
+                            color: isReady ? "var(--cfsp-success)" : "var(--cfsp-danger)",
+                            background: isReady ? "rgba(16, 185, 129, 0.14)" : "rgba(248, 113, 113, 0.12)",
+                            border: isReady
+                              ? "1px solid rgba(16, 185, 129, 0.34)"
+                              : "1px solid rgba(248, 113, 113, 0.34)",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {card.status}
+                        </span>
+                      </div>
+                      <p style={{ margin: 0, color: "var(--cfsp-text-muted)", fontSize: "13px", lineHeight: 1.4 }}>
+                        {card.description}
+                      </p>
+                      <div style={{ display: "flex", gap: "8px" }}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            void card.onClick();
+                          }}
+                          style={{
+                            ...buttonStyle,
+                            padding: "8px 10px",
+                            opacity: isReady ? 1 : 0.7,
+                          }}
+                          disabled={!isReady}
+                        >
+                          Draft
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </details>
 
             <details id="coverage-actions" style={cardStyle}>
@@ -24245,7 +24880,7 @@ Cory`;
                     >
                       {eventMaterialUrl ? "Replace Event Material" : "Add Event Material"}
                     </button>
-                    {!hiringEmailSent ? (
+                    {!hiringEmailProofComplete ? (
                       <button
                         type="button"
                         onClick={() => void handleMarkStaffingEmailSent("hiring")}
@@ -24259,7 +24894,7 @@ Cory`;
                         Hiring Sent
                       </span>
                     )}
-                    {!confirmationEmailSent ? (
+                    {!confirmationEmailProofComplete ? (
                       <button
                         type="button"
                         onClick={() => void handleMarkStaffingEmailSent("confirmation")}
@@ -24273,7 +24908,7 @@ Cory`;
                         Confirmation Sent
                       </span>
                     )}
-                    {!facultyTrainingCoordinationSent ? (
+                    {!facultyTrainingDateEmailProofComplete ? (
                       <button
                         type="button"
                         onClick={() => void handleDraftFacultyTrainingAvailabilityRequest()}

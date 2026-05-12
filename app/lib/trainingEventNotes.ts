@@ -102,9 +102,14 @@ export type TrainingEventMetadata = {
   hiring_email_drafted_at: string;
   hiring_email_sent_at: string;
   hiring_email_sent_or_marked_at: string;
+  hiring_email_recipient_snapshot: string;
   confirmation_email_drafted_at: string;
   confirmation_email_sent_at: string;
   confirmation_email_sent_or_marked_at: string;
+  confirmation_email_recipient_snapshot: string;
+  faculty_training_date_email_recipient_snapshot: string;
+  faculty_training_date_email_drafted_at: string;
+  faculty_training_date_email_sent_at: string;
   last_email_workflow_type: string;
   last_email_recipient_count: string;
   staffing_status: string;
@@ -237,9 +242,14 @@ const TRAINING_METADATA_KEYS = [
   "hiring_email_drafted_at",
   "hiring_email_sent_at",
   "hiring_email_sent_or_marked_at",
+  "hiring_email_recipient_snapshot",
   "confirmation_email_drafted_at",
   "confirmation_email_sent_at",
   "confirmation_email_sent_or_marked_at",
+  "confirmation_email_recipient_snapshot",
+  "faculty_training_date_email_recipient_snapshot",
+  "faculty_training_date_email_drafted_at",
+  "faculty_training_date_email_sent_at",
   "last_email_workflow_type",
   "last_email_recipient_count",
   "staffing_status",
@@ -375,16 +385,21 @@ export function emptyTrainingEventMetadata(): TrainingEventMetadata {
     live_flow_status: "",
     modality: "",
     workflow_manual_checks: "",
-    email_status: "",
-    email_sent_at: "",
-    email_draft_opened_at: "",
-    hiring_email_drafted_at: "",
-    hiring_email_sent_at: "",
-    hiring_email_sent_or_marked_at: "",
-    confirmation_email_drafted_at: "",
-    confirmation_email_sent_at: "",
-    confirmation_email_sent_or_marked_at: "",
-    last_email_workflow_type: "",
+  email_status: "",
+  email_sent_at: "",
+  email_draft_opened_at: "",
+  hiring_email_drafted_at: "",
+  hiring_email_sent_at: "",
+  hiring_email_sent_or_marked_at: "",
+  hiring_email_recipient_snapshot: "",
+  confirmation_email_drafted_at: "",
+  confirmation_email_sent_at: "",
+  confirmation_email_sent_or_marked_at: "",
+  confirmation_email_recipient_snapshot: "",
+  faculty_training_date_email_recipient_snapshot: "",
+  faculty_training_date_email_drafted_at: "",
+  faculty_training_date_email_sent_at: "",
+  last_email_workflow_type: "",
     last_email_recipient_count: "",
     staffing_status: "",
     include_backups_in_email: "",
