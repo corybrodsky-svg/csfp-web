@@ -4487,27 +4487,33 @@ export default function EventDetailPage() {
     return next;
   }, [sps]);
 
-  const assignedSpIds = useMemo(
-    () => new Set(assignments.map((assignment) => asText(assignment.sp_id)).filter(Boolean)),
+  const activeAssignments = useMemo(
+    () => assignments.filter((assignment) => Boolean(asText(assignment.sp_id))),
     [assignments]
+  );
+  const canDeleteAssignmentHistory = viewerRole === "admin" || viewerRole === "super_admin";
+
+  const assignedSpIds = useMemo(
+    () => new Set(activeAssignments.map((assignment) => asText(assignment.sp_id)).filter(Boolean)),
+    [activeAssignments]
   );
 
   const hiredAssignments = useMemo(
     () =>
-      assignments.filter((assignment) => {
+      activeAssignments.filter((assignment) => {
         const status = getAssignmentStatus(assignment);
         return isSelectedStaffingStatus(status);
       }),
-    [assignments]
+    [activeAssignments]
   );
 
   const pollInviteOnlyAssignments = useMemo(
     () =>
-      assignments.filter((assignment) => {
+      activeAssignments.filter((assignment) => {
         const status = getAssignmentStatus(assignment);
         return !isSelectedStaffingStatus(status);
       }),
-    [assignments]
+    [activeAssignments]
   );
 
   const sortedAssignments = useMemo(
@@ -4557,12 +4563,12 @@ export default function EventDetailPage() {
 
   const assignmentsBySpId = useMemo(() => {
     const next = new Map<string, AssignmentRow>();
-    assignments.forEach((assignment) => {
+    activeAssignments.forEach((assignment) => {
       const spId = asText(assignment.sp_id);
       if (spId) next.set(spId, assignment);
     });
     return next;
-  }, [assignments]);
+  }, [activeAssignments]);
 
   const availabilityBySpId = useMemo(() => {
     const next = new Map<string, AvailabilityRow[]>();
@@ -5136,18 +5142,18 @@ export default function EventDetailPage() {
     pollMatchRoleKeyword,
     spsById,
   ]);
-  const confirmedCount = assignments.filter(
+  const confirmedCount = activeAssignments.filter(
     (assignment) => getAssignmentStatus(assignment) === "confirmed"
   ).length;
   const confirmedAssignments = useMemo(
-    () => assignments.filter((assignment) => getAssignmentStatus(assignment) === "confirmed"),
-    [assignments]
+    () => activeAssignments.filter((assignment) => getAssignmentStatus(assignment) === "confirmed"),
+    [activeAssignments]
   );
   const backupAssignments = useMemo(
-    () => assignments.filter((assignment) => getAssignmentStatus(assignment) === "backup"),
-    [assignments]
+    () => activeAssignments.filter((assignment) => getAssignmentStatus(assignment) === "backup"),
+    [activeAssignments]
   );
-  const backupCount = assignments.filter(
+  const backupCount = activeAssignments.filter(
     (assignment) => getAssignmentStatus(assignment) === "backup"
   ).length;
   const staffedCount = confirmedCount + backupCount;
@@ -12713,6 +12719,7 @@ Cory`;
     setErrorMessage("");
     setEventSaveMessage("");
     setEventSaveError("");
+    const spName = assignment.sp_id ? getFullName(spsById.get(assignment.sp_id) || emptySpRow) : "selected SP";
 
     try {
       await saveAssignmentRequest("DELETE", {
@@ -12725,7 +12732,45 @@ Cory`;
     }
 
     await refreshData();
-    showSuccessMessage("Updated");
+    showSuccessMessage(`${spName || "Selected SP"} returned to Candidate SP Pool.`);
+    setSaving(false);
+  }
+
+  async function handleDeleteAssignmentHistory(assignment: AssignmentRow) {
+    if (!canDeleteAssignmentHistory) {
+      setErrorMessage("Only admins can delete assignment history.");
+      return;
+    }
+
+    const spName = assignment.sp_id ? getFullName(spsById.get(assignment.sp_id) || emptySpRow) : "selected SP";
+    const confirmed = window.confirm(
+      `Delete assignment history for ${spName}. This action is permanent and cannot be undone.`
+    );
+    if (!confirmed) {
+      setSaving(false);
+      return;
+    }
+
+    setSaving(true);
+    setAssigningSpId("");
+    setAssignmentSuccessMessage("");
+    setErrorMessage("");
+    setEventSaveMessage("");
+    setEventSaveError("");
+
+    try {
+      await saveAssignmentRequest("DELETE", {
+        assignment_id: assignment.id,
+        delete_history: true,
+      });
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Could not delete assignment history.");
+      setSaving(false);
+      return;
+    }
+
+    await refreshData();
+    showSuccessMessage(`Deleted assignment history for ${spName || "selected SP"}.`);
     setSaving(false);
   }
 
@@ -17697,6 +17742,23 @@ Cory`;
                               >
                                 Remove
                               </button>
+                              {canDeleteAssignmentHistory ? (
+                                <button
+                                  type="button"
+                                  onClick={() => void handleDeleteAssignmentHistory(assignment)}
+                                  disabled={saving}
+                                  style={{
+                                    ...dangerButtonStyle,
+                                    opacity: saving ? 0.65 : 1,
+                                    background: "#7f1d1d",
+                                    borderColor: "#b91c1c",
+                                    color: "#fff7ed",
+                                    minWidth: "170px",
+                                  }}
+                                >
+                                  Delete Assignment History
+                                </button>
+                              ) : null}
                             </div>
                           </div>
                           <details
@@ -22276,6 +22338,24 @@ Cory`;
                                               >
                                                 Remove
                                               </button>
+                                              {canDeleteAssignmentHistory ? (
+                                                <button
+                                                  type="button"
+                                                  onClick={() => void handleDeleteAssignmentHistory(assignment)}
+                                                  disabled={saving}
+                                                  style={{
+                                                    ...dangerButtonStyle,
+                                                    padding: "5px 8px",
+                                                    fontSize: "10px",
+                                                    opacity: saving ? 0.65 : 1,
+                                                    background: "#7f1d1d",
+                                                    borderColor: "#b91c1c",
+                                                    color: "#fff7ed",
+                                                  }}
+                                                >
+                                                  Delete Assignment History
+                                                </button>
+                                              ) : null}
                                             </div>
                                             <select
                                               aria-label={`Assign ${spName} to room`}
@@ -24077,6 +24157,23 @@ Cory`;
                           >
                             Remove
                           </button>
+                          {canDeleteAssignmentHistory ? (
+                            <button
+                              type="button"
+                              onClick={() => void handleDeleteAssignmentHistory(assignment)}
+                              disabled={saving}
+                              style={{
+                                ...dangerButtonStyle,
+                                padding: "7px 10px",
+                                opacity: saving ? 0.65 : 1,
+                                background: "#7f1d1d",
+                                borderColor: "#b91c1c",
+                                color: "#fff7ed",
+                              }}
+                            >
+                              Delete Assignment History
+                            </button>
+                          ) : null}
                         </div>
                       </div>
                     );
@@ -25310,6 +25407,23 @@ Cory`;
                       >
                         Remove
                       </button>
+                      {canDeleteAssignmentHistory ? (
+                        <button
+                          type="button"
+                          onClick={() => void handleDeleteAssignmentHistory(assignment)}
+                          disabled={saving}
+                          style={{
+                            ...dangerButtonStyle,
+                            opacity: saving ? 0.65 : 1,
+                            minWidth: "150px",
+                            background: "#7f1d1d",
+                            borderColor: "#b91c1b",
+                            color: "#fff7ed",
+                          }}
+                        >
+                          Delete Assignment History
+                        </button>
+                      ) : null}
                     </div>
 
                     <details

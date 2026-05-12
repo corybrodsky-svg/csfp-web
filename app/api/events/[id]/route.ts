@@ -1409,6 +1409,7 @@ export async function DELETE(
     const eventId = getRouteId(params);
     const body = await request.json().catch(() => ({}));
     const assignmentId = typeof body?.assignment_id === "string" ? body.assignment_id : "";
+    const shouldDeleteHistory = body?.delete_history === true;
 
     if (!eventId) {
       return applyAuthCookies(
@@ -1461,16 +1462,32 @@ export async function DELETE(
       return applyAuthCookies(NextResponse.json({ ok: true, deleted: true }), viewer);
     }
 
-    const { error } = await supabaseServer
-      .from("event_sps")
-      .delete()
-      .eq("event_id", eventId)
-      .eq("id", assignmentId);
+    if (shouldDeleteHistory && viewer.role !== "admin" && viewer.role !== "super_admin") {
+      return applyAuthCookies(
+        NextResponse.json(
+          { error: "Only admin and super admin users can delete assignment history." },
+          { status: 403 }
+        ),
+        viewer
+      );
+    }
+
+    const { error } = shouldDeleteHistory
+      ? await supabaseServer
+          .from("event_sps")
+          .delete()
+          .eq("event_id", eventId)
+          .eq("id", assignmentId)
+      : await supabaseServer
+          .from("event_sps")
+          .update({ sp_id: null })
+          .eq("event_id", eventId)
+          .eq("id", assignmentId);
 
     if (error) {
       return applyAuthCookies(
         NextResponse.json(
-          { error: error.message || "Could not remove assignment." },
+          { error: error.message || (shouldDeleteHistory ? "Could not delete assignment history." : "Could not remove assignment.") },
           { status: 500 }
         ),
         viewer
