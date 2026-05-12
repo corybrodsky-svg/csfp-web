@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import KeyboardInputGuard from "./components/KeyboardInputGuard";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -43,6 +44,7 @@ export default function RootLayout({
             `,
           }}
         />
+        <KeyboardInputGuard />
         {children}
       </body>
     </html>
