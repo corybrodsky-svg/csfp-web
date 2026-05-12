@@ -2047,3 +2047,74 @@ html body #simulation-command-file-cabinet [aria-label*="missing" i] {
 
 /* END CFSP CABINET CARD CLEANUP v10 */
 
+
+/* CFSP UNBLACKEN FILE CABINET BUTTONS v12 */
+
+/* Absolutely no black/dark-purple buttons inside the Simulation Command File Cabinet */
+html body #simulation-command-file-cabinet button:not(:disabled),
+html body #simulation-command-file-cabinet button:not(:disabled)[style],
+html body #simulation-command-file-cabinet a[role="button"]:not([aria-disabled="true"]) {
+  background: linear-gradient(135deg, #0f9488 0%, #145b96 100%) !important;
+  background-color: #0f9488 !important;
+  color: #ffffff !important;
+  border: 1px solid rgba(20, 184, 166, 0.30) !important;
+  box-shadow: 0 8px 18px rgba(20, 91, 150, 0.10) !important;
+  text-shadow: none !important;
+  filter: none !important;
+}
+
+/* Make all button contents readable */
+html body #simulation-command-file-cabinet button:not(:disabled) *,
+html body #simulation-command-file-cabinet a[role="button"]:not([aria-disabled="true"]) * {
+  color: #ffffff !important;
+  text-shadow: none !important;
+}
+
+/* Subtle variation, still not black */
+html body #simulation-command-file-cabinet button:not(:disabled):nth-of-type(2n),
+html body #simulation-command-file-cabinet a[role="button"]:not([aria-disabled="true"]):nth-of-type(2n) {
+  background: linear-gradient(135deg, #14b8a6 0%, #0f766e 100%) !important;
+  background-color: #14b8a6 !important;
+}
+
+html body #simulation-command-file-cabinet button:not(:disabled):nth-of-type(3n),
+html body #simulation-command-file-cabinet a[role="button"]:not([aria-disabled="true"]):nth-of-type(3n) {
+  background: linear-gradient(135deg, #0f9488 0%, #16a34a 100%) !important;
+  background-color: #0f9488 !important;
+}
+
+/* Remove/warning buttons get soft coral-orange, not black */
+html body #simulation-command-file-cabinet button:not(:disabled):nth-of-type(4n) {
+  background: linear-gradient(135deg, #fb923c 0%, #dc6b5f 100%) !important;
+  background-color: #fb923c !important;
+  color: #ffffff !important;
+}
+
+/* Disabled buttons stay muted */
+html body #simulation-command-file-cabinet button:disabled,
+html body #simulation-command-file-cabinet button[disabled],
+html body #simulation-command-file-cabinet a[aria-disabled="true"] {
+  background: linear-gradient(135deg, #f1f5f9, #e2e8f0) !important;
+  background-color: #e2e8f0 !important;
+  color: #94a3b8 !important;
+  border: 1px solid rgba(148, 163, 184, 0.24) !important;
+  box-shadow: none !important;
+}
+
+html body #simulation-command-file-cabinet button:disabled *,
+html body #simulation-command-file-cabinet button[disabled] * {
+  color: #94a3b8 !important;
+}
+
+/* Make the injected schedule file card look native */
+html body #simulation-command-file-cabinet [data-cfsp-schedule-file-container="true"] {
+  margin: 14px 0 !important;
+}
+
+html body #simulation-command-file-cabinet [data-cfsp-schedule-file-link="true"] {
+  background: linear-gradient(135deg, #0f9488, #145b96) !important;
+  color: #ffffff !important;
+}
+
+/* END CFSP UNBLACKEN FILE CABINET BUTTONS v12 */
+

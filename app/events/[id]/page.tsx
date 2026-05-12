@@ -6652,6 +6652,112 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
   );
   const scheduleCompleted = scheduleWorkflowStatus === "complete";
   const scheduleInProgress = scheduleWorkflowStatus === "in_progress";
+
+  // CFSP schedule file inside cabinet v12
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+
+    const cabinet = document.getElementById("simulation-command-file-cabinet");
+    if (!cabinet) return;
+
+    cabinet
+      .querySelector("[data-cfsp-schedule-file-container='true']")
+      ?.remove();
+
+    const container = document.createElement("div");
+    container.setAttribute("data-cfsp-schedule-file-container", "true");
+    container.style.cssText = [
+      "display:flex",
+      "align-items:center",
+      "justify-content:space-between",
+      "gap:14px",
+      "margin:14px 0",
+      "padding:14px 16px",
+      "border-radius:18px",
+      "border:1px solid rgba(20,184,166,0.30)",
+      "background:linear-gradient(135deg, rgba(255,255,255,0.98), rgba(240,253,250,0.92))",
+      "box-shadow:0 12px 26px rgba(20,91,150,0.10)",
+      "color:#12324a",
+    ].join(";");
+
+    const label = document.createElement("div");
+    label.style.cssText = [
+      "display:grid",
+      "gap:3px",
+      "min-width:0",
+      "color:#12324a",
+    ].join(";");
+
+    const eyebrow = document.createElement("div");
+    eyebrow.textContent = scheduleCompleted ? "COMPLETED SCHEDULE FILE" : "SCHEDULE FILE";
+    eyebrow.style.cssText = [
+      "font-size:11px",
+      "font-weight:950",
+      "letter-spacing:.09em",
+      "text-transform:uppercase",
+      "color:#0f766e",
+    ].join(";");
+
+    const title = document.createElement("div");
+    title.textContent = scheduleCompleted
+      ? "Schedule is complete and stored in this file cabinet."
+      : "Schedule is not complete yet. Finish it in the builder.";
+    title.style.cssText = [
+      "font-size:14px",
+      "font-weight:900",
+      "color:#12324a",
+      "line-height:1.35",
+    ].join(";");
+
+    label.appendChild(eyebrow);
+    label.appendChild(title);
+
+    const button = document.createElement("button");
+    button.type = "button";
+    button.setAttribute("data-cfsp-schedule-file-link", "true");
+    button.textContent = scheduleCompleted ? "Open Completed Schedule" : "Open Schedule Builder";
+    button.style.cssText = [
+      "appearance:none",
+      "cursor:pointer",
+      "white-space:nowrap",
+      "border-radius:12px",
+      "border:1px solid rgba(20,184,166,0.32)",
+      "background:linear-gradient(135deg,#0f9488,#145b96)",
+      "color:#ffffff",
+      "font-weight:950",
+      "padding:10px 14px",
+      "box-shadow:0 8px 18px rgba(20,91,150,0.12)",
+    ].join(";");
+
+    const handleClick = () => {
+      const params = new URLSearchParams();
+      params.set("source", "file-cabinet");
+      params.set("view", scheduleCompleted ? "session-builder" : "builder");
+
+      window.location.assign(
+        `/events/${encodeURIComponent(id)}/schedule-builder?${params.toString()}`
+      );
+    };
+
+    button.addEventListener("click", handleClick);
+
+    container.appendChild(label);
+    container.appendChild(button);
+
+    const heading = cabinet.querySelector("h1, h2, h3");
+    const headingParent = heading?.parentElement;
+
+    if (headingParent && headingParent.parentElement === cabinet) {
+      cabinet.insertBefore(container, headingParent.nextSibling);
+    } else {
+      cabinet.prepend(container);
+    }
+
+    return () => {
+      button.removeEventListener("click", handleClick);
+      container.remove();
+    };
+  }, [id, scheduleCompleted]);
   const trainingFacultyText = trainingMetadata.faculty_names || fallbackFacultyText;
   const facultyEmailText = trainingMetadata.faculty_email;
   const facultyPhoneText = trainingMetadata.faculty_phone;
