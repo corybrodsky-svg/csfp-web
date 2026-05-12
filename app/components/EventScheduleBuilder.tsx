@@ -2014,28 +2014,6 @@ function normalizeScheduleRoomAdjustments(value: ParsedScheduleRoomAdjustments) 
   return normalized;
 }
 
-function serializeScheduleRoomAdjustments(value: ParsedScheduleRoomAdjustments) {
-  const rounds = Array.from(value.roundsByNumber.entries())
-    .sort((a, b) => a[0] - b[0])
-    .map(([roundNumber, slots]) => ({
-      round: roundNumber,
-      slots: slots
-        .sort((a, b) => a.slotIndex - b.slotIndex)
-        .map((slot) => {
-          const base = { slotIndex: slot.slotIndex, learnerLabels: normalizeLearnerNames(slot.learnerLabels || []) };
-          const spName = asText(slot.spName);
-          const caseLabel = asText(slot.caseLabel);
-          return { ...base, ...(spName ? { spName } : {}), ...(caseLabel ? { caseLabel } : {}) };
-        }),
-    }))
-    .filter((entry) => entry.slots.length);
-
-  return JSON.stringify({
-    v: 1,
-    rounds,
-  });
-}
-
 function applyScheduleRoomAdjustments(
   rounds: ScheduledRound[],
   assignedSpNames: string[],
@@ -2802,6 +2780,46 @@ function getSaveStateAppearance(state: SaveState) {
   };
 }
 
+function getSaveButtonAppearance(state: SaveState) {
+  if (state === "saving") {
+    return {
+      label: "Saving...",
+      background: "#b7791f",
+      border: "#975a16",
+      color: "#ffffff",
+      shadow: "0 10px 24px rgba(183, 121, 31, 0.22)",
+    };
+  }
+
+  if (state === "error") {
+    return {
+      label: "Save Failed",
+      background: "#b42318",
+      border: "#912018",
+      color: "#ffffff",
+      shadow: "0 10px 24px rgba(180, 35, 24, 0.2)",
+    };
+  }
+
+  if (state === "unsaved") {
+    return {
+      label: "Save Changes",
+      background: "#c65f16",
+      border: "#9a4712",
+      color: "#ffffff",
+      shadow: "0 10px 24px rgba(198, 95, 22, 0.2)",
+    };
+  }
+
+  return {
+    label: "Saved ✓",
+    background: "#12805c",
+    border: "#0f684b",
+    color: "#ffffff",
+    shadow: "0 10px 24px rgba(18, 128, 92, 0.18)",
+  };
+}
+
 export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const router = useRouter();
   const [events, setEvents] = useState<EventRow[]>([]);
@@ -3181,13 +3199,13 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     () => events.find((event) => event.id === selectedEventId) || null,
     [events, selectedEventId]
   );
-  function showCopyMessage(message: string, tone: "success" | "error" = "success", timeoutMs = 2400) {
+  const showCopyMessage = useCallback((message: string, tone: "success" | "error" = "success", timeoutMs = 2400) => {
     setCopyMessageTone(tone);
     setCopyMessage(message);
     if (typeof window !== "undefined") {
       window.setTimeout(() => setCopyMessage(""), timeoutMs);
     }
-  }
+  }, []);
 
   const persistScheduleWorkflowMetadata = useCallback(
     async (partial: Record<string, string>) => {
@@ -3227,111 +3245,6 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       return true;
     },
     [selectedEvent]
-  );
-
-  const persistRoomAdjustments = useCallback(
-    async (nextAdjustments: ParsedScheduleRoomAdjustments) => {
-      if (!selectedEvent?.id) return false;
-      const normalized = normalizeScheduleRoomAdjustments(nextAdjustments);
-      setRoomAdjustments(normalized);
-      const payload = serializeScheduleRoomAdjustments(normalized);
-      return persistScheduleWorkflowMetadata({
-        schedule_room_adjustments: payload,
-      });
-    },
-    [persistScheduleWorkflowMetadata]
-  );
-
-  const applyRoomAdjustments = useCallback(
-    (
-      updater: (current: ParsedScheduleRoomAdjustments) => ParsedScheduleRoomAdjustments
-    ): ParsedScheduleRoomAdjustments => {
-      const next = updater(roomAdjustments);
-      const normalized = normalizeScheduleRoomAdjustments(next);
-      void persistRoomAdjustments(normalized).catch(() => {
-        showCopyMessage("Room reassignment failed to save.", "error");
-      });
-      return normalized;
-    },
-    [persistRoomAdjustments, roomAdjustments]
-  );
-
-  const handleRoomMove = useCallback(
-    (roundNumber: number, sourceSlotIndex: number, targetSlotIndex: number, moveKind: "learner" | "sp") => {
-      if (sourceSlotIndex === targetSlotIndex) return;
-      const baseRounds = roomAdjustments.roundsByNumber.get(roundNumber) || [];
-      const sourceOverride = baseRounds.find((slot) => slot.slotIndex === sourceSlotIndex);
-      const targetOverride = baseRounds.find((slot) => slot.slotIndex === targetSlotIndex);
-
-      const next = new Map(roomAdjustments.roundsByNumber);
-      const sourceNext: ScheduleRoomAdjustmentSlot = {
-        slotIndex: sourceSlotIndex,
-        learnerLabels: [],
-      };
-      const targetNext: ScheduleRoomAdjustmentSlot = {
-        slotIndex: targetSlotIndex,
-        learnerLabels: [],
-      };
-
-      next.set(
-        roundNumber,
-        next.get(roundNumber) || []
-      );
-
-      if (moveKind === "learner") {
-        const sourceLearners = normalizeLearnerNames(sourceOverride?.learnerLabels || []);
-        const targetLearners = normalizeLearnerNames(targetOverride?.learnerLabels || []);
-        sourceNext.learnerLabels = [];
-        targetNext.learnerLabels = sourceLearners.length ? [...sourceLearners] : targetLearners;
-      } else {
-        const sourceSpName = asText(sourceOverride?.spName);
-        const targetSpName = asText(targetOverride?.spName);
-        if (sourceSpName) {
-          targetNext.spName = sourceSpName;
-          sourceNext.spName = "";
-        } else if (targetSpName) {
-          targetNext.spName = "";
-        }
-      }
-
-      if (!targetNext.learnerLabels.length && !targetNext.spName) {
-        const sourceRoundSlots = roomAdjustments.roundsByNumber.get(roundNumber) || [];
-        const sourceRow = (sourceRoundSlots || []).find((slot) => slot.slotIndex === targetSlotIndex);
-        const sourceLearners = sourceRow?.learnerLabels || [];
-        const sourceSp = sourceRow?.spName || "";
-        if (sourceLearners.length) targetNext.learnerLabels = sourceLearners;
-        if (sourceSp) targetNext.spName = sourceSp;
-      }
-
-      const nextSlots = (next.get(roundNumber) || []).filter(
-        (slot) => slot.slotIndex !== sourceSlotIndex && slot.slotIndex !== targetSlotIndex
-      );
-      if (moveKind === "learner" && (sourceOverride?.learnerLabels?.length || targetOverride?.learnerLabels?.length)) {
-        nextSlots.push(targetNext);
-        nextSlots.push(sourceNext);
-      } else if (moveKind === "sp" && (sourceOverride?.spName || targetOverride?.spName)) {
-        nextSlots.push(targetNext);
-        nextSlots.push(sourceNext);
-      }
-
-      next.set(
-        roundNumber,
-        nextSlots
-          .filter((slot) => slot.learnerLabels.length || asText(slot.spName))
-          .map((slot) => ({
-            slotIndex: slot.slotIndex,
-            learnerLabels: normalizeLearnerNames(slot.learnerLabels),
-            ...(slot.spName ? { spName: asText(slot.spName) } : {}),
-          }))
-      );
-
-      applyRoomAdjustments(() => ({
-        roundsByNumber: next,
-        slotKey: roomAdjustments.slotKey,
-      }));
-      showCopyMessage("Room assignment updated.");
-    },
-    [applyRoomAdjustments, roomAdjustments, showCopyMessage]
   );
 
   useEffect(() => {
@@ -3669,19 +3582,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     () => buildLearnerRoster(uploadedLearners, Math.max(slotsPerRound, 1), generated.rounds.length),
     [generated.rounds.length, slotsPerRound, uploadedLearners]
   );
-  useEffect(() => {
-    if (props.previewOnly) return;
-    if (!selectedEvent?.id) return;
-    if (skipNextAutosaveRef.current) return;
-
-    if (workflowSyncTimeoutRef.current) {
-      window.clearTimeout(workflowSyncTimeoutRef.current);
-    }
-
-    workflowSyncTimeoutRef.current = window.setTimeout(() => {
-      const now = new Date().toISOString();
-      const nextStatus = scheduleWorkflowStatus === "complete" ? "complete" : "in_progress";
-      const partial = {
+  const buildScheduleWorkflowPartial = useCallback(
+    (now: string, statusOverride?: "complete" | "in_progress") => {
+      const nextStatus = statusOverride || (scheduleWorkflowStatus === "complete" ? "complete" : "in_progress");
+      return {
         schedule_status: nextStatus,
         rotation_schedule_status: nextStatus === "complete" ? "complete" : "built",
         schedule_started_at: selectedEventMetadata.schedule_started_at || now,
@@ -3697,7 +3601,76 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         schedule_builder_snapshot: encodeScheduleBuilderSnapshot({ ...draftSnapshot, savedAt: now }),
         schedule_preview_enabled_for_sps: selectedEventMetadata.schedule_preview_enabled_for_sps || "no",
       };
-      void persistScheduleWorkflowMetadata(partial).catch(() => {
+    },
+    [
+      draftSnapshot,
+      effectiveRoundCount,
+      learnerRoster.length,
+      originalUploadedLearners,
+      parsedRoomCapacity,
+      scheduleWorkflowStatus,
+      selectedEventMetadata.schedule_preview_enabled_for_sps,
+      selectedEventMetadata.schedule_started_at,
+      totalRoomCount,
+      uploadedLearners,
+    ]
+  );
+  const handleSaveScheduleChanges = useCallback(async () => {
+    if (props.previewOnly || saveState === "saving") return;
+    const now = new Date().toISOString();
+    const savedSnapshot = { ...draftSnapshot, savedAt: now };
+
+    if (autosaveTimeoutRef.current) {
+      window.clearTimeout(autosaveTimeoutRef.current);
+      autosaveTimeoutRef.current = null;
+    }
+    if (workflowSyncTimeoutRef.current) {
+      window.clearTimeout(workflowSyncTimeoutRef.current);
+      workflowSyncTimeoutRef.current = null;
+    }
+
+    setSaveState("saving");
+    setSaveErrorMessage("");
+
+    try {
+      if (typeof window !== "undefined" && storageKey) {
+        window.localStorage.setItem(storageKey, JSON.stringify(savedSnapshot));
+      }
+      if (selectedEvent?.id) {
+        await persistScheduleWorkflowMetadata(buildScheduleWorkflowPartial(now));
+      }
+      setLastSavedAt(now);
+      setSaveState("saved");
+      showCopyMessage(`Schedule saved ${formatSavedTimestamp(now) || "now"}.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not save schedule changes.";
+      setSaveState("error");
+      setSaveErrorMessage(message);
+      showCopyMessage(message, "error", 3200);
+    }
+  }, [
+    buildScheduleWorkflowPartial,
+    draftSnapshot,
+    persistScheduleWorkflowMetadata,
+    props.previewOnly,
+    saveState,
+    selectedEvent?.id,
+    showCopyMessage,
+    storageKey,
+  ]);
+
+  useEffect(() => {
+    if (props.previewOnly) return;
+    if (!selectedEvent?.id) return;
+    if (skipNextAutosaveRef.current) return;
+
+    if (workflowSyncTimeoutRef.current) {
+      window.clearTimeout(workflowSyncTimeoutRef.current);
+    }
+
+    workflowSyncTimeoutRef.current = window.setTimeout(() => {
+      const now = new Date().toISOString();
+      void persistScheduleWorkflowMetadata(buildScheduleWorkflowPartial(now)).catch(() => {
         // Keep the builder usable even if event metadata persistence is temporarily unavailable.
       });
     }, 1400);
@@ -3708,19 +3681,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       }
     };
   }, [
-    draftSnapshot,
-    effectiveRoundCount,
-    learnerRoster.length,
-    originalUploadedLearners,
-    parsedRoomCapacity,
+    buildScheduleWorkflowPartial,
     persistScheduleWorkflowMetadata,
     props.previewOnly,
-    scheduleWorkflowStatus,
     selectedEvent?.id,
-    selectedEventMetadata.schedule_preview_enabled_for_sps,
-    selectedEventMetadata.schedule_started_at,
-    totalRoomCount,
-    uploadedLearners,
   ]);
 
   const scheduledRounds = useMemo(
@@ -3976,6 +3940,9 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     [schedulePreview.html]
   );
   const saveStateAppearance = getSaveStateAppearance(saveState);
+  const saveButtonAppearance = getSaveButtonAppearance(saveState);
+  const saveButtonLabel =
+    saveState === "saved" && lastSavedAt ? `Saved ${formatSavedTimestamp(lastSavedAt)} ✓` : saveButtonAppearance.label;
   const lastSavedLabel = formatSavedTimestamp(lastSavedAt);
   const advancedSettingsActive =
     parsedRoomSetup > 0 ||
@@ -4094,7 +4061,14 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     } finally {
       setStyledPdfExporting(false);
     }
-  }, [compactSchedulePrintHtml, selectedPreviewStyledPdfFileName, previewKind, schedulePreview.title, styledPdfExporting]);
+  }, [
+    compactSchedulePrintHtml,
+    selectedPreviewStyledPdfFileName,
+    previewKind,
+    schedulePreview.title,
+    showCopyMessage,
+    styledPdfExporting,
+  ]);
 
   useEffect(() => {
     if (loading || !props.previewOnly || !props.autoDownload || autoDownloadTriggeredRef.current || !compactSchedulePrintHtml) return;
@@ -4616,7 +4590,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         </div>
       </section>
 
-      <section className="cfsp-panel px-4 py-4">
+      <section className="cfsp-panel sticky top-3 z-20 px-4 py-4 shadow-sm">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div className="grid gap-3">
             <div>
@@ -4640,6 +4614,29 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                   {props.backLabel || "Return to Event"}
                 </Link>
               ) : null}
+              <button
+                type="button"
+                onClick={() => void handleSaveScheduleChanges()}
+                disabled={saveState === "saving"}
+                className="cfsp-btn"
+                aria-live="polite"
+                style={{
+                  background: saveButtonAppearance.background,
+                  borderColor: saveButtonAppearance.border,
+                  boxShadow: saveButtonAppearance.shadow,
+                  color: saveButtonAppearance.color,
+                  minWidth: 148,
+                  opacity: saveState === "saving" ? 0.85 : 1,
+                }}
+              >
+                {saveState === "saving" ? (
+                  <span
+                    aria-hidden="true"
+                    className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-white/45 border-t-white"
+                  />
+                ) : null}
+                {saveButtonLabel}
+              </button>
               {renderScheduleActionsMenu(false)}
               <button
                 type="button"
