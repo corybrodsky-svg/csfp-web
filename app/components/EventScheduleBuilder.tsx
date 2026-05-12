@@ -894,7 +894,7 @@ async function createStyledSchedulePdfBlob(context: StyledPdfRenderContext) {
         y: 0,
         width: contentWidth,
         windowWidth: contentWidth,
-        autoPaging: "slice",
+        autoPaging: "text",
         margin: [pdfSidePadding, pdfSidePadding, pdfSidePadding, pdfSidePadding],
         html2canvas: {
           scale: 0.82,
@@ -1126,9 +1126,23 @@ function buildCompactScheduleExportHtml(previewHtml: string, printView: CompactS
     ".cfsp-schedule-export .cfsp-schedule-viewer-toolbar,",
     ".cfsp-schedule-export .cfsp-schedule-actions-menu,",
     ".cfsp-schedule-export .cfsp-schedule-export-no-print,",
+    ".cfsp-schedule-export .schedule-rhythm-section,",
+    ".cfsp-schedule-export .rhythm-row,",
+    ".cfsp-schedule-export .divider-stack,",
     ".cfsp-schedule-viewer-toolbar,",
     ".cfsp-schedule-actions-menu {",
     "  display: none !important;",
+    "}",
+    ".cfsp-schedule-export .schedule-grid-table thead { display: table-header-group; }",
+    ".cfsp-schedule-export .schedule-grid-table tfoot { display: table-footer-group; }",
+    ".cfsp-schedule-export .schedule-grid-table tr,",
+    ".cfsp-schedule-export .schedule-grid-table td,",
+    ".cfsp-schedule-export .schedule-grid-table th,",
+    ".cfsp-schedule-export .round-grid-row,",
+    ".cfsp-schedule-export .schedule-room-cell,",
+    ".cfsp-schedule-export .schedule-room-card {",
+    "  break-inside: avoid !important;",
+    "  page-break-inside: avoid !important;",
     "}",
     ".cfsp-schedule-export .preview-shell { padding: 2.5mm; }",
     "@page {",
@@ -1139,6 +1153,9 @@ function buildCompactScheduleExportHtml(previewHtml: string, printView: CompactS
     "  html, body { background: #fff !important; }",
     "  .cfsp-schedule-export { background: #fff !important; }",
     "  .round-grid-row,",
+    "  .schedule-grid-table tr,",
+    "  .schedule-grid-table td,",
+    "  .schedule-room-cell,",
     "  .event-meta-card,",
     "  .schedule-room-card,",
     "  .wide-band {",
@@ -2240,7 +2257,7 @@ function buildSchedulePreviewData(args: {
               <div class="meta">${escapeHtml(renderCountSummary)}</div>
             </div>
             ${eventMetaHtml}
-            <section class="round-section">
+            <section class="round-section schedule-rhythm-section">
               <div class="round-header">
                 <div>
                   <div class="round-kicker">Schedule rhythm</div>
@@ -3603,7 +3620,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   }
 
   function handlePrintableHtmlExport() {
-    downloadBlob(new Blob([schedulePreview.html], { type: "text/html;charset=utf-8" }), selectedPreviewHtmlFileName);
+    downloadBlob(new Blob([compactSchedulePrintHtml], { type: "text/html;charset=utf-8" }), selectedPreviewHtmlFileName);
     showCopyMessage(`${schedulePreview.title} printable HTML downloaded.`, "success", 2200);
   }
 
@@ -4012,7 +4029,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
             body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
             .cfsp-schedule-viewer-toolbar,
             .cfsp-schedule-actions-menu,
-            .cfsp-schedule-no-print {
+            .cfsp-schedule-no-print,
+            .schedule-rhythm-section,
+            .rhythm-row,
+            .divider-stack {
               display: none !important;
             }
             .cfsp-schedule-print-root { background: #ffffff !important; }
