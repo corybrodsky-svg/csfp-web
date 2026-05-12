@@ -1645,353 +1645,294 @@ textarea {
 }
 
 
-/* CFSP COMMAND CHEST SCROLL CABINET v7 */
+/* CFSP COMMAND CHEST CLEAN SCROLLS v8 */
 
 /*
-  CFSP command chest design:
-  - app palette: teal, pastel orange, neon green
-  - tiny gold-purple tint only
-  - professional simulation-ops feel
-  - animated scroll cards without cartoon styling
+  Visual target:
+  - CFSP app palette: teal, pastel orange, neon green
+  - no deep purple module cards in day mode
+  - subtle gold/purple tint only as accent
+  - professional command chest, not lucky-charms/fantasy
+  - scroll buttons should read like clean operational scroll-tabs
 */
 
-/* Main file cabinet surface */
 html body #simulation-command-file-cabinet {
-  --cfsp-chest-ink: #12324a;
+  --cfsp-ink: #12324a;
   --cfsp-teal: #0f9488;
-  --cfsp-teal-bright: #14b8a6;
+  --cfsp-teal-2: #14b8a6;
   --cfsp-green: #16a34a;
-  --cfsp-neon-green: #84cc16;
+  --cfsp-lime: #84cc16;
   --cfsp-orange: #fb923c;
   --cfsp-blue: #145b96;
-  --cfsp-purple-tint: rgba(124, 58, 237, 0.055);
-  --cfsp-gold-tint: rgba(251, 191, 36, 0.18);
+  --cfsp-purple-tint: rgba(124, 58, 237, 0.045);
 
   position: relative !important;
   isolation: isolate !important;
   overflow: hidden !important;
   border-radius: 26px !important;
-  border: 1px solid rgba(20, 184, 166, 0.38) !important;
+  border: 1px solid rgba(20, 184, 166, 0.40) !important;
   background:
-    radial-gradient(circle at 8% 7%, rgba(20, 184, 166, 0.17), transparent 30%),
-    radial-gradient(circle at 88% 9%, rgba(251, 146, 60, 0.16), transparent 30%),
-    radial-gradient(circle at 74% 92%, rgba(132, 204, 22, 0.13), transparent 34%),
-    radial-gradient(circle at 96% 86%, var(--cfsp-purple-tint), transparent 28%),
-    linear-gradient(135deg, #ffffff 0%, #ecfeff 34%, #f0fdfa 62%, #fff7ed 100%) !important;
-  color: var(--cfsp-chest-ink) !important;
+    radial-gradient(circle at 8% 8%, rgba(20, 184, 166, 0.18), transparent 30%),
+    radial-gradient(circle at 88% 8%, rgba(251, 146, 60, 0.16), transparent 30%),
+    radial-gradient(circle at 78% 92%, rgba(132, 204, 22, 0.14), transparent 34%),
+    radial-gradient(circle at 96% 84%, var(--cfsp-purple-tint), transparent 30%),
+    linear-gradient(135deg, #ffffff 0%, #ecfeff 36%, #f0fdfa 64%, #fff7ed 100%) !important;
+  color: var(--cfsp-ink) !important;
   box-shadow:
-    0 24px 58px rgba(20, 91, 150, 0.13),
-    0 0 0 1px rgba(255, 255, 255, 0.78) inset,
-    0 0 34px rgba(20, 184, 166, 0.10) !important;
+    0 22px 52px rgba(20, 91, 150, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.80) !important;
 }
 
-/* Content always above decorative layers */
+/* Content over decoration */
 html body #simulation-command-file-cabinet > * {
   position: relative !important;
   z-index: 2 !important;
 }
 
-/* Remove old dark/purple text/shadows */
+/* Total day-mode text reset */
 html body #simulation-command-file-cabinet,
 html body #simulation-command-file-cabinet * {
+  color: var(--cfsp-ink) !important;
   text-shadow: none !important;
 }
 
-html body #simulation-command-file-cabinet h1,
-html body #simulation-command-file-cabinet h2,
-html body #simulation-command-file-cabinet h3,
-html body #simulation-command-file-cabinet h4,
-html body #simulation-command-file-cabinet strong,
-html body #simulation-command-file-cabinet span,
-html body #simulation-command-file-cabinet p,
-html body #simulation-command-file-cabinet div {
-  color: var(--cfsp-chest-ink) !important;
-}
-
-/* Convert old inline purple panels into clean CFSP cards */
-html body #simulation-command-file-cabinet div[style*="background"],
-html body #simulation-command-file-cabinet section[style*="background"],
-html body #simulation-command-file-cabinet article[style*="background"] {
-  background:
-    radial-gradient(circle at 12% 0%, rgba(20, 184, 166, 0.10), transparent 32%),
-    radial-gradient(circle at 92% 8%, rgba(251, 146, 60, 0.08), transparent 28%),
-    linear-gradient(135deg, rgba(255,255,255,0.97), rgba(240,253,250,0.90) 58%, rgba(255,247,237,0.78)) !important;
-  border-color: rgba(20, 184, 166, 0.27) !important;
+/* Stronger reset: kill dark inline panels anywhere in the cabinet */
+html body #simulation-command-file-cabinet [style] {
+  border-color: rgba(20, 184, 166, 0.26) !important;
   box-shadow:
-    0 12px 26px rgba(20, 91, 150, 0.09),
-    inset 0 1px 0 rgba(255,255,255,0.78) !important;
+    0 10px 24px rgba(20, 91, 150, 0.08),
+    inset 0 1px 0 rgba(255,255,255,0.72) !important;
 }
 
-/* Alternate cards: pastel orange and green rhythm */
-html body #simulation-command-file-cabinet div[style*="border"]:nth-of-type(2n) {
-  border-color: rgba(251, 146, 60, 0.34) !important;
+/* Panels/cards: force all non-button surfaces into light CFSP colors */
+html body #simulation-command-file-cabinet div[style],
+html body #simulation-command-file-cabinet section[style],
+html body #simulation-command-file-cabinet article[style] {
   background:
-    radial-gradient(circle at 95% 5%, rgba(251, 146, 60, 0.12), transparent 28%),
+    radial-gradient(circle at 10% 0%, rgba(20,184,166,0.10), transparent 30%),
+    linear-gradient(135deg, rgba(255,255,255,0.97), rgba(240,253,250,0.90)) !important;
+}
+
+/* Module cards get mild alternating accents */
+html body #simulation-command-file-cabinet div[style*="border"]:nth-of-type(2n) {
+  background:
+    radial-gradient(circle at 95% 5%, rgba(251,146,60,0.12), transparent 30%),
     linear-gradient(135deg, rgba(255,255,255,0.97), rgba(255,247,237,0.88)) !important;
+  border-color: rgba(251,146,60,0.30) !important;
 }
 
 html body #simulation-command-file-cabinet div[style*="border"]:nth-of-type(3n) {
-  border-color: rgba(132, 204, 22, 0.34) !important;
   background:
-    radial-gradient(circle at 95% 5%, rgba(132, 204, 22, 0.12), transparent 28%),
+    radial-gradient(circle at 95% 5%, rgba(132,204,22,0.12), transparent 30%),
     linear-gradient(135deg, rgba(255,255,255,0.97), rgba(240,253,244,0.90)) !important;
+  border-color: rgba(132,204,22,0.30) !important;
 }
 
-/* File cabinet buttons */
+/* Prevent old dark overlay surfaces specifically */
+html body #simulation-command-file-cabinet [style*="rgb(30"],
+html body #simulation-command-file-cabinet [style*="rgba(30"],
+html body #simulation-command-file-cabinet [style*="rgb(49"],
+html body #simulation-command-file-cabinet [style*="rgba(49"],
+html body #simulation-command-file-cabinet [style*="rgb(15"],
+html body #simulation-command-file-cabinet [style*="rgba(15"] {
+  background:
+    radial-gradient(circle at 12% 0%, rgba(20,184,166,0.10), transparent 30%),
+    linear-gradient(135deg, rgba(255,255,255,0.98), rgba(236,253,245,0.92)) !important;
+}
+
+/* Cabinet buttons */
 html body #simulation-command-file-cabinet button {
-  background: linear-gradient(135deg, var(--cfsp-teal) 0%, var(--cfsp-green) 100%) !important;
   color: #ffffff !important;
-  border: 1px solid rgba(20, 184, 166, 0.44) !important;
+  background: linear-gradient(135deg, #0f9488, #16a34a) !important;
+  border: 1px solid rgba(20,184,166,0.42) !important;
   box-shadow:
-    0 10px 22px rgba(20, 184, 166, 0.16),
-    0 0 14px rgba(132, 204, 22, 0.10) !important;
+    0 10px 20px rgba(20,184,166,0.16),
+    0 0 12px rgba(132,204,22,0.10) !important;
   transition: transform 160ms ease, box-shadow 160ms ease, filter 160ms ease !important;
 }
 
 html body #simulation-command-file-cabinet button:nth-of-type(2n) {
-  background: linear-gradient(135deg, var(--cfsp-blue) 0%, var(--cfsp-teal) 100%) !important;
+  background: linear-gradient(135deg, #145b96, #0f9488) !important;
 }
 
 html body #simulation-command-file-cabinet button:nth-of-type(3n) {
-  background: linear-gradient(135deg, var(--cfsp-orange) 0%, var(--cfsp-green) 118%) !important;
+  background: linear-gradient(135deg, #fb923c, #16a34a) !important;
 }
 
 html body #simulation-command-file-cabinet button:hover:not(:disabled) {
   transform: translateY(-1px) !important;
-  filter: saturate(1.08) brightness(1.03) !important;
-  box-shadow:
-    0 14px 28px rgba(20, 184, 166, 0.20),
-    0 0 18px rgba(132, 204, 22, 0.16),
-    0 0 12px rgba(251, 146, 60, 0.10) !important;
+  filter: saturate(1.06) brightness(1.02) !important;
 }
 
 html body #simulation-command-file-cabinet button:disabled,
 html body #simulation-command-file-cabinet button[disabled] {
-  background: rgba(226, 232, 240, 0.88) !important;
   color: #64748b !important;
+  background: rgba(226,232,240,0.85) !important;
   box-shadow: none !important;
 }
 
-/* Cabinet background scroll accents: subtle operational parchment, not fantasy */
+/* Subtle cabinet ambience only */
 html body #simulation-command-file-cabinet::before {
   content: "" !important;
   position: absolute !important;
   z-index: 1 !important;
-  right: 24px !important;
-  top: 22px !important;
-  width: 124px !important;
-  height: 44px !important;
+  inset: 0 !important;
   pointer-events: none !important;
-  border-radius: 999px !important;
-  border: 1px solid rgba(251, 146, 60, 0.30) !important;
   background:
-    radial-gradient(circle at 12% 50%, rgba(251, 191, 36, 0.42), transparent 15%),
-    radial-gradient(circle at 88% 50%, rgba(251, 191, 36, 0.36), transparent 15%),
-    linear-gradient(90deg, rgba(255, 247, 237, 0.86), rgba(236, 253, 245, 0.76), rgba(255, 247, 237, 0.86)) !important;
-  box-shadow:
-    0 10px 24px rgba(15, 91, 120, 0.08),
-    0 0 14px rgba(251, 146, 60, 0.12),
-    0 0 10px rgba(124, 58, 237, 0.055) !important;
-  opacity: 0.46 !important;
-  transform: rotate(5deg) !important;
-  animation: cfspCabinetScrollFloat 8s ease-in-out infinite !important;
+    linear-gradient(110deg, transparent 0%, rgba(255,255,255,0.40) 42%, transparent 60%),
+    radial-gradient(circle at 84% 12%, rgba(251,191,36,0.12), transparent 20%),
+    radial-gradient(circle at 92% 82%, rgba(124,58,237,0.04), transparent 24%) !important;
+  opacity: 0.55 !important;
+  animation: cfspCabinetSoftSheen 8s ease-in-out infinite !important;
 }
 
+/* One tiny scroll hint, not a giant blob */
 html body #simulation-command-file-cabinet::after {
   content: "" !important;
   position: absolute !important;
   z-index: 1 !important;
-  left: -12% !important;
-  bottom: 24px !important;
-  width: 40% !important;
-  height: 2px !important;
+  right: 28px !important;
+  top: 28px !important;
+  width: 88px !important;
+  height: 28px !important;
   pointer-events: none !important;
   border-radius: 999px !important;
+  border: 1px solid rgba(251,146,60,0.26) !important;
   background:
-    linear-gradient(90deg, transparent, rgba(251, 191, 36, 0.32), rgba(20, 184, 166, 0.18), transparent) !important;
-  box-shadow:
-    0 0 12px rgba(251, 191, 36, 0.20),
-    0 0 14px rgba(124, 58, 237, 0.045) !important;
-  animation: cfspCabinetSweep 9s ease-in-out infinite !important;
+    radial-gradient(circle at 12% 50%, rgba(251,191,36,0.34), transparent 16%),
+    radial-gradient(circle at 88% 50%, rgba(251,191,36,0.30), transparent 16%),
+    linear-gradient(90deg, rgba(255,247,237,0.72), rgba(236,253,245,0.68), rgba(255,247,237,0.72)) !important;
+  opacity: 0.42 !important;
+  transform: rotate(5deg) !important;
+  animation: cfspCabinetMiniScroll 7s ease-in-out infinite !important;
 }
 
-/* Floating command chest shell */
+/* Floating chest card */
 html body .cfsp-floating-command-chest .cfsp-chest-summary {
-  border-color: rgba(20, 184, 166, 0.36) !important;
+  border-color: rgba(20,184,166,0.34) !important;
   background:
-    radial-gradient(circle at 18% 0%, rgba(20,184,166,0.20), transparent 34%),
-    radial-gradient(circle at 82% 18%, rgba(251,146,60,0.14), transparent 32%),
-    radial-gradient(circle at 76% 90%, rgba(124,58,237,0.045), transparent 34%),
-    linear-gradient(135deg, rgba(255,255,255,0.96), rgba(240,253,250,0.92)) !important;
+    radial-gradient(circle at 18% 0%, rgba(20,184,166,0.18), transparent 34%),
+    radial-gradient(circle at 82% 18%, rgba(251,146,60,0.12), transparent 32%),
+    linear-gradient(135deg, rgba(255,255,255,0.97), rgba(240,253,250,0.93)) !important;
   box-shadow:
-    0 18px 40px rgba(15, 91, 120, 0.14),
-    0 0 24px rgba(20, 184, 166, 0.14),
+    0 18px 40px rgba(15,91,120,0.13),
     inset 0 1px 0 rgba(255,255,255,0.80) !important;
 }
 
-/* Original CFSP command chest icon */
+/* Chest icon: more CFSP, less fantasy */
 html body .cfsp-floating-command-chest .cfsp-chest-box {
   position: relative !important;
-  width: 62px !important;
-  height: 48px !important;
+  width: 58px !important;
+  height: 46px !important;
   border-radius: 15px 15px 12px 12px !important;
-  background:
-    linear-gradient(180deg, #38dcca 0%, #0f9488 54%, #11806f 100%) !important;
-  border: 2px solid rgba(251, 146, 60, 0.70) !important;
+  background: linear-gradient(180deg, #14b8a6, #0f9488 55%, #11806f) !important;
+  border: 2px solid rgba(251,146,60,0.62) !important;
   box-shadow:
-    0 0 0 3px rgba(255,255,255,0.52) inset,
-    0 10px 24px rgba(15,91,120,0.18),
-    0 0 22px rgba(20,184,166,0.30),
-    0 0 14px rgba(132,204,22,0.14) !important;
+    inset 0 0 0 3px rgba(255,255,255,0.42),
+    0 10px 22px rgba(15,91,120,0.16),
+    0 0 18px rgba(20,184,166,0.24) !important;
   overflow: visible !important;
 }
 
-/* Chest lid */
 html body .cfsp-floating-command-chest .cfsp-chest-box::before {
   content: "" !important;
   position: absolute !important;
   left: 6px !important;
   right: 6px !important;
-  top: -6px !important;
-  height: 20px !important;
-  border-radius: 14px 14px 7px 7px !important;
+  top: -5px !important;
+  height: 18px !important;
+  border-radius: 13px 13px 7px 7px !important;
   background: linear-gradient(90deg, #14b8a6, #fb923c, #84cc16) !important;
-  border: 2px solid rgba(251, 146, 60, 0.68) !important;
-  box-shadow:
-    0 8px 16px rgba(20,184,166,0.16),
-    inset 0 4px 8px rgba(255,255,255,0.24) !important;
+  border: 2px solid rgba(251,146,60,0.56) !important;
   transform-origin: bottom center !important;
-  animation: cfspChestLid 5.2s ease-in-out infinite !important;
+  animation: cfspChestSubtleLid 6s ease-in-out infinite !important;
 }
 
-/* Chest latch */
 html body .cfsp-floating-command-chest .cfsp-chest-box::after {
   content: "" !important;
   position: absolute !important;
   left: 50% !important;
-  top: 25px !important;
-  width: 11px !important;
-  height: 11px !important;
+  top: 24px !important;
+  width: 10px !important;
+  height: 10px !important;
   transform: translateX(-50%) !important;
   border-radius: 999px !important;
   background: #facc15 !important;
-  border: 2px solid rgba(255,247,237,0.92) !important;
-  box-shadow:
-    0 0 12px rgba(250,204,21,0.72),
-    0 0 18px rgba(251,146,60,0.20) !important;
+  border: 2px solid rgba(255,247,237,0.90) !important;
+  box-shadow: 0 0 10px rgba(250,204,21,0.60) !important;
 }
 
-/* Drawer scroll cards */
+/* Drawer links: clean scroll-tabs, not big yellow blobs */
 html body .cfsp-floating-command-chest .cfsp-chest-drawer {
-  border-color: rgba(20, 184, 166, 0.30) !important;
+  border-color: rgba(20,184,166,0.28) !important;
   background:
-    radial-gradient(circle at 92% 0%, rgba(251,146,60,0.10), transparent 28%),
     linear-gradient(135deg, rgba(255,255,255,0.98), rgba(240,253,250,0.94)) !important;
 }
 
 html body .cfsp-floating-command-chest .cfsp-chest-link {
   position: relative !important;
-  overflow: hidden !important;
-  min-height: 44px !important;
-  border-radius: 999px !important;
-  padding-left: 18px !important;
-  padding-right: 18px !important;
-  background:
-    radial-gradient(circle at 8% 50%, rgba(251,191,36,0.24), transparent 12%),
-    radial-gradient(circle at 92% 50%, rgba(251,191,36,0.20), transparent 12%),
-    linear-gradient(90deg, rgba(255,247,237,0.96), rgba(236,253,245,0.88), rgba(255,247,237,0.96)) !important;
-  border: 1px solid rgba(20,184,166,0.28) !important;
+  min-height: 42px !important;
+  border-radius: 14px !important;
+  padding: 10px 14px 10px 18px !important;
   color: #12324a !important;
-  box-shadow:
-    0 8px 18px rgba(20,91,150,0.08),
-    inset 8px 0 14px rgba(251,146,60,0.08),
-    inset -8px 0 14px rgba(20,184,166,0.08) !important;
-  transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease !important;
+  background:
+    linear-gradient(135deg, rgba(255,255,255,0.96), rgba(236,253,245,0.90)) !important;
+  border: 1px solid rgba(20,184,166,0.24) !important;
+  box-shadow: 0 8px 16px rgba(20,91,150,0.07) !important;
+  overflow: hidden !important;
+  transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease !important;
+}
+
+html body .cfsp-floating-command-chest .cfsp-chest-link::before {
+  content: "" !important;
+  position: absolute !important;
+  left: 8px !important;
+  top: 50% !important;
+  width: 4px !important;
+  height: 22px !important;
+  border-radius: 999px !important;
+  transform: translateY(-50%) !important;
+  background: linear-gradient(180deg, #14b8a6, #fb923c) !important;
+  opacity: 0.75 !important;
 }
 
 html body .cfsp-floating-command-chest .cfsp-chest-link:hover {
   transform: translateY(-1px) !important;
-  border-color: rgba(251,146,60,0.46) !important;
+  border-color: rgba(251,146,60,0.42) !important;
   box-shadow:
-    0 12px 24px rgba(20,184,166,0.13),
-    0 0 16px rgba(132,204,22,0.12),
-    inset 8px 0 14px rgba(251,146,60,0.10),
-    inset -8px 0 14px rgba(20,184,166,0.10) !important;
+    0 10px 20px rgba(20,184,166,0.11),
+    0 0 14px rgba(132,204,22,0.10) !important;
 }
 
 html body .cfsp-floating-command-chest[open] .cfsp-chest-link {
-  animation: cfspScrollCardSettle 260ms ease-out both !important;
+  animation: cfspScrollTabSettle 220ms ease-out both !important;
 }
 
-html body .cfsp-floating-command-chest[open] .cfsp-chest-link:nth-child(2) {
-  animation-delay: 45ms !important;
+html body .cfsp-floating-command-chest[open] .cfsp-chest-link:nth-child(2) { animation-delay: 35ms !important; }
+html body .cfsp-floating-command-chest[open] .cfsp-chest-link:nth-child(3) { animation-delay: 70ms !important; }
+html body .cfsp-floating-command-chest[open] .cfsp-chest-link:nth-child(4) { animation-delay: 105ms !important; }
+html body .cfsp-floating-command-chest[open] .cfsp-chest-link:nth-child(5) { animation-delay: 140ms !important; }
+html body .cfsp-floating-command-chest[open] .cfsp-chest-link:nth-child(6) { animation-delay: 175ms !important; }
+
+@keyframes cfspCabinetSoftSheen {
+  0%, 100% { opacity: 0.32; transform: translateX(-1%); }
+  50% { opacity: 0.58; transform: translateX(1%); }
 }
 
-html body .cfsp-floating-command-chest[open] .cfsp-chest-link:nth-child(3) {
-  animation-delay: 90ms !important;
+@keyframes cfspCabinetMiniScroll {
+  0%, 100% { opacity: 0.30; transform: translateY(0) rotate(5deg); }
+  50% { opacity: 0.50; transform: translateY(4px) rotate(3deg); }
 }
 
-html body .cfsp-floating-command-chest[open] .cfsp-chest-link:nth-child(4) {
-  animation-delay: 135ms !important;
+@keyframes cfspChestSubtleLid {
+  0%, 100% { transform: translateY(0) rotateX(0deg); }
+  48% { transform: translateY(-1px) rotateX(8deg); }
 }
 
-html body .cfsp-floating-command-chest[open] .cfsp-chest-link:nth-child(5) {
-  animation-delay: 180ms !important;
+@keyframes cfspScrollTabSettle {
+  0% { opacity: 0; transform: translateY(-4px) scale(0.985); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
 }
 
-html body .cfsp-floating-command-chest[open] .cfsp-chest-link:nth-child(6) {
-  animation-delay: 225ms !important;
-}
-
-@keyframes cfspCabinetScrollFloat {
-  0%, 100% {
-    transform: translateY(0) rotate(5deg);
-    opacity: 0.36;
-  }
-  50% {
-    transform: translateY(5px) rotate(3deg);
-    opacity: 0.58;
-  }
-}
-
-@keyframes cfspCabinetSweep {
-  0% {
-    transform: translateX(0);
-    opacity: 0;
-  }
-  20% {
-    opacity: 0.38;
-  }
-  60% {
-    opacity: 0.44;
-  }
-  100% {
-    transform: translateX(360%);
-    opacity: 0;
-  }
-}
-
-@keyframes cfspChestLid {
-  0%, 100% {
-    transform: translateY(0) rotateX(0deg);
-    filter: saturate(1);
-  }
-  48% {
-    transform: translateY(-2px) rotateX(12deg);
-    filter: saturate(1.08) brightness(1.03);
-  }
-}
-
-@keyframes cfspScrollCardSettle {
-  0% {
-    opacity: 0;
-    transform: translateY(-5px) scale(0.98);
-  }
-  100% {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
-
-/* END CFSP COMMAND CHEST SCROLL CABINET v7 */
+/* END CFSP COMMAND CHEST CLEAN SCROLLS v8 */
 
