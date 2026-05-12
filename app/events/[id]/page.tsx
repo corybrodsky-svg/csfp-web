@@ -6585,6 +6585,53 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       .replace(/\s+/g, " ")
       .trim();
   }, [event?.name, isTrainingOnlyEvent]);
+
+  useEffect(() => {
+    if (!id || isTrainingOnlyEvent) return;
+
+    const exactOperationalMatches = relatedOperationalEvents.filter((node) => {
+      if (!node?.id || node.id === id) return false;
+
+      const currentName = (event?.name || "")
+        .toLowerCase()
+        .replace(/\s+/g, " ")
+        .trim();
+
+      const candidateName = (node.name || "")
+        .toLowerCase()
+        .replace(/\s+/g, " ")
+        .trim();
+
+      return currentName && candidateName === currentName;
+    });
+
+    if (!exactOperationalMatches.length) return;
+
+    const sortedMatches = [
+      { id, name: event?.name, date_text: event?.date_text },
+      ...exactOperationalMatches,
+    ].sort((a, b) => {
+      const aDate = new Date(a.date_text || "").getTime();
+      const bDate = new Date(b.date_text || "").getTime();
+      return aDate - bDate;
+    });
+
+    const canonicalParent = sortedMatches[0];
+
+    if (canonicalParent?.id && canonicalParent.id !== id) {
+      router.replace(
+        `/events/${encodeURIComponent(canonicalParent.id)}?instanceId=${encodeURIComponent(id)}`
+      );
+    }
+  }, [
+    event?.date_text,
+    event?.name,
+    id,
+    isTrainingOnlyEvent,
+    relatedOperationalEvents,
+    router,
+  ]);
+
   useEffect(() => {
     if (!id || !isTrainingOnlyEvent) return;
     const primaryMatch = relatedOperationalEvents.find((node) => ["simulation", "skills", "virtual"].includes(node.kind));
