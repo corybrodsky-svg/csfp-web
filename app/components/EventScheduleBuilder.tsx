@@ -2037,7 +2037,13 @@ function buildLearnerGroups(learnerRoster: string[], groupSize: number) {
   return groups;
 }
 
-function attachLearners(rounds: GeneratedRound[], learnerRoster: string[], groupSize = 1, caseCount = 0) {
+function attachLearners(
+  rounds: GeneratedRound[],
+  learnerRoster: string[],
+  groupSize = 1,
+  caseCount = 0,
+  isVirtualEvent = false
+) {
   const normalizedLearnerRoster = normalizeLearnerNames(learnerRoster);
   if (!rounds.length || !normalizedLearnerRoster.length) return [] as ScheduledRound[];
 
@@ -2050,19 +2056,34 @@ function attachLearners(rounds: GeneratedRound[], learnerRoster: string[], group
     const groupCount = learnerGroups.length;
     return rounds.map((round, roundIndex) => {
       const rotationIndex = roundIndex % Math.max(caseCount, groupCount, 1);
+      const activeRoundSlots = round.roomSlots
+        .map((slot, roundSlotIndex) => ({
+          slot,
+          roundSlotIndex,
+        }))
+        .filter(({ slot }) => slot.roomType === "exam" && slot.capacity > 0 && slot.caseLabel);
       return {
         ...round,
-        roomSlots: round.roomSlots.map((slot) => {
+        roomSlots: round.roomSlots.map((slot, slotIndex) => {
           if (!(slot.roomType === "exam" && slot.capacity > 0 && slot.caseLabel)) {
             return { ...slot, learnerIndexes: [], learnerLabels: [] };
           }
-          const caseSlotIndex = Math.max(0, slot.caseIndex ?? activeCaseSlots.findIndex((candidate) => candidate.roomName === slot.roomName));
+          const activeRoomIndex = activeRoundSlots.findIndex((entry) => entry.roundSlotIndex === slotIndex);
+          const caseSlotIndex =
+            isVirtualEvent && activeRoomIndex >= 0
+              ? activeRoomIndex
+              : Math.max(0, slot.caseIndex ?? activeCaseSlots.findIndex((candidate) => candidate.roomName === slot.roomName));
+          const effectiveSlotIndex = isVirtualEvent ? activeRoomIndex : caseSlotIndex;
           let groupIndex: number | null = null;
-          if (groupCount >= activeRoomCount) {
-            groupIndex = (rotationIndex + caseSlotIndex) % groupCount;
-          } else {
-            const candidateGroup = ((caseSlotIndex - rotationIndex) % activeRoomCount + activeRoomCount) % activeRoomCount;
-            groupIndex = candidateGroup < groupCount ? candidateGroup : null;
+          if (effectiveSlotIndex >= 0) {
+            if (groupCount >= activeRoomCount) {
+              groupIndex = (rotationIndex + effectiveSlotIndex) % groupCount;
+            } else {
+              const candidateGroup = isVirtualEvent
+                ? (rotationIndex + effectiveSlotIndex) % activeRoomCount
+                : ((effectiveSlotIndex - rotationIndex) % activeRoomCount + activeRoomCount) % activeRoomCount;
+              groupIndex = candidateGroup < groupCount ? candidateGroup : null;
+            }
           }
           const group = groupIndex === null ? null : learnerGroups[groupIndex];
           return {
@@ -4275,13 +4296,13 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     () =>
       applyScheduleRoomAdjustments(
         assignUniquePrimarySpIndexes(
-          attachLearners(generated.rounds, learnerRoster, parsedRoomCapacity, activeCaseCount),
+          attachLearners(generated.rounds, learnerRoster, parsedRoomCapacity, activeCaseCount, isVirtualEvent),
           assignedNames
         ),
         assignedNames,
         roomAdjustments
       ),
-    [activeCaseCount, assignedNames, generated.rounds, learnerRoster, parsedRoomCapacity, roomAdjustments]
+    [activeCaseCount, assignedNames, generated.rounds, isVirtualEvent, learnerRoster, parsedRoomCapacity, roomAdjustments]
   );
   const scheduleValidationMessages = useMemo(() => {
     const messages: string[] = [];
