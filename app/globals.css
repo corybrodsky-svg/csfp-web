@@ -1644,3 +1644,238 @@ textarea {
   border-color: rgba(20,184,166,0.28) !important;
 }
 
+
+/* CFSP SUPERB CABINET REDESIGN v2 */
+#simulation-command-file-cabinet {
+  position: relative !important;
+  isolation: isolate !important;
+  overflow: hidden !important;
+  border-radius: 26px !important;
+  border: 1px solid rgba(20, 184, 166, 0.38) !important;
+  background:
+    radial-gradient(circle at 12% 10%, rgba(20, 184, 166, 0.18), transparent 28%),
+    radial-gradient(circle at 88% 12%, rgba(251, 146, 60, 0.18), transparent 28%),
+    radial-gradient(circle at 72% 86%, rgba(132, 204, 22, 0.16), transparent 30%),
+    radial-gradient(circle at 92% 78%, rgba(168, 85, 247, 0.075), transparent 30%),
+    linear-gradient(135deg, #ffffff 0%, #effdfa 36%, #fff7ed 72%, #f8fafc 100%) !important;
+  color: #12324a !important;
+  box-shadow:
+    0 24px 58px rgba(20, 91, 150, 0.13),
+    0 0 0 1px rgba(255, 255, 255, 0.72) inset,
+    0 0 42px rgba(20, 184, 166, 0.12) !important;
+}
+
+/* Animated parchment/scroll accents */
+#simulation-command-file-cabinet::before,
+#simulation-command-file-cabinet::after {
+  content: "" !important;
+  position: absolute !important;
+  z-index: 0 !important;
+  pointer-events: none !important;
+  width: 118px !important;
+  height: 48px !important;
+  border-radius: 999px !important;
+  border: 1px solid rgba(245, 158, 11, 0.28) !important;
+  background:
+    radial-gradient(circle at 12% 50%, rgba(251, 191, 36, 0.42), transparent 16%),
+    radial-gradient(circle at 88% 50%, rgba(251, 191, 36, 0.36), transparent 16%),
+    linear-gradient(90deg, rgba(255, 247, 237, 0.94), rgba(236, 253, 245, 0.82), rgba(255, 247, 237, 0.94)) !important;
+  box-shadow:
+    0 12px 30px rgba(15, 91, 120, 0.10),
+    0 0 24px rgba(251, 191, 36, 0.18),
+    inset 12px 0 18px rgba(251, 146, 60, 0.14),
+    inset -12px 0 18px rgba(20, 184, 166, 0.12) !important;
+  opacity: 0.78 !important;
+}
+
+#simulation-command-file-cabinet::before {
+  top: 18px !important;
+  right: 22px !important;
+  transform: rotate(7deg) !important;
+  animation: cfspScrollFloatA 7s ease-in-out infinite !important;
+}
+
+#simulation-command-file-cabinet::after {
+  bottom: 22px !important;
+  left: 24px !important;
+  transform: rotate(-8deg) scale(0.92) !important;
+  animation: cfspScrollFloatB 8.5s ease-in-out infinite !important;
+}
+
+/* Keep real content above animated accents */
+#simulation-command-file-cabinet > * {
+  position: relative !important;
+  z-index: 1 !important;
+}
+
+/* Text reset */
+#simulation-command-file-cabinet,
+#simulation-command-file-cabinet * {
+  text-shadow: none !important;
+}
+
+#simulation-command-file-cabinet h1,
+#simulation-command-file-cabinet h2,
+#simulation-command-file-cabinet h3,
+#simulation-command-file-cabinet h4,
+#simulation-command-file-cabinet strong,
+#simulation-command-file-cabinet span,
+#simulation-command-file-cabinet p,
+#simulation-command-file-cabinet div {
+  color: #12324a !important;
+}
+
+/* Force old purple/dark inline panels into the app palette */
+#simulation-command-file-cabinet [style*="background"] {
+  background:
+    radial-gradient(circle at 10% 0%, rgba(20, 184, 166, 0.10), transparent 32%),
+    radial-gradient(circle at 90% 10%, rgba(251, 146, 60, 0.10), transparent 28%),
+    linear-gradient(135deg, rgba(255,255,255,0.96), rgba(240,253,250,0.90) 55%, rgba(255,247,237,0.82)) !important;
+  border-color: rgba(20, 184, 166, 0.26) !important;
+  box-shadow:
+    0 14px 30px rgba(20, 91, 150, 0.09),
+    inset 0 1px 0 rgba(255,255,255,0.78) !important;
+}
+
+/* Cards/modules get distinct teal-orange-green rhythm */
+#simulation-command-file-cabinet [style*="border"] {
+  border-color: rgba(20, 184, 166, 0.30) !important;
+}
+
+#simulation-command-file-cabinet [style*="border"]:nth-child(2n) {
+  border-color: rgba(251, 146, 60, 0.30) !important;
+}
+
+#simulation-command-file-cabinet [style*="border"]:nth-child(3n) {
+  border-color: rgba(132, 204, 22, 0.32) !important;
+}
+
+#simulation-command-file-cabinet button {
+  background:
+    linear-gradient(135deg, #0f9488 0%, #16a34a 100%) !important;
+  color: #ffffff !important;
+  border: 1px solid rgba(20, 184, 166, 0.42) !important;
+  box-shadow:
+    0 10px 22px rgba(20, 184, 166, 0.18),
+    0 0 18px rgba(132, 204, 22, 0.12) !important;
+  transition:
+    transform 160ms ease,
+    box-shadow 160ms ease,
+    filter 160ms ease !important;
+}
+
+#simulation-command-file-cabinet button:hover:not(:disabled) {
+  transform: translateY(-1px) !important;
+  filter: saturate(1.08) brightness(1.03) !important;
+  box-shadow:
+    0 14px 28px rgba(20, 184, 166, 0.22),
+    0 0 24px rgba(132, 204, 22, 0.22),
+    0 0 18px rgba(251, 146, 60, 0.12) !important;
+}
+
+#simulation-command-file-cabinet button:nth-of-type(2n) {
+  background: linear-gradient(135deg, #145b96 0%, #0f9488 100%) !important;
+}
+
+#simulation-command-file-cabinet button:nth-of-type(3n) {
+  background: linear-gradient(135deg, #16a34a 0%, #f59e0b 130%) !important;
+}
+
+#simulation-command-file-cabinet button:disabled,
+#simulation-command-file-cabinet button[disabled] {
+  background: rgba(226, 232, 240, 0.85) !important;
+  color: #64748b !important;
+  box-shadow: none !important;
+}
+
+/* Soft cabinet shimmer, not gaming neon */
+#simulation-command-file-cabinet .cfsp-cabinet-sheen,
+#simulation-command-file-cabinet .cfsp-command-sheen {
+  display: none !important;
+}
+
+#simulation-command-file-cabinet:hover {
+  box-shadow:
+    0 28px 68px rgba(20, 91, 150, 0.15),
+    0 0 0 1px rgba(255, 255, 255, 0.80) inset,
+    0 0 48px rgba(20, 184, 166, 0.16),
+    0 0 32px rgba(251, 146, 60, 0.10) !important;
+}
+
+/* Tiny animated light sweep over module cards */
+#simulation-command-file-cabinet [style*="background"]::before {
+  background: none !important;
+}
+
+@keyframes cfspScrollFloatA {
+  0%, 100% {
+    transform: translateY(0) rotate(7deg);
+    opacity: 0.68;
+  }
+  50% {
+    transform: translateY(7px) rotate(4deg);
+    opacity: 0.90;
+  }
+}
+
+@keyframes cfspScrollFloatB {
+  0%, 100% {
+    transform: translateY(0) rotate(-8deg) scale(0.92);
+    opacity: 0.58;
+  }
+  50% {
+    transform: translateY(-8px) rotate(-5deg) scale(0.96);
+    opacity: 0.82;
+  }
+}
+
+/* Floating chest should match the app palette too */
+.cfsp-floating-command-chest .cfsp-chest-summary {
+  border-color: rgba(20, 184, 166, 0.35) !important;
+  background:
+    radial-gradient(circle at 18% 0%, rgba(20,184,166,0.20), transparent 34%),
+    radial-gradient(circle at 82% 18%, rgba(251,146,60,0.16), transparent 32%),
+    radial-gradient(circle at 76% 90%, rgba(168,85,247,0.075), transparent 34%),
+    linear-gradient(135deg, rgba(255,255,255,0.96), rgba(240,253,250,0.92)) !important;
+  box-shadow:
+    0 18px 40px rgba(15, 91, 120, 0.14),
+    0 0 24px rgba(20, 184, 166, 0.14),
+    inset 0 1px 0 rgba(255,255,255,0.80) !important;
+}
+
+.cfsp-floating-command-chest .cfsp-chest-box {
+  background:
+    linear-gradient(180deg, #0f9488 0%, #16a34a 100%) !important;
+  border-color: rgba(251, 146, 60, 0.72) !important;
+  box-shadow:
+    0 0 18px rgba(20, 184, 166, 0.34),
+    0 0 14px rgba(132, 204, 22, 0.18),
+    inset 0 8px 14px rgba(255,255,255,0.22) !important;
+}
+
+.cfsp-floating-command-chest .cfsp-chest-box::before {
+  background:
+    linear-gradient(90deg, rgba(20,184,166,0.95), rgba(251,146,60,0.72), rgba(132,204,22,0.85)) !important;
+}
+
+.cfsp-floating-command-chest .cfsp-chest-drawer {
+  border-color: rgba(20, 184, 166, 0.30) !important;
+  background:
+    linear-gradient(135deg, rgba(255,255,255,0.97), rgba(240,253,250,0.94)) !important;
+}
+
+.cfsp-floating-command-chest .cfsp-chest-link {
+  background:
+    linear-gradient(135deg, rgba(255,255,255,0.95), rgba(236,253,245,0.86)) !important;
+  border-color: rgba(20,184,166,0.24) !important;
+  color: #12324a !important;
+}
+
+.cfsp-floating-command-chest .cfsp-chest-link:hover {
+  border-color: rgba(251,146,60,0.44) !important;
+  box-shadow:
+    0 10px 22px rgba(20,184,166,0.12),
+    0 0 18px rgba(132,204,22,0.12) !important;
+}
+/* END CFSP SUPERB CABINET REDESIGN v2 */
+
