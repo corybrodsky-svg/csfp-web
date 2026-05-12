@@ -3042,12 +3042,18 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     if (hydratedTimePrefillKeyRef.current === hydrationKey) return;
 
     const metadata = parseEventMetadata(selectedEvent?.notes).training;
+    const serverSnapshot = parseScheduleBuilderSnapshot(metadata.schedule_builder_snapshot);
     const completedSnapshot =
       asText(metadata.schedule_status).toLowerCase() === "complete"
-        ? parseScheduleBuilderSnapshot(metadata.schedule_builder_snapshot)
+        ? serverSnapshot
         : null;
+    const serverDraft =
+      completedSnapshot ||
+      (serverSnapshot && asText(metadata.schedule_status).toLowerCase() === "in_progress"
+        ? serverSnapshot
+        : null);
     const savedDraft = parseSavedDraft(window.localStorage.getItem(storageKey));
-    const sourceDraft = completedSnapshot || savedDraft;
+    const sourceDraft = serverDraft || savedDraft;
     const nextTimeSource = completedSnapshot
       ? {
           source: "completed_snapshot" as const,
@@ -3056,6 +3062,14 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
           endTime: "",
           sessionLengthMinutes: sanitizeSavedRoundTargetMinutes(completedSnapshot.sessionLengthMinutes),
         }
+      : serverDraft
+        ? {
+            source: "saved_draft" as const,
+            label: "Using saved builder draft",
+            startTime: serverDraft.startTime,
+            endTime: "",
+            sessionLengthMinutes: sanitizeSavedRoundTargetMinutes(serverDraft.sessionLengthMinutes),
+          }
       : buildTimePrefill(selectedEvent, sourceDraft);
 
     if (lockedScheduleSourceRef.current === "completed_snapshot" && nextTimeSource.source !== "completed_snapshot") {
@@ -3067,6 +3081,9 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     if (completedSnapshot) {
       lockedScheduleSourceRef.current = "completed_snapshot";
       applyDraft(completedSnapshot);
+    } else if (serverDraft) {
+      lockedScheduleSourceRef.current = "saved_draft";
+      applyDraft(serverDraft);
     } else if (!lockedScheduleSourceRef.current) {
       lockedScheduleSourceRef.current = nextTimeSource.source;
     }
@@ -3082,7 +3099,13 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
           : nextTimeSource.source === "default"
             ? "fallback"
             : nextTimeSource.source
-      }`
+      }`,
+      {
+        startTime: nextTimeSource.startTime,
+        endTime: nextTimeSource.endTime,
+        sessionLengthMinutes: nextTimeSource.sessionLengthMinutes,
+        blockedFallback: Boolean(serverDraft || completedSnapshot),
+      }
     );
   }, [applyDraft, selectedEvent, selectedEventId, storageKey]);
 
@@ -3362,9 +3385,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         schedule_learner_roster: serializeScheduleLearnerRosterMetadata(
           uploadedLearners.length ? uploadedLearners : originalUploadedLearners
         ),
-        ...(nextStatus === "complete"
-          ? { schedule_builder_snapshot: encodeScheduleBuilderSnapshot({ ...draftSnapshot, savedAt: now }) }
-          : {}),
+        schedule_builder_snapshot: encodeScheduleBuilderSnapshot({ ...draftSnapshot, savedAt: now }),
         schedule_preview_enabled_for_sps: selectedEventMetadata.schedule_preview_enabled_for_sps || "no",
       };
       void persistScheduleWorkflowMetadata(partial).catch(() => {
