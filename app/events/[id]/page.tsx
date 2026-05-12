@@ -28347,11 +28347,11 @@ Cory`;
     
       <style>{`
         .cfsp-floating-command-chest {
-          position: fixed;
-          right: 22px;
-          bottom: 22px;
-          z-index: 60;
-          width: min(360px, calc(100vw - 32px));
+          position: fixed !important;
+          right: 24px !important;
+          bottom: 24px !important;
+          z-index: 9999 !important;
+          width: min(390px, calc(100vw - 32px));
           font-family: inherit;
         }
 
