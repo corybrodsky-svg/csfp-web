@@ -28510,7 +28510,7 @@ Cory`;
       {typeof document !== "undefined"
         ? createPortal(
             (
-              <details className="cfsp-floating-command-chest">
+              <details id="cfsp-floating-command-chest" className="cfsp-floating-command-chest">
                       <summary className="cfsp-chest-summary">
                         <div className="cfsp-chest-box" aria-hidden="true" />
                         <div className="cfsp-chest-title">
@@ -28522,11 +28522,11 @@ Cory`;
                       <div className="cfsp-chest-drawer">
                         <div className="cfsp-chest-new">New content detected when files update</div>
                         <div className="cfsp-chest-grid">
-                          <a className="cfsp-chest-link" href="#simulation-command-file-cabinet">Materials Cabinet</a>
+                          <a className="cfsp-chest-link" href="#cfsp-floating-command-chest">Materials Cabinet</a>
                           <a className="cfsp-chest-link" href="#training-center">Training Center</a>
                           <a className="cfsp-chest-link" href="#communication-center">Communication</a>
                           <a className="cfsp-chest-link" href="#coverage-actions">Staffing</a>
-                          <a className="cfsp-chest-link" href="#schedule-builder">Schedule</a>
+                          <a className="cfsp-chest-link" href="#schedule-actions">Schedule</a>
                           <a className="cfsp-chest-link" href="#recording-status">Recording</a>
                         </div>
                       </div>
