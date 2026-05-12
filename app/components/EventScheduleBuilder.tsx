@@ -874,8 +874,13 @@ function isCanvasTaintError(error: unknown) {
 }
 
 async function createStyledSchedulePdfBlob(context: StyledPdfRenderContext) {
-  const { html, printView } = context;
+  const { html } = context;
   const { jsPDF } = await import("jspdf");
+  const html2canvasModule = await import("html2canvas");
+  const html2canvas = (
+    (html2canvasModule as unknown as { default?: (element: HTMLElement, options?: unknown) => Promise<HTMLCanvasElement> }).default ||
+    (html2canvasModule as unknown as (element: HTMLElement, options?: unknown) => Promise<HTMLCanvasElement>)
+  );
   const htmlSource = html;
   if (typeof window === "undefined") {
     throw new Error("PDF export is not available in this environment.");
@@ -929,7 +934,6 @@ async function createStyledSchedulePdfBlob(context: StyledPdfRenderContext) {
     await containerDocument.fonts?.ready?.catch(() => undefined);
     await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
 
-    const printableHeight = Math.max(containerDocument.documentElement.scrollHeight, containerDocument.body.scrollHeight, 700);
     const pdfSidePadding = 8;
     const scheduleDoc = new jsPDF({
       orientation: "landscape",
@@ -938,76 +942,135 @@ async function createStyledSchedulePdfBlob(context: StyledPdfRenderContext) {
       hotfixes: ["px_scaling"],
     });
     const pageWidth = scheduleDoc.internal.pageSize.getWidth();
+    const pageHeight = scheduleDoc.internal.pageSize.getHeight();
     const contentWidth = Math.max(620, Math.floor(pageWidth - pdfSidePadding * 2));
-    container.style.width = `${contentWidth}px`;
-    container.style.height = `${Math.max(620, printableHeight)}px`;
-    containerDocument.documentElement.style.width = `${contentWidth}px`;
-    containerDocument.body.style.width = `${contentWidth}px`;
-    containerDocument.body.style.maxWidth = `${contentWidth}px`;
-    containerDocument.documentElement.style.maxWidth = `${contentWidth}px`;
+    const printableHeight = Math.max(1, pageHeight - pdfSidePadding * 2);
+    container.style.width = `${pageWidth}px`;
+    container.style.height = `${Math.max(700, pageHeight + 200)}px`;
+    containerDocument.documentElement.style.width = `${pageWidth}px`;
+    containerDocument.body.style.width = `${pageWidth}px`;
+    containerDocument.body.style.maxWidth = `${pageWidth}px`;
+    containerDocument.documentElement.style.maxWidth = `${pageWidth}px`;
     containerDocument.documentElement.style.overflowX = "visible";
     containerDocument.body.style.overflowX = "visible";
     await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
-    const bodyNode = containerDocument.body;
+    const printLayoutRoot = containerDocument.querySelector(".cfsp-schedule-export .compact-print-shell");
+    if (!printLayoutRoot) {
+      throw new Error("Could not render schedule for PDF generation.");
+    }
 
-    await new Promise<void>((resolve, reject) => {
-      let pdfRendered = false;
-      scheduleDoc.html(bodyNode, {
-        x: pdfSidePadding,
-        y: pdfSidePadding,
+    const bodyChildNodes = Array.from(printLayoutRoot.querySelectorAll(".compact-print-header, .compact-print-grid"));
+    const printSections: { node: HTMLElement; height: number }[] = [];
+    const measureRoot = containerDocument.createElement("div");
+    measureRoot.style.cssText = `position: absolute; left: -10000px; top: 0; width: ${contentWidth}px; padding: 0; margin: 0; visibility: hidden;`;
+    containerDocument.body.appendChild(measureRoot);
+
+    if (bodyChildNodes[0]) {
+      const headerClone = bodyChildNodes[0].cloneNode(true) as HTMLElement;
+      headerClone.classList.add("cfsp-print-section");
+      headerClone.style.width = `${contentWidth}px`;
+      headerClone.style.maxWidth = `${contentWidth}px`;
+      headerClone.style.marginBottom = "3px";
+      measureRoot.appendChild(headerClone);
+      printSections.push({ node: headerClone, height: 0 });
+    }
+
+    const gridNode = bodyChildNodes[1] as HTMLElement | undefined;
+    const scheduleTable = gridNode?.querySelector(".schedule-grid-table") as HTMLTableElement | null;
+    const scheduleGroups = scheduleTable ? Array.from(scheduleTable.querySelectorAll("tbody.round-grid-group")) : [];
+
+    if (!scheduleTable || !scheduleGroups.length) {
+      if (gridNode) {
+        const gridClone = gridNode.cloneNode(true) as HTMLElement;
+        gridClone.classList.add("cfsp-print-section");
+        gridClone.style.width = `${contentWidth}px`;
+        gridClone.style.maxWidth = `${contentWidth}px`;
+        gridClone.style.marginBottom = "0";
+        measureRoot.appendChild(gridClone);
+        printSections.push({ node: gridClone, height: 0 });
+      }
+    } else {
+      const colgroup = scheduleTable.querySelector("colgroup");
+      const tableHead = scheduleTable.querySelector("thead");
+
+      scheduleGroups.forEach((group) => {
+        const sectionShell = containerDocument.createElement("div");
+        const tableClone = containerDocument.createElement("table");
+        sectionShell.classList.add("cfsp-print-section", "cfsp-print-round-section");
+        tableClone.className = scheduleTable.className;
+        if (colgroup) {
+          tableClone.appendChild(colgroup.cloneNode(true));
+        }
+        if (tableHead) {
+          tableClone.appendChild(tableHead.cloneNode(true));
+        }
+        tableClone.appendChild(group.cloneNode(true));
+        sectionShell.style.width = `${contentWidth}px`;
+        sectionShell.style.maxWidth = `${contentWidth}px`;
+        sectionShell.style.marginBottom = "3px";
+        sectionShell.appendChild(tableClone);
+        measureRoot.appendChild(sectionShell);
+        printSections.push({ node: sectionShell, height: 0 });
+      });
+    }
+
+    await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+    printSections.forEach((section) => {
+      section.height = Math.max(1, Math.ceil(section.node.getBoundingClientRect().height));
+    });
+
+    const orderedSections = printSections;
+
+    let yCursor = pdfSidePadding;
+    const contentHeight = printableHeight;
+    const xBase = pdfSidePadding;
+
+    await orderedSections.reduce<Promise<void>>(async (chain, section) => {
+      await chain;
+      if (section.height <= 0) return Promise.resolve();
+
+      const scaleForPage = Math.min(1, contentHeight / Math.max(1, section.height));
+      const targetSectionHeight = Math.floor(section.height * scaleForPage);
+      const targetSectionWidth = Math.max(1, Math.floor(contentWidth * scaleForPage));
+      const xOffset = xBase + (contentWidth - targetSectionWidth) / 2;
+
+      if (yCursor + targetSectionHeight > pdfSidePadding + printableHeight) {
+        scheduleDoc.addPage();
+        yCursor = pdfSidePadding;
+      }
+
+      const canvas = await html2canvas(section.node, {
+        scale: 2,
+        useCORS: true,
+        allowTaint: false,
+        logging: false,
+        backgroundColor: "#ffffff",
         width: contentWidth,
         windowWidth: contentWidth,
-        autoPaging: "text",
-        margin: [0, 0, 0, 0],
-        html2canvas: {
-          scale: 0.82,
-          useCORS: true,
-          allowTaint: false,
-          logging: false,
-          onclone: (cloneDoc) => {
-            const scheduleFrames = cloneDoc.querySelectorAll(".cfsp-schedule-actions-menu, .cfsp-schedule-viewer-toolbar, .cfsp-schedule-no-print");
-            scheduleFrames.forEach((node) => {
-              (node as HTMLElement).style.display = "none";
-            });
-            cloneDoc.querySelectorAll("body").forEach((bodyNodeToStyle) => {
-              bodyNodeToStyle.style.background = "#ffffff";
-            });
-            if (printView === "student") {
-              cloneDoc.querySelectorAll("button").forEach((button) => {
-                if (!button.closest(".cfsp-schedule-viewer-toolbar")) {
-                  button.style.display = "none";
-                }
-              });
-            }
-            const compactRoot = cloneDoc.querySelector(".print-root");
-            if (compactRoot instanceof HTMLElement) {
-              compactRoot.style.width = `${contentWidth}px`;
-              compactRoot.style.maxWidth = `${contentWidth}px`;
-              compactRoot.style.overflow = "visible";
-            }
-            cloneDoc.querySelectorAll(".schedule-grid-shell, .schedule-grid-table").forEach((node) => {
-              const element = node as HTMLElement;
-              element.style.width = "100%";
-              element.style.maxWidth = "100%";
-              element.style.minWidth = "0";
-              element.style.overflow = "visible";
-              element.style.boxSizing = "border-box";
-            });
-          },
-        },
-        callback: () => {
-          if (pdfRendered) return;
-          pdfRendered = true;
-          resolve();
-        },
       });
-      window.setTimeout(() => {
-        if (!pdfRendered) {
-          pdfRendered = true;
-          reject(new Error("Styled PDF rendering callback did not complete."));
-        }
-      }, 20000);
-    });
+
+      const imageData = canvas.toDataURL("image/png");
+      scheduleDoc.addImage(
+        imageData,
+        "PNG",
+        xOffset,
+        yCursor,
+        targetSectionWidth,
+        targetSectionHeight,
+        undefined,
+        "FAST"
+      );
+      yCursor += targetSectionHeight + 2;
+      return Promise.resolve();
+    }, Promise.resolve());
+
+    measureRoot.remove();
+
+    await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+
+    if (printSections.length === 0) {
+      throw new Error("Could not find any printable schedule sections to render.");
+    }
 
     const finalBlob = scheduleDoc.output("blob") as Blob;
     if (!finalBlob || finalBlob.size <= 0) {
@@ -1204,12 +1267,21 @@ function buildCompactScheduleExportHtml(previewHtml: string, printView: CompactS
     ".cfsp-schedule-export .wide-band-title {",
     "  font-size: 8px;",
     "}",
-    ".cfsp-schedule-export .schedule-grid-shell {",
+    ".cfsp-schedule-export .schedule-grid-shell,",
+    ".cfsp-schedule-export .cfsp-print-section,",
+    ".cfsp-schedule-export .cfsp-print-round-section {",
     "  border: none;",
     "  overflow: visible !important;",
     "  width: 100% !important;",
     "  max-width: 100% !important;",
+    "  max-height: none !important;",
+    "  break-inside: avoid !important;",
+    "  page-break-inside: avoid !important;",
+    "  -webkit-column-break-inside: avoid;",
+    "  break-before: auto;",
     "}",
+    ".cfsp-schedule-export .cfsp-print-section,",
+    ".cfsp-schedule-export .cfsp-print-round-section,",
     ".cfsp-schedule-export .schedule-grid-table {",
     "  width: 100% !important;",
     "  min-width: 0 !important;",
@@ -1218,7 +1290,28 @@ function buildCompactScheduleExportHtml(previewHtml: string, printView: CompactS
     "  border-collapse: collapse;",
     "  border-spacing: 0 !important;",
     "}",
+    ".cfsp-schedule-export .round-grid-group {",
+    "  display: table-row-group !important;",
+    "  break-inside: avoid !important;",
+    "  page-break-inside: avoid !important;",
+    "}",
     ".cfsp-schedule-export .schedule-grid-table col { min-width: 0 !important; }",
+    ".cfsp-schedule-export .round-section,",
+    ".cfsp-schedule-export .round-grid-row,",
+    ".cfsp-schedule-export .round-grid-group,",
+    ".cfsp-schedule-export .room-row,",
+    ".cfsp-schedule-export .schedule-room-cell,",
+    ".cfsp-schedule-export .schedule-room-card,",
+    ".cfsp-schedule-export .schedule-grid-shell,",
+    ".cfsp-schedule-export .schedule-grid-table,",
+    ".cfsp-schedule-export .cfsp-print-section,",
+    ".cfsp-schedule-export .cfsp-print-round-section,",
+    ".cfsp-schedule-export .wide-band,",
+    ".cfsp-schedule-export .divider-band {",
+    "  break-inside: avoid !important;",
+    "  page-break-inside: avoid !important;",
+    "  -webkit-column-break-inside: avoid;",
+    "}",
     ".cfsp-schedule-export .schedule-grid-table th,",
     ".cfsp-schedule-export .schedule-grid-table td {",
     `  padding: ${roomColumnCount >= 6 ? "2px 3px" : "3px 4px"};`,
@@ -1294,6 +1387,8 @@ function buildCompactScheduleExportHtml(previewHtml: string, printView: CompactS
     ".cfsp-schedule-export .schedule-grid-table tr,",
     ".cfsp-schedule-export .schedule-grid-table td,",
     ".cfsp-schedule-export .schedule-grid-table th,",
+    ".cfsp-schedule-export .schedule-grid-table tbody,",
+    ".cfsp-schedule-export .round-grid-group,",
     ".cfsp-schedule-export .round-grid-row,",
     ".cfsp-schedule-export .schedule-room-cell,",
     ".cfsp-schedule-export .schedule-room-card {",
@@ -1308,17 +1403,30 @@ function buildCompactScheduleExportHtml(previewHtml: string, printView: CompactS
     "@media print {",
     "  html, body { background: #fff !important; }",
     "  .cfsp-schedule-export { background: #fff !important; }",
-    "  .round-grid-row,",
-    "  .schedule-grid-table tr,",
-    "  .schedule-grid-table td,",
-    "  .schedule-room-cell,",
+    "  .cfsp-schedule-export .compact-print-grid,",
+    "  .cfsp-schedule-export .schedule-grid-table,",
+    "  .cfsp-schedule-export .schedule-grid-table thead,",
+    "  .cfsp-schedule-export .round-grid-group,",
+    "  .cfsp-schedule-export .wide-row,",
+    "  .cfsp-schedule-export .wide-band,",
+    "  .cfsp-schedule-export .round-grid-row,",
+    "  .cfsp-schedule-export .schedule-grid-table tr,",
+    "  .cfsp-schedule-export .schedule-grid-table td,",
+    "  .cfsp-schedule-export .schedule-room-cell,",
     "  .event-meta-card,",
     "  .schedule-room-card,",
     "  .wide-band {",
     "    break-inside: avoid;",
     "    page-break-inside: avoid;",
     "  }",
-    "  .rhythm-row { break-inside: auto; page-break-inside: auto; }",
+    "  .rhythm-row { break-inside: auto !important; page-break-inside: auto !important; }",
+    "  .cfsp-schedule-export .schedule-grid-table th,",
+    "  .cfsp-schedule-export .schedule-grid-table td {",
+    "    page-break-before: auto !important;",
+    "  }",
+    "  .cfsp-schedule-export .compact-print-shell {",
+    "    break-inside: auto !important;",
+    "  }",
     "}",
     "",
   ].join("\n");
@@ -2795,16 +2903,16 @@ function buildSchedulePreviewData(args: {
           <thead>
             <tr>
               <th>Round</th>
-              <th>Time</th>
-              ${roomColumns.map((column) => `<th class="room-column-header">${escapeHtml(column.displayRoomName)}</th>`).join("")}
-            </tr>
+            <th>Time</th>
+            ${roomColumns.map((column) => `<th class="room-column-header">${escapeHtml(column.displayRoomName)}</th>`).join("")}
+          </tr>
           </thead>
-          <tbody>
-            ${previewScheduleGridRows
-              .map((entry) => {
-                if (entry.kind === "wide") {
-                  const durationMinutes = Math.max(getBlockDurationMinutes(entry.block.start, entry.block.end), 1);
-                  return `
+          ${previewScheduleGridRows
+            .map((entry) => {
+              if (entry.kind === "wide") {
+                const durationMinutes = Math.max(getBlockDurationMinutes(entry.block.start, entry.block.end), 1);
+                return `
+                  <tbody class="round-grid-group">
                     <tr class="wide-row">
                       <td colspan="${roomColumns.length + 2}">
                         <div class="wide-band">
@@ -2816,13 +2924,15 @@ function buildSchedulePreviewData(args: {
                         </div>
                       </td>
                     </tr>
-                  `;
-                }
+                  </tbody>
+                `;
+              }
 
-                const round = entry.round;
-                const subBlockSummary = getFlowRhythmSummary(round) || "Encounter flow only";
+              const round = entry.round;
+              const subBlockSummary = getFlowRhythmSummary(round) || "Encounter flow only";
 
-                return `
+              return `
+                <tbody class="round-grid-group">
                   <tr class="round-grid-row">
                     <td class="round-index-cell">
                       <div class="round-index">Round ${round.round}</div>
@@ -2885,10 +2995,10 @@ function buildSchedulePreviewData(args: {
                       })
                       .join("")}
                   </tr>
-                `;
-              })
-              .join("")}
-          </tbody>
+                </tbody>
+              `;
+            })
+            .join("")}
         </table>
       </div>
     `;
