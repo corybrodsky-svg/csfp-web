@@ -432,6 +432,12 @@ type WorkflowReadinessItem = {
   actions?: WorkflowReadinessAction[];
 };
 
+type ReadinessPopoverState = {
+  id: string;
+  x: number;
+  y: number;
+};
+
 type LearnerFlowIssue = {
   what: string;
   why: string;
@@ -4411,6 +4417,7 @@ export default function EventDetailPage() {
   const [trainingImporting, setTrainingImporting] = useState(false);
   const [showWorkflowAdvanced, setShowWorkflowAdvanced] = useState(false);
   const [activeReadinessDetailId, setActiveReadinessDetailId] = useState<string | null>(null);
+  const [activeReadinessPopover, setActiveReadinessPopover] = useState<ReadinessPopoverState | null>(null);
   const [showLearnerFlowDetails, setShowLearnerFlowDetails] = useState(false);
   const [materialPreview, setMaterialPreview] = useState<MaterialPreviewState | null>(null);
   const [materialPreviewLoading, setMaterialPreviewLoading] = useState(false);
@@ -6693,6 +6700,9 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       : "Schedule Not Started";
   const staffingCoverageMet = staffingRelevant && (needed > 0 ? confirmedCount >= needed : selectedStaffingCount > 0);
   const hasUnfilledPrimarySlots = staffingRelevant && needed > 0 && confirmedCount < needed;
+  const staffingReadinessCoverageMet = needed > 0
+    ? staffingRelevant && confirmedCount >= needed
+    : staffingRelevant && selectedStaffingCount > 0;
   const hasUnconfirmedSelectedPrimaryAssignments = assignments.some(
     (assignment) =>
       getAssignmentStatus(assignment) === "invited" || getAssignmentStatus(assignment) === "contacted"
@@ -7516,7 +7526,10 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
   const operationalReadinessItems = useMemo(() => {
     const materialsReadinessLabel = materialsWorkflowNeedsAction ? materialsStatusLabel : "";
     const items = [
-      { label: "Needs Staffing", active: staffingRelevant && confirmedCount < Math.max(needed, 1) },
+      {
+        label: "Needs Staffing",
+        active: staffingRelevant && !staffingReadinessCoverageMet,
+      },
       { label: "Needs Faculty", active: !facultyReadinessComplete },
       { label: materialsReadinessLabel, active: Boolean(materialsReadinessLabel) },
       { label: scheduleInProgress ? "Schedule In Progress" : "Awaiting Schedule", active: scheduleInProgress || !rotationRounds.length || summaryTimeLabel === "Time TBD" },
@@ -7528,11 +7541,10 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     };
   }, [
     facultyReadinessComplete,
-    confirmedCount,
     hasRoomsBuilt,
+    staffingReadinessCoverageMet,
     materialsStatusLabel,
     materialsWorkflowNeedsAction,
-    needed,
     rotationRounds.length,
     scheduleInProgress,
     staffingRelevant,
@@ -9641,7 +9653,7 @@ Cory`;
   const latestPollImportLabel = formatUploadedTimestamp(pollMetadata.pollImportCreatedAt);
   const staffingReadinessStatus: WorkflowReadinessStatus = noSpStaffingRequired
     ? "Optional"
-    : needed > 0 && confirmedCount >= needed
+    : staffingReadinessCoverageMet
       ? "Ready"
       : selectedStaffingCount > 0 || contactedAssignmentCount > 0
         ? "Needs Action"
@@ -18736,21 +18748,59 @@ Cory`;
     );
   }
 
+  function resolveReadinessPopoverPosition(
+    event: React.MouseEvent | React.KeyboardEvent,
+    nextId: string
+  ): ReadinessPopoverState {
+    const fallbackWidth = 340;
+    const fallbackHeight = 360;
+    const margin = 12;
+    if (typeof window === "undefined") {
+      return { id: nextId, x: margin, y: margin };
+    }
+
+    const trigger = event.currentTarget as HTMLElement;
+    const rect = trigger?.getBoundingClientRect ? trigger.getBoundingClientRect() : null;
+    const containerWidth = Math.max(280, window.innerWidth - margin * 2);
+    const popoverWidth = Math.min(680, containerWidth);
+    const popoverHeight = Math.min(760, Math.max(260, window.innerHeight - margin * 2));
+    const alignX = rect ? rect.left : fallbackWidth;
+    const belowY = rect ? rect.bottom + 8 : fallbackHeight;
+    const aboveY = rect ? rect.top - popoverHeight - 8 : fallbackHeight;
+    const x = rect
+      ? Math.min(Math.max(margin, alignX), window.innerWidth - popoverWidth - margin)
+      : Math.min(Math.max(margin, 16), Math.max(margin, window.innerWidth - popoverWidth - margin));
+    const hasRoomBelow = rect ? belowY + popoverHeight <= window.innerHeight - margin : true;
+    const yCandidate = rect && !hasRoomBelow && aboveY >= margin ? aboveY : belowY;
+    const y = Math.min(Math.max(margin, yCandidate), window.innerHeight - popoverHeight - margin);
+
+    return { id: nextId, x, y };
+  }
+
+  function openReadinessDetails(event: React.MouseEvent | React.KeyboardEvent, nextId: string) {
+    const nextState = resolveReadinessPopoverPosition(event, nextId);
+    setActiveReadinessDetailId(nextId);
+    setActiveReadinessPopover(nextState);
+  }
+
+  function closeReadinessDetails() {
+    setActiveReadinessDetailId(null);
+    setActiveReadinessPopover(null);
+  }
+
   function renderWorkflowReadinessItem(item: WorkflowReadinessItem, compact = false) {
     const tone = getWorkflowReadinessTone(item.status);
-    const openReadinessDetails = () => setActiveReadinessDetailId(item.id);
-
     return (
       <div
         key={item.id}
         role="button"
         tabIndex={0}
-        onClick={openReadinessDetails}
+        onClick={(event) => openReadinessDetails(event, item.id)}
         onKeyDown={(event) => {
           if (isEditableKeyboardTarget(event.target)) return;
           if (event.key === "Enter" || event.key === " ") {
             event.preventDefault();
-            openReadinessDetails();
+            openReadinessDetails(event, item.id);
           }
         }}
         style={{
@@ -18774,7 +18824,7 @@ Cory`;
             type="button"
             onClick={(event) => {
               event.stopPropagation();
-              openReadinessDetails();
+              openReadinessDetails(event, item.id);
             }}
             style={{
               flex: "0 0 auto",
@@ -18827,7 +18877,7 @@ Cory`;
           </div>
           <button
             type="button"
-            onClick={() => setActiveReadinessDetailId("board")}
+            onClick={(event) => openReadinessDetails(event, "board")}
             style={{
               borderRadius: "14px",
               padding: "9px 12px",
@@ -18971,16 +19021,13 @@ Cory`;
   const readinessDetailDialog = activeReadinessDetailId ? (
     <div
       role="presentation"
-      onClick={() => setActiveReadinessDetailId(null)}
+      onClick={closeReadinessDetails}
       style={{
         position: "fixed",
         inset: 0,
         zIndex: 80,
         background: "rgba(15, 23, 42, 0.32)",
-        display: "flex",
-        justifyContent: "center",
-        alignItems: "flex-start",
-        padding: "72px 16px 24px",
+        cursor: "pointer",
       }}
     >
       <section
@@ -18989,14 +19036,19 @@ Cory`;
         aria-label={activeReadinessDetailId === "board" ? workflowBoardStatusLabel : activeReadinessDetailItem?.label || "Readiness details"}
         onClick={(event) => event.stopPropagation()}
         style={{
+          position: "fixed",
+          left: activeReadinessPopover?.x ?? 16,
+          top: activeReadinessPopover?.y ?? 16,
           width: "min(680px, 100%)",
-          maxHeight: "min(760px, calc(100vh - 96px))",
+          maxWidth: "min(680px, calc(100vw - 24px))",
+          maxHeight: "min(760px, calc(100vh - 24px))",
           overflowY: "auto",
           borderRadius: "16px",
           border: "1px solid rgba(120, 180, 255, 0.24)",
           background: "var(--cfsp-surface)",
           boxShadow: "0 24px 70px rgba(15, 23, 42, 0.24)",
           padding: "16px",
+          cursor: "auto",
         }}
       >
         <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", alignItems: "flex-start" }}>
@@ -19022,7 +19074,7 @@ Cory`;
           </div>
           <button
             type="button"
-            onClick={() => setActiveReadinessDetailId(null)}
+            onClick={closeReadinessDetails}
             style={{
               ...buttonStyle,
               padding: "7px 10px",
@@ -20130,9 +20182,9 @@ Cory`;
                     ? readinessGroups.find((group) => group.key === readinessGroupKey) || null
                     : null;
                   const hasWindowNeedsActions = windowCard.tone === "attention" && (readinessGroup?.items.length ?? 0) > 0;
-                  const openWindowReadinessDetails = () => {
+                  const openWindowReadinessDetails = (event: React.MouseEvent | React.KeyboardEvent) => {
                     if (!readinessGroup || readinessGroup.items.length === 0) return;
-                    setActiveReadinessDetailId(`window-group:${readinessGroup.key}`);
+                    openReadinessDetails(event, `window-group:${readinessGroup.key}`);
                   };
 
                   return (
@@ -20182,19 +20234,23 @@ Cory`;
                           </div>
                         </div>
                         <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "flex-end" }}>
-                          <button
-                            type="button"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              openWindowReadinessDetails();
-                            }}
-                            onKeyDown={(event) => {
-                              if (isEditableKeyboardTarget(event.target)) return;
-                              if (event.key === "Enter" || event.key === " ") {
-                                event.preventDefault();
-                                openWindowReadinessDetails();
-                              }
-                            }}
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                if (hasWindowNeedsActions) {
+                                  openWindowReadinessDetails(event);
+                                }
+                              }}
+                              onKeyDown={(event) => {
+                                if (isEditableKeyboardTarget(event.target)) return;
+                                if (event.key === "Enter" || event.key === " ") {
+                                  event.preventDefault();
+                                  if (hasWindowNeedsActions) {
+                                    openWindowReadinessDetails(event);
+                                  }
+                                }
+                              }}
                             disabled={!hasWindowNeedsActions}
                             aria-label={hasWindowNeedsActions ? "Open action details" : "No unresolved readiness actions"}
                             title={hasWindowNeedsActions ? "Open action details" : "No unresolved readiness actions"}
