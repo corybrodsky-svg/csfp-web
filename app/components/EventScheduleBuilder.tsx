@@ -5,6 +5,7 @@ import Link from "next/link";
 import { createPortal } from "react-dom";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import type { jsPDF as JsPDFClass } from "jspdf";
 import { formatHumanDate, getImportedYearHint } from "../lib/eventDateUtils";
 import { parseEventMetadata, upsertEventMetadata } from "../lib/eventMetadata";
 import { normalizeDisplayText, normalizeLearnerName, normalizeLearnerNames } from "../lib/learnerNames";
@@ -866,11 +867,615 @@ type StyledPdfRenderContext = {
 
 type CompactSchedulePrintKind = "student" | "operations";
 
+type PdfExportPageManifest = {
+  page: HTMLElement;
+  roundCount: number;
+  sourceIndexes: number[];
+};
+
+type PdfExportPages = {
+  pages: PdfExportPageManifest[];
+  contentWidth: number;
+  contentHeight: number;
+  root: HTMLElement;
+};
+
+type StyledPdfDocument = {
+  addImage: JsPDFClass["addImage"];
+  addPage?: JsPDFClass["addPage"];
+  output: JsPDFClass["output"];
+};
+
 function isCanvasTaintError(error: unknown) {
   if (error instanceof Error) {
     return /tainted|toDataURL|cross-origin|SecurityError/i.test(error.message);
   }
   return false;
+}
+
+function waitAnimationFrames(count = 2) {
+  return new Promise<void>((resolve) => {
+    let remaining = Math.max(1, count);
+    const step = () => {
+      remaining -= 1;
+      if (remaining <= 0) resolve();
+      else requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  });
+}
+
+function waitMilliseconds(ms: number) {
+  return new Promise<void>((resolve) => {
+    window.setTimeout(() => resolve(), ms);
+  });
+}
+
+async function waitForSchedulePdfAssets(root: HTMLElement) {
+  try {
+    await document.fonts?.ready;
+  } catch (error) {
+    console.warn("[styled-pdf] Font readiness check failed; continuing with export render.", error);
+  }
+  const images = Array.from(root.querySelectorAll("img"));
+  if (images.length) {
+    await Promise.all(
+      images.map((image) =>
+        image.complete
+          ? Promise.resolve()
+          : new Promise<void>((resolve) => {
+              image.addEventListener("load", () => resolve(), { once: true });
+              image.addEventListener(
+                "error",
+                () => {
+                  console.warn("[styled-pdf] Image failed to load during PDF export.");
+                  resolve();
+                },
+                { once: true }
+              );
+            })
+      )
+    );
+  }
+  await waitAnimationFrames(2);
+  await waitMilliseconds(80);
+}
+
+function ensurePdfExportNodeVisible(node: HTMLElement, widthPx: number) {
+  node.style.display = "block";
+  node.style.visibility = "visible";
+  node.style.opacity = "1";
+  node.style.position = "relative";
+  node.style.left = "0";
+  node.style.top = "0";
+  node.style.maxWidth = `${widthPx}px`;
+  node.style.width = `${widthPx}px`;
+  node.style.background = "#fff";
+  node.style.color = "";
+  node.style.margin = "0";
+  node.style.padding = "0";
+  node.style.boxSizing = "border-box";
+}
+
+function getRenderHeight(node: HTMLElement) {
+  const height = Math.max(
+    Math.ceil(node.getBoundingClientRect().height),
+    node.offsetHeight,
+    node.scrollHeight,
+    node.clientHeight,
+    0
+  );
+  return Number.isFinite(height) ? height : 0;
+}
+
+async function buildSchedulePdfPages(
+  html: string,
+  pageWidth: number,
+  pageHeight: number,
+  sidePadding: number
+): Promise<PdfExportPages> {
+  if (!html) {
+    throw new Error("Could not find printable schedule sections to render.");
+  }
+
+  const parsed = new DOMParser().parseFromString(html, "text/html");
+  const printRoot = parsed.querySelector(".cfsp-schedule-export");
+  const compactShell = parsed.querySelector(".compact-print-shell");
+  if (!printRoot || !compactShell) {
+    throw new Error("Could not find printable schedule sections to render.");
+  }
+
+  const printableHeader = compactShell.querySelector(".compact-print-header") as HTMLElement | null;
+  const compactGrid = compactShell.querySelector(".compact-print-grid") as HTMLElement | null;
+  const sourceGridTable = compactGrid?.querySelector("table.schedule-grid-table") as HTMLTableElement | null;
+  const sourceTbodyGroups = sourceGridTable
+    ? (Array.from(sourceGridTable.querySelectorAll("tbody.round-grid-group")) as HTMLTableSectionElement[])
+    : [];
+  if (!sourceGridTable || !sourceTbodyGroups.length) {
+    throw new Error("Could not find any printable rounds for PDF sectioning.");
+  }
+
+  const contentWidth = Math.max(560, Math.floor(pageWidth - sidePadding * 2));
+  const contentHeight = Math.max(1, Math.floor(pageHeight - sidePadding * 2));
+
+  const printableStyles = Array.from(parsed.querySelectorAll("style"))
+    .map((style) => style.textContent || "")
+    .filter(Boolean)
+    .join("\n");
+
+  const exportRoot = document.createElement("div");
+  exportRoot.className = "cfsp-pdf-export-root";
+  exportRoot.style.position = "fixed";
+  exportRoot.style.left = "-100000px";
+  exportRoot.style.top = "0";
+  exportRoot.style.width = `${pageWidth}px`;
+  exportRoot.style.background = "#fff";
+  exportRoot.style.opacity = "1";
+  exportRoot.style.pointerEvents = "none";
+  exportRoot.style.visibility = "visible";
+  exportRoot.style.overflow = "visible";
+  exportRoot.style.color = "#14304f";
+
+  const pdfStyles = `
+    ${printableStyles}
+    .cfsp-pdf-page,
+    .cfsp-pdf-round,
+    .cfsp-pdf-header,
+    .cfsp-pdf-page .compact-print-header,
+    .cfsp-pdf-page .schedule-grid-table,
+    .cfsp-pdf-page .round-grid-group,
+    .cfsp-pdf-page .round-grid-row,
+    .cfsp-pdf-page .room-row,
+    .cfsp-pdf-page .room-grid,
+    .cfsp-pdf-page .schedule-room-cell,
+    .cfsp-pdf-page .schedule-room-card,
+    .cfsp-pdf-page .timeline-segment,
+    .cfsp-pdf-page .rhythm-strip,
+    .cfsp-pdf-page .wide-band,
+    .cfsp-pdf-page .divider-band,
+    .cfsp-pdf-page .event-meta-card,
+    .cfsp-pdf-page .round-section {
+      break-inside: avoid;
+      page-break-inside: avoid;
+      -webkit-column-break-inside: avoid;
+    }
+    .cfsp-pdf-page {
+      position: relative;
+      width: ${contentWidth}px;
+      max-width: ${contentWidth}px;
+      min-width: ${contentWidth}px;
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      background: #fff;
+      overflow: visible;
+      display: block;
+    }
+    .cfsp-pdf-round {
+      display: block;
+      width: 100%;
+      max-width: 100%;
+      margin: 0 0 3px 0;
+      break-inside: avoid;
+      page-break-inside: avoid;
+      -webkit-column-break-inside: avoid;
+    }
+    .cfsp-pdf-header {
+      display: block;
+      width: 100%;
+      max-width: 100%;
+    }
+    .cfsp-pdf-page .schedule-grid-table {
+      width: 100% !important;
+      max-width: 100% !important;
+      table-layout: fixed !important;
+      border-collapse: collapse;
+      border-spacing: 0 !important;
+      overflow: visible !important;
+      max-height: none !important;
+    }
+    .cfsp-pdf-page .round-grid-group,
+    .cfsp-pdf-page .round-grid-row,
+    .cfsp-pdf-page .schedule-room-row,
+    .cfsp-pdf-page .wide-band {
+      break-inside: avoid !important;
+      page-break-inside: avoid !important;
+    }
+  `;
+
+  const styleNode = document.createElement("style");
+  styleNode.textContent = pdfStyles;
+  exportRoot.appendChild(styleNode);
+
+  const measureRoot = document.createElement("div");
+  measureRoot.className = "cfsp-pdf-measure-root";
+  measureRoot.style.position = "relative";
+  measureRoot.style.left = "0";
+  measureRoot.style.top = "0";
+  measureRoot.style.width = `${contentWidth}px`;
+  measureRoot.style.maxWidth = `${contentWidth}px`;
+  measureRoot.style.margin = "0";
+  measureRoot.style.padding = "0";
+  measureRoot.style.background = "#fff";
+  measureRoot.style.visibility = "visible";
+  measureRoot.style.opacity = "1";
+  measureRoot.style.pointerEvents = "none";
+  exportRoot.appendChild(measureRoot);
+  document.body.appendChild(exportRoot);
+  try {
+    await waitForSchedulePdfAssets(exportRoot);
+  } catch (error) {
+    console.warn("[styled-pdf] PDF section measurement layout wait failed; continuing with current DOM layout.", error);
+  }
+
+  type PdfSectionCandidate = {
+    node: HTMLElement;
+    height: number;
+    index: number;
+  };
+
+  const allCandidates: PdfSectionCandidate[] = [];
+  const createPage = () => {
+    const page = document.createElement("div");
+    page.className = "cfsp-pdf-page";
+    page.style.width = `${contentWidth}px`;
+    page.style.maxWidth = `${contentWidth}px`;
+    page.style.minWidth = `${contentWidth}px`;
+    page.style.background = "#fff";
+    page.style.boxSizing = "border-box";
+    page.style.position = "relative";
+    page.style.left = "0";
+    page.style.top = "0";
+    page.style.margin = "0";
+    page.style.padding = "0";
+    return page;
+  };
+
+  const createRoundShell = (groupNode: HTMLTableSectionElement, index: number) => {
+    const roundShell = document.createElement("section");
+    roundShell.className = "cfsp-pdf-round";
+    ensurePdfExportNodeVisible(roundShell, contentWidth);
+    roundShell.dataset.roundIndex = String(index);
+    roundShell.setAttribute("data-source-round", String(index));
+
+    const tableClone = document.createElement("table");
+    tableClone.className = sourceGridTable.className || "schedule-grid-table";
+    const colgroup = sourceGridTable.querySelector("colgroup")?.cloneNode(true);
+    const tableHead = sourceGridTable.querySelector("thead")?.cloneNode(true);
+    if (colgroup) tableClone.appendChild(colgroup);
+    if (tableHead) tableClone.appendChild(tableHead);
+    tableClone.appendChild(groupNode.cloneNode(true));
+    roundShell.appendChild(tableClone);
+    return roundShell;
+  };
+
+  sourceTbodyGroups.forEach((group, index) => {
+    allCandidates.push({ node: createRoundShell(group, index), height: 0, index });
+  });
+
+  const headerClone = printableHeader ? (printableHeader.cloneNode(true) as HTMLElement) : null;
+  if (headerClone) {
+    ensurePdfExportNodeVisible(headerClone, contentWidth);
+    headerClone.classList.add("cfsp-pdf-header");
+  }
+
+  const measuredSections: PdfSectionCandidate[] = [];
+  allCandidates.forEach((roundRow) => {
+    ensurePdfExportNodeVisible(roundRow.node, contentWidth);
+    measureRoot.appendChild(roundRow.node);
+    const roundHeight = getRenderHeight(roundRow.node);
+    measureRoot.removeChild(roundRow.node);
+
+    const hasVisualHeight =
+      roundHeight > 0 || roundRow.node.offsetHeight > 0 || roundRow.node.scrollHeight > 0 || roundRow.node.getBoundingClientRect().height > 0;
+    if (hasVisualHeight || Boolean(roundRow.node.textContent?.trim())) {
+      roundRow.height = Math.max(1, roundHeight);
+      measuredSections.push(roundRow);
+    } else {
+      console.warn(
+        `[styled-pdf] Skipping empty schedule section ${roundRow.index}; no layout height and no text content.`
+      );
+    }
+  });
+
+  let measuredHeaderHeight = 0;
+  if (headerClone) {
+    measureRoot.appendChild(headerClone);
+    measuredHeaderHeight = Math.max(1, getRenderHeight(headerClone));
+    headerClone.dataset.measuredHeight = String(measuredHeaderHeight);
+    measureRoot.removeChild(headerClone);
+  }
+  measureRoot.remove();
+
+  if (!measuredSections.length) {
+    const noContentError = new Error("No printable schedule sections contain measurable content.");
+    console.error("[styled-pdf]", noContentError.message);
+    exportRoot.remove();
+    throw noContentError;
+  }
+
+  const pages: PdfExportPageManifest[] = [];
+  let currentPage = createPage();
+  let currentHeight = 0;
+  let headerPlaced = false;
+  let currentRoundCount = 0;
+  const pageContentSpacing = 3;
+
+  const pushCurrentPage = () => {
+    if (!currentPage.childElementCount) return;
+    pages.push({
+      page: currentPage,
+      roundCount: currentPage.querySelectorAll(".cfsp-pdf-round").length,
+      sourceIndexes: Array.from(currentPage.querySelectorAll(".cfsp-pdf-round")).map(
+        (roundNode) => Number((roundNode as HTMLElement).dataset.roundIndex || "-1")
+      ),
+    });
+    currentPage = createPage();
+    currentHeight = 0;
+    headerPlaced = false;
+    currentRoundCount = 0;
+  };
+
+  const addHeader = () => {
+    if (!headerClone || headerPlaced) return;
+    const headerInstance = headerClone.cloneNode(true) as HTMLElement;
+    ensurePdfExportNodeVisible(headerInstance, contentWidth);
+    currentPage.appendChild(headerInstance);
+    currentHeight += measuredHeaderHeight;
+    headerPlaced = true;
+  };
+
+  const addRoundToPage = (roundRow: PdfSectionCandidate) => {
+    if (currentRoundCount > 0) currentHeight += pageContentSpacing;
+    currentPage.appendChild(roundRow.node);
+    currentHeight += roundRow.height;
+    currentRoundCount += 1;
+  };
+
+  addHeader();
+  for (const roundRow of measuredSections) {
+    const roundHeight = Math.max(1, roundRow.height);
+    const maxHeightForCurrent = contentHeight - (headerPlaced ? measuredHeaderHeight : 0);
+    if (roundHeight > maxHeightForCurrent) {
+      console.warn(
+        `[styled-pdf] Section ${roundRow.index} exceeds page capacity by ${
+          roundHeight - Math.max(0, maxHeightForCurrent)
+        }px; exporting as dedicated full-page section.`
+      );
+      if (currentRoundCount > 0) {
+        pushCurrentPage();
+        addHeader();
+      }
+      const singlePage = createPage();
+      if (headerPlaced && headerClone) {
+        const headerInstance = headerClone.cloneNode(true) as HTMLElement;
+        ensurePdfExportNodeVisible(headerInstance, contentWidth);
+        singlePage.appendChild(headerInstance);
+      }
+      singlePage.appendChild(roundRow.node);
+      pages.push({
+        page: singlePage,
+        roundCount: 1,
+        sourceIndexes: [roundRow.index],
+      });
+      continue;
+    }
+
+    const needsNewPage =
+      currentHeight > 0 && (currentHeight + roundHeight + (currentRoundCount > 0 ? pageContentSpacing : 0) > contentHeight);
+    if (needsNewPage) {
+      pushCurrentPage();
+      addHeader();
+    }
+
+    addRoundToPage(roundRow);
+  }
+
+  if (currentRoundCount > 0 || (headerPlaced && currentHeight > 0)) {
+    pages.push({
+      page: currentPage,
+      roundCount: currentPage.querySelectorAll(".cfsp-pdf-round").length,
+      sourceIndexes: Array.from(currentPage.querySelectorAll(".cfsp-pdf-round")).map(
+        (roundNode) => Number((roundNode as HTMLElement).dataset.roundIndex || "-1")
+      ),
+    });
+  }
+
+  if (!pages.length) {
+    const fallbackPage = createPage();
+    const fallbackText = document.createElement("div");
+    fallbackText.textContent = "No schedule content available for export.";
+    fallbackText.style.padding = "16px";
+    fallbackPage.appendChild(fallbackText);
+    pages.push({ page: fallbackPage, roundCount: 0, sourceIndexes: [] });
+  }
+
+  pages.forEach((pageEntry, index) => {
+    exportRoot.appendChild(pageEntry.page);
+    pageEntry.page.dataset.pageIndex = String(index);
+  });
+
+  return {
+    pages,
+    contentWidth,
+    contentHeight,
+    root: exportRoot,
+  };
+}
+
+function isRenderedCanvasBlank(canvas: HTMLCanvasElement) {
+  if (!canvas.width || !canvas.height) return true;
+  const context = canvas.getContext("2d");
+  if (!context) return false;
+  const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+  const { data } = imageData;
+  const stride = Math.max(1, Math.floor(Math.max(canvas.width, canvas.height) / 160));
+  let index = 3;
+  let sampleCount = 0;
+  let nonBlankCount = 0;
+  for (let y = 0; y < canvas.height; y += stride) {
+    for (let x = 0; x < canvas.width; x += stride) {
+      index = (y * canvas.width + x) * 4;
+      const alpha = data[index + 3];
+      const red = data[index];
+      const green = data[index + 1];
+      const blue = data[index + 2];
+      sampleCount += 1;
+      if (alpha > 0 && !(red === 255 && green === 255 && blue === 255)) {
+        nonBlankCount += 1;
+        break;
+      }
+    }
+    if (nonBlankCount) break;
+  }
+  return sampleCount > 0 ? nonBlankCount === 0 : true;
+}
+
+async function renderPdfCanvasWithRetry(
+  html2canvas: (
+    element: HTMLElement,
+    options?: {
+      scale?: number;
+      useCORS?: boolean;
+      allowTaint?: boolean;
+      logging?: boolean;
+      backgroundColor?: string;
+      width?: number;
+      windowWidth?: number;
+    }
+  ) => Promise<HTMLCanvasElement>,
+  pageNode: HTMLElement,
+  contentWidth: number,
+  pageLabel: string
+) {
+  const canvasAttempts = [
+    { scale: 2, width: contentWidth, windowWidth: contentWidth, name: "primary" },
+    { scale: 2.5, width: contentWidth, windowWidth: contentWidth, name: "retry" },
+  ];
+  let lastError: unknown = null;
+  for (let attemptIndex = 0; attemptIndex < canvasAttempts.length; attemptIndex += 1) {
+    const attempt = canvasAttempts[attemptIndex];
+    try {
+      const canvas = await html2canvas(pageNode, {
+        scale: attempt.scale,
+        useCORS: true,
+        allowTaint: false,
+        logging: false,
+        backgroundColor: "#ffffff",
+        width: attempt.width,
+        windowWidth: attempt.windowWidth,
+      });
+
+      if (isRenderedCanvasBlank(canvas)) {
+        const warn = `[styled-pdf] ${pageLabel} rendered blank on ${attempt.name} attempt (${canvas.width}x${canvas.height}).`;
+        if (attemptIndex + 1 < canvasAttempts.length) {
+          console.warn(warn);
+          await waitAnimationFrames(2);
+          continue;
+        }
+        throw new Error(warn);
+      }
+
+      return canvas;
+    } catch (error) {
+      lastError = error;
+      if (attemptIndex + 1 < canvasAttempts.length) {
+        console.warn(`[styled-pdf] ${pageLabel} html2canvas failed on ${attempt.name} attempt. Retrying.`, error);
+        await waitAnimationFrames(2);
+        continue;
+      }
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(`Could not render ${pageLabel}.`);
+}
+
+async function createFallbackStyledPdfBlob(
+  htmlSource: string,
+  pdfDoc: StyledPdfDocument,
+  contentWidth: number,
+  contentHeight: number,
+  pdfSidePadding: number,
+  html2canvas: (
+    element: HTMLElement,
+    options?: {
+      scale?: number;
+      useCORS?: boolean;
+      allowTaint?: boolean;
+      logging?: boolean;
+      backgroundColor?: string;
+      width?: number;
+      windowWidth?: number;
+    }
+  ) => Promise<HTMLCanvasElement>
+) {
+  console.warn("[styled-pdf] Falling back to full-document render mode.");
+  const parsed = new DOMParser().parseFromString(htmlSource, "text/html");
+  const fullExport = parsed.querySelector(".cfsp-schedule-export");
+  if (!fullExport) {
+    throw new Error("Could not find a printable document root for fallback PDF export.");
+  }
+
+  const fallbackRoot = document.createElement("div");
+  fallbackRoot.className = "cfsp-pdf-fallback-root";
+  fallbackRoot.style.position = "fixed";
+  fallbackRoot.style.left = "-100000px";
+  fallbackRoot.style.top = "0";
+  fallbackRoot.style.width = `${contentWidth}px`;
+  fallbackRoot.style.background = "#fff";
+  fallbackRoot.style.opacity = "1";
+  fallbackRoot.style.pointerEvents = "none";
+  fallbackRoot.style.visibility = "visible";
+  fallbackRoot.style.overflow = "visible";
+  const styles = Array.from(parsed.querySelectorAll("style"))
+    .map((style) => style.textContent || "")
+    .filter(Boolean)
+    .join("\n");
+
+  const styleNode = document.createElement("style");
+  styleNode.textContent = styles;
+  fallbackRoot.appendChild(styleNode);
+  const content = fullExport.cloneNode(true) as HTMLElement;
+  ensurePdfExportNodeVisible(content, contentWidth);
+  fallbackRoot.appendChild(content);
+  document.body.appendChild(fallbackRoot);
+
+  try {
+    await waitForSchedulePdfAssets(fallbackRoot);
+    const canvas = await renderPdfCanvasWithRetry(html2canvas, content, contentWidth, "Fallback document");
+
+    const imageWidth = Math.max(1, canvas.width);
+    const imageHeight = Math.max(1, canvas.height);
+    const contentScaleToPage = Math.min(1, contentWidth / imageWidth, contentHeight / imageHeight);
+    const targetWidth = Math.max(1, Math.floor(imageWidth * contentScaleToPage));
+    const targetHeight = Math.max(1, Math.floor(imageHeight * contentScaleToPage));
+    const xOffset = pdfSidePadding + Math.floor((contentWidth - targetWidth) / 2);
+    const yOffset = pdfSidePadding + Math.floor((contentHeight - targetHeight) / 2);
+
+    if (imageHeight > contentHeight) {
+      console.warn(
+        "[styled-pdf] Fallback render had content taller than a printable page and was scaled down to fit in a single page."
+      );
+    }
+
+    pdfDoc.addImage(
+      canvas,
+      "PNG",
+      xOffset,
+      yOffset,
+      targetWidth,
+      targetHeight,
+      undefined,
+      "FAST"
+    );
+
+    const finalBlob = pdfDoc.output("blob") as Blob;
+    if (!finalBlob || finalBlob.size <= 0) {
+      throw new Error("Styled PDF output was empty.");
+    }
+    return finalBlob;
+  } finally {
+    fallbackRoot.remove();
+  }
 }
 
 async function createStyledSchedulePdfBlob(context: StyledPdfRenderContext) {
@@ -886,190 +1491,69 @@ async function createStyledSchedulePdfBlob(context: StyledPdfRenderContext) {
     throw new Error("PDF export is not available in this environment.");
   }
 
-  const container = document.createElement("iframe");
-  container.setAttribute("aria-hidden", "true");
-  container.style.position = "fixed";
-  container.style.left = "-10000px";
-  container.style.top = "0";
-  container.style.width = "0";
-  container.style.height = "0";
-  container.style.opacity = "0";
-  container.style.pointerEvents = "none";
-  container.srcdoc = htmlSource;
-  document.body.appendChild(container);
+  const scheduleDoc = new jsPDF({
+    orientation: "landscape",
+    unit: "px",
+    format: "a4",
+    hotfixes: ["px_scaling"],
+  });
+  const pageWidth = scheduleDoc.internal.pageSize.getWidth();
+  const pageHeight = scheduleDoc.internal.pageSize.getHeight();
+  const pdfSidePadding = 8;
+  const contentWidth = Math.max(560, Math.floor(pageWidth - pdfSidePadding * 2));
+  const contentHeight = Math.max(1, Math.floor(pageHeight - pdfSidePadding * 2));
+  let pagesResult: PdfExportPages | null = null;
+  try {
+    pagesResult = await buildSchedulePdfPages(htmlSource, pageWidth, pageHeight, pdfSidePadding);
+  } catch (buildError) {
+    console.error("[styled-pdf] Sectioned PDF page build failed; attempting fallback export.", buildError);
+  }
+
+  if (!pagesResult) {
+    return createFallbackStyledPdfBlob(htmlSource, scheduleDoc, contentWidth, contentHeight, pdfSidePadding, html2canvas);
+  }
+
+  const { pages, contentWidth: measuredWidth, contentHeight: measuredHeight, root } = pagesResult;
+  const pageWidthForRender = Math.max(1, measuredWidth);
+  const pageHeightForRender = Math.max(1, measuredHeight);
 
   const cleanup = () => {
-    container.remove();
+    root.remove();
   };
 
   try {
-    await new Promise<void>((resolve, reject) => {
-      let settled = false;
-      const timeout = window.setTimeout(() => {
-        if (!settled) {
-          settled = true;
-          reject(new Error("Styled PDF generation timed out."));
-        }
-      }, 25000);
+    await waitForSchedulePdfAssets(root);
 
-      container.onload = () => {
-        if (settled) return;
-        settled = true;
-        window.clearTimeout(timeout);
-        resolve();
-      };
-      container.onerror = () => {
-        if (settled) return;
-        settled = true;
-        window.clearTimeout(timeout);
-        reject(new Error("Could not render schedule for PDF generation."));
-      };
-    });
-
-    const containerDocument = container.contentDocument;
-    if (!containerDocument?.body) {
-      throw new Error("Could not render schedule for PDF generation.");
+    const pageCount = pages.length;
+    if (!pageCount) {
+      console.warn("[styled-pdf] No section pages produced; falling back to full-document render.");
+      return createFallbackStyledPdfBlob(htmlSource, scheduleDoc, pageWidthForRender, pageHeightForRender, pdfSidePadding, html2canvas);
     }
 
-    await containerDocument.fonts?.ready?.catch(() => undefined);
-    await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
-
-    const pdfSidePadding = 8;
-    const scheduleDoc = new jsPDF({
-      orientation: "landscape",
-      unit: "px",
-      format: "a4",
-      hotfixes: ["px_scaling"],
-    });
-    const pageWidth = scheduleDoc.internal.pageSize.getWidth();
-    const pageHeight = scheduleDoc.internal.pageSize.getHeight();
-    const contentWidth = Math.max(620, Math.floor(pageWidth - pdfSidePadding * 2));
-    const printableHeight = Math.max(1, pageHeight - pdfSidePadding * 2);
-    container.style.width = `${pageWidth}px`;
-    container.style.height = `${Math.max(700, pageHeight + 200)}px`;
-    containerDocument.documentElement.style.width = `${pageWidth}px`;
-    containerDocument.body.style.width = `${pageWidth}px`;
-    containerDocument.body.style.maxWidth = `${pageWidth}px`;
-    containerDocument.documentElement.style.maxWidth = `${pageWidth}px`;
-    containerDocument.documentElement.style.overflowX = "visible";
-    containerDocument.body.style.overflowX = "visible";
-    await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
-    const printLayoutRoot = containerDocument.querySelector(".cfsp-schedule-export .compact-print-shell");
-    if (!printLayoutRoot) {
-      throw new Error("Could not render schedule for PDF generation.");
-    }
-
-    const bodyChildNodes = Array.from(printLayoutRoot.querySelectorAll(".compact-print-header, .compact-print-grid"));
-    const printSections: { node: HTMLElement; height: number }[] = [];
-    const measureRoot = containerDocument.createElement("div");
-    measureRoot.style.cssText = `position: absolute; left: -10000px; top: 0; width: ${contentWidth}px; padding: 0; margin: 0; visibility: hidden;`;
-    containerDocument.body.appendChild(measureRoot);
-
-    if (bodyChildNodes[0]) {
-      const headerClone = bodyChildNodes[0].cloneNode(true) as HTMLElement;
-      headerClone.classList.add("cfsp-print-section");
-      headerClone.style.width = `${contentWidth}px`;
-      headerClone.style.maxWidth = `${contentWidth}px`;
-      headerClone.style.marginBottom = "3px";
-      measureRoot.appendChild(headerClone);
-      printSections.push({ node: headerClone, height: 0 });
-    }
-
-    const gridNode = bodyChildNodes[1] as HTMLElement | undefined;
-    const scheduleTable = gridNode?.querySelector(".schedule-grid-table") as HTMLTableElement | null;
-    const scheduleGroups = scheduleTable ? Array.from(scheduleTable.querySelectorAll("tbody.round-grid-group")) : [];
-
-    if (!scheduleTable || !scheduleGroups.length) {
-      if (gridNode) {
-        const gridClone = gridNode.cloneNode(true) as HTMLElement;
-        gridClone.classList.add("cfsp-print-section");
-        gridClone.style.width = `${contentWidth}px`;
-        gridClone.style.maxWidth = `${contentWidth}px`;
-        gridClone.style.marginBottom = "0";
-        measureRoot.appendChild(gridClone);
-        printSections.push({ node: gridClone, height: 0 });
-      }
-    } else {
-      const colgroup = scheduleTable.querySelector("colgroup");
-      const tableHead = scheduleTable.querySelector("thead");
-
-      scheduleGroups.forEach((group) => {
-        const sectionShell = containerDocument.createElement("div");
-        const tableClone = containerDocument.createElement("table");
-        sectionShell.classList.add("cfsp-print-section", "cfsp-print-round-section");
-        tableClone.className = scheduleTable.className;
-        if (colgroup) {
-          tableClone.appendChild(colgroup.cloneNode(true));
-        }
-        if (tableHead) {
-          tableClone.appendChild(tableHead.cloneNode(true));
-        }
-        tableClone.appendChild(group.cloneNode(true));
-        sectionShell.style.width = `${contentWidth}px`;
-        sectionShell.style.maxWidth = `${contentWidth}px`;
-        sectionShell.style.marginBottom = "3px";
-        sectionShell.appendChild(tableClone);
-        measureRoot.appendChild(sectionShell);
-        printSections.push({ node: sectionShell, height: 0 });
-      });
-    }
-
-    await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
-    printSections.forEach((section) => {
-      section.height = Math.max(1, Math.ceil(section.node.getBoundingClientRect().height));
-    });
-
-    const orderedSections = printSections;
-
-    let yCursor = pdfSidePadding;
-    const contentHeight = printableHeight;
-    const xBase = pdfSidePadding;
-
-    await orderedSections.reduce<Promise<void>>(async (chain, section) => {
-      await chain;
-      if (section.height <= 0) return Promise.resolve();
-
-      const scaleForPage = Math.min(1, contentHeight / Math.max(1, section.height));
-      const targetSectionHeight = Math.floor(section.height * scaleForPage);
-      const targetSectionWidth = Math.max(1, Math.floor(contentWidth * scaleForPage));
-      const xOffset = xBase + (contentWidth - targetSectionWidth) / 2;
-
-      if (yCursor + targetSectionHeight > pdfSidePadding + printableHeight) {
+    for (let pageIndex = 0; pageIndex < pageCount; pageIndex += 1) {
+      if (pageIndex > 0) {
         scheduleDoc.addPage();
-        yCursor = pdfSidePadding;
       }
 
-      const canvas = await html2canvas(section.node, {
-        scale: 2,
-        useCORS: true,
-        allowTaint: false,
-        logging: false,
-        backgroundColor: "#ffffff",
-        width: contentWidth,
-        windowWidth: contentWidth,
-      });
-
-      const imageData = canvas.toDataURL("image/png");
-      scheduleDoc.addImage(
-        imageData,
-        "PNG",
-        xOffset,
-        yCursor,
-        targetSectionWidth,
-        targetSectionHeight,
-        undefined,
-        "FAST"
-      );
-      yCursor += targetSectionHeight + 2;
-      return Promise.resolve();
-    }, Promise.resolve());
-
-    measureRoot.remove();
-
-    await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
-
-    if (printSections.length === 0) {
-      throw new Error("Could not find any printable schedule sections to render.");
+      const pageNode = pages[pageIndex].page;
+      const pageImage = await renderPdfCanvasWithRetry(html2canvas, pageNode, pageWidthForRender, `Page ${pageIndex + 1}`);
+      const imageWidth = pageImage.width;
+      const imageHeight = pageImage.height;
+      const baseScaledHeight = (pageWidthForRender * imageHeight) / Math.max(1, imageWidth);
+      const renderScale = baseScaledHeight > pageHeightForRender ? pageHeightForRender / baseScaledHeight : 1;
+      const targetWidth = Math.max(1, Math.floor(contentWidth * renderScale));
+      const targetHeight = Math.max(1, Math.floor(baseScaledHeight * renderScale));
+      const xOffset = pdfSidePadding + Math.floor((contentWidth - targetWidth) / 2);
+      const yOffset = pdfSidePadding + Math.floor((contentHeight - targetHeight) / 2);
+      if (renderScale < 1) {
+        console.warn(
+          `[styled-pdf] Page ${pageIndex + 1} exceeded printable area and was scaled to ${Math.round(renderScale * 100)}%.`
+        );
+      }
+      scheduleDoc.addImage(pageImage, "PNG", xOffset, yOffset, targetWidth, targetHeight, undefined, "FAST");
+      if (targetHeight > contentHeight) {
+        console.warn(`[styled-pdf] Page ${pageIndex + 1} still exceeds printable height; output clipping may occur.`);
+      }
     }
 
     const finalBlob = scheduleDoc.output("blob") as Blob;
@@ -1081,7 +1565,8 @@ async function createStyledSchedulePdfBlob(context: StyledPdfRenderContext) {
     if (isCanvasTaintError(error)) {
       throw new Error("Direct PDF rendering blocked by browser CORS/canvas safety. Check image and asset access policies.");
     }
-    throw error;
+    console.error("[styled-pdf] Section-based PDF render failed; attempting fallback export.", error);
+    return createFallbackStyledPdfBlob(htmlSource, scheduleDoc, pageWidthForRender, pageHeightForRender, pdfSidePadding, html2canvas);
   } finally {
     cleanup();
   }
@@ -1091,6 +1576,7 @@ function buildCompactScheduleExportHtml(previewHtml: string, printView: CompactS
   if (!previewHtml) return "";
   const printTitle = printView === "student" ? "Student Schedule PDF" : "Admin Schedule PDF";
   const sourceTitle = previewHtml.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i)?.[1] || printTitle;
+  const resolvedTitle = printView === "operations" ? "Day Rhythm" : sourceTitle;
   const metadataCards = Array.from(
     previewHtml.matchAll(
       /<div class="event-meta-card">\s*<div class="event-meta-label">([\s\S]*?)<\/div>\s*<div class="event-meta-value">([\s\S]*?)<\/div>\s*<\/div>/gi
@@ -1268,8 +1754,9 @@ function buildCompactScheduleExportHtml(previewHtml: string, printView: CompactS
     "  font-size: 8px;",
     "}",
     ".cfsp-schedule-export .schedule-grid-shell,",
-    ".cfsp-schedule-export .cfsp-print-section,",
-    ".cfsp-schedule-export .cfsp-print-round-section {",
+    ".cfsp-schedule-export .compact-print-grid,",
+    ".cfsp-schedule-export .compact-print-shell,",
+    ".cfsp-schedule-export .cfsp-pdf-page {",
     "  border: none;",
     "  overflow: visible !important;",
     "  width: 100% !important;",
@@ -1280,8 +1767,6 @@ function buildCompactScheduleExportHtml(previewHtml: string, printView: CompactS
     "  -webkit-column-break-inside: avoid;",
     "  break-before: auto;",
     "}",
-    ".cfsp-schedule-export .cfsp-print-section,",
-    ".cfsp-schedule-export .cfsp-print-round-section,",
     ".cfsp-schedule-export .schedule-grid-table {",
     "  width: 100% !important;",
     "  min-width: 0 !important;",
@@ -1304,8 +1789,8 @@ function buildCompactScheduleExportHtml(previewHtml: string, printView: CompactS
     ".cfsp-schedule-export .schedule-room-card,",
     ".cfsp-schedule-export .schedule-grid-shell,",
     ".cfsp-schedule-export .schedule-grid-table,",
-    ".cfsp-schedule-export .cfsp-print-section,",
-    ".cfsp-schedule-export .cfsp-print-round-section,",
+    ".cfsp-schedule-export .cfsp-pdf-round,",
+    ".cfsp-schedule-export .cfsp-pdf-header,",
     ".cfsp-schedule-export .wide-band,",
     ".cfsp-schedule-export .divider-band {",
     "  break-inside: avoid !important;",
@@ -1460,8 +1945,10 @@ function buildCompactScheduleExportHtml(previewHtml: string, printView: CompactS
         <main class="compact-print-shell">
           <header class="compact-print-header">
             <div>
-              <h1 class="compact-print-title">${sourceTitle}</h1>
-              <div class="compact-print-subtitle">${printView === "student" ? "Student view" : "Admin operations view"}</div>
+              <h1 class="compact-print-title">${resolvedTitle}</h1>
+              <div class="compact-print-subtitle">${
+                printView === "student" ? "Student view" : "A compact operational rail for pacing, transitions, and major pauses."
+              }</div>
             </div>
             ${compactMetaHtml}
           </header>
@@ -3017,11 +3504,11 @@ function buildSchedulePreviewData(args: {
           ${eventMetaHtml}
           <section class="round-section">
             <div class="round-header">
-              <div>
-                <div class="round-kicker">Announcement flow</div>
-                <h2>Operational prompts and pacing</h2>
+                <div>
+                  <div class="round-kicker">Announcement flow</div>
+                  <h2>Day Rhythm</h2>
+                </div>
               </div>
-            </div>
             ${renderTimelineRail(timeline)}
           </section>
         </div>
