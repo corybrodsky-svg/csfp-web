@@ -896,19 +896,21 @@ async function createStyledSchedulePdfBlob(context: StyledPdfRenderContext) {
     containerDocument.documentElement.style.width = `${contentWidth}px`;
     containerDocument.body.style.width = `${contentWidth}px`;
     containerDocument.body.style.maxWidth = `${contentWidth}px`;
-    containerDocument.body.style.overflowX = "hidden";
+    containerDocument.documentElement.style.maxWidth = `${contentWidth}px`;
+    containerDocument.documentElement.style.overflowX = "visible";
+    containerDocument.body.style.overflowX = "visible";
     await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
     const bodyNode = containerDocument.body;
 
     await new Promise<void>((resolve, reject) => {
       let pdfRendered = false;
       scheduleDoc.html(bodyNode, {
-        x: 0,
-        y: 0,
+        x: pdfSidePadding,
+        y: pdfSidePadding,
         width: contentWidth,
         windowWidth: contentWidth,
         autoPaging: "text",
-        margin: [pdfSidePadding, pdfSidePadding, pdfSidePadding, pdfSidePadding],
+        margin: [0, 0, 0, 0],
         html2canvas: {
           scale: 0.82,
           useCORS: true,
@@ -933,7 +935,7 @@ async function createStyledSchedulePdfBlob(context: StyledPdfRenderContext) {
             if (compactRoot instanceof HTMLElement) {
               compactRoot.style.width = `${contentWidth}px`;
               compactRoot.style.maxWidth = `${contentWidth}px`;
-              compactRoot.style.overflowX = "hidden";
+              compactRoot.style.overflow = "visible";
             }
             cloneDoc.querySelectorAll(".schedule-grid-shell, .schedule-grid-table").forEach((node) => {
               const element = node as HTMLElement;
@@ -941,6 +943,7 @@ async function createStyledSchedulePdfBlob(context: StyledPdfRenderContext) {
               element.style.maxWidth = "100%";
               element.style.minWidth = "0";
               element.style.overflow = "visible";
+              element.style.boxSizing = "border-box";
             });
           },
         },
@@ -986,33 +989,53 @@ function buildCompactScheduleExportHtml(previewHtml: string, printView: CompactS
   const roomColumnCount =
     Array.from(previewHtml.matchAll(/<th class="room-column-header"/g)).length ||
     Math.max((previewHtml.match(/<th>/g) || []).length - 2, 1);
-  const compactFontSize = roomColumnCount >= 7 ? 7 : roomColumnCount >= 6 ? 8 : roomColumnCount >= 5 ? 8.5 : 9.5;
-  const compactCardPadding = roomColumnCount >= 6 ? 3 : 4;
-  const compactGridGap = roomColumnCount >= 6 ? 2 : 3;
+  const fixedIndexColumnPercent = roomColumnCount >= 6 ? 5.2 : 6.2;
+  const fixedTimeColumnPercent = roomColumnCount >= 6 ? 9.8 : 11.2;
+  const fixedRoomColumnPercent = Math.max(
+    8,
+    (100 - fixedIndexColumnPercent - fixedTimeColumnPercent) / Math.max(roomColumnCount, 1)
+  );
+  const compactFontSize = roomColumnCount >= 7 ? 6.2 : roomColumnCount >= 6 ? 6.8 : roomColumnCount >= 5 ? 7.5 : 8.8;
+  const compactCardPadding = roomColumnCount >= 6 ? 2 : 3;
+  const compactGridGap = roomColumnCount >= 6 ? 1 : 2;
+  const scheduleGridTableWithColumns = scheduleGridTable
+    ? scheduleGridTable.replace(
+        /<table class="schedule-grid-table">/i,
+        `<table class="schedule-grid-table" data-room-count="${roomColumnCount}"><colgroup><col style="width:${fixedIndexColumnPercent}%"><col style="width:${fixedTimeColumnPercent}%">${Array.from(
+          { length: roomColumnCount },
+          () => `<col style="width:${fixedRoomColumnPercent}%">`
+        ).join("")}</colgroup>`
+      )
+    : "";
   const compactModeStyle = [
     ":root { color-scheme: light; }",
-    "html, body { margin: 0; }",
+    "html, body { margin: 0; width: 100%; max-width: 100%; overflow: visible; }",
     "body {",
-    "  font-size: 11px;",
+    `  font-size: ${compactFontSize}px;`,
     "  background: #fff;",
     "  print-color-adjust: exact;",
     "  -webkit-print-color-adjust: exact;",
+    "  box-sizing: border-box;",
     "}",
+    "*, *::before, *::after { box-sizing: border-box; }",
     ".cfsp-schedule-export {",
     "  padding: 0 !important;",
     "  margin: 0 !important;",
     "  transform: none !important;",
     "  overflow: visible !important;",
-    "  width: 100%;",
+    "  width: 100% !important;",
+    "  max-width: 100% !important;",
     "}",
-    ".cfsp-schedule-export .preview-shell { gap: 5px; width: 100%; }",
+    ".cfsp-schedule-export .preview-shell { gap: 5px; width: 100%; max-width: 100%; overflow: visible; }",
     ".cfsp-schedule-export .compact-print-shell {",
     "  display: grid;",
     "  gap: 4px;",
-    "  width: 100%;",
-    "  max-width: 100%;",
-    "  padding: 2.2mm;",
+    "  width: 100% !important;",
+    "  max-width: 100% !important;",
+    "  min-width: 0 !important;",
+    "  padding: 1.2mm;",
     "  box-sizing: border-box;",
+    "  overflow: visible !important;",
     "}",
     ".cfsp-schedule-export .compact-print-header {",
     "  display: flex;",
@@ -1063,9 +1086,10 @@ function buildCompactScheduleExportHtml(previewHtml: string, printView: CompactS
     "  overflow-wrap: anywhere;",
     "}",
     ".cfsp-schedule-export .compact-print-grid {",
-    "  width: 100%;",
-    "  max-width: 100%;",
-    "  overflow: visible;",
+    "  width: 100% !important;",
+    "  max-width: 100% !important;",
+    "  min-width: 0 !important;",
+    "  overflow: visible !important;",
     "}",
     ".cfsp-schedule-export .preview-shell,",
     ".cfsp-schedule-export .round-section,",
@@ -1144,7 +1168,9 @@ function buildCompactScheduleExportHtml(previewHtml: string, printView: CompactS
     "  max-width: 100% !important;",
     "  table-layout: fixed !important;",
     "  border-collapse: collapse;",
+    "  border-spacing: 0 !important;",
     "}",
+    ".cfsp-schedule-export .schedule-grid-table col { min-width: 0 !important; }",
     ".cfsp-schedule-export .schedule-grid-table th,",
     ".cfsp-schedule-export .schedule-grid-table td {",
     `  padding: ${roomColumnCount >= 6 ? "2px 3px" : "3px 4px"};`,
@@ -1160,15 +1186,16 @@ function buildCompactScheduleExportHtml(previewHtml: string, printView: CompactS
     `  font-size: ${Math.max(compactFontSize - 1.2, 6.5)}px;`,
     "  white-space: normal;",
     "}",
-    ".cfsp-schedule-export .round-index-column { width: 6.8% !important; }",
-    ".cfsp-schedule-export .round-time-column { width: 12.2% !important; }",
-    ".cfsp-schedule-export .room-assignment-column { width: auto !important; }",
-    ".cfsp-schedule-export .round-index-cell { width: 6.8% !important; }",
-    ".cfsp-schedule-export .round-time-cell { width: 12.2% !important; }",
+    `.cfsp-schedule-export .round-index-column { width: ${fixedIndexColumnPercent}% !important; }`,
+    `.cfsp-schedule-export .round-time-column { width: ${fixedTimeColumnPercent}% !important; }`,
+    `.cfsp-schedule-export .room-assignment-column { width: ${fixedRoomColumnPercent}% !important; }`,
+    `.cfsp-schedule-export .round-index-cell { width: ${fixedIndexColumnPercent}% !important; }`,
+    `.cfsp-schedule-export .round-time-cell { width: ${fixedTimeColumnPercent}% !important; }`,
     ".cfsp-schedule-export .schedule-room-cell,",
     ".cfsp-schedule-export .room-column-header {",
     "  min-width: 0 !important;",
-    "  width: auto !important;",
+    `  width: ${fixedRoomColumnPercent}% !important;`,
+    "  max-width: none !important;",
     "}",
     ".cfsp-schedule-export .round-index,",
     ".cfsp-schedule-export .round-time,",
@@ -1225,7 +1252,7 @@ function buildCompactScheduleExportHtml(previewHtml: string, printView: CompactS
     "  break-inside: avoid !important;",
     "  page-break-inside: avoid !important;",
     "}",
-    ".cfsp-schedule-export .preview-shell { padding: 2.5mm; }",
+    ".cfsp-schedule-export .preview-shell { padding: 1.2mm; }",
     "@page {",
     "  size: A4 landscape;",
     "  margin: 0.12in;",
@@ -1261,8 +1288,8 @@ function buildCompactScheduleExportHtml(previewHtml: string, printView: CompactS
         )
         .join("")}</div>`
     : "";
-  const compactGridHtml = scheduleGridTable
-    ? `<div class="schedule-grid-shell compact-print-grid">${scheduleGridTable}</div>`
+  const compactGridHtml = scheduleGridTableWithColumns
+    ? `<div class="schedule-grid-shell compact-print-grid">${scheduleGridTableWithColumns}</div>`
     : `<div class="empty-state">No rotation schedule has been generated yet.</div>`;
 
   return `
