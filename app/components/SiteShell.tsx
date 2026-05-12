@@ -260,8 +260,8 @@ export default function SiteShell({ title, subtitle, children }: SiteShellProps)
                         </svg>
                       </div>
                       <div className="min-w-0">
-                        <div className="text-sm font-black leading-tight text-[var(--cfsp-text)]">CFSP</div>
-                        <div className="text-xs font-semibold text-[var(--cfsp-text-muted)]">Conflict-Free SP</div>
+                        <div className="text-base font-black leading-tight text-[var(--cfsp-text)]">CFSP</div>
+                        <div className="text-xs font-semibold text-[var(--cfsp-text-muted)]">Conflict-Free Simulation Performance</div>
                         <div className="mt-1 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[0.58rem] font-black uppercase tracking-[0.12em]"
                           style={{
                             border: "1px solid var(--cfsp-shell-chip-border)",
@@ -282,12 +282,12 @@ export default function SiteShell({ title, subtitle, children }: SiteShellProps)
                         color: "var(--cfsp-shell-chip-text)",
                       }}
                     >
-                      CFSP • Conflict-Free SP
+                      CFSP • Conflict-Free Simulation Performance
                     </div>
                   </div>
 
                   <div className="mt-4 min-w-0">
-                    <p className="cfsp-kicker">Conflict-Free SP operations</p>
+                    <p className="cfsp-kicker">Conflict-Free Simulation Performance operations</p>
                     <h1 className="mt-2 text-[1.65rem] leading-tight font-black text-[var(--cfsp-text)]">{title}</h1>
                     {subtitle ? <p className="cfsp-section-copy">{subtitle}</p> : null}
                   </div>
@@ -316,7 +316,7 @@ export default function SiteShell({ title, subtitle, children }: SiteShellProps)
                   </div>
                   <details className="cfsp-account-menu">
                     <summary
-                      className="flex min-h-[46px] cursor-pointer list-none items-center gap-3 rounded-[12px] px-3 py-2 text-left text-sm font-bold transition-colors"
+                      className="flex min-h-[46px] cursor-pointer list-none items-center gap-3 rounded-[12px] px-3 py-2 text-left text-base font-bold transition-colors"
                       style={{
                         border: "1px solid var(--cfsp-header-border)",
                         background: "var(--cfsp-header-bg)",
@@ -325,7 +325,7 @@ export default function SiteShell({ title, subtitle, children }: SiteShellProps)
                       }}
                     >
                       <span
-                        className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full text-sm font-black"
+                        className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-full text-base font-black"
                         style={{
                           background: "var(--cfsp-theme-toggle-bg)",
                           color: "var(--cfsp-blue-dark)",
@@ -345,7 +345,7 @@ export default function SiteShell({ title, subtitle, children }: SiteShellProps)
                         )}
                       </span>
                       <span className="min-w-0">
-                        <span className="block max-w-[120px] truncate text-sm font-black">{accountDisplayName}</span>
+                        <span className="block max-w-[120px] truncate text-base font-black">{accountDisplayName}</span>
                         <span className="block text-xs font-semibold text-[var(--cfsp-text-muted)]">{formatRoleLabel(accountRole)}</span>
                       </span>
                       <span className="text-xs text-[var(--cfsp-text-muted)]">▾</span>
@@ -358,13 +358,13 @@ export default function SiteShell({ title, subtitle, children }: SiteShellProps)
                     >
                       <div className="px-4 py-3" style={{ borderBottom: "1px solid var(--cfsp-border)" }}>
                         <div className="text-xs font-black uppercase tracking-[0.08em] text-[var(--cfsp-text-muted)]">Account</div>
-                        <div className="mt-1 text-sm font-bold text-[var(--cfsp-text)]">{accountDisplayName}</div>
+                        <div className="mt-1 text-base font-bold text-[var(--cfsp-text)]">{accountDisplayName}</div>
                         <div className="mt-1 text-xs font-semibold text-[var(--cfsp-text-muted)]">{formatRoleLabel(accountRole)}</div>
                       </div>
                       <div className="grid">
                         <Link
                           href="/me"
-                          className="min-h-[44px] px-4 py-3 text-sm font-semibold no-underline transition-colors"
+                          className="min-h-[44px] px-4 py-3 text-base font-semibold no-underline transition-colors"
                           style={{ color: "var(--cfsp-text)" }}
                         >
                           My Profile
@@ -373,7 +373,7 @@ export default function SiteShell({ title, subtitle, children }: SiteShellProps)
                           type="button"
                           onClick={handleSignOut}
                           disabled={signingOut}
-                          className="min-h-[44px] border-0 bg-transparent px-4 py-3 text-left text-sm font-semibold transition-colors disabled:opacity-60"
+                          className="min-h-[44px] border-0 bg-transparent px-4 py-3 text-left text-base font-semibold transition-colors disabled:opacity-60"
                           style={{
                             borderTop: "1px solid var(--cfsp-border)",
                             color: "var(--cfsp-text)",
