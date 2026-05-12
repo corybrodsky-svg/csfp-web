@@ -24398,7 +24398,7 @@ Cory`;
               </summary>
               <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "flex-start", marginTop: "10px" }}>
                 <div>
-                  <h2 style={compactSectionTitleStyle}>Communication</h2>
+                  <h2 id="communication-center" style={compactSectionTitleStyle}>Communication</h2>
                   <p style={compactSectionHintStyle}>
                     Draft event emails for hiring, confirmation, training prep, post-training follow-up, and payroll wrap-up.
                   </p>
@@ -28572,72 +28572,15 @@ Cory`;
                             type="button"
                             className="cfsp-chest-link"
                             onClick={() => {
-                              const target = document.getElementById("simulation-command-file-cabinet");
-                              target?.scrollIntoView({ behavior: "smooth", block: "start" });
-                            }}
-                          >
-                            Materials Cabinet
-                          </button>
-
-                          <button
-                            type="button"
-                            className="cfsp-chest-link"
-                            onClick={() => {
-                              const target =
-                                document.getElementById("training-center") ||
-                                Array.from(document.querySelectorAll("section, div, details")).find((node) =>
-                                  (node.textContent || "").toLowerCase().includes("training center")
-                                );
-
-                              if (target instanceof HTMLElement) {
-                                target.scrollIntoView({ behavior: "smooth", block: "start" });
-                              }
-                            }}
-                          >
-                            Training Files
-                          </button>
-
-                          <button
-                            type="button"
-                            className="cfsp-chest-link"
-                            onClick={() => {
-                              const target =
-                                document.getElementById("communication-center") ||
-                                Array.from(document.querySelectorAll("section, div, details")).find((node) =>
-                                  (node.textContent || "").toLowerCase().includes("communication")
-                                );
-
-                              if (target instanceof HTMLElement) {
-                                target.scrollIntoView({ behavior: "smooth", block: "start" });
-                              }
-                            }}
-                          >
-                            Communication
-                          </button>
-
-                          <button
-                            type="button"
-                            className="cfsp-chest-link"
-                            onClick={() => {
-                              const target = document.getElementById("coverage-actions");
-                              target?.scrollIntoView({ behavior: "smooth", block: "start" });
-                            }}
-                          >
-                            Staffing
-                          </button>
-
-                          <button
-                            type="button"
-                            className="cfsp-chest-link"
-                            onClick={() => {
                               const params = new URLSearchParams();
                               params.set("source", "command-chest");
                               params.set("view", scheduleCompleted ? "session-builder" : "builder");
 
                               router.push(`/events/${encodeURIComponent(id)}/schedule-builder?${params.toString()}`);
                             }}
+                            title={scheduleCompleted ? "Open the completed schedule in Session Builder" : "Build or finish the schedule"}
                           >
-                            {scheduleCompleted ? "Session Builder" : "Schedule Builder"}
+                            {scheduleCompleted ? "Completed Schedule" : "Schedule Builder"}
                           </button>
 
                           <button
