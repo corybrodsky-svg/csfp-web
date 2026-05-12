@@ -1598,3 +1598,49 @@ textarea {
     padding: 12px;
   }
 }
+
+/* CFSP day-mode file cabinet reset */
+#simulation-command-file-cabinet {
+  background: linear-gradient(135deg, #ffffff 0%, #f0fdfa 48%, #ecfeff 100%) !important;
+  color: #12324a !important;
+  border: 1px solid rgba(20, 184, 166, 0.28) !important;
+  box-shadow: 0 18px 42px rgba(20, 91, 150, 0.1) !important;
+}
+
+#simulation-command-file-cabinet * {
+  text-shadow: none !important;
+}
+
+#simulation-command-file-cabinet h1,
+#simulation-command-file-cabinet h2,
+#simulation-command-file-cabinet h3,
+#simulation-command-file-cabinet strong,
+#simulation-command-file-cabinet span,
+#simulation-command-file-cabinet p,
+#simulation-command-file-cabinet div {
+  color: #12324a !important;
+}
+
+#simulation-command-file-cabinet [style*="background"] {
+  background: linear-gradient(135deg, rgba(255,255,255,0.96), rgba(240,253,250,0.9)) !important;
+  border-color: rgba(20, 184, 166, 0.28) !important;
+  box-shadow: 0 10px 24px rgba(20, 91, 150, 0.1) !important;
+}
+
+#simulation-command-file-cabinet button {
+  background: linear-gradient(135deg, #145b96, #11806f) !important;
+  color: #ffffff !important;
+  border: 1px solid rgba(20, 184, 166, 0.35) !important;
+}
+
+#simulation-command-file-cabinet button[disabled] {
+  background: rgba(226,232,240,0.85) !important;
+  color: #64748b !important;
+}
+
+#simulation-command-file-cabinet::before {
+  background: linear-gradient(90deg, rgba(236,253,245,0.95), rgba(224,242,254,0.95)) !important;
+  color: #075985 !important;
+  border-color: rgba(20,184,166,0.28) !important;
+}
+
