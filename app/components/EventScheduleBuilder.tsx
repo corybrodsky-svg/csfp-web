@@ -121,6 +121,9 @@ type ScheduledRoomSlot = GeneratedRoomSlot & {
   assignedSpIndex?: number;
   caseLabel?: string;
   caseIndex?: number;
+  backupSpName?: string;
+  roleLabel?: string;
+  notes?: string;
 };
 
 type ScheduledRound = Omit<GeneratedRound, "roomSlots"> & {
@@ -205,7 +208,10 @@ type ScheduleRoomAdjustmentSlot = {
   slotIndex: number;
   learnerLabels: string[];
   spName?: string;
+  backupSpName?: string;
   caseLabel?: string;
+  roleLabel?: string;
+  notes?: string;
 };
 
 type ParsedScheduleRoomAdjustments = {
@@ -2047,7 +2053,15 @@ function parseScheduleRoomAdjustments(raw: string | null): ParsedScheduleRoomAdj
       v?: number;
       rounds?: Array<{
         round: number;
-      slots?: Array<{ slotIndex?: number; learnerLabels?: string[]; spName?: string; caseLabel?: string }>;
+      slots?: Array<{
+        slotIndex?: number;
+        learnerLabels?: string[];
+        spName?: string;
+        backupSpName?: string;
+        caseLabel?: string;
+        roleLabel?: string;
+        notes?: string;
+      }>;
       }>;
     };
 
@@ -2068,8 +2082,19 @@ function parseScheduleRoomAdjustments(raw: string | null): ParsedScheduleRoomAdj
 
           const learnerLabels = normalizeLearnerNames((slotEntry as { learnerLabels?: unknown }).learnerLabels || []);
           const spName = asText((slotEntry as { spName?: unknown }).spName);
+          const backupSpName = asText((slotEntry as { backupSpName?: unknown }).backupSpName);
           const caseLabel = asText((slotEntry as { caseLabel?: unknown }).caseLabel);
-          return { slotIndex, learnerLabels, ...(spName ? { spName } : {}), ...(caseLabel ? { caseLabel } : {}) } as ScheduleRoomAdjustmentSlot;
+          const roleLabel = asText((slotEntry as { roleLabel?: unknown }).roleLabel);
+          const notes = asText((slotEntry as { notes?: unknown }).notes);
+          return {
+            slotIndex,
+            learnerLabels,
+            ...(spName ? { spName } : {}),
+            ...(backupSpName ? { backupSpName } : {}),
+            ...(caseLabel ? { caseLabel } : {}),
+            ...(roleLabel ? { roleLabel } : {}),
+            ...(notes ? { notes } : {}),
+          } as ScheduleRoomAdjustmentSlot;
         })
         .filter(Boolean) as ScheduleRoomAdjustmentSlot[];
 
@@ -2101,15 +2126,28 @@ function normalizeScheduleRoomAdjustments(value: ParsedScheduleRoomAdjustments) 
       .map((slot) => {
         const learnerLabels = normalizeLearnerNames(slot.learnerLabels || []);
         const spName = asText(slot.spName);
+        const backupSpName = asText(slot.backupSpName);
         const caseLabel = asText(slot.caseLabel);
+        const roleLabel = asText(slot.roleLabel);
+        const notes = asText(slot.notes);
         return {
           slotIndex: slot.slotIndex,
           learnerLabels,
           ...(spName ? { spName } : {}),
+          ...(backupSpName ? { backupSpName } : {}),
           ...(caseLabel ? { caseLabel } : {}),
+          ...(roleLabel ? { roleLabel } : {}),
+          ...(notes ? { notes } : {}),
         } as ScheduleRoomAdjustmentSlot;
       })
-      .filter((slot) => slot.learnerLabels.length || slot.spName)
+      .filter((slot) =>
+        slot.learnerLabels.length ||
+        slot.spName ||
+        slot.backupSpName ||
+        slot.caseLabel ||
+        slot.roleLabel ||
+        slot.notes
+      )
     );
   });
   return normalized;
@@ -2142,6 +2180,9 @@ function applyScheduleRoomAdjustments(
         ...slot,
         learnerLabels: nextLearners,
         caseLabel: asText(overrides?.caseLabel) || slot.caseLabel,
+        backupSpName: asText(overrides?.backupSpName) || slot.backupSpName,
+        roleLabel: asText(overrides?.roleLabel) || slot.roleLabel,
+        notes: asText(overrides?.notes) || slot.notes,
         learnerIndexes: nextLearners.length
           ? nextLearners.map((value) => slot.learnerLabels.indexOf(value)).filter((value) => value >= 0)
           : [],
@@ -2278,6 +2319,9 @@ function buildSchedulePreviewData(args: {
           const spName = assignedSpNames?.[assignmentIndex] || "Unassigned";
           lines.push(`    SP: ${spName}`);
           if (asText(slot.caseLabel) || caseName) lines.push(`    Case: ${asText(slot.caseLabel) || caseName}`);
+          if (asText(slot.backupSpName)) lines.push(`    Backup: ${asText(slot.backupSpName)}`);
+          if (asText(slot.roleLabel)) lines.push(`    Role: ${asText(slot.roleLabel)}`);
+          if (asText(slot.notes)) lines.push(`    Notes: ${asText(slot.notes)}`);
         }
       });
       lines.push("");
@@ -2320,6 +2364,9 @@ function buildSchedulePreviewData(args: {
         if (includeOperationsContext) {
           lines.push(`    SP: ${assignedSpNames?.[assignmentIndex] || "Unassigned SP"}`);
           if (asText(slot.caseLabel) || caseName) lines.push(`    Case: ${asText(slot.caseLabel) || caseName}`);
+          if (asText(slot.backupSpName)) lines.push(`    Backup: ${asText(slot.backupSpName)}`);
+          if (asText(slot.roleLabel)) lines.push(`    Role: ${asText(slot.roleLabel)}`);
+          if (asText(slot.notes)) lines.push(`    Notes: ${asText(slot.notes)}`);
         }
       });
       lines.push("");
@@ -2550,6 +2597,21 @@ function buildSchedulePreviewData(args: {
                               ${
                                 isOperations && slotCaseName
                                   ? `<div><span class="detail-label">Case</span><span class="detail-value">${escapeHtml(slotCaseName)}</span></div>`
+                                  : ""
+                              }
+                              ${
+                                isOperations && asText(slot.backupSpName)
+                                  ? `<div><span class="detail-label">Backup</span><span class="detail-value">${escapeHtml(asText(slot.backupSpName))}</span></div>`
+                                  : ""
+                              }
+                              ${
+                                isOperations && asText(slot.roleLabel)
+                                  ? `<div><span class="detail-label">Role</span><span class="detail-value">${escapeHtml(asText(slot.roleLabel))}</span></div>`
+                                  : ""
+                              }
+                              ${
+                                isOperations && asText(slot.notes)
+                                  ? `<div><span class="detail-label">Notes</span><span class="detail-value">${escapeHtml(asText(slot.notes))}</span></div>`
                                   : ""
                               }
                               <div><span class="detail-label">Seat</span><span class="detail-value">${escapeHtml(slot.capacityLabel)}</span></div>

@@ -206,7 +206,10 @@ type RoundRoomRow = {
   learnerLabels: string[];
   assignment: AssignmentRow | null;
   sp: SPRow | null;
+  backupSpName: string;
   caseLabel: string;
+  roleLabel: string;
+  notes: string;
   stationLabel: string;
   flags: string[];
 };
@@ -312,7 +315,10 @@ type ScheduleRoomAdjustmentSlot = {
   slotIndex: number;
   learnerLabels: string[];
   spName?: string;
+  backupSpName?: string;
   caseLabel?: string;
+  roleLabel?: string;
+  notes?: string;
 };
 
 type ParsedScheduleRoomAdjustments = Map<number, ScheduleRoomAdjustmentSlot[]>;
@@ -3492,7 +3498,10 @@ function parseScheduleRoomAdjustments(value: unknown) {
           slotIndex?: unknown;
           learnerLabels?: unknown;
           spName?: unknown;
+          backupSpName?: unknown;
           caseLabel?: unknown;
+          roleLabel?: unknown;
+          notes?: unknown;
         }>;
       }>;
     };
@@ -3506,13 +3515,19 @@ function parseScheduleRoomAdjustments(value: unknown) {
           if (!Number.isFinite(slotIndex) || slotIndex < 0) return null;
           const learnerLabels = normalizeLearnerNames(slotEntry?.learnerLabels || []);
           const spName = asText(slotEntry?.spName);
+          const backupSpName = asText(slotEntry?.backupSpName);
           const caseLabel = asText(slotEntry?.caseLabel);
-          if (!learnerLabels.length && !spName && !caseLabel) return null;
+          const roleLabel = asText(slotEntry?.roleLabel);
+          const notes = asText(slotEntry?.notes);
+          if (!learnerLabels.length && !spName && !backupSpName && !caseLabel && !roleLabel && !notes) return null;
           return {
             slotIndex,
             learnerLabels,
             ...(spName ? { spName } : {}),
+            ...(backupSpName ? { backupSpName } : {}),
             ...(caseLabel ? { caseLabel } : {}),
+            ...(roleLabel ? { roleLabel } : {}),
+            ...(notes ? { notes } : {}),
           } satisfies ScheduleRoomAdjustmentSlot;
         })
         .filter((slot): slot is ScheduleRoomAdjustmentSlot => Boolean(slot));
@@ -3539,11 +3554,21 @@ function serializeScheduleRoomAdjustments(value: ParsedScheduleRoomAdjustments) 
             slotIndex: slot.slotIndex,
             learnerLabels: normalizeLearnerNames(slot.learnerLabels || []),
             ...(asText(slot.spName) ? { spName: asText(slot.spName) } : {}),
+            ...(asText(slot.backupSpName) ? { backupSpName: asText(slot.backupSpName) } : {}),
             ...(asText(slot.caseLabel) ? { caseLabel: asText(slot.caseLabel) } : {}),
+            ...(asText(slot.roleLabel) ? { roleLabel: asText(slot.roleLabel) } : {}),
+            ...(asText(slot.notes) ? { notes: asText(slot.notes) } : {}),
           })),
       }))
       .filter((entry) =>
-        entry.slots.some((slot) => slot.learnerLabels.length || asText(slot.spName) || asText(slot.caseLabel))
+        entry.slots.some((slot) =>
+          slot.learnerLabels.length ||
+          asText(slot.spName) ||
+          asText(slot.backupSpName) ||
+          asText(slot.caseLabel) ||
+          asText(slot.roleLabel) ||
+          asText(slot.notes)
+        )
       ),
   });
 }
@@ -3570,7 +3595,14 @@ function upsertScheduleRoomAdjustmentSlot(
         : normalizeLearnerNames(existing.learnerLabels || []),
   };
   const filtered = currentSlots.filter((slot) => slot.slotIndex !== slotIndex);
-  if (merged.learnerLabels.length || asText(merged.spName) || asText(merged.caseLabel)) {
+  if (
+    merged.learnerLabels.length ||
+    asText(merged.spName) ||
+    asText(merged.backupSpName) ||
+    asText(merged.caseLabel) ||
+    asText(merged.roleLabel) ||
+    asText(merged.notes)
+  ) {
     filtered.push(merged);
   }
   if (filtered.length) next.set(roundNumber, filtered);
@@ -4343,6 +4375,10 @@ export default function EventDetailPage() {
   const [activeLearnerAttendanceKey, setActiveLearnerAttendanceKey] = useState("");
   const [blueprintActionSavingKey, setBlueprintActionSavingKey] = useState("");
   const [blueprintRestoreAssignmentIdByRoom, setBlueprintRestoreAssignmentIdByRoom] = useState<Record<string, string>>({});
+  const [roundOperationsDraftAdjustments, setRoundOperationsDraftAdjustments] = useState<ParsedScheduleRoomAdjustments | null>(null);
+  const [roundOperationsSaveState, setRoundOperationsSaveState] = useState<"saved" | "unsaved" | "saving" | "error">("saved");
+  const [roundOperationsLastSavedAt, setRoundOperationsLastSavedAt] = useState("");
+  const [roundOperationsSaveError, setRoundOperationsSaveError] = useState("");
   const [liveAttendanceToolsExpanded, setLiveAttendanceToolsExpanded] = useState(true);
   const [trainingImportResult, setTrainingImportResult] = useState<TrainingImportResult | null>(null);
   const [trainingImportError, setTrainingImportError] = useState("");
@@ -7331,6 +7367,13 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     () => parseScheduleRoomAdjustments(trainingMetadata.schedule_room_adjustments),
     [trainingMetadata.schedule_room_adjustments]
   );
+  const activeScheduleRoomAdjustments = roundOperationsDraftAdjustments || scheduleRoomAdjustments;
+  useEffect(() => {
+    setRoundOperationsDraftAdjustments(null);
+    setRoundOperationsSaveState("saved");
+    setRoundOperationsSaveError("");
+    setRoundOperationsLastSavedAt(trainingMetadata.schedule_last_saved_at || trainingMetadata.schedule_updated_at || "");
+  }, [trainingMetadata.schedule_room_adjustments, trainingMetadata.schedule_last_saved_at, trainingMetadata.schedule_updated_at]);
   const liveLearnerAttendanceRecords = useMemo(
     () => parseLearnerAttendanceMetadata(trainingMetadata.live_learner_attendance),
     [trainingMetadata.live_learner_attendance]
@@ -7520,7 +7563,7 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     const learnersPerRound = rowCount * Math.max(learnersPerRow, 1);
     const firstLearnerIndex = activeSelectedRotationRoundIndex * learnersPerRound;
 
-      const roundAdjustments = scheduleRoomAdjustments.get(activeSelectedRotationRoundIndex + 1) || [];
+      const roundAdjustments = activeScheduleRoomAdjustments.get(activeSelectedRotationRoundIndex + 1) || [];
       return displayRows.map(({ session, sourceIndex, slotIndex }, index) => {
         const slotOverride = roundAdjustments.find((slot: ScheduleRoomAdjustmentSlot) => slot.slotIndex === slotIndex) || null;
         const rawRoomName =
@@ -7560,7 +7603,10 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
           learnerLabels,
           assignment,
           sp,
+          backupSpName: asText(slotOverride?.backupSpName),
           caseLabel: asText(slotOverride?.caseLabel) || selectedRoundCaseLabel,
+          roleLabel: asText(slotOverride?.roleLabel),
+          notes: asText(slotOverride?.notes),
           stationLabel: selectedRoundStationLabel,
           flags,
         } satisfies RoundRoomRow;
@@ -7572,7 +7618,7 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     effectiveLearnerCount,
     scheduleBuilderLearnerNames,
     scheduleBuilderRoomCapacity,
-    scheduleRoomAdjustments,
+    activeScheduleRoomAdjustments,
     roomNamingContext,
     selectedRotationRound,
     selectedRoundRoomSlotEntries,
@@ -7949,7 +7995,10 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
           learnerLabels,
           assignment,
           sp,
+          backupSpName: existingRow?.backupSpName || "",
           caseLabel: existingRow?.caseLabel || selectedRoundCaseLabel,
+          roleLabel: existingRow?.roleLabel || "",
+          notes: existingRow?.notes || "",
           stationLabel: existingRow?.stationLabel || selectedRoundStationLabel,
           isAutoMapped,
           isExplicitMapped,
@@ -11121,30 +11170,34 @@ Cory`;
 
   async function handleRoundRoomAdjustment(
     slotIndex: number,
-    partial: Partial<ScheduleRoomAdjustmentSlot>,
-    successMessage = "Room assignment updated."
+    partial: Partial<ScheduleRoomAdjustmentSlot>
   ) {
     const roundNumber = activeSelectedRotationRoundIndex + 1;
     const nextAdjustments = upsertScheduleRoomAdjustmentSlot(
-      scheduleRoomAdjustments,
+      activeScheduleRoomAdjustments,
       roundNumber,
       slotIndex,
       partial
     );
-    await persistScheduleRoomAdjustmentMetadata(nextAdjustments, successMessage);
+    setRoundOperationsDraftAdjustments(nextAdjustments);
+    setRoundOperationsSaveState("unsaved");
+    setRoundOperationsSaveError("");
   }
 
   async function handleMoveRoundAssignment(sourceRow: RoundRoomRow, targetRow: RoundRoomRow | undefined) {
     if (!targetRow || targetRow.slotIndex === sourceRow.slotIndex) return;
     const roundNumber = activeSelectedRotationRoundIndex + 1;
     let nextAdjustments = upsertScheduleRoomAdjustmentSlot(
-      scheduleRoomAdjustments,
+      activeScheduleRoomAdjustments,
       roundNumber,
       targetRow.slotIndex,
       {
         learnerLabels: sourceRow.learnerLabels,
         spName: sourceRow.sp ? getFullName(sourceRow.sp) : "",
+        backupSpName: sourceRow.backupSpName,
         caseLabel: sourceRow.caseLabel,
+        roleLabel: sourceRow.roleLabel,
+        notes: sourceRow.notes,
       }
     );
     nextAdjustments = upsertScheduleRoomAdjustmentSlot(
@@ -11154,10 +11207,31 @@ Cory`;
       {
         learnerLabels: targetRow.learnerLabels,
         spName: targetRow.sp ? getFullName(targetRow.sp) : "",
+        backupSpName: targetRow.backupSpName,
         caseLabel: targetRow.caseLabel,
+        roleLabel: targetRow.roleLabel,
+        notes: targetRow.notes,
       }
     );
-    await persistScheduleRoomAdjustmentMetadata(nextAdjustments, `Assignment moved to ${targetRow.roomName}.`);
+    setRoundOperationsDraftAdjustments(nextAdjustments);
+    setRoundOperationsSaveState("unsaved");
+    setRoundOperationsSaveError("");
+  }
+
+  async function handleSaveRoundOperationsChanges() {
+    const payload = roundOperationsDraftAdjustments || activeScheduleRoomAdjustments;
+    setRoundOperationsSaveState("saving");
+    setRoundOperationsSaveError("");
+    try {
+      await persistScheduleRoomAdjustmentMetadata(payload, "Round changes saved.");
+      const now = new Date().toISOString();
+      setRoundOperationsDraftAdjustments(null);
+      setRoundOperationsLastSavedAt(now);
+      setRoundOperationsSaveState("saved");
+    } catch (error) {
+      setRoundOperationsSaveState("error");
+      setRoundOperationsSaveError(error instanceof Error ? error.message : "Could not save round changes.");
+    }
   }
 
   async function handleRoundRoomCountChange(delta: 1 | -1) {
@@ -11174,7 +11248,7 @@ Cory`;
     }
 
     await persistScheduleRoomAdjustmentMetadata(
-      scheduleRoomAdjustments,
+      activeScheduleRoomAdjustments,
       delta > 0 ? "Room added." : "Room removed.",
       { nextRoomCount }
     );
@@ -21782,6 +21856,38 @@ Cory`;
                                     <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                                       <button
                                         type="button"
+                                        onClick={() => void handleSaveRoundOperationsChanges()}
+                                        disabled={roundOperationsSaveState === "saving" || saving}
+                                        style={{
+                                          ...buttonStyle,
+                                          padding: "6px 10px",
+                                          fontSize: "11px",
+                                          background:
+                                            roundOperationsSaveState === "error"
+                                              ? "#b42318"
+                                              : roundOperationsSaveState === "saved"
+                                                ? "#12805c"
+                                                : "#c65f16",
+                                          borderColor:
+                                            roundOperationsSaveState === "error"
+                                              ? "#912018"
+                                              : roundOperationsSaveState === "saved"
+                                                ? "#0f684b"
+                                                : "#9a4712",
+                                          color: "#fff",
+                                          opacity: roundOperationsSaveState === "saving" || saving ? 0.72 : 1,
+                                        }}
+                                      >
+                                        {roundOperationsSaveState === "saving"
+                                          ? "Saving..."
+                                          : roundOperationsSaveState === "error"
+                                            ? "Save Failed"
+                                            : roundOperationsSaveState === "saved"
+                                              ? `Saved ✓${roundOperationsLastSavedAt ? ` at ${new Date(roundOperationsLastSavedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}`
+                                              : "Save Round Changes"}
+                                      </button>
+                                      <button
+                                        type="button"
                                         onClick={() => void handleRoundRoomCountChange(1)}
                                         disabled={saving}
                                         style={{ ...buttonStyle, padding: "6px 9px", fontSize: "11px", opacity: saving ? 0.65 : 1 }}
@@ -21798,6 +21904,15 @@ Cory`;
                                       </button>
                                     </div>
                                   </div>
+                                  {roundOperationsSaveState === "unsaved" ? (
+                                    <div style={{ color: isPlanningVisualMode ? "#92400e" : "#f3bb67", fontSize: "12px", fontWeight: 850 }}>
+                                      Unsaved round changes. Use Save Round Changes to update Schedule Builder, Viewer, Live Mode, and exports.
+                                    </div>
+                                  ) : roundOperationsSaveState === "error" && roundOperationsSaveError ? (
+                                    <div style={{ color: staffingWorkspacePalette.dangerText, fontSize: "12px", fontWeight: 850 }}>
+                                      {roundOperationsSaveError}
+                                    </div>
+                                  ) : null}
                                   <div style={{ display: "grid", gap: "8px", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
                                     <div style={{ display: "grid", gap: "6px" }}>
                                       <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Primary SPs</div>
@@ -21855,7 +21970,7 @@ Cory`;
                                               onChange={(event) => {
                                                 const slotIndex = Number(event.target.value);
                                                 if (!Number.isFinite(slotIndex)) return;
-                                                void handleRoundRoomAdjustment(slotIndex, { spName }, `${spName} assigned to room.`);
+                                                void handleRoundRoomAdjustment(slotIndex, { backupSpName: spName });
                                                 event.currentTarget.value = "";
                                               }}
                                               disabled={saving || !selectedRoundScheduleRows.length}
@@ -21943,6 +22058,17 @@ Cory`;
                                           <RoundOperationAvatar name={row.sp ? getFullName(row.sp) : "SP TBD"} role="sp" />
                                           {row.sp ? getFullName(row.sp) : "SP TBD"}
                                         </div>
+                                        {row.backupSpName ? (
+                                          <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 800 }}>
+                                            Backup: {row.backupSpName}
+                                          </div>
+                                        ) : null}
+                                      </div>
+                                      <div>
+                                        <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Role</div>
+                                        <div style={{ color: commandCenterVisual.textColor, fontWeight: 900, fontSize: "13px" }}>
+                                          {row.roleLabel || "Role TBD"}
+                                        </div>
                                       </div>
                                       <div>
                                         <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Location</div>
@@ -21951,6 +22077,11 @@ Cory`;
                                         </div>
                                       </div>
                                     </div>
+                                    {row.notes ? (
+                                      <div style={{ borderRadius: "10px", border: commandCenterVisual.rowBorder, background: commandCenterVisual.chipBackground, color: commandCenterVisual.textColor, padding: "8px 10px", fontSize: "12px", fontWeight: 750 }}>
+                                        {row.notes}
+                                      </div>
+                                    ) : null}
                                     <div
                                       style={{
                                         display: "grid",
@@ -21967,8 +22098,7 @@ Cory`;
                                           onChange={(event) =>
                                             void handleRoundRoomAdjustment(
                                               row.slotIndex,
-                                              { learnerLabels: event.target.value ? [event.target.value] : [] },
-                                              "Learner room updated."
+                                              { learnerLabels: event.target.value ? [event.target.value] : [] }
                                             )
                                           }
                                           disabled={saving}
@@ -21989,8 +22119,7 @@ Cory`;
                                           onChange={(event) =>
                                             void handleRoundRoomAdjustment(
                                               row.slotIndex,
-                                              { spName: event.target.value },
-                                              "SP room updated."
+                                              { spName: event.target.value }
                                             )
                                           }
                                           disabled={saving}
@@ -22009,18 +22138,57 @@ Cory`;
                                         </select>
                                       </label>
                                       <label style={{ display: "grid", gap: "4px" }}>
-                                        <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Case assignment</span>
-                                        <input
-                                          defaultValue={row.caseLabel}
-                                          onBlur={(event) =>
-                                            void handleRoundRoomAdjustment(
-                                              row.slotIndex,
-                                              { caseLabel: event.target.value },
-                                              "Case assignment updated."
-                                            )
+                                        <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Backup SP</span>
+                                        <select
+                                          value={row.backupSpName}
+                                          onChange={(event) =>
+                                            void handleRoundRoomAdjustment(row.slotIndex, { backupSpName: event.target.value })
                                           }
                                           disabled={saving}
-                                          placeholder="Case / encounter"
+                                          style={{ ...selectStyle, width: "100%", maxWidth: "none", fontSize: "11px", padding: "6px 7px" }}
+                                        >
+                                          <option value="">Backup TBD</option>
+                                          {backupAssignments.map((assignment) => {
+                                            const sp = assignment.sp_id ? spsById.get(assignment.sp_id) : null;
+                                            const spName = getFullName(sp || emptySpRow);
+                                            return spName ? (
+                                              <option key={`${row.key}-backup-option-${assignment.id}`} value={spName}>
+                                                {spName}
+                                              </option>
+                                            ) : null;
+                                          })}
+                                        </select>
+                                      </label>
+                                      <label style={{ display: "grid", gap: "4px" }}>
+                                        <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Case assignment</span>
+                                        <select
+                                          value={row.caseLabel}
+                                          onChange={(event) =>
+                                            void handleRoundRoomAdjustment(row.slotIndex, { caseLabel: event.target.value })
+                                          }
+                                          disabled={saving}
+                                          style={{ ...selectStyle, width: "100%", maxWidth: "none", fontSize: "11px", padding: "6px 7px" }}
+                                        >
+                                          <option value="">Case TBD</option>
+                                          {caseFileEntries
+                                            .filter((caseEntry) => caseEntry.status !== "inactive")
+                                            .map((caseEntry, caseIndex) => (
+                                              <option key={`${row.key}-case-option-${caseEntry.id}-${caseIndex}`} value={caseEntry.name || `Case ${caseIndex + 1}`}>
+                                                {caseEntry.name || `Case ${caseIndex + 1}`}
+                                              </option>
+                                            ))}
+                                          {row.caseLabel && !caseFileEntries.some((caseEntry) => caseEntry.name === row.caseLabel) ? (
+                                            <option value={row.caseLabel}>{row.caseLabel}</option>
+                                          ) : null}
+                                        </select>
+                                      </label>
+                                      <label style={{ display: "grid", gap: "4px" }}>
+                                        <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Role / portrayal</span>
+                                        <input
+                                          value={row.roleLabel}
+                                          onChange={(event) => void handleRoundRoomAdjustment(row.slotIndex, { roleLabel: event.target.value })}
+                                          disabled={saving}
+                                          placeholder="Nurse, patient, family..."
                                           style={{ ...inputStyle, width: "100%", boxSizing: "border-box", fontSize: "11px", padding: "6px 7px" }}
                                         />
                                       </label>
@@ -22045,8 +22213,18 @@ Cory`;
                                               <option key={`${row.key}-move-${candidate.slotIndex}`} value={candidate.slotIndex}>
                                                 {candidate.roomName}
                                               </option>
-                                            ))}
+                                          ))}
                                         </select>
+                                      </label>
+                                      <label style={{ display: "grid", gap: "4px", gridColumn: "1 / -1" }}>
+                                        <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Room notes</span>
+                                        <textarea
+                                          value={row.notes}
+                                          onChange={(event) => void handleRoundRoomAdjustment(row.slotIndex, { notes: event.target.value })}
+                                          disabled={saving}
+                                          placeholder="Operational notes, setup cues, mismatch risks, or role details"
+                                          style={{ ...inputStyle, width: "100%", boxSizing: "border-box", minHeight: "48px", resize: "vertical", fontSize: "11px", padding: "6px 7px" }}
+                                        />
                                       </label>
                                     </div>
                                   </div>
