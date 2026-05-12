@@ -6653,111 +6653,153 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
   const scheduleCompleted = scheduleWorkflowStatus === "complete";
   const scheduleInProgress = scheduleWorkflowStatus === "in_progress";
 
-  // CFSP schedule file inside cabinet v12
+  // CFSP schedule file inside cabinet v13
   useEffect(() => {
     if (typeof document === "undefined") return;
 
-    const cabinet = document.getElementById("simulation-command-file-cabinet");
-    if (!cabinet) return;
+    const findCabinet = () => {
+      const direct = document.getElementById("simulation-command-file-cabinet");
+      if (direct instanceof HTMLElement) return direct;
 
-    cabinet
-      .querySelector("[data-cfsp-schedule-file-container='true']")
-      ?.remove();
+      const candidates = Array.from(document.querySelectorAll("section, article, div"))
+        .filter((node): node is HTMLElement => node instanceof HTMLElement)
+        .filter((node) => {
+          const text = (node.textContent || "").toLowerCase();
+          return (
+            text.includes("simulation command file cabinet") &&
+            (text.includes("doorsign") || text.includes("case") || text.includes("recording"))
+          );
+        })
+        .sort((a, b) => (a.textContent || "").length - (b.textContent || "").length);
 
-    const container = document.createElement("div");
-    container.setAttribute("data-cfsp-schedule-file-container", "true");
-    container.style.cssText = [
-      "display:flex",
-      "align-items:center",
-      "justify-content:space-between",
-      "gap:14px",
-      "margin:14px 0",
-      "padding:14px 16px",
-      "border-radius:18px",
-      "border:1px solid rgba(20,184,166,0.30)",
-      "background:linear-gradient(135deg, rgba(255,255,255,0.98), rgba(240,253,250,0.92))",
-      "box-shadow:0 12px 26px rgba(20,91,150,0.10)",
-      "color:#12324a",
-    ].join(";");
-
-    const label = document.createElement("div");
-    label.style.cssText = [
-      "display:grid",
-      "gap:3px",
-      "min-width:0",
-      "color:#12324a",
-    ].join(";");
-
-    const eyebrow = document.createElement("div");
-    eyebrow.textContent = scheduleCompleted ? "COMPLETED SCHEDULE FILE" : "SCHEDULE FILE";
-    eyebrow.style.cssText = [
-      "font-size:11px",
-      "font-weight:950",
-      "letter-spacing:.09em",
-      "text-transform:uppercase",
-      "color:#0f766e",
-    ].join(";");
-
-    const title = document.createElement("div");
-    title.textContent = scheduleCompleted
-      ? "Schedule is complete and stored in this file cabinet."
-      : "Schedule is not complete yet. Finish it in the builder.";
-    title.style.cssText = [
-      "font-size:14px",
-      "font-weight:900",
-      "color:#12324a",
-      "line-height:1.35",
-    ].join(";");
-
-    label.appendChild(eyebrow);
-    label.appendChild(title);
-
-    const button = document.createElement("button");
-    button.type = "button";
-    button.setAttribute("data-cfsp-schedule-file-link", "true");
-    button.textContent = scheduleCompleted ? "Open Completed Schedule" : "Open Schedule Builder";
-    button.style.cssText = [
-      "appearance:none",
-      "cursor:pointer",
-      "white-space:nowrap",
-      "border-radius:12px",
-      "border:1px solid rgba(20,184,166,0.32)",
-      "background:linear-gradient(135deg,#0f9488,#145b96)",
-      "color:#ffffff",
-      "font-weight:950",
-      "padding:10px 14px",
-      "box-shadow:0 8px 18px rgba(20,91,150,0.12)",
-    ].join(";");
-
-    const handleClick = () => {
-      const params = new URLSearchParams();
-      params.set("source", "file-cabinet");
-      params.set("view", scheduleCompleted ? "session-builder" : "builder");
-
-      window.location.assign(
-        `/events/${encodeURIComponent(id)}/schedule-builder?${params.toString()}`
-      );
+      return candidates[0] || null;
     };
 
-    button.addEventListener("click", handleClick);
+    const upsertScheduleFile = () => {
+      const cabinet = findCabinet();
+      if (!cabinet) return false;
 
-    container.appendChild(label);
-    container.appendChild(button);
+      cabinet
+        .querySelectorAll("[data-cfsp-schedule-file-card='true']")
+        .forEach((node) => node.remove());
 
-    const heading = cabinet.querySelector("h1, h2, h3");
-    const headingParent = heading?.parentElement;
+      const card = document.createElement("div");
+      card.setAttribute("data-cfsp-schedule-file-card", "true");
+      card.style.cssText = [
+        "display:flex",
+        "align-items:center",
+        "justify-content:space-between",
+        "gap:14px",
+        "margin:14px 0",
+        "padding:14px 16px",
+        "border-radius:18px",
+        "border:1px solid rgba(20,184,166,0.30)",
+        "background:linear-gradient(135deg, rgba(255,255,255,0.98), rgba(240,253,250,0.92))",
+        "box-shadow:0 12px 26px rgba(20,91,150,0.10)",
+        "color:#12324a",
+        "position:relative",
+        "z-index:20",
+      ].join(";");
 
-    if (headingParent && headingParent.parentElement === cabinet) {
-      cabinet.insertBefore(container, headingParent.nextSibling);
-    } else {
-      cabinet.prepend(container);
-    }
+      const label = document.createElement("div");
+      label.style.cssText = [
+        "display:grid",
+        "gap:3px",
+        "min-width:0",
+        "color:#12324a",
+      ].join(";");
+
+      const eyebrow = document.createElement("div");
+      eyebrow.textContent = scheduleCompleted ? "COMPLETED SCHEDULE FILE" : "SCHEDULE FILE";
+      eyebrow.style.cssText = [
+        "font-size:11px",
+        "font-weight:950",
+        "letter-spacing:.09em",
+        "text-transform:uppercase",
+        "color:#0f766e",
+      ].join(";");
+
+      const title = document.createElement("div");
+      title.textContent = scheduleCompleted
+        ? "Schedule is complete and lives in this file cabinet."
+        : "Schedule is not complete yet. Finish it in the builder.";
+      title.style.cssText = [
+        "font-size:14px",
+        "font-weight:900",
+        "color:#12324a",
+        "line-height:1.35",
+      ].join(";");
+
+      label.appendChild(eyebrow);
+      label.appendChild(title);
+
+      const button = document.createElement("button");
+      button.type = "button";
+      button.setAttribute("data-cfsp-schedule-file-link", "true");
+      button.textContent = scheduleCompleted ? "Open Completed Schedule" : "Open Schedule Builder";
+      button.style.cssText = [
+        "appearance:none",
+        "cursor:pointer",
+        "white-space:nowrap",
+        "border-radius:12px",
+        "border:1px solid rgba(20,184,166,0.32)",
+        "background:linear-gradient(135deg,#0f9488,#145b96)",
+        "color:#ffffff",
+        "font-weight:950",
+        "padding:10px 14px",
+        "box-shadow:0 8px 18px rgba(20,91,150,0.12)",
+      ].join(";");
+
+      const handleClick = () => {
+        const params = new URLSearchParams();
+        params.set("source", "file-cabinet");
+        params.set("view", scheduleCompleted ? "session-builder" : "builder");
+
+        window.location.assign(
+          `/events/${encodeURIComponent(id)}/schedule-builder?${params.toString()}`
+        );
+      };
+
+      button.addEventListener("click", handleClick);
+
+      card.appendChild(label);
+      card.appendChild(button);
+
+      const titleNode = Array.from(cabinet.querySelectorAll("h1, h2, h3, strong, div"))
+        .find((node) => (node.textContent || "").toLowerCase().includes("simulation command file cabinet"));
+
+      const titleContainer = titleNode instanceof HTMLElement ? titleNode.closest("div") : null;
+
+      if (titleContainer && titleContainer.parentElement === cabinet) {
+        cabinet.insertBefore(card, titleContainer.nextSibling);
+      } else {
+        cabinet.insertBefore(card, cabinet.firstElementChild);
+      }
+
+      return true;
+    };
+
+    upsertScheduleFile();
+
+    const interval = window.setInterval(() => {
+      if (upsertScheduleFile()) {
+        window.clearInterval(interval);
+      }
+    }, 400);
+
+    const timeout = window.setTimeout(() => {
+      window.clearInterval(interval);
+    }, 6000);
 
     return () => {
-      button.removeEventListener("click", handleClick);
-      container.remove();
+      window.clearInterval(interval);
+      window.clearTimeout(timeout);
+      document
+        .querySelectorAll("[data-cfsp-schedule-file-card='true']")
+        .forEach((node) => node.remove());
     };
   }, [id, scheduleCompleted]);
+
   const trainingFacultyText = trainingMetadata.faculty_names || fallbackFacultyText;
   const facultyEmailText = trainingMetadata.faculty_email;
   const facultyPhoneText = trainingMetadata.faculty_phone;

@@ -1937,125 +1937,18 @@ html body .cfsp-floating-command-chest[open] .cfsp-chest-link:nth-child(6) { ani
 /* END CFSP COMMAND CHEST CLEAN SCROLLS v8 */
 
 
-/* CFSP CABINET BUTTON SOFTEN v9 */
+/* CFSP FINAL UNBLACKEN CABINET BUTTONS v13 */
 
-/* Tone down ONLY the buttons inside the main file cabinet */
-html body #simulation-command-file-cabinet button {
-  background: linear-gradient(135deg, #0f9488, #11806f) !important;
-  color: #ffffff !important;
-  border: 1px solid rgba(20, 184, 166, 0.26) !important;
-  box-shadow: 0 8px 18px rgba(20, 91, 150, 0.10) !important;
-  filter: none !important;
-}
-
-/* Slight variation, but still restrained */
-html body #simulation-command-file-cabinet button:nth-of-type(2n) {
-  background: linear-gradient(135deg, #145b96, #0f9488) !important;
-}
-
-html body #simulation-command-file-cabinet button:nth-of-type(3n) {
-  background: linear-gradient(135deg, #1d6f8f, #145b96) !important;
-}
-
-/* Keep hover subtle */
-html body #simulation-command-file-cabinet button:hover:not(:disabled) {
-  transform: translateY(-1px) !important;
-  box-shadow: 0 10px 20px rgba(20, 91, 150, 0.14) !important;
-  filter: brightness(1.02) !important;
-}
-
-/* Disabled buttons stay quiet */
-html body #simulation-command-file-cabinet button:disabled,
-html body #simulation-command-file-cabinet button[disabled] {
-  background: rgba(226, 232, 240, 0.92) !important;
-  color: #64748b !important;
-  border: 1px solid rgba(148, 163, 184, 0.24) !important;
-  box-shadow: none !important;
-}
-
-/* Remove any neon glow from cabinet buttons */
+/* Remove all black/dark-purple interactive buttons inside the Simulation Command File Cabinet */
 html body #simulation-command-file-cabinet button,
-html body #simulation-command-file-cabinet button::before,
-html body #simulation-command-file-cabinet button::after {
-  text-shadow: none !important;
-}
-
-/* END CFSP CABINET BUTTON SOFTEN v9 */
-
-
-/* CFSP CABINET CARD CLEANUP v10 */
-
-/* Clean up the main file-cabinet cards without changing the floating chest */
-html body #simulation-command-file-cabinet div[style*="border"],
-html body #simulation-command-file-cabinet div[style*="background"],
-html body #simulation-command-file-cabinet section[style*="background"],
-html body #simulation-command-file-cabinet article[style*="background"] {
-  background:
-    linear-gradient(135deg, rgba(255,255,255,0.98), rgba(240,253,250,0.90)) !important;
-  border-color: rgba(20, 184, 166, 0.22) !important;
-  box-shadow:
-    0 10px 22px rgba(20, 91, 150, 0.07),
-    inset 0 1px 0 rgba(255,255,255,0.78) !important;
-}
-
-/* Keep slight section variation, but very subtle */
-html body #simulation-command-file-cabinet div[style*="border"]:nth-of-type(2n) {
-  background:
-    linear-gradient(135deg, rgba(255,255,255,0.98), rgba(255,247,237,0.80)) !important;
-  border-color: rgba(251, 146, 60, 0.18) !important;
-}
-
-html body #simulation-command-file-cabinet div[style*="border"]:nth-of-type(3n) {
-  background:
-    linear-gradient(135deg, rgba(255,255,255,0.98), rgba(240,253,244,0.82)) !important;
-  border-color: rgba(132, 204, 22, 0.18) !important;
-}
-
-/* Reduce heavy colored shadows inside card content */
-html body #simulation-command-file-cabinet [style*="box-shadow"] {
-  box-shadow:
-    0 8px 18px rgba(20, 91, 150, 0.06),
-    inset 0 1px 0 rgba(255,255,255,0.70) !important;
-}
-
-/* Make card text easier to read */
-html body #simulation-command-file-cabinet h1,
-html body #simulation-command-file-cabinet h2,
-html body #simulation-command-file-cabinet h3,
-html body #simulation-command-file-cabinet h4,
-html body #simulation-command-file-cabinet strong,
-html body #simulation-command-file-cabinet p,
-html body #simulation-command-file-cabinet span {
-  color: #12324a !important;
-}
-
-/* Keep status pills readable and restrained */
-html body #simulation-command-file-cabinet span[style*="border"],
-html body #simulation-command-file-cabinet div[style*="border-radius: 999"] {
-  background: rgba(236, 253, 245, 0.92) !important;
-  border-color: rgba(20, 184, 166, 0.24) !important;
-  color: #0f766e !important;
-}
-
-/* Missing/warning cards get pastel orange/red, not dark purple */
-html body #simulation-command-file-cabinet [style*="MISSING"],
-html body #simulation-command-file-cabinet [aria-label*="missing" i] {
-  background: rgba(255, 247, 237, 0.92) !important;
-  border-color: rgba(251, 146, 60, 0.28) !important;
-  color: #9a3412 !important;
-}
-
-/* END CFSP CABINET CARD CLEANUP v10 */
-
-
-/* CFSP UNBLACKEN FILE CABINET BUTTONS v12 */
-
-/* Absolutely no black/dark-purple buttons inside the Simulation Command File Cabinet */
-html body #simulation-command-file-cabinet button:not(:disabled),
-html body #simulation-command-file-cabinet button:not(:disabled)[style],
-html body #simulation-command-file-cabinet a[role="button"]:not([aria-disabled="true"]) {
+html body #simulation-command-file-cabinet button[style],
+html body #simulation-command-file-cabinet a,
+html body #simulation-command-file-cabinet a[style],
+html body #simulation-command-file-cabinet [role="button"],
+html body #simulation-command-file-cabinet [role="button"][style] {
   background: linear-gradient(135deg, #0f9488 0%, #145b96 100%) !important;
   background-color: #0f9488 !important;
+  background-image: linear-gradient(135deg, #0f9488 0%, #145b96 100%) !important;
   color: #ffffff !important;
   border: 1px solid rgba(20, 184, 166, 0.30) !important;
   box-shadow: 0 8px 18px rgba(20, 91, 150, 0.10) !important;
@@ -2063,58 +1956,74 @@ html body #simulation-command-file-cabinet a[role="button"]:not([aria-disabled="
   filter: none !important;
 }
 
-/* Make all button contents readable */
-html body #simulation-command-file-cabinet button:not(:disabled) *,
-html body #simulation-command-file-cabinet a[role="button"]:not([aria-disabled="true"]) * {
+/* Keep inner text/icons readable */
+html body #simulation-command-file-cabinet button *,
+html body #simulation-command-file-cabinet a *,
+html body #simulation-command-file-cabinet [role="button"] * {
   color: #ffffff !important;
   text-shadow: none !important;
 }
 
-/* Subtle variation, still not black */
-html body #simulation-command-file-cabinet button:not(:disabled):nth-of-type(2n),
-html body #simulation-command-file-cabinet a[role="button"]:not([aria-disabled="true"]):nth-of-type(2n) {
+/* Download/secondary style = light teal, never black */
+html body #simulation-command-file-cabinet button:nth-of-type(2n),
+html body #simulation-command-file-cabinet a:nth-of-type(2n),
+html body #simulation-command-file-cabinet [role="button"]:nth-of-type(2n) {
   background: linear-gradient(135deg, #14b8a6 0%, #0f766e 100%) !important;
   background-color: #14b8a6 !important;
-}
-
-html body #simulation-command-file-cabinet button:not(:disabled):nth-of-type(3n),
-html body #simulation-command-file-cabinet a[role="button"]:not([aria-disabled="true"]):nth-of-type(3n) {
-  background: linear-gradient(135deg, #0f9488 0%, #16a34a 100%) !important;
-  background-color: #0f9488 !important;
-}
-
-/* Remove/warning buttons get soft coral-orange, not black */
-html body #simulation-command-file-cabinet button:not(:disabled):nth-of-type(4n) {
-  background: linear-gradient(135deg, #fb923c 0%, #dc6b5f 100%) !important;
-  background-color: #fb923c !important;
+  background-image: linear-gradient(135deg, #14b8a6 0%, #0f766e 100%) !important;
   color: #ffffff !important;
 }
 
-/* Disabled buttons stay muted */
+/* Replace/action style */
+html body #simulation-command-file-cabinet button:nth-of-type(3n),
+html body #simulation-command-file-cabinet a:nth-of-type(3n),
+html body #simulation-command-file-cabinet [role="button"]:nth-of-type(3n) {
+  background: linear-gradient(135deg, #0f9488 0%, #16a34a 100%) !important;
+  background-color: #0f9488 !important;
+  background-image: linear-gradient(135deg, #0f9488 0%, #16a34a 100%) !important;
+  color: #ffffff !important;
+}
+
+/* Remove buttons = soft orange/coral, not dark */
+html body #simulation-command-file-cabinet button:nth-of-type(4n),
+html body #simulation-command-file-cabinet a:nth-of-type(4n),
+html body #simulation-command-file-cabinet [role="button"]:nth-of-type(4n) {
+  background: linear-gradient(135deg, #fb923c 0%, #dc6b5f 100%) !important;
+  background-color: #fb923c !important;
+  background-image: linear-gradient(135deg, #fb923c 0%, #dc6b5f 100%) !important;
+  color: #ffffff !important;
+}
+
+/* Disabled buttons stay muted and readable */
 html body #simulation-command-file-cabinet button:disabled,
 html body #simulation-command-file-cabinet button[disabled],
-html body #simulation-command-file-cabinet a[aria-disabled="true"] {
+html body #simulation-command-file-cabinet a[aria-disabled="true"],
+html body #simulation-command-file-cabinet [role="button"][aria-disabled="true"] {
   background: linear-gradient(135deg, #f1f5f9, #e2e8f0) !important;
   background-color: #e2e8f0 !important;
+  background-image: linear-gradient(135deg, #f1f5f9, #e2e8f0) !important;
   color: #94a3b8 !important;
   border: 1px solid rgba(148, 163, 184, 0.24) !important;
   box-shadow: none !important;
 }
 
 html body #simulation-command-file-cabinet button:disabled *,
-html body #simulation-command-file-cabinet button[disabled] * {
+html body #simulation-command-file-cabinet button[disabled] *,
+html body #simulation-command-file-cabinet a[aria-disabled="true"] *,
+html body #simulation-command-file-cabinet [role="button"][aria-disabled="true"] * {
   color: #94a3b8 !important;
 }
 
-/* Make the injected schedule file card look native */
-html body #simulation-command-file-cabinet [data-cfsp-schedule-file-container="true"] {
+/* Make injected schedule file card native */
+html body #simulation-command-file-cabinet [data-cfsp-schedule-file-card="true"] {
   margin: 14px 0 !important;
 }
 
 html body #simulation-command-file-cabinet [data-cfsp-schedule-file-link="true"] {
   background: linear-gradient(135deg, #0f9488, #145b96) !important;
+  background-color: #0f9488 !important;
   color: #ffffff !important;
 }
 
-/* END CFSP UNBLACKEN FILE CABINET BUTTONS v12 */
+/* END CFSP FINAL UNBLACKEN CABINET BUTTONS v13 */
 
