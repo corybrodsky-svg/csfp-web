@@ -4,7 +4,7 @@ import * as XLSX from "xlsx";
 import Image from "next/image";
 import Link from "next/link";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import SiteShell from "../../components/SiteShell";
 import {
   formatHumanDate,
@@ -35,7 +35,7 @@ import {
   parseEventMetadata,
   upsertEventMetadata,
 } from "../../lib/eventMetadata";
-import { normalizeLearnerName, normalizeLearnerNames } from "../../lib/learnerNames";
+import { normalizeDisplayText, normalizeLearnerName, normalizeLearnerNames } from "../../lib/learnerNames";
 import {
   getFacultyText,
   getSimStaffNames,
@@ -343,6 +343,7 @@ type RelatedOperationalEventNode = {
   match_confidence?: "exact_course" | "title_family" | "source_batch" | "none";
   score?: number;
   exact_course_match?: boolean;
+  isConfirmed?: boolean;
   trainingMetadata?: TrainingEventMetadata | null;
 };
 
@@ -1376,10 +1377,10 @@ function RecordingStatusIndicator({
 }
 
 function getFullName(sp: SPRow) {
-  const explicit = asText(sp.full_name);
+  const explicit = normalizeDisplayText(sp.full_name);
   if (explicit) return explicit;
 
-  const joined = [sp.first_name, sp.last_name].map(asText).filter(Boolean).join(" ");
+  const joined = [sp.first_name, sp.last_name].map(normalizeDisplayText).filter(Boolean).join(" ");
   return joined || "Unnamed SP";
 }
 
@@ -3379,6 +3380,11 @@ function getScheduleBuilderStorageKey(eventId?: string) {
   return `cfsp:schedule-builder:${eventId || "global"}`;
 }
 
+function parseScheduleBuilderDay(raw: string | null) {
+  const parsed = Number.parseInt(raw || "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
 function getRotationCommandSurfaceStorageKey(eventId?: string) {
   return `cfsp:rotation-command-surface:${eventId || "global"}`;
 }
@@ -3467,15 +3473,20 @@ function mergeEventFamilyTrainingMetadata(
   relatedNodes: RelatedOperationalEventNode[]
 ) {
   const merged = { ...primary };
-  const relatedMetadata = relatedNodes
+  const allowedRelatedMetadata = relatedNodes
+    .filter((node) => {
+      if (node.isConfirmed) return true;
+      const confidence = asText(node.match_confidence).toLowerCase();
+      return confidence === "exact_course" || confidence === "title_family" || confidence === "source_batch";
+    })
     .map((node) => node.trainingMetadata)
     .filter((metadata): metadata is TrainingEventMetadata => Boolean(metadata));
 
-  if (!relatedMetadata.length) return merged;
+  if (!allowedRelatedMetadata.length) return merged;
 
   EVENT_FAMILY_TRAINING_MERGE_KEYS.forEach((key) => {
     if (hasMeaningfulTrainingValue(merged[key])) return;
-    const source = relatedMetadata.find((metadata) => hasMeaningfulTrainingValue(metadata[key]));
+    const source = allowedRelatedMetadata.find((metadata) => hasMeaningfulTrainingValue(metadata[key]));
     if (source) merged[key] = source[key];
   });
 
@@ -3546,11 +3557,11 @@ function parseScheduleRoomAdjustments(value: unknown) {
           const slotIndex = Number(slotEntry?.slotIndex);
           if (!Number.isFinite(slotIndex) || slotIndex < 0) return null;
           const learnerLabels = normalizeLearnerNames(slotEntry?.learnerLabels || []);
-          const spName = asText(slotEntry?.spName);
-          const backupSpName = asText(slotEntry?.backupSpName);
-          const caseLabel = asText(slotEntry?.caseLabel);
-          const roleLabel = asText(slotEntry?.roleLabel);
-          const notes = asText(slotEntry?.notes);
+          const spName = normalizeDisplayText(slotEntry?.spName);
+          const backupSpName = normalizeDisplayText(slotEntry?.backupSpName);
+          const caseLabel = normalizeDisplayText(slotEntry?.caseLabel);
+          const roleLabel = normalizeDisplayText(slotEntry?.roleLabel);
+          const notes = normalizeDisplayText(slotEntry?.notes);
           if (!learnerLabels.length && !spName && !backupSpName && !caseLabel && !roleLabel && !notes) return null;
           return {
             slotIndex,
@@ -3585,21 +3596,21 @@ function serializeScheduleRoomAdjustments(value: ParsedScheduleRoomAdjustments) 
           .map((slot) => ({
             slotIndex: slot.slotIndex,
             learnerLabels: normalizeLearnerNames(slot.learnerLabels || []),
-            ...(asText(slot.spName) ? { spName: asText(slot.spName) } : {}),
-            ...(asText(slot.backupSpName) ? { backupSpName: asText(slot.backupSpName) } : {}),
-            ...(asText(slot.caseLabel) ? { caseLabel: asText(slot.caseLabel) } : {}),
-            ...(asText(slot.roleLabel) ? { roleLabel: asText(slot.roleLabel) } : {}),
-            ...(asText(slot.notes) ? { notes: asText(slot.notes) } : {}),
+            ...(normalizeDisplayText(slot.spName) ? { spName: normalizeDisplayText(slot.spName) } : {}),
+            ...(normalizeDisplayText(slot.backupSpName) ? { backupSpName: normalizeDisplayText(slot.backupSpName) } : {}),
+            ...(normalizeDisplayText(slot.caseLabel) ? { caseLabel: normalizeDisplayText(slot.caseLabel) } : {}),
+            ...(normalizeDisplayText(slot.roleLabel) ? { roleLabel: normalizeDisplayText(slot.roleLabel) } : {}),
+            ...(normalizeDisplayText(slot.notes) ? { notes: normalizeDisplayText(slot.notes) } : {}),
           })),
       }))
       .filter((entry) =>
         entry.slots.some((slot) =>
           slot.learnerLabels.length ||
-          asText(slot.spName) ||
-          asText(slot.backupSpName) ||
-          asText(slot.caseLabel) ||
-          asText(slot.roleLabel) ||
-          asText(slot.notes)
+          normalizeDisplayText(slot.spName) ||
+          normalizeDisplayText(slot.backupSpName) ||
+          normalizeDisplayText(slot.caseLabel) ||
+          normalizeDisplayText(slot.roleLabel) ||
+          normalizeDisplayText(slot.notes)
         )
       ),
   });
@@ -4221,6 +4232,15 @@ function parseRelatedEventsHiddenIds(value: string | null | undefined) {
   );
 }
 
+function parseRelatedEventsConfirmedIds(value: string | null | undefined) {
+  return new Set(
+    asText(value)
+      .split(/[,;\n]/g)
+      .map((entry) => asText(entry))
+      .filter(Boolean)
+  );
+}
+
 function getSheetCellText(sheet: XLSX.WorkSheet, address: string) {
   return asText(sheet[address]?.v);
 }
@@ -4284,7 +4304,12 @@ function parseTrainingImportWorkbook(file: File) {
 export default function EventDetailPage() {
   const router = useRouter();
   const params = useParams();
+  const searchParams = useSearchParams();
   const id = getRouteId(params);
+  const scheduleBuilderDay = useMemo(
+    () => parseScheduleBuilderDay(searchParams.get("day") || searchParams.get("scheduleDay")),
+    [searchParams]
+  );
 
   const [event, setEvent] = useState<EventDetailRow | null>(null);
   const [eventEditor, setEventEditor] = useState<EventEditorState>({
@@ -4307,6 +4332,8 @@ export default function EventDetailPage() {
   const [relatedOperationalEvents, setRelatedOperationalEvents] = useState<RelatedOperationalEventNode[]>([]);
   const [showRelatedMatchesModal, setShowRelatedMatchesModal] = useState(false);
   const [removingRelatedMatchId, setRemovingRelatedMatchId] = useState("");
+  const [confirmingRelatedMatchId, setConfirmingRelatedMatchId] = useState("");
+  const [confirmingAllMatches, setConfirmingAllMatches] = useState(false);
   const [selectedSpId, setSelectedSpId] = useState("");
   const [quickStaffingQuery, setQuickStaffingQuery] = useState("");
   const [quickStaffingSpId, setQuickStaffingSpId] = useState("");
@@ -7643,6 +7670,9 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     const params = new URLSearchParams();
     params.set("source", "rotation-command");
     params.set("view", roundCompanionView);
+    if (scheduleBuilderDay) {
+      params.set("day", String(scheduleBuilderDay));
+    }
 
     if (selectedRotationRound) {
       params.set("round", selectedRotationRound.key);
@@ -7650,7 +7680,7 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     }
 
     return `/events/${encodeURIComponent(id)}/schedule-builder?${params.toString()}`;
-  }, [activeSelectedRotationRoundIndex, id, roundCompanionView, selectedRotationRound]);
+  }, [activeSelectedRotationRoundIndex, id, roundCompanionView, scheduleBuilderDay, selectedRotationRound]);
   const scheduleBuilderLearnerNames = useMemo(
     () => scheduleBuilderDraftLearnerRoster,
     [scheduleBuilderDraftLearnerRoster]
@@ -9898,6 +9928,92 @@ Cory`;
       setRemovingRelatedMatchId("");
     }
   }
+
+  async function handleConfirmRelatedMatch(eventIdToConfirm: string) {
+    if (!id || !event) return;
+    const currentConfirmed = new Set(
+      parseRelatedEventsConfirmedIds(parsedEventMetadata.training.related_events_confirmed)
+    );
+    if (currentConfirmed.has(eventIdToConfirm)) return;
+
+    setConfirmingRelatedMatchId(eventIdToConfirm);
+    setEventSaveError("");
+
+    const nextConfirmed = Array.from(new Set([...currentConfirmed, eventIdToConfirm])).sort().join(", ");
+    try {
+      await persistTrainingMetadataFields(
+        { related_events_confirmed: nextConfirmed },
+        "Related match confirmed."
+      );
+      setRelatedOperationalEvents((current) =>
+        current.map((node) =>
+          node.id === eventIdToConfirm
+            ? {
+                ...node,
+                isConfirmed: true,
+              }
+            : node
+        )
+      );
+    } catch (error) {
+      setEventSaveError(
+        error instanceof Error ? error.message : "Could not confirm related match."
+      );
+    } finally {
+      setConfirmingRelatedMatchId("");
+    }
+  }
+
+  async function handleConfirmAllExactMatches() {
+    if (!id || !event) return;
+    const exactMatches = relatedOperationalEvents.filter(
+      (node) =>
+        (node.isConfirmed === true ||
+          node.match_confidence === "exact_course" ||
+          node.match_confidence === "title_family" ||
+          node.match_confidence === "source_batch") &&
+        !parseRelatedEventsConfirmedIds(parsedEventMetadata.training.related_events_confirmed).has(node.id)
+    );
+    if (exactMatches.length === 0) return;
+
+    const nextConfirmed = new Set<string>([
+      ...parseRelatedEventsConfirmedIds(parsedEventMetadata.training.related_events_confirmed),
+      ...exactMatches.map((node) => node.id),
+    ]);
+    setConfirmingAllMatches(true);
+    setEventSaveError("");
+
+    try {
+      await persistTrainingMetadataFields(
+        { related_events_confirmed: Array.from(nextConfirmed).sort().join(", ") },
+        "Exact-course related matches confirmed."
+      );
+      setRelatedOperationalEvents((current) =>
+        current.map((node) => ({
+          ...node,
+          isConfirmed: node.isConfirmed || nextConfirmed.has(node.id),
+        }))
+      );
+    } catch (error) {
+      setEventSaveError(
+        error instanceof Error ? error.message : "Could not confirm all exact matches."
+      );
+    } finally {
+      setConfirmingAllMatches(false);
+    }
+  }
+
+  const exactMatchRelatedEvents = useMemo(
+    () =>
+      relatedOperationalEvents.filter(
+        (node) =>
+          node.match_confidence === "exact_course" ||
+          node.match_confidence === "title_family" ||
+          node.match_confidence === "source_batch" ||
+          node.isConfirmed
+      ),
+    [relatedOperationalEvents]
+  );
   const scheduleWorkflowActions: Array<{
     label: string;
     href?: string;
@@ -11614,6 +11730,9 @@ Cory`;
     params.set("view", roundCompanionView);
     params.set("preview", kind);
     params.set("previewMode", "1");
+    if (scheduleBuilderDay) {
+      params.set("day", String(scheduleBuilderDay));
+    }
     if (previewFamily) {
       params.set("previewFamily", previewFamily);
     }
@@ -27153,8 +27272,42 @@ Cory`;
             </div>
 
             <p style={{ margin: 0, color: "var(--cfsp-text-muted)", fontWeight: 700, fontSize: "13px", lineHeight: 1.5 }}>
-              These records are currently auto-embedded into this command center. Remove incorrect matches if needed.
+              These records are currently linked to this event family. Confirm matches you want to keep embedded.
             </p>
+
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                gap: "10px",
+                alignItems: "center",
+                flexWrap: "wrap",
+              }}
+            >
+              <div style={{ color: "var(--cfsp-text)", fontWeight: 800, fontSize: "12px" }}>
+                {exactMatchRelatedEvents.length
+                  ? `${exactMatchRelatedEvents.length} high-confidence match${exactMatchRelatedEvents.length === 1 ? "" : "es"}`
+                  : "No high-confidence matches"}
+              </div>
+              <button
+                type="button"
+                onClick={() => void handleConfirmAllExactMatches()}
+                disabled={
+                  confirmingAllMatches ||
+                  exactMatchRelatedEvents.length === 0 ||
+                  exactMatchRelatedEvents.every((node) => node.isConfirmed)
+                }
+                style={{
+                  ...buttonStyle,
+                  background: "#0f766e",
+                  color: "#ffffff",
+                  border: "1px solid rgba(13, 148, 136, 0.4)",
+                  padding: "7px 12px",
+                }}
+              >
+                {confirmingAllMatches ? "Confirming..." : "Confirm All Exact Matches"}
+              </button>
+            </div>
 
             <div style={{ display: "grid", gap: "8px", maxHeight: "56vh", overflowY: "auto", paddingRight: "2px" }}>
               {relatedOperationalEvents.length === 0 ? (
@@ -27181,12 +27334,34 @@ Cory`;
                     <span
                       style={{
                         ...commandChipStyle,
-                        background: "rgba(14, 116, 144, 0.1)",
-                        color: "rgba(14, 116, 144, 0.95)",
-                        border: "1px solid rgba(14, 116, 144, 0.22)",
+                        background: node.isConfirmed
+                          ? "rgba(16, 128, 92, 0.12)"
+                          : node.match_confidence === "exact_course" ||
+                              node.match_confidence === "title_family" ||
+                              node.match_confidence === "source_batch"
+                            ? "rgba(14, 116, 144, 0.1)"
+                            : "rgba(120, 133, 146, 0.1)",
+                        color: node.isConfirmed
+                          ? "rgba(5, 122, 85, 0.95)"
+                          : node.match_confidence === "exact_course" ||
+                              node.match_confidence === "title_family" ||
+                              node.match_confidence === "source_batch"
+                            ? "rgba(14, 116, 144, 0.95)"
+                            : "rgba(76, 88, 102, 0.95)",
+                        border: node.isConfirmed
+                          ? "1px solid rgba(16, 128, 92, 0.24)"
+                          : node.match_confidence === "exact_course" ||
+                              node.match_confidence === "title_family" ||
+                              node.match_confidence === "source_batch"
+                            ? "1px solid rgba(14, 116, 144, 0.22)"
+                            : "1px solid rgba(120, 133, 146, 0.22)",
                       }}
                     >
-                      {node.match_confidence ? node.match_confidence.replace("_", " ") : "matched"}
+                      {node.isConfirmed
+                        ? "confirmed"
+                        : node.match_confidence
+                          ? node.match_confidence.replace("_", " ")
+                          : "matched"}
                     </span>
                   </div>
                   <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 750, lineHeight: 1.5 }}>
@@ -27202,7 +27377,17 @@ Cory`;
                   <div style={{ color: "var(--cfsp-text)", fontSize: "12px", fontWeight: 800, lineHeight: 1.5 }}>
                     {node.match_reason || "Matched by exact course"}
                   </div>
-                  <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                  <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px", flexWrap: "wrap" }}>
+                    {!node.isConfirmed ? (
+                      <button
+                        type="button"
+                        onClick={() => void handleConfirmRelatedMatch(node.id)}
+                        disabled={confirmingRelatedMatchId === node.id}
+                        style={{ ...buttonStyle, background: "#ecfdf5", color: "#047857", border: "1px solid #a7f3d0", padding: "7px 10px" }}
+                      >
+                        {confirmingRelatedMatchId === node.id ? "Confirming..." : "Confirm Match"}
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       onClick={() => void handleHideRelatedMatch(node.id)}

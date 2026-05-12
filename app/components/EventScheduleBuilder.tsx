@@ -7,7 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { formatHumanDate, getImportedYearHint } from "../lib/eventDateUtils";
 import { parseEventMetadata, upsertEventMetadata } from "../lib/eventMetadata";
-import { normalizeLearnerName, normalizeLearnerNames } from "../lib/learnerNames";
+import { normalizeDisplayText, normalizeLearnerName, normalizeLearnerNames } from "../lib/learnerNames";
 import { getRoomDisplayLabel, getRoomTypeLabel } from "../lib/roomNaming";
 
 type EventRow = {
@@ -48,6 +48,7 @@ type EventScheduleBuilderProps = {
   previewFamily?: SchedulePreviewFamily | null;
   previewOnly?: boolean;
   autoDownload?: boolean;
+  initialScheduleDay?: number | null;
 };
 
 type DayBlockType =
@@ -114,7 +115,7 @@ type ScheduleSlotActivityState = Pick<GeneratedRoomSlot, "roomType" | "capacity"
 function isActiveScheduleSlot(slot: ScheduleSlotActivityState, singleCaseMode: boolean) {
   if (slot.roomType !== "exam" || slot.capacity <= 0) return false;
   if (singleCaseMode) return true;
-  return Boolean(slot.caseLabel || (slot.learnerLabels?.length || 0));
+  return Boolean(normalizeDisplayText(slot.caseLabel) || (slot.learnerLabels?.length || 0));
 }
 
 type GeneratedRound = {
@@ -349,10 +350,10 @@ function serializeScheduleLearnerRosterMetadata(learners: string[]) {
 
 function getBuilderUserLabel(me: BuilderMeResponse | null) {
   return (
-    asText(me?.profile?.full_name) ||
-    asText(me?.profile?.schedule_name) ||
-    asText(me?.profile?.email) ||
-    asText(me?.user?.email)
+    normalizeDisplayText(me?.profile?.full_name) ||
+    normalizeDisplayText(me?.profile?.schedule_name) ||
+    normalizeDisplayText(me?.profile?.email) ||
+    normalizeDisplayText(me?.user?.email)
   );
 }
 
@@ -1370,13 +1371,13 @@ function formatEventDate(event: EventRow) {
 }
 
 function getAssignedNames(event: EventRow) {
-  return (event.assigned_sp_names || []).filter(Boolean);
+  return normalizeLearnerNames(event.assigned_sp_names || []);
 }
 
 function getUniqueAssignedSpIndexPool(assignedSpNames: string[]) {
   const seen = new Set<string>();
   return assignedSpNames.reduce<number[]>((indexes, name, index) => {
-    const key = asText(name).toLowerCase();
+    const key = normalizeDisplayText(name).toLowerCase();
     if (!key || seen.has(key)) return indexes;
     seen.add(key);
     indexes.push(index);
@@ -1409,17 +1410,17 @@ function assignUniquePrimarySpIndexes(
 }
 
 function getCaseLabelFromBuilderEvent(event: EventRow | null, caseName?: string | null) {
-  const explicit = asText(caseName);
+  const explicit = normalizeDisplayText(caseName);
   if (explicit) return explicit;
 
-  const noteMatch = asText(event?.notes).match(/(?:^|\n)(?:Case|Case Name|Station Case)\s*:\s*(.+?)(?:\n|$)/i);
-  const noteValue = asText(noteMatch?.[1]);
+  const noteMatch = normalizeDisplayText(event?.notes).match(/(?:^|\n)(?:Case|Case Name|Station Case)\s*:\s*(.+?)(?:\n|$)/i);
+  const noteValue = normalizeDisplayText(noteMatch?.[1]);
   if (noteValue) return noteValue;
 
   const parsedTraining = parseEventMetadata(event?.notes).training;
   const caseFileLabel =
-    asText(parsedTraining.case_name) ||
-    asText(parsedTraining.case_file_url).split("/").pop()?.replace(/\.[^.]+$/, "") ||
+    normalizeDisplayText(parsedTraining.case_name) ||
+    normalizeDisplayText(parsedTraining.case_file_url).split("/").pop()?.replace(/\.[^.]+$/, "") ||
     "";
   return caseFileLabel;
 }
@@ -2265,11 +2266,11 @@ function parseScheduleRoomAdjustments(raw: string | null): ParsedScheduleRoomAdj
           if (!Number.isFinite(slotIndex) || slotIndex < 0) return null;
 
           const learnerLabels = normalizeLearnerNames((slotEntry as { learnerLabels?: unknown }).learnerLabels || []);
-          const spName = asText((slotEntry as { spName?: unknown }).spName);
-          const backupSpName = asText((slotEntry as { backupSpName?: unknown }).backupSpName);
-          const caseLabel = asText((slotEntry as { caseLabel?: unknown }).caseLabel);
-          const roleLabel = asText((slotEntry as { roleLabel?: unknown }).roleLabel);
-          const notes = asText((slotEntry as { notes?: unknown }).notes);
+          const spName = normalizeDisplayText((slotEntry as { spName?: unknown }).spName);
+          const backupSpName = normalizeDisplayText((slotEntry as { backupSpName?: unknown }).backupSpName);
+          const caseLabel = normalizeDisplayText((slotEntry as { caseLabel?: unknown }).caseLabel);
+          const roleLabel = normalizeDisplayText((slotEntry as { roleLabel?: unknown }).roleLabel);
+          const notes = normalizeDisplayText((slotEntry as { notes?: unknown }).notes);
           return {
             slotIndex,
             learnerLabels,
@@ -2309,11 +2310,11 @@ function normalizeScheduleRoomAdjustments(value: ParsedScheduleRoomAdjustments) 
       slots
       .map((slot) => {
         const learnerLabels = normalizeLearnerNames(slot.learnerLabels || []);
-        const spName = asText(slot.spName);
-        const backupSpName = asText(slot.backupSpName);
-        const caseLabel = asText(slot.caseLabel);
-        const roleLabel = asText(slot.roleLabel);
-        const notes = asText(slot.notes);
+        const spName = normalizeDisplayText(slot.spName);
+        const backupSpName = normalizeDisplayText(slot.backupSpName);
+        const caseLabel = normalizeDisplayText(slot.caseLabel);
+        const roleLabel = normalizeDisplayText(slot.roleLabel);
+        const notes = normalizeDisplayText(slot.notes);
         return {
           slotIndex: slot.slotIndex,
           learnerLabels,
@@ -2351,21 +2352,21 @@ function serializeScheduleRoomAdjustments(value: ParsedScheduleRoomAdjustments) 
           .map((slot) => ({
             slotIndex: slot.slotIndex,
             learnerLabels: normalizeLearnerNames(slot.learnerLabels || []),
-            ...(asText(slot.spName) ? { spName: asText(slot.spName) } : {}),
-            ...(asText(slot.backupSpName) ? { backupSpName: asText(slot.backupSpName) } : {}),
-            ...(asText(slot.caseLabel) ? { caseLabel: asText(slot.caseLabel) } : {}),
-            ...(asText(slot.roleLabel) ? { roleLabel: asText(slot.roleLabel) } : {}),
-            ...(asText(slot.notes) ? { notes: asText(slot.notes) } : {}),
+            ...(normalizeDisplayText(slot.spName) ? { spName: normalizeDisplayText(slot.spName) } : {}),
+            ...(normalizeDisplayText(slot.backupSpName) ? { backupSpName: normalizeDisplayText(slot.backupSpName) } : {}),
+            ...(normalizeDisplayText(slot.caseLabel) ? { caseLabel: normalizeDisplayText(slot.caseLabel) } : {}),
+            ...(normalizeDisplayText(slot.roleLabel) ? { roleLabel: normalizeDisplayText(slot.roleLabel) } : {}),
+            ...(normalizeDisplayText(slot.notes) ? { notes: normalizeDisplayText(slot.notes) } : {}),
           })),
       }))
       .filter((entry) =>
         entry.slots.some((slot) =>
           slot.learnerLabels.length ||
-          asText(slot.spName) ||
-          asText(slot.backupSpName) ||
-          asText(slot.caseLabel) ||
-          asText(slot.roleLabel) ||
-          asText(slot.notes)
+          normalizeDisplayText(slot.spName) ||
+          normalizeDisplayText(slot.backupSpName) ||
+          normalizeDisplayText(slot.caseLabel) ||
+          normalizeDisplayText(slot.roleLabel) ||
+          normalizeDisplayText(slot.notes)
         )
       ),
   });
@@ -2393,11 +2394,11 @@ function upsertScheduleRoomAdjustmentSlot(
   const nextSlots = currentSlots.filter((slot) => slot.slotIndex !== slotIndex);
   if (
     merged.learnerLabels.length ||
-    asText(merged.spName) ||
-    asText(merged.backupSpName) ||
-    asText(merged.caseLabel) ||
-    asText(merged.roleLabel) ||
-    asText(merged.notes)
+    normalizeDisplayText(merged.spName) ||
+    normalizeDisplayText(merged.backupSpName) ||
+    normalizeDisplayText(merged.caseLabel) ||
+    normalizeDisplayText(merged.roleLabel) ||
+    normalizeDisplayText(merged.notes)
   ) {
     nextSlots.push(merged);
   }
@@ -2422,19 +2423,19 @@ function applyScheduleRoomAdjustments(
       );
       const nextLearners =
         overrides?.learnerLabels?.length ? normalizeLearnerNames(overrides.learnerLabels) : slot.learnerLabels;
-      const nextSpName = asText(overrides?.spName) || "";
+      const nextSpName = normalizeDisplayText(overrides?.spName);
       const matchedSpIndex = nextSpName
         ? assignedSpNames.findIndex((candidate) =>
-            (candidate || "").trim().toLowerCase() === nextSpName.trim().toLowerCase()
+            normalizeDisplayText(candidate).toLowerCase() === normalizeDisplayText(nextSpName).toLowerCase()
           )
         : -1;
       return {
         ...slot,
         learnerLabels: nextLearners,
-        caseLabel: asText(overrides?.caseLabel) || slot.caseLabel,
-        backupSpName: asText(overrides?.backupSpName) || slot.backupSpName,
-        roleLabel: asText(overrides?.roleLabel) || slot.roleLabel,
-        notes: asText(overrides?.notes) || slot.notes,
+        caseLabel: normalizeDisplayText(overrides?.caseLabel) || normalizeDisplayText(slot.caseLabel),
+        backupSpName: normalizeDisplayText(overrides?.backupSpName) || normalizeDisplayText(slot.backupSpName),
+        roleLabel: normalizeDisplayText(overrides?.roleLabel) || normalizeDisplayText(slot.roleLabel),
+        notes: normalizeDisplayText(overrides?.notes) || normalizeDisplayText(slot.notes),
         learnerIndexes: nextLearners.length
           ? nextLearners.map((value) => slot.learnerLabels.indexOf(value)).filter((value) => value >= 0)
           : [],
@@ -2540,7 +2541,9 @@ function buildSchedulePreviewData(args: {
   const includeOperationsContext = isOperations;
   const previewLabel = titleMap[kind];
   const getSlotSpName = (slot: ScheduledRoomSlot) =>
-    typeof slot.assignedSpIndex === "number" ? asText(assignedSpNames?.[slot.assignedSpIndex]) : "";
+    typeof slot.assignedSpIndex === "number"
+      ? normalizeDisplayText(assignedSpNames?.[slot.assignedSpIndex])
+      : "";
 
   if (kind === "timeline") {
     lines.push("EVENT FLOW");
@@ -2571,10 +2574,14 @@ function buildSchedulePreviewData(args: {
         if (isOperations) {
           const spName = getSlotSpName(slot) || "Unassigned";
           lines.push(`    SP: ${spName}`);
-          if (asText(slot.caseLabel) || caseName) lines.push(`    Case: ${asText(slot.caseLabel) || caseName}`);
-          if (asText(slot.backupSpName)) lines.push(`    Backup: ${asText(slot.backupSpName)}`);
-          if (asText(slot.roleLabel)) lines.push(`    Role: ${asText(slot.roleLabel)}`);
-          if (asText(slot.notes)) lines.push(`    Notes: ${asText(slot.notes)}`);
+          const normalizedCaseLabel = normalizeDisplayText(slot.caseLabel);
+          const normalizedBackupSpName = normalizeDisplayText(slot.backupSpName);
+          const normalizedRoleLabel = normalizeDisplayText(slot.roleLabel);
+          const normalizedNotes = normalizeDisplayText(slot.notes);
+          if (normalizedCaseLabel || caseName) lines.push(`    Case: ${normalizedCaseLabel || caseName}`);
+          if (normalizedBackupSpName) lines.push(`    Backup: ${normalizedBackupSpName}`);
+          if (normalizedRoleLabel) lines.push(`    Role: ${normalizedRoleLabel}`);
+          if (normalizedNotes) lines.push(`    Notes: ${normalizedNotes}`);
         }
       });
       lines.push("");
@@ -2615,10 +2622,14 @@ function buildSchedulePreviewData(args: {
         }
         if (includeOperationsContext) {
           lines.push(`    SP: ${getSlotSpName(slot) || "Unassigned SP"}`);
-          if (asText(slot.caseLabel) || caseName) lines.push(`    Case: ${asText(slot.caseLabel) || caseName}`);
-          if (asText(slot.backupSpName)) lines.push(`    Backup: ${asText(slot.backupSpName)}`);
-          if (asText(slot.roleLabel)) lines.push(`    Role: ${asText(slot.roleLabel)}`);
-          if (asText(slot.notes)) lines.push(`    Notes: ${asText(slot.notes)}`);
+          const normalizedCaseLabel = normalizeDisplayText(slot.caseLabel);
+          const normalizedBackupSpName = normalizeDisplayText(slot.backupSpName);
+          const normalizedRoleLabel = normalizeDisplayText(slot.roleLabel);
+          const normalizedNotes = normalizeDisplayText(slot.notes);
+          if (normalizedCaseLabel || caseName) lines.push(`    Case: ${normalizedCaseLabel || caseName}`);
+          if (normalizedBackupSpName) lines.push(`    Backup: ${normalizedBackupSpName}`);
+          if (normalizedRoleLabel) lines.push(`    Role: ${normalizedRoleLabel}`);
+          if (normalizedNotes) lines.push(`    Notes: ${normalizedNotes}`);
         }
       });
       lines.push("");
@@ -2824,7 +2835,10 @@ function buildSchedulePreviewData(args: {
                       .map((slot) => {
                         const learnerText = slot.learnerLabels.length ? slot.learnerLabels.join(", ") : "No learner assigned";
                         const spName = getSlotSpName(slot) || "Unassigned";
-                        const slotCaseName = asText(slot.caseLabel) || caseName;
+                        const slotCaseName = normalizeDisplayText(slot.caseLabel) || caseName;
+                        const backupSpName = normalizeDisplayText(slot.backupSpName);
+                        const roleLabel = normalizeDisplayText(slot.roleLabel);
+                        const notes = normalizeDisplayText(slot.notes);
 
                         return `
                           <td class="schedule-room-cell">
@@ -2850,18 +2864,18 @@ function buildSchedulePreviewData(args: {
                                   : ""
                               }
                               ${
-                                isOperations && asText(slot.backupSpName)
-                                  ? `<div><span class="detail-label">Backup</span><span class="detail-value">${escapeHtml(asText(slot.backupSpName))}</span></div>`
+                                isOperations && backupSpName
+                                  ? `<div><span class="detail-label">Backup</span><span class="detail-value">${escapeHtml(backupSpName)}</span></div>`
                                   : ""
                               }
                               ${
-                                isOperations && asText(slot.roleLabel)
-                                  ? `<div><span class="detail-label">Role</span><span class="detail-value">${escapeHtml(asText(slot.roleLabel))}</span></div>`
+                                isOperations && roleLabel
+                                  ? `<div><span class="detail-label">Role</span><span class="detail-value">${escapeHtml(roleLabel)}</span></div>`
                                   : ""
                               }
                               ${
-                                isOperations && asText(slot.notes)
-                                  ? `<div><span class="detail-label">Notes</span><span class="detail-value">${escapeHtml(asText(slot.notes))}</span></div>`
+                                isOperations && notes
+                                  ? `<div><span class="detail-label">Notes</span><span class="detail-value">${escapeHtml(notes)}</span></div>`
                                   : ""
                               }
                               <div><span class="detail-label">Seat</span><span class="detail-value">${escapeHtml(slot.capacityLabel)}</span></div>
@@ -3087,8 +3101,34 @@ function buildSchedulePreviewData(args: {
   };
 }
 
-function getStorageKey(eventId?: string) {
-  return `cfsp:schedule-builder:${eventId || "global"}`;
+function getStorageKey(eventId?: string, scheduleDay = 1, includeLegacy = false) {
+  if (scheduleDay <= 1 && includeLegacy) {
+    return `cfsp:schedule-builder:${eventId || "global"}`;
+  }
+  if (scheduleDay <= 1) return `cfsp:schedule-builder:${eventId || "global"}:day-1`;
+  return `cfsp:schedule-builder:${eventId || "global"}:day-${Math.max(1, scheduleDay)}`;
+}
+
+function parseScheduleBuilderDays(raw: string | null | undefined) {
+  const text = asText(raw);
+  if (!text) return new Map<number, ScheduleBuilderDraft>();
+
+  try {
+    const parsed = JSON.parse(text) as Record<string, string>;
+    if (!parsed || typeof parsed !== "object") return new Map<number, ScheduleBuilderDraft>();
+
+    const output = new Map<number, ScheduleBuilderDraft>();
+    Object.entries(parsed).forEach(([rawKey, encodedSnapshot]) => {
+      const day = Number.parseInt(rawKey, 10);
+      if (!Number.isFinite(day) || day <= 0 || typeof encodedSnapshot !== "string") return;
+      const snapshot = parseScheduleBuilderSnapshot(encodedSnapshot);
+      if (snapshot) output.set(day, snapshot);
+    });
+
+    return output;
+  } catch {
+    return new Map<number, ScheduleBuilderDraft>();
+  }
 }
 
 function parseSavedDraft(raw: string | null): ScheduleBuilderDraft | null {
@@ -3451,16 +3491,29 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     };
   }, []);
 
+  const scheduleDay = Number.isFinite(props.initialScheduleDay)
+    ? Math.max(1, Math.floor(props.initialScheduleDay as number))
+    : 1;
   const storageKey = useMemo(
-    () => getStorageKey(props.fixedEventId || selectedEventId || ""),
-    [props.fixedEventId, selectedEventId]
+    () =>
+      getStorageKey(
+        props.fixedEventId || selectedEventId || "",
+        scheduleDay,
+        scheduleDay <= 1
+      ),
+    [props.fixedEventId, selectedEventId, scheduleDay]
   );
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (!storageKey || hydratedDraftKeyRef.current === storageKey) return;
 
-    const savedDraft = parseSavedDraft(window.localStorage.getItem(storageKey));
+    const legacyStorageKey = getStorageKey(props.fixedEventId || selectedEventId || "", 1, true);
+    const savedDraft =
+      parseSavedDraft(window.localStorage.getItem(storageKey)) ||
+      (storageKey !== legacyStorageKey
+        ? parseSavedDraft(window.localStorage.getItem(legacyStorageKey))
+        : null);
     skipNextAutosaveRef.current = true;
     hydratedDraftKeyRef.current = storageKey;
 
@@ -3613,6 +3666,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     () => events.find((event) => event.id === selectedEventId) || null,
     [events, selectedEventId]
   );
+  const selectedEventMetadata = useMemo(
+    () => parseEventMetadata(selectedEvent?.notes).training,
+    [selectedEvent?.notes]
+  );
   const showCopyMessage = useCallback((message: string, tone: "success" | "error" = "success", timeoutMs = 2400) => {
     setCopyMessageTone(tone);
     setCopyMessage(message);
@@ -3620,6 +3677,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       window.setTimeout(() => setCopyMessage(""), timeoutMs);
     }
   }, []);
+  const scheduleBuilderDaySnapshots = useMemo(
+    () => parseScheduleBuilderDays(selectedEventMetadata.schedule_builder_days),
+    [selectedEventMetadata.schedule_builder_days]
+  );
 
   const persistScheduleWorkflowMetadata = useCallback(
     async (partial: Record<string, string>) => {
@@ -3668,18 +3729,30 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     const hydrationKey = `${storageKey}:${selectedEvent?.id || "none"}`;
     if (hydratedTimePrefillKeyRef.current === hydrationKey) return;
 
-    const metadata = parseEventMetadata(selectedEvent?.notes).training;
-    const serverSnapshot = parseScheduleBuilderSnapshot(metadata.schedule_builder_snapshot);
+    const serverSnapshotFromDay = scheduleBuilderDaySnapshots.get(scheduleDay) || null;
+    const inheritedDaySnapshot =
+      scheduleBuilderDaySnapshots.has(scheduleDay - 1) && scheduleDay > 1
+        ? scheduleBuilderDaySnapshots.get(scheduleDay - 1) || null
+        : null;
+    const fallbackLegacySnapshot = parseScheduleBuilderSnapshot(selectedEventMetadata.schedule_builder_snapshot);
+    const serverSnapshot =
+      serverSnapshotFromDay ||
+      inheritedDaySnapshot ||
+      fallbackLegacySnapshot;
     const completedSnapshot =
-      asText(metadata.schedule_status).toLowerCase() === "complete"
+      asText(selectedEventMetadata.schedule_status).toLowerCase() === "complete"
         ? serverSnapshot
         : null;
     const serverDraft =
       completedSnapshot ||
-      (serverSnapshot && asText(metadata.schedule_status).toLowerCase() === "in_progress"
+      (serverSnapshot && asText(selectedEventMetadata.schedule_status).toLowerCase() === "in_progress"
         ? serverSnapshot
         : null);
-    const savedDraft = parseSavedDraft(window.localStorage.getItem(storageKey));
+    const primaryStorageKey = getStorageKey(props.fixedEventId || selectedEventId || "", scheduleDay, scheduleDay <= 1);
+    const legacyStorageKey = getStorageKey(props.fixedEventId || selectedEventId || "", 1, true);
+    const savedDraft =
+      parseSavedDraft(window.localStorage.getItem(storageKey)) ||
+      (primaryStorageKey !== legacyStorageKey ? parseSavedDraft(window.localStorage.getItem(legacyStorageKey)) : null);
     const sourceDraft = serverDraft || savedDraft;
     const nextTimeSource = completedSnapshot
       ? {
@@ -3734,12 +3807,18 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         blockedFallback: Boolean(serverDraft || completedSnapshot),
       }
     );
-  }, [applyDraft, selectedEvent, selectedEventId, storageKey]);
+    }, [
+      applyDraft,
+      selectedEvent,
+      selectedEventId,
+      props.fixedEventId,
+      scheduleBuilderDaySnapshots,
+      scheduleDay,
+      storageKey,
+      selectedEventMetadata.schedule_builder_snapshot,
+      selectedEventMetadata.schedule_status,
+    ]);
 
-  const selectedEventMetadata = useMemo(
-    () => parseEventMetadata(selectedEvent?.notes).training,
-    [selectedEvent?.notes]
-  );
   const caseRotationFeatureFlag = useMemo(() => {
     const raw = asText(selectedEventMetadata.case_rotation_required).toLowerCase();
     if (raw === "yes" || raw === "true" || raw === "1") return true;
@@ -4152,6 +4231,19 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const buildScheduleWorkflowPartial = useCallback(
     (now: string, statusOverride?: "complete" | "in_progress") => {
       const nextStatus = statusOverride || (scheduleWorkflowStatus === "complete" ? "complete" : "in_progress");
+      const nextDays = new Map(scheduleBuilderDaySnapshots);
+      nextDays.set(
+        scheduleDay,
+        {
+          ...draftSnapshot,
+          savedAt: now,
+        }
+      );
+      const nextDaysRecord = Object.fromEntries(
+        Array.from(nextDays.entries())
+          .sort(([a], [b]) => a - b)
+          .map(([day, snapshot]) => [String(day), encodeScheduleBuilderSnapshot(snapshot)])
+      );
       return {
         schedule_status: nextStatus,
         rotation_schedule_status: nextStatus === "complete" ? "complete" : "built",
@@ -4166,15 +4258,18 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
           uploadedLearners.length ? uploadedLearners : originalUploadedLearners
         ),
         schedule_builder_snapshot: encodeScheduleBuilderSnapshot({ ...draftSnapshot, savedAt: now }),
+        schedule_builder_days: JSON.stringify(nextDaysRecord),
         schedule_preview_enabled_for_sps: selectedEventMetadata.schedule_preview_enabled_for_sps || "no",
       };
     },
     [
       draftSnapshot,
       effectiveRoundCount,
+      scheduleBuilderDaySnapshots,
       learnerRoster.length,
       originalUploadedLearners,
       parsedRoomCapacity,
+      scheduleDay,
       scheduleWorkflowStatus,
       selectedEventMetadata.schedule_preview_enabled_for_sps,
       selectedEventMetadata.schedule_started_at,
@@ -4558,17 +4653,17 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       const backupRoomsByName = new Map<string, string[]>();
       let activeRoomCount = 0;
       round.roomSlots.forEach((slot, slotIndex) => {
-        const caseLabel = asText(slot.caseLabel);
+        const caseLabel = normalizeDisplayText(slot.caseLabel);
         const isActiveRoom = isActiveScheduleSlot(slot, !multipleCasesEnabled);
         if (isActiveRoom) activeRoomCount += 1;
-        const spName = typeof slot.assignedSpIndex === "number" ? asText(assignedNames[slot.assignedSpIndex]) : "";
+        const spName = typeof slot.assignedSpIndex === "number" ? normalizeDisplayText(assignedNames[slot.assignedSpIndex]) : "";
         const roomLabel = slot.roomName || `Room ${slotIndex + 1}`;
         if (spName && isActiveRoom) {
           const existing = spRoomsByName.get(spName) || [];
           existing.push(roomLabel);
           spRoomsByName.set(spName, existing);
         }
-        const backupSpName = asText(slot.backupSpName);
+        const backupSpName = normalizeDisplayText(slot.backupSpName);
         if (backupSpName && isActiveRoom) {
           const existing = backupRoomsByName.get(backupSpName) || [];
           existing.push(roomLabel);
@@ -5215,6 +5310,15 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
           uploadedLearners.length ? uploadedLearners : originalUploadedLearners
         ),
         schedule_builder_snapshot: encodeScheduleBuilderSnapshot(completedSnapshot),
+        schedule_builder_days: JSON.stringify(
+          Object.fromEntries(
+            Array.from(
+              new Map(scheduleBuilderDaySnapshots).set(scheduleDay, completedSnapshot).entries()
+            )
+              .sort(([a], [b]) => a - b)
+              .map(([day, snapshot]) => [String(day), encodeScheduleBuilderSnapshot(snapshot)])
+          )
+        ),
         schedule_preview_enabled_for_sps: selectedEventMetadata.schedule_preview_enabled_for_sps || "no",
       });
       if (typeof window !== "undefined") {
@@ -6037,8 +6141,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                           <input
                             className="cfsp-input"
                             defaultValue={
-                              roomAdjustments.roundsByNumber.get(1)?.find((slot) => slot.slotIndex === caseIndex)?.spName ||
-                              selectedEvent?.assigned_sp_names?.[caseIndex] ||
+                              normalizeDisplayText(
+                                roomAdjustments.roundsByNumber.get(1)?.find((slot) => slot.slotIndex === caseIndex)?.spName ||
+                                  selectedEvent?.assigned_sp_names?.[caseIndex]
+                              ) ||
                               ""
                             }
                             onBlur={(event) => void handleSaveCaseStationOverride(caseIndex, { spName: event.target.value, caseLabel: caseDef.name })}
@@ -6049,7 +6155,9 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                           <span className="cfsp-label">Role / portrayal</span>
                           <input
                             className="cfsp-input"
-                            defaultValue={roomAdjustments.roundsByNumber.get(1)?.find((slot) => slot.slotIndex === caseIndex)?.roleLabel || ""}
+                            defaultValue={normalizeDisplayText(
+                              roomAdjustments.roundsByNumber.get(1)?.find((slot) => slot.slotIndex === caseIndex)?.roleLabel
+                            )}
                             onBlur={(event) => void handleSaveCaseStationOverride(caseIndex, { roleLabel: event.target.value, caseLabel: caseDef.name })}
                             placeholder="Patient, nurse, family..."
                           />
@@ -6843,10 +6951,21 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                                 </div>
                                 {scheduleViewMode === "operations" ? (
                                   <div style={{ marginTop: "6px", fontSize: "12px", fontWeight: 700, color: "#4f677d", lineHeight: 1.5 }}>
-                                    <div>SP: {typeof slot.assignedSpIndex === "number" ? selectedEvent?.assigned_sp_names?.[slot.assignedSpIndex] || "Unassigned SP" : "Unassigned SP"}</div>
-                                    {slot.backupSpName ? <div><strong>Backup:</strong> {slot.backupSpName}</div> : <div style={{ opacity: 0.72 }}>No backup assigned</div>}
-                                    <div>Case: {slot.caseLabel || selectedEventEncounterLabel || "Case not assigned"}</div>
-                                    <div>Role: {slot.roleLabel || "Role TBD"}</div>
+                                    <div>
+                                      SP:{" "}
+                                      {typeof slot.assignedSpIndex === "number"
+                                        ? normalizeDisplayText(selectedEvent?.assigned_sp_names?.[slot.assignedSpIndex]) || "Unassigned SP"
+                                        : "Unassigned SP"}
+                                    </div>
+                                    {normalizeDisplayText(slot.backupSpName) ? (
+                                      <div>
+                                        <strong>Backup:</strong> {normalizeDisplayText(slot.backupSpName)}
+                                      </div>
+                                    ) : (
+                                      <div style={{ opacity: 0.72 }}>No backup assigned</div>
+                                    )}
+                                    <div>Case: {normalizeDisplayText(slot.caseLabel) || selectedEventEncounterLabel || "Case not assigned"}</div>
+                                    <div>Role: {normalizeDisplayText(slot.roleLabel) || "Role TBD"}</div>
                                   </div>
                                 ) : null}
                                 <div style={{ marginTop: "8px", display: "grid", gap: "6px" }}>

@@ -372,6 +372,19 @@ function parseHiddenRelatedIds(value: string | null | undefined) {
   );
 }
 
+function parseConfirmedRelatedIds(value: string | null | undefined) {
+  return new Set(
+    Array.from(
+      new Set(
+        asText(value)
+          .split(/[,;\n]/g)
+          .map((entry) => asText(entry))
+          .filter(Boolean)
+      )
+    )
+  );
+}
+
 function normalizeSourceBatchKey(metadata: ReturnType<typeof parseTrainingEventMetadata>) {
   const linkedId = asText(metadata.linked_event_id);
   const signalType = asText(metadata.signal_type);
@@ -597,6 +610,9 @@ async function loadRelatedOperationalEvents(
   sourceEvent: RelatedEventRow
 ) {
   const sourceSignals = getEventFamilySignals(sourceEvent);
+  const confirmedRelatedIds = parseConfirmedRelatedIds(
+    parseTrainingEventMetadata(sourceEvent.notes).related_events_confirmed
+  );
   const hiddenRelatedIds = new Set(
     parseHiddenRelatedIds(
       parseTrainingEventMetadata(sourceEvent.notes).related_events_hidden
@@ -620,6 +636,7 @@ async function loadRelatedOperationalEvents(
 
       const kind = classifyRelatedEventNode(candidate);
       const metadata = parseTrainingEventMetadata(candidate.notes);
+      const confidence = assessment.matchConfidence;
       return {
         id: candidate.id,
         name: candidate.name,
@@ -629,7 +646,7 @@ async function loadRelatedOperationalEvents(
         match_reason: assessment.matchReason,
         match_confidence: assessment.matchConfidence,
         kind,
-        exact_course_match: true,
+        isConfirmed: confirmedRelatedIds.has(candidate.id),
         relationship:
           kind === "training"
             ? "Training"
@@ -639,6 +656,7 @@ async function loadRelatedOperationalEvents(
                 ? "Related virtual session"
                 : "Simulation date",
         trainingMetadata: kind === "training" ? metadata : null,
+        exact_course_match: confidence === "exact_course",
       };
     })
     .filter((event): event is NonNullable<typeof event> => Boolean(event))

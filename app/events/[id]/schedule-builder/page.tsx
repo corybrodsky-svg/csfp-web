@@ -14,6 +14,11 @@ function getInitialRoundNumber(raw: string | null) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
+function getInitialScheduleDay(raw: string | null) {
+  const parsed = Number.parseInt(raw || "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
 function getInitialScheduleView(raw: string | null) {
   return raw === "student" ? "student" : "operations";
 }
@@ -53,6 +58,7 @@ export default function EventScopedScheduleBuilderPage() {
   const initialCompanionView = getInitialCompanionView(searchParams.get("view"));
   const initialScheduleViewMode = getInitialScheduleView(searchParams.get("view"));
   const initialPreviewKind = getInitialPreviewKind(searchParams.get("preview"));
+  const initialScheduleDay = getInitialScheduleDay(searchParams.get("day") || searchParams.get("scheduleDay"));
   const previewFamily = getPreviewFamily(searchParams.get("previewFamily"));
   const previewOnly = searchParams.get("previewMode") === "1";
   const autoDownload = searchParams.get("downloadMode") === "1";
@@ -67,6 +73,7 @@ export default function EventScopedScheduleBuilderPage() {
         initialCompanionView={initialCompanionView}
         initialScheduleViewMode={initialScheduleViewMode}
         initialPreviewKind={initialPreviewKind}
+        initialScheduleDay={initialScheduleDay}
         previewFamily={previewFamily}
         previewOnly
         autoDownload={autoDownload}
@@ -89,6 +96,7 @@ export default function EventScopedScheduleBuilderPage() {
         initialCompanionView={initialCompanionView}
         initialScheduleViewMode={initialScheduleViewMode}
         initialPreviewKind={initialPreviewKind}
+        initialScheduleDay={initialScheduleDay}
         previewFamily={previewFamily}
       />
     </SiteShell>
