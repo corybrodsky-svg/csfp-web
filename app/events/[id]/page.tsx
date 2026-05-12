@@ -10632,25 +10632,47 @@ Cory`;
     rowBorder: isPlanningVisualMode ? "1px solid rgba(76, 120, 148, 0.28)" : "1px solid rgba(226, 232, 240, 0.24)",
   } as const;
   const commandFileCabinetVisual = {
-    shellBackground:
-      "radial-gradient(circle at 18% 0%, rgba(126, 231, 219, 0.16), transparent 34%), radial-gradient(circle at 86% 12%, rgba(20, 91, 150, 0.12), transparent 32%), linear-gradient(135deg, rgba(248, 252, 255, 0.96) 0%, rgba(236, 247, 250, 0.94) 52%, rgba(242, 246, 255, 0.92) 100%)",
-    shellBorder: "1px solid rgba(95, 140, 168, 0.2)",
-    shellShadow: "0 18px 36px rgba(15, 56, 86, 0.1), inset 0 1px 0 rgba(255,255,255,0.7)",
-    topRule: "1px solid rgba(99, 181, 217, 0.14)",
-    titleColor: "#102d44",
-    eyebrowColor: "#12617f",
-    detailColor: "#4d6678",
-    cardBackground:
-      "linear-gradient(180deg, rgba(255,255,255,0.78) 0%, rgba(245, 250, 253, 0.86) 100%)",
-    cardBorder: "1px solid rgba(96, 137, 164, 0.18)",
-    cardShadow: "0 14px 28px rgba(20, 65, 95, 0.08), inset 0 1px 0 rgba(255,255,255,0.78)",
-    rowBackground: "rgba(255,255,255,0.62)",
-    rowBorder: "1px solid rgba(96, 137, 164, 0.14)",
-    iconBackground: "linear-gradient(135deg, rgba(255,255,255,0.92) 0%, rgba(235, 248, 251, 0.84) 100%)",
-    iconShadow: "0 8px 18px rgba(20, 91, 150, 0.08), inset 0 1px 0 rgba(255,255,255,0.84)",
-    moduleTextColor: "#122f46",
-    moduleMetaColor: "#496678",
-    moduleLabelColor: "#57768a",
+    shellBackground: isPlanningVisualMode
+      ? "radial-gradient(circle at 18% 0%, rgba(126, 231, 219, 0.16), transparent 34%), radial-gradient(circle at 86% 12%, rgba(20, 91, 150, 0.12), transparent 32%), linear-gradient(135deg, rgba(248, 252, 255, 0.96) 0%, rgba(236, 247, 250, 0.94) 52%, rgba(242, 246, 255, 0.92) 100%)"
+      : "linear-gradient(145deg, rgba(18, 28, 46, 0.98) 0%, rgba(16, 20, 34, 0.95) 46%, rgba(26, 15, 37, 0.92) 100%), radial-gradient(circle at 18% -10%, rgba(234, 179, 8, 0.2), transparent 40%), radial-gradient(circle at 84% 108%, rgba(126, 90, 255, 0.26), transparent 44%)",
+    shellBorder: isPlanningVisualMode ? "1px solid rgba(95, 140, 168, 0.2)" : "1px solid rgba(178, 132, 255, 0.35)",
+    shellShadow: isPlanningVisualMode
+      ? "0 18px 36px rgba(15, 56, 86, 0.1), inset 0 1px 0 rgba(255,255,255,0.7)"
+      : "0 22px 48px rgba(4, 6, 17, 0.52), 0 0 0 1px rgba(139, 92, 246, 0.16)",
+    topRule: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.14)" : "1px solid rgba(167, 139, 250, 0.2)",
+    titleColor: isPlanningVisualMode ? "#102d44" : "#f8fbff",
+    eyebrowColor: isPlanningVisualMode ? "#12617f" : "#7bcce0",
+    detailColor: isPlanningVisualMode ? "#4d6678" : "#cbd5e1",
+    cardBackground: isPlanningVisualMode
+      ? "linear-gradient(180deg, rgba(255,255,255,0.78) 0%, rgba(245, 250, 253, 0.86) 100%)"
+      : "linear-gradient(160deg, rgba(22, 30, 54, 0.98) 0%, rgba(21, 27, 46, 0.92) 44%, rgba(31, 23, 52, 0.9) 100%)",
+    cardBorder: isPlanningVisualMode ? "1px solid rgba(96, 137, 164, 0.18)" : "1px solid rgba(129, 140, 248, 0.24)",
+    cardShadow: isPlanningVisualMode
+      ? "0 14px 28px rgba(20, 65, 95, 0.08), inset 0 1px 0 rgba(255,255,255,0.78)"
+      : "0 22px 36px rgba(3, 7, 18, 0.42), inset 0 1px 0 rgba(255,255,255,0.06)",
+    rowBackground: isPlanningVisualMode ? "rgba(255,255,255,0.62)" : "rgba(15, 23, 42, 0.8)",
+    rowBorder: isPlanningVisualMode ? "1px solid rgba(96, 137, 164, 0.14)" : "1px solid rgba(148, 163, 184, 0.24)",
+    iconBackground: isPlanningVisualMode
+      ? "linear-gradient(135deg, rgba(255,255,255,0.92) 0%, rgba(235, 248, 251, 0.84) 100%)"
+      : "linear-gradient(135deg, rgba(31, 41, 55, 0.96) 0%, rgba(30, 41, 59, 0.96) 100%)",
+    iconShadow: isPlanningVisualMode
+      ? "0 8px 18px rgba(20, 91, 150, 0.08), inset 0 1px 0 rgba(255,255,255,0.84)"
+      : "0 12px 24px rgba(30, 27, 75, 0.35), inset 0 1px 0 rgba(255,255,255,0.06)",
+    moduleTextColor: isPlanningVisualMode ? "#122f46" : "#ecedff",
+    moduleMetaColor: isPlanningVisualMode ? "#496678" : "#a6adc8",
+    moduleLabelColor: isPlanningVisualMode ? "#57768a" : "#94a3b8",
+    moduleReadyGlow: "rgba(250, 204, 21, 0.44)",
+    moduleCompleteGlow: "rgba(16, 185, 129, 0.48)",
+    moduleMissingGlow: "rgba(244, 63, 94, 0.34)",
+    railGlow: isPlanningVisualMode ? "rgba(20, 91, 150, 0.18)" : "rgba(167, 139, 250, 0.36)",
+    readyBadgePulse: isPlanningVisualMode ? "rgba(25, 138, 112, 0.24)" : "rgba(34, 197, 94, 0.22)",
+    readyBadgeText: isPlanningVisualMode ? "#0f766e" : "#d1fae5",
+    missingBadgeBg: isPlanningVisualMode ? "rgba(237, 233, 254, 0.64)" : "rgba(244, 63, 94, 0.16)",
+    missingBadgeBorder: isPlanningVisualMode ? "rgba(20, 91, 150, 0.16)" : "rgba(248, 113, 113, 0.26)",
+    missingBadgeText: isPlanningVisualMode ? "#5b21b6" : "#fecdd3",
+    moduleMissingBg: isPlanningVisualMode ? "linear-gradient(180deg, rgba(241, 245, 249, 0.78) 0%, rgba(248, 250, 252, 0.73) 100%)" : "linear-gradient(180deg, rgba(30, 41, 55, 0.98) 0%, rgba(17, 24, 39, 0.96) 100%)",
+    commandRailText: isPlanningVisualMode ? "#f8fbff" : "#dbeafe",
+    commandRailGlow: isPlanningVisualMode ? "rgba(99, 181, 217, 0.22)" : "rgba(165, 180, 252, 0.22)",
   } as const;
   const commandFileCabinetModuleStatuses = [
     uploadedCaseFileCount ? "available" : caseFileCount ? "draft" : "missing",
@@ -10672,6 +10694,7 @@ Cory`;
   const commandFileCabinetReadyCount =
     commandFileCabinetStatusCounts.complete + commandFileCabinetStatusCounts.available;
   const commandFileCabinetSummaryLabel = `${commandFileCabinetReadyCount}/${commandFileCabinetModuleStatuses.length} modules ready`;
+  const commandFileCabinetFullyReady = commandFileCabinetReadyCount === commandFileCabinetModuleStatuses.length;
   function handleCommandFileCabinetExpandedChange(nextExpanded: boolean) {
     setCommandFileCabinetExpanded(nextExpanded);
     if (typeof window !== "undefined" && id) {
@@ -20834,7 +20857,9 @@ Cory`;
                     </div>
                   ))}
 
-                  <div
+                    <div
+                    aria-label="Simulation Command File Cabinet"
+                    className={`cfsp-command-cabinet-shell ${commandFileCabinetExpanded ? "is-open" : ""}`}
                     style={{
                       borderTop: commandFileCabinetVisual.topRule,
                       borderRadius: "20px",
@@ -20846,8 +20871,114 @@ Cory`;
                       gap: "12px",
                       position: "relative",
                       overflow: "hidden",
+                      animation: "cfspCabinetPulse 4.2s ease-in-out infinite",
                     }}
                   >
+                    <style>{`
+                      @keyframes cfspCabinetSweep {
+                        0% { transform: translateX(-36%); }
+                        50% { transform: translateX(58%); }
+                        100% { transform: translateX(-36%); }
+                      }
+                      @keyframes cfspCabinetPulse {
+                        0%, 100% { box-shadow: ${commandFileCabinetVisual.shellShadow}; }
+                        50% { box-shadow: 0 22px 52px rgba(4, 6, 17, 0.38), 0 0 0 1px ${commandFileCabinetVisual.railGlow}; }
+                      }
+                      @keyframes cfspReadyBeacon {
+                        0%, 100% { opacity: 0.88; transform: translateY(0px); }
+                        50% { opacity: 1; transform: translateY(-1px); }
+                      }
+                      @keyframes cfspModuleSheen {
+                        0% { transform: translateX(-120%); }
+                        100% { transform: translateX(130%); }
+                      }
+                      @keyframes cfspFloat {
+                        0%, 100% { transform: translateY(0px); }
+                        50% { transform: translateY(-1.2px); }
+                      }
+                      .cfsp-command-cabinet-shell::after {
+                        content: "";
+                        position: absolute;
+                        inset: -30% auto auto -16%;
+                        height: 80%;
+                        width: 44%;
+                        pointer-events: none;
+                        background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.38) 45%, rgba(234,179,8,0.14) 72%, transparent 100%);
+                        mix-blend-mode: screen;
+                        opacity: 0.18;
+                        filter: blur(1.2px);
+                        animation: cfspCabinetSweep 7s ease-in-out infinite;
+                        border-radius: 100%;
+                        transform: rotate(-18deg);
+                      }
+                      .cfsp-command-cabinet-shell.is-open {
+                        box-shadow: ${commandFileCabinetVisual.shellShadow};
+                      }
+                      .cfsp-cabinet-rack-glow {
+                        position: absolute;
+                        inset: 0;
+                        border: 1px solid ${commandFileCabinetVisual.railGlow};
+                        border-radius: 20px;
+                        pointer-events: none;
+                        box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06), inset 0 0 26px ${commandFileCabinetVisual.railGlow};
+                      }
+                      .cfsp-module-ready {
+                        border-color: ${commandFileCabinetVisual.moduleReadyGlow} !important;
+                        box-shadow: 0 12px 28px rgba(245, 158, 11, 0.2) !important;
+                      }
+                      .cfsp-module-ready::after {
+                        content: "";
+                        position: absolute;
+                        inset: 0;
+                        pointer-events: none;
+                        background: linear-gradient(110deg, transparent 35%, rgba(255,255,255,0.2) 52%, transparent 66%);
+                        animation: cfspModuleSheen 5.5s ease-in-out infinite;
+                        transform: translateX(-150%);
+                      }
+                      .cfsp-module-complete {
+                        border-color: ${commandFileCabinetVisual.moduleCompleteGlow} !important;
+                        box-shadow: 0 10px 26px rgba(16, 185, 129, 0.22) !important;
+                      }
+                      .cfsp-module-complete::after,
+                      .cfsp-module-ready::after {
+                        animation-duration: 5.7s;
+                      }
+                      .cfsp-module-missing {
+                        border-color: ${commandFileCabinetVisual.moduleMissingGlow} !important;
+                        filter: saturate(0.96);
+                      }
+                      .cfsp-button-tactical {
+                        transition: transform 180ms ease, box-shadow 180ms ease, filter 180ms ease !important;
+                      }
+                      .cfsp-button-tactical:hover {
+                        transform: translateY(-1px);
+                        box-shadow: 0 10px 18px rgba(15, 23, 42, 0.22);
+                        filter: brightness(1.06);
+                      }
+                      .cfsp-button-tactical:active {
+                        transform: translateY(0px);
+                        box-shadow: inset 0 0 0 1px rgba(255,255,255,0.25);
+                      }
+                      .cfsp-rail-label {
+                        letter-spacing: 0.07em;
+                        font-size: 0.66rem;
+                        text-transform: uppercase;
+                        color: ${commandFileCabinetVisual.commandRailText};
+                      }
+                      .cfsp-file-cabinet-rail {
+                        background: linear-gradient(90deg, rgba(2,6,23,0.85) 0%, rgba(17,24,39,0.86) 100%);
+                        border-top: 1px solid ${commandFileCabinetVisual.commandRailGlow};
+                        border-bottom: 1px solid ${commandFileCabinetVisual.commandRailGlow};
+                      }
+                      .cfsp-command-ready-chip {
+                        animation: cfspReadyBeacon 2.2s ease-in-out infinite;
+                      }
+                      .cfsp-cabinet-module-card:hover {
+                        transform: translateY(-2px) !important;
+                        box-shadow: 0 20px 36px rgba(2, 6, 23, 0.45) !important;
+                      }
+                    `}</style>
+                    <div className="cfsp-cabinet-rack-glow" aria-hidden="true" />
                     <div
                       aria-hidden="true"
                       style={{
@@ -20861,10 +20992,15 @@ Cory`;
                       }}
                     />
                     <div style={{ position: "relative", display: "grid", gap: "12px" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "flex-start" }}>
+                    <div className="cfsp-command-cabinet-header" style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "flex-start" }}>
                       <div>
-                        <div style={{ ...statLabel, color: commandFileCabinetVisual.eyebrowColor }}>Simulation Command File Cabinet</div>
-                        <div style={{ marginTop: "4px", color: commandFileCabinetVisual.titleColor, fontWeight: 950, fontSize: "18px", letterSpacing: "0.01em" }}>
+                        <div style={{ ...statLabel, color: commandFileCabinetVisual.eyebrowColor }} className="cfsp-rail-label">
+                          Simulation Command File Cabinet
+                        </div>
+                        <div
+                          style={{ marginTop: "4px", color: commandFileCabinetVisual.titleColor, fontWeight: 950, fontSize: "18px", letterSpacing: "0.01em" }}
+                          className="cfsp-rail-label"
+                        >
                           Simulation Command File Cabinet
                         </div>
                         <div style={{ marginTop: "4px", color: commandFileCabinetVisual.detailColor, fontSize: "12px", fontWeight: 750, lineHeight: 1.45, maxWidth: "680px" }}>
@@ -20872,21 +21008,46 @@ Cory`;
                         </div>
                       </div>
                       <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center", justifyContent: "flex-end" }}>
-                        <span style={{ ...commandChipStyle, background: "rgba(25, 138, 112, 0.12)", border: "1px solid rgba(25, 138, 112, 0.2)", color: "#0f766e" }}>
+                        <span
+                          className={commandFileCabinetFullyReady ? "cfsp-command-ready-chip" : ""}
+                          style={{
+                            ...commandChipStyle,
+                            background: commandFileCabinetVisual.readyBadgePulse,
+                            border: `1px solid ${commandFileCabinetVisual.railGlow}`,
+                            color: commandFileCabinetVisual.readyBadgeText,
+                          }}
+                        >
                           {commandFileCabinetSummaryLabel}
                         </span>
-                        <span style={{ ...commandChipStyle, background: commandFileCabinetStatusCounts.missing ? "rgba(237, 233, 254, 0.64)" : "rgba(232, 244, 255, 0.72)", border: "1px solid rgba(20, 91, 150, 0.16)", color: commandFileCabinetStatusCounts.missing ? "#5b21b6" : "#145b96" }}>
+                        <span
+                          style={{
+                            ...commandChipStyle,
+                            background: commandFileCabinetStatusCounts.missing
+                              ? commandFileCabinetVisual.missingBadgeBg
+                              : "rgba(232, 244, 255, 0.72)",
+                            border: `1px solid ${commandFileCabinetStatusCounts.missing ? commandFileCabinetVisual.missingBadgeBorder : "rgba(20, 91, 150, 0.16)"}`,
+                            color: commandFileCabinetStatusCounts.missing
+                              ? commandFileCabinetVisual.missingBadgeText
+                              : "#145b96",
+                          }}
+                        >
                           {commandFileCabinetStatusCounts.missing} missing
                         </span>
                         <button
                           type="button"
                           onClick={() => handleCommandFileCabinetExpandedChange(!commandFileCabinetExpanded)}
-                          style={{ ...buttonStyle, padding: "7px 10px" }}
+                          className="cfsp-button-tactical"
+                          style={{ ...buttonStyle, padding: "7px 10px", background: "rgba(255,255,255,0.9)" }}
                           aria-expanded={commandFileCabinetExpanded}
                         >
                           {commandFileCabinetExpanded ? "Collapse" : "Expand"}
                         </button>
-                        <button type="button" onClick={scrollToAdminTools} style={{ ...buttonStyle, padding: "7px 10px", background: "rgba(255,255,255,0.72)", border: "1px solid rgba(20, 91, 150, 0.14)" }}>
+                        <button
+                          type="button"
+                          onClick={scrollToAdminTools}
+                          className="cfsp-button-tactical"
+                          style={{ ...buttonStyle, padding: "7px 10px", background: "rgba(255,255,255,0.72)", border: "1px solid rgba(20, 91, 150, 0.14)" }}
+                        >
                           Admin Tools
                         </button>
                       </div>
@@ -20907,14 +21068,15 @@ Cory`;
                       <div
                         style={{
                           borderRadius: "16px",
-                          border: "1px solid rgba(96, 137, 164, 0.14)",
-                          background: "rgba(255,255,255,0.62)",
+                          border: isPlanningVisualMode ? "1px solid rgba(96, 137, 164, 0.14)" : `1px solid ${commandFileCabinetVisual.railGlow}`,
+                          background: isPlanningVisualMode ? "rgba(255,255,255,0.62)" : "rgba(15, 23, 42, 0.5)",
                           padding: "10px 11px",
                           display: "flex",
                           gap: "8px",
                           flexWrap: "wrap",
                           justifyContent: "space-between",
                           alignItems: "center",
+                          boxShadow: isPlanningVisualMode ? undefined : "0 10px 22px rgba(2, 6, 23, 0.3)",
                         }}
                       >
                         <div style={{ color: commandFileCabinetVisual.moduleMetaColor, fontSize: "12px", fontWeight: 800 }}>
@@ -20922,13 +21084,19 @@ Cory`;
                         </div>
                         <div style={{ display: "flex", gap: "7px", flexWrap: "wrap" }}>
                           {!uploadedCaseFileCount ? (
-                            <button type="button" onClick={() => openCaseFilePicker({ mode: "add" })} style={{ ...buttonStyle, padding: "6px 9px" }}>
+                            <button
+                              type="button"
+                              onClick={() => openCaseFilePicker({ mode: "add" })}
+                              className="cfsp-button-tactical"
+                              style={{ ...buttonStyle, padding: "6px 9px" }}
+                            >
                               Upload Case
                             </button>
                           ) : null}
                           <button
                             type="button"
                             onClick={() => handleOpenEventScheduleRouteInNewTab("operations", "schedule")}
+                            className="cfsp-button-tactical"
                             style={{ ...buttonStyle, padding: "6px 9px" }}
                           >
                             Open Schedule
@@ -20936,6 +21104,7 @@ Cory`;
                           {canEditSchedule ? (
                             <Link
                               href={expandedScheduleBuilderHref}
+                              className="cfsp-button-tactical"
                               style={{ ...buttonStyle, padding: "6px 9px", textDecoration: "none", display: "inline-flex", alignItems: "center" }}
                             >
                               Edit Schedule
@@ -21008,6 +21177,7 @@ Cory`;
                                             type="button"
                                             onClick={() => openCaseFilePreview(caseEntry)}
                                             disabled={!caseEntry.url && !caseEntry.storagePath}
+                                            className="cfsp-button-tactical"
                                             style={{ ...buttonStyle, padding: "5px 8px", fontSize: "11px", opacity: caseEntry.url || caseEntry.storagePath ? 1 : 0.55 }}
                                           >
                                             Preview
@@ -21017,6 +21187,7 @@ Cory`;
                                               href={assetUrls.downloadUrl}
                                               target="_blank"
                                               rel="noreferrer"
+                                              className="cfsp-button-tactical"
                                               download={assetUrls.fileName}
                                               style={{
                                                 ...buttonStyle,
@@ -21034,6 +21205,7 @@ Cory`;
                                             type="button"
                                             onClick={() => openCaseFilePicker({ mode: "replace", index: caseIndex })}
                                             disabled={trainingMaterialSaving.case_file}
+                                            className="cfsp-button-tactical"
                                             style={{ ...buttonStyle, padding: "5px 8px", fontSize: "11px", opacity: trainingMaterialSaving.case_file ? 0.65 : 1 }}
                                           >
                                             Replace
@@ -21042,6 +21214,7 @@ Cory`;
                                             type="button"
                                             onClick={() => void handleRemoveCaseFile(caseIndex)}
                                             disabled={trainingMaterialSaving.case_file}
+                                            className="cfsp-button-tactical"
                                             style={{ ...dangerButtonStyle, padding: "5px 8px", fontSize: "11px", opacity: trainingMaterialSaving.case_file ? 0.65 : 1 }}
                                           >
                                             Remove
@@ -21056,10 +21229,11 @@ Cory`;
                                   No cases uploaded. Load the first case packet for this event.
                                 </span>
                               )}
-                              <button
+                            <button
                                 type="button"
                                 onClick={() => openCaseFilePicker(uploadedCaseFileCount ? { mode: "add" } : { mode: "replace", index: 0 })}
                                 disabled={trainingMaterialSaving.case_file}
+                                className="cfsp-button-tactical"
                                 style={{ ...buttonStyle, padding: "6px 9px", opacity: trainingMaterialSaving.case_file ? 0.65 : 1 }}
                               >
                                 {uploadedCaseFileCount ? "Add Another Case" : "Upload Case"}
@@ -21082,9 +21256,10 @@ Cory`;
                           ].filter(Boolean),
                           actions: (
                             <>
-                              <button
+                            <button
                                 type="button"
                                 onClick={() => handleOpenEventScheduleRouteInNewTab("operations", "schedule")}
+                                className="cfsp-button-tactical"
                                 style={{ ...buttonStyle, padding: "6px 9px" }}
                               >
                                 Open Schedule
@@ -21092,6 +21267,7 @@ Cory`;
                               {canEditSchedule ? (
                                 <Link
                                   href={expandedScheduleBuilderHref}
+                                  className="cfsp-button-tactical"
                                   style={{ ...buttonStyle, padding: "6px 9px", textDecoration: "none", display: "inline-flex", alignItems: "center" }}
                                 >
                                   Edit Schedule
@@ -21110,22 +21286,24 @@ Cory`;
                           metadata: [eventMaterialUrl ? "Packet loaded" : "Upload needed", materialsStatusLabel].filter(Boolean),
                           actions: (
                             <>
-                              <button
+                            <button
                                 type="button"
                                 onClick={openEventMaterialPreview}
                                 disabled={!eventMaterialUrl}
+                                className="cfsp-button-tactical"
                                 style={{ ...buttonStyle, padding: "6px 9px", opacity: eventMaterialUrl ? 1 : 0.55 }}
                               >
                                 Preview
                               </button>
                               {eventMaterialDownloadUrl ? (
-                                <a
-                                  href={eventMaterialDownloadUrl}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "6px 9px" }}
-                                >
-                                  Download
+                              <a
+                                href={eventMaterialDownloadUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="cfsp-button-tactical"
+                                style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "6px 9px" }}
+                              >
+                                Download
                                 </a>
                               ) : null}
                             </>
@@ -21145,13 +21323,14 @@ Cory`;
                           actions: (
                             <>
                               {recordingGuideUrl ? (
-                                <a
-                                  href={recordingGuideUrl}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "6px 9px" }}
-                                >
-                                  Open
+                              <a
+                                href={recordingGuideUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="cfsp-button-tactical"
+                                style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "6px 9px" }}
+                              >
+                                Open
                                 </a>
                               ) : null}
                             </>
@@ -21171,13 +21350,14 @@ Cory`;
                           actions: (
                             <>
                               {trainingAccessUrl ? (
-                                <a
-                                  href={trainingAccessUrl}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "6px 9px" }}
-                                >
-                                  Open
+                              <a
+                                href={trainingAccessUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="cfsp-button-tactical"
+                                style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "6px 9px" }}
+                              >
+                                Open
                                 </a>
                               ) : null}
                             </>
@@ -21187,27 +21367,33 @@ Cory`;
                         const statusStyle =
                           resource.status === "complete"
                             ? {
-                                background: planningSuccessBackground,
+                                background: isPlanningVisualMode ? planningSuccessBackground : "rgba(209, 250, 229, 0.18)",
                                 border: planningSuccessBorder,
-                                color: planningSuccessText,
+                                color: isPlanningVisualMode ? planningSuccessText : "#a7f3d0",
                               }
                             : resource.status === "available"
                               ? {
-                                  background: "rgba(232, 244, 255, 0.76)",
-                                  border: "1px solid rgba(20, 91, 150, 0.18)",
-                                  color: "#145b96",
+                                  background: isPlanningVisualMode ? "rgba(232, 244, 255, 0.76)" : "rgba(167, 139, 250, 0.16)",
+                                  border: isPlanningVisualMode ? "1px solid rgba(20, 91, 150, 0.18)" : "1px solid rgba(129, 140, 248, 0.26)",
+                                  color: isPlanningVisualMode ? "#145b96" : "#ddd6fe",
                                 }
                               : resource.status === "draft"
                                 ? {
-                                    background: "rgba(237, 233, 254, 0.72)",
-                                    border: "1px solid rgba(124, 58, 237, 0.16)",
-                                    color: "#5b21b6",
+                                    background: isPlanningVisualMode ? "rgba(237, 233, 254, 0.72)" : "rgba(120, 119, 198, 0.18)",
+                                    border: isPlanningVisualMode ? "1px solid rgba(124, 58, 237, 0.16)" : "1px solid rgba(139, 92, 246, 0.24)",
+                                    color: isPlanningVisualMode ? "#5b21b6" : "#e9d5ff",
                                   }
                                 : {
-                                    background: "rgba(241, 245, 249, 0.78)",
-                                    border: "1px solid rgba(100, 116, 139, 0.16)",
-                                    color: "#475569",
+                                    background: isPlanningVisualMode ? "rgba(241, 245, 249, 0.78)" : commandFileCabinetVisual.moduleMissingBg,
+                                    border: isPlanningVisualMode ? "1px solid rgba(100, 116, 139, 0.16)" : "1px solid rgba(244, 63, 94, 0.38)",
+                                    color: isPlanningVisualMode ? "#475569" : "#fecdd3",
                                   };
+                        const statusClass =
+                          resource.status === "complete"
+                            ? "cfsp-module-complete"
+                            : resource.status === "missing"
+                              ? "cfsp-module-missing"
+                              : "cfsp-module-ready";
 
                         const moduleExpanded = Boolean(expandedCommandFileCabinetModules[resource.key]);
 
@@ -21230,10 +21416,11 @@ Cory`;
                                   }
                                 : undefined
                             }
+                            className={`cfsp-cabinet-module-card ${statusClass}`}
                             style={{
                               borderRadius: "18px",
                               border: commandFileCabinetVisual.cardBorder,
-                              background: commandFileCabinetVisual.cardBackground,
+                              background: resource.status === "missing" ? commandFileCabinetVisual.moduleMissingBg : commandFileCabinetVisual.cardBackground,
                               padding: resource.featured ? "13px 13px 12px" : "11px",
                               display: "grid",
                               gap: "9px",
@@ -21241,7 +21428,9 @@ Cory`;
                               gridColumn: resource.featured ? "span 2" : undefined,
                               position: "relative",
                               overflow: "hidden",
+                              isolation: "isolate",
                               transition: "transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease",
+                              animation: resource.status === "complete" || resource.status === "available" ? "cfspFloat 7s ease-in-out infinite" : undefined,
                             }}
                           >
                             <div
@@ -21262,6 +21451,7 @@ Cory`;
                                     href={resource.primaryHref}
                                     target="_blank"
                                     rel="noreferrer"
+                                    className="cfsp-button-tactical"
                                     style={{
                                       width: resource.featured ? "36px" : "30px",
                                       height: resource.featured ? "36px" : "30px",
@@ -21284,6 +21474,7 @@ Cory`;
                                     type="button"
                                     onClick={resource.primaryAction}
                                     disabled={!resource.primaryAction}
+                                    className="cfsp-button-tactical"
                                     style={{
                                       ...buttonStyle,
                                       width: resource.featured ? "36px" : "30px",
@@ -21380,6 +21571,7 @@ Cory`;
                                     border: "1px solid rgba(20, 91, 150, 0.14)",
                                     color: "#145b96",
                                   }}
+                                  className="cfsp-button-tactical"
                                   aria-expanded={moduleExpanded}
                                 >
                                   {moduleExpanded ? "Hide" : "Details"}
@@ -21404,7 +21596,7 @@ Cory`;
             </div>
 
 	            {sessions.length ? (
-	              <div id="round-operations" style={{ marginTop: "10px" }}>
+                <div id="round-operations" style={{ marginTop: "10px" }}>
                 <div
                   style={{
                     padding: "2px 0 8px",
@@ -21413,20 +21605,39 @@ Cory`;
                     gap: "12px",
                     flexWrap: "wrap",
                     alignItems: "center",
+                    borderRadius: "14px",
+                    border: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.2)" : "1px solid rgba(129, 140, 248, 0.28)",
+                    background: isPlanningVisualMode
+                      ? "rgba(255, 255, 255, 0.88)"
+                      : "linear-gradient(90deg, rgba(15, 23, 42, 0.9) 0%, rgba(30, 41, 59, 0.92) 100%)",
+                    boxShadow: isPlanningVisualMode ? "0 10px 24px rgba(42, 112, 140, 0.08)" : "0 12px 28px rgba(15, 23, 42, 0.45)",
                   }}
                 >
-                  <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 800 }}>
+                  <div
+                    style={{
+                      color: isPlanningVisualMode ? commandCenterVisual.mutedColor : "#e2e8f0",
+                      fontSize: "12px",
+                      fontWeight: 800,
+                      background: "rgba(15, 23, 42, 0.5)",
+                      border: "1px solid rgba(129, 140, 248, 0.2)",
+                      borderRadius: "10px",
+                      padding: "4px 10px",
+                    }}
+                  >
                     Round operations are available when you need announcements, learner schedules, SP schedules, or staff workflow details.
                   </div>
                   <button
                     type="button"
                     aria-expanded={rotationCommandSurfaceOpen}
                     onClick={() => handleRotationCommandSurfaceOpenChange(!rotationCommandSurfaceOpen)}
+                    className="cfsp-button-tactical"
                     style={{
                       ...buttonStyle,
                       padding: "9px 13px",
                       background: rotationCommandSurfaceOpen
-                        ? isPlanningVisualMode ? "rgba(255, 255, 255, 0.92)" : "rgba(15, 23, 42, 0.76)"
+                        ? isPlanningVisualMode
+                          ? "rgba(255, 255, 255, 0.92)"
+                          : "linear-gradient(135deg, rgba(99, 102, 241, 0.22), rgba(168, 85, 247, 0.2))"
                         : isPlanningVisualMode
                           ? "linear-gradient(135deg, #0f766e 0%, #0369a1 100%)"
                           : "linear-gradient(135deg, rgba(25, 138, 112, 0.95) 0%, rgba(20, 91, 150, 0.9) 100%)",
@@ -21451,16 +21662,19 @@ Cory`;
                 {rotationCommandSurfaceOpen ? (
                   <>
                 <div
+                  className="cfsp-file-cabinet-rail"
                   style={{
                     position: "sticky",
                     top: "10px",
                     zIndex: 2,
                     marginBottom: "10px",
                     borderRadius: "16px",
-                    border: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.18)" : "1px solid rgba(126, 231, 219, 0.18)",
-                    background: isPlanningVisualMode ? "rgba(255, 255, 255, 0.94)" : "rgba(6, 17, 29, 0.9)",
-                    backdropFilter: isPlanningVisualMode ? "none" : "blur(10px)",
-                    boxShadow: isPlanningVisualMode ? "0 10px 24px rgba(42, 112, 140, 0.08)" : "none",
+                    border: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.18)" : "1px solid rgba(129, 140, 248, 0.24)",
+                    background: isPlanningVisualMode
+                      ? "rgba(255, 255, 255, 0.94)"
+                      : "linear-gradient(135deg, rgba(30, 41, 59, 0.96), rgba(15, 23, 42, 0.96))",
+                    backdropFilter: isPlanningVisualMode ? "none" : "blur(12px)",
+                    boxShadow: isPlanningVisualMode ? "0 10px 24px rgba(42, 112, 140, 0.08)" : "0 12px 28px rgba(15, 23, 42, 0.5), inset 0 1px 0 rgba(255,255,255,0.08)",
                     padding: "12px 14px",
                     display: "flex",
                     justifyContent: "space-between",
@@ -21484,9 +21698,13 @@ Cory`;
                     <button
                       type="button"
                       onClick={() => handleRotationCommandSurfaceOpenChange(false)}
+                      className="cfsp-button-tactical"
                       style={{
                         ...staffingSecondaryButtonStyle,
                         padding: "7px 10px",
+                        background: isPlanningVisualMode
+                          ? "rgba(255,255,255,0.88)"
+                          : "linear-gradient(135deg, rgba(125, 211, 252, 0.16), rgba(167, 139, 250, 0.16))",
                       }}
                     >
                       Collapse
