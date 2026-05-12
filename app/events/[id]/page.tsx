@@ -6751,9 +6751,33 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       ].join(";");
 
       const handleClick = () => {
+        if (scheduleCompleted) {
+          const existingOpenScheduleAction = Array.from(
+            document.querySelectorAll("a, button")
+          ).find((node) => {
+            if (!(node instanceof HTMLElement)) return false;
+            if (node.closest("[data-cfsp-schedule-file-card='true']")) return false;
+
+            const label = (node.textContent || "")
+              .toLowerCase()
+              .replace(/\s+/g, " ")
+              .trim();
+
+            return label === "open schedule" || label.includes("open schedule");
+          });
+
+          if (existingOpenScheduleAction instanceof HTMLElement) {
+            existingOpenScheduleAction.click();
+            return;
+          }
+
+          window.location.assign(`/events/${encodeURIComponent(id)}#completed-schedule`);
+          return;
+        }
+
         const params = new URLSearchParams();
         params.set("source", "file-cabinet");
-        params.set("view", scheduleCompleted ? "session-builder" : "builder");
+        params.set("view", "builder");
 
         window.location.assign(
           `/events/${encodeURIComponent(id)}/schedule-builder?${params.toString()}`
