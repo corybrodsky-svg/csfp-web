@@ -19846,7 +19846,33 @@ Cory`;
     return (
       <SiteShell title="Event Command Center" subtitle="Loading event details from Supabase.">
         <div style={cardStyle}>Loading...</div>
-      </SiteShell>
+      
+      <style>{`
+        #simulation-command-file-cabinet {
+          background: linear-gradient(135deg, #ffffff 0%, #f0fdfa 48%, #ecfeff 100%) !important;
+          color: #12324a !important;
+          border: 1px solid rgba(20,184,166,0.28) !important;
+          box-shadow: 0 18px 42px rgba(20,91,150,0.10) !important;
+        }
+
+        #simulation-command-file-cabinet * {
+          color: #12324a !important;
+          text-shadow: none !important;
+        }
+
+        #simulation-command-file-cabinet [style] {
+          background: linear-gradient(135deg, rgba(255,255,255,0.96), rgba(240,253,250,0.88)) !important;
+          border-color: rgba(20,184,166,0.28) !important;
+          box-shadow: 0 10px 24px rgba(20,91,150,0.10) !important;
+        }
+
+        #simulation-command-file-cabinet button {
+          background: linear-gradient(135deg, #145b96, #11806f) !important;
+          color: #ffffff !important;
+        }
+      `}</style>
+
+</SiteShell>
     );
   }
 
@@ -21233,7 +21259,7 @@ Cory`;
 	                        {planningLivePreviewAlerts.length ? (
 	                          <div style={{ display: "grid", gap: "5px" }}>
 	                            {planningLivePreviewAlerts.slice(0, 6).map((alert) => (
-	                              <div key={`planning-live-preview-alert-${alert}`} style={{ color: "#4c1d95", fontSize: "12px", fontWeight: 820 }}>
+	                              <div key={`planning-live-preview-alert-${alert}`} style={{ color: "#ccfbf1", fontSize: "12px", fontWeight: 820 }}>
 	                                {alert}
 	                              </div>
 	                            ))}
