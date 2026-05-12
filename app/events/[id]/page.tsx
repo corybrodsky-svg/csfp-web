@@ -28344,6 +28344,190 @@ Cory`;
           </div>
         </div>
       ) : null}
-    </SiteShell>
+    
+      <style>{`
+        .cfsp-floating-command-chest {
+          position: fixed;
+          right: 22px;
+          bottom: 22px;
+          z-index: 60;
+          width: min(360px, calc(100vw - 32px));
+          font-family: inherit;
+        }
+
+        .cfsp-chest-summary {
+          list-style: none;
+          cursor: pointer;
+          border-radius: 24px;
+          border: 1px solid rgba(126, 87, 194, 0.35);
+          background:
+            radial-gradient(circle at 20% 0%, rgba(168, 85, 247, 0.22), transparent 34%),
+            radial-gradient(circle at 80% 20%, rgba(34, 197, 94, 0.2), transparent 30%),
+            linear-gradient(135deg, rgba(255,255,255,0.94), rgba(236,253,245,0.92));
+          box-shadow:
+            0 18px 40px rgba(15, 23, 42, 0.18),
+            0 0 24px rgba(168, 85, 247, 0.16),
+            inset 0 1px 0 rgba(255,255,255,0.8);
+          padding: 14px;
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          transition: transform 180ms ease, box-shadow 180ms ease;
+        }
+
+        .cfsp-chest-summary:hover {
+          transform: translateY(-2px);
+          box-shadow:
+            0 22px 48px rgba(15, 23, 42, 0.22),
+            0 0 32px rgba(234, 179, 8, 0.2),
+            0 0 28px rgba(34, 197, 94, 0.18);
+        }
+
+        .cfsp-chest-box {
+          width: 58px;
+          height: 44px;
+          border-radius: 14px 14px 10px 10px;
+          position: relative;
+          flex: 0 0 auto;
+          background:
+            linear-gradient(180deg, rgba(126, 34, 206, 0.95), rgba(22, 101, 52, 0.9));
+          border: 1px solid rgba(234, 179, 8, 0.75);
+          box-shadow:
+            0 0 16px rgba(168, 85, 247, 0.5),
+            inset 0 8px 14px rgba(255,255,255,0.18);
+          overflow: hidden;
+        }
+
+        .cfsp-chest-box::before {
+          content: "";
+          position: absolute;
+          left: 5px;
+          right: 5px;
+          top: 7px;
+          height: 13px;
+          border-radius: 10px 10px 4px 4px;
+          background: linear-gradient(90deg, rgba(34,197,94,0.85), rgba(234,179,8,0.9), rgba(168,85,247,0.85));
+          animation: cfspChestGlow 4s ease-in-out infinite;
+        }
+
+        .cfsp-chest-box::after {
+          content: "";
+          position: absolute;
+          left: 25px;
+          top: 23px;
+          width: 9px;
+          height: 9px;
+          border-radius: 999px;
+          background: rgba(250, 204, 21, 0.95);
+          box-shadow: 0 0 14px rgba(250, 204, 21, 0.8);
+        }
+
+        .cfsp-floating-command-chest[open] .cfsp-chest-box::before {
+          transform: translateY(-6px) rotateX(18deg);
+        }
+
+        .cfsp-chest-title {
+          display: grid;
+          gap: 2px;
+          min-width: 0;
+        }
+
+        .cfsp-chest-title strong {
+          color: var(--cfsp-text);
+          font-size: 0.92rem;
+          font-weight: 950;
+          letter-spacing: -0.01em;
+        }
+
+        .cfsp-chest-title span {
+          color: var(--cfsp-text-muted);
+          font-size: 0.74rem;
+          font-weight: 800;
+        }
+
+        .cfsp-chest-drawer {
+          margin-top: 10px;
+          border-radius: 22px;
+          border: 1px solid rgba(126, 87, 194, 0.28);
+          background: var(--cfsp-surface);
+          box-shadow: 0 22px 48px rgba(15, 23, 42, 0.22);
+          padding: 14px;
+          display: grid;
+          gap: 10px;
+        }
+
+        .cfsp-chest-grid {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 8px;
+        }
+
+        .cfsp-chest-link {
+          border-radius: 14px;
+          border: 1px solid var(--cfsp-border);
+          background: linear-gradient(135deg, var(--cfsp-surface-muted), var(--cfsp-surface));
+          padding: 10px;
+          color: var(--cfsp-text);
+          text-decoration: none;
+          font-size: 0.75rem;
+          font-weight: 900;
+          transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+        }
+
+        .cfsp-chest-link:hover {
+          transform: translateY(-1px);
+          border-color: rgba(234, 179, 8, 0.55);
+          box-shadow: 0 0 18px rgba(168, 85, 247, 0.14);
+        }
+
+        .cfsp-chest-new {
+          border-radius: 999px;
+          padding: 5px 9px;
+          width: fit-content;
+          font-size: 0.68rem;
+          font-weight: 950;
+          color: #14532d;
+          background: linear-gradient(90deg, rgba(187,247,208,0.95), rgba(254,240,138,0.95));
+          border: 1px solid rgba(34,197,94,0.35);
+          animation: cfspChestGlow 3s ease-in-out infinite;
+        }
+
+        @keyframes cfspChestGlow {
+          0%, 100% { filter: hue-rotate(0deg); opacity: 0.88; }
+          50% { filter: hue-rotate(28deg); opacity: 1; }
+        }
+
+        [data-theme="dark"] .cfsp-chest-summary,
+        .dark .cfsp-chest-summary {
+          background:
+            radial-gradient(circle at 20% 0%, rgba(168, 85, 247, 0.34), transparent 36%),
+            radial-gradient(circle at 82% 12%, rgba(34, 197, 94, 0.26), transparent 34%),
+            linear-gradient(135deg, rgba(15,23,42,0.96), rgba(30,27,75,0.94));
+        }
+      `}</style>
+
+      <details className="cfsp-floating-command-chest">
+        <summary className="cfsp-chest-summary">
+          <div className="cfsp-chest-box" aria-hidden="true" />
+          <div className="cfsp-chest-title">
+            <strong>Simulation Command File Cabinet</strong>
+            <span>Open chest for files, training, materials, and packets</span>
+          </div>
+        </summary>
+
+        <div className="cfsp-chest-drawer">
+          <div className="cfsp-chest-new">New content detected when files update</div>
+          <div className="cfsp-chest-grid">
+            <a className="cfsp-chest-link" href="#simulation-command-file-cabinet">Materials Cabinet</a>
+            <a className="cfsp-chest-link" href="#training-center">Training Center</a>
+            <a className="cfsp-chest-link" href="#communication-center">Communication</a>
+            <a className="cfsp-chest-link" href="#coverage-actions">Staffing</a>
+            <a className="cfsp-chest-link" href="#schedule-builder">Schedule</a>
+            <a className="cfsp-chest-link" href="#recording-status">Recording</a>
+          </div>
+        </div>
+      </details>
+
+</SiteShell>
   );
 }
