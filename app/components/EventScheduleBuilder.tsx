@@ -3847,6 +3847,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     if (!multipleCasesEnabled) return 0;
     return scheduleCasesForMath.length;
   }, [scheduleCasesForMath, multipleCasesEnabled]);
+  const singleCaseSlotsPerRound = Math.max(parsedExamRooms * parsedRoomCapacity, 1);
   const handleRebuildScheduleMath = useCallback(() => {
     setScheduleMathEpoch((current) => current + 1);
     setSelectedBuilderRound(null);
@@ -3854,9 +3855,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     showCopyMessage("Invalid generated schedule detected. Please rebuild schedule math.", "success", 3200);
   }, [showCopyMessage]);
   const activeCaseRoomCount = multipleCasesEnabled && activeCaseCount > 0 ? Math.min(parsedExamRooms, activeCaseCount) : 0;
+  const singleCaseRoundCapacity = parsedExamRooms * parsedRoomCapacity;
   const slotsPerRound = activeCaseCount
     ? activeCaseRoomCount * parsedRoomCapacity
-    : parsedExamRooms * parsedRoomCapacity + effectiveFlexRoomCount * effectiveFlexCapacity;
+    : singleCaseRoundCapacity;
   const totalRoomCount = parsedExamRooms + effectiveFlexRoomCount;
   const learnerGroupCount =
     uploadedLearners.length && parsedRoomCapacity > 0
@@ -3876,6 +3878,31 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       : uploadedLearners.length && slotsPerRound > 0
       ? Math.max(1, Math.ceil(uploadedLearners.length / slotsPerRound))
       : Math.max(parsedRounds, 1);
+  const expectedSingleCaseRounds = useMemo(
+    () => (multipleCasesEnabled || parsedRoomCapacity <= 0 ? null : Math.max(1, Math.ceil(uploadedLearners.length / singleCaseSlotsPerRound))),
+    [multipleCasesEnabled, parsedRoomCapacity, uploadedLearners.length, singleCaseSlotsPerRound]
+  );
+  const singleCaseRoundCountCorrupted =
+    !multipleCasesEnabled && manualRoundOverride && expectedSingleCaseRounds && parsedRounds > Math.max(1, expectedSingleCaseRounds * 2);
+  useEffect(() => {
+    if (!singleCaseRoundCountCorrupted) return;
+    setManualRoundOverride(false);
+    setRoundCount(String(expectedSingleCaseRounds || Math.max(1, parsedRounds)));
+    setSaveState("unsaved");
+    setScheduleMathEpoch((current) => current + 1);
+    showCopyMessage(
+      `Invalid single-case round count detected. Regenerated to ${expectedSingleCaseRounds} rounds from learner/room math.`,
+      "success",
+      3200
+    );
+  }, [
+    expectedSingleCaseRounds,
+    manualRoundOverride,
+    multipleCasesEnabled,
+    parsedRounds,
+    singleCaseRoundCountCorrupted,
+    showCopyMessage,
+  ]);
   const effectiveRoundCount =
     builderMode === "advanced" && manualRoundOverride
       ? Math.max(parsedRounds, 1)
