@@ -28572,15 +28572,78 @@ Cory`;
                             type="button"
                             className="cfsp-chest-link"
                             onClick={() => {
-                              const params = new URLSearchParams();
-                              params.set("source", "command-chest");
-                              params.set("view", scheduleCompleted ? "session-builder" : "builder");
-
-                              router.push(`/events/${encodeURIComponent(id)}/schedule-builder?${params.toString()}`);
+                              document
+                                .getElementById("simulation-command-file-cabinet")
+                                ?.scrollIntoView({ behavior: "smooth", block: "start" });
                             }}
-                            title={scheduleCompleted ? "Open the completed schedule in Session Builder" : "Build or finish the schedule"}
                           >
-                            {scheduleCompleted ? "Completed Schedule" : "Schedule Builder"}
+                            Materials Cabinet
+                          </button>
+
+                          <button
+                            type="button"
+                            className="cfsp-chest-link"
+                            onClick={() => {
+                              const target =
+                                document.getElementById("training-center") ||
+                                Array.from(document.querySelectorAll("h1, h2, h3, section, div")).find((node) => {
+                                  const text = (node.textContent || "").toLowerCase();
+                                  return text.includes("training attendance") || text.includes("training center") || text.includes("training files");
+                                });
+
+                              if (target instanceof HTMLElement) {
+                                target.scrollIntoView({ behavior: "smooth", block: "start" });
+                              }
+                            }}
+                          >
+                            Training Files
+                          </button>
+
+                          <button
+                            type="button"
+                            className="cfsp-chest-link"
+                            onClick={() => {
+                              const target =
+                                document.getElementById("communication-center") ||
+                                Array.from(document.querySelectorAll("h1, h2, h3, section, div")).find((node) => {
+                                  const text = (node.textContent || "").toLowerCase();
+                                  return text.includes("draft event emails") || text.includes("sp hiring poll email") || text.includes("communication");
+                                });
+
+                              if (target instanceof HTMLElement) {
+                                target.scrollIntoView({ behavior: "smooth", block: "start" });
+                              }
+                            }}
+                          >
+                            Communication
+                          </button>
+
+                          <button
+                            type="button"
+                            className="cfsp-chest-link"
+                            onClick={() => {
+                              document
+                                .getElementById("coverage-actions")
+                                ?.scrollIntoView({ behavior: "smooth", block: "start" });
+                            }}
+                          >
+                            Staffing
+                          </button>
+
+                          <button
+                            type="button"
+                            className="cfsp-chest-link"
+                            onClick={() => {
+                              const cabinet = document.getElementById("simulation-command-file-cabinet");
+                              cabinet?.scrollIntoView({ behavior: "smooth", block: "start" });
+
+                              window.setTimeout(() => {
+                                const scheduleLink = document.querySelector("[data-cfsp-schedule-file-link]") as HTMLElement | null;
+                                scheduleLink?.focus();
+                              }, 350);
+                            }}
+                          >
+                            Schedule File
                           </button>
 
                           <button
@@ -28589,7 +28652,7 @@ Cory`;
                             onClick={() => {
                               const target =
                                 document.getElementById("recording-status") ||
-                                Array.from(document.querySelectorAll("section, div, details")).find((node) =>
+                                Array.from(document.querySelectorAll("h1, h2, h3, section, div")).find((node) =>
                                   (node.textContent || "").toLowerCase().includes("recording")
                                 );
 
