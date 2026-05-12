@@ -101,6 +101,14 @@ type LiveFlowBlock = {
   source: "encounter" | "schedule_builder" | "fallback";
 };
 type OperationalDateTone = "scheduled" | "attention" | "ready" | "danger" | "muted";
+type TrainingLifecyclePhase =
+  | "not_required"
+  | "pre_training"
+  | "training_live"
+  | "training_completed"
+  | "event_prep"
+  | "event_live"
+  | "post_event";
 type OperationalDateMarker = {
   key: string;
   label: string;
@@ -7015,19 +7023,20 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       (normalEventTrainingCountdownTarget?.end?.getTime() ??
         normalEventTrainingCountdownTarget?.start.getTime() ??
         Number.POSITIVE_INFINITY);
+  const eventWindowStarted =
+    Boolean(eventCountdownTarget) &&
+    countdownNowMs !== null &&
+    countdownNowMs >= (eventCountdownTarget?.start.getTime() ?? Number.POSITIVE_INFINITY);
+  const eventWindowEnded =
+    Boolean(eventCountdownTarget) &&
+    countdownNowMs !== null &&
+    countdownNowMs >=
+      (eventCountdownTarget?.end?.getTime() ??
+        eventCountdownTarget?.start.getTime() ??
+        Number.POSITIVE_INFINITY);
+  const eventDateHasPassed = primaryEventDate ? getDateDeltaDays(primaryEventDate) < 0 : false;
   const normalEventTrainingDateDeltaDays = normalEventTrainingDate ? getDateDeltaDays(normalEventTrainingDate) : null;
   const normalEventTrainingDateHasPassed = normalEventTrainingDateDeltaDays !== null && normalEventTrainingDateDeltaDays < 0;
-  const normalEventTrainingDateHasEndedOrPassed =
-    Boolean(trainingWindowEnded) || normalEventTrainingDateHasPassed;
-  const normalEventTrainingHasRecordingEvidence =
-    !trainingRecordingPlanned || Boolean(trainingMetadata.training_recording_url) || Boolean(trainingMetadata.recording_url);
-  const normalEventTrainingHasMaterials =
-    materialsReadinessComplete ||
-    materialsReadinessOptional ||
-    (!materialsReadinessNeedsAttention && !materialsReadinessReviewNeeded);
-  const normalEventTrainingArtifactsSatisfied =
-    normalEventTrainingHasMaterials &&
-    normalEventTrainingHasRecordingEvidence;
   const normalEventTrainingHasInfo = Boolean(
     normalEventTrainingDateText ||
       normalEventTrainingTimeText ||
@@ -7038,13 +7047,44 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
   );
   const trainingAttendanceReady = !trainingAttendanceFieldsMissing && selectedStaffingCount > 0 && allAssignedCheckedIn;
   const trainingCompleteMarkedManually = trainingMarkedComplete || Boolean(workflowChecks.sp_training_completed);
-  const normalEventTrainingComplete =
-    !trainingNotRequired &&
-    (trainingCompleteMarkedManually ||
-      (trainingAttendanceReady &&
-        normalEventTrainingDateHasEndedOrPassed &&
-        normalEventTrainingArtifactsSatisfied));
-  if (normalEventTrainingComplete && staffingCoverageMet) {
+  const trainingHasEnded =
+    trainingWindowEnded ||
+    (normalEventTrainingDateHasPassed && countdownNowMs !== null && !normalEventTrainingCountdownTarget);
+  const normalEventTrainingComplete = !trainingNotRequired && (
+    trainingCompleteMarkedManually || (trainingAttendanceReady && (trainingHasEnded || normalEventTrainingDateHasPassed))
+  );
+  const normalEventTrainingLifecyclePhase: TrainingLifecyclePhase = useMemo(() => {
+    if (trainingNotRequired) return "not_required";
+    if (!normalEventTrainingComplete) {
+      if (!normalEventTrainingDate && !normalEventTrainingCountdownTarget) return "pre_training";
+      if (trainingWindowStarted && !trainingWindowEnded) return "training_live";
+      if (trainingHasEnded || normalEventTrainingDateHasPassed) return "event_prep";
+      return "pre_training";
+    }
+    if (!primaryEventDate) return "event_prep";
+    if (eventDateHasPassed || eventWindowEnded) return "post_event";
+    if (eventWindowStarted && !eventWindowEnded) return "event_live";
+    return "event_prep";
+  }, [
+    normalEventTrainingComplete,
+    normalEventTrainingCountdownTarget,
+    normalEventTrainingDate,
+    normalEventTrainingDateHasPassed,
+    trainingHasEnded,
+    trainingNotRequired,
+    trainingWindowEnded,
+    trainingWindowStarted,
+    eventWindowEnded,
+    eventDateHasPassed,
+    eventWindowStarted,
+    primaryEventDate,
+  ]);
+  const isTrainingAttendanceInteractive = normalEventTrainingLifecyclePhase === "pre_training" || normalEventTrainingLifecyclePhase === "training_live";
+  const trainingLifecycleCompleteOrAfter = ["event_prep", "event_live", "post_event"].includes(
+    normalEventTrainingLifecyclePhase
+  );
+
+  if (trainingLifecycleCompleteOrAfter) {
     hiringEmailNeededByLifecycle = false;
     confirmationEmailNeededByLifecycle = false;
     hiringEmailLifecycleComplete = true;
@@ -7113,35 +7153,37 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
   const normalEventTrainingAccessReady = !trainingZoomRequired || Boolean(normalEventTrainingLink);
   const normalEventTrainingReady =
     trainingNotRequired ||
-    normalEventTrainingComplete ||
+    normalEventTrainingLifecyclePhase === "event_prep" ||
+    normalEventTrainingLifecyclePhase === "event_live" ||
+    normalEventTrainingLifecyclePhase === "post_event" ||
     Boolean(normalEventTrainingHasInfo && normalEventTrainingAccessReady && (selectedStaffingCount > 0 || trainingRequiredExplicit));
   const normalEventTrainingStatusLabel = trainingNotRequired
     ? "Training not required"
-    : normalEventTrainingComplete
-      ? "Training completed"
-      : trainingWindowStarted
-        ? trainingAttendanceReady
-          ? "Training live"
-          : "Training in progress"
-      : trainingZoomRequired && !normalEventTrainingLink
-        ? "Training logistics incomplete"
-        : normalEventTrainingHasInfo && normalEventTrainingAccessReady
-          ? "Training scheduled"
-          : facultyLedTraining
-            ? "Awaiting faculty scheduling"
-            : internalTraining
-              ? "Internal training pending"
-              : trainingRequiredExplicit
-                ? "Training ownership TBD"
-                : "Training planning TBD";
+    : normalEventTrainingLifecyclePhase === "training_live"
+      ? (trainingAttendanceReady ? "Training live" : "Training in progress")
+      : normalEventTrainingLifecyclePhase === "pre_training"
+        ? trainingWindowStarted
+          ? "Training in progress"
+          : trainingZoomRequired && !normalEventTrainingLink
+            ? "Training logistics incomplete"
+            : normalEventTrainingHasInfo && normalEventTrainingAccessReady
+              ? "Training scheduled"
+              : facultyLedTraining
+                ? "Awaiting faculty scheduling"
+                : internalTraining
+                  ? "Internal training pending"
+                  : trainingRequiredExplicit
+                    ? "Training ownership TBD"
+                    : "Training planning TBD"
+        : "Training completed";
   const trainingModalityLabel = trainingNotRequired
     ? "Training not required"
     : isTrainingVirtual
       ? "Virtual Training"
       : "In-person Training";
   const normalEventTrainingCountdownLabel =
-    normalEventTrainingComplete || trainingNotRequired
-      ? getTrainingCountdownLabel(normalEventTrainingDate, normalEventTrainingComplete, normalEventTrainingHasInfo)
+    normalEventTrainingLifecyclePhase !== "pre_training" && normalEventTrainingLifecyclePhase !== "training_live"
+      ? getTrainingCountdownLabel(normalEventTrainingDate, true, normalEventTrainingHasInfo)
       : normalEventTrainingCountdownClock.label;
   const normalEventTrainingTimelineLabel = normalEventTrainingDate
     ? normalEventTrainingCountdownLabel
@@ -7149,9 +7191,11 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
   const normalEventTrainingAttendanceLabel = trainingAttendanceFieldsMissing
     ? asText(trainingMetadata.training_attendance_status) || "Attendance tracking unavailable"
     : selectedStaffingCount > 0
-      ? trainingAttendanceReady && !normalEventTrainingComplete
-        ? `Attendance ready · ${attendedCount} / ${selectedStaffingCount} checked in`
-        : `${attendedCount} / ${selectedStaffingCount} checked in`
+      ? normalEventTrainingLifecyclePhase !== "training_live" && normalEventTrainingLifecyclePhase !== "pre_training"
+        ? `${attendedCount} / ${selectedStaffingCount} checked in (archived)`
+        : trainingAttendanceReady
+          ? `Attendance ready · ${attendedCount} / ${selectedStaffingCount} checked in`
+          : `${attendedCount} / ${selectedStaffingCount} checked in`
       : asText(trainingMetadata.training_attendance_status) || "No selected SPs yet";
   const normalEventTrainingRecordingLabel = trainingRecordingPlanned
     ? (trainingMetadata.training_recording_url || trainingMetadata.recording_url)
@@ -7183,7 +7227,7 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
         };
   const eventSummaryTrainingValue = trainingNotRequired
     ? "No training required"
-    : normalEventTrainingComplete
+    : normalEventTrainingLifecyclePhase !== "pre_training" && normalEventTrainingLifecyclePhase !== "training_live"
       ? "Training completed"
       : normalEventTrainingDate
         ? normalEventTrainingTimelineLabel
@@ -7191,7 +7235,13 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
   const eventSummaryTrainingSubvalue = trainingNotRequired
     ? "No SP training workflow required"
     : normalEventTrainingDate
-      ? `${normalEventTrainingStatusLabel} · ${trainingAttendanceReady && !normalEventTrainingComplete ? "Attendance Ready" : trainingModalityLabel}`
+      ? `${normalEventTrainingStatusLabel} · ${
+          normalEventTrainingLifecyclePhase === "pre_training"
+            ? trainingAttendanceReady
+              ? "Attendance ready"
+              : trainingModalityLabel
+            : "Attendance archived"
+        }`
       : getTrainingRequirementLabel(trainingRequirementValue);
   const trainingDateMarkerValue = normalEventTrainingDate
     ? formatOperationalDate(normalEventTrainingDate, normalEventTrainingDateText)
@@ -7199,7 +7249,7 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
   const trainingOverviewDateLabel = normalEventTrainingDate
     ? formatOperationalDate(normalEventTrainingDate, normalEventTrainingDateText)
     : formatEventDateText(normalEventTrainingDateText, importedYearHint) || "Training date TBD";
-  const trainingDateCountdownLabel = normalEventTrainingComplete
+  const trainingDateCountdownLabel = normalEventTrainingLifecyclePhase !== "pre_training" && normalEventTrainingLifecyclePhase !== "training_live"
     ? "Training completed"
     : trainingNotRequired
       ? "No training required"
@@ -12930,6 +12980,7 @@ Cory`;
   }
 
   async function handleTrainingAttendanceToggle(assignment: AssignmentRow, checked: boolean) {
+    if (!isTrainingAttendanceInteractive) return;
     setAttendanceSaving(true);
     setAttendanceError("");
     setAttendanceSuccess("");
@@ -13124,6 +13175,7 @@ Cory`;
 
   async function handleBulkTrainingAttendance(action: "confirm_all" | "clear_all") {
     if (!sortedAssignments.length) return;
+    if (!isTrainingAttendanceInteractive) return;
 
     setAttendanceSaving(true);
     setAttendanceError("");
@@ -16163,7 +16215,7 @@ Cory`;
             Zoom {trainingZoomRequired ? normalEventTrainingLink ? "ready" : "needed" : "optional"}
           </span>
           <span style={{ ...commandChipStyle, background: normalEventTrainingComplete ? normalEventTrainingPrimaryTone.background : commandCenterVisual.chipBackground, color: normalEventTrainingComplete ? normalEventTrainingPrimaryTone.color : commandCenterVisual.chipText, border: normalEventTrainingComplete ? normalEventTrainingPrimaryTone.border : isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.18)" : commandChipStyle.border }}>
-            Attendance {normalEventTrainingComplete ? "complete" : trainingAttendanceReady ? "ready" : "open"}
+            {`Attendance ${normalEventTrainingLifecyclePhase === "pre_training" || normalEventTrainingLifecyclePhase === "training_live" ? (normalEventTrainingComplete || trainingAttendanceReady ? "ready" : "open") : "archived"}`}
           </span>
           {facultyLedTraining ? (
             facultyEmails.length ? (
@@ -18499,16 +18551,17 @@ Cory`;
           >
             <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 700 }}>
               Persisted per assigned SP and retained after refresh.
+              {!isTrainingAttendanceInteractive ? " Attendance is archived because training has completed." : ""}
             </div>
             <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
               <button
                 type="button"
                 onClick={() => void handleBulkTrainingAttendance("confirm_all")}
-                disabled={attendanceSaving || trainingAttendanceFieldsMissing}
+                disabled={attendanceSaving || trainingAttendanceFieldsMissing || !isTrainingAttendanceInteractive}
                 style={{
                   ...buttonStyle,
                   padding: "8px 12px",
-                  opacity: attendanceSaving || trainingAttendanceFieldsMissing ? 0.65 : 1,
+                  opacity: attendanceSaving || trainingAttendanceFieldsMissing || !isTrainingAttendanceInteractive ? 0.65 : 1,
                 }}
               >
                 Confirm all present
@@ -18516,11 +18569,11 @@ Cory`;
               <button
                 type="button"
                 onClick={() => void handleBulkTrainingAttendance("clear_all")}
-                disabled={attendanceSaving || trainingAttendanceFieldsMissing}
+                disabled={attendanceSaving || trainingAttendanceFieldsMissing || !isTrainingAttendanceInteractive}
                 style={{
                   ...dangerButtonStyle,
                   padding: "8px 12px",
-                  opacity: attendanceSaving || trainingAttendanceFieldsMissing ? 0.65 : 1,
+                  opacity: attendanceSaving || trainingAttendanceFieldsMissing || !isTrainingAttendanceInteractive ? 0.65 : 1,
                 }}
               >
                 Clear attendance
@@ -23989,13 +24042,16 @@ Cory`;
                                 color: assignment.training_attended ? "var(--cfsp-green)" : "var(--cfsp-text-muted)",
                                 fontSize: "12px",
                                 fontWeight: 900,
-                                cursor: attendanceSaving || trainingAttendanceFieldsMissing ? "not-allowed" : "pointer",
+                                cursor:
+                                  attendanceSaving || trainingAttendanceFieldsMissing || !isTrainingAttendanceInteractive
+                                    ? "not-allowed"
+                                    : "pointer",
                               }}
                             >
                               <input
                                 type="checkbox"
                                 checked={assignment.training_attended === true}
-                                disabled={attendanceSaving || trainingAttendanceFieldsMissing}
+                                disabled={attendanceSaving || trainingAttendanceFieldsMissing || !isTrainingAttendanceInteractive}
                                 onChange={(event) => void handleTrainingAttendanceToggle(assignment, event.target.checked)}
                                 style={{ width: "16px", height: "16px", accentColor: "var(--cfsp-green)" }}
                               />
@@ -25225,13 +25281,16 @@ Cory`;
                             color: assignment.training_attended ? "var(--cfsp-green)" : "var(--cfsp-text-muted)",
                             fontSize: "12px",
                             fontWeight: 900,
-                            cursor: attendanceSaving || trainingAttendanceFieldsMissing ? "not-allowed" : "pointer",
+                            cursor:
+                              attendanceSaving || trainingAttendanceFieldsMissing || !isTrainingAttendanceInteractive
+                                ? "not-allowed"
+                                : "pointer",
                           }}
                         >
                           <input
                             type="checkbox"
                             checked={assignment.training_attended === true}
-                            disabled={attendanceSaving || trainingAttendanceFieldsMissing}
+                            disabled={attendanceSaving || trainingAttendanceFieldsMissing || !isTrainingAttendanceInteractive}
                             onChange={(event) => void handleTrainingAttendanceToggle(assignment, event.target.checked)}
                             style={{ width: "18px", height: "18px", accentColor: "var(--cfsp-green)" }}
                           />
