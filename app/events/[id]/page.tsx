@@ -14377,6 +14377,111 @@ Cory`;
                 Run staffing, timing, and rotation flow from one operational view.
               </div>
             </div>
+            <div
+  style={{
+    display: "grid",
+    gap: "10px",
+    padding: "14px",
+    borderRadius: "18px",
+    border: "1px solid rgba(99, 181, 217, 0.18)",
+    background: "rgba(15, 23, 42, 0.78)",
+    boxShadow: "0 0 24px rgba(45, 212, 191, 0.08)",
+  }}
+>
+  <div
+    style={{
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "center",
+      gap: "12px",
+      flexWrap: "wrap",
+    }}
+  >
+    <div>
+      <div
+        style={{
+          fontSize: "14px",
+          fontWeight: 900,
+          letterSpacing: "0.08em",
+          textTransform: "uppercase",
+          color: "#f8fafc",
+        }}
+      >
+        Communications Command
+      </div>
+
+      <div
+        style={{
+          marginTop: "4px",
+          fontSize: "12px",
+          fontWeight: 700,
+          color: "rgba(226,232,240,0.72)",
+        }}
+      >
+        Operational communication tracking
+      </div>
+    </div>
+
+    <div
+      style={{
+        padding: "6px 10px",
+        borderRadius: "999px",
+        background: "rgba(45, 212, 191, 0.14)",
+        border: "1px solid rgba(45, 212, 191, 0.24)",
+        color: "#99f6e4",
+        fontSize: "12px",
+        fontWeight: 800,
+      }}
+    >
+      Communications Active
+    </div>
+  </div>
+
+  <div
+    style={{
+      display: "grid",
+      gap: "8px",
+      gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+    }}
+  >
+    {[
+      "Hiring Email Sent",
+      "Training Invite Sent",
+      "Reminder Email Sent",
+      "Zoom Recording Sent",
+      "Materials Sent",
+      "Faculty Contacted",
+      "SP Confirmations Complete",
+      "Attendance Follow-Up Complete",
+    ].map((label) => (
+      <label
+        key={label}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "10px",
+          padding: "10px 12px",
+          borderRadius: "14px",
+          border: "1px solid rgba(45, 212, 191, 0.14)",
+          background: "rgba(15,23,42,0.72)",
+          color: "#e2e8f0",
+          fontSize: "13px",
+          fontWeight: 700,
+        }}
+      >
+        <input
+          type="checkbox"
+          style={{
+            width: "16px",
+            height: "16px",
+            accentColor: "#14b8a6",
+          }}
+        />
+        {label}
+      </label>
+    ))}
+  </div>
+</div>
             <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
               {eventRecordingIndicatorActive ? (
                 <RecordingStatusIndicator
