@@ -28347,6 +28347,40 @@ Cory`;
       ) : null}
     
       <style>{`
+        
+        #simulation-command-file-cabinet {
+          scroll-margin-top: 120px;
+        }
+
+        #simulation-command-file-cabinet .cfsp-file-cabinet-hero,
+        #simulation-command-file-cabinet .cfsp-command-cabinet-visual,
+        #simulation-command-file-cabinet .cfsp-cabinet-chest,
+        #simulation-command-file-cabinet .cfsp-cabinet-rack {
+          display: none !important;
+        }
+
+        #simulation-command-file-cabinet h2,
+        #simulation-command-file-cabinet h3 {
+          letter-spacing: -0.02em;
+        }
+
+        #simulation-command-file-cabinet::before {
+          content: "File Drawer Contents";
+          display: inline-flex;
+          width: fit-content;
+          margin: 0 0 10px 0;
+          padding: 6px 10px;
+          border-radius: 999px;
+          border: 1px solid rgba(34,197,94,0.28);
+          background: linear-gradient(90deg, rgba(236,253,245,0.95), rgba(250,245,255,0.92));
+          color: #075985;
+          font-size: 0.72rem;
+          font-weight: 950;
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+        }
+
+
         .cfsp-floating-command-chest {
           position: fixed !important;
           right: 24px !important;
@@ -28523,10 +28557,10 @@ Cory`;
                         <div className="cfsp-chest-new">New content detected when files update</div>
                         <div className="cfsp-chest-grid">
                           <a className="cfsp-chest-link" href="#cfsp-floating-command-chest">Materials Cabinet</a>
-                          <a className="cfsp-chest-link" href="#training-center">Training Center</a>
+                          <a className="cfsp-chest-link" href="#training-center">Training Files</a>
                           <a className="cfsp-chest-link" href="#communication-center">Communication</a>
                           <a className="cfsp-chest-link" href="#coverage-actions">Staffing</a>
-                          <a className="cfsp-chest-link" href="#schedule-actions">Schedule</a>
+                          <a className="cfsp-chest-link" href="#schedule-builder">Schedule</a>
                           <a className="cfsp-chest-link" href="#recording-status">Recording</a>
                         </div>
                       </div>
