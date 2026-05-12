@@ -140,6 +140,8 @@ type PreviewRoomColumn = {
 type ScheduleCaseDefinition = {
   id: string;
   name: string;
+  documentName?: string;
+  hasDocument?: boolean;
   encounterMinutes?: number;
   checklistMinutes?: number;
   feedbackMinutes?: number;
@@ -1374,9 +1376,12 @@ function parseScheduleCaseDefinitions(raw: string | null | undefined, fallbackCa
         parsed.forEach((entry, index) => {
           const record = entry as Record<string, unknown>;
           const name = asText(record.name) || asText(record.title) || `Case ${index + 1}`;
+          const documentName = asText(record.fileName || record.file_name || record.name);
           cases.push({
             id: asText(record.id) || `${name}-${index}`,
             name,
+            documentName,
+            hasDocument: Boolean(asText(record.url) || asText(record.storagePath || record.storage_path)),
             encounterMinutes: parseNumber(asText(record.encounterMinutes || record.encounter_minutes), 0) || undefined,
             checklistMinutes: parseNumber(asText(record.checklistMinutes || record.checklist_minutes), 0) || undefined,
             feedbackMinutes: parseNumber(asText(record.feedbackMinutes || record.feedback_minutes), 0) || undefined,
@@ -1407,6 +1412,8 @@ function serializeScheduleCaseDefinitions(cases: ScheduleCaseDefinition[]) {
     cases.map((caseDef, index) => ({
       id: caseDef.id || `case-${index + 1}`,
       name: caseDef.name || `Case ${index + 1}`,
+      documentName: caseDef.documentName || "",
+      hasDocument: Boolean(caseDef.hasDocument),
       encounterMinutes: caseDef.encounterMinutes ? String(caseDef.encounterMinutes) : "",
       checklistMinutes: caseDef.checklistMinutes ? String(caseDef.checklistMinutes) : "",
       feedbackMinutes: caseDef.feedbackMinutes ? String(caseDef.feedbackMinutes) : "",
@@ -4019,6 +4026,126 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     },
     [persistScheduleWorkflowMetadata, scheduleCaseDefinitions, showCopyMessage]
   );
+  const handleSaveBuilderCaseList = useCallback(
+    async (nextCases: ScheduleCaseDefinition[], message = "Case setup saved.") => {
+      if (!selectedEvent?.id) return;
+      const normalizedCases = nextCases.map((caseDef, index) => ({
+        ...caseDef,
+        id: caseDef.id || `builder-case-${Date.now()}-${index}`,
+        name: asText(caseDef.name) || `Case ${index + 1}`,
+        roomAssignment: asText(caseDef.roomAssignment) || `Exam ${index + 1}`,
+        active: caseDef.active !== false,
+      }));
+      const serialized = serializeScheduleCaseDefinitions(normalizedCases);
+      setSaveState("saving");
+      setSaveErrorMessage("");
+      try {
+        await persistScheduleWorkflowMetadata({
+          case_count: String(normalizedCases.length),
+          case_name: normalizedCases[0]?.name || "",
+          case_files: serialized,
+          case_manager_cases: serialized,
+        });
+        setSaveState("saved");
+        setLastSavedAt(new Date().toISOString());
+        showCopyMessage(message);
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Could not save case setup.";
+        setSaveState("error");
+        setSaveErrorMessage(errorMessage);
+        showCopyMessage(errorMessage, "error", 3200);
+      }
+    },
+    [persistScheduleWorkflowMetadata, selectedEvent?.id, showCopyMessage]
+  );
+  const handleAddBuilderCase = useCallback(() => {
+    const nextIndex = scheduleCaseDefinitions.length;
+    void handleSaveBuilderCaseList(
+      [
+        ...scheduleCaseDefinitions,
+        {
+          id: `builder-case-${Date.now()}-${nextIndex}`,
+          name: `Case ${nextIndex + 1}`,
+          roomAssignment: `Exam ${nextIndex + 1}`,
+          active: true,
+        },
+      ],
+      "Case added."
+    );
+  }, [handleSaveBuilderCaseList, scheduleCaseDefinitions]);
+  const handleDuplicateBuilderCase = useCallback(
+    (caseIndex = Math.max(scheduleCaseDefinitions.length - 1, 0)) => {
+      const source = scheduleCaseDefinitions[caseIndex] || scheduleCaseDefinitions[0];
+      if (!source) {
+        handleAddBuilderCase();
+        return;
+      }
+      const nextIndex = scheduleCaseDefinitions.length;
+      void handleSaveBuilderCaseList(
+        [
+          ...scheduleCaseDefinitions,
+          {
+            ...source,
+            id: `builder-case-${Date.now()}-${nextIndex}`,
+            name: `${source.name || `Case ${caseIndex + 1}`} Copy`,
+            roomAssignment: `Exam ${nextIndex + 1}`,
+            active: true,
+          },
+        ],
+        "Case duplicated."
+      );
+    },
+    [handleAddBuilderCase, handleSaveBuilderCaseList, scheduleCaseDefinitions]
+  );
+  const handleRemoveBuilderCase = useCallback(
+    (caseIndex = Math.max(scheduleCaseDefinitions.length - 1, 0)) => {
+      if (!scheduleCaseDefinitions.length) return;
+      const nextCases = scheduleCaseDefinitions.filter((_, index) => index !== caseIndex);
+      void handleSaveBuilderCaseList(nextCases, "Case removed.");
+    },
+    [handleSaveBuilderCaseList, scheduleCaseDefinitions]
+  );
+  const handleMoveBuilderCase = useCallback(
+    (caseIndex: number, direction: -1 | 1) => {
+      const targetIndex = caseIndex + direction;
+      if (targetIndex < 0 || targetIndex >= scheduleCaseDefinitions.length) return;
+      const nextCases = [...scheduleCaseDefinitions];
+      [nextCases[caseIndex], nextCases[targetIndex]] = [nextCases[targetIndex], nextCases[caseIndex]];
+      void handleSaveBuilderCaseList(nextCases, "Case order updated.");
+    },
+    [handleSaveBuilderCaseList, scheduleCaseDefinitions]
+  );
+  const handleMultipleCasesToggle = useCallback(
+    (enabled: boolean) => {
+      if (enabled) {
+        if (scheduleCaseDefinitions.length > 1) return;
+        const base = scheduleCaseDefinitions[0] || {
+          id: `builder-case-${Date.now()}-0`,
+          name: "Case 1",
+          roomAssignment: "Exam 1",
+          active: true,
+        };
+        void handleSaveBuilderCaseList(
+          [
+            { ...base, name: base.name || "Case 1", roomAssignment: base.roomAssignment || "Exam 1", active: true },
+            {
+              id: `builder-case-${Date.now()}-1`,
+              name: "Case 2",
+              roomAssignment: "Exam 2",
+              active: true,
+            },
+          ],
+          "Multiple-case rotation enabled."
+        );
+        return;
+      }
+      const single = scheduleCaseDefinitions[0]
+        ? [{ ...scheduleCaseDefinitions[0], active: true }]
+        : [];
+      void handleSaveBuilderCaseList(single, "Multiple-case rotation disabled.");
+    },
+    [handleSaveBuilderCaseList, scheduleCaseDefinitions]
+  );
   const handleUpdateLearnerAt = useCallback((learnerIndex: number, value: string) => {
     setUploadedLearners((current) => current.map((learner, index) => (index === learnerIndex ? normalizeLearnerName(value) : learner)));
     setSaveState("unsaved");
@@ -5383,11 +5510,39 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                     <div className="text-[0.78rem] font-black uppercase tracking-[0.1em] text-[#145b96]">Case Rotation Setup</div>
                     <h3 className="mt-2 mb-0 text-[1.3rem] font-black text-[#14304f]">Cases drive the schedule math</h3>
                     <div className="mt-2 text-sm font-bold leading-6 text-[#365a76]">
-                      CFSP will build rounds so every group sees every active case once.
-                      Fixed case rooms use active cases first; extra exam rooms remain flex/empty unless manually assigned.
+                      {(scheduleCaseDefinitions.length > 1 || activeCaseCount > 1)
+                        ? "CFSP will build rounds so every group sees every active case once."
+                        : "Single-case events stay simple. Turn on multiple cases when case rotation should drive the schedule math."}
                     </div>
                   </div>
-                  <label className="grid gap-2 sm:w-40">
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    <label className="inline-flex items-center gap-2 rounded-full border border-[#c7dcee] bg-white px-3 py-2 text-xs font-black text-[#14304f]">
+                      <input
+                        type="checkbox"
+                        checked={scheduleCaseDefinitions.length > 1 || activeCaseCount > 1}
+                        onChange={(event) => handleMultipleCasesToggle(event.target.checked)}
+                        style={{ accentColor: "#145b96" }}
+                      />
+                      This event contains multiple cases
+                    </label>
+                    <button type="button" onClick={handleAddBuilderCase} className="cfsp-btn cfsp-btn-primary">
+                      Add Case
+                    </button>
+                    <button type="button" onClick={() => handleDuplicateBuilderCase()} className="cfsp-btn cfsp-btn-secondary">
+                      Duplicate Case
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveBuilderCase()}
+                      className="cfsp-btn cfsp-btn-secondary"
+                      disabled={!scheduleCaseDefinitions.length}
+                    >
+                      Remove Case
+                    </button>
+                  </div>
+                </div>
+                <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+                  <label className="grid gap-2 rounded-[12px] border border-[#c7dcee] bg-white px-3 py-3">
                     <span className="cfsp-label">How many cases?</span>
                     <input
                       className="cfsp-input"
@@ -5396,11 +5551,11 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                       placeholder="4"
                     />
                   </label>
-                </div>
-                <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                   <div className="rounded-[12px] border border-[#c7dcee] bg-white px-3 py-3">
                     <div className="cfsp-label">Every group sees every case?</div>
-                    <div className="mt-2 text-base font-black text-[#14304f]">Yes</div>
+                    <div className="mt-2 text-base font-black text-[#14304f]">
+                      {scheduleCaseDefinitions.length > 1 || activeCaseCount > 1 ? "Yes" : "Not needed"}
+                    </div>
                   </div>
                   <NumberInput label="Students per group" value={roomCapacity} onChange={handleRoomCapacityChange} />
                   <div className="rounded-[12px] border border-[#c7dcee] bg-white px-3 py-3">
@@ -5419,9 +5574,32 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                     {activeCaseCount} active cases exceed {parsedExamRooms} exam rooms. Add rooms, deactivate cases, or expect additional rotation waves.
                   </div>
                 ) : null}
+                {scheduleCaseDefinitions.length > 1 || activeCaseCount > 1 ? (
+                  <div className="cfsp-alert cfsp-alert-info mt-4">
+                    {uploadedLearners.length || 0} learner{uploadedLearners.length === 1 ? "" : "s"} in groups of {parsedRoomCapacity} rotating through {activeCaseCount} active case{activeCaseCount === 1 ? "" : "s"} requires {effectiveRoundCount} round{effectiveRoundCount === 1 ? "" : "s"}.
+                    {parsedExamRooms > activeCaseCount ? ` ${parsedExamRooms - activeCaseCount} room${parsedExamRooms - activeCaseCount === 1 ? "" : "s"} will stay flex/empty.` : ""}
+                  </div>
+                ) : null}
                 <div className="mt-4 grid gap-3">
                   {(scheduleCaseDefinitions.length ? scheduleCaseDefinitions : [{ id: "case-placeholder", name: "", active: true }]).map((caseDef, caseIndex) => (
                     <div key={`${caseDef.id}-${caseIndex}`} className="rounded-[12px] border border-[#dce6ee] bg-white px-3 py-3">
+                      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                        <div className="text-sm font-black text-[#14304f]">Case {caseIndex + 1}</div>
+                        <div className="flex flex-wrap gap-2">
+                          <button type="button" onClick={() => handleDuplicateBuilderCase(caseIndex)} className="cfsp-btn cfsp-btn-secondary">
+                            Duplicate
+                          </button>
+                          <button type="button" onClick={() => handleMoveBuilderCase(caseIndex, -1)} disabled={caseIndex === 0} className="cfsp-btn cfsp-btn-secondary">
+                            Move Up
+                          </button>
+                          <button type="button" onClick={() => handleMoveBuilderCase(caseIndex, 1)} disabled={caseIndex === scheduleCaseDefinitions.length - 1} className="cfsp-btn cfsp-btn-secondary">
+                            Move Down
+                          </button>
+                          <button type="button" onClick={() => handleRemoveBuilderCase(caseIndex)} className="cfsp-btn cfsp-btn-secondary">
+                            Remove
+                          </button>
+                        </div>
+                      </div>
                       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                         <label className="grid gap-2">
                           <span className="cfsp-label">Case title</span>
@@ -5441,6 +5619,12 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                             placeholder={`Exam ${caseIndex + 1}`}
                           />
                         </label>
+                        <div className="grid gap-2">
+                          <span className="cfsp-label">Uploaded case file</span>
+                          <div className="cfsp-input flex items-center bg-[#f8fbfd] text-sm font-bold text-[#5e7388]">
+                            {caseDef.hasDocument ? caseDef.documentName || "Document attached" : "No document attached"}
+                          </div>
+                        </div>
                         <label className="grid gap-2">
                           <span className="cfsp-label">Encounter min</span>
                           <input
@@ -5514,6 +5698,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                     </div>
                   ))}
                 </div>
+                {scheduleCaseDefinitions.length > 1 || activeCaseCount > 1 ? (
                 <div className="mt-4 rounded-[12px] border border-[#c7dcee] bg-white px-3 py-3">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div>
@@ -5579,6 +5764,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                     )}
                   </div>
                 </div>
+                ) : null}
               </div>
               <div className="mt-4 rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
