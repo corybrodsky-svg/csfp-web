@@ -1108,6 +1108,11 @@ function asText(value: unknown) {
   return String(value).trim();
 }
 
+function isEditableKeyboardTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false;
+  return Boolean(target.closest("input, textarea, select, [contenteditable='true'], [contenteditable='']"));
+}
+
 function normalizeOperationalBadgeKey(label: unknown) {
   const normalized = asText(label)
     .toLowerCase()
@@ -10597,7 +10602,7 @@ Cory`;
     setAssigningSpId("");
     setAssignmentSuccessMessage("");
     setErrorMessage("");
-    setEventSaveMessage("");
+    setEventSaveMessage("Saving...");
     setEventSaveError("");
 
     try {
@@ -10646,7 +10651,7 @@ Cory`;
     const shouldUpdateStructuredSessionFromEventDetails = sessions.length <= 1;
 
     setSaving(true);
-    setEventSaveMessage("");
+    setEventSaveMessage("Saving...");
     setEventSaveError("");
 
     try {
@@ -10786,7 +10791,7 @@ Cory`;
   async function persistTrainingNotes(nextNotes: string, successMessage: string) {
     if (!id) return false;
 
-    setEventSaveMessage("");
+    setEventSaveMessage("Saving...");
     setEventSaveError("");
 
     const response = await fetch(`/api/events/${encodeURIComponent(id)}`, {
@@ -11012,6 +11017,29 @@ Cory`;
     successMessage = "Faculty/contact saved."
   ) {
     return saveFacultyContactFields({ [key]: value } as Partial<TrainingEventMetadata>, successMessage);
+  }
+
+  async function saveTrainingMetadataField(
+    key: keyof TrainingEventMetadata,
+    value: string,
+    successMessage: string
+  ) {
+    try {
+      await persistTrainingMetadataFields({ [key]: value } as Partial<TrainingEventMetadata>, successMessage);
+    } catch (error) {
+      setEventSaveError(error instanceof Error ? error.message : "Could not save notes.");
+    }
+  }
+
+  async function saveEventNotesFromEditor(successMessage = "Notes saved.") {
+    if (!id) return;
+    setEventSaveMessage("Saving...");
+    setEventSaveError("");
+    try {
+      await persistTrainingNotes(eventEditor.notes, successMessage);
+    } catch (error) {
+      setEventSaveError(error instanceof Error ? error.message : "Could not save notes.");
+    }
   }
 
   function openMaterialPreview(args: {
@@ -11947,7 +11975,7 @@ Cory`;
     setAssigningSpId("");
     setAssignmentSuccessMessage("");
     setErrorMessage("");
-    setEventSaveMessage("");
+    setEventSaveMessage("Saving...");
     setEventSaveError("");
 
     try {
@@ -11986,7 +12014,7 @@ Cory`;
     setAssigningSpId("");
     setAssignmentSuccessMessage("");
     setErrorMessage("");
-    setEventSaveMessage("");
+    setEventSaveMessage("Saving...");
     setEventSaveError("");
 
     try {
@@ -13549,6 +13577,7 @@ Cory`;
                                   if (!isRoomCollapsed) setActiveBlueprintRoomKey("");
                                 }}
                                 onKeyDown={(event) => {
+                                  if (isEditableKeyboardTarget(event.target)) return;
                                   if (event.key === "Enter" || event.key === " ") {
                                     event.preventDefault();
                                     setCollapsedBlueprintRoomKeys((current) => ({ ...current, [room.key]: !isRoomCollapsed }));
@@ -17012,7 +17041,7 @@ Cory`;
                                 defaultValue={assignment.notes || ""}
                                 onBlur={(e) =>
                                   handleAssignmentDetailsChange(assignment, {
-                                    notes: e.target.value.trim() || null,
+                                    notes: e.target.value || null,
                                   })
                                 }
                                 placeholder="Add optional notes..."
@@ -17963,6 +17992,7 @@ Cory`;
         tabIndex={0}
         onClick={openReadinessDetails}
         onKeyDown={(event) => {
+          if (isEditableKeyboardTarget(event.target)) return;
           if (event.key === "Enter" || event.key === " ") {
             event.preventDefault();
             openReadinessDetails();
@@ -19368,6 +19398,7 @@ Cory`;
                         tabIndex={0}
                         onClick={() => togglePlanningWindow(windowCard.key as PlanningWindowKey)}
                         onKeyDown={(event) => {
+                          if (isEditableKeyboardTarget(event.target)) return;
                           if (event.key === "Enter" || event.key === " ") {
                             event.preventDefault();
                             togglePlanningWindow(windowCard.key as PlanningWindowKey);
@@ -19403,6 +19434,7 @@ Cory`;
                               openWindowReadinessDetails();
                             }}
                             onKeyDown={(event) => {
+                              if (isEditableKeyboardTarget(event.target)) return;
                               if (event.key === "Enter" || event.key === " ") {
                                 event.preventDefault();
                                 openWindowReadinessDetails();
@@ -22516,6 +22548,7 @@ Cory`;
                         onChange={(event) =>
                           handleTrainingMetadataChange("event_recording_notes", event.target.value)
                         }
+                        onBlur={(event) => void saveTrainingMetadataField("event_recording_notes", event.target.value, "Recording notes saved.")}
                         disabled={saving}
                         placeholder="Notes, IDs, links, or handoff requirements"
                         style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
@@ -22587,6 +22620,7 @@ Cory`;
                     <textarea
                       value={trainingMetadata.training_notes}
                       onChange={(event) => handleTrainingMetadataChange("training_notes", event.target.value)}
+                      onBlur={(event) => void saveTrainingMetadataField("training_notes", event.target.value, "Training notes saved.")}
                       disabled={saving}
                       placeholder="Add prep notes, reminders, or follow-up details..."
                       style={{ ...textareaStyle, minHeight: "88px" }}
@@ -22597,6 +22631,7 @@ Cory`;
                     <textarea
                       value={eventEditor.notes}
                       onChange={(event) => setEventEditor((current) => ({ ...current, notes: event.target.value }))}
+                      onBlur={() => void saveEventNotesFromEditor()}
                       disabled={saving}
                       placeholder="Add operational notes, setup details, reporting instructions..."
                       style={{ ...textareaStyle, minHeight: "120px" }}
@@ -23384,6 +23419,7 @@ Cory`;
                   <input
                     value={trainingMetadata.event_recording_notes}
                     onChange={(event) => handleTrainingMetadataChange("event_recording_notes", event.target.value)}
+                    onBlur={(event) => void saveTrainingMetadataField("event_recording_notes", event.target.value, "Recording notes saved.")}
                     disabled={saving}
                     data-admin-field="event_recording_notes"
                     placeholder="Notes, IDs, links, or handoff requirements"
@@ -23491,6 +23527,7 @@ Cory`;
                     <input
                       value={trainingMetadata.contact_internal_notes}
                       onChange={(event) => handleTrainingMetadataChange("contact_internal_notes", event.target.value)}
+                      onBlur={(event) => void saveTrainingMetadataField("contact_internal_notes", event.target.value, "Support notes saved.")}
                       disabled={saving}
                       data-admin-field="support_notes"
                       placeholder="AV setup, sim tech, room logistics, recording notes..."
@@ -23728,6 +23765,7 @@ Cory`;
                     <textarea
                       value={trainingMetadata.training_notes}
                       onChange={(event) => handleTrainingMetadataChange("training_notes", event.target.value)}
+                      onBlur={(event) => void saveTrainingMetadataField("training_notes", event.target.value, "Training notes saved.")}
                       disabled={saving}
                       data-admin-field="training_notes"
                       placeholder="Add prep notes, reminders, or follow-up details..."
@@ -23756,6 +23794,7 @@ Cory`;
               onChange={(event) =>
                 setEventEditor((current) => ({ ...current, notes: event.target.value }))
               }
+              onBlur={() => void saveEventNotesFromEditor()}
               disabled={saving}
               placeholder="Add operational notes, setup details, reporting instructions..."
               style={{ ...textareaStyle, marginTop: "10px" }}
@@ -24121,7 +24160,7 @@ Cory`;
                           defaultValue={assignment.notes || ""}
                           onBlur={(e) =>
                             handleAssignmentDetailsChange(assignment, {
-                              notes: e.target.value.trim() || null,
+                              notes: e.target.value || null,
                             })
                           }
                           placeholder="Add optional notes..."
