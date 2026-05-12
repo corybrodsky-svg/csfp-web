@@ -176,6 +176,20 @@ export function classifyEventPresentation(input: EventClassificationInput) {
   };
 }
 
+export function isStandaloneTrainingEvent(input: EventClassificationInput) {
+  const presentation = classifyEventPresentation(input);
+  const activeTypes = new Set(presentation.activeEventTypes);
+
+  return (
+    presentation.isTraining &&
+    !presentation.hasSpWorkflow &&
+    !activeTypes.has("sp") &&
+    !activeTypes.has("skills") &&
+    !activeTypes.has("hifi") &&
+    !activeTypes.has("virtual")
+  );
+}
+
 export function getEventBadgeAppearance(kind: EventBadgeKind) {
   const appearances: Record<EventBadgeKind, { background: string; border: string; color: string }> = {
     training: {

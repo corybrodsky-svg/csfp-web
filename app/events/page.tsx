@@ -9,7 +9,7 @@ import {
   getEventCoverageVisualToneWithBase,
 } from "../lib/eventCoverageVisual";
 import { formatHumanDate, getImportedYearHint } from "../lib/eventDateUtils";
-import { classifyEventPresentation, getEventBadgeAppearance } from "../lib/eventClassification";
+import { classifyEventPresentation, getEventBadgeAppearance, isStandaloneTrainingEvent } from "../lib/eventClassification";
 import { getBestEventTeamInfo } from "../lib/eventRoster";
 import { formatDisplayTime } from "../lib/timeFormat";
 
@@ -94,27 +94,6 @@ function getEventBadges(event: EventRow) {
               : "SP Event",
     ...getEventBadgeAppearance(kind),
   }));
-}
-
-function isStandaloneTrainingEvent(event: EventRow) {
-  const presentation = classifyEventPresentation({
-    name: event.name,
-    status: event.status,
-    notes: event.notes,
-    location: event.location,
-    spNeeded: Number(event.sp_needed || 0),
-    assignmentCount: Number(event.total_assignments || 0),
-    confirmedCount: Number(event.confirmed_assignments || 0),
-  });
-  const activeTypes = new Set(presentation.activeEventTypes);
-  return (
-    presentation.isTraining &&
-    !presentation.hasSpWorkflow &&
-    !activeTypes.has("sp") &&
-    !activeTypes.has("skills") &&
-    !activeTypes.has("hifi") &&
-    !activeTypes.has("virtual")
-  );
 }
 
 function getEventSearchText(event: EventRow) {

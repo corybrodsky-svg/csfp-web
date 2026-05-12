@@ -11,7 +11,7 @@ import {
   getEventCoverageVisualTone,
   getEventCoverageVisualToneWithBase,
 } from "../lib/eventCoverageVisual";
-import { classifyEventPresentation, getEventBadgeAppearance } from "../lib/eventClassification";
+import { classifyEventPresentation, getEventBadgeAppearance, isStandaloneTrainingEvent } from "../lib/eventClassification";
 import { getBestEventTeamInfo } from "../lib/eventRoster";
 import { eventMatchesOwnership, ownershipTextMatchesScheduleName } from "../lib/eventOwnership";
 
@@ -318,6 +318,18 @@ function getEventBadges(event: EventRecord) {
 
 function getPrimaryEventTypeLabel(event: EventRecord) {
   return asText(getEventBadges(event)[0]?.label) || "Event";
+}
+
+function isRecentStandaloneTrainingRecord(recent: RecentEventEntry, freshEvent?: EventRecord) {
+  return isStandaloneTrainingEvent({
+    name: freshEvent?.name ?? recent.name,
+    status: freshEvent?.status ?? recent.status,
+    notes: freshEvent?.notes,
+    location: freshEvent?.location ?? recent.location,
+    spNeeded: freshEvent?.sp_needed,
+    assignmentCount: freshEvent?.total_assignments ?? freshEvent?.sp_assigned,
+    confirmedCount: freshEvent?.confirmed_assignments ?? freshEvent?.sp_assigned,
+  });
 }
 
 function normalizeFinderText(value: unknown) {
@@ -1332,6 +1344,11 @@ function RecentEventsPanel({
   eventsById: Map<string, EventRecord>;
   onClear: () => void;
 }) {
+  const visibleRecentEvents = recentEvents.filter((recent) => {
+    const freshEvent = eventsById.get(recent.id);
+    return !isRecentStandaloneTrainingRecord(recent, freshEvent);
+  });
+
   return (
     <section
       className="cfsp-panel rounded-[14px] px-4 py-4"
@@ -1349,7 +1366,7 @@ function RecentEventsPanel({
             Your last opened event workspaces on this device.
           </p>
         </div>
-        {recentEvents.length ? (
+        {visibleRecentEvents.length ? (
           <button
             type="button"
             onClick={onClear}
@@ -1366,8 +1383,8 @@ function RecentEventsPanel({
       </div>
 
       <div className="mt-3 grid gap-2">
-        {recentEvents.length ? (
-          recentEvents.map((recent) => {
+        {visibleRecentEvents.length ? (
+          visibleRecentEvents.map((recent) => {
             const freshEvent = eventsById.get(recent.id);
             const eventName = freshEvent?.name?.trim() || recent.name || "Untitled Event";
             const eventDate = freshEvent?.date_text || recent.dateText;
@@ -1621,8 +1638,21 @@ export default function DashboardPage() {
     }
   }, [matchTerms, me?.user?.email]);
 
+  const primaryWorkflowEvents = useMemo(
+    () => events.filter((event) => !isStandaloneTrainingEvent({
+      name: event.name,
+      status: event.status,
+      notes: event.notes,
+      location: event.location,
+      spNeeded: event.sp_needed,
+      assignmentCount: event.total_assignments ?? event.sp_assigned,
+      confirmedCount: event.confirmed_assignments ?? event.sp_assigned,
+    })),
+    [events]
+  );
+
   const eventMeta = useMemo(() => {
-    return [...events]
+    return [...primaryWorkflowEvents]
       .map((event) => {
         const needed = Number(event.sp_needed || 0);
         const assigned = Number(event.total_assignments ?? event.sp_assigned ?? 0);
@@ -1651,11 +1681,11 @@ export default function DashboardPage() {
         if (!b.start) return -1;
         return a.start.getTime() - b.start.getTime();
       });
-  }, [events]);
+  }, [primaryWorkflowEvents]);
 
   const archivedEventCount = useMemo(
     () =>
-      events.filter((event) =>
+      primaryWorkflowEvents.filter((event) =>
         isPastEvent({
           latestSessionDate: event.latest_session_date,
           earliestSessionDate: event.earliest_session_date,
@@ -1663,11 +1693,11 @@ export default function DashboardPage() {
           notes: event.notes,
         })
       ).length,
-    [events]
+    [primaryWorkflowEvents]
   );
 
   const allVisibleEvents = eventMeta;
-  const eventsById = useMemo(() => new Map(events.map((event) => [event.id, event])), [events]);
+  const eventsById = useMemo(() => new Map(primaryWorkflowEvents.map((event) => [event.id, event])), [primaryWorkflowEvents]);
 
   const myMatchedEvents = useMemo(
     () =>
