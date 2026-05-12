@@ -9974,24 +9974,24 @@ Cory`;
       ? "linear-gradient(180deg, rgba(255, 255, 255, 0.99) 0%, rgba(247, 250, 252, 0.98) 100%)"
       : "linear-gradient(180deg, rgba(21, 38, 55, 0.98) 0%, rgba(19, 35, 51, 0.96) 100%)",
     shellShadow: isPlanningVisualMode ? "0 14px 32px rgba(24, 52, 78, 0.08)" : "none",
-    labelColor: isPlanningVisualMode ? "#145b96" : "#d7efff",
+    labelColor: isPlanningVisualMode ? "#0f4f7a" : "#eef8ff",
     headingColor: isPlanningVisualMode ? "#0f2940" : "#ffffff",
-    textColor: isPlanningVisualMode ? "#18364a" : "#f7fbff",
-    mutedColor: isPlanningVisualMode ? "#4f6d82" : "#c9d7e2",
+    textColor: isPlanningVisualMode ? "#102d44" : "#f8fbff",
+    mutedColor: isPlanningVisualMode ? "#2f5268" : "#dce8f2",
     cardBackground: isPlanningVisualMode
       ? "linear-gradient(180deg, rgba(255, 255, 255, 0.99) 0%, rgba(247, 250, 252, 0.98) 100%)"
       : "linear-gradient(180deg, rgba(23, 40, 56, 0.97) 0%, rgba(19, 34, 49, 0.96) 100%)",
     cardBorder: isPlanningVisualMode ? "1px solid rgba(20, 91, 150, 0.12)" : "1px solid rgba(203, 213, 225, 0.2)",
-    chipBackground: isPlanningVisualMode ? "rgba(255, 255, 255, 0.86)" : "rgba(219, 234, 254, 0.13)",
-    chipText: isPlanningVisualMode ? "#145b96" : "#eef6ff",
+    chipBackground: isPlanningVisualMode ? "rgba(231, 244, 252, 0.92)" : "rgba(219, 234, 254, 0.16)",
+    chipText: isPlanningVisualMode ? "#0f4f7a" : "#f4faff",
     activeSoftBackground: isPlanningVisualMode ? planningSuccessBackground : "rgba(126, 231, 219, 0.14)",
     activeSoftText: isPlanningVisualMode ? planningSuccessText : "#b8f1e1",
     panelBackground: isPlanningVisualMode
       ? "linear-gradient(180deg, rgba(255,255,255,0.99) 0%, rgba(247,250,252,0.97) 100%)"
       : "linear-gradient(180deg, rgba(15, 30, 44, 0.98) 0%, rgba(14, 29, 43, 0.97) 100%)",
     panelBorder: isPlanningVisualMode ? "1px solid rgba(20, 91, 150, 0.16)" : "1px solid rgba(203, 213, 225, 0.24)",
-    rowBackground: isPlanningVisualMode ? "rgba(255, 255, 255, 0.96)" : "rgba(255,255,255,0.075)",
-    rowBorder: isPlanningVisualMode ? "1px solid rgba(128, 167, 182, 0.22)" : "1px solid rgba(203, 213, 225, 0.2)",
+    rowBackground: isPlanningVisualMode ? "rgba(255, 255, 255, 0.985)" : "rgba(255,255,255,0.105)",
+    rowBorder: isPlanningVisualMode ? "1px solid rgba(76, 120, 148, 0.28)" : "1px solid rgba(226, 232, 240, 0.24)",
   } as const;
   const commandFileCabinetVisual = {
     shellBackground:
@@ -21307,7 +21307,7 @@ Cory`;
                                     {row.caseLabel || row.stationLabel ? (
                                       <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                                         {row.stationLabel ? (
-                                          <span style={{ ...commandChipStyle, background: "rgba(20, 91, 150, 0.12)", color: "#d9ebff" }}>
+                                          <span style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText, border: commandCenterVisual.rowBorder }}>
                                             {row.stationLabel}
                                           </span>
                                         ) : null}
@@ -21368,18 +21368,18 @@ Cory`;
                                   <div key={`${row.key}-sp`} style={{ borderRadius: "12px", border: commandCenterVisual.rowBorder, background: commandCenterVisual.rowBackground, padding: "12px 14px", display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
                                     <div>
                                       <div style={{ color: commandCenterVisual.textColor, fontWeight: 800 }}>{row.roomName || `Room ${index + 1}`}</div>
-                                      <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 700, display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                                      <div style={{ marginTop: "4px", color: commandCenterVisual.textColor, fontSize: "12px", fontWeight: 800, display: "inline-flex", alignItems: "center", gap: "6px" }}>
                                         <RoundOperationAvatar name={row.sp ? getFullName(row.sp) : "SP TBD"} role="sp" />
                                         {row.sp ? getFullName(row.sp) : "SP TBD"}
                                       </div>
                                       {row.caseLabel || row.stationLabel ? (
-                                        <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 700 }}>
+                                        <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 800 }}>
                                           {[row.stationLabel, row.caseLabel].filter(Boolean).join(" · ")}
                                         </div>
                                       ) : null}
                                     </div>
                                     {row.assignment ? (
-                                      <span style={{ ...commandChipStyle, background: "rgba(20, 91, 150, 0.12)", color: "#d9ebff" }}>
+                                      <span style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText, border: commandCenterVisual.rowBorder }}>
                                         {assignmentStatusLabels[getAssignmentStatus(row.assignment)]}
                                       </span>
                                     ) : null}
@@ -21443,11 +21443,11 @@ Cory`;
                                 </section>
                                 <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                                   {selectedRoundScheduleRows.length ? selectedRoundScheduleRows.map((row) => (
-                                    <span key={`${row.key}-room-chip`} style={{ ...commandChipStyle, background: "rgba(20, 91, 150, 0.12)", color: "#d9ebff" }}>
+                                    <span key={`${row.key}-room-chip`} style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText, border: commandCenterVisual.rowBorder }}>
                                       {row.roomName}
                                     </span>
                                   )) : (
-                                    <span style={{ ...commandChipStyle, background: "rgba(148, 163, 184, 0.16)", color: "#cbd5e1" }}>
+                                    <span style={{ ...commandChipStyle, background: isPlanningVisualMode ? "rgba(226, 236, 244, 0.92)" : "rgba(226, 232, 240, 0.16)", color: commandCenterVisual.mutedColor, border: commandCenterVisual.rowBorder }}>
                                       Rooms TBD
                                     </span>
                                   )}
@@ -21466,18 +21466,18 @@ Cory`;
                                     <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
                                       <div>
                                         <div style={{ color: commandCenterVisual.textColor, fontWeight: 900 }}>{row.roomName || `Room ${index + 1}`}</div>
-                                        <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 700 }}>
+                                        <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 800 }}>
                                           {[row.stationLabel, row.caseLabel].filter(Boolean).join(" · ") || "Case not assigned"}
                                         </div>
                                       </div>
                                       <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
                                         {row.assignment ? (
-                                          <span style={{ ...commandChipStyle, background: "rgba(20, 91, 150, 0.12)", color: "#d9ebff" }}>
+                                          <span style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText, border: commandCenterVisual.rowBorder }}>
                                             {assignmentStatusLabels[getAssignmentStatus(row.assignment)]}
                                           </span>
                                         ) : null}
                                         {row.sp && getEmail(row.sp) ? (
-                                          <span style={{ ...commandChipStyle, background: "rgba(25, 138, 112, 0.14)", color: "#b8e4d4" }}>
+                                          <span style={{ ...commandChipStyle, background: commandCenterVisual.activeSoftBackground, color: commandCenterVisual.activeSoftText, border: commandCenterVisual.rowBorder }}>
                                             Email ready
                                           </span>
                                         ) : null}
@@ -21511,7 +21511,7 @@ Cory`;
                                       </div>
                                       <div>
                                         <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Location</div>
-                                        <div style={{ color: commandCenterVisual.textColor, fontWeight: 800, fontSize: "13px" }}>
+                                        <div style={{ color: commandCenterVisual.textColor, fontWeight: 900, fontSize: "13px" }}>
                                           {row.location || "Location TBD"}
                                         </div>
                                       </div>
