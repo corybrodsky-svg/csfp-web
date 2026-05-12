@@ -24398,7 +24398,7 @@ Cory`;
               </summary>
               <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "flex-start", marginTop: "10px" }}>
                 <div>
-                  <h2 style={compactSectionTitleStyle}>Communication</h2>
+                  <h2 id="communication-center" style={compactSectionTitleStyle}>Communication</h2>
                   <p style={compactSectionHintStyle}>
                     Draft event emails for hiring, confirmation, training prep, post-training follow-up, and payroll wrap-up.
                   </p>
