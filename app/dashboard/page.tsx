@@ -827,7 +827,7 @@ function WorkflowSection({
                       <Link href={`/events/${item.event.id}#coverage-actions`} className="cfsp-btn cfsp-btn-primary">
                         Quick Assign
                       </Link>
-                      <Link href={`/events/${item.event.id}`} className="cfsp-btn cfsp-btn-secondary">
+                      <Link href={`/events/${encodeURIComponent(item.event.id)}?family=n421`} className="cfsp-btn cfsp-btn-secondary">
                         Open Event
                       </Link>
                     </div>
@@ -1424,7 +1424,7 @@ function RecentEventsPanel({
                       {openedLabel ? <span>Opened {openedLabel}</span> : null}
                     </div>
                   </div>
-                  <Link href={`/events/${encodeURIComponent(recent.id)}`} className="cfsp-btn cfsp-btn-secondary shrink-0 px-3 py-1.5 text-xs">
+                  <Link href={`/events/${encodeURIComponent(recent.id)}?family=n421`} className="cfsp-btn cfsp-btn-secondary shrink-0 px-3 py-1.5 text-xs">
                     Open
                   </Link>
                 </div>
