@@ -22109,8 +22109,11 @@ Cory`;
                                           {row.sp ? getFullName(row.sp) : "SP TBD"}
                                         </div>
                                         {row.backupSpName ? (
-                                          <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 800 }}>
-                                            Backup: {row.backupSpName}
+                                          <div style={{ marginTop: "6px", color: commandCenterVisual.textColor, fontSize: "12px", fontWeight: 900, display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+                                            <span style={{ ...commandChipStyle, background: commandCenterVisual.activeSoftBackground, color: commandCenterVisual.activeSoftText, border: commandCenterVisual.rowBorder, padding: "3px 7px", fontSize: "10px" }}>
+                                              Backup
+                                            </span>
+                                            {row.backupSpName}
                                           </div>
                                         ) : null}
                                       </div>

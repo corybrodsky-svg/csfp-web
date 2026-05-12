@@ -2168,6 +2168,78 @@ function normalizeScheduleRoomAdjustments(value: ParsedScheduleRoomAdjustments) 
   return normalized;
 }
 
+function serializeScheduleRoomAdjustments(value: ParsedScheduleRoomAdjustments) {
+  const payload = value && value.roundsByNumber instanceof Map ? value : createEmptyScheduleRoomAdjustments();
+  return JSON.stringify({
+    v: 1,
+    rounds: Array.from(payload.roundsByNumber.entries())
+      .sort((a, b) => a[0] - b[0])
+      .map(([round, slots]) => ({
+        round,
+        slots: slots
+          .slice()
+          .sort((a, b) => a.slotIndex - b.slotIndex)
+          .map((slot) => ({
+            slotIndex: slot.slotIndex,
+            learnerLabels: normalizeLearnerNames(slot.learnerLabels || []),
+            ...(asText(slot.spName) ? { spName: asText(slot.spName) } : {}),
+            ...(asText(slot.backupSpName) ? { backupSpName: asText(slot.backupSpName) } : {}),
+            ...(asText(slot.caseLabel) ? { caseLabel: asText(slot.caseLabel) } : {}),
+            ...(asText(slot.roleLabel) ? { roleLabel: asText(slot.roleLabel) } : {}),
+            ...(asText(slot.notes) ? { notes: asText(slot.notes) } : {}),
+          })),
+      }))
+      .filter((entry) =>
+        entry.slots.some((slot) =>
+          slot.learnerLabels.length ||
+          asText(slot.spName) ||
+          asText(slot.backupSpName) ||
+          asText(slot.caseLabel) ||
+          asText(slot.roleLabel) ||
+          asText(slot.notes)
+        )
+      ),
+  });
+}
+
+function upsertScheduleRoomAdjustmentSlot(
+  adjustments: ParsedScheduleRoomAdjustments,
+  roundNumber: number,
+  slotIndex: number,
+  partial: Partial<ScheduleRoomAdjustmentSlot>
+) {
+  const current = adjustments && adjustments.roundsByNumber instanceof Map ? adjustments : createEmptyScheduleRoomAdjustments();
+  const nextRounds = new Map(current.roundsByNumber);
+  const currentSlots = nextRounds.get(roundNumber)?.slice() || [];
+  const existing = currentSlots.find((slot) => slot.slotIndex === slotIndex) || { slotIndex, learnerLabels: [] };
+  const merged: ScheduleRoomAdjustmentSlot = {
+    ...existing,
+    ...partial,
+    slotIndex,
+    learnerLabels:
+      partial.learnerLabels !== undefined
+        ? normalizeLearnerNames(partial.learnerLabels)
+        : normalizeLearnerNames(existing.learnerLabels || []),
+  };
+  const nextSlots = currentSlots.filter((slot) => slot.slotIndex !== slotIndex);
+  if (
+    merged.learnerLabels.length ||
+    asText(merged.spName) ||
+    asText(merged.backupSpName) ||
+    asText(merged.caseLabel) ||
+    asText(merged.roleLabel) ||
+    asText(merged.notes)
+  ) {
+    nextSlots.push(merged);
+  }
+  if (nextSlots.length) nextRounds.set(roundNumber, nextSlots);
+  else nextRounds.delete(roundNumber);
+  return {
+    roundsByNumber: nextRounds,
+    slotKey: current.slotKey,
+  };
+}
+
 function applyScheduleRoomAdjustments(
   rounds: ScheduledRound[],
   assignedSpNames: string[],
@@ -3600,6 +3672,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     uploadedLearners.length && parsedRoomCapacity > 0
       ? Math.ceil(uploadedLearners.length / parsedRoomCapacity)
       : 0;
+  const builderLearnerGroups = useMemo(
+    () => buildLearnerGroups(uploadedLearners, parsedRoomCapacity),
+    [parsedRoomCapacity, uploadedLearners]
+  );
   const caseRotationRoundCount =
     activeCaseCount > 1
       ? Math.max(activeCaseCount, Math.ceil(Math.max(learnerGroupCount, 1) / Math.max(activeCaseRoomCount, 1)) * activeCaseCount)
@@ -3942,6 +4018,67 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       }
     },
     [persistScheduleWorkflowMetadata, scheduleCaseDefinitions, showCopyMessage]
+  );
+  const handleUpdateLearnerAt = useCallback((learnerIndex: number, value: string) => {
+    setUploadedLearners((current) => current.map((learner, index) => (index === learnerIndex ? normalizeLearnerName(value) : learner)));
+    setSaveState("unsaved");
+  }, []);
+  const handleRemoveLearnerAt = useCallback((learnerIndex: number) => {
+    setUploadedLearners((current) => current.filter((_, index) => index !== learnerIndex));
+    setSaveState("unsaved");
+  }, []);
+  const handleMoveLearnerToGroup = useCallback((learnerIndex: number, targetGroupIndex: number) => {
+    setUploadedLearners((current) => {
+      const next = [...current];
+      const [learner] = next.splice(learnerIndex, 1);
+      if (!learner) return current;
+      const insertIndex = Math.min(next.length, Math.max(0, targetGroupIndex) * Math.max(parsedRoomCapacity, 1));
+      next.splice(insertIndex, 0, learner);
+      return next;
+    });
+    setSaveState("unsaved");
+  }, [parsedRoomCapacity]);
+  const handleCreateLearnerGroup = useCallback(() => {
+    setUploadedLearners((current) => [
+      ...current,
+      ...Array.from({ length: Math.max(parsedRoomCapacity, 1) }, (_, index) => `Learner ${current.length + index + 1}`),
+    ]);
+    setSaveState("unsaved");
+  }, [parsedRoomCapacity]);
+  const handleDeleteLearnerGroup = useCallback((groupIndex: number) => {
+    const groupSize = Math.max(parsedRoomCapacity, 1);
+    setUploadedLearners((current) =>
+      current.filter((_, index) => index < groupIndex * groupSize || index >= (groupIndex + 1) * groupSize)
+    );
+    setSaveState("unsaved");
+  }, [parsedRoomCapacity]);
+  const handleSaveCaseStationOverride = useCallback(
+    async (caseIndex: number, partial: Partial<ScheduleRoomAdjustmentSlot>) => {
+      if (!selectedEvent?.id) return;
+      let nextAdjustments = roomAdjustments;
+      const roundTotal = Math.max(generated.rounds.length, effectiveRoundCount, activeCaseCount || 1);
+      for (let roundNumber = 1; roundNumber <= roundTotal; roundNumber += 1) {
+        nextAdjustments = upsertScheduleRoomAdjustmentSlot(nextAdjustments, roundNumber, caseIndex, partial);
+      }
+      const normalized = normalizeScheduleRoomAdjustments(nextAdjustments);
+      setRoomAdjustments(normalized);
+      setSaveState("saving");
+      try {
+        await persistScheduleWorkflowMetadata({
+          schedule_room_adjustments: serializeScheduleRoomAdjustments(normalized),
+          schedule_updated_at: new Date().toISOString(),
+        });
+        setSaveState("saved");
+        setLastSavedAt(new Date().toISOString());
+        showCopyMessage("Case station assignment saved.");
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Could not save case station assignment.";
+        setSaveState("error");
+        setSaveErrorMessage(message);
+        showCopyMessage(message, "error", 3200);
+      }
+    },
+    [activeCaseCount, effectiveRoundCount, generated.rounds.length, persistScheduleWorkflowMetadata, roomAdjustments, selectedEvent?.id, showCopyMessage]
   );
 
   useEffect(() => {
@@ -5240,12 +5377,14 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                 <NumberInput label="Encounter minutes" value={encounterMinutes} onChange={setEncounterMinutes} />
                 <NumberInput label="Round target minutes (optional)" value={sessionLengthMinutes} onChange={setSessionLengthMinutes} />
               </div>
-              <div className="mt-4 rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
+              <div className="mt-4 rounded-[16px] border-2 border-[#145b96] bg-[#eef7ff] px-4 py-4 shadow-[0_14px_30px_rgba(20,91,150,0.12)]">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>
-                    <div className="cfsp-label">Case Setup</div>
-                    <div className="mt-2 text-sm font-semibold leading-6 text-[#5e7388]">
-                      Cases are rotation stations. Fixed case rooms use active cases first; extra exam rooms remain flex/empty unless manually assigned in Round Operations.
+                    <div className="text-[0.78rem] font-black uppercase tracking-[0.1em] text-[#145b96]">Case Rotation Setup</div>
+                    <h3 className="mt-2 mb-0 text-[1.3rem] font-black text-[#14304f]">Cases drive the schedule math</h3>
+                    <div className="mt-2 text-sm font-bold leading-6 text-[#365a76]">
+                      CFSP will build rounds so every group sees every active case once.
+                      Fixed case rooms use active cases first; extra exam rooms remain flex/empty unless manually assigned.
                     </div>
                   </div>
                   <label className="grid gap-2 sm:w-40">
@@ -5258,6 +5397,28 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                     />
                   </label>
                 </div>
+                <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                  <div className="rounded-[12px] border border-[#c7dcee] bg-white px-3 py-3">
+                    <div className="cfsp-label">Every group sees every case?</div>
+                    <div className="mt-2 text-base font-black text-[#14304f]">Yes</div>
+                  </div>
+                  <NumberInput label="Students per group" value={roomCapacity} onChange={handleRoomCapacityChange} />
+                  <div className="rounded-[12px] border border-[#c7dcee] bg-white px-3 py-3">
+                    <div className="cfsp-label">Active case rooms</div>
+                    <div className="mt-2 text-base font-black text-[#14304f]">{activeCaseRoomCount}</div>
+                  </div>
+                  <div className="rounded-[12px] border border-[#c7dcee] bg-white px-3 py-3">
+                    <div className="cfsp-label">Extra rooms</div>
+                    <div className="mt-2 text-base font-black text-[#14304f]">
+                      {parsedExamRooms > activeCaseCount ? `${parsedExamRooms - activeCaseCount} flex/empty` : "None"}
+                    </div>
+                  </div>
+                </div>
+                {activeCaseCount > parsedExamRooms && parsedExamRooms > 0 ? (
+                  <div className="cfsp-alert cfsp-alert-error mt-4">
+                    {activeCaseCount} active cases exceed {parsedExamRooms} exam rooms. Add rooms, deactivate cases, or expect additional rotation waves.
+                  </div>
+                ) : null}
                 <div className="mt-4 grid gap-3">
                   {(scheduleCaseDefinitions.length ? scheduleCaseDefinitions : [{ id: "case-placeholder", name: "", active: true }]).map((caseDef, caseIndex) => (
                     <div key={`${caseDef.id}-${caseIndex}`} className="rounded-[12px] border border-[#dce6ee] bg-white px-3 py-3">
@@ -5301,6 +5462,28 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                           </select>
                         </label>
                         <label className="grid gap-2">
+                          <span className="cfsp-label">Assigned SP</span>
+                          <input
+                            className="cfsp-input"
+                            defaultValue={
+                              roomAdjustments.roundsByNumber.get(1)?.find((slot) => slot.slotIndex === caseIndex)?.spName ||
+                              selectedEvent?.assigned_sp_names?.[caseIndex] ||
+                              ""
+                            }
+                            onBlur={(event) => void handleSaveCaseStationOverride(caseIndex, { spName: event.target.value, caseLabel: caseDef.name })}
+                            placeholder="SP name"
+                          />
+                        </label>
+                        <label className="grid gap-2">
+                          <span className="cfsp-label">Role / portrayal</span>
+                          <input
+                            className="cfsp-input"
+                            defaultValue={roomAdjustments.roundsByNumber.get(1)?.find((slot) => slot.slotIndex === caseIndex)?.roleLabel || ""}
+                            onBlur={(event) => void handleSaveCaseStationOverride(caseIndex, { roleLabel: event.target.value, caseLabel: caseDef.name })}
+                            placeholder="Patient, nurse, family..."
+                          />
+                        </label>
+                        <label className="grid gap-2">
                           <span className="cfsp-label">Checklist min</span>
                           <input
                             className="cfsp-input"
@@ -5330,6 +5513,71 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                       </div>
                     </div>
                   ))}
+                </div>
+                <div className="mt-4 rounded-[12px] border border-[#c7dcee] bg-white px-3 py-3">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <div className="cfsp-label">Student Groups</div>
+                      <div className="mt-2 text-sm font-semibold text-[#5e7388]">
+                        Edit group membership directly. Group size follows Students per group.
+                      </div>
+                    </div>
+                    <button type="button" onClick={handleCreateLearnerGroup} className="cfsp-btn cfsp-btn-secondary">
+                      Create Group
+                    </button>
+                  </div>
+                  <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                    {builderLearnerGroups.length ? builderLearnerGroups.map((group, groupIndex) => (
+                      <div key={`builder-group-${groupIndex}`} className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-3 py-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="text-sm font-black text-[#14304f]">Group {groupIndex + 1}</div>
+                          <button type="button" onClick={() => handleDeleteLearnerGroup(groupIndex)} className="cfsp-btn cfsp-btn-secondary">
+                            Delete
+                          </button>
+                        </div>
+                        <div className="mt-3 grid gap-2">
+                          {group.labels.map((learner, memberIndex) => {
+                            const learnerIndex = group.indexes[memberIndex];
+                            return (
+                              <div key={`builder-group-${groupIndex}-${learnerIndex}`} className="grid gap-2">
+                                <input
+                                  className="cfsp-input"
+                                  value={learner}
+                                  onChange={(event) => handleUpdateLearnerAt(learnerIndex, event.target.value)}
+                                  placeholder="Student name"
+                                />
+                                <div className="flex gap-2">
+                                  <select
+                                    className="cfsp-input"
+                                    defaultValue=""
+                                    onChange={(event) => {
+                                      const targetGroup = Number(event.target.value);
+                                      if (Number.isFinite(targetGroup)) handleMoveLearnerToGroup(learnerIndex, targetGroup);
+                                      event.currentTarget.value = "";
+                                    }}
+                                  >
+                                    <option value="">Move to group...</option>
+                                    {builderLearnerGroups.map((_, targetIndex) => (
+                                      <option key={`move-${learnerIndex}-${targetIndex}`} value={targetIndex}>
+                                        Group {targetIndex + 1}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  <button type="button" onClick={() => handleRemoveLearnerAt(learnerIndex)} className="cfsp-btn cfsp-btn-secondary">
+                                    Remove
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )) : (
+                      <div className="rounded-[12px] border border-dashed border-[#c9d7e3] bg-white px-4 py-4 text-sm font-semibold text-[#5e7388]">
+                        Upload or create learners to edit groups.
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
               <div className="mt-4 rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
@@ -5996,8 +6244,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                                 </div>
                                 {scheduleViewMode === "operations" ? (
                                   <div style={{ marginTop: "6px", fontSize: "12px", fontWeight: 700, color: "#4f677d", lineHeight: 1.5 }}>
-                                    <div>SP: {selectedEvent?.assigned_sp_names?.[round.roomSlots.findIndex((item) => item.roomName === slot.roomName)] || "Unassigned SP"}</div>
-                                    <div>Case: {selectedEventEncounterLabel || "Case not assigned"}</div>
+                                    <div>SP: {selectedEvent?.assigned_sp_names?.[slot.assignedSpIndex ?? round.roomSlots.findIndex((item) => item.roomName === slot.roomName)] || "Unassigned SP"}</div>
+                                    {slot.backupSpName ? <div><strong>Backup:</strong> {slot.backupSpName}</div> : <div style={{ opacity: 0.72 }}>No backup assigned</div>}
+                                    <div>Case: {slot.caseLabel || selectedEventEncounterLabel || "Case not assigned"}</div>
+                                    <div>Role: {slot.roleLabel || "Role TBD"}</div>
                                   </div>
                                 ) : null}
                                 <div style={{ marginTop: "8px", display: "grid", gap: "6px" }}>
