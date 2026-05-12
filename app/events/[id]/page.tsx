@@ -28630,11 +28630,11 @@ Cory`;
                             type="button"
                             className="cfsp-chest-link"
                             onClick={() => {
-                              const targetHref = scheduleCompleted
-                                ? buildScheduleBuilderHref("session-builder")
-                                : buildScheduleBuilderHref("builder");
+                              const params = new URLSearchParams();
+                              params.set("source", "command-chest");
+                              params.set("view", scheduleCompleted ? "session-builder" : "builder");
 
-                              router.push(targetHref);
+                              router.push(`/events/${encodeURIComponent(id)}/schedule-builder?${params.toString()}`);
                             }}
                           >
                             {scheduleCompleted ? "Session Builder" : "Schedule Builder"}
