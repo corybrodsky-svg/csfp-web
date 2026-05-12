@@ -963,6 +963,13 @@ async function createStyledSchedulePdfBlob(context: StyledPdfRenderContext) {
 function buildCompactScheduleExportHtml(previewHtml: string, printView: CompactSchedulePrintKind) {
   if (!previewHtml) return "";
   const printTitle = printView === "student" ? "Student Schedule PDF" : "Admin Schedule PDF";
+  const sourceTitle = previewHtml.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i)?.[1] || printTitle;
+  const metadataCards = Array.from(
+    previewHtml.matchAll(
+      /<div class="event-meta-card">\s*<div class="event-meta-label">([\s\S]*?)<\/div>\s*<div class="event-meta-value">([\s\S]*?)<\/div>\s*<\/div>/gi
+    )
+  );
+  const scheduleGridTable = previewHtml.match(/<table class="schedule-grid-table">[\s\S]*?<\/table>/i)?.[0] || "";
   const roomColumnCount =
     Array.from(previewHtml.matchAll(/<th class="room-column-header"/g)).length ||
     Math.max((previewHtml.match(/<th>/g) || []).length - 2, 1);
@@ -986,6 +993,67 @@ function buildCompactScheduleExportHtml(previewHtml: string, printView: CompactS
     "  width: 100%;",
     "}",
     ".cfsp-schedule-export .preview-shell { gap: 5px; width: 100%; }",
+    ".cfsp-schedule-export .compact-print-shell {",
+    "  display: grid;",
+    "  gap: 4px;",
+    "  width: 100%;",
+    "  max-width: 100%;",
+    "  padding: 2.2mm;",
+    "  box-sizing: border-box;",
+    "}",
+    ".cfsp-schedule-export .compact-print-header {",
+    "  display: flex;",
+    "  align-items: flex-start;",
+    "  justify-content: space-between;",
+    "  gap: 6px;",
+    "  border-bottom: 1px solid #dce6ee;",
+    "  padding-bottom: 3px;",
+    "}",
+    ".cfsp-schedule-export .compact-print-title {",
+    "  margin: 0;",
+    "  color: #14304f;",
+    "  font-size: 15px;",
+    "  line-height: 1;",
+    "  font-weight: 900;",
+    "}",
+    ".cfsp-schedule-export .compact-print-subtitle {",
+    "  color: #5e7388;",
+    "  font-size: 7.5px;",
+    "  font-weight: 800;",
+    "  text-transform: uppercase;",
+    "  letter-spacing: 0.03em;",
+    "}",
+    ".cfsp-schedule-export .compact-print-meta {",
+    "  display: grid;",
+    "  grid-template-columns: repeat(4, minmax(0, 1fr));",
+    "  gap: 3px;",
+    "}",
+    ".cfsp-schedule-export .compact-print-meta-card {",
+    "  border: 1px solid #dce6ee;",
+    "  border-radius: 4px;",
+    "  padding: 2px 3px;",
+    "  background: #f8fbfd;",
+    "  min-width: 0;",
+    "}",
+    ".cfsp-schedule-export .compact-print-meta-label {",
+    "  color: #5e7388;",
+    "  font-size: 5.8px;",
+    "  font-weight: 800;",
+    "  text-transform: uppercase;",
+    "  letter-spacing: 0.02em;",
+    "}",
+    ".cfsp-schedule-export .compact-print-meta-value {",
+    "  color: #14304f;",
+    "  font-size: 7.4px;",
+    "  font-weight: 800;",
+    "  line-height: 1.08;",
+    "  overflow-wrap: anywhere;",
+    "}",
+    ".cfsp-schedule-export .compact-print-grid {",
+    "  width: 100%;",
+    "  max-width: 100%;",
+    "  overflow: visible;",
+    "}",
     ".cfsp-schedule-export .preview-shell,",
     ".cfsp-schedule-export .round-section,",
     ".cfsp-schedule-export .schedule-grid-shell {",
@@ -993,7 +1061,7 @@ function buildCompactScheduleExportHtml(previewHtml: string, printView: CompactS
     "  box-sizing: border-box;",
     "}",
     ".cfsp-schedule-export .preview-header { gap: 3px; }",
-    ".cfsp-schedule-export h1 { margin: 0; font-size: 18px; }",
+    ".cfsp-schedule-export h1 { margin: 0; font-size: 15px; }",
     ".cfsp-schedule-export .meta,",
     ".cfsp-schedule-export .event-meta-label,",
     ".cfsp-schedule-export .detail-label,",
@@ -1167,13 +1235,45 @@ function buildCompactScheduleExportHtml(previewHtml: string, printView: CompactS
     "",
   ].join("\n");
 
-  let printableHtml = previewHtml.replace(/<body([^>]*)>/i, `<body$1 class="cfsp-schedule-export">`);
-  printableHtml = printableHtml.replace(/<title>(.*?)<\/title>/i, `<title>${printTitle}</title>`);
-  if (printableHtml.includes("</head>")) {
-    printableHtml = printableHtml.replace("</head>", `<style>${compactModeStyle}</style></head>`);
-  }
+  const compactMetaHtml = metadataCards.length
+    ? `<div class="compact-print-meta">${metadataCards
+        .slice(0, 4)
+        .map(
+          (match) => `
+            <div class="compact-print-meta-card">
+              <div class="compact-print-meta-label">${match[1]}</div>
+              <div class="compact-print-meta-value">${match[2]}</div>
+            </div>
+          `
+        )
+        .join("")}</div>`
+    : "";
+  const compactGridHtml = scheduleGridTable
+    ? `<div class="schedule-grid-shell compact-print-grid">${scheduleGridTable}</div>`
+    : `<div class="empty-state">No rotation schedule has been generated yet.</div>`;
 
-  return printableHtml;
+  return `
+    <!doctype html>
+    <html>
+      <head>
+        <meta charSet="UTF-8" />
+        <title>${printTitle}</title>
+        <style>${compactModeStyle}</style>
+      </head>
+      <body class="cfsp-schedule-export">
+        <main class="compact-print-shell">
+          <header class="compact-print-header">
+            <div>
+              <h1 class="compact-print-title">${sourceTitle}</h1>
+              <div class="compact-print-subtitle">${printView === "student" ? "Student view" : "Admin operations view"}</div>
+            </div>
+            ${compactMetaHtml}
+          </header>
+          ${compactGridHtml}
+        </main>
+      </body>
+    </html>
+  `;
 }
 
 function formatEventDate(event: EventRow) {
