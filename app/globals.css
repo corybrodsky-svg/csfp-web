@@ -1936,3 +1936,49 @@ html body .cfsp-floating-command-chest[open] .cfsp-chest-link:nth-child(6) { ani
 
 /* END CFSP COMMAND CHEST CLEAN SCROLLS v8 */
 
+
+/* CFSP CABINET BUTTON SOFTEN v9 */
+
+/* Tone down ONLY the buttons inside the main file cabinet */
+html body #simulation-command-file-cabinet button {
+  background: linear-gradient(135deg, #0f9488, #11806f) !important;
+  color: #ffffff !important;
+  border: 1px solid rgba(20, 184, 166, 0.26) !important;
+  box-shadow: 0 8px 18px rgba(20, 91, 150, 0.10) !important;
+  filter: none !important;
+}
+
+/* Slight variation, but still restrained */
+html body #simulation-command-file-cabinet button:nth-of-type(2n) {
+  background: linear-gradient(135deg, #145b96, #0f9488) !important;
+}
+
+html body #simulation-command-file-cabinet button:nth-of-type(3n) {
+  background: linear-gradient(135deg, #1d6f8f, #145b96) !important;
+}
+
+/* Keep hover subtle */
+html body #simulation-command-file-cabinet button:hover:not(:disabled) {
+  transform: translateY(-1px) !important;
+  box-shadow: 0 10px 20px rgba(20, 91, 150, 0.14) !important;
+  filter: brightness(1.02) !important;
+}
+
+/* Disabled buttons stay quiet */
+html body #simulation-command-file-cabinet button:disabled,
+html body #simulation-command-file-cabinet button[disabled] {
+  background: rgba(226, 232, 240, 0.92) !important;
+  color: #64748b !important;
+  border: 1px solid rgba(148, 163, 184, 0.24) !important;
+  box-shadow: none !important;
+}
+
+/* Remove any neon glow from cabinet buttons */
+html body #simulation-command-file-cabinet button,
+html body #simulation-command-file-cabinet button::before,
+html body #simulation-command-file-cabinet button::after {
+  text-shadow: none !important;
+}
+
+/* END CFSP CABINET BUTTON SOFTEN v9 */
+
