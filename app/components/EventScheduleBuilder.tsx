@@ -868,14 +868,7 @@ async function createStyledSchedulePdfBlob(context: StyledPdfRenderContext) {
     await containerDocument.fonts?.ready?.catch(() => undefined);
     await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
 
-    const printableWidth = Math.max(containerDocument.documentElement.scrollWidth, containerDocument.body.scrollWidth, 700);
     const printableHeight = Math.max(containerDocument.documentElement.scrollHeight, containerDocument.body.scrollHeight, 700);
-    const compactTargetWidth = 840;
-    const contentWidth = Math.max(Math.min(printableWidth, compactTargetWidth), 700);
-    container.style.width = `${contentWidth}px`;
-    container.style.height = `${Math.max(620, printableHeight)}px`;
-    await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
-
     const pdfSidePadding = 8;
     const scheduleDoc = new jsPDF({
       orientation: "landscape",
@@ -883,6 +876,15 @@ async function createStyledSchedulePdfBlob(context: StyledPdfRenderContext) {
       format: "a4",
       hotfixes: ["px_scaling"],
     });
+    const pageWidth = scheduleDoc.internal.pageSize.getWidth();
+    const contentWidth = Math.max(620, Math.floor(pageWidth - pdfSidePadding * 2));
+    container.style.width = `${contentWidth}px`;
+    container.style.height = `${Math.max(620, printableHeight)}px`;
+    containerDocument.documentElement.style.width = `${contentWidth}px`;
+    containerDocument.body.style.width = `${contentWidth}px`;
+    containerDocument.body.style.maxWidth = `${contentWidth}px`;
+    containerDocument.body.style.overflowX = "hidden";
+    await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
     const bodyNode = containerDocument.body;
 
     await new Promise<void>((resolve, reject) => {
@@ -916,8 +918,17 @@ async function createStyledSchedulePdfBlob(context: StyledPdfRenderContext) {
             }
             const compactRoot = cloneDoc.querySelector(".print-root");
             if (compactRoot instanceof HTMLElement) {
-              compactRoot.style.width = `${Math.min(Math.max(contentWidth, 700), 900)}px`;
+              compactRoot.style.width = `${contentWidth}px`;
+              compactRoot.style.maxWidth = `${contentWidth}px`;
+              compactRoot.style.overflowX = "hidden";
             }
+            cloneDoc.querySelectorAll(".schedule-grid-shell, .schedule-grid-table").forEach((node) => {
+              const element = node as HTMLElement;
+              element.style.width = "100%";
+              element.style.maxWidth = "100%";
+              element.style.minWidth = "0";
+              element.style.overflow = "visible";
+            });
           },
         },
         callback: () => {
@@ -952,6 +963,12 @@ async function createStyledSchedulePdfBlob(context: StyledPdfRenderContext) {
 function buildCompactScheduleExportHtml(previewHtml: string, printView: CompactSchedulePrintKind) {
   if (!previewHtml) return "";
   const printTitle = printView === "student" ? "Student Schedule PDF" : "Admin Schedule PDF";
+  const roomColumnCount =
+    Array.from(previewHtml.matchAll(/<th class="room-column-header"/g)).length ||
+    Math.max((previewHtml.match(/<th>/g) || []).length - 2, 1);
+  const compactFontSize = roomColumnCount >= 7 ? 7 : roomColumnCount >= 6 ? 8 : roomColumnCount >= 5 ? 8.5 : 9.5;
+  const compactCardPadding = roomColumnCount >= 6 ? 3 : 4;
+  const compactGridGap = roomColumnCount >= 6 ? 2 : 3;
   const compactModeStyle = [
     ":root { color-scheme: light; }",
     "html, body { margin: 0; }",
@@ -969,8 +986,14 @@ function buildCompactScheduleExportHtml(previewHtml: string, printView: CompactS
     "  width: 100%;",
     "}",
     ".cfsp-schedule-export .preview-shell { gap: 5px; width: 100%; }",
+    ".cfsp-schedule-export .preview-shell,",
+    ".cfsp-schedule-export .round-section,",
+    ".cfsp-schedule-export .schedule-grid-shell {",
+    "  max-width: 100% !important;",
+    "  box-sizing: border-box;",
+    "}",
     ".cfsp-schedule-export .preview-header { gap: 3px; }",
-    ".cfsp-schedule-export h1 { margin: 0; font-size: 24px; }",
+    ".cfsp-schedule-export h1 { margin: 0; font-size: 18px; }",
     ".cfsp-schedule-export .meta,",
     ".cfsp-schedule-export .event-meta-label,",
     ".cfsp-schedule-export .detail-label,",
@@ -990,8 +1013,8 @@ function buildCompactScheduleExportHtml(previewHtml: string, printView: CompactS
     "  break-inside: avoid;",
     "}",
     ".cfsp-schedule-export .event-meta-card,",
-    ".cfsp-schedule-export .round-section { padding: 6px 7px; }",
-    ".cfsp-schedule-export .event-meta { gap: 5px; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }",
+    ".cfsp-schedule-export .round-section { padding: 5px 6px; }",
+    ".cfsp-schedule-export .event-meta { gap: 4px; grid-template-columns: repeat(auto-fit, minmax(112px, 1fr)); }",
     ".cfsp-schedule-export .event-meta-value,",
     ".cfsp-schedule-export .detail-value,",
     ".cfsp-schedule-export .timeline-segment-title,",
@@ -1003,19 +1026,19 @@ function buildCompactScheduleExportHtml(previewHtml: string, printView: CompactS
     "}",
     ".cfsp-schedule-export .round-section { gap: 4px; }",
     ".cfsp-schedule-export .round-header { gap: 6px; }",
-    ".cfsp-schedule-export h2 { margin: 0; font-size: 14px; }",
+    ".cfsp-schedule-export h2 { margin: 0; font-size: 12px; }",
     ".cfsp-schedule-export .timeline-rail,",
     ".cfsp-schedule-export .rhythm-strip,",
     ".cfsp-schedule-export .divider-stack,",
     ".cfsp-schedule-export .room-grid {",
-    "  gap: 4px;",
+    `  gap: ${compactGridGap}px;`,
     "}",
     ".cfsp-schedule-export .timeline-segment,",
     ".cfsp-schedule-export .rhythm-chip,",
     ".cfsp-schedule-export .divider-band,",
     ".cfsp-schedule-export .room-row {",
-    "  padding: 4px 6px;",
-    "  min-width: 54px;",
+    "  padding: 3px 5px;",
+    "  min-width: 0;",
     "  border-radius: 8px;",
     "}",
     ".cfsp-schedule-export .timeline-segment-title { font-size: 10px; }",
@@ -1028,23 +1051,72 @@ function buildCompactScheduleExportHtml(previewHtml: string, printView: CompactS
     ".cfsp-schedule-export .wide-band-title {",
     "  font-size: 8px;",
     "}",
-    ".cfsp-schedule-export .schedule-grid-shell { border: none; }",
+    ".cfsp-schedule-export .schedule-grid-shell {",
+    "  border: none;",
+    "  overflow: visible !important;",
+    "  width: 100% !important;",
+    "  max-width: 100% !important;",
+    "}",
+    ".cfsp-schedule-export .schedule-grid-table {",
+    "  width: 100% !important;",
+    "  min-width: 0 !important;",
+    "  max-width: 100% !important;",
+    "  table-layout: fixed !important;",
+    "  border-collapse: collapse;",
+    "}",
     ".cfsp-schedule-export .schedule-grid-table th,",
     ".cfsp-schedule-export .schedule-grid-table td {",
-    "  padding: 4px 5px;",
-    "  font-size: 10px;",
-    "  line-height: 1.15;",
+    `  padding: ${roomColumnCount >= 6 ? "2px 3px" : "3px 4px"};`,
+    `  font-size: ${compactFontSize}px;`,
+    "  line-height: 1.08;",
     "  vertical-align: top;",
+    "  overflow: hidden;",
+    "  overflow-wrap: anywhere;",
+    "  word-break: break-word;",
+    "  box-sizing: border-box;",
     "}",
-    ".cfsp-schedule-export .schedule-grid-table th { font-size: 8px; }",
+    ".cfsp-schedule-export .schedule-grid-table th {",
+    `  font-size: ${Math.max(compactFontSize - 1.2, 6.5)}px;`,
+    "  white-space: normal;",
+    "}",
+    ".cfsp-schedule-export .round-index-column { width: 6.8% !important; }",
+    ".cfsp-schedule-export .round-time-column { width: 12.2% !important; }",
+    ".cfsp-schedule-export .room-assignment-column { width: auto !important; }",
+    ".cfsp-schedule-export .round-index-cell { width: 6.8% !important; }",
+    ".cfsp-schedule-export .round-time-cell { width: 12.2% !important; }",
+    ".cfsp-schedule-export .schedule-room-cell,",
+    ".cfsp-schedule-export .room-column-header {",
+    "  min-width: 0 !important;",
+    "  width: auto !important;",
+    "}",
     ".cfsp-schedule-export .round-index,",
     ".cfsp-schedule-export .round-time,",
     ".cfsp-schedule-export .round-time-summary,",
     ".cfsp-schedule-export .room-name {",
-    "  font-size: 10px;",
-    "  line-height: 1.2;",
+    `  font-size: ${compactFontSize}px;`,
+    "  line-height: 1.08;",
     "}",
-    ".cfsp-schedule-export .schedule-room-card { gap: 4px; }",
+    ".cfsp-schedule-export .round-time-summary { margin-top: 2px !important; }",
+    ".cfsp-schedule-export .schedule-room-card {",
+    `  gap: ${compactGridGap}px;`,
+    `  padding: ${compactCardPadding}px !important;`,
+    "  border-radius: 5px !important;",
+    "  min-width: 0 !important;",
+    "  box-shadow: none !important;",
+    "}",
+    ".cfsp-schedule-export .schedule-room-card .detail-label {",
+    `  font-size: ${Math.max(compactFontSize - 2, 5.8)}px;`,
+    "  letter-spacing: 0.02em;",
+    "}",
+    ".cfsp-schedule-export .schedule-room-card .detail-value {",
+    `  font-size: ${compactFontSize}px;`,
+    "  margin-top: 1px;",
+    "  line-height: 1.08;",
+    "}",
+    ".cfsp-schedule-export .round-grid-row {",
+    "  break-inside: avoid;",
+    "  page-break-inside: avoid;",
+    "}",
     ".cfsp-schedule-export .empty-state {",
     "  padding: 7px;",
     "  border-radius: 8px;",
@@ -1058,23 +1130,22 @@ function buildCompactScheduleExportHtml(previewHtml: string, printView: CompactS
     ".cfsp-schedule-actions-menu {",
     "  display: none !important;",
     "}",
-    ".cfsp-schedule-export .preview-shell { padding: 6mm; }",
+    ".cfsp-schedule-export .preview-shell { padding: 2.5mm; }",
     "@page {",
-    "  size: landscape;",
-    "  margin: 0.14in;",
+    "  size: A4 landscape;",
+    "  margin: 0.12in;",
     "}",
     "@media print {",
     "  html, body { background: #fff !important; }",
     "  .cfsp-schedule-export { background: #fff !important; }",
-    "  .round-section,",
-    "  .rhythm-row,",
+    "  .round-grid-row,",
     "  .event-meta-card,",
     "  .schedule-room-card,",
-    "  .wide-band,",
-    "  .divider-band {",
+    "  .wide-band {",
     "    break-inside: avoid;",
     "    page-break-inside: avoid;",
     "  }",
+    "  .rhythm-row { break-inside: auto; page-break-inside: auto; }",
     "}",
     "",
   ].join("\n");
@@ -2018,11 +2089,16 @@ function buildSchedulePreviewData(args: {
     return `
       <div class="schedule-grid-shell">
         <table class="schedule-grid-table">
+          <colgroup>
+            <col class="round-index-column" />
+            <col class="round-time-column" />
+            ${roomColumns.map(() => `<col class="room-assignment-column" />`).join("")}
+          </colgroup>
           <thead>
             <tr>
               <th>Round</th>
               <th>Time</th>
-              ${roomColumns.map((column) => `<th>${escapeHtml(column.displayRoomName)}</th>`).join("")}
+              ${roomColumns.map((column) => `<th class="room-column-header">${escapeHtml(column.displayRoomName)}</th>`).join("")}
             </tr>
           </thead>
           <tbody>
