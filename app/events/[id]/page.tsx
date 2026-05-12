@@ -28131,6 +28131,47 @@ Cory`;
             <div
               style={{
                 display: "flex",
+                flexWrap: "wrap",
+                gap: "8px",
+                marginTop: "10px",
+              }}
+            >
+              {exactMatchRelatedEvents.map((match) => {
+                const isActive = match.id === id;
+
+                return (
+                  <button
+                    key={match.id}
+                    type="button"
+                    onClick={() => {
+                      router.replace(
+                        `/events/${encodeURIComponent(id)}?instanceId=${encodeURIComponent(match.id)}`
+                      );
+                      setShowRelatedMatchesModal(false);
+                    }}
+                    style={{
+                      borderRadius: "999px",
+                      border: isActive
+                        ? "1px solid rgba(34,197,94,0.8)"
+                        : "1px solid rgba(148,163,184,0.25)",
+                      background: isActive
+                        ? "rgba(34,197,94,0.18)"
+                        : "rgba(15,23,42,0.72)",
+                      color: "white",
+                      padding: "8px 14px",
+                      fontWeight: 800,
+                      cursor: "pointer",
+                    }}
+                  >
+                    {match.date_text || match.name || "Event Day"}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div
+              style={{
+                display: "flex",
                 justifyContent: "space-between",
                 gap: "10px",
                 alignItems: "center",
