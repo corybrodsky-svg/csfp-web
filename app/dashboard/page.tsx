@@ -509,6 +509,38 @@ function scoreFinderResult(
   return score;
 }
 
+
+function getOperationalEventHref(
+  event: EventRecord,
+  relatedEvents?: EventRecord[]
+) {
+  const normalizedName = (event.name || "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const exactMatches = (relatedEvents || [])
+    .filter((candidate) => {
+      if (!candidate?.id) return false;
+
+      const candidateName = (candidate.name || "")
+        .toLowerCase()
+        .replace(/\s+/g, " ")
+        .trim();
+
+      return candidateName === normalizedName;
+    })
+    .sort((a, b) => {
+      const aDate = new Date(a.earliest_session_date || a.date_text || "").getTime();
+      const bDate = new Date(b.earliest_session_date || b.date_text || "").getTime();
+      return (Number.isNaN(aDate) ? 0 : aDate) - (Number.isNaN(bDate) ? 0 : bDate);
+    });
+
+  const parentId = exactMatches[0]?.id || event.id;
+
+  return `/events/${encodeURIComponent(parentId)}?instanceId=${encodeURIComponent(event.id)}`;
+}
+
 function renderAssignedPeople(names?: string[] | null) {
   const preview = (names || []).filter(Boolean);
 
@@ -824,10 +856,10 @@ function WorkflowSection({
                     </div>
 
                     <div className="flex flex-wrap gap-2">
-                      <Link href={`/events/${item.event.id}#coverage-actions`} className="cfsp-btn cfsp-btn-primary">
+                      <Link href={`${getOperationalEventHref(item.event, events)}#coverage-actions`} className="cfsp-btn cfsp-btn-primary">
                         Quick Assign
                       </Link>
-                      <Link href={`/events/${item.event.id}`} className="cfsp-btn cfsp-btn-secondary">
+                      <Link href={getOperationalEventHref(item.event, events)} className="cfsp-btn cfsp-btn-secondary">
                         Open Event
                       </Link>
                     </div>
@@ -1215,7 +1247,7 @@ function GlobalEventFinder({
           {results.length ? (
             results.map((result) => {
               const eventId = encodeURIComponent(result.item.event.id);
-              const eventHref = `/events/${eventId}`;
+              const eventHref = getOperationalEventHref(result.item.event, events);
               const builderHref = `/events/${eventId}/schedule-builder`;
               const operationalHref = `${eventHref}#coverage-actions`;
               const showTrainingMaterialsAction = eventHasTrainingOrMaterialContext(result.item);
@@ -2051,7 +2083,11 @@ export default function DashboardPage() {
             items={allVisibleEvents}
             myEventIds={myEventIds}
             scope={scope}
-            onOpenEvent={(eventId) => router.push(`/events/${encodeURIComponent(eventId)}`)}
+            onOpenEvent={(eventId) => router.push(
+              events.find((entry) => entry.id === eventId)
+                ? getOperationalEventHref(events.find((entry) => entry.id === eventId)!, events)
+                : `/events/${encodeURIComponent(eventId)}`
+            )}
           />
         </section>
 
