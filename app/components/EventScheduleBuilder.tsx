@@ -2271,15 +2271,11 @@ function applyScheduleRoomAdjustments(
       const nextLearners =
         overrides?.learnerLabels?.length ? normalizeLearnerNames(overrides.learnerLabels) : slot.learnerLabels;
       const nextSpName = asText(overrides?.spName) || "";
-      const assignedSpIndex =
-        nextSpName
-          ? Math.max(
-              0,
-              assignedSpNames.findIndex((candidate) =>
-                (candidate || "").trim().toLowerCase() === nextSpName.trim().toLowerCase()
-              )
-            )
-          : undefined;
+      const matchedSpIndex = nextSpName
+        ? assignedSpNames.findIndex((candidate) =>
+            (candidate || "").trim().toLowerCase() === nextSpName.trim().toLowerCase()
+          )
+        : -1;
       return {
         ...slot,
         learnerLabels: nextLearners,
@@ -2290,7 +2286,7 @@ function applyScheduleRoomAdjustments(
         learnerIndexes: nextLearners.length
           ? nextLearners.map((value) => slot.learnerLabels.indexOf(value)).filter((value) => value >= 0)
           : [],
-        assignedSpIndex: assignedSpIndex === -1 ? undefined : assignedSpIndex,
+        assignedSpIndex: matchedSpIndex >= 0 ? matchedSpIndex : undefined,
       };
     });
     return { ...round, roomSlots: nextSlots };
@@ -2391,6 +2387,8 @@ function buildSchedulePreviewData(args: {
 
   const includeOperationsContext = isOperations;
   const previewLabel = titleMap[kind];
+  const getSlotAssignmentIndex = (slot: ScheduledRoomSlot, slotIndex: number) =>
+    typeof slot.assignedSpIndex === "number" ? slot.assignedSpIndex : slotIndex;
 
   if (kind === "timeline") {
     lines.push("EVENT FLOW");
@@ -2416,7 +2414,7 @@ function buildSchedulePreviewData(args: {
       }
       round.roomSlots.forEach((slot, slotIndex) => {
         const displayRoomName = formatRoomName(slot.roomName, slot.roomType, slotIndex + 1, roomContext);
-        const assignmentIndex = slot.assignedSpIndex ?? round.roomSlots.findIndex((item) => item.roomName === slot.roomName);
+        const assignmentIndex = getSlotAssignmentIndex(slot, slotIndex);
         const learnerText = slot.learnerLabels.length ? slot.learnerLabels.join(", ") : "No learner assigned";
         lines.push(`  ${displayRoomName}: ${learnerText}`);
         if (isOperations) {
@@ -2456,7 +2454,7 @@ function buildSchedulePreviewData(args: {
       }
       round.roomSlots.forEach((slot, slotIndex) => {
         const displayRoomName = formatRoomName(slot.roomName, slot.roomType, slotIndex + 1, roomContext);
-        const assignmentIndex = slot.assignedSpIndex ?? round.roomSlots.findIndex((item) => item.roomName === slot.roomName);
+        const assignmentIndex = getSlotAssignmentIndex(slot, slotIndex);
         const learnerText = slot.learnerLabels.length ? slot.learnerLabels.join(", ") : "No learner assigned";
         lines.push(`  ${displayRoomName}`);
         if (kind !== "sp") {
@@ -2593,7 +2591,7 @@ function buildSchedulePreviewData(args: {
                     ? round.roomSlots
                         .map((slot, slotIndex) => {
                           const displayRoomName = formatRoomName(slot.roomName, slot.roomType, slotIndex + 1, roomContext);
-                          const assignmentIndex = slot.assignedSpIndex ?? round.roomSlots.findIndex((item) => item.roomName === slot.roomName);
+                          const assignmentIndex = getSlotAssignmentIndex(slot, slotIndex);
                           const learnerText = slot.learnerLabels.length ? slot.learnerLabels.join(", ") : "No learner assigned";
                           const spName = assignedSpNames?.[assignmentIndex] || "Unassigned";
                           const ticketDetail =
@@ -2674,8 +2672,8 @@ function buildSchedulePreviewData(args: {
                       <div class="round-time-summary">${escapeHtml(subBlockSummary)}</div>
                     </td>
                     ${round.roomSlots
-                      .map((slot) => {
-                        const assignmentIndex = slot.assignedSpIndex ?? round.roomSlots.findIndex((item) => item.roomName === slot.roomName);
+                      .map((slot, slotIndex) => {
+                        const assignmentIndex = getSlotAssignmentIndex(slot, slotIndex);
                         const learnerText = slot.learnerLabels.length ? slot.learnerLabels.join(", ") : "No learner assigned";
                         const spName = assignedSpNames?.[assignmentIndex] || "Unassigned";
                         const slotCaseName = asText(slot.caseLabel) || caseName;
@@ -2841,7 +2839,7 @@ function buildSchedulePreviewData(args: {
           ...previewRounds.flatMap((round) =>
             round.roomSlots.map((slot, slotIndex) => {
               const displayRoomName = formatRoomName(slot.roomName, slot.roomType, slotIndex + 1, roomContext);
-        const assignmentIndex = slot.assignedSpIndex ?? round.roomSlots.findIndex((item) => item.roomName === slot.roomName);
+              const assignmentIndex = getSlotAssignmentIndex(slot, slotIndex);
               const learnerText = slot.learnerLabels.length ? slot.learnerLabels.join(", ") : "No learner assigned";
               const spName = assignedSpNames?.[assignmentIndex] || "";
 
@@ -4246,14 +4244,15 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     selectedEvent?.id,
   ]);
 
+  const assignedNames = useMemo(() => (selectedEvent ? getAssignedNames(selectedEvent) : []), [selectedEvent]);
   const scheduledRounds = useMemo(
     () =>
       applyScheduleRoomAdjustments(
         attachLearners(generated.rounds, learnerRoster, parsedRoomCapacity, activeCaseCount),
-        selectedEvent?.assigned_sp_names || [],
+        assignedNames,
         roomAdjustments
       ),
-    [activeCaseCount, generated.rounds, learnerRoster, parsedRoomCapacity, roomAdjustments, selectedEvent?.assigned_sp_names]
+    [activeCaseCount, assignedNames, generated.rounds, learnerRoster, parsedRoomCapacity, roomAdjustments]
   );
   const scheduleValidationMessages = useMemo(() => {
     const messages: string[] = [];
@@ -4270,13 +4269,26 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     });
 
     scheduledRounds.forEach((round) => {
-      round.roomSlots.forEach((slot) => {
+      const spRoomsByName = new Map<string, string[]>();
+      round.roomSlots.forEach((slot, slotIndex) => {
         const caseLabel = asText(slot.caseLabel);
-        if (!caseLabel || !slot.learnerLabels.length) return;
-        const firstLearner = slot.learnerLabels[0];
-        const groupIndex = learnerToGroup.get(firstLearner);
-        if (groupIndex === undefined) return;
-        coverageByGroup.get(groupIndex)?.add(caseLabel);
+        const assignmentIndex = typeof slot.assignedSpIndex === "number" ? slot.assignedSpIndex : slotIndex;
+        const spName = asText(assignedNames[assignmentIndex]);
+        if (spName && (caseLabel || slot.learnerLabels.length)) {
+          const existing = spRoomsByName.get(spName) || [];
+          existing.push(slot.roomName || `Room ${slotIndex + 1}`);
+          spRoomsByName.set(spName, existing);
+        }
+        if (caseLabel && slot.learnerLabels.length) {
+          const firstLearner = slot.learnerLabels[0];
+          const groupIndex = learnerToGroup.get(firstLearner);
+          if (groupIndex !== undefined) coverageByGroup.get(groupIndex)?.add(caseLabel);
+        }
+      });
+      spRoomsByName.forEach((rooms, spName) => {
+        if (rooms.length > 1) {
+          messages.push(`SP conflict detected: ${spName} assigned to ${rooms.join(" and ")} during Round ${round.round}.`);
+        }
       });
     });
 
@@ -4293,7 +4305,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       messages.push("Active case room count does not match the configured active cases and exam rooms.");
     }
     return messages;
-  }, [activeCaseCount, activeScheduleCases, learnerRoster, parsedExamRooms, parsedRoomCapacity, scheduledRounds]);
+  }, [activeCaseCount, activeScheduleCases, assignedNames, learnerRoster, parsedExamRooms, parsedRoomCapacity, scheduledRounds]);
   const studentPreviewTimeline = useMemo(
     () => filterTimelineForView(generated.timeline, "student"),
     [generated.timeline]
@@ -4362,7 +4374,6 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const unplacedLearnerCount =
     uploadedLearners.length > 0 ? Math.max(uploadedLearners.length - totalScheduleCapacity, 0) : 0;
 
-  const assignedNames = selectedEvent ? getAssignedNames(selectedEvent) : [];
   const selectedEventEncounterLabel = useMemo(
     () => getCaseLabelFromBuilderEvent(selectedEvent, selectedEventMetadata.case_name),
     [selectedEvent, selectedEventMetadata.case_name]
@@ -6506,7 +6517,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                                 </div>
                                 {scheduleViewMode === "operations" ? (
                                   <div style={{ marginTop: "6px", fontSize: "12px", fontWeight: 700, color: "#4f677d", lineHeight: 1.5 }}>
-                                    <div>SP: {selectedEvent?.assigned_sp_names?.[slot.assignedSpIndex ?? round.roomSlots.findIndex((item) => item.roomName === slot.roomName)] || "Unassigned SP"}</div>
+                                    <div>SP: {selectedEvent?.assigned_sp_names?.[slot.assignedSpIndex ?? index] || "Unassigned SP"}</div>
                                     {slot.backupSpName ? <div><strong>Backup:</strong> {slot.backupSpName}</div> : <div style={{ opacity: 0.72 }}>No backup assigned</div>}
                                     <div>Case: {slot.caseLabel || selectedEventEncounterLabel || "Case not assigned"}</div>
                                     <div>Role: {slot.roleLabel || "Role TBD"}</div>
