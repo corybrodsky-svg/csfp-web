@@ -5553,6 +5553,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                 <NumberInput label="Encounter minutes" value={encounterMinutes} onChange={setEncounterMinutes} />
                 <NumberInput label="Round target minutes (optional)" value={sessionLengthMinutes} onChange={setSessionLengthMinutes} />
               </div>
+              {scheduleCaseDefinitions.length > 1 || activeCaseCount > 1 ? (
               <div className="mt-4 rounded-[16px] border-2 border-[#145b96] bg-[#eef7ff] px-4 py-4 shadow-[0_14px_30px_rgba(20,91,150,0.12)]">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>
@@ -5815,6 +5816,27 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                 </div>
                 ) : null}
               </div>
+              ) : (
+                <div className="mt-4 rounded-[14px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <div className="cfsp-label">Single-case event</div>
+                      <div className="mt-2 text-sm font-semibold text-[#5e7388]">
+                        Multi-case rotation controls are hidden. Enable them only when cases should drive learner rotation math.
+                      </div>
+                    </div>
+                    <label className="inline-flex items-center gap-2 rounded-full border border-[#c7dcee] bg-white px-3 py-2 text-xs font-black text-[#14304f]">
+                      <input
+                        type="checkbox"
+                        checked={false}
+                        onChange={(event) => handleMultipleCasesToggle(event.target.checked)}
+                        style={{ accentColor: "#145b96" }}
+                      />
+                      This event contains multiple cases
+                    </label>
+                  </div>
+                </div>
+              )}
               <div className="mt-4 rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>
