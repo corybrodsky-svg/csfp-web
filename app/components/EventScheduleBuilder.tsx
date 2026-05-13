@@ -4581,17 +4581,13 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     ? activeCaseRoomCount * parsedRoomCapacity
     : singleCaseRoundCapacity;
   const totalRoomCount = parsedExamRooms + scheduleMathFlexRoomCount;
-  const learnerGroupCount =
-    uploadedLearners.length && parsedRoomCapacity > 0
-      ? Math.ceil(uploadedLearners.length / parsedRoomCapacity)
-      : 0;
   const builderLearnerGroups = useMemo(
     () => buildLearnerGroups(uploadedLearners, parsedRoomCapacity),
     [parsedRoomCapacity, uploadedLearners]
   );
   const caseRotationRoundCount =
     multipleCasesEnabled && activeCaseCount > 1
-      ? Math.max(activeCaseCount, learnerGroupCount, 1)
+      ? Math.max(activeCaseCount, 1)
       : 0;
   const autoCalculatedRounds =
     caseRotationRoundCount > 0
@@ -4624,8 +4620,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     singleCaseRoundCountCorrupted,
     showCopyMessage,
   ]);
+  const manualRoundOverrideApplies =
+    builderMode === "advanced" && manualRoundOverride && caseRotationRoundCount <= 0;
   const effectiveRoundCount =
-    builderMode === "advanced" && manualRoundOverride
+    manualRoundOverrideApplies
       ? Math.max(parsedRounds, 1)
       : autoCalculatedRounds;
   const timingVisibility = scheduleViewMode === "operations" ? "operations" : "student";
@@ -4773,7 +4771,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       messages.push(`Round target ${parsedSessionLength} minutes is ignored to prevent inflated round blocks.`);
     }
     if (activeCaseCount > parsedExamRooms && parsedExamRooms > 0) {
-      messages.push(`${activeCaseCount} active cases exceed ${parsedExamRooms} exam rooms. The builder adds rotation rounds and flags this as a case/room capacity conflict.`);
+      messages.push(`${activeCaseCount} active cases exceed ${parsedExamRooms} exam rooms. Add rooms, deactivate cases, or expect a case/room capacity conflict.`);
     }
     if (activeCaseCount > 0 && parsedExamRooms > activeCaseCount) {
       messages.push(`${parsedExamRooms - activeCaseCount} extra exam room${parsedExamRooms - activeCaseCount === 1 ? "" : "s"} will remain empty/flex because only ${activeCaseCount} case${activeCaseCount === 1 ? "" : "s"} are active.`);
@@ -6520,7 +6518,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                   Add at least one usable room or flex seat to calculate the required rounds.
                 </div>
               ) : null}
-              {builderMode === "advanced" && manualRoundOverride && uploadedLearners.length > 0 && slotsPerRound > 0 ? (
+              {manualRoundOverrideApplies && uploadedLearners.length > 0 && slotsPerRound > 0 ? (
                 <div className="cfsp-alert cfsp-alert-info mt-4">
                   Manual round override is active. Auto-calculated need is {autoCalculatedRounds} rounds based on learner count and room capacity.
                 </div>
