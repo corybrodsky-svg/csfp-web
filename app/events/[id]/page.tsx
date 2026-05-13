@@ -4352,7 +4352,7 @@ export default function EventDetailPage() {
   const [roundCompanionView, setRoundCompanionView] = useState<RotationCompanionView>("overview");
   const [roundAnnouncementDrafts, setRoundAnnouncementDrafts] = useState<Record<string, string>>({});
   const [hasTouchedRoundCompanion, setHasTouchedRoundCompanion] = useState(false);
-  const [rotationCommandSurfaceOpen, setRotationCommandSurfaceOpen] = useState(false);
+  const [rotationCommandSurfaceOpen, setRotationCommandSurfaceOpen] = useState(true);
   const [tacticalRoomBoardOpen, setTacticalRoomBoardOpen] = useState(false);
   const [liveRoomStates, setLiveRoomStates] = useState<Record<string, LiveRoomLocalState>>({});
   const [scheduleBuilderPreviewDraft, setScheduleBuilderPreviewDraft] =
