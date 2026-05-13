@@ -23166,13 +23166,19 @@ Cory`;
 
                         <div style={{ display: "grid", gap: "8px" }}>
                           <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>
-                            {roundCompanionView === "announcements"
+                            {roundCompanionView === "overview"
+                              ? "Central Overview"
+                              : roundCompanionView === "coverage"
+                              ? "Coverage"
+                              : roundCompanionView === "learner"
+                              ? "Learner Flow"
+                              : roundCompanionView === "announcements"
                               ? "Announcements"
                               : roundCompanionView === "student"
                               ? "Student Schedule"
                               : roundCompanionView === "sp"
                                 ? "SP Schedule"
-                                : "Operations View"}
+                                : "Operations"}
                           </div>
                           <div style={{ color: commandCenterVisual.mutedColor, fontSize: "13px", fontWeight: 700 }}>
                             {roundCompanionView === "announcements"
@@ -23181,6 +23187,12 @@ Cory`;
                               ? "Learner-facing timing and follow-up blocks for this rotation."
                               : roundCompanionView === "sp"
                                 ? "SP-facing rooms, staffing, and attached support blocks for this rotation."
+                                : roundCompanionView === "overview"
+                                ? "At-a-glance command summary for the selected round."
+                                : roundCompanionView === "coverage"
+                                ? "Room-by-room SP coverage status for the selected round."
+                                : roundCompanionView === "learner"
+                                ? "Learner movement and room flow for the selected round."
                                 : "Operational room, staffing, and schedule support details for this rotation."}
                           </div>
                         </div>
