@@ -2328,3 +2328,277 @@ html body [data-cfsp-command-orb="true"] * {
 
 /* END CFSP COMMAND ORB CLICK FIX v20 */
 
+
+/* CFSP PURPLE GOLD HOLOGRAPHIC COMMAND CENTER v21 */
+
+/*
+  Visual-only skin.
+  Keeps current CommandChestPortal architecture, click behavior, targets, and logic intact.
+  Goal: purple neon command-object with gold tint, no big background panel.
+*/
+
+/* Collapsed side orb / "pokeball" */
+html body .cfsp-holo-orb {
+  filter:
+    drop-shadow(0 18px 30px rgba(88, 28, 135, 0.28))
+    drop-shadow(0 0 24px rgba(168, 85, 247, 0.30)) !important;
+}
+
+html body .cfsp-holo-orb::before {
+  background:
+    radial-gradient(circle at 34% 22%, rgba(255,255,255,0.96), rgba(255,255,255,0.20) 17%, transparent 30%),
+    radial-gradient(circle at 50% 50%, rgba(168,85,247,0.30), transparent 58%),
+    linear-gradient(135deg, rgba(250,245,255,0.80), rgba(124,58,237,0.18)) !important;
+  border-color: rgba(192, 132, 252, 0.62) !important;
+  box-shadow:
+    0 0 28px rgba(168,85,247,0.36),
+    0 0 18px rgba(251,191,36,0.14),
+    inset 0 0 20px rgba(255,255,255,0.50) !important;
+}
+
+html body .cfsp-holo-orb-active::before,
+html body .cfsp-holo-orb:hover::before {
+  box-shadow:
+    0 0 38px rgba(168,85,247,0.48),
+    0 0 24px rgba(251,191,36,0.24),
+    inset 0 0 26px rgba(255,255,255,0.60) !important;
+}
+
+html body .cfsp-holo-orb-ring {
+  border-color: rgba(216, 180, 254, 0.72) !important;
+  box-shadow: 0 0 16px rgba(168,85,247,0.26) !important;
+}
+
+html body .cfsp-holo-orb-core {
+  background:
+    linear-gradient(135deg, #7c3aed 0%, #4c1d95 48%, #1e1b4b 100%) !important;
+  border-color: rgba(251,191,36,0.78) !important;
+  color: #fef3c7 !important;
+  box-shadow:
+    inset 0 0 0 3px rgba(255,255,255,0.18),
+    0 0 22px rgba(168,85,247,0.42),
+    0 0 14px rgba(251,191,36,0.24) !important;
+}
+
+html body .cfsp-holo-orb-core::before {
+  background:
+    linear-gradient(90deg, #a855f7 0%, #f59e0b 50%, #facc15 100%) !important;
+  border-color: rgba(251,191,36,0.72) !important;
+  box-shadow:
+    0 0 16px rgba(251,191,36,0.28),
+    inset 0 4px 8px rgba(255,255,255,0.18) !important;
+}
+
+/* Command Center stays background-free */
+html body .cfsp-holo-command-center {
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+
+/* Title / command language */
+html body .cfsp-holo-title {
+  text-shadow:
+    0 0 18px rgba(168,85,247,0.62),
+    0 0 26px rgba(251,191,36,0.18),
+    0 3px 12px rgba(2,8,23,0.50) !important;
+}
+
+html body .cfsp-holo-title div {
+  color: #d8b4fe !important;
+  letter-spacing: 0.16em !important;
+}
+
+html body .cfsp-holo-title strong {
+  color: #f5d0fe !important;
+}
+
+/* Beam and orbit go purple/gold */
+html body .cfsp-holo-beam {
+  background:
+    linear-gradient(
+      180deg,
+      rgba(216,180,254,0.24) 0%,
+      rgba(168,85,247,0.26) 28%,
+      rgba(251,191,36,0.13) 58%,
+      rgba(0,0,0,0) 100%
+    ) !important;
+  animation: cfspPurpleBeamPulse 3.2s ease-in-out infinite !important;
+}
+
+html body .cfsp-holo-beam-core {
+  background:
+    radial-gradient(circle at 50% 0%, rgba(251,191,36,0.32), rgba(168,85,247,0.18) 42%, rgba(0,0,0,0) 74%) !important;
+}
+
+html body .cfsp-holo-orbit {
+  border-color: rgba(216,180,254,0.48) !important;
+  box-shadow:
+    0 0 26px rgba(168,85,247,0.28),
+    0 0 14px rgba(251,191,36,0.12),
+    inset 0 0 22px rgba(168,85,247,0.12) !important;
+}
+
+/* Scrolls: darker holographic parchment, not teal paper */
+html body .cfsp-holo-scroll {
+  background:
+    repeating-linear-gradient(
+      to bottom,
+      rgba(245,243,255,0.90) 0px,
+      rgba(245,243,255,0.90) 8px,
+      rgba(168,85,247,0.18) 8px,
+      rgba(168,85,247,0.18) 10px
+    ),
+    linear-gradient(135deg, rgba(255,247,237,0.88), rgba(237,233,254,0.86)) !important;
+  border-color: rgba(216,180,254,0.48) !important;
+  box-shadow:
+    0 14px 26px rgba(76,29,149,0.22),
+    0 0 24px rgba(168,85,247,0.26),
+    inset 0 0 16px rgba(251,191,36,0.12) !important;
+}
+
+/* Main animated object: purple neon command vault with gold trim */
+html body .cfsp-holo-craft-lid {
+  background:
+    linear-gradient(90deg, #7c3aed 0%, #a855f7 28%, #f59e0b 62%, #facc15 100%) !important;
+  border-color: #fbbf24 !important;
+  box-shadow:
+    0 0 28px rgba(168,85,247,0.42),
+    0 0 20px rgba(251,191,36,0.30),
+    inset 0 8px 14px rgba(255,255,255,0.18) !important;
+  animation:
+    cfspPurpleCraftLid 5.1s ease-in-out infinite,
+    cfspPurpleSubtleHue 9s ease-in-out infinite !important;
+}
+
+html body .cfsp-holo-craft-body {
+  background:
+    radial-gradient(circle at 50% 18%, rgba(216,180,254,0.18), transparent 28%),
+    linear-gradient(135deg, rgba(109,40,217,0.98), rgba(76,29,149,0.97) 54%, rgba(30,27,75,0.98)) !important;
+  border-color: #fbbf24 !important;
+  box-shadow:
+    0 0 32px rgba(168,85,247,0.44),
+    0 0 24px rgba(251,191,36,0.22),
+    inset 0 0 0 3px rgba(216,180,254,0.18),
+    inset 0 -18px 28px rgba(17,24,39,0.20) !important;
+  animation: cfspPurpleCraftFloat 4.4s ease-in-out infinite !important;
+}
+
+html body .cfsp-holo-craft-body::before,
+html body .cfsp-holo-craft-body::after {
+  background: linear-gradient(180deg, #facc15, #f59e0b) !important;
+  box-shadow: 0 0 12px rgba(251,191,36,0.28) !important;
+}
+
+html body .cfsp-holo-craft-mark {
+  color: #fef3c7 !important;
+  font-size: 0.68rem !important;
+  letter-spacing: 0.18em !important;
+  text-shadow:
+    0 0 12px rgba(251,191,36,0.38),
+    0 0 18px rgba(216,180,254,0.28) !important;
+}
+
+html body .cfsp-holo-craft-latch {
+  background:
+    radial-gradient(circle, #fde68a 0%, #f59e0b 58%, #7c2d12 100%) !important;
+  box-shadow:
+    0 0 22px rgba(251,191,36,0.78),
+    0 0 0 5px rgba(255,255,255,0.72),
+    0 0 30px rgba(168,85,247,0.32) !important;
+}
+
+/* Status chip */
+html body .cfsp-holo-status {
+  border-color: rgba(216,180,254,0.56) !important;
+  background:
+    linear-gradient(135deg, rgba(76,29,149,0.76), rgba(30,27,75,0.70)) !important;
+  color: #f5d0fe !important;
+  box-shadow:
+    0 0 18px rgba(168,85,247,0.28),
+    0 0 12px rgba(251,191,36,0.10) !important;
+}
+
+/* Floating links: purple command buttons, not teal blocks */
+html body .cfsp-holo-action {
+  border-color: rgba(216,180,254,0.44) !important;
+  background:
+    radial-gradient(circle at 16% 18%, rgba(251,191,36,0.09), transparent 26%),
+    linear-gradient(135deg, rgba(76,29,149,0.92), rgba(30,27,75,0.88)) !important;
+  color: #f5d0fe !important;
+  box-shadow:
+    0 10px 20px rgba(30,27,75,0.24),
+    inset 0 1px 0 rgba(255,255,255,0.08),
+    0 0 14px rgba(168,85,247,0.18) !important;
+}
+
+html body .cfsp-holo-action:hover {
+  border-color: rgba(251,191,36,0.62) !important;
+  box-shadow:
+    0 14px 28px rgba(30,27,75,0.32),
+    0 0 24px rgba(168,85,247,0.32),
+    0 0 16px rgba(251,191,36,0.16) !important;
+}
+
+html body .cfsp-holo-action span {
+  border-color: rgba(251,191,36,0.50) !important;
+  color: #fde68a !important;
+  background: rgba(168,85,247,0.20) !important;
+  box-shadow: 0 0 12px rgba(168,85,247,0.20) !important;
+}
+
+/* Extra holographic energy */
+html body .cfsp-holo-spark {
+  background: #f5d0fe !important;
+  box-shadow:
+    0 0 14px rgba(216,180,254,0.82),
+    0 0 24px rgba(168,85,247,0.38) !important;
+}
+
+html body .cfsp-holo-spark-c {
+  background: #facc15 !important;
+  box-shadow:
+    0 0 14px rgba(251,191,36,0.82),
+    0 0 24px rgba(168,85,247,0.22) !important;
+}
+
+@keyframes cfspPurpleBeamPulse {
+  0%, 100% {
+    opacity: 0.64;
+    filter: blur(1px) saturate(1);
+  }
+  50% {
+    opacity: 1;
+    filter: blur(1px) saturate(1.18);
+  }
+}
+
+@keyframes cfspPurpleCraftFloat {
+  0%, 100% {
+    filter: saturate(1) brightness(1);
+  }
+  50% {
+    filter: saturate(1.14) brightness(1.04);
+  }
+}
+
+@keyframes cfspPurpleCraftLid {
+  0%, 100% {
+    transform: translateX(-50%) translateY(0) rotateX(0deg);
+  }
+  50% {
+    transform: translateX(-50%) translateY(-3px) rotateX(12deg);
+  }
+}
+
+@keyframes cfspPurpleSubtleHue {
+  0%, 100% {
+    filter: hue-rotate(0deg) saturate(1.02);
+  }
+  50% {
+    filter: hue-rotate(8deg) saturate(1.14);
+  }
+}
+
+/* END CFSP PURPLE GOLD HOLOGRAPHIC COMMAND CENTER v21 */
+
