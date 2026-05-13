@@ -1416,9 +1416,11 @@ function getRoundOperationAvatarSymbol(role: RoundOperationAvatarRole) {
 function RoundOperationAvatar({
   name,
   role,
+  onClick,
 }: {
   name: string;
   role: RoundOperationAvatarRole;
+  onClick?: () => void;
 }) {
   const label = asText(name).trim() || (role === "sp" ? "SP" : role === "student" ? "Learner" : "Operations");
   const initials = getRoundOperationAvatarLabel(name, role);
@@ -1427,8 +1429,18 @@ function RoundOperationAvatar({
   return (
     <span
       className={`cfsp-hologram-avatar is-${role}`}
-      aria-hidden="true"
+      aria-hidden={onClick ? undefined : "true"}
       title={label}
+      onClick={onClick}
+      onKeyDown={(event) => {
+        if (!onClick) return;
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onClick();
+        }
+      }}
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : undefined}
       style={{
         width: role === "operations" ? "34px" : "32px",
         height: role === "operations" ? "34px" : "32px",
@@ -1450,6 +1462,7 @@ function RoundOperationAvatar({
         animation: "cfspMatrixAvatarFloat 3.6s ease-in-out infinite",
         overflow: "hidden",
         flex: "0 0 auto",
+        cursor: onClick ? "pointer" : "default",
       }}
     >
       <span className="cfsp-hologram-avatar-icon" aria-hidden="true">{symbol}</span>
@@ -4430,6 +4443,10 @@ export default function EventDetailPage() {
   const [rotationCommandSurfaceOpen, setRotationCommandSurfaceOpen] = useState(true);
   const [tacticalRoomBoardOpen, setTacticalRoomBoardOpen] = useState(false);
   const [liveRoomStates, setLiveRoomStates] = useState<Record<string, LiveRoomLocalState>>({});
+  const [localOccupancyLearnerArrivals, setLocalOccupancyLearnerArrivals] = useState<Record<string, boolean>>({});
+  const [localOccupancySpCheckIns, setLocalOccupancySpCheckIns] = useState<Record<string, boolean>>({});
+  const [localOccupancyLearnerRoomMoves, setLocalOccupancyLearnerRoomMoves] = useState<Record<string, string>>({});
+  const [localOccupancySpRoomMoves, setLocalOccupancySpRoomMoves] = useState<Record<string, string>>({});
   const [scheduleBuilderPreviewDraft, setScheduleBuilderPreviewDraft] =
     useState<ScheduleBuilderPreviewDraft | null>(null);
   const [liveDelayMinutes, setLiveDelayMinutes] = useState(0);
@@ -8137,11 +8154,19 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     [scheduleBuilderDraftRoomCapacity]
   );
   const resolvedScheduleMatrixCaseCount = useMemo(() => {
-    if (!isMetadataYes(trainingMetadata.case_rotation_required)) return 0;
     const explicitCaseCount = parsePositiveInteger(trainingMetadata.case_count, 0);
     const parsedCaseCount = parseCaseFileEntries(trainingMetadata.case_manager_cases || trainingMetadata.case_files).filter((entry) => entry.status !== "inactive").length;
-    return Math.max(explicitCaseCount, parsedCaseCount);
-  }, [trainingMetadata.case_count, trainingMetadata.case_files, trainingMetadata.case_manager_cases, trainingMetadata.case_rotation_required]);
+    const draftRoomCount = isMetadataYes(trainingMetadata.case_rotation_required)
+      ? parsePositiveInteger(scheduleBuilderPreviewDraft?.examRoomCount, 0)
+      : 0;
+    return Math.max(explicitCaseCount, parsedCaseCount, draftRoomCount);
+  }, [
+    scheduleBuilderPreviewDraft?.examRoomCount,
+    trainingMetadata.case_count,
+    trainingMetadata.case_files,
+    trainingMetadata.case_manager_cases,
+    trainingMetadata.case_rotation_required,
+  ]);
   const isScheduleMatrixVirtual = selectedModalityLabel === "Virtual";
   const currentLiveReferenceRoundIndex = useMemo(
     () =>
@@ -9476,15 +9501,85 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     });
     return [...liveBlueprintBaseRooms, ...extraRooms];
   }, [liveBlueprintBaseHighestRoomNumber, liveBlueprintBaseRooms, liveExtraRoomCount, roomNamingContext]);
-  const liveVisibleRoomCount = liveAttendanceBlueprintRooms.length;
+  const selectedRoundOccupancyKey = asText(selectedRotationRound?.key || currentLiveReferenceRound?.key || "");
+  const selectedRoundOccupancyLearners = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          selectedRoundScheduleRows
+            .flatMap((row) => row.learnerLabels)
+            .map((learner) => normalizeLearnerName(learner))
+            .filter(Boolean)
+        )
+      ),
+    [selectedRoundScheduleRows]
+  );
+  const interactiveLiveAttendanceBlueprintRooms = useMemo(
+    () =>
+      liveAttendanceBlueprintRooms.map((room) => {
+        const baseLearners = isAssignedLearnerRoomLabel(room.learnerLabel)
+          ? asText(room.learnerLabel).split(",").map((learner) => normalizeLearnerName(learner)).filter(Boolean)
+          : [];
+        const learnerNames = Array.from(
+          new Set([
+            ...baseLearners.filter((learner) => {
+              const moveTarget = localOccupancyLearnerRoomMoves[`${selectedRoundOccupancyKey}|${learner}`];
+              return !moveTarget || compareRoomLabels(moveTarget, room.roomName) === 0;
+            }),
+            ...selectedRoundOccupancyLearners.filter(
+              (learner) => compareRoomLabels(localOccupancyLearnerRoomMoves[`${selectedRoundOccupancyKey}|${learner}`], room.roomName) === 0
+            ),
+          ])
+        );
+        const spMoveTarget = room.spName ? localOccupancySpRoomMoves[`${selectedRoundOccupancyKey}|${room.spName}`] : "";
+        const movedInSpName =
+          Object.entries(localOccupancySpRoomMoves).find(
+            ([key, targetRoom]) =>
+              key.startsWith(`${selectedRoundOccupancyKey}|`) &&
+              compareRoomLabels(targetRoom, room.roomName) === 0 &&
+              key.split("|").slice(1).join("|") !== room.spName
+          )?.[0].split("|").slice(1).join("|") || "";
+        const spName = movedInSpName || (spMoveTarget && compareRoomLabels(spMoveTarget, room.roomName) !== 0 ? "" : room.spName);
+        const spCheckKey = `${selectedRoundOccupancyKey}|${room.roomName}|${spName || room.spName || "unassigned-sp"}`;
+        const localSpChecked = localOccupancySpCheckIns[spCheckKey];
+        const status =
+          localSpChecked === true
+            ? "checked_in"
+            : localSpChecked === false
+              ? "awaiting"
+              : room.status;
+
+        return {
+          ...room,
+          spName,
+          status,
+          statusLabel:
+            localSpChecked === true
+              ? "Checked In"
+              : localSpChecked === false
+                ? "Not Checked In"
+                : room.statusLabel,
+          learnerLabel: learnerNames.length ? learnerNames.join(", ") : UNASSIGNED_LEARNER_ROOM_LABEL,
+        };
+      }),
+    [
+      liveAttendanceBlueprintRooms,
+      localOccupancyLearnerRoomMoves,
+      localOccupancySpCheckIns,
+      localOccupancySpRoomMoves,
+      selectedRoundOccupancyKey,
+      selectedRoundOccupancyLearners,
+    ]
+  );
+  const liveVisibleRoomCount = interactiveLiveAttendanceBlueprintRooms.length;
   const liveDisplayedPrimaryAssignmentIds = useMemo(
     () =>
       new Set(
-        liveAttendanceBlueprintRooms
+        interactiveLiveAttendanceBlueprintRooms
           .map((room) => asText(room.assignment?.id))
           .filter(Boolean)
       ),
-    [liveAttendanceBlueprintRooms]
+    [interactiveLiveAttendanceBlueprintRooms]
   );
   const liveUnmappedConfirmedAssignments = useMemo(
     () =>
@@ -9496,7 +9591,7 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
   );
   const liveAttendanceLogRows = useMemo(
     () =>
-      liveAttendanceBlueprintRooms
+      interactiveLiveAttendanceBlueprintRooms
         .filter((room) => room.assignment || room.sp)
         .map((room) => ({
           key: room.key,
@@ -9516,16 +9611,16 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
           return b.sortTime - a.sortTime;
         })
         .slice(0, 8),
-    [liveAttendanceBlueprintRooms]
+    [interactiveLiveAttendanceBlueprintRooms]
   );
-  const liveBlueprintStaffedCount = liveAttendanceBlueprintRooms.filter((room) => Boolean(room.assignment)).length;
-  const liveBlueprintCheckedCount = liveAttendanceBlueprintRooms.filter((room) => room.status === "checked_in").length;
-  const liveBlueprintLateCount = liveAttendanceBlueprintRooms.filter((room) => room.status === "late").length;
-  const liveBlueprintNoShowCount = liveAttendanceBlueprintRooms.filter((room) => room.status === "no_show").length;
-  const liveBlueprintAwaitingCount = liveAttendanceBlueprintRooms.filter((room) => room.status === "awaiting").length;
+  const liveBlueprintStaffedCount = interactiveLiveAttendanceBlueprintRooms.filter((room) => Boolean(room.assignment || room.spName)).length;
+  const liveBlueprintCheckedCount = interactiveLiveAttendanceBlueprintRooms.filter((room) => room.status === "checked_in").length;
+  const liveBlueprintLateCount = interactiveLiveAttendanceBlueprintRooms.filter((room) => room.status === "late").length;
+  const liveBlueprintNoShowCount = interactiveLiveAttendanceBlueprintRooms.filter((room) => room.status === "no_show").length;
+  const liveBlueprintAwaitingCount = interactiveLiveAttendanceBlueprintRooms.filter((room) => room.status === "awaiting").length;
   const liveLearnerPresenceTokens = useMemo(
     () =>
-      liveAttendanceBlueprintRooms
+      interactiveLiveAttendanceBlueprintRooms
         .filter((room) => isAssignedLearnerRoomLabel(room.learnerLabel))
         .flatMap((room, roomIndex) =>
           room.learnerLabel
@@ -9540,7 +9635,9 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
               const isCurrentRoom = currentLiveBlock?.tone === "rotation" && room.isCurrentRotationRoom;
               const nextRoom =
                 nextLiveBlock && nextLiveBlock.rooms.some((label) => compareRoomLabels(label, room.roomName) === 0);
-              const storedStatus = record?.status || "expected";
+              const localArrivalKey = `${selectedRoundOccupancyKey}|${learnerName}`;
+              const localArrival = localOccupancyLearnerArrivals[localArrivalKey];
+              const storedStatus = localArrival === true ? "arrived" : localArrival === false ? "expected" : record?.status || "expected";
               const displayStatus: LearnerAttendanceStatus =
                 storedStatus === "arrived" && isCurrentRoom
                   ? "in_room"
@@ -9577,9 +9674,11 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     [
       currentLiveBlock?.tone,
       currentLiveReferenceRound?.key,
-      liveAttendanceBlueprintRooms,
+      interactiveLiveAttendanceBlueprintRooms,
       liveLearnerAttendanceRecords,
+      localOccupancyLearnerArrivals,
       nextLiveBlock,
+      selectedRoundOccupancyKey,
     ]
   );
   const liveLearnerArrivedCount = liveLearnerPresenceTokens.filter((token) =>
@@ -9589,6 +9688,35 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
   const liveLearnerMissingCount = liveLearnerPresenceTokens.filter((token) =>
     token.status === "late" || token.status === "absent" || (token.isCurrentRoom && token.status === "expected")
   ).length;
+  const selectedRoundLiveTimingState = useMemo(() => {
+    if (!selectedRotationRound) {
+      return { status: "standby", label: "Standby", detail: "No selected round" };
+    }
+    const timing = getNormalizedRotationRoundTiming(
+      selectedRotationRound,
+      getSameDateRotationRounds(selectedRotationRound, rotationRounds)
+    );
+    if (!timing) return { status: "standby", label: "Standby", detail: "Round timing TBD" };
+    if (simulatedLiveMinutes < timing.startMinutes) {
+      return {
+        status: "standby",
+        label: "Standby",
+        detail: `${formatRemainingMinutes(timing.startMinutes - simulatedLiveMinutes)} until start`,
+      };
+    }
+    if (simulatedLiveMinutes <= timing.endMinutes) {
+      return {
+        status: "active",
+        label: "Active",
+        detail: `${formatRemainingMinutes(timing.endMinutes - simulatedLiveMinutes)} remaining`,
+      };
+    }
+    return {
+      status: "complete",
+      label: "Complete",
+      detail: `Ended ${formatRemainingMinutes(simulatedLiveMinutes - timing.endMinutes)} ago`,
+    };
+  }, [rotationRounds, selectedRotationRound, simulatedLiveMinutes]);
   const liveAnnouncementQueue = useMemo(() => {
     const nextIndex = nextLiveBlock ? liveFlowBlocks.findIndex((block) => block.key === nextLiveBlock.key) : -1;
     const queueStartIndex = nextIndex >= 0 ? nextIndex : Math.max(liveFlowBlocks.findIndex((block) => block.startMinutes > simulatedLiveMinutes), 0);
@@ -9618,8 +9746,8 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     liveBlueprintAwaitingCount === 0 &&
     liveRoomMissingCount === 0;
   const liveBlueprintHallwaySplitIndex = Math.ceil(liveVisibleRoomCount / 2);
-  const liveBlueprintTopRooms = liveAttendanceBlueprintRooms.slice(0, liveBlueprintHallwaySplitIndex);
-  const liveBlueprintBottomRooms = liveAttendanceBlueprintRooms.slice(liveBlueprintHallwaySplitIndex);
+  const liveBlueprintTopRooms = interactiveLiveAttendanceBlueprintRooms.slice(0, liveBlueprintHallwaySplitIndex);
+  const liveBlueprintBottomRooms = interactiveLiveAttendanceBlueprintRooms.slice(liveBlueprintHallwaySplitIndex);
   const liveBlueprintMaxHallwayRooms = Math.max(liveBlueprintTopRooms.length, liveBlueprintBottomRooms.length, 1);
   const liveBlueprintRoomCardMinWidth = liveVisibleRoomCount > 7 ? 190 : 128;
   const liveBlueprintWallMinWidth =
@@ -21966,6 +22094,12 @@ Cory`;
                         text-shadow: 0 0 8px rgba(255,255,255,0.45);
                         transform: translateY(4px);
                       }
+                      .cfsp-hologram-avatar[role="button"]:hover,
+                      .cfsp-hologram-avatar[role="button"]:focus-visible {
+                        outline: none;
+                        transform: translateY(-2px) scale(1.08);
+                        box-shadow: 0 0 24px rgba(45, 212, 191, 0.48), inset 0 0 14px rgba(255,255,255,0.28) !important;
+                      }
                       .cfsp-command-cabinet-shell::after {
                         content: "";
                         position: absolute;
@@ -23568,10 +23702,11 @@ Cory`;
                             </div>
                             <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
                               {[
-                                `${liveBlueprintCheckedCount}/${liveBlueprintStaffedCount} SP checked in`,
-                                `${liveLearnerArrivedCount}/${liveLearnerPresenceTokens.length} learners arrived`,
+                                `SP checked in ${liveBlueprintCheckedCount}/${liveBlueprintStaffedCount}`,
+                                `Learners arrived ${liveLearnerArrivedCount}/${liveLearnerPresenceTokens.length}`,
+                                `Rooms active ${liveRoomActiveCount}/${liveVisibleRoomCount}`,
                                 liveLearnerMissingCount ? `${liveLearnerMissingCount} learner alert${liveLearnerMissingCount === 1 ? "" : "s"}` : "Learner flow stable",
-                                planningLivePreviewPrimaryBlock?.label || selectedLiveFlowBlock?.label || "Flow pending",
+                                `Current block ${selectedRoundLiveTimingState.label}`,
                               ].map((chip) => (
                                 <span
                                   key={`central-lab-map-chip-${chip}`}
@@ -23652,10 +23787,31 @@ Cory`;
                                           </span>
                                         </div>
                                         <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
-                                          <RoundOperationAvatar name={room.spName || "SP TBD"} role="sp" />
+                                          <RoundOperationAvatar
+                                            name={room.spName || "SP TBD"}
+                                            role="sp"
+                                            onClick={() =>
+                                              setLocalOccupancySpCheckIns((current) => ({
+                                                ...current,
+                                                [`${selectedRoundOccupancyKey}|${room.roomName}|${room.spName || "unassigned-sp"}`]:
+                                                  current[`${selectedRoundOccupancyKey}|${room.roomName}|${room.spName || "unassigned-sp"}`] !== true,
+                                              }))
+                                            }
+                                          />
                                           {learnerNames.length ? (
                                             learnerNames.map((learnerName, learnerIndex) => (
-                                              <RoundOperationAvatar key={`central-lab-learner-${room.key}-${learnerIndex}`} name={learnerName} role="student" />
+                                              <RoundOperationAvatar
+                                                key={`central-lab-learner-${room.key}-${learnerIndex}`}
+                                                name={learnerName}
+                                                role="student"
+                                                onClick={() =>
+                                                  setLocalOccupancyLearnerArrivals((current) => ({
+                                                    ...current,
+                                                    [`${selectedRoundOccupancyKey}|${learnerName}`]:
+                                                      current[`${selectedRoundOccupancyKey}|${learnerName}`] !== true,
+                                                  }))
+                                                }
+                                              />
                                             ))
                                           ) : (
                                             <span style={{ color: "rgba(226, 250, 247, 0.68)", fontSize: "10px", fontWeight: 850 }}>
@@ -23665,6 +23821,95 @@ Cory`;
                                         </div>
                                         <div style={{ color: "rgba(226, 250, 247, 0.7)", fontSize: "10px", fontWeight: 750, lineHeight: 1.35 }}>
                                           SP: {room.spName || "TBD"} · Learner: {learnerNames.length ? learnerNames.join(", ") : "No learner assigned"}
+                                        </div>
+                                        <div style={{ display: "grid", gap: "6px" }}>
+                                          <div style={{ display: "flex", gap: "5px", flexWrap: "wrap" }}>
+                                            <button
+                                              type="button"
+                                              onClick={() =>
+                                                setLocalOccupancySpCheckIns((current) => ({
+                                                  ...current,
+                                                  [`${selectedRoundOccupancyKey}|${room.roomName}|${room.spName || "unassigned-sp"}`]: true,
+                                                }))
+                                              }
+                                              style={{ ...staffingSecondaryButtonStyle, padding: "5px 7px", fontSize: "9px" }}
+                                            >
+                                              SP checked in
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={() =>
+                                                setLocalOccupancySpCheckIns((current) => ({
+                                                  ...current,
+                                                  [`${selectedRoundOccupancyKey}|${room.roomName}|${room.spName || "unassigned-sp"}`]: false,
+                                                }))
+                                              }
+                                              style={{ ...staffingSecondaryButtonStyle, padding: "5px 7px", fontSize: "9px" }}
+                                            >
+                                              Not checked in
+                                            </button>
+                                          </div>
+                                          {room.spName ? (
+                                            <select
+                                              value={localOccupancySpRoomMoves[`${selectedRoundOccupancyKey}|${room.spName}`] || room.roomName}
+                                              onChange={(event) =>
+                                                setLocalOccupancySpRoomMoves((current) => ({
+                                                  ...current,
+                                                  [`${selectedRoundOccupancyKey}|${room.spName}`]: event.target.value,
+                                                }))
+                                              }
+                                              style={{ ...selectStyle, minWidth: 0, width: "100%", fontSize: "10px", padding: "5px 7px" }}
+                                              aria-label={`Move ${room.spName} to another room`}
+                                            >
+                                              {interactiveLiveAttendanceBlueprintRooms.map((targetRoom) => (
+                                                <option key={`${room.key}-sp-target-${targetRoom.roomName}`} value={targetRoom.roomName}>
+                                                  Move SP to {targetRoom.roomName}
+                                                </option>
+                                              ))}
+                                            </select>
+                                          ) : null}
+                                          {learnerNames.map((learnerName) => {
+                                            const learnerArrivalKey = `${selectedRoundOccupancyKey}|${learnerName}`;
+                                            const learnerArrived = localOccupancyLearnerArrivals[learnerArrivalKey] === true;
+                                            return (
+                                              <div key={`${room.key}-learner-control-${learnerName}`} style={{ display: "grid", gap: "4px" }}>
+                                                <div style={{ display: "flex", gap: "5px", flexWrap: "wrap", alignItems: "center" }}>
+                                                  <button
+                                                    type="button"
+                                                    onClick={() =>
+                                                      setLocalOccupancyLearnerArrivals((current) => ({
+                                                        ...current,
+                                                        [learnerArrivalKey]: !learnerArrived,
+                                                      }))
+                                                    }
+                                                    style={{ ...staffingSecondaryButtonStyle, padding: "5px 7px", fontSize: "9px" }}
+                                                  >
+                                                    {learnerArrived ? "Mark expected" : "Mark arrived"}
+                                                  </button>
+                                                  <span style={{ color: learnerArrived ? "#ccfbf1" : "rgba(226, 250, 247, 0.7)", fontSize: "9px", fontWeight: 850 }}>
+                                                    {learnerName}
+                                                  </span>
+                                                </div>
+                                                <select
+                                                  value={localOccupancyLearnerRoomMoves[learnerArrivalKey] || room.roomName}
+                                                  onChange={(event) =>
+                                                    setLocalOccupancyLearnerRoomMoves((current) => ({
+                                                      ...current,
+                                                      [learnerArrivalKey]: event.target.value,
+                                                    }))
+                                                  }
+                                                  style={{ ...selectStyle, minWidth: 0, width: "100%", fontSize: "10px", padding: "5px 7px" }}
+                                                  aria-label={`Move ${learnerName} to another room`}
+                                                >
+                                                  {interactiveLiveAttendanceBlueprintRooms.map((targetRoom) => (
+                                                    <option key={`${room.key}-${learnerName}-target-${targetRoom.roomName}`} value={targetRoom.roomName}>
+                                                      Move learner to {targetRoom.roomName}
+                                                    </option>
+                                                  ))}
+                                                </select>
+                                              </div>
+                                            );
+                                          })}
                                         </div>
                                       </div>
                                     );
@@ -23678,11 +23923,23 @@ Cory`;
                             <div style={{ borderRadius: "14px", border: "1px solid rgba(126, 231, 219, 0.18)", background: "rgba(15, 23, 42, 0.48)", padding: "9px", display: "grid", gap: "6px" }}>
                               <div style={{ ...statLabel, color: "rgba(186, 230, 253, 0.86)" }}>Learner Arrival Rail</div>
                               {liveLearnerPresenceTokens.slice(0, 5).map((token) => (
-                                <div key={`central-lab-arrival-${token.attendanceKey}`} style={{ display: "flex", justifyContent: "space-between", gap: "8px", alignItems: "center" }}>
+                                <div key={`central-lab-arrival-${token.attendanceKey}`} style={{ display: "flex", justifyContent: "space-between", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
                                   <span style={{ color: "#ecfeff", fontSize: "11px", fontWeight: 850 }}>{token.learnerName}</span>
                                   <span style={{ color: token.status === "late" || token.status === "absent" ? "#fecaca" : "#ccfbf1", fontSize: "10px", fontWeight: 850 }}>
                                     {token.status.replace("_", " ")}
                                   </span>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setLocalOccupancyLearnerArrivals((current) => ({
+                                        ...current,
+                                        [`${selectedRoundOccupancyKey}|${token.learnerName}`]: token.status !== "arrived" && token.status !== "in_room",
+                                      }))
+                                    }
+                                    style={{ ...staffingSecondaryButtonStyle, padding: "4px 7px", fontSize: "9px" }}
+                                  >
+                                    {token.status === "arrived" || token.status === "in_room" ? "Expected" : "Arrived"}
+                                  </button>
                                 </div>
                               ))}
                               {!liveLearnerPresenceTokens.length ? (
@@ -23692,9 +23949,11 @@ Cory`;
                             <div style={{ borderRadius: "14px", border: "1px solid rgba(126, 231, 219, 0.18)", background: "rgba(15, 23, 42, 0.48)", padding: "9px", display: "grid", gap: "6px" }}>
                               <div style={{ ...statLabel, color: "rgba(186, 230, 253, 0.86)" }}>Current Operational Block</div>
                               <div style={{ color: "#ecfeff", fontSize: "13px", fontWeight: 950 }}>
-                                {planningLivePreviewPrimaryBlock?.label || selectedLiveFlowBlock?.label || currentLiveBlock?.label || "No active block"}
+                                {selectedRoundLiveTimingState.label} · {planningLivePreviewPrimaryBlock?.label || selectedLiveFlowBlock?.label || currentLiveBlock?.label || "Selected round"}
                               </div>
                               <div style={{ color: "rgba(226, 250, 247, 0.68)", fontSize: "10px", fontWeight: 750 }}>
+                                {selectedRoundLiveTimingState.detail}
+                                {" · "}
                                 {planningLivePreviewPrimaryBlock
                                   ? formatMinuteRange(planningLivePreviewPrimaryBlock.startMinutes, planningLivePreviewPrimaryBlock.endMinutes)
                                   : selectedLiveFlowBlock
@@ -23749,6 +24008,18 @@ Cory`;
                                   <span style={{ ...commandChipStyle, background: token.status === "late" || token.status === "absent" ? "rgba(248,113,113,0.14)" : commandCenterVisual.activeSoftBackground, color: token.status === "late" || token.status === "absent" ? staffingWorkspacePalette.dangerText : commandCenterVisual.activeSoftText }}>
                                     {token.status.replace("_", " ")}
                                   </span>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setLocalOccupancyLearnerArrivals((current) => ({
+                                        ...current,
+                                        [`${selectedRoundOccupancyKey}|${token.learnerName}`]: token.status !== "arrived" && token.status !== "in_room",
+                                      }))
+                                    }
+                                    style={{ ...staffingSecondaryButtonStyle, padding: "4px 7px", fontSize: "9px" }}
+                                  >
+                                    {token.status === "arrived" || token.status === "in_room" ? "Expected" : "Arrived"}
+                                  </button>
                                 </div>
                               ))}
                               {!liveLearnerPresenceTokens.length ? (
@@ -23757,7 +24028,7 @@ Cory`;
                             </div>
                             <div style={{ display: "grid", gap: "6px" }}>
                               <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Room Occupancy Status</div>
-                              {liveAttendanceBlueprintRooms.slice(0, 6).map((room) => (
+                              {interactiveLiveAttendanceBlueprintRooms.slice(0, 6).map((room) => (
                                 <div key={`central-room-occupancy-${room.key}`} style={{ display: "flex", justifyContent: "space-between", gap: "8px", alignItems: "center", borderRadius: "10px", border: commandCenterVisual.rowBorder, background: isPlanningVisualMode ? "rgba(255,255,255,0.68)" : "rgba(255,255,255,0.04)", padding: "7px 8px" }}>
                                   <span style={{ color: commandCenterVisual.textColor, fontSize: "11px", fontWeight: 900 }}>{room.roomName}</span>
                                   <span style={{ ...commandChipStyle, background: room.status === "checked_in" ? commandCenterVisual.activeSoftBackground : commandCenterVisual.chipBackground, color: room.status === "checked_in" ? commandCenterVisual.activeSoftText : commandCenterVisual.chipText }}>
