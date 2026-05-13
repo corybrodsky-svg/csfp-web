@@ -4435,6 +4435,8 @@ export default function EventDetailPage() {
   const [commandCenterMode, setCommandCenterMode] = useState<CommandCenterMode>("planning");
   const [commandFileCabinetExpanded, setCommandFileCabinetExpanded] = useState(false);
   const [expandedCommandFileCabinetModules, setExpandedCommandFileCabinetModules] = useState<Record<string, boolean>>({});
+  const [virtualAccessEditorOpen, setVirtualAccessEditorOpen] = useState(false);
+  const [virtualAccessDraftUrl, setVirtualAccessDraftUrl] = useState("");
   const [planningLivePreviewExpanded, setPlanningLivePreviewExpanded] = useState(false);
   const [selectedRotationRoundKey, setSelectedRotationRoundKey] = useState("");
   const [roundCompanionView, setRoundCompanionView] = useState<RotationCompanionView>("overview");
@@ -10451,15 +10453,32 @@ Cory`;
   const recordingGuideUrl = normalizeExternalHref(
     trainingMetadata.recording_url || trainingMetadata.training_recording_url
   );
+  const virtualAccessRawUrl =
+    asText(trainingMetadata.zoom_url) ||
+    asText(trainingMetadata.training_zoom_link) ||
+    asText(normalEventTrainingLink);
   const trainingAccessUrl = normalizeExternalHref(
-    normalEventTrainingLink || trainingMetadata.zoom_url || trainingMetadata.training_zoom_link
+    virtualAccessRawUrl
   );
   const virtualAccessRequired = selectedModalityLabel === "Virtual" || selectedModalityLabel === "Hybrid" || eventMeta.isVirtualSp;
+  const virtualAccessInvalid = Boolean(virtualAccessRawUrl && !trainingAccessUrl);
   const virtualAccessStatusLabel = trainingAccessUrl
+    ? "Ready"
+    : virtualAccessInvalid
+      ? "Invalid Link"
+      : virtualAccessRequired
+        ? "Missing"
+        : "Optional";
+  const virtualAccessDetailLabel = trainingAccessUrl
     ? "Virtual Access Ready"
+    : virtualAccessInvalid
+      ? "Invalid Link"
     : virtualAccessRequired
       ? "Zoom Link Needed"
       : "Virtual Access Optional";
+  useEffect(() => {
+    setVirtualAccessDraftUrl(virtualAccessRawUrl);
+  }, [virtualAccessRawUrl]);
   async function handleCopyVirtualAccessLink() {
     if (!trainingAccessUrl) {
       setEventSaveError("No Zoom or virtual access link is saved yet.");
@@ -10475,6 +10494,33 @@ Cory`;
     } catch (error) {
       setEventSaveError(error instanceof Error ? error.message : "Could not copy virtual access link.");
     }
+  }
+  async function handleSaveVirtualAccessLink() {
+    const nextUrl = asText(virtualAccessDraftUrl).trim();
+    const normalizedUrl = normalizeExternalHref(nextUrl);
+    if (nextUrl && !normalizedUrl) {
+      setEventSaveError("Enter a valid Zoom or virtual access link.");
+      return;
+    }
+    const nextNotes = upsertEventMetadata(eventEditor.notes, {
+      training: buildNormalizedTrainingMetadataPartial({
+        zoom_url: nextUrl,
+        training_zoom_link: nextUrl,
+      }),
+    });
+    await persistTrainingNotes(nextNotes, nextUrl ? "Virtual access link saved." : "Virtual access link cleared.");
+    setVirtualAccessEditorOpen(false);
+  }
+  async function handleClearVirtualAccessLink() {
+    setVirtualAccessDraftUrl("");
+    const nextNotes = upsertEventMetadata(eventEditor.notes, {
+      training: {
+        zoom_url: "",
+        training_zoom_link: "",
+      },
+    });
+    await persistTrainingNotes(nextNotes, "Virtual access link cleared.");
+    setVirtualAccessEditorOpen(false);
   }
   function scrollToAdminTools() {
     const adminTools = document.getElementById("coverage-actions") as HTMLDetailsElement | null;
@@ -22567,18 +22613,20 @@ Cory`;
                         {
                           key: "virtual_access",
                           title: "VIRTUAL ACCESS / ZOOM",
-                          detail: trainingAccessUrl ? trainingAccessUrl : "Zoom link pending",
-                          status: trainingAccessUrl ? "available" : virtualAccessRequired ? "missing" : "draft",
+                          detail: trainingAccessUrl || virtualAccessRawUrl || "Zoom link pending",
+                          status: trainingAccessUrl ? "available" : virtualAccessInvalid || virtualAccessRequired ? "missing" : "draft",
                           featured: virtualAccessRequired,
-                          accent: trainingAccessUrl ? "#14b8a6" : virtualAccessRequired ? "#7c3aed" : "#64748b",
+                          accent: trainingAccessUrl ? "#14b8a6" : virtualAccessInvalid ? "#ef4444" : virtualAccessRequired ? "#7c3aed" : "#64748b",
                           primaryHref: trainingAccessUrl || "",
                           metadata: [
                             virtualAccessStatusLabel,
+                            virtualAccessDetailLabel,
                             selectedModalityLabel,
                             trainingAccessUrl ? "Schedule packet ready" : "Add link before export",
                           ].filter(Boolean),
                           actions: (
-                            <>
+                            <div style={{ display: "grid", gap: "7px", width: "100%" }}>
+                              <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                               {trainingAccessUrl ? (
                                 <a
                                   href={trainingAccessUrl}
@@ -22601,13 +22649,76 @@ Cory`;
                               </button>
                               <button
                                 type="button"
-                                onClick={() => focusAdminEditField("zoom_url")}
+                                onClick={() => setVirtualAccessEditorOpen((current) => !current)}
                                 className="cfsp-button-tactical"
                                 style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px" }}
                               >
-                                Add/Edit Zoom Link
+                                {virtualAccessEditorOpen ? "Close Editor" : "Add/Edit Zoom Link"}
                               </button>
-                            </>
+                              {trainingAccessUrl || virtualAccessRawUrl ? (
+                                <button
+                                  type="button"
+                                  onClick={() => void handleClearVirtualAccessLink()}
+                                  className="cfsp-button-tactical"
+                                  style={{ ...dangerButtonStyle, padding: "6px 9px" }}
+                                >
+                                  Clear Link
+                                </button>
+                              ) : null}
+                              </div>
+                              {virtualAccessEditorOpen ? (
+                                <div
+                                  style={{
+                                    borderRadius: "14px",
+                                    border: isPlanningVisualMode ? "1px solid rgba(20, 184, 166, 0.2)" : "1px solid rgba(126, 231, 219, 0.24)",
+                                    background: isPlanningVisualMode ? "rgba(236, 253, 245, 0.62)" : "rgba(20, 184, 166, 0.08)",
+                                    padding: "8px",
+                                    display: "grid",
+                                    gap: "7px",
+                                  }}
+                                >
+                                  <label style={{ display: "grid", gap: "5px" }}>
+                                    <span style={{ ...statLabel, color: commandFileCabinetVisual.moduleLabelColor }}>
+                                      Zoom / Virtual Access Link
+                                    </span>
+                                    <input
+                                      value={virtualAccessDraftUrl}
+                                      onChange={(event) => setVirtualAccessDraftUrl(event.target.value)}
+                                      placeholder="https://zoom.us/j/..."
+                                      style={{ ...inputStyle, width: "100%", boxSizing: "border-box", fontSize: "11px", padding: "7px 8px" }}
+                                      data-admin-field="zoom_url"
+                                    />
+                                  </label>
+                                  <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
+                                    <button
+                                      type="button"
+                                      onClick={() => void handleSaveVirtualAccessLink()}
+                                      className="cfsp-button-tactical"
+                                      style={{ ...buttonStyle, padding: "6px 9px" }}
+                                    >
+                                      Save Zoom Link
+                                    </button>
+                                    <span
+                                      style={{
+                                        ...commandChipStyle,
+                                        background: trainingAccessUrl
+                                          ? commandCenterVisual.activeSoftBackground
+                                          : virtualAccessInvalid
+                                            ? "rgba(248, 113, 113, 0.12)"
+                                            : commandCenterVisual.chipBackground,
+                                        color: trainingAccessUrl
+                                          ? commandCenterVisual.activeSoftText
+                                          : virtualAccessInvalid
+                                            ? staffingWorkspacePalette.dangerText
+                                            : commandCenterVisual.chipText,
+                                      }}
+                                    >
+                                      {virtualAccessStatusLabel}
+                                    </span>
+                                  </div>
+                                </div>
+                              ) : null}
+                            </div>
                           ),
                         },
                         {
