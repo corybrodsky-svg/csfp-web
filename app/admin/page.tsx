@@ -37,7 +37,6 @@ const panels: AdminPanel[] = [
     title: "Import / Tools",
     description: "Launch uploads and simulation support tools directly from the admin hub.",
     actions: [
-      { href: "/events/upload", label: "Upload Events", tone: "primary" },
       { href: "/sim-op", label: "Open Sim Op", tone: "secondary" },
     ],
   },

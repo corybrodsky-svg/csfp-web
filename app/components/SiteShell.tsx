@@ -44,7 +44,7 @@ const navItems: NavItem[] = [
   { href: "/events", label: "Events", match: "prefix" },
   { href: "/events/new", label: "New Event", match: "exact", tone: "primary", roles: ["sim_op", "admin", "super_admin"] },
   { href: "/schedule-builder", label: "Schedule Builder", match: "exact", roles: ["sim_op", "admin", "super_admin"] },
-  { href: "/events/upload", label: "Upload", match: "exact", roles: ["sim_op", "admin", "super_admin"] },
+  { href: "/events/upload", label: "Upload", match: "exact", roles: ["super_admin"] },
   { href: "/sps", label: "SP Database", match: "prefix", roles: ["sim_op", "admin", "super_admin"] },
   { href: "/staff", label: "Staff", match: "prefix", roles: ["admin", "super_admin"] },
   { href: "/admin", label: "Admin", match: "prefix", roles: ["admin", "super_admin"] },
