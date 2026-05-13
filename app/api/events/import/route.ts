@@ -1,9 +1,43 @@
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import * as XLSX from "xlsx";
+import {
+  AUTH_ACCESS_COOKIE,
+  AUTH_REFRESH_COOKIE,
+  clearAuthCookies,
+  setAuthCookies,
+} from "../../../lib/authCookies";
 import { createSupabaseServerClient } from "../../../lib/supabaseServerClient";
 import { asText, formatUsDate, normalizeLooseDateToIso } from "../../../lib/eventDateUtils";
+import { getProfileForUser } from "../../../lib/profileServer";
 
 export const dynamic = "force-dynamic";
+
+type ViewerContext = {
+  id: string;
+  accessToken: string;
+  refreshToken: string;
+  email: string;
+  role: string;
+  fullName: string;
+  scheduleName: string;
+  refreshedTokens?: {
+    accessToken: string;
+    refreshToken: string;
+  };
+  shouldClearCookies?: boolean;
+};
+
+type AuthenticatedUserResult = {
+  accessToken: string;
+  refreshToken: string;
+  user: Awaited<ReturnType<ReturnType<typeof createSupabaseServerClient>["auth"]["getUser"]>>["data"]["user"] | null;
+  refreshedTokens?: {
+    accessToken: string;
+    refreshToken: string;
+  };
+  shouldClearCookies?: boolean;
+};
 
 type ParsedSession = {
   date: string;
@@ -108,6 +142,124 @@ type MatchCandidate = {
 
 const IMPORT_START = "[SP_EVENT_INFO_IMPORT]";
 const IMPORT_END = "[/SP_EVENT_INFO_IMPORT]";
+
+function normalizeRole(value: unknown) {
+  const role = asText(value).toLowerCase().replace(/[\s-]+/g, "_");
+  if (role === "sp" || role === "sim_op" || role === "admin" || role === "super_admin") {
+    return role;
+  }
+  return "sp";
+}
+
+function getEffectiveRole(email: unknown, role: unknown) {
+  const normalizedEmail = asText(email).toLowerCase();
+  const localPart = normalizedEmail.split("@")[0] || "";
+  if (localPart === "cory.brodsky") return "super_admin";
+  return normalizeRole(role);
+}
+
+async function getAuthenticatedUser(): Promise<AuthenticatedUserResult> {
+  try {
+    const cookieStore = await cookies();
+    const accessToken = cookieStore.get(AUTH_ACCESS_COOKIE)?.value || "";
+    const refreshToken = cookieStore.get(AUTH_REFRESH_COOKIE)?.value || "";
+
+    if (!accessToken && !refreshToken) {
+      return { accessToken: "", refreshToken: "", user: null };
+    }
+
+    const supabase = createSupabaseServerClient();
+
+    if (accessToken) {
+      const {
+        data: { user },
+        error,
+      } = await supabase.auth.getUser(accessToken);
+
+      if (!error && user) {
+        return { accessToken, refreshToken, user };
+      }
+    }
+
+    if (!refreshToken) {
+      return {
+        accessToken,
+        refreshToken,
+        user: null,
+        shouldClearCookies: true,
+      };
+    }
+
+    const { data, error } = await supabase.auth.refreshSession({ refresh_token: refreshToken });
+    const refreshedAccessToken = asText(data.session?.access_token);
+    const refreshedRefreshToken = asText(data.session?.refresh_token);
+    const refreshedUser = data.user ?? data.session?.user ?? null;
+
+    if (error || !refreshedUser || !refreshedAccessToken || !refreshedRefreshToken) {
+      return {
+        accessToken,
+        refreshToken,
+        user: null,
+        shouldClearCookies: true,
+      };
+    }
+
+    return {
+      accessToken: refreshedAccessToken,
+      refreshToken: refreshedRefreshToken,
+      user: refreshedUser,
+      refreshedTokens: {
+        accessToken: refreshedAccessToken,
+        refreshToken: refreshedRefreshToken,
+      },
+    };
+  } catch {
+    return { accessToken: "", refreshToken: "", user: null };
+  }
+}
+
+async function getAuthenticatedViewer(): Promise<ViewerContext | null> {
+  try {
+    const auth = await getAuthenticatedUser();
+    if (!auth.user) return null;
+
+    const profileResult = await getProfileForUser(auth.user.id, auth.accessToken);
+    const profile = profileResult.profile;
+    const email = asText(profile?.email) || asText(auth.user.email);
+
+    return {
+      id: auth.user.id,
+      accessToken: auth.accessToken,
+      refreshToken: auth.refreshToken,
+      email,
+      role: getEffectiveRole(email, profile?.role || auth.user.user_metadata?.role),
+      fullName: asText(profile?.full_name) || asText(auth.user.user_metadata?.full_name),
+      scheduleName: asText(profile?.schedule_name) || asText(auth.user.user_metadata?.schedule_name),
+      refreshedTokens: auth.refreshedTokens,
+      shouldClearCookies: auth.shouldClearCookies,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function applyAuthCookies(response: NextResponse, viewer: ViewerContext | null) {
+  if (!viewer) return response;
+
+  if (viewer.refreshedTokens) {
+    setAuthCookies(response, viewer.refreshedTokens);
+  }
+
+  return response;
+}
+
+function unauthorizedResponse(viewer?: ViewerContext | null) {
+  const response = NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (viewer?.shouldClearCookies) {
+    clearAuthCookies(response);
+  }
+  return response;
+}
 
 function normalizeTitle(value: string) {
   return asText(value).toLowerCase().replace(/\s+/g, " ").trim();
@@ -914,8 +1066,21 @@ async function analyzeWorkbookFile(
 }
 
 export async function POST(request: Request) {
+  let viewer: ViewerContext | null = null;
   try {
     const supabaseServer = createSupabaseServerClient();
+    viewer = await getAuthenticatedViewer();
+    if (!viewer) {
+      return unauthorizedResponse();
+    }
+
+    if (viewer.role !== "super_admin") {
+      return applyAuthCookies(
+        NextResponse.json({ error: "Super admin only." }, { status: 403 }),
+        viewer
+      );
+    }
+
     const formData = await request.formData();
     const action = asText(formData.get("action")).toLowerCase() || "preview";
     const uploadedFiles = [
@@ -924,7 +1089,10 @@ export async function POST(request: Request) {
     ];
 
     if (!uploadedFiles.length) {
-      return NextResponse.json({ error: "Upload one or more Excel workbooks." }, { status: 400 });
+      return applyAuthCookies(
+        NextResponse.json({ error: "Upload one or more Excel workbooks." }, { status: 400 }),
+        viewer
+      );
     }
 
     const { data: existingEvents, error: existingError } = await supabaseServer
@@ -932,7 +1100,7 @@ export async function POST(request: Request) {
       .select("id,name,date_text,notes,location,created_at");
 
     if (existingError) {
-      return NextResponse.json({ error: existingError.message }, { status: 500 });
+      return applyAuthCookies(NextResponse.json({ error: existingError.message }, { status: 500 }), viewer);
     }
 
     const { data: eventSessions, error: sessionError } = await supabaseServer
@@ -941,7 +1109,7 @@ export async function POST(request: Request) {
       .order("session_date", { ascending: true });
 
     if (sessionError) {
-      return NextResponse.json({ error: sessionError.message }, { status: 500 });
+      return applyAuthCookies(NextResponse.json({ error: sessionError.message }, { status: 500 }), viewer);
     }
 
     const sessionDatesByEventId = new Map<string, string | null>();
@@ -956,7 +1124,7 @@ export async function POST(request: Request) {
       .select("id,full_name,working_email,email");
 
     if (spDirectoryError) {
-      return NextResponse.json({ error: spDirectoryError.message }, { status: 500 });
+      return applyAuthCookies(NextResponse.json({ error: spDirectoryError.message }, { status: 500 }), viewer);
     }
 
     const results: ImportResponse = {
@@ -1049,11 +1217,14 @@ export async function POST(request: Request) {
       }
     }
 
-    return NextResponse.json(results);
+    return applyAuthCookies(NextResponse.json(results), viewer);
   } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Could not import workbooks." },
-      { status: 500 }
+    return applyAuthCookies(
+      NextResponse.json(
+        { error: error instanceof Error ? error.message : "Could not import workbooks." },
+        { status: 500 }
+      ),
+      viewer
     );
   }
 }

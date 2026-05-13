@@ -296,6 +296,13 @@ export async function POST(
       return unauthorizedResponse();
     }
 
+    if (viewer.role !== "super_admin") {
+      return applyAuthCookies(
+        NextResponse.json({ error: "Super admin only." }, { status: 403 }),
+        viewer
+      );
+    }
+
     const params = await context.params;
     const eventId = getRouteId(params);
 
