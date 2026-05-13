@@ -643,7 +643,7 @@ const statCard: React.CSSProperties = {
 };
 
 const statLabel: React.CSSProperties = {
-  fontSize: "12px",
+  fontSize: "11px",
   fontWeight: 800,
   color: "var(--cfsp-text-muted)",
   textTransform: "uppercase",
@@ -1047,7 +1047,7 @@ const skillsWorkshopBadgeStyle: React.CSSProperties = {
   border: "1px solid rgba(25, 138, 112, 0.22)",
   color: "var(--cfsp-green)",
   fontWeight: 900,
-  fontSize: "12px",
+  fontSize: "11px",
 };
 
 const availabilityMatchLabels: Record<AvailabilityMatchStatus, string> = {
@@ -1818,7 +1818,7 @@ function getEventTypeButtonStyle(type: EventDisplayType, active: boolean): React
     borderRadius: "999px",
     padding: "7px 12px",
     fontWeight: 900,
-    fontSize: "12px",
+    fontSize: "11px",
     border: `1px solid ${active ? palette.border : "var(--cfsp-border)"}`,
     background: active ? palette.background : "var(--cfsp-surface)",
     color: active ? palette.color : "var(--cfsp-text-muted)",
@@ -7875,7 +7875,7 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
               borderRadius: "999px",
               padding: "6px 10px",
               fontWeight: 900,
-              fontSize: "12px",
+              fontSize: "11px",
             } satisfies React.CSSProperties,
           }
         : null,
@@ -7890,7 +7890,7 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
           border: coverageStatus.border,
           color: coverageStatus.color,
           fontWeight: 900,
-          fontSize: "12px",
+          fontSize: "11px",
         } satisfies React.CSSProperties,
       },
       {
@@ -14485,7 +14485,7 @@ Cory`;
             style={{
               display: "flex",
               justifyContent: "space-between",
-              gap: "12px",
+              gap: "6px",
               alignItems: "center",
               flexWrap: "wrap",
             }}
@@ -14515,7 +14515,7 @@ Cory`;
       display: "flex",
       justifyContent: "space-between",
       alignItems: "center",
-      gap: "12px",
+      gap: "6px",
       flexWrap: "wrap",
     }}
   >
@@ -14535,7 +14535,7 @@ Cory`;
       <div
         style={{
           marginTop: "4px",
-          fontSize: "12px",
+          fontSize: "11px",
           fontWeight: 700,
           color: "rgba(226,232,240,0.72)",
         }}
@@ -14551,7 +14551,7 @@ Cory`;
         background: "rgba(45, 212, 191, 0.14)",
         border: "1px solid rgba(45, 212, 191, 0.24)",
         color: "#99f6e4",
-        fontSize: "12px",
+        fontSize: "11px",
         fontWeight: 800,
       }}
     >
@@ -14562,7 +14562,7 @@ Cory`;
   <div
     style={{
       display: "grid",
-      gap: "8px",
+      gap: "6px",
       gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
     }}
   >
@@ -14604,7 +14604,7 @@ Cory`;
     ))}
   </div>
 </div>
-            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
               {eventRecordingIndicatorActive ? (
                 <RecordingStatusIndicator
                   label={eventRecordingIndicatorLabel}
@@ -14627,7 +14627,7 @@ Cory`;
                       : "1px solid rgba(25, 138, 112, 0.26)",
                   color: livePausedAtMs !== null ? "var(--cfsp-warning)" : "var(--cfsp-green)",
                   fontWeight: 900,
-                  fontSize: "12px",
+                  fontSize: "11px",
                 }}
               >
                 {livePausedAtMs !== null ? "Paused" : "Go Live"}
@@ -14647,10 +14647,10 @@ Cory`;
 	              background: "rgba(9, 20, 33, 0.94)",
 	              padding: "14px",
 	              display: "grid",
-	              gap: "12px",
+	              gap: "6px",
 	            }}
 	          >
-	            <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
+	            <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
 	              <div>
 	                <div style={{ ...statLabel, color: livePanelAccentText }}>Live Room Status Board</div>
 	                <div style={{ marginTop: "4px", color: livePanelTitleText, fontSize: "20px", fontWeight: 950 }}>
@@ -14660,7 +14660,7 @@ Cory`;
 	                  Room-by-room simulation status for the active rotation.
 	                </div>
 	              </div>
-	              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+	              <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
 	                <span style={{ ...commandChipStyle, background: "rgba(139, 210, 189, 0.12)", color: "#b8e4d4" }}>
 	                  {event?.name || "Untitled Event"}
 	                </span>
@@ -14715,7 +14715,7 @@ Cory`;
 	                        borderRadius: "16px",
 	                        border: statusAppearance.border,
 	                        background: livePanelCardBackground,
-	                        padding: "12px 14px",
+	                        padding: "8px 10px",
 	                        display: "grid",
 	                        gap: "10px",
 	                        boxShadow: hasIssue ? "0 10px 24px rgba(248, 113, 113, 0.12)" : "none",
@@ -14728,7 +14728,7 @@ Cory`;
 	                            {row.sp ? getFullName(row.sp) : "SP TBD"}
 	                          </div>
 	                        </div>
-	                        <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+	                        <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
 	                          <span
 	                            style={{
 	                              width: "32px",
@@ -14767,7 +14767,7 @@ Cory`;
 	                        style={{
 	                          display: "grid",
 	                          gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))",
-	                          gap: "8px",
+	                          gap: "6px",
 	                        }}
 	                      >
 	                        <div style={{ ...statCard, background: livePanelSubtleBackground }}>
@@ -14803,7 +14803,7 @@ Cory`;
 	                          </span>
 	                        ) : null}
 	                      </div>
-	                      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+	                      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
 	                        <button type="button" onClick={() => handleSetLiveRoomStatus(row.key, "ready")} style={{ ...buttonStyle, padding: "7px 10px" }}>
 	                          Mark Ready
 	                        </button>
@@ -14905,7 +14905,7 @@ Cory`;
                 background: "rgba(9, 20, 33, 0.94)",
                 padding: "14px",
                 display: "grid",
-                gap: "12px",
+                gap: "6px",
               }}
             >
               <div
@@ -14917,7 +14917,7 @@ Cory`;
                   boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.035)",
                   padding: "9px",
                   display: "flex",
-                  gap: "8px",
+                  gap: "6px",
                   flexWrap: "wrap",
                   alignItems: "stretch",
                 }}
@@ -15036,7 +15036,7 @@ Cory`;
                   boxShadow: "inset 0 0 0 1px rgba(126, 231, 219, 0.05), 0 20px 40px rgba(0, 0, 0, 0.2)",
                   padding: "14px",
                   display: "grid",
-                  gap: "12px",
+                  gap: "6px",
                   overflow: "hidden",
                   position: "relative",
                 }}
@@ -15053,8 +15053,8 @@ Cory`;
                     pointerEvents: "none",
                   }}
                 />
-                <div style={{ position: "relative", display: "grid", gap: "12px" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "flex-start" }}>
+                <div style={{ position: "relative", display: "grid", gap: "6px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", flexWrap: "wrap", alignItems: "flex-start" }}>
                     <div>
                       <div style={{ ...statLabel, color: livePanelAccentText }}>Live Attendance Blueprint</div>
                       <div style={{ marginTop: "4px", color: livePanelTitleText, fontSize: "19px", fontWeight: 950 }}>
@@ -15176,7 +15176,7 @@ Cory`;
                           : "rgba(6, 48, 45, 0.28)",
                         color: attendanceError ? "#fecaca" : "#9ff5df",
                         padding: "8px 10px",
-                        fontSize: "12px",
+                        fontSize: "11px",
                         fontWeight: 800,
                       }}
                     >
@@ -15193,11 +15193,11 @@ Cory`;
                         color: "#f3bb67",
                         padding: "9px 11px",
                         display: "flex",
-                        gap: "8px",
+                        gap: "6px",
                         justifyContent: "space-between",
                         flexWrap: "wrap",
                         alignItems: "center",
-                        fontSize: "12px",
+                        fontSize: "11px",
                         fontWeight: 850,
                       }}
                     >
@@ -15241,7 +15241,7 @@ Cory`;
                               liveVisibleRoomCount > 7
                                 ? `repeat(${Math.max(bank.rooms.length, 1)}, minmax(${liveBlueprintRoomCardMinWidth}px, 1fr))`
                                 : "repeat(auto-fit, minmax(128px, 1fr))",
-                            gap: "8px",
+                            gap: "6px",
                             minWidth: liveBlueprintWallMinWidth ? `${liveBlueprintWallMinWidth}px` : undefined,
                           }}
                         >
@@ -15343,7 +15343,7 @@ Cory`;
                                     <div style={{ color: livePanelAccentText, fontSize: "10px", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.08em" }}>
                                       {room.roomName}
                                     </div>
-                                    <div style={{ marginTop: "4px", color: livePanelTitleText, fontSize: "12px", fontWeight: 950, lineHeight: 1.25, overflowWrap: "anywhere" }}>
+                                    <div style={{ marginTop: "4px", color: livePanelTitleText, fontSize: "11px", fontWeight: 950, lineHeight: 1.25, overflowWrap: "anywhere" }}>
                                       {room.spName || "Open room"}
                                     </div>
                                     <div style={{ marginTop: "4px", color: "#dbeafe", fontSize: "10px", fontWeight: 800, lineHeight: 1.35, overflowWrap: "anywhere" }}>
@@ -15578,7 +15578,7 @@ Cory`;
                                         setActiveBlueprintRoomKey((current) => (current === room.key ? "" : room.key));
                                       }}
 	                                    style={{
-	                                      marginTop: "8px",
+	                                      marginTop: "4px",
 	                                      display: "inline-flex",
 	                                      alignItems: "center",
 	                                      gap: "6px",
@@ -15610,7 +15610,7 @@ Cory`;
 	                                    </span>
 	                                  </button>
                                 ) : (
-                                  <div style={{ marginTop: "8px", color: livePanelMutedText, fontSize: "10px", fontWeight: 800 }}>
+                                  <div style={{ marginTop: "4px", color: livePanelMutedText, fontSize: "10px", fontWeight: 800 }}>
                                     <div>{UNASSIGNED_LEARNER_ROOM_LABEL}</div>
                                     <Link
                                       href={expandedScheduleBuilderHref}
@@ -15636,7 +15636,7 @@ Cory`;
                                 {room.standbyAssignment || room.standbyExpanded ? (
                                   <div
                                     style={{
-                                      marginTop: "8px",
+                                      marginTop: "4px",
                                       borderRadius: "12px",
                                       border: "1px solid rgba(191, 219, 254, 0.22)",
                                       background: "rgba(8, 29, 46, 0.44)",
@@ -15717,7 +15717,7 @@ Cory`;
                                                   display: "flex",
                                                   alignItems: "center",
                                                   justifyContent: "space-between",
-                                                  gap: "8px",
+                                                  gap: "6px",
                                                   borderRadius: "10px",
                                                   border: `1px solid ${tokenColor}`,
                                                   background: "rgba(255,255,255,0.04)",
@@ -16017,7 +16017,7 @@ Cory`;
                         borderTop: "1px solid rgba(126, 231, 219, 0.14)",
                         paddingTop: "10px",
                         display: "grid",
-                        gap: "8px",
+                        gap: "6px",
                       }}
                     >
                       <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
@@ -16158,7 +16158,7 @@ Cory`;
                     >
                       <div>
                         <div style={{ ...statLabel, color: livePanelAccentText }}>Learner Arrival Rail</div>
-                        <div style={{ marginTop: "4px", color: livePanelMutedText, fontSize: "12px", fontWeight: 800, lineHeight: 1.45 }}>
+                        <div style={{ marginTop: "4px", color: livePanelMutedText, fontSize: "11px", fontWeight: 800, lineHeight: 1.45 }}>
                           {learnerPlannerExpectedCount > 0
                             ? "Learner count exists, but learner names/room assignments are not available for live check-in yet."
                             : "No learner roster or room assignment data is available for live check-in yet."}
@@ -16178,12 +16178,12 @@ Cory`;
                       borderTop: "1px solid rgba(126, 231, 219, 0.14)",
                       paddingTop: "10px",
                       display: "grid",
-                      gap: "8px",
+                      gap: "6px",
                     }}
                   >
                     <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
                       <div style={{ ...statLabel, color: livePanelAccentText }}>Live Attendance Log</div>
-                      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
                         <span style={{ color: livePanelMutedText, fontSize: "11px", fontWeight: 800 }}>
                           {liveVisibleRoomCount} rooms • {liveBlueprintStaffedCount} staffed SP{liveBlueprintStaffedCount === 1 ? "" : "s"} • {liveBlueprintCheckedCount} checked in
                         </span>
@@ -16204,18 +16204,18 @@ Cory`;
                           background: "rgba(6, 48, 45, 0.24)",
                           padding: "10px 12px",
                           display: "flex",
-                          gap: "8px",
+                          gap: "6px",
                           flexWrap: "wrap",
                           alignItems: "center",
                         }}
                       >
                         <span style={{ ...commandChipStyle, background: "rgba(25, 138, 112, 0.14)", color: "#b8e4d4" }}>All SPs arrived</span>
-                        <span style={{ color: "#d6edf4", fontSize: "12px", fontWeight: 800 }}>
+                        <span style={{ color: "#d6edf4", fontSize: "11px", fontWeight: 800 }}>
                           {liveBlueprintCheckedCount} / {liveBlueprintStaffedCount} checked in
                         </span>
-                        <span style={{ color: livePanelBodyText, fontSize: "12px", fontWeight: 800 }}>0 late</span>
-                        <span style={{ color: livePanelBodyText, fontSize: "12px", fontWeight: 800 }}>0 no-show</span>
-                        <span style={{ color: livePanelBodyText, fontSize: "12px", fontWeight: 800 }}>Room coverage ready</span>
+                        <span style={{ color: livePanelBodyText, fontSize: "11px", fontWeight: 800 }}>0 late</span>
+                        <span style={{ color: livePanelBodyText, fontSize: "11px", fontWeight: 800 }}>0 no-show</span>
+                        <span style={{ color: livePanelBodyText, fontSize: "11px", fontWeight: 800 }}>Room coverage ready</span>
                       </div>
                     ) : liveAttendanceLogRows.length ? (
                       <div style={{ display: "grid", gap: "6px" }}>
@@ -16243,7 +16243,7 @@ Cory`;
                               }}
                             >
                               <div style={{ minWidth: 0 }}>
-                                <div style={{ color: livePanelTitleText, fontWeight: 950, fontSize: "12px", overflowWrap: "anywhere" }}>
+                                <div style={{ color: livePanelTitleText, fontWeight: 950, fontSize: "11px", overflowWrap: "anywhere" }}>
                                   {entry.spName}
                                 </div>
                                 <div style={{ marginTop: "2px", color: livePanelMutedText, fontSize: "11px", fontWeight: 750 }}>
@@ -16266,7 +16266,7 @@ Cory`;
                 </div>
               </section>
 
-              <div style={{ display: "grid", gap: "8px" }}>
+              <div style={{ display: "grid", gap: "6px" }}>
                 {!liveAttendanceToolsExpanded && liveAttendanceAllPrimaryArrived ? null : currentLiveAssignmentRows.length === 0 ? (
                   <div style={{ color: livePanelMutedText, fontWeight: 750 }}>
                     No active rotation assignments mapped yet. Use the schedule and staffing tools below to complete the live board.
@@ -16298,7 +16298,7 @@ Cory`;
                           background: "rgba(13, 27, 42, 0.92)",
                           padding: "10px 12px",
                           display: "grid",
-                          gap: "8px",
+                          gap: "6px",
                         }}
                       >
                         <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap" }}>
@@ -16311,7 +16311,7 @@ Cory`;
                               {[getEmail(sp), sp.phone].filter(Boolean).join(" · ") || "No contact info"}
                             </div>
                           </div>
-                          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
                             <span
                               style={{
                                 ...assignmentStatusStyles[status],
@@ -16339,7 +16339,7 @@ Cory`;
                           </div>
                         </div>
 
-                        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                           <button
                             type="button"
                             onClick={() => void handleTrainingAttendanceToggle(assignment, true)}
@@ -16392,7 +16392,7 @@ Cory`;
               </div>
             </section>
 
-            <section style={{ display: "grid", gap: "12px" }}>
+            <section style={{ display: "grid", gap: "6px" }}>
               <div
                 style={{
                   borderRadius: "18px",
@@ -16400,7 +16400,7 @@ Cory`;
                   background: "linear-gradient(180deg, rgba(9, 20, 33, 0.96) 0%, rgba(8, 25, 40, 0.94) 100%)",
                   padding: "12px",
                   display: "grid",
-                  gap: "8px",
+                  gap: "6px",
                   boxShadow: "inset 0 0 0 1px rgba(126, 231, 219, 0.05)",
                 }}
               >
@@ -16462,7 +16462,7 @@ Cory`;
                             borderRadius: "12px",
                             justifyContent: "space-between",
                             display: "flex",
-                            gap: "8px",
+                            gap: "6px",
                             alignItems: "center",
                             textAlign: "left",
                             background: "rgba(255,255,255,0.035)",
@@ -16480,7 +16480,7 @@ Cory`;
                     </div>
                   </>
                 ) : (
-                  <div style={{ color: livePanelMutedText, fontWeight: 750, fontSize: "12px", lineHeight: 1.4 }}>
+                  <div style={{ color: livePanelMutedText, fontWeight: 750, fontSize: "11px", lineHeight: 1.4 }}>
                     Build a schedule to generate live operational announcements.
                   </div>
                 )}
@@ -16493,12 +16493,12 @@ Cory`;
                   background: "rgba(9, 20, 33, 0.94)",
                   padding: "12px",
                   display: "grid",
-                  gap: "8px",
+                  gap: "6px",
                 }}
               >
                 <div style={{ ...statLabel, color: livePanelAccentText }}>Operational Alerts</div>
                 {liveAlerts.length === 0 ? (
-                  <div style={{ color: livePanelMutedText, fontWeight: 750, fontSize: "12px", lineHeight: 1.4 }}>
+                  <div style={{ color: livePanelMutedText, fontWeight: 750, fontSize: "11px", lineHeight: 1.4 }}>
                     No live alerts. Timeline and staffing are stable right now.
                   </div>
                 ) : (
@@ -16527,7 +16527,7 @@ Cory`;
                               ? "#f3bb67"
                               : "#bfdbfe",
                         fontWeight: 800,
-                        fontSize: "12px",
+                        fontSize: "11px",
                         lineHeight: 1.35,
                       }}
                     >
@@ -16544,7 +16544,7 @@ Cory`;
                   background: "rgba(9, 20, 33, 0.94)",
                   padding: "14px",
                   display: "grid",
-                  gap: "12px",
+                  gap: "6px",
                 }}
               >
                 <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
@@ -16578,7 +16578,7 @@ Cory`;
                         borderRadius: "16px",
                         border: "1px solid rgba(126, 231, 219, 0.28)",
                         background: "linear-gradient(180deg, rgba(14, 42, 58, 0.96) 0%, rgba(9, 27, 42, 0.94) 100%)",
-                        padding: "12px 14px",
+                        padding: "8px 10px",
                         display: "grid",
                         gap: "6px",
                         boxShadow: "0 0 0 1px rgba(126, 231, 219, 0.08), 0 14px 28px rgba(4, 14, 26, 0.22)",
@@ -16755,7 +16755,7 @@ Cory`;
                                 : "rgba(13, 27, 42, 0.72)",
                             padding: "8px 10px",
                             display: "grid",
-                            gap: "8px",
+                            gap: "6px",
                           }}
                         >
                           <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
@@ -16775,7 +16775,7 @@ Cory`;
                               {formatMinuteRange(selectedLiveFlowBlock.startMinutes, selectedLiveFlowBlock.endMinutes)}
                             </span>
                           </div>
-                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "8px" }}>
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "6px" }}>
                             <div>
                               <div style={{ ...statLabel, color: livePanelLabelText }}>Duration</div>
                               <div style={{ color: livePanelTitleText, fontWeight: 850 }}>{selectedLiveFlowBlock.detail}</div>
@@ -16872,7 +16872,7 @@ Cory`;
     border: `1px solid ${staffingWorkspacePalette.borderStrong}`,
     boxShadow: "0 18px 40px rgba(112, 148, 169, 0.14)",
     display: "grid",
-    gap: "12px",
+    gap: "6px",
     overflow: "hidden",
     backdropFilter: "blur(12px)",
   };
@@ -16881,7 +16881,7 @@ Cory`;
     borderRadius: "18px",
     background: staffingWorkspacePalette.panel,
     boxShadow: "0 12px 24px rgba(110, 148, 169, 0.08), inset 0 1px 0 rgba(255,255,255,0.55)",
-    padding: "12px 14px",
+    padding: "8px 10px",
   };
   const staffingSummaryStyle: React.CSSProperties = {
     cursor: "pointer",
@@ -16902,7 +16902,7 @@ Cory`;
     padding: "10px 12px",
     background: staffingWorkspacePalette.row,
     display: "grid",
-    gap: "8px",
+    gap: "6px",
     boxShadow: "0 8px 18px rgba(110, 148, 169, 0.08)",
   };
   const staffingEmptyStateStyle: React.CSSProperties = {
@@ -16946,11 +16946,11 @@ Cory`;
         <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 800 }}>
           Metadata Inspector
         </summary>
-        <div style={{ display: "grid", gap: "12px", marginTop: "12px" }}>
+        <div style={{ display: "grid", gap: "6px", marginTop: "12px" }}>
           <div
             style={{
               display: "grid",
-              gap: "8px",
+              gap: "6px",
               gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
             }}
           >
@@ -16979,7 +16979,7 @@ Cory`;
               <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>No parsed metadata fields yet.</div>
             )}
           </div>
-          <div style={{ display: "grid", gap: "8px" }}>
+          <div style={{ display: "grid", gap: "6px" }}>
             <div style={statLabel}>Raw metadata block</div>
             <pre
               style={{
@@ -16989,7 +16989,7 @@ Cory`;
                 border: "1px solid var(--cfsp-border)",
                 background: "var(--cfsp-surface)",
                 color: "var(--cfsp-text)",
-                fontSize: "12px",
+                fontSize: "11px",
                 lineHeight: 1.5,
                 whiteSpace: "pre-wrap",
                 overflowWrap: "anywhere",
@@ -16998,7 +16998,7 @@ Cory`;
               {parsedEventMetadata.rawTrainingBlock || "(No machine metadata block found)"}
             </pre>
           </div>
-          <div style={{ display: "grid", gap: "8px" }}>
+          <div style={{ display: "grid", gap: "6px" }}>
             <div style={statLabel}>Raw event type lines</div>
             <pre
               style={{
@@ -17008,7 +17008,7 @@ Cory`;
                 border: "1px solid var(--cfsp-border)",
                 background: "var(--cfsp-surface)",
                 color: "var(--cfsp-text)",
-                fontSize: "12px",
+                fontSize: "11px",
                 lineHeight: 1.5,
                 whiteSpace: "pre-wrap",
                 overflowWrap: "anywhere",
@@ -17033,10 +17033,10 @@ Cory`;
           boxShadow: isPlanningVisualMode ? "0 14px 32px rgba(42, 112, 140, 0.1)" : "0 18px 42px rgba(8, 20, 34, 0.32)",
           padding: "14px",
           display: "grid",
-          gap: "12px",
+          gap: "6px",
         }}
       >
-        <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "flex-start" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", flexWrap: "wrap", alignItems: "flex-start" }}>
           <div>
             <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>SP Training Readiness</div>
             <div style={{ marginTop: "4px", color: commandCenterVisual.headingColor, fontSize: "20px", fontWeight: 950 }}>
@@ -17046,7 +17046,7 @@ Cory`;
               Training stays tied to selected SPs, confirmation status, access links, recording support, and attendance check-in.
             </div>
           </div>
-          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
             <span
               style={{
                 ...commandChipStyle,
@@ -17079,18 +17079,18 @@ Cory`;
               border: trainingDateMarkerToneStyle.border,
               background: trainingDateMarkerToneStyle.background,
               boxShadow: trainingDateMarkerToneStyle.glow,
-              padding: "12px 14px",
+              padding: "8px 10px",
               display: "grid",
               gap: "10px",
             }}
           >
-            <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", alignItems: "center", flexWrap: "wrap" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", alignItems: "center", flexWrap: "wrap" }}>
               <div>
                 <div style={{ ...statLabel, color: trainingDateMarkerToneStyle.accent }}>Training Summary</div>
                 <div style={{ marginTop: "3px", color: trainingDateMarkerToneStyle.text, fontSize: "17px", fontWeight: 950, lineHeight: 1.25 }}>
                   {collapsedTrainingSummaryLabel}
                 </div>
-                <div style={{ marginTop: "4px", color: trainingDateMarkerToneStyle.muted, fontSize: "12px", fontWeight: 800 }}>
+                <div style={{ marginTop: "4px", color: trainingDateMarkerToneStyle.muted, fontSize: "11px", fontWeight: 800 }}>
                   {selectedStaffingCount} selected SP{selectedStaffingCount === 1 ? "" : "s"} • {normalEventTrainingAttendanceLabel}
                 </div>
               </div>
@@ -17100,7 +17100,7 @@ Cory`;
                   background: isPlanningVisualMode ? "rgba(255, 255, 255, 0.62)" : "rgba(255, 255, 255, 0.08)",
                   border: trainingDateMarkerToneStyle.border,
                   color: trainingDateMarkerToneStyle.accent,
-                  fontSize: "12px",
+                  fontSize: "11px",
                   padding: "7px 11px",
                   boxShadow: isPlanningVisualMode ? "0 8px 16px rgba(15, 118, 110, 0.08)" : "none",
                 }}
@@ -17109,7 +17109,7 @@ Cory`;
               </span>
             </div>
             {trainingUrgentMissingItems.length ? (
-              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+              <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                 {trainingUrgentMissingItems.map((item) => (
                   <span
                     key={item}
@@ -17134,10 +17134,10 @@ Cory`;
                 border: trainingDateMarkerToneStyle.border,
                 background: trainingDateMarkerToneStyle.background,
                 boxShadow: trainingDateMarkerToneStyle.glow,
-                padding: "12px 14px",
+                padding: "8px 10px",
                 display: "flex",
                 justifyContent: "space-between",
-                gap: "12px",
+                gap: "6px",
                 alignItems: "center",
                 flexWrap: "wrap",
               }}
@@ -17147,7 +17147,7 @@ Cory`;
                 <div style={{ marginTop: "3px", color: trainingDateMarkerToneStyle.text, fontSize: "18px", fontWeight: 950, lineHeight: 1.2 }}>
                   Training: {trainingDateMarkerValue}
                 </div>
-                <div style={{ marginTop: "4px", color: trainingDateMarkerToneStyle.muted, fontSize: "12px", fontWeight: 800 }}>
+                <div style={{ marginTop: "4px", color: trainingDateMarkerToneStyle.muted, fontSize: "11px", fontWeight: 800 }}>
                   {normalEventTrainingTimeText || "Training time TBD"}
                 </div>
               </div>
@@ -17157,7 +17157,7 @@ Cory`;
                   background: isPlanningVisualMode ? "rgba(255, 255, 255, 0.62)" : "rgba(255, 255, 255, 0.08)",
                   border: trainingDateMarkerToneStyle.border,
                   color: trainingDateMarkerToneStyle.accent,
-                  fontSize: "12px",
+                  fontSize: "11px",
                   padding: "7px 11px",
                   boxShadow: isPlanningVisualMode ? "0 8px 16px rgba(15, 118, 110, 0.08)" : "none",
                 }}
@@ -17226,17 +17226,17 @@ Cory`;
                   }}
                 >
                   <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>{item.label}</div>
-                  <div style={{ ...statValue, marginTop: "6px", color: commandCenterVisual.textColor, fontSize: "16px", lineHeight: 1.25 }}>
+                  <div style={{ ...statValue, marginTop: "6px", color: commandCenterVisual.textColor, fontSize: "14px", lineHeight: 1.25 }}>
                     {item.value}
                   </div>
-                  <div style={{ marginTop: "6px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 700 }}>
+                  <div style={{ marginTop: "6px", color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 700 }}>
                     {item.detail}
                   </div>
                 </div>
               ))}
             </div>
 
-            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
           {normalEventTrainingLink ? (
             <a
               href={normalEventTrainingLink}
@@ -17459,7 +17459,7 @@ Cory`;
       <div
         style={{
           display: "grid",
-          gap: "8px",
+          gap: "6px",
           border: "1px solid var(--cfsp-border)",
           borderRadius: "14px",
           padding: "10px 12px",
@@ -17486,7 +17486,7 @@ Cory`;
             disabled: trainingRequirementValue === "no",
           },
         ].map((option) => (
-          <label key={option.key} style={{ display: "flex", alignItems: "center", gap: "8px", color: "var(--cfsp-text)", fontWeight: 800, fontSize: "13px" }}>
+          <label key={option.key} style={{ display: "flex", alignItems: "center", gap: "6px", color: "var(--cfsp-text)", fontWeight: 800, fontSize: "13px" }}>
             <input
               type="checkbox"
               checked={option.checked}
@@ -17503,7 +17503,7 @@ Cory`;
         style={{
           display: "flex",
           alignItems: "center",
-          gap: "8px",
+          gap: "6px",
           border: "1px solid rgba(180, 83, 9, 0.2)",
           borderRadius: "14px",
           padding: "10px 12px",
@@ -17542,7 +17542,7 @@ Cory`;
           style={{
             display: "flex",
             justifyContent: "space-between",
-            gap: "12px",
+            gap: "6px",
             flexWrap: "wrap",
             alignItems: "flex-start",
           }}
@@ -17557,7 +17557,7 @@ Cory`;
                 : "Keep attendance, no-shows, room coverage, and payroll closeout visible without reopening planning-heavy tools."}
             </p>
           </div>
-          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
             <span style={{ ...staffingSelectedChipStyle, background: "rgba(186, 230, 253, 0.28)", color: "#1d5f83" }}>{needed} needed</span>
             <span style={{ ...staffingSelectedChipStyle, background: planningSuccessBackground, color: planningSuccessText, border: planningSuccessBorder }}>
               {confirmedCount} confirmed
@@ -17609,10 +17609,10 @@ Cory`;
                 : "linear-gradient(180deg, rgba(12, 29, 46, 0.96) 0%, rgba(11, 25, 39, 0.94) 100%)",
               padding: "14px 16px",
               display: "grid",
-              gap: "8px",
+              gap: "6px",
             }}
           >
-            <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
               <div>
                 <div style={{ ...statLabel, color: isPlanningVisualMode ? planningSuccessText : "#7ee7db" }}>
                   {isPlanningVisualMode ? "Staffing Summary" : "Live Staffing Summary"}
@@ -17671,7 +17671,7 @@ Cory`;
                 style={{
                   border: "1px solid rgba(20, 91, 150, 0.2)",
                   borderRadius: "16px",
-                  padding: "12px 14px",
+                  padding: "8px 10px",
                   background: "linear-gradient(180deg, rgba(247, 251, 255, 0.98) 0%, rgba(238, 248, 252, 0.96) 100%)",
                   boxShadow: "0 10px 22px rgba(42, 112, 140, 0.08)",
                   display: "grid",
@@ -17693,12 +17693,12 @@ Cory`;
                     Payroll Summary Coming Soon
                   </button>
                 </div>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: "8px" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: "6px" }}>
                   {liveCloseoutItems.map((item) => (
                     <div key={`live-closeout-${item.label}`} style={staffingMetricCardStyle}>
                       <div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>{item.label}</div>
                       <div style={{ ...statValue, color: staffingWorkspacePalette.textStrong }}>{item.value}</div>
-                      <div style={{ marginTop: "4px", color: staffingWorkspacePalette.textMuted, fontWeight: 700, fontSize: "12px" }}>
+                      <div style={{ marginTop: "4px", color: staffingWorkspacePalette.textMuted, fontWeight: 700, fontSize: "11px" }}>
                         {item.detail}
                       </div>
                     </div>
@@ -17711,14 +17711,14 @@ Cory`;
               style={{
                 border: `1px solid ${staffingWorkspacePalette.borderStrong}`,
                 borderRadius: "16px",
-                padding: "12px 14px",
+                padding: "8px 10px",
                 background: "linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(238, 248, 252, 0.96) 100%)",
                 boxShadow: "0 10px 22px rgba(42, 112, 140, 0.08)",
                 display: "grid",
                 gap: "10px",
               }}
             >
-              <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
                 <div>
                   <div style={{ ...statLabel, color: staffingWorkspacePalette.textStrong }}>Quick Add SP</div>
                   <div style={{ marginTop: "4px", color: staffingWorkspacePalette.textMuted, fontWeight: 700, fontSize: "13px" }}>
@@ -17736,7 +17736,7 @@ Cory`;
                 style={{
                   display: "grid",
                   gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
-                  gap: "8px",
+                  gap: "6px",
                   alignItems: "center",
                 }}
               >
@@ -17816,7 +17816,7 @@ Cory`;
                       marginTop: "4px",
                       color: staffingWorkspacePalette.textMuted,
                       fontWeight: 700,
-                      fontSize: "12px",
+                      fontSize: "11px",
                       lineHeight: 1.45,
                       overflowWrap: "anywhere",
                     }}
@@ -17824,13 +17824,13 @@ Cory`;
                     {eventMaterialUrl ? eventMaterialName : "Quick utility for PDF, DOCX, XLSX, or CSV event materials."}
                   </div>
                 </div>
-                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
                   {eventMaterialUrl ? (
                     <>
                       <button
                         type="button"
                         onClick={openEventMaterialPreview}
-                        style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px", fontSize: "12px" }}
+                        style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px", fontSize: "11px" }}
                       >
                         Preview
                       </button>
@@ -17852,7 +17852,7 @@ Cory`;
                           alignItems: "center",
                           textDecoration: "none",
                           padding: "7px 10px",
-                          fontSize: "12px",
+                          fontSize: "11px",
                         }}
                       >
                         Download
@@ -17866,7 +17866,7 @@ Cory`;
                     style={{
                       ...buttonStyle,
                       padding: "7px 10px",
-                      fontSize: "12px",
+                      fontSize: "11px",
                       boxShadow: "0 8px 16px rgba(14, 165, 233, 0.14)",
                       opacity: eventMaterialBusy ? 0.65 : 1,
                       whiteSpace: "nowrap",
@@ -17897,7 +17897,7 @@ Cory`;
                   <span
                     style={{
                       color: staffingWorkspacePalette.textMuted,
-                      fontSize: "12px",
+                      fontSize: "11px",
                       fontWeight: 800,
                     }}
                   >
@@ -17905,12 +17905,12 @@ Cory`;
                   </span>
                 </span>
               </summary>
-              <div style={{ display: "grid", gap: "12px", marginTop: "12px" }}>
+              <div style={{ display: "grid", gap: "6px", marginTop: "12px" }}>
                 <div
                   style={{
                     display: "grid",
                     gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))",
-                    gap: "8px",
+                    gap: "6px",
                   }}
                 >
                   {[
@@ -17970,14 +17970,14 @@ Cory`;
                     <div style={{ marginTop: "4px", color: coverageRiskTone === "green" ? planningSuccessText : staffingWorkspacePalette.textStrong, fontWeight: 800, fontSize: "13px" }}>
                       {coverageRiskTone === "green" ? staffingHealthLabel : `Short by ${Math.max(needed - confirmedCount, 0)} primary`}
                     </div>
-                    <div style={{ marginTop: "4px", color: staffingWorkspacePalette.textMuted, fontWeight: 700, fontSize: "12px" }}>
+                    <div style={{ marginTop: "4px", color: staffingWorkspacePalette.textMuted, fontWeight: 700, fontSize: "11px" }}>
                       {backupCount > 0
                         ? `${backupCount} backup selected as optional support.`
                         : maybePollResponders.length
                           ? `${maybePollResponders.length} maybe responder${maybePollResponders.length === 1 ? "" : "s"} available for optional backup.`
                           : "Backup optional. Most events use 0-1 backup depending on size."}
                     </div>
-                    <div style={{ marginTop: "4px", color: staffingWorkspacePalette.textMuted, fontWeight: 700, fontSize: "12px" }}>
+                    <div style={{ marginTop: "4px", color: staffingWorkspacePalette.textMuted, fontWeight: 700, fontSize: "11px" }}>
                       Poll response rate: {pollResponseRate}%
                     </div>
                   </div>
@@ -17992,13 +17992,13 @@ Cory`;
                           {selectedHiringEmailBccEmails.length ? ` · ${selectedHiringEmailBccEmails.length} matched candidate${selectedHiringEmailBccEmails.length === 1 ? "" : "s"} selected for hiring email` : ""}
                         </div>
                         {confirmationMissingEmailAssignments.length ? (
-                          <div style={{ color: staffingWorkspacePalette.dangerText, fontWeight: 800, fontSize: "12px" }}>
+                          <div style={{ color: staffingWorkspacePalette.dangerText, fontWeight: 800, fontSize: "11px" }}>
                             Missing confirmation email: {confirmationMissingEmailAssignments.join(", ")}
                           </div>
                         ) : null}
                       </div>
-                      <div style={{ display: "grid", gap: "8px", justifyItems: "start" }}>
-                        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                      <div style={{ display: "grid", gap: "6px", justifyItems: "start" }}>
+                        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                           <input
                             ref={pollImportInputRef}
                             type="file"
@@ -18089,7 +18089,7 @@ Cory`;
                               border: `1px solid ${staffingWorkspacePalette.buttonBorder}`,
                               background: staffingWorkspacePalette.buttonBg,
                               color: staffingWorkspacePalette.textMuted,
-                              fontSize: "12px",
+                              fontSize: "11px",
                               fontWeight: 900,
                               cursor: "pointer",
                               whiteSpace: "nowrap",
@@ -18174,10 +18174,10 @@ Cory`;
                         <div
                           style={{
                             display: "flex",
-                            gap: "8px",
+                            gap: "6px",
                             flexWrap: "wrap",
                             alignItems: "center",
-                            fontSize: "12px",
+                            fontSize: "11px",
                             fontWeight: 800,
                             color: staffingWorkspacePalette.textMuted,
                           }}
@@ -18203,7 +18203,7 @@ Cory`;
                           ) : null}
                         </div>
                         {viewerRole !== "sp" ? (
-                          <div style={{ display: "grid", gap: "4px", fontSize: "12px", fontWeight: 800, color: staffingWorkspacePalette.textMuted }}>
+                          <div style={{ display: "grid", gap: "4px", fontSize: "11px", fontWeight: 800, color: staffingWorkspacePalette.textMuted }}>
                             <div>hiring_email_sent_at: {hiringEmailSentAt || "missing"}</div>
                             <div>confirmation_email_sent_at: {confirmationEmailSentAt || "missing"}</div>
                             {eventSaveError.includes("Could not save email sent status") ? (
@@ -18224,10 +18224,10 @@ Cory`;
                         gap: "10px",
                       }}
                     >
-                      <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
                         <div>
                           <div style={{ ...statLabel, color: staffingWorkspacePalette.textStrong }}>SP Match Filters</div>
-                          <div style={{ marginTop: "4px", color: staffingWorkspacePalette.textMuted, fontWeight: 700, fontSize: "12px", lineHeight: 1.45 }}>
+                          <div style={{ marginTop: "4px", color: staffingWorkspacePalette.textMuted, fontWeight: 700, fontSize: "11px", lineHeight: 1.45 }}>
                             Find best-fit uncontacted SP candidates before drafting hiring outreach.
                           </div>
                         </div>
@@ -18248,7 +18248,7 @@ Cory`;
                         style={{
                           display: "grid",
                           gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))",
-                          gap: "8px",
+                          gap: "6px",
                         }}
                       >
                         <input
@@ -18289,7 +18289,7 @@ Cory`;
                         />
                       </div>
 
-                      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
                         {[
                           { label: "Active only", active: activeOnly, setActive: setActiveOnly },
                           { label: "Telehealth capable", active: telehealthOnly, setActive: setTelehealthOnly },
@@ -18305,7 +18305,7 @@ Cory`;
                               background: filter.active ? "rgba(186, 230, 253, 0.28)" : staffingWorkspacePalette.buttonBg,
                               color: filter.active ? staffingWorkspacePalette.textStrong : staffingWorkspacePalette.textMuted,
                               padding: "7px 10px",
-                              fontSize: "12px",
+                              fontSize: "11px",
                             }}
                           >
                             {filter.label}
@@ -18314,7 +18314,7 @@ Cory`;
                         <button
                           type="button"
                           onClick={handleClearSpMatchFilters}
-                          style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px", fontSize: "12px" }}
+                          style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px", fontSize: "11px" }}
                         >
                           Clear filters
                         </button>
@@ -18325,7 +18325,7 @@ Cory`;
                           style={{
                             ...buttonStyle,
                             padding: "7px 10px",
-                            fontSize: "12px",
+                            fontSize: "11px",
                             boxShadow: "0 8px 16px rgba(14, 165, 233, 0.14)",
                             opacity: availableSps.filter((sp) => Boolean(getEmail(sp))).length === 0 ? 0.65 : 1,
                           }}
@@ -18357,14 +18357,14 @@ Cory`;
                       border: planningSuccessBorder,
                       color: planningSuccessText,
                       display: "grid",
-                      gap: "8px",
+                      gap: "6px",
                     }}
                     role="status"
                     aria-live="polite"
                   >
                     <div style={{ fontWeight: 900 }}>{pollImportSuccess}</div>
                     {pollImportSummary ? (
-                      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", fontSize: "12px", fontWeight: 800 }}>
+                      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", fontSize: "11px", fontWeight: 800 }}>
                         <span>{pollImportSummary.parsedResponses} parsed</span>
                         <span>{pollImportSummary.matchedCount} matched</span>
                         <span>{pollImportSummary.availableCount} available</span>
@@ -18381,7 +18381,7 @@ Cory`;
                   <div
                     style={{
                       ...staffingMetricCardStyle,
-                      padding: "12px 14px",
+                      padding: "8px 10px",
                       border: importedPollResponseSummary.unmatchedCount > 0 ? `1px solid ${staffingWorkspacePalette.borderStrong}` : staffingMetricCardStyle.border,
                     }}
                     >
@@ -18398,7 +18398,7 @@ Cory`;
                       style={{
                         display: "grid",
                         gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))",
-                        gap: "8px",
+                        gap: "6px",
                         marginTop: "10px",
                       }}
                     >
@@ -18420,7 +18420,7 @@ Cory`;
                         },
                       ].map((group) =>
                           group.items.length ? (
-                            <div key={group.label} style={{ display: "grid", gap: "8px" }}>
+                            <div key={group.label} style={{ display: "grid", gap: "6px" }}>
                               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                                 <div style={{ ...statLabel, color: staffingWorkspacePalette.textStrong }}>{group.label}</div>
                                 <span style={staffingSelectedChipStyle}>{group.items.length}</span>
@@ -18444,7 +18444,7 @@ Cory`;
                                         {getFullName(entry.sp)}
                                       </div>
 
-                                      <div style={{ color: staffingWorkspacePalette.textMuted, fontWeight: 700, fontSize: "12px" }}>
+                                      <div style={{ color: staffingWorkspacePalette.textMuted, fontWeight: 700, fontSize: "11px" }}>
                                         {getEmail(entry.sp) || "No email provided"}
                                       </div>
 
@@ -18461,13 +18461,13 @@ Cory`;
                                       </div>
 
                                       {note ? (
-                                        <div style={{ marginTop: "6px", color: staffingWorkspacePalette.textMuted, fontWeight: 700, fontSize: "12px" }}>
+                                        <div style={{ marginTop: "6px", color: staffingWorkspacePalette.textMuted, fontWeight: 700, fontSize: "11px" }}>
                                           Notes: {note}
                                         </div>
                                       ) : null}
                                     </div>
 
-                                    <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "10px" }}>
+                                    <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "10px" }}>
                                       {group.label === "Available for Event" ? (
                                         <>
                                           <button
@@ -18534,17 +18534,17 @@ Cory`;
                             <summary style={{ cursor: "pointer", color: staffingWorkspacePalette.textStrong, fontWeight: 800 }}>
                               No Match Found ({unmatchedImportedPollResponses.length})
                             </summary>
-                            <div style={{ display: "grid", gap: "8px", marginTop: "10px" }}>
+                            <div style={{ display: "grid", gap: "6px", marginTop: "10px" }}>
                               {unmatchedImportedPollResponses.map((entry, index) => (
                                 <div key={`unmatched-import-${index}`} style={staffingRowCardStyle}>
                                   <div style={{ color: staffingWorkspacePalette.textStrong, fontWeight: 900 }}>
                                     {entry.name || "Unnamed responder"}
                                   </div>
-                                  <div style={{ color: staffingWorkspacePalette.textMuted, fontWeight: 700, fontSize: "12px" }}>
+                                  <div style={{ color: staffingWorkspacePalette.textMuted, fontWeight: 700, fontSize: "11px" }}>
                                     {[entry.email || "No email provided", entry.responseLabel || "Unknown response"].join(" · ")}
                                   </div>
                                   {entry.rawAnswer ? (
-                                    <div style={{ color: staffingWorkspacePalette.textMuted, fontWeight: 700, fontSize: "12px" }}>
+                                    <div style={{ color: staffingWorkspacePalette.textMuted, fontWeight: 700, fontSize: "11px" }}>
                                       Response: {entry.rawAnswer}
                                     </div>
                                   ) : null}
@@ -18575,7 +18575,7 @@ Cory`;
                           <summary style={{ cursor: "pointer", color: staffingWorkspacePalette.textStrong, fontWeight: 800 }}>
                             Import Debug
                           </summary>
-                          <div style={{ marginTop: "10px", display: "grid", gap: "8px", color: staffingWorkspacePalette.textMuted, fontSize: "12px", fontWeight: 700 }}>
+                          <div style={{ marginTop: "10px", display: "grid", gap: "6px", color: staffingWorkspacePalette.textMuted, fontSize: "11px", fontWeight: 700 }}>
                             <div>Detected headers: {pollImportDebugInfo.detectedHeaders.join(", ") || "None"}</div>
                             <div>Name header: {pollImportDebugInfo.matchedNameHeader || "Not detected"}</div>
                             <div>Email header: {pollImportDebugInfo.matchedEmailHeader || "Not detected"}</div>
@@ -18620,21 +18620,21 @@ Cory`;
                 ) : null}
 
                 {isPlanningVisualMode && showEmailDraft && !hiringEmailProofComplete ? (
-                  <div style={{ ...staffingMetricCardStyle, padding: "12px 14px" }}>
+                  <div style={{ ...staffingMetricCardStyle, padding: "8px 10px" }}>
                     <div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Email Draft Preview</div>
-                    <div style={{ marginTop: "8px", color: staffingWorkspacePalette.textStrong, lineHeight: 1.7 }}>
+                    <div style={{ marginTop: "4px", color: staffingWorkspacePalette.textStrong, lineHeight: 1.7 }}>
                       <div><strong>Recipients (BCC):</strong> {hiringEmailBccEmails.length ? hiringEmailBccEmails.join(", ") : "No selected staffing or matched candidate SP emails found."}</div>
                       <div><strong>Recipient set:</strong> {hiringEmailRecipientMode}</div>
-                      <div style={{ marginTop: "8px" }}><strong>Subject:</strong> {emailSubject}</div>
-                      <div style={{ marginTop: "8px", whiteSpace: "pre-wrap" }}><strong>Body:</strong>{"\n"}{emailBody}</div>
+                      <div style={{ marginTop: "4px" }}><strong>Subject:</strong> {emailSubject}</div>
+                      <div style={{ marginTop: "4px", whiteSpace: "pre-wrap" }}><strong>Body:</strong>{"\n"}{emailBody}</div>
                     </div>
                   </div>
                 ) : null}
 
                 {isPlanningVisualMode && showConfirmationEmailPreview && !confirmationEmailProofComplete ? (
-                  <div style={{ ...staffingMetricCardStyle, padding: "12px 14px" }}>
+                  <div style={{ ...staffingMetricCardStyle, padding: "8px 10px" }}>
                     <div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Confirmation Email Preview</div>
-                    <div style={{ marginTop: "8px", color: staffingWorkspacePalette.textStrong, lineHeight: 1.7 }}>
+                    <div style={{ marginTop: "4px", color: staffingWorkspacePalette.textStrong, lineHeight: 1.7 }}>
                       <div><strong>To:</strong> {me?.email || "Current logged-in user"}</div>
                       <div><strong>CC:</strong> {facultyEmails.length ? facultyEmails.join(", ") : "No faculty CC parsed."}</div>
                       <div><strong>BCC:</strong> {confirmationBccEmails.length ? confirmationBccEmails.join(", ") : "No confirmed SP emails found."}</div>
@@ -18651,13 +18651,13 @@ Cory`;
                           Missing email: {confirmationMissingEmailAssignments.join(", ")}
                         </div>
                       ) : null}
-                      <div style={{ marginTop: "8px" }}><strong>Subject:</strong> {confirmationEmailSubject}</div>
-                      <div style={{ marginTop: "8px", whiteSpace: "pre-wrap" }}><strong>Body:</strong>{"\n"}{confirmationEmailBody}</div>
+                      <div style={{ marginTop: "4px" }}><strong>Subject:</strong> {confirmationEmailSubject}</div>
+                      <div style={{ marginTop: "4px", whiteSpace: "pre-wrap" }}><strong>Body:</strong>{"\n"}{confirmationEmailBody}</div>
                     </div>
                   </div>
                 ) : null}
 
-                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                   {[
                     { value: "all", label: `All (${sortedAssignments.length})` },
                     {
@@ -18697,7 +18697,7 @@ Cory`;
                     No selected staffing SPs match the current filter.
                   </div>
                 ) : (
-                  <div style={{ display: "grid", gap: "8px" }}>
+                  <div style={{ display: "grid", gap: "6px" }}>
                     {filteredAssignments.map((assignment) => {
                       const sp = assignment.sp_id ? spsById.get(assignment.sp_id) : undefined;
                       const status = getAssignmentStatus(assignment);
@@ -18761,7 +18761,7 @@ Cory`;
                                 ))}
                               </select>
                             </label>
-                            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
                               <button
                                 type="button"
                                 onClick={() => void handleRemoveAssignment(assignment)}
@@ -18833,10 +18833,10 @@ Cory`;
                     <summary style={{ cursor: "pointer", color: staffingWorkspacePalette.textMuted, fontWeight: 800 }}>
                       View Poll Invite Archive ({pollInviteOnlyAssignments.length})
                     </summary>
-                    <div style={{ marginTop: "8px", color: staffingWorkspacePalette.textMuted, fontWeight: 700, fontSize: "12px", lineHeight: 1.6 }}>
+                    <div style={{ marginTop: "4px", color: staffingWorkspacePalette.textMuted, fontWeight: 700, fontSize: "11px", lineHeight: 1.6 }}>
                       These SPs were contacted for availability only. They are not counted as hired, confirmed, backup, or coverage unless manually confirmed later.
                     </div>
-                    <div style={{ display: "grid", gap: "8px", marginTop: "10px" }}>
+                    <div style={{ display: "grid", gap: "6px", marginTop: "10px" }}>
                       {pollInviteOnlyAssignments.map((assignment) => {
                         const sp = assignment.sp_id ? spsById.get(assignment.sp_id) : undefined;
                         const email = sp ? getEmail(sp) : "";
@@ -18852,7 +18852,7 @@ Cory`;
                               background: "rgba(250, 252, 255, 0.92)",
                               display: "grid",
                               gridTemplateColumns: "minmax(0, 1fr) auto",
-                              gap: "8px",
+                              gap: "6px",
                               alignItems: "center",
                             }}
                           >
@@ -18882,7 +18882,7 @@ Cory`;
                                 type="button"
                                 onClick={() => void handleStatusChange(assignment, "confirmed")}
                                 disabled={saving}
-                                style={{ ...buttonStyle, padding: "6px 9px", fontSize: "12px", opacity: saving ? 0.65 : 1 }}
+                                style={{ ...buttonStyle, padding: "6px 9px", fontSize: "11px", opacity: saving ? 0.65 : 1 }}
                               >
                                 Mark Primary
                               </button>
@@ -18890,7 +18890,7 @@ Cory`;
                                 type="button"
                                 onClick={() => void handleStatusChange(assignment, "backup")}
                                 disabled={saving}
-                                style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px", fontSize: "12px", opacity: saving ? 0.65 : 1 }}
+                                style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px", fontSize: "11px", opacity: saving ? 0.65 : 1 }}
                               >
                                 Mark Backup
                               </button>
@@ -18898,7 +18898,7 @@ Cory`;
                                 type="button"
                                 onClick={() => void handleStatusChange(assignment, "declined")}
                                 disabled={saving}
-                                style={{ ...dangerButtonStyle, padding: "6px 9px", fontSize: "12px", opacity: saving ? 0.65 : 1 }}
+                                style={{ ...dangerButtonStyle, padding: "6px 9px", fontSize: "11px", opacity: saving ? 0.65 : 1 }}
                               >
                                 Ignore
                               </button>
@@ -18921,7 +18921,7 @@ Cory`;
                       gap: "10px",
                     }}
                   >
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
                       <div>
                         <div style={{ ...statLabel, color: staffingWorkspacePalette.textStrong }}>Candidate SP Pool</div>
                         <div style={{ marginTop: "4px", color: staffingWorkspacePalette.textMuted, fontWeight: 700, fontSize: "13px" }}>
@@ -18931,7 +18931,7 @@ Cory`;
                     </div>
 
                     {showCandidatePool ? (
-                      <div style={{ display: "grid", gap: "12px" }}>
+                      <div style={{ display: "grid", gap: "6px" }}>
                         <input
                           value={candidateQuery}
                           onChange={(event) => setCandidateQuery(event.target.value)}
@@ -18961,7 +18961,7 @@ Cory`;
                             </button>
                           ))}
                         </div>
-                        <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
+                        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
                           <select
                             value={selectedSpId}
                             onChange={(e) => setSelectedSpId(e.target.value)}
@@ -19003,12 +19003,12 @@ Cory`;
                 <summary style={staffingSummaryStyle}>
                   SP Finder & Match Maker
                 </summary>
-                <div style={{ display: "grid", gap: "12px", marginTop: "12px" }}>
+                <div style={{ display: "grid", gap: "6px", marginTop: "12px" }}>
                 <div style={staffingMutedTextStyle}>
                   Match Maker helps narrow who to poll. It does not select SPs for staffing until you choose them.
                 </div>
 
-                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                   {[
                     { key: "finder", label: "Finder Mode" },
                     { key: "poll", label: "Poll Mode" },
@@ -19128,7 +19128,7 @@ Cory`;
                       </label>
                     </div>
 
-                    <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "end" }}>
+                    <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "end" }}>
                       {[
                         { label: "Active only", active: pollMatchActiveOnly, toggle: () => setPollMatchActiveOnly((current) => !current) },
                         { label: "Email ready only", active: pollMatchEmailReadyOnly, toggle: () => setPollMatchEmailReadyOnly((current) => !current) },
@@ -19156,7 +19156,7 @@ Cory`;
                       ))}
                     </div>
 
-                    <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                    <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                       <button
                         type="button"
                         onClick={handleAddRecommendedToPoll}
@@ -19214,7 +19214,7 @@ Cory`;
                       </button>
                     </div>
 
-                    <div style={{ display: "grid", gap: "8px" }}>
+                    <div style={{ display: "grid", gap: "6px" }}>
                       {pollMatchEntries.length ? (
                         pollMatchEntries.slice(0, candidateResultsLimit).map((entry) => (
                           <div
@@ -19239,13 +19239,13 @@ Cory`;
                               </label>
                               <div style={{ minWidth: 0 }}>
                                 <div style={{ color: staffingWorkspacePalette.textStrong, fontWeight: 900 }}>{getFullName(entry.sp)}</div>
-                                <div style={{ marginTop: "4px", color: staffingWorkspacePalette.textMuted, fontWeight: 700, fontSize: "12px" }}>
+                                <div style={{ marginTop: "4px", color: staffingWorkspacePalette.textMuted, fontWeight: 700, fontSize: "11px" }}>
                                   {entry.email || "No email on file"}
                                 </div>
                               </div>
                               <div style={{ textAlign: "right" }}>
                                 <div style={{ color: staffingWorkspacePalette.textStrong, fontWeight: 900 }}>{entry.matchLabel}</div>
-                                <div style={{ marginTop: "4px", color: staffingWorkspacePalette.textMuted, fontSize: "12px", fontWeight: 700 }}>
+                                <div style={{ marginTop: "4px", color: staffingWorkspacePalette.textMuted, fontSize: "11px", fontWeight: 700 }}>
                                   Score {entry.matchScore}
                                 </div>
                               </div>
@@ -19280,7 +19280,7 @@ Cory`;
                         </div>
                       )}
                       {pollMatchEntries.length > 10 ? (
-                        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                           {candidateResultsLimit < pollMatchEntries.length ? (
                             <button
                               type="button"
@@ -19307,11 +19307,11 @@ Cory`;
 
                 {matchMakerMode === "poll" ? (
                   <>
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
                       <div style={staffingMutedTextStyle}>
                         {pollSelectedCount} selected · {pollReadyEmailCount} email ready · {pollStatusDisplayLabel}
                       </div>
-                      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                         <button type="button" onClick={() => void handleCreatePoll()} disabled={pollSaving} style={{ ...buttonStyle, boxShadow: "0 8px 16px rgba(14, 165, 233, 0.16)", opacity: pollSaving ? 0.7 : 1 }}>
                           Create Poll
                         </button>
@@ -19347,7 +19347,7 @@ Cory`;
                       <div style={staffingMetricCardStyle}><div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>No Response</div><div style={{ ...statValue, color: staffingWorkspacePalette.textMuted }}>{pollResponseSummary.noResponseCount}</div></div>
                     </div>
 
-                    <div style={{ display: "grid", gap: "8px" }}>
+                    <div style={{ display: "grid", gap: "6px" }}>
                       {pollSelectedEntries.length ? (
                         pollSelectedEntries.slice(0, selectedPollRosterLimit).map((entry) => (
                           <div
@@ -19356,11 +19356,11 @@ Cory`;
                           >
                             <div>
                               <div style={{ color: staffingWorkspacePalette.textStrong, fontWeight: 900 }}>{getFullName(entry.sp)}</div>
-                              <div style={{ marginTop: "4px", color: staffingWorkspacePalette.textMuted, fontSize: "12px", fontWeight: 700 }}>
+                              <div style={{ marginTop: "4px", color: staffingWorkspacePalette.textMuted, fontSize: "11px", fontWeight: 700 }}>
                                 {entry.sp.working_email || entry.sp.email || "No email on file"}
                               </div>
                             </div>
-                            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
                               <span style={staffingSelectedChipStyle}>
                                 {entry.pollResponseStatus === "no_response"
                                   ? "No response"
@@ -19386,7 +19386,7 @@ Cory`;
                         </div>
                       )}
                       {pollSelectedEntries.length > 10 ? (
-                        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                           {selectedPollRosterLimit < pollSelectedEntries.length ? (
                             <button
                               type="button"
@@ -19421,7 +19421,7 @@ Cory`;
                       padding: "14px",
                       display: "flex",
                       justifyContent: "space-between",
-                      gap: "12px",
+                      gap: "6px",
                       flexWrap: "wrap",
                       alignItems: "center",
                     }}
@@ -19440,7 +19440,7 @@ Cory`;
                   </div>
                   ) : (
                   <>
-                    <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                    <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                       <button
                         type="button"
                         onClick={handleClearSuggestedAssignments}
@@ -19450,7 +19450,7 @@ Cory`;
                       </button>
                     </div>
 
-                    <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                    <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                       {[
                         { value: "all", label: `All (${pollResponderEntries.length})` },
                         { value: "available", label: `Available only (${availablePollResponders.length})` },
@@ -19478,7 +19478,7 @@ Cory`;
                       ))}
                     </div>
 
-                    <div style={{ display: "grid", gap: "8px" }}>
+                    <div style={{ display: "grid", gap: "6px" }}>
                       {suggestedAssignmentRows.length === 0 ? (
                         <div style={staffingMutedTextStyle}>
                           No responders match this staffing filter yet.
@@ -19555,7 +19555,7 @@ Cory`;
                                   {assigningSpId === entry.sp.id ? "Assigning..." : "Assign"}
                                 </button>
                               ) : (
-                                <span style={{ color: staffingWorkspacePalette.textMuted, fontWeight: 800, fontSize: "12px" }}>
+                                <span style={{ color: staffingWorkspacePalette.textMuted, fontWeight: 800, fontSize: "11px" }}>
                                   {entry.isAssigned ? getPlanningStaffingPresenceLabel(entry.assignmentStatus) : "Do not assign"}
                                 </span>
                               )}
@@ -19590,7 +19590,7 @@ Cory`;
           style={{
             display: "flex",
             justifyContent: "space-between",
-            gap: "12px",
+            gap: "6px",
             alignItems: "center",
             flexWrap: "wrap",
             padding: "14px 16px 12px",
@@ -19621,7 +19621,7 @@ Cory`;
                 ? "1px solid rgba(25, 138, 112, 0.24)"
                 : "1px solid var(--cfsp-border)",
               color: allAssignedCheckedIn ? "var(--cfsp-green)" : "var(--cfsp-text-muted)",
-              fontSize: "12px",
+              fontSize: "11px",
               fontWeight: 900,
             }}
           >
@@ -19629,21 +19629,21 @@ Cory`;
           </span>
         </div>
 
-        <div style={{ padding: "12px 16px 16px", display: "grid", gap: "12px" }}>
+        <div style={{ padding: "12px 16px 16px", display: "grid", gap: "6px" }}>
           <div
             style={{
               display: "flex",
               justifyContent: "space-between",
-              gap: "8px",
+              gap: "6px",
               flexWrap: "wrap",
               alignItems: "center",
             }}
           >
-            <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 700 }}>
+            <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 700 }}>
               Persisted per assigned SP and retained after refresh.
               {!isTrainingAttendanceInteractive ? " Attendance is archived because training has completed." : ""}
             </div>
-            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
               <button
                 type="button"
                 onClick={() => void handleBulkTrainingAttendance("confirm_all")}
@@ -19698,7 +19698,7 @@ Cory`;
           const actionStyle: React.CSSProperties = {
             ...buttonStyle,
             padding: "7px 10px",
-            fontSize: "12px",
+            fontSize: "11px",
             minHeight: "30px",
             boxShadow: "0 8px 16px rgba(14, 165, 233, 0.10)",
             opacity: action.disabled ? 0.6 : 1,
@@ -19841,7 +19841,7 @@ Cory`;
             {item.status}
           </button>
         </div>
-        <div style={{ marginTop: "8px", color: "var(--cfsp-text-muted)", fontSize: "13px", fontWeight: 700, lineHeight: 1.45 }}>
+        <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontSize: "13px", fontWeight: 700, lineHeight: 1.45 }}>
           {item.explanation}
         </div>
         {renderWorkflowReadinessActions(item.actions)}
@@ -19867,7 +19867,7 @@ Cory`;
           boxShadow: workflowRequiredReady ? operationalReadinessGoldTone.glow : cardStyle.boxShadow,
         }}
       >
-        <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "flex-start" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", flexWrap: "wrap", alignItems: "flex-start" }}>
           <div>
             <h2 style={compactSectionTitleStyle}>{boardTitle}</h2>
             <p style={compactSectionHintStyle}>
@@ -19904,7 +19904,7 @@ Cory`;
           {workflowReportItems.map((item) => renderWorkflowReadinessItem(item, true))}
         </div>
 
-        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "12px" }}>
+        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "12px" }}>
           <button
             type="button"
             onClick={() => setShowWorkflowAdvanced((current) => !current)}
@@ -19937,7 +19937,7 @@ Cory`;
                   padding: "14px",
                 }}
               >
-                <div style={{ color: "var(--cfsp-text)", fontWeight: 900, fontSize: "16px" }}>{group.title}</div>
+                <div style={{ color: "var(--cfsp-text)", fontWeight: 900, fontSize: "14px" }}>{group.title}</div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "10px", marginTop: "10px" }}>
                   {group.items.map((item) => renderWorkflowReadinessItem(item))}
                 </div>
@@ -19966,7 +19966,7 @@ Cory`;
         <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "flex-start" }}>
           <div>
             <div style={{ color: "var(--cfsp-text)", fontWeight: 900, fontSize: "14px" }}>{item.label}</div>
-            <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800 }}>
+            <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 800 }}>
               {isReadyState ? "Ready explanation" : "Needs action"}
             </div>
           </div>
@@ -20050,7 +20050,7 @@ Cory`;
           cursor: "auto",
         }}
       >
-        <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", alignItems: "flex-start" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", alignItems: "flex-start" }}>
           <div>
             <h3 style={{ margin: 0, color: "var(--cfsp-text)", fontSize: "18px", fontWeight: 950 }}>
               {activeReadinessDetailId === "board"
@@ -20087,7 +20087,7 @@ Cory`;
           </button>
         </div>
 
-        <div style={{ display: "grid", gap: "12px", marginTop: "14px" }}>
+        <div style={{ display: "grid", gap: "6px", marginTop: "14px" }}>
           {readinessDetailGroups.length ? (
             readinessDetailGroups.map((group) => (
               <section
@@ -20145,7 +20145,7 @@ Cory`;
           padding: "16px",
         }}
       >
-        <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", alignItems: "flex-start" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", alignItems: "flex-start" }}>
           <div>
             <h3 style={{ margin: 0, color: "var(--cfsp-text)", fontSize: "18px", fontWeight: 950 }}>Learner Flow Status</h3>
             <p style={{ ...compactSectionHintStyle, marginTop: "5px" }}>
@@ -20227,7 +20227,7 @@ Cory`;
                       }
                       setShowLearnerFlowDetails(false);
                     }}
-                    style={{ ...buttonStyle, padding: "7px 10px", fontSize: "12px" }}
+                    style={{ ...buttonStyle, padding: "7px 10px", fontSize: "11px" }}
                   >
                     {actionLabel}
                   </button>
@@ -20322,19 +20322,19 @@ Cory`;
         <section style={cardStyle}>
           <Link
             href="/events"
-            style={{ display: "inline-flex", alignItems: "center", gap: "8px", color: "var(--cfsp-blue)", fontWeight: 900, textDecoration: "none" }}
+            style={{ display: "inline-flex", alignItems: "center", gap: "6px", color: "var(--cfsp-blue)", fontWeight: 900, textDecoration: "none" }}
           >
             <span aria-hidden="true">←</span>
             <span>Back to My Events</span>
           </Link>
 
-          <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "center", marginTop: "14px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", flexWrap: "wrap", alignItems: "center", marginTop: "14px" }}>
             <div>
               <h1 style={{ margin: 0, fontSize: "28px", color: "var(--cfsp-text)" }}>{event?.name || "Assigned Event"}</h1>
-              <div style={{ marginTop: "8px", display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+              <div style={{ marginTop: "4px", display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
                 <span className="cfsp-chip">{event?.status || "Status pending"}</span>
                 {assignmentStatus ? (
-                  <span style={{ ...assignmentStatusStyles[assignmentStatus], borderRadius: "999px", padding: "6px 10px", fontSize: "12px", fontWeight: 900 }}>
+                  <span style={{ ...assignmentStatusStyles[assignmentStatus], borderRadius: "999px", padding: "6px 10px", fontSize: "11px", fontWeight: 900 }}>
                     {assignmentStatusLabels[assignmentStatus]}
                   </span>
                 ) : null}
@@ -20352,7 +20352,7 @@ Cory`;
         <section style={{ ...detailGridStyle, gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
           <div style={statCard}>
             <div style={statLabel}>Event dates</div>
-            <div style={{ marginTop: "8px", display: "grid", gap: "8px" }}>
+            <div style={{ marginTop: "4px", display: "grid", gap: "6px" }}>
               {sessionSummary.length === 0 ? (
                 <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>Date and time will appear here once published.</div>
               ) : (
@@ -20369,7 +20369,7 @@ Cory`;
 
           <div style={statCard}>
             <div style={statLabel}>Training access</div>
-            <div style={{ marginTop: "8px", display: "grid", gap: "10px" }}>
+            <div style={{ marginTop: "4px", display: "grid", gap: "10px" }}>
               {spPortal?.zoom_url ? (
                 <a href={spPortal.zoom_url} target="_blank" rel="noreferrer" className="cfsp-btn cfsp-btn-primary" style={{ textDecoration: "none", width: "fit-content" }}>
                   Open Zoom / Training Link
@@ -20393,7 +20393,7 @@ Cory`;
 
           <div style={statCard}>
             <div style={statLabel}>Faculty / contacts</div>
-            <div style={{ marginTop: "8px", display: "grid", gap: "8px", color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
+            <div style={{ marginTop: "4px", display: "grid", gap: "6px", color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
               <div><strong style={{ color: "var(--cfsp-text)" }}>Faculty:</strong> {spPortal?.faculty_name || "Not posted"}</div>
               <div><strong style={{ color: "var(--cfsp-text)" }}>Program:</strong> {spPortal?.program || "Not posted"}</div>
               <div><strong style={{ color: "var(--cfsp-text)" }}>Email:</strong> {spPortal?.faculty_email || "Not posted"}</div>
@@ -20410,7 +20410,7 @@ Cory`;
               <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>Materials will appear here when they are shared with you.</div>
             ) : (
               (spPortal?.materials || []).map((material) => (
-                <div key={material.key} style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "center", border: "1px solid var(--cfsp-border)", borderRadius: "14px", padding: "12px 14px", background: "var(--cfsp-surface)" }}>
+                <div key={material.key} style={{ display: "flex", justifyContent: "space-between", gap: "6px", flexWrap: "wrap", alignItems: "center", border: "1px solid var(--cfsp-border)", borderRadius: "14px", padding: "8px 10px", background: "var(--cfsp-surface)" }}>
                   <div>
                     <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>{material.label}</div>
                     <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontWeight: 700 }}>{material.name || "Open file"}</div>
@@ -20516,18 +20516,18 @@ Cory`;
           style={{
             display: "flex",
             justifyContent: "space-between",
-            gap: "12px",
+            gap: "6px",
             flexWrap: "wrap",
             alignItems: "flex-start",
           }}
         >
-          <div style={{ display: "grid", gap: "8px" }}>
+          <div style={{ display: "grid", gap: "6px" }}>
             <Link
               href="/events"
               style={{
                 display: "inline-flex",
                 alignItems: "center",
-                gap: "8px",
+                gap: "6px",
                 color: "var(--cfsp-blue)",
                 fontWeight: 900,
                 textDecoration: "none",
@@ -20604,7 +20604,7 @@ Cory`;
             <div
               style={{
                 display: "grid",
-                gap: "12px",
+                gap: "6px",
                 gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
                 alignItems: "end",
               }}
@@ -20643,7 +20643,7 @@ Cory`;
                 style={{
                   display: "inline-flex",
                   alignItems: "center",
-                  gap: "8px",
+                  gap: "6px",
                   color: "var(--cfsp-text)",
                   fontWeight: 800,
                 }}
@@ -20668,7 +20668,7 @@ Cory`;
 
             <div style={{ display: "grid", gap: "10px" }}>
               <div style={statLabel}>Copy These Items</div>
-              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+              <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                 {(Object.keys(relatedCopyOptionLabels) as RelatedCopyOption[]).map((option) => {
                   const selected = relatedCopyOptions.includes(option);
                   return (
@@ -20705,7 +20705,7 @@ Cory`;
                     : "Preview matches to review which events will be updated."}
                 </div>
               ) : (
-                <div style={{ display: "grid", gap: "8px" }}>
+                <div style={{ display: "grid", gap: "6px" }}>
                   {relatedMatches.map((match) => (
                     <div
                       key={match.id}
@@ -20715,7 +20715,7 @@ Cory`;
                         background: selectedRelatedTargetIds.includes(match.id)
                           ? "var(--cfsp-surface-muted)"
                           : "var(--cfsp-surface)",
-                        padding: "12px 14px",
+                        padding: "8px 10px",
                       }}
                     >
                       <label
@@ -20742,7 +20742,7 @@ Cory`;
                                 background: "rgba(25, 138, 112, 0.14)",
                                 border: "1px solid rgba(25, 138, 112, 0.22)",
                                 color: "var(--cfsp-green)",
-                                fontSize: "12px",
+                                fontSize: "11px",
                                 fontWeight: 900,
                               }}
                             >
@@ -20768,7 +20768,7 @@ Cory`;
                   padding: "14px",
                   background: "var(--cfsp-green-soft)",
                   display: "grid",
-                  gap: "8px",
+                  gap: "6px",
                 }}
               >
                 <div style={{ color: "var(--cfsp-green)", fontWeight: 900 }}>Push complete</div>
@@ -20839,20 +20839,20 @@ Cory`;
               marginTop: "12px",
               border: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.2)" : "1px solid rgba(126, 231, 219, 0.22)",
               borderRadius: "18px",
-              padding: "12px 14px",
+              padding: "8px 10px",
               background: isPlanningVisualMode
                 ? "linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(237, 248, 251, 0.96) 100%)"
                 : "linear-gradient(180deg, rgba(11, 23, 37, 0.96) 0%, rgba(10, 19, 31, 0.94) 100%)",
               boxShadow: isPlanningVisualMode ? "0 12px 28px rgba(42, 112, 140, 0.08)" : "none",
               display: "grid",
-              gap: "12px",
+              gap: "6px",
             }}
           >
             <div
               style={{
                 display: "flex",
                 justifyContent: "space-between",
-                gap: "12px",
+                gap: "6px",
                 flexWrap: "wrap",
                 alignItems: "center",
               }}
@@ -20869,7 +20869,7 @@ Cory`;
               <div
                 style={{
                   display: "inline-flex",
-                  gap: "8px",
+                  gap: "6px",
                   flexWrap: "wrap",
                   padding: "6px",
                   borderRadius: "14px",
@@ -20933,7 +20933,7 @@ Cory`;
           style={{
             marginTop: "10px",
             display: "grid",
-            gap: "12px",
+            gap: "6px",
             gridTemplateColumns: "minmax(0, 1fr)",
             alignItems: "start",
           }}
@@ -20948,7 +20948,7 @@ Cory`;
             }}
           >
             <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Event Summary</div>
-            <div style={{ marginTop: "10px", display: "grid", gap: "12px" }}>
+            <div style={{ marginTop: "10px", display: "grid", gap: "6px" }}>
               <section
                 style={{
                   borderRadius: "20px",
@@ -20985,8 +20985,8 @@ Cory`;
                       {[sessionSummaryLabel, summaryTimeLabel, event?.location || "Location TBD"].filter(Boolean).join(" · ")}
                     </div>
                   </div>
-                  <div style={{ display: "grid", gap: "8px", justifyItems: "end" }}>
-                    <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                  <div style={{ display: "grid", gap: "6px", justifyItems: "end" }}>
+                    <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
                       <span
                         style={{
                           ...commandChipStyle,
@@ -21018,7 +21018,7 @@ Cory`;
                         {planningWindowExpanded["event-status"] ? "Collapse" : "Expand"}
                       </span>
                     </div>
-                    <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 850, textAlign: "right", maxWidth: "420px", lineHeight: 1.45 }}>
+                    <div style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 850, textAlign: "right", maxWidth: "420px", lineHeight: 1.45 }}>
                       {eventRiskLevel.detail} · {needed > 0 ? `${confirmedCount}/${needed} confirmed` : `${confirmedCount} confirmed`}
                     </div>
                   </div>
@@ -21061,7 +21061,7 @@ Cory`;
                       ))}
                     </div>
 
-                    <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                    <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                       {summaryOperationalIdentityBadges.map((badge) => (
                         <span key={`summary-identity-${normalizeOperationalBadgeKey(badge.label)}`} style={commandChipStyle}>
                           {badge.label}
@@ -21103,7 +21103,7 @@ Cory`;
                         ))}
                     </div>
 
-                    <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                    <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                       {scheduleSummaryActions.map((action) =>
                         action.href ? (
                           <Link
@@ -21135,7 +21135,7 @@ Cory`;
                 style={{
                   display: "grid",
                   gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
-                  gap: "12px",
+                  gap: "6px",
                   alignItems: "start",
                 }}
               >
@@ -21203,7 +21203,7 @@ Cory`;
                         boxShadow: windowCard.styles.glow,
                         padding: "14px",
                         display: "grid",
-                        gap: "12px",
+                        gap: "6px",
                       }}
                     >
                       <div
@@ -21220,7 +21220,7 @@ Cory`;
                         style={{
                           display: "flex",
                           justifyContent: "space-between",
-                          gap: "12px",
+                          gap: "6px",
                           flexWrap: "wrap",
                           alignItems: "flex-start",
                           background: "transparent",
@@ -21239,7 +21239,7 @@ Cory`;
                             {windowCard.subtitle}
                           </div>
                         </div>
-                        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
                             <button
                               type="button"
                               onClick={(event) => {
@@ -21286,7 +21286,7 @@ Cory`;
                       windowCard.rows.length ? (
                         <div style={{ display: "grid", gap: "10px" }}>
                           {"actions" in windowCard && windowCard.actions ? (
-                            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>{windowCard.actions}</div>
+                            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>{windowCard.actions}</div>
                           ) : null}
                           {windowCard.rows.map((row) => {
                             const rowStyles = getOperationalWindowStyles(row.tone || "info");
@@ -21299,7 +21299,7 @@ Cory`;
                                   background: commandCenterVisual.rowBackground,
                                   padding: "11px 12px",
                                   display: "grid",
-                                  gap: "8px",
+                                  gap: "6px",
                                   boxShadow: row.tone === "ready" ? "0 0 0 1px rgba(34, 197, 94, 0.04)" : row.tone === "critical" ? "0 0 0 1px rgba(244, 114, 182, 0.04)" : row.tone === "attention" ? "0 0 0 1px rgba(37, 99, 235, 0.04)" : undefined,
                                 }}
                               >
@@ -21313,7 +21313,7 @@ Cory`;
                                   </div>
                                 ) : null}
                                 {"actions" in row && row.actions ? (
-                                  <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>{row.actions}</div>
+                                  <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>{row.actions}</div>
                                 ) : null}
                               </div>
                             );
@@ -21348,10 +21348,10 @@ Cory`;
                   boxShadow: "0 10px 24px rgba(20, 65, 95, 0.08)",
                   padding: "14px",
                   display: "grid",
-                  gap: "12px",
+                  gap: "6px",
                 }}
               >
-                <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "flex-start" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", flexWrap: "wrap", alignItems: "flex-start" }}>
                   <div>
                     <div style={{ ...statLabel, color: "#12617f" }}>Learner Flow</div>
                     <div style={{ marginTop: "4px", color: "#102d44", fontWeight: 950, fontSize: "17px" }}>
@@ -21361,7 +21361,7 @@ Cory`;
                       Imported roster and assignment coverage from the current schedule surface.
                     </div>
                   </div>
-                  <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                  <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
                     <button
                       type="button"
                       onClick={() => setShowLearnerFlowDetails((current) => !current)}
@@ -21462,7 +21462,7 @@ Cory`;
 	                  boxShadow: "0 14px 30px rgba(20, 65, 95, 0.08), inset 0 1px 0 rgba(255,255,255,0.76)",
 	                  padding: "14px",
 	                  display: "grid",
-	                  gap: "12px",
+	                  gap: "6px",
 	                  position: "relative",
 	                  overflow: "hidden",
 	                }}
@@ -21479,8 +21479,8 @@ Cory`;
 	                    pointerEvents: "none",
 	                  }}
 	                />
-	                <div style={{ position: "relative", display: "grid", gap: "12px" }}>
-	                  <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "flex-start" }}>
+	                <div style={{ position: "relative", display: "grid", gap: "6px" }}>
+	                  <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", flexWrap: "wrap", alignItems: "flex-start" }}>
 	                    <div>
 	                      <div style={{ ...statLabel, color: "#12617f" }}>Live Event Preview</div>
 	                      <div style={{ marginTop: "4px", color: "#102d44", fontWeight: 950, fontSize: "18px", letterSpacing: "0.01em" }}>
@@ -21490,7 +21490,7 @@ Cory`;
 	                        Check the live-day sequence, blockers, staffing, materials, and schedule readiness before switching into Live Mode.
 	                      </div>
 	                    </div>
-	                    <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "flex-end", alignItems: "center" }}>
+	                    <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end", alignItems: "center" }}>
 	                      <span
 	                        style={{
 	                          ...commandChipStyle,
@@ -21529,7 +21529,7 @@ Cory`;
 	                      background: "rgba(255,255,255,0.66)",
 	                      padding: "10px 11px",
 	                      display: "grid",
-	                      gap: "8px",
+	                      gap: "6px",
 	                    }}
 	                  >
 	                    <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "baseline" }}>
@@ -21541,7 +21541,7 @@ Cory`;
 	                          {planningLivePreviewPrimaryBlock?.label || "No schedule blocks yet"}
 	                        </div>
 	                      </div>
-	                      <div style={{ color: "#496678", fontSize: "12px", fontWeight: 850, textAlign: "right" }}>
+	                      <div style={{ color: "#496678", fontSize: "11px", fontWeight: 850, textAlign: "right" }}>
 	                        {planningLivePreviewPrimaryBlock
 	                          ? `${formatMinuteRange(planningLivePreviewPrimaryBlock.startMinutes, planningLivePreviewPrimaryBlock.endMinutes)}${planningLivePreviewPrimaryBlock.roundNumber ? ` · Round ${planningLivePreviewPrimaryBlock.roundNumber}` : ""}`
 	                          : "Build schedule to preview live flow"}
@@ -21577,7 +21577,7 @@ Cory`;
 	                          );
 	                        })
 	                      ) : (
-	                        <span style={{ color: "#496678", fontSize: "12px", fontWeight: 800 }}>
+	                        <span style={{ color: "#496678", fontSize: "11px", fontWeight: 800 }}>
 	                          No live flow blocks available yet.
 	                        </span>
 	                      )}
@@ -21632,19 +21632,19 @@ Cory`;
 	                        {planningLivePreviewAlerts.length ? (
 	                          <div style={{ display: "grid", gap: "5px" }}>
 	                            {planningLivePreviewAlerts.slice(0, 6).map((alert) => (
-	                              <div key={`planning-live-preview-alert-${alert}`} style={{ color: "#4c1d95", fontSize: "12px", fontWeight: 820 }}>
+	                              <div key={`planning-live-preview-alert-${alert}`} style={{ color: "#4c1d95", fontSize: "11px", fontWeight: 820 }}>
 	                                {alert}
 	                              </div>
 	                            ))}
 	                          </div>
 	                        ) : (
-	                          <div style={{ color: planningSuccessText, fontSize: "12px", fontWeight: 820 }}>
+	                          <div style={{ color: planningSuccessText, fontSize: "11px", fontWeight: 820 }}>
 	                            No active planning blockers.
 	                          </div>
 	                        )}
 	                      </div>
 
-	                      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+	                      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
 	                        <button
 	                          type="button"
 	                          onClick={() => {
@@ -21682,7 +21682,7 @@ Cory`;
                 <summary style={{ cursor: "pointer", color: commandCenterVisual.textColor, fontWeight: 800 }}>
                   Show full event details
                 </summary>
-                <div style={{ marginTop: "10px", display: "grid", gap: "8px" }}>
+                <div style={{ marginTop: "10px", display: "grid", gap: "6px" }}>
                   {[
                     {
                       label: "Simulation Type",
@@ -21732,7 +21732,7 @@ Cory`;
                       boxShadow: commandFileCabinetVisual.shellShadow,
                       padding: "14px",
                       display: "grid",
-                      gap: "12px",
+                      gap: "6px",
                       position: "relative",
                       overflow: "hidden",
                       animation: "cfspCabinetPulse 4.2s ease-in-out infinite",
@@ -21855,8 +21855,8 @@ Cory`;
                         pointerEvents: "none",
                       }}
                     />
-                    <div style={{ position: "relative", display: "grid", gap: "12px" }}>
-                    <div className="cfsp-command-cabinet-header" style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "flex-start" }}>
+                    <div style={{ position: "relative", display: "grid", gap: "6px" }}>
+                    <div className="cfsp-command-cabinet-header" style={{ display: "flex", justifyContent: "space-between", gap: "6px", flexWrap: "wrap", alignItems: "flex-start" }}>
                       <div>
                         <div style={{ ...statLabel, color: commandFileCabinetVisual.eyebrowColor }} className="cfsp-rail-label">
                           Simulation Command File Cabinet
@@ -21871,7 +21871,7 @@ Cory`;
                           Keep the mission packet, exports, timing tickets, materials, and live-access links together in one tactical rack.
                         </div>
                       </div>
-                      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center", justifyContent: "flex-end" }}>
+                      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center", justifyContent: "flex-end" }}>
                         <span
                           className={commandFileCabinetFullyReady ? "cfsp-command-ready-chip" : ""}
                           style={{
@@ -21936,14 +21936,14 @@ Cory`;
                           background: isPlanningVisualMode ? "rgba(255,255,255,0.62)" : "rgba(15, 23, 42, 0.5)",
                           padding: "10px 11px",
                           display: "flex",
-                          gap: "8px",
+                          gap: "6px",
                           flexWrap: "wrap",
                           justifyContent: "space-between",
                           alignItems: "center",
                           boxShadow: isPlanningVisualMode ? undefined : "0 10px 22px rgba(2, 6, 23, 0.3)",
                         }}
                       >
-                        <div style={{ color: commandFileCabinetVisual.moduleMetaColor, fontSize: "12px", fontWeight: 800 }}>
+                        <div style={{ color: commandFileCabinetVisual.moduleMetaColor, fontSize: "11px", fontWeight: 800 }}>
                           {commandFileCabinetStatusCounts.complete} complete · {commandFileCabinetStatusCounts.available} available · {commandFileCabinetStatusCounts.draft} draft
                         </div>
                         <div style={{ display: "flex", gap: "7px", flexWrap: "wrap" }}>
@@ -22028,7 +22028,7 @@ Cory`;
                                           gap: "6px",
                                         }}
                                       >
-                                        <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", alignItems: "center" }}>
+                                        <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", alignItems: "center" }}>
                                           <span style={{ color: commandFileCabinetVisual.moduleTextColor, fontSize: "11px", fontWeight: 900, overflowWrap: "anywhere" }}>
                                             Case {caseIndex + 1}: {caseEntry.name || "Untitled case"}
                                           </span>
@@ -22089,7 +22089,7 @@ Cory`;
                                   })}
                                 </div>
                               ) : (
-                                <span style={{ color: commandFileCabinetVisual.moduleMetaColor, fontSize: "12px", fontWeight: 800 }}>
+                                <span style={{ color: commandFileCabinetVisual.moduleMetaColor, fontSize: "11px", fontWeight: 800 }}>
                                   No cases uploaded. Load the first case packet for this event.
                                 </span>
                               )}
@@ -22466,7 +22466,7 @@ Cory`;
                     padding: "6px 8px",
                     display: "flex",
                     justifyContent: "space-between",
-                    gap: "12px",
+                    gap: "6px",
                     flexWrap: "wrap",
                     alignItems: "center",
                     borderRadius: "14px",
@@ -22480,7 +22480,7 @@ Cory`;
                   <div
                     style={{
                       color: isPlanningVisualMode ? commandCenterVisual.mutedColor : "#e2e8f0",
-                      fontSize: "12px",
+                      fontSize: "11px",
                       fontWeight: 800,
                       background: "rgba(15, 23, 42, 0.5)",
                       border: "1px solid rgba(129, 140, 248, 0.2)",
@@ -22539,26 +22539,26 @@ Cory`;
                       : "linear-gradient(135deg, rgba(30, 41, 59, 0.96), rgba(15, 23, 42, 0.96))",
                     backdropFilter: isPlanningVisualMode ? "none" : "blur(12px)",
                     boxShadow: isPlanningVisualMode ? "0 10px 24px rgba(42, 112, 140, 0.08)" : "0 12px 28px rgba(15, 23, 42, 0.5), inset 0 1px 0 rgba(255,255,255,0.08)",
-                    padding: "12px 14px",
+                    padding: "8px 10px",
                     display: "flex",
                     justifyContent: "space-between",
-                    gap: "12px",
+                    gap: "6px",
                     flexWrap: "wrap",
                     alignItems: "center",
                   }}
                 >
                   <div>
                     <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>
-                      {isPlanningVisualMode ? "Rotation Plan" : "Round Operations"}
+                      Central Command
                     </div>
-                    <div style={{ marginTop: "4px", color: commandCenterVisual.headingColor, fontWeight: 900, fontSize: "16px" }}>
+                    <div style={{ marginTop: "4px", color: commandCenterVisual.headingColor, fontWeight: 900, fontSize: "14px" }}>
                       {event?.name || "Untitled Event"}
                     </div>
-                    <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontWeight: 700, fontSize: "12px" }}>
+                    <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontWeight: 700, fontSize: "11px" }}>
                       {[sessionSummaryLabel, summaryTimeLabel].filter(Boolean).join(" · ")}
                     </div>
                   </div>
-                  <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                  <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
                     <button
                       type="button"
                       onClick={() => handleRotationCommandSurfaceOpenChange(false)}
@@ -22577,18 +22577,24 @@ Cory`;
                       {selectedRotationRound ? `Selected Round ${activeSelectedRotationRoundIndex + 1}` : "No round selected"}
                     </span>
                     <span style={{ ...commandChipStyle, background: commandCenterVisual.activeSoftBackground, color: commandCenterVisual.activeSoftText, border: isPlanningVisualMode ? "1px solid rgba(25, 138, 112, 0.2)" : commandChipStyle.border }}>
-                      {roundCompanionView === "announcements"
+                      {roundCompanionView === "overview"
+                        ? "Overview"
+                        : roundCompanionView === "coverage"
+                        ? "Coverage"
+                        : roundCompanionView === "learner"
+                        ? "Learner Flow"
+                        : roundCompanionView === "announcements"
                         ? "Announcements"
                         : roundCompanionView === "student"
                         ? "Student Schedule"
                         : roundCompanionView === "sp"
                           ? "SP Schedule"
-                          : "Operations View"}
+                          : "Operations"}
                     </span>
                   </div>
                 </div>
                 {hiddenExtraBackendRounds > 0 ? (
-                  <div style={{ marginTop: "6px", color: "var(--cfsp-warning)", fontSize: "12px", fontWeight: 800 }}>
+                  <div style={{ marginTop: "6px", color: "var(--cfsp-warning)", fontSize: "11px", fontWeight: 800 }}>
                     Extra backend room slots are hidden because learner capacity only requires {rotationRounds.length} rotation round{rotationRounds.length === 1 ? "" : "s"}.
                   </div>
                 ) : null}
@@ -22596,13 +22602,13 @@ Cory`;
                   className="cfsp-round-details-layout"
                   style={{
                     display: "grid",
-                    gap: "12px",
-                    marginTop: "8px",
+                    gap: "6px",
+                    marginTop: "4px",
                     alignItems: "start",
                     width: "100%",
                   }}
                 >
-                  <div className="cfsp-round-list-rail" style={{ display: "grid", gap: "8px" }}>
+                  <div className="cfsp-round-list-rail" style={{ display: "grid", gap: "6px" }}>
                     {rotationRounds.map((round, index) => {
                       const selected = selectedRotationRound?.key === round.key;
                       const roundRoomCount = roomSlotEntriesByRoundKey.get(round.key)?.length || 0;
@@ -22648,7 +22654,7 @@ Cory`;
                                 : "inset 3px 0 0 rgba(143, 194, 240, 0.14)",
                             padding: isPlanningVisualMode ? "13px 15px" : "16px 18px",
                             display: "grid",
-                            gap: "8px",
+                            gap: "6px",
                             textAlign: "left",
                             cursor: "pointer",
                           }}
@@ -22680,7 +22686,7 @@ Cory`;
                             {formatRotationRoundLabel(round, importedYearHint, roundRoomCount)}
                           </div>
 
-                          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                             <span style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText, border: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.18)" : commandChipStyle.border }}>
                               {roundRoomCount} rooms
                             </span>
@@ -22708,7 +22714,7 @@ Cory`;
                       minHeight: "100%",
                     }}
                   >
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
                       <div>
                         <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>
                           {isPlanningVisualMode ? "Round Details" : "Round Operations"}
@@ -22717,7 +22723,7 @@ Cory`;
                           {selectedRotationRound ? `Round ${activeSelectedRotationRoundIndex + 1}` : "No round selected"}
                         </div>
                       </div>
-                      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                         {[
                           { value: "announcements", label: "Announcements" },
                           { value: "student", label: "Student Schedule" },
@@ -22767,7 +22773,7 @@ Cory`;
 
                     {selectedRotationRound ? (
                       <>
-                        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
                           {[
                             selectedRotationRound.start_time && selectedRotationRound.end_time
                               ? `${formatDisplayTime(selectedRotationRound.start_time)} - ${formatDisplayTime(selectedRotationRound.end_time)}`
@@ -22807,11 +22813,11 @@ Cory`;
                               : "0 20px 58px rgba(0, 0, 0, 0.28), inset 0 0 0 1px rgba(255,255,255,0.03)",
                             padding: "14px",
                             display: "grid",
-                            gap: "12px",
+                            gap: "6px",
                             overflow: "hidden",
                           }}
                         >
-                          <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "flex-start" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", flexWrap: "wrap", alignItems: "flex-start" }}>
                             <div>
                               <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Round Operations</div>
                               <div style={{ marginTop: "4px", color: commandCenterVisual.headingColor, fontWeight: 900, fontSize: "20px" }}>
@@ -22821,7 +22827,7 @@ Cory`;
                                 {formatRotationRoundLabel(selectedRotationRound, importedYearHint, selectedRoundRoomCount)}
                               </div>
                             </div>
-                            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
                               <button
                                 type="button"
                                 onClick={() => handleTacticalRoomBoardOpenChange(false)}
@@ -22939,7 +22945,7 @@ Cory`;
                               >
                                 <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>{metric.label}</div>
                                 <div style={{ marginTop: "4px", color: commandCenterVisual.textColor, fontSize: "17px", fontWeight: 900 }}>{metric.value}</div>
-                                <div style={{ marginTop: "3px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 700 }}>{metric.detail}</div>
+                                <div style={{ marginTop: "3px", color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 700 }}>{metric.detail}</div>
                               </div>
                             ))}
                           </div>
@@ -23038,7 +23044,7 @@ Cory`;
                                       </span>
                                     </div>
 
-                                    <div style={{ display: "grid", gap: "8px" }}>
+                                    <div style={{ display: "grid", gap: "6px" }}>
                                       <div style={{ display: "grid", gap: "2px" }}>
                                         <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>SP</div>
                                         <div style={{ color: commandCenterVisual.textColor, fontSize: "13px", fontWeight: 800, lineHeight: 1.35, overflowWrap: "anywhere", display: "flex", alignItems: "center", gap: "6px" }}>
@@ -23129,13 +23135,13 @@ Cory`;
                                     padding: "10px 12px",
                                   }}
                                 >
-                                  <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", alignItems: "center" }}>
+                                  <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", alignItems: "center" }}>
                                     <div style={{ color: commandCenterVisual.textColor, fontWeight: 900 }}>{entry.timeLabel}</div>
                                     <span style={{ ...commandChipStyle, background: "rgba(126, 231, 219, 0.14)", color: isPlanningVisualMode ? "#0f766e" : "#7ee7db" }}>
                                       {entry.phaseLabel}
                                     </span>
                                   </div>
-                                  <div style={{ marginTop: "6px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 700, lineHeight: 1.45 }}>
+                                  <div style={{ marginTop: "6px", color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 700, lineHeight: 1.45 }}>
                                     {roundAnnouncementDrafts[entry.key] ?? entry.announcement}
                                   </div>
                                 </div>
@@ -23164,7 +23170,7 @@ Cory`;
                         </section>
                         ) : null}
 
-                        <div style={{ display: "grid", gap: "8px" }}>
+                        <div style={{ display: "grid", gap: "6px" }}>
                           <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>
                             {roundCompanionView === "overview"
                               ? "Central Overview"
@@ -23197,7 +23203,7 @@ Cory`;
                           </div>
                         </div>
 
-                        <div style={{ display: "grid", gap: "8px" }}>
+                        <div style={{ display: "grid", gap: "6px" }}>
                           <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>
                             {roundCompanionView === "announcements"
                               ? "Announcement Timeline"
@@ -23266,7 +23272,7 @@ Cory`;
     ))}
   </div>
 ) : roundCompanionView === "coverage" ? (
-  <div style={{ display: "grid", gap: "8px" }}>
+  <div style={{ display: "grid", gap: "6px" }}>
     {selectedRoundScheduleRows.map((row, index) => (
       <div
         key={`${row.key}-coverage`}
@@ -23274,7 +23280,7 @@ Cory`;
           borderRadius: "12px",
           border: commandCenterVisual.rowBorder,
           background: commandCenterVisual.rowBackground,
-          padding: "12px 14px",
+          padding: "8px 10px",
           display: "flex",
           justifyContent: "space-between",
           gap: "10px",
@@ -23291,7 +23297,7 @@ Cory`;
             style={{
               marginTop: "4px",
               color: commandCenterVisual.mutedColor,
-              fontSize: "12px",
+              fontSize: "11px",
               fontWeight: 700,
             }}
           >
@@ -23316,7 +23322,7 @@ Cory`;
     ))}
   </div>
 ) : roundCompanionView === "learner" ? (
-  <div style={{ display: "grid", gap: "8px" }}>
+  <div style={{ display: "grid", gap: "6px" }}>
     {selectedRoundScheduleRows.map((row, index) => (
       <div
         key={`${row.key}-learnerflow`}
@@ -23324,9 +23330,9 @@ Cory`;
           borderRadius: "12px",
           border: commandCenterVisual.rowBorder,
           background: commandCenterVisual.rowBackground,
-          padding: "12px 14px",
+          padding: "8px 10px",
           display: "grid",
-          gap: "8px",
+          gap: "6px",
         }}
       >
         <div
@@ -23357,7 +23363,7 @@ Cory`;
             <span
               style={{
                 color: commandCenterVisual.mutedColor,
-                fontSize: "12px",
+                fontSize: "11px",
                 fontWeight: 700,
               }}
             >
@@ -23392,10 +23398,10 @@ Cory`;
                                           : "0 18px 46px rgba(0,0,0,0.24), 0 0 28px rgba(25, 138, 112, 0.08)",
                                         padding: "14px",
                                         display: "grid",
-                                        gap: "12px",
+                                        gap: "6px",
                                       }}
                                     >
-                                      <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "flex-start" }}>
+                                      <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", flexWrap: "wrap", alignItems: "flex-start" }}>
                                         <div>
                                           <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Announcement Schedule</div>
                                           <div style={{ marginTop: "4px", color: commandCenterVisual.headingColor, fontSize: "20px", fontWeight: 950 }}>
@@ -23427,14 +23433,14 @@ Cory`;
                                       >
                                         {currentAnnouncementText}
                                       </div>
-                                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "8px" }}>
+                                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "6px" }}>
                                         <div style={{ borderRadius: "13px", border: commandCenterVisual.rowBorder, background: commandCenterVisual.rowBackground, padding: "10px 11px" }}>
                                           <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Next</div>
                                           <div style={{ marginTop: "5px", color: commandCenterVisual.textColor, fontWeight: 900 }}>
                                             {nextAnnouncement ? `${nextAnnouncement.phaseLabel} · ${nextAnnouncement.timeLabel}` : "No next announcement"}
                                           </div>
                                           {nextAnnouncementText ? (
-                                            <div style={{ marginTop: "5px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 700, lineHeight: 1.4 }}>
+                                            <div style={{ marginTop: "5px", color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 700, lineHeight: 1.4 }}>
                                               {nextAnnouncementText}
                                             </div>
                                           ) : null}
@@ -23447,7 +23453,7 @@ Cory`;
                                                 {entry.phaseLabel} · {entry.timeLabel}
                                               </span>
                                             )) : (
-                                              <span style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 700 }}>No additional callouts</span>
+                                              <span style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 700 }}>No additional callouts</span>
                                             )}
                                           </div>
                                         </div>
@@ -23464,9 +23470,9 @@ Cory`;
                                         borderRadius: "12px",
                                         border: commandCenterVisual.rowBorder,
                                         background: commandCenterVisual.rowBackground,
-                                        padding: "12px 14px",
+                                        padding: "8px 10px",
                                         display: "grid",
-                                        gap: "8px",
+                                        gap: "6px",
                                       }}
                                     >
                                       <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
@@ -23490,13 +23496,13 @@ Cory`;
                                         <div style={{ color: commandCenterVisual.textColor, fontWeight: 800 }}>{draftValue}</div>
                                       )}
                                       {entry.detail ? (
-                                        <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 700 }}>{entry.detail}</div>
+                                        <div style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 700 }}>{entry.detail}</div>
                                       ) : null}
                                     </div>
                                   );
                                 })}
                                 {canManageRoundAnnouncements ? (
-                                  <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 700 }}>
+                                  <div style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 700 }}>
                                     Announcement edits stay local for now and are ready for future event-level persistence.
                                   </div>
                                 ) : null}
@@ -23508,9 +23514,9 @@ Cory`;
                             )
                           ) : roundCompanionView === "student" ? (
                             selectedRoundLearnerScheduleReady ? (
-                              <div style={{ display: "grid", gap: "8px" }}>
+                              <div style={{ display: "grid", gap: "6px" }}>
                                 {selectedRoundScheduleRows.map((row, index) => (
-                                  <div key={`${row.key}-student`} style={{ borderRadius: "12px", border: commandCenterVisual.rowBorder, background: commandCenterVisual.rowBackground, padding: "12px 14px", display: "grid", gap: "8px" }}>
+                                  <div key={`${row.key}-student`} style={{ borderRadius: "12px", border: commandCenterVisual.rowBorder, background: commandCenterVisual.rowBackground, padding: "8px 10px", display: "grid", gap: "6px" }}>
                                     <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
                                       <div style={{ color: commandCenterVisual.textColor, fontWeight: 900 }}>
                                         {row.roomName || `Room ${index + 1}`}
@@ -23556,18 +23562,18 @@ Cory`;
                                         ))}
                                       </div>
                                     ) : (
-                                      <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 700 }}>
+                                      <div style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 700 }}>
                                         Learner roster not attached for this station.
                                       </div>
                                     )}
                                   </div>
                                 ))}
                                 {visibleSelectedRoundScheduleBlocks.length ? (
-                                  <div style={{ display: "grid", gap: "8px" }}>
+                                  <div style={{ display: "grid", gap: "6px" }}>
                                     {visibleSelectedRoundScheduleBlocks.map((block) => (
                                       <div key={`${selectedRotationRound.key}-student-block-${block.label}`} style={{ borderRadius: "12px", border: commandCenterVisual.rowBorder, background: commandCenterVisual.rowBackground, padding: "10px 12px" }}>
                                         <div style={{ color: commandCenterVisual.textColor, fontWeight: 800 }}>{block.label}</div>
-                                        <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 700 }}>{block.timeLabel || block.detail}</div>
+                                        <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 700 }}>{block.timeLabel || block.detail}</div>
                                       </div>
                                     ))}
                                   </div>
@@ -23580,17 +23586,17 @@ Cory`;
                             )
                           ) : roundCompanionView === "sp" ? (
                             selectedRoundSpScheduleReady ? (
-                              <div style={{ display: "grid", gap: "8px" }}>
+                              <div style={{ display: "grid", gap: "6px" }}>
                                 {selectedRoundScheduleRows.map((row, index) => (
-                                  <div key={`${row.key}-sp`} style={{ borderRadius: "12px", border: commandCenterVisual.rowBorder, background: commandCenterVisual.rowBackground, padding: "12px 14px", display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
+                                  <div key={`${row.key}-sp`} style={{ borderRadius: "12px", border: commandCenterVisual.rowBorder, background: commandCenterVisual.rowBackground, padding: "8px 10px", display: "flex", justifyContent: "space-between", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
                                     <div>
                                       <div style={{ color: commandCenterVisual.textColor, fontWeight: 800 }}>{row.roomName || `Room ${index + 1}`}</div>
-                                      <div style={{ marginTop: "4px", color: commandCenterVisual.textColor, fontSize: "12px", fontWeight: 800, display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                                      <div style={{ marginTop: "4px", color: commandCenterVisual.textColor, fontSize: "11px", fontWeight: 800, display: "inline-flex", alignItems: "center", gap: "6px" }}>
                                         <RoundOperationAvatar name={row.sp ? getFullName(row.sp) : "SP TBD"} role="sp" />
                                         {row.sp ? getFullName(row.sp) : "SP TBD"}
                                       </div>
                                       {row.caseLabel || row.stationLabel ? (
-                                        <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 800 }}>
+                                        <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 800 }}>
                                           {[row.stationLabel, row.caseLabel].filter(Boolean).join(" · ")}
                                         </div>
                                       ) : null}
@@ -23603,11 +23609,11 @@ Cory`;
                                   </div>
                                 ))}
                                 {visibleSelectedRoundScheduleBlocks.length ? (
-                                  <div style={{ display: "grid", gap: "8px" }}>
+                                  <div style={{ display: "grid", gap: "6px" }}>
                                     {visibleSelectedRoundScheduleBlocks.map((block) => (
                                       <div key={`${selectedRotationRound.key}-sp-block-${block.label}`} style={{ borderRadius: "12px", border: commandCenterVisual.rowBorder, background: commandCenterVisual.rowBackground, padding: "10px 12px" }}>
                                         <div style={{ color: commandCenterVisual.textColor, fontWeight: 800 }}>{block.label}</div>
-                                        <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 700 }}>{block.timeLabel || block.detail}</div>
+                                        <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 700 }}>{block.timeLabel || block.detail}</div>
                                       </div>
                                     ))}
                                   </div>
@@ -23620,7 +23626,7 @@ Cory`;
                             )
                           ) : (
                             selectedRoundOperationsScheduleReady ? (
-                              <div style={{ display: "grid", gap: "8px" }}>
+                              <div style={{ display: "grid", gap: "6px" }}>
                                 <section
                                   style={{
                                     borderRadius: "16px",
@@ -23671,7 +23677,7 @@ Cory`;
                                   <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
                                     <div>
                                       <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Backup + Room Controls</div>
-                                      <div style={{ marginTop: "3px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 800 }}>
+                                      <div style={{ marginTop: "3px", color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 800 }}>
                                         {confirmedAssignments.length} primary SPs · {backupAssignments.length} backup SPs · {selectedRoundRoomCount} rooms
                                       </div>
                                     </div>
@@ -23727,21 +23733,21 @@ Cory`;
                                     </div>
                                   </div>
                                   {roundOperationsSaveState === "unsaved" ? (
-                                    <div style={{ color: isPlanningVisualMode ? "#92400e" : "#f3bb67", fontSize: "12px", fontWeight: 850 }}>
+                                    <div style={{ color: isPlanningVisualMode ? "#92400e" : "#f3bb67", fontSize: "11px", fontWeight: 850 }}>
                                       Unsaved round changes. Use Save Round Changes to update Schedule Builder, Viewer, Live Mode, and exports.
                                     </div>
                                   ) : roundOperationsSaveState === "error" && roundOperationsSaveError ? (
-                                    <div style={{ color: staffingWorkspacePalette.dangerText, fontSize: "12px", fontWeight: 850 }}>
+                                    <div style={{ color: staffingWorkspacePalette.dangerText, fontSize: "11px", fontWeight: 850 }}>
                                       {roundOperationsSaveError}
                                     </div>
                                   ) : null}
-                                  <div style={{ display: "grid", gap: "8px", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
+                                  <div style={{ display: "grid", gap: "6px", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
                                     <div style={{ display: "grid", gap: "6px" }}>
                                       <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Primary SPs</div>
                                       {confirmedAssignments.length ? confirmedAssignments.map((assignment) => {
                                         const sp = assignment.sp_id ? spsById.get(assignment.sp_id) : null;
                                         return (
-                                          <div key={`round-primary-${assignment.id}`} style={{ display: "flex", justifyContent: "space-between", gap: "8px", alignItems: "center", color: commandCenterVisual.textColor, fontSize: "12px", fontWeight: 850 }}>
+                                          <div key={`round-primary-${assignment.id}`} style={{ display: "flex", justifyContent: "space-between", gap: "6px", alignItems: "center", color: commandCenterVisual.textColor, fontSize: "11px", fontWeight: 850 }}>
                                             <span>{getFullName(sp || emptySpRow) || "Primary SP"}</span>
                                             <button
                                               type="button"
@@ -23754,7 +23760,7 @@ Cory`;
                                           </div>
                                         );
                                       }) : (
-                                        <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 800 }}>No primary SPs confirmed.</div>
+                                        <div style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 800 }}>No primary SPs confirmed.</div>
                                       )}
                                     </div>
                                     <div style={{ display: "grid", gap: "6px" }}>
@@ -23764,7 +23770,7 @@ Cory`;
                                         const spName = getFullName(sp || emptySpRow) || "Backup SP";
                                         return (
                                           <div key={`round-backup-${assignment.id}`} style={{ display: "grid", gap: "5px", borderRadius: "10px", border: commandCenterVisual.rowBorder, background: isPlanningVisualMode ? "rgba(255,255,255,0.82)" : "rgba(255,255,255,0.06)", padding: "7px" }}>
-                                            <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", alignItems: "center", color: commandCenterVisual.textColor, fontSize: "12px", fontWeight: 900 }}>
+                                            <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", alignItems: "center", color: commandCenterVisual.textColor, fontSize: "11px", fontWeight: 900 }}>
                                               <span>{spName}</span>
                                               <span style={{ ...commandChipStyle, background: commandCenterVisual.activeSoftBackground, color: commandCenterVisual.activeSoftText, border: commandCenterVisual.rowBorder }}>Backup</span>
                                             </div>
@@ -23826,7 +23832,7 @@ Cory`;
                                           </div>
                                         );
                                       }) : (
-                                        <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 800 }}>No backup SPs selected.</div>
+                                        <div style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 800 }}>No backup SPs selected.</div>
                                       )}
                                     </div>
                                   </div>
@@ -23852,11 +23858,11 @@ Cory`;
                                   </div>
                                 ) : null}
                                 {selectedRoundScheduleRows.map((row, index) => (
-                                  <div key={`${row.key}-ops`} style={{ borderRadius: "12px", border: commandCenterVisual.rowBorder, background: commandCenterVisual.rowBackground, padding: "12px 14px", display: "grid", gap: "8px" }}>
-                                    <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
+                                  <div key={`${row.key}-ops`} style={{ borderRadius: "12px", border: commandCenterVisual.rowBorder, background: commandCenterVisual.rowBackground, padding: "8px 10px", display: "grid", gap: "6px" }}>
+                                    <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
                                       <div>
                                         <div style={{ color: commandCenterVisual.textColor, fontWeight: 900 }}>{row.roomName || `Room ${index + 1}`}</div>
-                                        <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 800 }}>
+                                        <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 800 }}>
                                           {[row.stationLabel, row.caseLabel].filter(Boolean).join(" · ") || "Case not assigned"}
                                         </div>
                                       </div>
@@ -23873,10 +23879,10 @@ Cory`;
                                         ) : null}
                                       </div>
                                     </div>
-                                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: "8px" }}>
+                                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: "6px" }}>
                                       <div>
                                         <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Learner</div>
-                                        <div style={{ color: commandCenterVisual.textColor, fontWeight: 800, fontSize: "13px", display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                                        <div style={{ color: commandCenterVisual.textColor, fontWeight: 800, fontSize: "13px", display: "flex", gap: "6px", flexWrap: "wrap" }}>
                                           {row.learnerLabels.length ? (
                                             row.learnerLabels.map((learner, learnerIndex) => (
                                               <span
@@ -23899,7 +23905,7 @@ Cory`;
                                           {row.sp ? getFullName(row.sp) : "SP TBD"}
                                         </div>
                                         {row.backupSpName ? (
-                                          <div style={{ marginTop: "6px", color: commandCenterVisual.textColor, fontSize: "12px", fontWeight: 900, display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+                                          <div style={{ marginTop: "6px", color: commandCenterVisual.textColor, fontSize: "11px", fontWeight: 900, display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
                                             <span style={{ ...commandChipStyle, background: commandCenterVisual.activeSoftBackground, color: commandCenterVisual.activeSoftText, border: commandCenterVisual.rowBorder, padding: "3px 7px", fontSize: "10px" }}>
                                               Backup
                                             </span>
@@ -23928,7 +23934,7 @@ Cory`;
                                     <div
                                       style={{
                                         display: "grid",
-                                        gap: "8px",
+                                        gap: "6px",
                                         gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
                                         borderTop: commandCenterVisual.rowBorder,
                                         paddingTop: "8px",
@@ -24083,11 +24089,11 @@ Cory`;
                                   </div>
                                 ))}
                                 {visibleSelectedRoundScheduleBlocks.length ? (
-                                  <div style={{ display: "grid", gap: "8px" }}>
+                                  <div style={{ display: "grid", gap: "6px" }}>
                                     {visibleSelectedRoundScheduleBlocks.map((block) => (
                                       <div key={`${selectedRotationRound.key}-ops-block-${block.label}`} style={{ borderRadius: "12px", border: commandCenterVisual.rowBorder, background: commandCenterVisual.rowBackground, padding: "10px 12px" }}>
                                         <div style={{ color: commandCenterVisual.textColor, fontWeight: 800 }}>{block.label}</div>
-                                        <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 700 }}>{block.timeLabel || block.detail}</div>
+                                        <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 700 }}>{block.timeLabel || block.detail}</div>
                                       </div>
                                     ))}
                                   </div>
@@ -24097,7 +24103,7 @@ Cory`;
                                     <div style={{ color: commandCenterVisual.textColor, fontWeight: 800 }}>Operations reminders</div>
                                     <div style={{ marginTop: "6px", display: "grid", gap: "6px" }}>
                                       {selectedRoundOperationsNotes.slice(0, 3).map((note, index) => (
-                                        <div key={`${selectedRotationRound.key}-ops-note-${index}`} style={{ color: "#f7d9a2", fontSize: "12px", fontWeight: 700 }}>
+                                        <div key={`${selectedRotationRound.key}-ops-note-${index}`} style={{ color: "#f7d9a2", fontSize: "11px", fontWeight: 700 }}>
                                           {note}
                                         </div>
                                       ))}
@@ -24139,7 +24145,7 @@ Cory`;
               boxShadow: facultyCoordinationComplete ? operationalReadinessGoldTone.glow : isPlanningVisualMode ? "0 12px 28px rgba(42, 112, 140, 0.08)" : "0 16px 32px rgba(8, 20, 34, 0.28)",
             }}
           >
-            <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
               <div>
                 <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Faculty / Contact</div>
                 <div style={{ marginTop: "4px", color: commandCenterVisual.headingColor, fontSize: "18px", fontWeight: 950 }}>
@@ -24151,7 +24157,7 @@ Cory`;
                   </div>
                 ) : null}
               </div>
-              <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+              <div style={{ display: "flex", gap: "6px", alignItems: "center", flexWrap: "wrap" }}>
                 <span
                   style={{
                     ...commandChipStyle,
@@ -24271,7 +24277,7 @@ Cory`;
               <div
                 style={{
                   display: "grid",
-                  gap: "8px",
+                  gap: "6px",
                   marginTop: "12px",
                   gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
                 }}
@@ -24291,7 +24297,7 @@ Cory`;
                     }}
                   >
                     <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>{item.label}</div>
-                    <div style={{ ...statValue, marginTop: "8px", color: commandCenterVisual.textColor, fontSize: "15px", lineHeight: 1.3, fontWeight: 900 }}>
+                    <div style={{ ...statValue, marginTop: "4px", color: commandCenterVisual.textColor, fontSize: "15px", lineHeight: 1.3, fontWeight: 900 }}>
                       {item.value}
                     </div>
                   </div>
@@ -24318,7 +24324,7 @@ Cory`;
       >
         <summary style={{ cursor: "pointer", color: commandCenterVisual.headingColor, fontWeight: 950, fontSize: "20px" }}>
           Training & Prep
-          <span style={{ marginLeft: "10px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 800 }}>
+          <span style={{ marginLeft: "10px", color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 800 }}>
             {normalEventTrainingStatusLabel} · {embeddedTrainingMetadataSourceLabel}
           </span>
         </summary>
@@ -24337,7 +24343,7 @@ Cory`;
                 style={{
                   display: "flex",
                   justifyContent: "space-between",
-                  gap: "12px",
+                  gap: "6px",
                   flexWrap: "wrap",
                   alignItems: "flex-start",
                 }}
@@ -24560,7 +24566,7 @@ Cory`;
                   style={{
                     display: "flex",
                     justifyContent: "space-between",
-                    gap: "12px",
+                    gap: "6px",
                     flexWrap: "wrap",
                     alignItems: "flex-start",
                     position: "relative",
@@ -24569,7 +24575,7 @@ Cory`;
                   <div>
                     <div
                       style={{
-                        fontSize: "12px",
+                        fontSize: "11px",
                         color: "rgba(167, 139, 250, 0.85)",
                         letterSpacing: "0.08em",
                         textTransform: "uppercase",
@@ -24628,7 +24634,7 @@ Cory`;
                       >
                         <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "flex-start" }}>
                           <div>
-                            <div style={{ color: "#f2f4ff", fontWeight: 900, fontSize: "16px" }}>{material.title}</div>
+                            <div style={{ color: "#f2f4ff", fontWeight: 900, fontSize: "14px" }}>{material.title}</div>
                             <div style={{ marginTop: "4px", color: "#c9d0df", fontWeight: 700, fontSize: "13px", lineHeight: 1.45 }}>
                               {displayName}
                             </div>
@@ -24641,7 +24647,7 @@ Cory`;
                             {materialHasFile ? "Ready" : "Missing"}
                           </span>
                         </div>
-                        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "12px" }}>
+                        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "12px" }}>
                           {material.kind === "case_file" ? (
                             materialCaseEntries.length ? (
                               <div style={{ display: "grid", gap: "7px", width: "100%" }}>
@@ -24664,7 +24670,7 @@ Cory`;
                                         gap: "7px",
                                       }}
                                     >
-                                      <div style={{ color: "#dbeafe", fontSize: "12px", fontWeight: 900 }}>
+                                      <div style={{ color: "#dbeafe", fontSize: "11px", fontWeight: 900 }}>
                                         Case {caseIndex + 1}: {caseEntry.name || "Untitled case"}
                                       </div>
                                       <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
@@ -24811,7 +24817,7 @@ Cory`;
                   >
                     <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "flex-start" }}>
                       <div>
-                        <div style={{ color: "#f2f4ff", fontWeight: 900, fontSize: "16px" }}>Recording Guide</div>
+                        <div style={{ color: "#f2f4ff", fontWeight: 900, fontSize: "14px" }}>Recording Guide</div>
                         <div style={{ marginTop: "4px", color: "#c9d0df", fontWeight: 700, fontSize: "13px", lineHeight: 1.45 }}>
                           {trainingMetadata.recording_url ? getFilenameFromUrl(trainingMetadata.recording_url) || "Recording link ready" : "No recording guide linked"}
                         </div>
@@ -24824,7 +24830,7 @@ Cory`;
                         {trainingMetadata.recording_url ? "Ready" : "Missing"}
                       </span>
                     </div>
-                    <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "12px" }}>
+                    <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "12px" }}>
                       <button
                         type="button"
                         onClick={() =>
@@ -24888,7 +24894,7 @@ Cory`;
                       </button>
                     </div>
                     {showRecordingGuideEditor ? (
-                      <div style={{ display: "grid", gap: "8px", marginTop: "12px" }}>
+                      <div style={{ display: "grid", gap: "6px", marginTop: "12px" }}>
                         <input
                           value={trainingMetadata.recording_url}
                           onChange={(event) => handleTrainingMetadataChange("recording_url", event.target.value)}
@@ -24928,7 +24934,7 @@ Cory`;
                     }}
                   >
                     <div style={{ ...statLabel, color: "#d8def1" }}>Training Notes</div>
-                    <div style={{ marginTop: "8px", color: "#f8fbff", fontSize: "15px", lineHeight: 1.45, fontWeight: 800 }}>
+                    <div style={{ marginTop: "4px", color: "#f8fbff", fontSize: "15px", lineHeight: 1.45, fontWeight: 800 }}>
                       {trainingMetadata.training_notes || "No training notes added"}
                     </div>
                   </div>
@@ -24968,7 +24974,7 @@ Cory`;
               <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 900, fontSize: "20px" }}>
                 Communication
               </summary>
-              <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "flex-start", marginTop: "10px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", flexWrap: "wrap", alignItems: "flex-start", marginTop: "10px" }}>
                 <div>
                   <h2 id="communication-center" style={compactSectionTitleStyle}>Communication</h2>
                   <p style={compactSectionHintStyle}>
@@ -24995,7 +25001,7 @@ Cory`;
                         padding: "10px 12px",
                         background: isReady ? "rgba(16, 185, 129, 0.04)" : "var(--cfsp-surface-muted)",
                         display: "grid",
-                        gap: "8px",
+                        gap: "6px",
                       }}
                     >
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px" }}>
@@ -25020,7 +25026,7 @@ Cory`;
                       <p style={{ margin: 0, color: "var(--cfsp-text-muted)", fontSize: "13px", lineHeight: 1.4 }}>
                         {card.description}
                       </p>
-                      <div style={{ display: "flex", gap: "8px" }}>
+                      <div style={{ display: "flex", gap: "6px" }}>
                         <button
                           type="button"
                           onClick={() => {
@@ -25046,12 +25052,12 @@ Cory`;
               <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 900, fontSize: "20px" }}>
                 Advanced Event Details
               </summary>
-              <div style={{ marginTop: "12px", display: "grid", gap: "12px" }}>
+              <div style={{ marginTop: "12px", display: "grid", gap: "6px" }}>
                 <div
                   style={{
                     display: "flex",
                     justifyContent: "space-between",
-                    gap: "12px",
+                    gap: "6px",
                     flexWrap: "wrap",
                     alignItems: "flex-start",
                   }}
@@ -25111,9 +25117,9 @@ Cory`;
                       style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
                     />
                   </label>
-                  <div style={{ display: "grid", gap: "8px", gridColumn: "1 / -1" }}>
+                  <div style={{ display: "grid", gap: "6px", gridColumn: "1 / -1" }}>
                     <span style={statLabel}>Event Type / Category</span>
-                    <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                    <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                       {(Object.keys(editableEventTypeLabels) as EditableEventType[]).map((type) => (
                         <button
                           key={type}
@@ -25217,10 +25223,10 @@ Cory`;
                       padding: "10px 12px",
                       background: "rgba(20, 91, 150, 0.05)",
                       display: "grid",
-                      gap: "8px",
+                      gap: "6px",
                     }}
                   >
-                    <div style={{ ...statLabel, fontSize: "12px", color: "#145b96" }}>Event Recording Controls</div>
+                    <div style={{ ...statLabel, fontSize: "11px", color: "#145b96" }}>Event Recording Controls</div>
                     <label style={{ display: "grid", gap: "6px" }}>
                       <span style={statLabel}>Recording Enabled</span>
                       <select
@@ -25393,20 +25399,20 @@ Cory`;
                   style={{
                     border: "1px solid rgba(99, 181, 217, 0.18)",
                     borderRadius: "16px",
-                    padding: "12px 14px",
+                    padding: "8px 10px",
                     background: "var(--cfsp-surface-muted)",
                     display: "grid",
-                    gap: "12px",
+                    gap: "6px",
                   }}
                 >
                   <div>
                     <div style={statLabel}>Operational Metadata Controls</div>
-                    <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 700 }}>
+                    <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 700 }}>
                       These controls feed the Planning Mode operational windows and keep admin edits tied to the same metadata source.
                     </div>
                   </div>
 
-                  <div style={{ display: "grid", gap: "8px", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
+                  <div style={{ display: "grid", gap: "6px", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
                     {[
                       { key: "av_support_required" as const, label: "AV support required" },
                       { key: "sim_tech_required" as const, label: "Sim tech required" },
@@ -25417,7 +25423,7 @@ Cory`;
                         style={{
                           display: "flex",
                           alignItems: "center",
-                          gap: "8px",
+                          gap: "6px",
                           borderRadius: "12px",
                           border: "1px solid rgba(99, 181, 217, 0.14)",
                           background: "rgba(255,255,255,0.76)",
@@ -25440,7 +25446,7 @@ Cory`;
                     ))}
                   </div>
 
-                  <div style={{ display: "grid", gap: "8px", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
+                  <div style={{ display: "grid", gap: "6px", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
                     <label style={{ display: "grid", gap: "6px" }}>
                       <span style={statLabel}>Faculty coordination status</span>
                       <select
@@ -25475,7 +25481,7 @@ Cory`;
                     </label>
                   </div>
 
-                  <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                  <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
                     {eventMaterialUrl ? (
                       <button
                         type="button"
@@ -25566,7 +25572,7 @@ Cory`;
                       onChange={(event) => void handleTrainingWorkbookImport(event.target.files?.[0] || null)}
                       style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
                     />
-                    <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 700 }}>
+                    <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 700 }}>
                       Reads title from `B1`, SP emails from `B16:B35`, SP names from `C16:C35`, and faculty from column `G`.
                     </div>
                     {trainingImporting ? (
@@ -25581,9 +25587,9 @@ Cory`;
                           border: "1px solid var(--cfsp-border)",
                           borderRadius: "12px",
                           background: "var(--cfsp-surface)",
-                          padding: "12px 14px",
+                          padding: "8px 10px",
                           display: "grid",
-                          gap: "8px",
+                          gap: "6px",
                         }}
                       >
                         <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>
@@ -25637,7 +25643,7 @@ Cory`;
                 style={{
                   display: "flex",
                   justifyContent: "space-between",
-                  gap: "12px",
+                  gap: "6px",
                   flexWrap: "wrap",
                   alignItems: "flex-start",
                 }}
@@ -25656,7 +25662,7 @@ Cory`;
                     border: "1px solid rgba(120, 180, 255, 0.22)",
                     color: "var(--cfsp-blue)",
                     fontWeight: 900,
-                    fontSize: "12px",
+                    fontSize: "11px",
                   }}
                 >
                   {assignedBccEmails.length} email{assignedBccEmails.length === 1 ? "" : "s"} ready
@@ -25683,7 +25689,7 @@ Cory`;
 
               <div style={{ display: "grid", gap: "10px", marginTop: "14px" }}>
                 <div style={statLabel}>Quick Select SP</div>
-                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
                   <select
                     value={selectedSpId}
                     onChange={(e) => setSelectedSpId(e.target.value)}
@@ -25732,7 +25738,7 @@ Cory`;
                 </div>
               ) : null}
 
-              <div style={{ display: "grid", gap: "8px", marginTop: "14px" }}>
+              <div style={{ display: "grid", gap: "6px", marginTop: "14px" }}>
                 {sortedAssignments.length === 0 ? (
                   <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
                     No SPs assigned to this training yet.
@@ -25766,18 +25772,18 @@ Cory`;
                             {sp ? getEmail(sp) || sp.phone || "No contact details" : assignment.sp_id || "No SP id"}
                           </div>
                           {canManageTrainingAttendance && assignment.training_attended && checkedAt ? (
-                            <div style={{ marginTop: "4px", color: "var(--cfsp-green)", fontSize: "12px", fontWeight: 800 }}>
+                            <div style={{ marginTop: "4px", color: "var(--cfsp-green)", fontSize: "11px", fontWeight: 800 }}>
                               Checked in {checkedAt}
                             </div>
                           ) : null}
                         </div>
-                        <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+                        <div style={{ display: "flex", gap: "6px", alignItems: "center", flexWrap: "wrap" }}>
                           {canManageTrainingAttendance ? (
                             <label
                               style={{
                                 display: "inline-flex",
                                 alignItems: "center",
-                                gap: "8px",
+                                gap: "6px",
                                 borderRadius: "999px",
                                 padding: "6px 10px",
                                 background: assignment.training_attended ? "var(--cfsp-green-soft)" : "rgba(168, 183, 204, 0.12)",
@@ -25785,7 +25791,7 @@ Cory`;
                                   ? "1px solid rgba(25, 138, 112, 0.24)"
                                   : "1px solid var(--cfsp-border)",
                                 color: assignment.training_attended ? "var(--cfsp-green)" : "var(--cfsp-text-muted)",
-                                fontSize: "12px",
+                                fontSize: "11px",
                                 fontWeight: 900,
                                 cursor:
                                   attendanceSaving || trainingAttendanceFieldsMissing || !isTrainingAttendanceInteractive
@@ -25921,7 +25927,7 @@ Cory`;
           style={{
             display: "flex",
             justifyContent: "space-between",
-            gap: "12px",
+            gap: "6px",
             flexWrap: "wrap",
             alignItems: "flex-start",
           }}
@@ -25959,7 +25965,7 @@ Cory`;
               <div style={{ ...statValue, color: coverageStatus.color }}>
                 {isTrainingMode ? "Training workflow active" : coverageStatus.message}
               </div>
-              <div style={{ marginTop: "2px", color: "var(--cfsp-text-muted)", fontWeight: 700, fontSize: "12px" }}>
+              <div style={{ marginTop: "2px", color: "var(--cfsp-text-muted)", fontWeight: 700, fontSize: "11px" }}>
                 {isTrainingMode
                   ? `${selectedStaffingCount} selected SP${selectedStaffingCount === 1 ? "" : "s"} · Rotation schedule ${
                       rotationScheduleBuilt ? "built" : "not built"
@@ -26023,9 +26029,9 @@ Cory`;
                 />
               </label>
 
-              <div style={{ display: "grid", gap: "8px", gridColumn: "1 / -1" }}>
+              <div style={{ display: "grid", gap: "6px", gridColumn: "1 / -1" }}>
                 <span style={statLabel}>Event Type / Category</span>
-                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                   {(Object.keys(editableEventTypeLabels) as EditableEventType[]).map((type) => (
                     <button
                       key={type}
@@ -26041,7 +26047,7 @@ Cory`;
                     </button>
                   ))}
                 </div>
-                <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 700 }}>
+                <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 700 }}>
                   Toggle one or more categories here, then save event details to keep badges and workflows aligned.
                 </div>
               </div>
@@ -26113,10 +26119,10 @@ Cory`;
                   padding: "10px 12px",
                   background: "rgba(20, 91, 150, 0.05)",
                   display: "grid",
-                  gap: "8px",
+                  gap: "6px",
                 }}
               >
-                <div style={{ ...statLabel, fontSize: "12px", color: "#145b96" }}>Event Recording Controls</div>
+                <div style={{ ...statLabel, fontSize: "11px", color: "#145b96" }}>Event Recording Controls</div>
                 <label style={{ display: "grid", gap: "6px" }}>
                   <span style={statLabel}>Recording Enabled</span>
                   <select
@@ -26225,21 +26231,21 @@ Cory`;
                   gridColumn: "1 / -1",
                   border: "1px solid rgba(99, 181, 217, 0.18)",
                   borderRadius: "16px",
-                  padding: "12px 14px",
+                  padding: "8px 10px",
                   background: "var(--cfsp-surface-muted)",
                   display: "grid",
-                  gap: "12px",
+                  gap: "6px",
                   outline: "none",
                 }}
               >
                 <div>
                   <div style={statLabel}>Operational Support Settings</div>
-                  <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 700 }}>
+                  <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 700 }}>
                     These saved metadata toggles drive the Operations & Support window. Turn off imported or inferred needs when they do not apply.
                   </div>
                 </div>
 
-                <div style={{ display: "grid", gap: "8px", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))" }}>
+                <div style={{ display: "grid", gap: "6px", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))" }}>
                   {[
                     { key: "av_support_required" as const, label: "AV support required", checked: operationalSupportSettings.avSupportRequired },
                     { key: "sim_tech_required" as const, label: "Sim tech required", checked: operationalSupportSettings.simTechRequired },
@@ -26252,7 +26258,7 @@ Cory`;
                       style={{
                         display: "flex",
                         alignItems: "center",
-                        gap: "8px",
+                        gap: "6px",
                         borderRadius: "12px",
                         border: "1px solid rgba(99, 181, 217, 0.14)",
                         background: "rgba(255,255,255,0.78)",
@@ -26396,10 +26402,10 @@ Cory`;
                       gridColumn: "1 / -1",
                       border: "1px solid rgba(20, 91, 150, 0.16)",
                       borderRadius: "16px",
-                      padding: "12px 14px",
+                      padding: "8px 10px",
                       background: "rgba(20, 91, 150, 0.05)",
                       display: "grid",
-                      gap: "12px",
+                      gap: "6px",
                     }}
                   >
                     <div>
@@ -26503,7 +26509,7 @@ Cory`;
                       </button>
                     </div>
                     {caseFileEntries.length ? (
-                      <div style={{ display: "grid", gap: "8px" }}>
+                      <div style={{ display: "grid", gap: "6px" }}>
                         {caseFileEntries.map((caseEntry, caseIndex) => {
                           const assetUrls = buildTrainingMaterialAssetUrls({
                             eventId: id,
@@ -26533,7 +26539,7 @@ Cory`;
                                     onBlur={(event) => void handleSaveCaseManagerEntry(caseIndex, { name: event.target.value }, "Case title saved.")}
                                     disabled={trainingMaterialSaving.case_file}
                                     placeholder={`Case ${caseIndex + 1}`}
-                                    style={{ ...inputStyle, width: "100%", boxSizing: "border-box", padding: "7px 9px", fontSize: "12px" }}
+                                    style={{ ...inputStyle, width: "100%", boxSizing: "border-box", padding: "7px 9px", fontSize: "11px" }}
                                   />
                                 </label>
                                 <div style={{ marginTop: "3px", color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 750, overflowWrap: "anywhere" }}>
@@ -26582,7 +26588,7 @@ Cory`;
                                   gridColumn: "1 / -1",
                                   display: "grid",
                                   gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))",
-                                  gap: "8px",
+                                  gap: "6px",
                                 }}
                               >
                                 <label style={{ display: "grid", gap: "4px" }}>
@@ -26741,7 +26747,7 @@ Cory`;
           style={{
             display: "flex",
             justifyContent: "space-between",
-            gap: "12px",
+            gap: "6px",
             flexWrap: "wrap",
             alignItems: "flex-start",
           }}
@@ -26765,7 +26771,7 @@ Cory`;
               <div
                 style={{
                   display: "grid",
-                  gap: "8px",
+                  gap: "6px",
                   minWidth: "220px",
                   border: "1px solid var(--cfsp-border)",
                   borderRadius: "16px",
@@ -26825,7 +26831,7 @@ Cory`;
               <div
                 style={{
                   display: "grid",
-                  gap: "8px",
+                  gap: "6px",
                   minWidth: "200px",
                   border: "1px solid var(--cfsp-border)",
                   borderRadius: "16px",
@@ -26880,16 +26886,16 @@ Cory`;
         {showEmailDraft ? (
           <div style={{ ...statCard, marginTop: "12px" }}>
             <div style={statLabel}>Email Draft Preview</div>
-            <div style={{ marginTop: "8px", color: "var(--cfsp-text)", lineHeight: 1.7 }}>
+            <div style={{ marginTop: "4px", color: "var(--cfsp-text)", lineHeight: 1.7 }}>
               <div><strong>Recipients (BCC):</strong> {hiringEmailBccEmails.length ? hiringEmailBccEmails.join(", ") : "No selected staffing or matched candidate SP emails found."}</div>
               <div><strong>Recipient set:</strong> {hiringEmailRecipientMode}</div>
-              <div style={{ marginTop: "8px" }}><strong>Subject:</strong> {emailSubject}</div>
-              <div style={{ marginTop: "8px", whiteSpace: "pre-wrap" }}><strong>Body:</strong>{"\n"}{emailBody}</div>
+              <div style={{ marginTop: "4px" }}><strong>Subject:</strong> {emailSubject}</div>
+              <div style={{ marginTop: "4px", whiteSpace: "pre-wrap" }}><strong>Body:</strong>{"\n"}{emailBody}</div>
             </div>
           </div>
         ) : null}
 
-        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "12px" }}>
+        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "12px" }}>
           {[
             { value: "all", label: `All (${sortedAssignments.length})` },
             {
@@ -26948,7 +26954,7 @@ Cory`;
           <div
             style={{
               display: "grid",
-              gap: "12px",
+              gap: "6px",
               marginTop: "12px",
               gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
             }}
@@ -26966,7 +26972,7 @@ Cory`;
                   style={{
                     border: "1px solid var(--cfsp-border)",
                     borderRadius: "16px",
-                    padding: "12px 14px",
+                    padding: "8px 10px",
                     background: "var(--cfsp-surface)",
                     boxShadow: isRecentlyAssigned
                       ? "0 0 0 4px rgba(25, 138, 112, 0.18), 0 16px 34px rgba(0, 0, 0, 0.4)"
@@ -26997,7 +27003,7 @@ Cory`;
                           <div>{email || assignment.sp_id || "No SP id"}</div>
                           <div>{sp?.phone || "No phone on file"}</div>
                           {canManageTrainingAttendance && assignment.training_attended && checkedAt ? (
-                            <div style={{ color: "var(--cfsp-green)", fontSize: "12px", fontWeight: 800 }}>
+                            <div style={{ color: "var(--cfsp-green)", fontSize: "11px", fontWeight: 800 }}>
                               Checked in {checkedAt}
                             </div>
                           ) : null}
@@ -27041,7 +27047,7 @@ Cory`;
                               ? "1px solid rgba(25, 138, 112, 0.24)"
                               : "1px solid var(--cfsp-border)",
                             color: assignment.training_attended ? "var(--cfsp-green)" : "var(--cfsp-text-muted)",
-                            fontSize: "12px",
+                            fontSize: "11px",
                             fontWeight: 900,
                             cursor:
                               attendanceSaving || trainingAttendanceFieldsMissing || !isTrainingAttendanceInteractive
@@ -27150,7 +27156,7 @@ Cory`;
           style={{
             display: "flex",
             justifyContent: "space-between",
-            gap: "12px",
+            gap: "6px",
             flexWrap: "wrap",
             alignItems: "center",
           }}
@@ -27163,7 +27169,7 @@ Cory`;
                 : "Suggested-SP workflow stays available if HiFi staffing becomes relevant."}
             </p>
           </div>
-          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
             <button
               type="button"
               onClick={() => void handleFillRemainingSpots()}
@@ -27211,7 +27217,7 @@ Cory`;
             <div
               style={{
                 borderRadius: "14px",
-                padding: "12px 14px",
+                padding: "8px 10px",
                 background: "var(--cfsp-green-soft)",
                 border: "1px solid rgba(25, 138, 112, 0.24)",
                 color: "var(--cfsp-green)",
@@ -27225,7 +27231,7 @@ Cory`;
           <div
             style={{
               borderRadius: "14px",
-              padding: "12px 14px",
+              padding: "8px 10px",
               background: coverageStatus.background,
               border: coverageStatus.border,
               color: coverageStatus.color,
@@ -27238,7 +27244,7 @@ Cory`;
           </div>
 
           {staffingRelevant ? (
-            <div style={{ ...statCard, display: "grid", gap: "12px" }}>
+            <div style={{ ...statCard, display: "grid", gap: "6px" }}>
               <div
                 style={{
                   display: "grid",
@@ -27271,7 +27277,7 @@ Cory`;
                 <div
                   style={{
                     borderRadius: "14px",
-                    padding: "12px 14px",
+                    padding: "8px 10px",
                     background:
                       coverageRiskTone === "green"
                         ? "var(--cfsp-green-soft)"
@@ -27298,7 +27304,7 @@ Cory`;
                   </div>
                   <div style={{ marginTop: "4px", fontWeight: 700 }}>{staffingHealthLabel}</div>
                 </div>
-                <div style={{ ...statCard, padding: "12px 14px", background: "var(--cfsp-surface)" }}>
+                <div style={{ ...statCard, padding: "8px 10px", background: "var(--cfsp-surface)" }}>
                   <div style={statLabel}>Operational Staffing</div>
                   <div style={{ marginTop: "4px", color: "var(--cfsp-text)", fontWeight: 800 }}>
                     {confirmedCount >= needed
@@ -27322,11 +27328,11 @@ Cory`;
                 <div
                   style={{
                     borderRadius: "14px",
-                    padding: "12px 14px",
+                    padding: "8px 10px",
                     background: "var(--cfsp-surface)",
                     border: "1px solid rgba(20, 91, 150, 0.2)",
                     display: "grid",
-                    gap: "12px",
+                    gap: "6px",
                   }}
                 >
                   <div
@@ -27340,14 +27346,14 @@ Cory`;
                   >
                     <div>
                       <div style={{ ...statLabel, color: "var(--cfsp-blue)" }}>Find SPs to Poll</div>
-                      <div style={{ marginTop: "4px", color: "var(--cfsp-text)", fontSize: "16px", fontWeight: 900 }}>
+                      <div style={{ marginTop: "4px", color: "var(--cfsp-text)", fontSize: "14px", fontWeight: 900 }}>
                         Recommended SPs to poll before staffing
                       </div>
-                      <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontWeight: 700, fontSize: "12px" }}>
+                      <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontWeight: 700, fontSize: "11px" }}>
                         Match candidates by location fit, contact readiness, activity, and existing response signals before sending the poll.
                       </div>
                     </div>
-                    <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                    <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                       <button
                         type="button"
                         onClick={handleAddRecommendedToPoll}
@@ -27405,7 +27411,7 @@ Cory`;
                         style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
                       />
                     </label>
-                    <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "end" }}>
+                    <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "end" }}>
                       {[
                         { label: "Active only", active: pollMatchActiveOnly, toggle: () => setPollMatchActiveOnly((current) => !current) },
                         { label: "Email ready only", active: pollMatchEmailReadyOnly, toggle: () => setPollMatchEmailReadyOnly((current) => !current) },
@@ -27445,7 +27451,7 @@ Cory`;
                         background: "rgba(20, 91, 150, 0.06)",
                         padding: "12px",
                         display: "grid",
-                        gap: "8px",
+                        gap: "6px",
                       }}
                     >
                       <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>
@@ -27486,19 +27492,19 @@ Cory`;
                                     </span>
                                   ))
                                 : (
-                                  <span style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 700 }}>
+                                  <span style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 700 }}>
                                     General candidate match
                                   </span>
                                 )}
                             </div>
-                            <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700, fontSize: "12px" }}>
+                            <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700, fontSize: "11px" }}>
                               {entry.email || "No email on file"}
                               {entry.selected ? " · In current poll selection" : ""}
                             </div>
                           </div>
                         ))
                       ) : (
-                        <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700, fontSize: "12px" }}>
+                        <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700, fontSize: "11px" }}>
                           No SPs match the current pre-poll filters.
                         </div>
                       )}
@@ -27511,23 +27517,23 @@ Cory`;
                         background: "var(--cfsp-surface)",
                         padding: "12px",
                         display: "grid",
-                        gap: "8px",
+                        gap: "6px",
                       }}
                     >
                       <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>
                         Filtered Candidate Pool ({pollMatchEntries.length})
                       </div>
-                      <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700, fontSize: "12px" }}>
+                      <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700, fontSize: "11px" }}>
                         Candidates update instantly from the filters above and feed directly into the poll selection.
                       </div>
-                      <div style={{ display: "grid", gap: "8px" }}>
+                      <div style={{ display: "grid", gap: "6px" }}>
                         {pollMatchEntries.slice(0, 8).map((entry) => (
                           <div
                             key={`poll-filter-${entry.sp.id}`}
                             style={{
                               display: "grid",
                               gridTemplateColumns: "minmax(0, 1fr) auto",
-                              gap: "8px",
+                              gap: "6px",
                               alignItems: "center",
                               borderRadius: "12px",
                               border: "1px solid var(--cfsp-border)",
@@ -27539,7 +27545,7 @@ Cory`;
                               <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>
                                 {getFullName(entry.sp)}
                               </div>
-                              <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontWeight: 700, fontSize: "12px" }}>
+                              <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontWeight: 700, fontSize: "11px" }}>
                                 {entry.email || "No email on file"}
                               </div>
                             </div>
@@ -27563,11 +27569,11 @@ Cory`;
                 <div
                   style={{
                     borderRadius: "14px",
-                    padding: "12px 14px",
+                    padding: "8px 10px",
                     background: "var(--cfsp-surface)",
                     border: "1px solid rgba(61, 201, 184, 0.24)",
                     display: "grid",
-                    gap: "12px",
+                    gap: "6px",
                   }}
                 >
                   <div
@@ -27581,10 +27587,10 @@ Cory`;
                   >
                     <div>
                       <div style={{ ...statLabel, color: "#7ee7db" }}>SP Match Maker</div>
-                      <div style={{ marginTop: "4px", color: "var(--cfsp-text)", fontSize: "16px", fontWeight: 900 }}>
+                      <div style={{ marginTop: "4px", color: "var(--cfsp-text)", fontSize: "14px", fontWeight: 900 }}>
                         Ranked staffing recommendations
                       </div>
-                      <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontWeight: 700, fontSize: "12px" }}>
+                      <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontWeight: 700, fontSize: "11px" }}>
                         Confirmed responders rank first, followed by Available, Maybe, No response, and Avoid.
                       </div>
                     </div>
@@ -27628,7 +27634,7 @@ Cory`;
                           background: section.tone,
                           border: section.border,
                           display: "grid",
-                          gap: "8px",
+                          gap: "6px",
                         }}
                       >
                         <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>{section.title}</div>
@@ -27719,7 +27725,7 @@ Cory`;
                             </div>
                           ))
                         ) : (
-                          <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700, fontSize: "12px" }}>
+                          <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700, fontSize: "11px" }}>
                             {section.empty}
                           </div>
                         )}
@@ -27729,7 +27735,7 @@ Cory`;
                 </div>
               ) : null}
 
-              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+              <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                 <button
                   type="button"
                   onClick={handleClearSuggestedAssignments}
@@ -27744,7 +27750,7 @@ Cory`;
                 </button>
               </div>
 
-              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+              <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                 {[
                   { value: "all", label: `All (${pollResponderEntries.length})` },
                   { value: "available", label: `Available only (${availablePollResponders.length})` },
@@ -27772,7 +27778,7 @@ Cory`;
                 ))}
               </div>
 
-              <div style={{ display: "grid", gap: "8px" }}>
+              <div style={{ display: "grid", gap: "6px" }}>
                 {suggestedAssignmentRows.length === 0 ? (
                   <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
                     No responders match this staffing filter yet.
@@ -27838,7 +27844,7 @@ Cory`;
                               </span>
                             ) : null}
                           </div>
-                          <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontWeight: 700, fontSize: "12px" }}>
+                          <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontWeight: 700, fontSize: "11px" }}>
                             {entry.isAssigned
                               ? entry.isConfirmed
                                 ? "Already confirmed for this event."
@@ -27860,7 +27866,7 @@ Cory`;
                             {assigningSpId === entry.sp.id ? "Assigning..." : "Assign"}
                           </button>
                         ) : (
-                          <span style={{ color: "var(--cfsp-text-muted)", fontWeight: 800, fontSize: "12px" }}>
+                          <span style={{ color: "var(--cfsp-text-muted)", fontWeight: 800, fontSize: "11px" }}>
                             {entry.isAssigned ? "Assigned" : "Do not assign"}
                           </span>
                         )}
@@ -27881,7 +27887,7 @@ Cory`;
               background: "rgba(120, 180, 255, 0.08)",
             }}
           >
-            <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
               <div>
                 <div style={{ ...statLabel, color: "var(--cfsp-text)" }}>Candidate SP Pool</div>
                 <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
@@ -27898,7 +27904,7 @@ Cory`;
             </div>
 
             {showCandidatePool ? (
-              <div style={{ display: "grid", gap: "12px", marginTop: "14px" }}>
+              <div style={{ display: "grid", gap: "6px", marginTop: "14px" }}>
                 <input
                   value={candidateQuery}
                   onChange={(event) => setCandidateQuery(event.target.value)}
@@ -27930,7 +27936,7 @@ Cory`;
                   ))}
                 </div>
 
-                <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
+                <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
                   <select
                     value={selectedSpId}
                     onChange={(e) => setSelectedSpId(e.target.value)}
@@ -27967,12 +27973,12 @@ Cory`;
           <div style={statLabel}>
             Uncontacted SP list · {availableSps.length} uncontacted / {filteredCandidateSps.length} shown
           </div>
-          <div style={{ display: "grid", gap: "8px", marginTop: "8px" }}>
+          <div style={{ display: "grid", gap: "6px", marginTop: "4px" }}>
             {filteredCandidateSps.length === 0 ? (
               <div
                 style={{
                   borderRadius: "12px",
-                  padding: "12px 14px",
+                  padding: "8px 10px",
                   background: "rgba(255,255,255,0.72)",
                   color: "var(--cfsp-text-muted)",
                   fontWeight: 700,
@@ -28026,7 +28032,7 @@ Cory`;
                       style={{
                         display: "flex",
                         justifyContent: "space-between",
-                        gap: "12px",
+                        gap: "6px",
                         flexWrap: "wrap",
                         alignItems: "flex-start",
                       }}
@@ -28045,7 +28051,7 @@ Cory`;
                                 background: "rgba(168, 183, 204, 0.12)",
                                 border: "1px solid var(--cfsp-border)",
                                 color: "var(--cfsp-text-muted)",
-                                fontSize: "12px",
+                                fontSize: "11px",
                                 fontWeight: 800,
                               }}
                             >
@@ -28061,7 +28067,7 @@ Cory`;
                         </div>
                       </div>
 
-                      <div style={{ display: "grid", gap: "8px", justifyItems: "end" }}>
+                      <div style={{ display: "grid", gap: "6px", justifyItems: "end" }}>
                         <span
                           style={{
                             ...availabilityMatchStyles[availabilityMatch.status],
@@ -28083,7 +28089,7 @@ Cory`;
                               ...(assignment ? confirmationStyles[getCommandCenterAssignmentTone(assignment)] : confirmationStyles.pending),
                               borderRadius: "999px",
                               padding: "7px 11px",
-                              fontSize: "12px",
+                              fontSize: "11px",
                               fontWeight: 900,
                               cursor: "not-allowed",
                               opacity: 0.85,
@@ -28141,7 +28147,7 @@ Cory`;
         display: "flex",
         justifyContent: "space-between",
         alignItems: "flex-start",
-        gap: "12px",
+        gap: "6px",
         marginBottom: "12px",
         flexWrap: "wrap",
       }}
@@ -28156,7 +28162,7 @@ Cory`;
         style={{
           borderRadius: "999px",
           padding: "7px 12px",
-          fontSize: "12px",
+          fontSize: "11px",
           fontWeight: 900,
           letterSpacing: "0.04em",
           textTransform: "uppercase",
@@ -28229,7 +28235,7 @@ Cory`;
     <div
       style={{
         display: "flex",
-        gap: "8px",
+        gap: "6px",
         flexWrap: "wrap",
         marginBottom: "14px",
       }}
@@ -28331,7 +28337,7 @@ Cory`;
         borderRadius: "14px",
         padding: "10px",
         background: "var(--cfsp-surface-muted)",
-        marginTop: "8px",
+        marginTop: "4px",
       }}
     >
       {filteredCandidateSps.length === 0 ? (
@@ -28351,7 +28357,7 @@ Cory`;
                 display: "flex",
                 alignItems: "flex-start",
                 justifyContent: "space-between",
-                gap: "12px",
+                gap: "6px",
                 padding: "10px 6px",
                 cursor: "pointer",
                 borderBottom: "1px solid rgba(168, 183, 204, 0.16)",
@@ -28367,7 +28373,7 @@ Cory`;
                 />
                 <div>
                   <div style={{ fontWeight: 800, color: "var(--cfsp-text)" }}>{getFullName(sp)}</div>
-                  <div style={{ fontSize: "12px", color: "var(--cfsp-text-muted)" }}>{email || "No email on file"}</div>
+                  <div style={{ fontSize: "11px", color: "var(--cfsp-text-muted)" }}>{email || "No email on file"}</div>
                 </div>
               </div>
               {!email ? (
@@ -28426,7 +28432,7 @@ Cory`;
               style={{
                 display: "flex",
                 justifyContent: "space-between",
-                gap: "12px",
+                gap: "6px",
                 alignItems: "center",
                 padding: "14px 16px",
                 borderBottom: "1px solid rgba(120, 180, 255, 0.16)",
@@ -28436,11 +28442,11 @@ Cory`;
               <div>
                 <div style={{ ...statLabel, color: "#7ee7db" }}>Preview</div>
                 <div style={{ color: "#ffffff", fontWeight: 900, fontSize: "18px" }}>{materialPreview.title}</div>
-                <div style={{ marginTop: "4px", color: "rgba(220, 239, 255, 0.68)", fontSize: "12px", fontWeight: 700 }}>
+                <div style={{ marginTop: "4px", color: "rgba(220, 239, 255, 0.68)", fontSize: "11px", fontWeight: 700 }}>
                   {materialPreview.fileName}
                 </div>
               </div>
-              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+              <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                 <button
                   type="button"
                   onClick={handleOpenMaterialInNewTab}
@@ -28496,7 +28502,7 @@ Cory`;
                     style={{
                       flexBasis: "100%",
                       color: "#ffd1d1",
-                      fontSize: "12px",
+                      fontSize: "11px",
                       fontWeight: 800,
                       textAlign: "right",
                     }}
@@ -28518,7 +28524,7 @@ Cory`;
                 <div
                   style={{
                     display: "grid",
-                    gap: "12px",
+                    gap: "6px",
                     alignContent: "center",
                     justifyItems: "start",
                     padding: "24px",
@@ -28728,12 +28734,12 @@ Cory`;
               background: "var(--cfsp-surface)",
               boxShadow: "0 24px 55px rgba(3, 10, 20, 0.42)",
               display: "grid",
-              gap: "12px",
+              gap: "6px",
               padding: "16px",
               overflow: "auto",
             }}
           >
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "6px" }}>
               <h2 style={{ margin: 0, fontSize: "18px", fontWeight: 900 }}>Review Related Matches</h2>
               <button
                 type="button"
@@ -28752,7 +28758,7 @@ Cory`;
               style={{
                 display: "flex",
                 flexWrap: "wrap",
-                gap: "8px",
+                gap: "6px",
                 marginTop: "10px",
               }}
             >
@@ -28798,7 +28804,7 @@ Cory`;
                 flexWrap: "wrap",
               }}
             >
-              <div style={{ color: "var(--cfsp-text)", fontWeight: 800, fontSize: "12px" }}>
+              <div style={{ color: "var(--cfsp-text)", fontWeight: 800, fontSize: "11px" }}>
                 {exactMatchRelatedEvents.length
                   ? `${exactMatchRelatedEvents.length} high-confidence match${exactMatchRelatedEvents.length === 1 ? "" : "es"}`
                   : "No high-confidence matches"}
@@ -28823,7 +28829,7 @@ Cory`;
               </button>
             </div>
 
-            <div style={{ display: "grid", gap: "8px", maxHeight: "56vh", overflowY: "auto", paddingRight: "2px" }}>
+            <div style={{ display: "grid", gap: "6px", maxHeight: "56vh", overflowY: "auto", paddingRight: "2px" }}>
               {relatedOperationalEvents.length === 0 ? (
                 <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700, padding: "10px 2px" }}>
                   No related matches were auto-detected for this event.
@@ -28838,7 +28844,7 @@ Cory`;
                     background: "var(--cfsp-surface-muted)",
                     padding: "10px",
                     display: "grid",
-                    gap: "8px",
+                    gap: "6px",
                   }}
                 >
                   <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
@@ -28888,10 +28894,10 @@ Cory`;
                       .filter(Boolean)
                       .join(" · ")}
                   </div>
-                  <div style={{ color: "var(--cfsp-text)", fontSize: "12px", fontWeight: 800, lineHeight: 1.5 }}>
+                  <div style={{ color: "var(--cfsp-text)", fontSize: "11px", fontWeight: 800, lineHeight: 1.5 }}>
                     {node.match_reason || "Matched by exact course"}
                   </div>
-                  <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px", flexWrap: "wrap" }}>
+                  <div style={{ display: "flex", justifyContent: "flex-end", gap: "6px", flexWrap: "wrap" }}>
                     {!node.isConfirmed ? (
                       <button
                         type="button"
