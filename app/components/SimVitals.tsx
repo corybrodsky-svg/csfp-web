@@ -1125,7 +1125,7 @@ export function SimVitalsDashboardPreview() {
     async function loadPreview() {
       setLoading(true);
       try {
-        const result = await fetchSimVitalsPosts(3);
+        const result = await fetchSimVitalsPosts(2);
         if (cancelled) return;
         setPreviewPosts(result.posts);
         setWarning(result.warning);
@@ -1147,7 +1147,7 @@ export function SimVitalsDashboardPreview() {
 
   return (
     <section
-      className="relative overflow-hidden rounded-[14px] px-5 py-5"
+      className="relative overflow-hidden rounded-[14px] px-4 py-4"
       style={{
         border: "1px solid var(--cfsp-border)",
         background: "var(--cfsp-simvitals-preview-bg)",
@@ -1160,13 +1160,13 @@ export function SimVitalsDashboardPreview() {
         style={{ background: "linear-gradient(90deg, #145b96, #198a70)" }}
       />
 
-      <div className="relative flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+      <div className="relative flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div className="flex max-w-2xl items-start gap-3">
           <SimVitalsSignalMark compact />
           <div className="min-w-0">
             <div className="cfsp-kicker">Check SimVitals</div>
-            <h2 className="mt-2 text-[1.35rem] leading-tight font-black text-[var(--cfsp-text)]">Latest Signals</h2>
-            <p className="mt-2 text-sm leading-6 text-[var(--cfsp-text-muted)]">
+            <h2 className="mt-1 text-[1.1rem] leading-tight font-black text-[var(--cfsp-text)]">Latest Signals</h2>
+            <p className="mt-1 text-xs leading-5 text-[var(--cfsp-text-muted)]">
               Operational awareness for staffing, rooms, faculty coordination, training, and simulation support.
             </p>
           </div>
@@ -1177,17 +1177,17 @@ export function SimVitalsDashboardPreview() {
       </div>
 
       {loading ? (
-        <div className="relative mt-4 rounded-[14px] border border-dashed border-[var(--cfsp-border)] bg-[var(--cfsp-surface)] px-5 py-7 text-sm font-bold text-[var(--cfsp-text-muted)]">
+        <div className="relative mt-3 rounded-[12px] border border-dashed border-[var(--cfsp-border)] bg-[var(--cfsp-surface)] px-4 py-4 text-sm font-bold text-[var(--cfsp-text-muted)]">
           Loading SimVitals signals...
         </div>
       ) : previewPosts.length ? (
-        <div className="relative mt-4 grid gap-3 xl:grid-cols-3">
+        <div className="relative mt-3 grid gap-3 lg:grid-cols-2">
           {previewPosts.map((post) => (
             <SimVitalsPostCard key={post.id} post={post} compact />
           ))}
         </div>
       ) : (
-        <div className="relative mt-4 rounded-[14px] border border-dashed border-[var(--cfsp-border)] bg-[var(--cfsp-surface)] px-5 py-7 text-sm font-bold text-[var(--cfsp-text-muted)]">
+        <div className="relative mt-3 rounded-[12px] border border-dashed border-[var(--cfsp-border)] bg-[var(--cfsp-surface)] px-4 py-4 text-sm font-bold text-[var(--cfsp-text-muted)]">
           {warning || "No SimVitals signals yet."}
         </div>
       )}

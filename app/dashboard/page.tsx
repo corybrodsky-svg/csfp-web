@@ -1954,6 +1954,10 @@ export default function DashboardPage() {
                 {isSp ? "Update Account" : "Edit Profile"}
               </Link>
             </div>
+
+            <div className="mt-5">
+              <SimVitalsDashboardPreview />
+            </div>
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
@@ -2139,8 +2143,6 @@ export default function DashboardPage() {
           ) : null}
         </section>
 
-        <SimVitalsDashboardPreview />
-
         {error ? <div className="cfsp-alert cfsp-alert-error">{error}</div> : null}
 
         {!error && eventMeta.length === 0 && events.length > 0 ? (
@@ -2180,39 +2182,7 @@ export default function DashboardPage() {
         ) : null}
 
         {!error && !(scope === "my" && selectedEvents.length === 0) ? (
-          <div className="grid gap-5 2xl:grid-cols-3">
-            <WorkflowSection
-              sectionKey="needsAttention"
-              title="Needs Attention"
-              description="Shortage events coming up today or tomorrow, plus anything with zero assignments."
-              items={needsAttention}
-              visibleCount={sectionVisibleCounts.needsAttention}
-              onLoadMore={handleLoadMore}
-              browseHref={scope === "my" ? "/events" : "/events?view=all"}
-              highlightedEventId={highlightedEventId}
-              registerEventRef={registerEventRef}
-              emptyMessage={
-                scope === "my"
-                  ? "No high-priority staffing gaps are surfaced in your matched events right now."
-                  : "No high-priority staffing gaps are surfaced right now."
-              }
-            />
-            <WorkflowSection
-              sectionKey="inProgress"
-              title="In Progress"
-              description="Events with some staffing in place, but still short of full coverage."
-              items={inProgress}
-              visibleCount={sectionVisibleCounts.inProgress}
-              onLoadMore={handleLoadMore}
-              browseHref={scope === "my" ? "/events" : "/events?view=all"}
-              highlightedEventId={highlightedEventId}
-              registerEventRef={registerEventRef}
-              emptyMessage={
-                scope === "my"
-                  ? "No partially staffed events are currently matched to your profile."
-                  : "No partially staffed events right now."
-              }
-            />
+          <div className="grid gap-5">
             <WorkflowSection
               sectionKey="ready"
               title="Ready"
