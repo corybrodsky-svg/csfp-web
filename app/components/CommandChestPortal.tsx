@@ -56,6 +56,12 @@ export default function CommandChestPortal({
 
   if (!portalRoot) return null;
 
+  const toggleOpen = (event?: React.PointerEvent<HTMLButtonElement>) => {
+    event?.preventDefault();
+    event?.stopPropagation();
+    setOpen((current) => !current);
+  };
+
   const openSchedule = () => {
     if (scheduleCompleted) {
       const existingOpenSchedule = findByText(["open schedule"]);
@@ -151,7 +157,13 @@ export default function CommandChestPortal({
         className={`cfsp-holo-orb ${open ? "cfsp-holo-orb-active" : ""}`}
         aria-label={open ? "Close CFSP Command Center" : "Open CFSP Command Center"}
         aria-expanded={open}
-        onClick={() => setOpen((current) => !current)}
+        onPointerDown={toggleOpen}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            setOpen((current) => !current);
+          }
+        }}
       >
         <span className="cfsp-holo-orb-ring cfsp-holo-orb-ring-a" aria-hidden="true" />
         <span className="cfsp-holo-orb-ring cfsp-holo-orb-ring-b" aria-hidden="true" />
@@ -167,7 +179,11 @@ export default function CommandChestPortal({
             type="button"
             className="cfsp-holo-close"
             aria-label="Close CFSP Command Center"
-            onClick={() => setOpen(false)}
+            onPointerDown={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              setOpen(false);
+            }}
           >
             ×
           </button>
@@ -241,18 +257,24 @@ export default function CommandChestPortal({
         }
 
         .cfsp-holo-orb {
-          position: fixed;
-          top: 50%;
-          right: 20px;
-          z-index: 10000;
-          width: 78px;
-          height: 78px;
+          position: fixed !important;
+          top: 50% !important;
+          right: 20px !important;
+          z-index: 2147483647 !important;
+          width: 78px !important;
+          height: 78px !important;
           transform: translateY(-50%);
           border: 0;
           border-radius: 999px;
           background: transparent;
           cursor: pointer;
+          pointer-events: auto !important;
           filter: drop-shadow(0 18px 28px rgba(15, 91, 120, 0.22));
+          touch-action: manipulation;
+        }
+
+        .cfsp-holo-orb * {
+          pointer-events: none !important;
         }
 
         .cfsp-holo-orb::before {
@@ -284,7 +306,6 @@ export default function CommandChestPortal({
           top: 50%;
           border-radius: 999px;
           border: 1px solid rgba(45, 212, 191, 0.50);
-          pointer-events: none;
         }
 
         .cfsp-holo-orb-ring-a {
@@ -344,14 +365,13 @@ export default function CommandChestPortal({
           background: linear-gradient(110deg, transparent 0%, rgba(255,255,255,0.55) 48%, transparent 56%);
           opacity: 0.50;
           animation: cfspHoloScan 4.2s ease-in-out infinite;
-          pointer-events: none;
         }
 
         .cfsp-holo-command-center {
-          position: fixed;
-          top: 110px;
-          right: 96px;
-          z-index: 9999;
+          position: fixed !important;
+          top: 110px !important;
+          right: 96px !important;
+          z-index: 2147483646 !important;
           width: min(320px, calc(100vw - 116px));
           background: transparent !important;
           border: 0 !important;
@@ -374,7 +394,7 @@ export default function CommandChestPortal({
           font-size: 22px;
           line-height: 1;
           cursor: pointer;
-          pointer-events: auto;
+          pointer-events: auto !important;
           box-shadow: 0 0 16px rgba(45,212,191,0.16);
         }
 
@@ -500,15 +520,6 @@ export default function CommandChestPortal({
           right: 32px;
           transform: rotate(12deg);
           animation: cfspHoloScrollRight 7.2s ease-in-out infinite;
-        }
-
-        .cfsp-holo-scroll span {
-          position: absolute;
-          inset: 0;
-          border-radius: inherit;
-          background:
-            radial-gradient(circle at 18% 8%, rgba(251,146,60,0.24), transparent 12%),
-            radial-gradient(circle at 82% 92%, rgba(251,146,60,0.20), transparent 14%);
         }
 
         .cfsp-holo-craft {
@@ -656,7 +667,7 @@ export default function CommandChestPortal({
         }
 
         .cfsp-holo-actions {
-          pointer-events: auto;
+          pointer-events: auto !important;
           display: grid;
           grid-template-columns: repeat(2, minmax(0, 1fr));
           gap: 8px;
@@ -767,8 +778,8 @@ export default function CommandChestPortal({
 
         @media (max-width: 780px) {
           .cfsp-holo-command-center {
-            top: 98px;
-            right: 84px;
+            top: 98px !important;
+            right: 84px !important;
             width: min(280px, calc(100vw - 108px));
           }
 
