@@ -10545,7 +10545,7 @@ Cory`;
             detail: trainingZoomRequired ? "Training logistics depend on the access link." : "Virtual logistics are optional for this event.",
             readinessActions: [
               ...(trainingAccessUrl ? [{ label: "Open Training Link", href: trainingAccessUrl }] : []),
-              { label: "Edit training settings", href: "#coverage-actions" },
+              { label: "Edit training settings", href: `/settings?eventId=${encodeURIComponent(id)}` },
             ],
             readinessHowToFix: "Set a valid virtual access link when virtual or required training is marked.",
           },
@@ -21201,9 +21201,9 @@ Cory`;
                     summary: supportRequirementRows.length ? `${supportRequirementRows.length} active support signal${supportRequirementRows.length === 1 ? "" : "s"}` : "No active support flags",
                     styles: operationsSupportWindowStyles,
                     actions: supportRequirementRows.length ? (
-                      <button type="button" onClick={() => focusAdminEditField("operational_support_settings")} style={{ ...buttonStyle, padding: "7px 10px" }}>
+                      <Link href={`/settings?eventId=${encodeURIComponent(id)}`} style={{ ...buttonStyle, padding: "7px 10px", textDecoration: "none", display: "inline-flex", alignItems: "center" }}>
                         Manage Support Settings
-                      </button>
+                      </Link>
                     ) : null,
                   },
                   {
@@ -22907,7 +22907,13 @@ Cory`;
                           <button
                             key={`central-command-tool-${tool.value}`}
                             type="button"
-                            onClick={() => setSelectedCommandTool(tool.value)}
+                            onClick={() => {
+                              if (tool.value === "advanced") {
+                                router.push(`/settings?eventId=${encodeURIComponent(id)}`);
+                                return;
+                              }
+                              setSelectedCommandTool(tool.value);
+                            }}
                             aria-pressed={selected}
                             style={{
                               ...buttonStyle,
@@ -23184,7 +23190,12 @@ Cory`;
                               >
                                 <div style={{ color: commandCenterVisual.textColor, fontSize: "12px", fontWeight: 950 }}>{row.roomName || `Room ${index + 1}`}</div>
                                 <div style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 750, overflowWrap: "anywhere" }}>
-                                  {row.learnerLabels.length ? row.learnerLabels.join(", ") : "Learner TBD"}
+                                  {(() => {
+                                    const completedScheduleLearners =
+                                      currentLiveReferenceScheduleRows.find((candidate) => compareRoomLabels(candidate.roomName, row.roomName) === 0)?.learnerLabels || [];
+                                    const learnerLabels = row.learnerLabels.length ? row.learnerLabels : completedScheduleLearners;
+                                    return learnerLabels.length ? learnerLabels.join(", ") : "Learner TBD";
+                                  })()}
                                 </div>
                                 <div style={{ color: row.sp ? commandCenterVisual.textColor : commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 850, overflowWrap: "anywhere" }}>
                                   {row.sp ? getFullName(row.sp) : "SP TBD"}
@@ -23270,9 +23281,9 @@ Cory`;
                         >
                           <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
                             <div>
-                              <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Live Operations Telemetry</div>
+                              <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Live Command</div>
                               <div style={{ marginTop: "3px", color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 750 }}>
-                                Communication, room occupancy, alerts, and current flow inside the command board.
+                                Communication, occupancy, alerts, arrival rail, and current flow inside the command board.
                               </div>
                             </div>
                             <span style={{ ...commandChipStyle, background: commandCenterVisual.activeSoftBackground, color: commandCenterVisual.activeSoftText }}>
@@ -23506,7 +23517,7 @@ Cory`;
                             border: commandCenterVisual.rowBorder,
                             background: isPlanningVisualMode ? "rgba(255,255,255,0.62)" : "rgba(255,255,255,0.04)",
                             padding: "10px",
-                            display: "grid",
+                            display: "none",
                             gap: "8px",
                           }}
                         >
@@ -25263,6 +25274,44 @@ Cory`;
                             </div>
                             <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 750 }}>
                               Email draft buttons and mailto workflows remain connected to the existing communication handlers.
+                            </div>
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: "8px" }}>
+                              {communicationCards.map((card) => {
+                                const isReady = card.ready;
+                                return (
+                                  <div
+                                    key={`central-communication-card-${card.key}`}
+                                    style={{
+                                      borderRadius: "12px",
+                                      border: isReady ? "1px solid rgba(16, 185, 129, 0.28)" : "1px solid rgba(248, 113, 113, 0.24)",
+                                      background: isPlanningVisualMode
+                                        ? isReady ? "rgba(236,253,245,0.72)" : "rgba(255,247,237,0.72)"
+                                        : isReady ? "rgba(16, 185, 129, 0.08)" : "rgba(248, 113, 113, 0.08)",
+                                      padding: "9px",
+                                      display: "grid",
+                                      gap: "6px",
+                                    }}
+                                  >
+                                    <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", alignItems: "flex-start" }}>
+                                      <div style={{ color: commandCenterVisual.textColor, fontSize: "12px", fontWeight: 950, lineHeight: 1.25 }}>{card.title}</div>
+                                      <span style={{ ...commandChipStyle, background: isReady ? commandCenterVisual.activeSoftBackground : "rgba(248,113,113,0.12)", color: isReady ? commandCenterVisual.activeSoftText : staffingWorkspacePalette.dangerText }}>
+                                        {card.status}
+                                      </span>
+                                    </div>
+                                    <div style={{ color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 750, lineHeight: 1.35 }}>{card.statusDetail}</div>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        void card.onClick();
+                                      }}
+                                      disabled={!isReady}
+                                      style={{ ...buttonStyle, padding: "6px 9px", justifySelf: "start", fontSize: "11px", opacity: isReady ? 1 : 0.62 }}
+                                    >
+                                      Draft Email
+                                    </button>
+                                  </div>
+                                );
+                              })}
                             </div>
                           </div>
                         ) : selectedCommandTool === "qa" ? (

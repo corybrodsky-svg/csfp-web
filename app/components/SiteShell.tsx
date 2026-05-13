@@ -48,6 +48,7 @@ const navItems: NavItem[] = [
   { href: "/sps", label: "SP Database", match: "prefix", roles: ["sim_op", "admin", "super_admin"] },
   { href: "/staff", label: "Staff", match: "prefix", roles: ["admin", "super_admin"] },
   { href: "/admin", label: "Admin", match: "prefix", roles: ["admin", "super_admin"] },
+  { href: "/settings", label: "Settings", match: "prefix" },
   { href: "/me", label: "Profile", match: "prefix" },
 ];
 
