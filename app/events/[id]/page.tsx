@@ -4442,10 +4442,10 @@ export default function EventDetailPage() {
   const [contactPanelSaving, setContactPanelSaving] = useState(false);
   const [contactPanelSavedAt, setContactPanelSavedAt] = useState("");
   const [contactPanelExpanded, setContactPanelExpanded] = useState(false);
-  const [staffingCommandCenterExpanded, setStaffingCommandCenterExpanded] = useState(true);
-  const [trainingReadinessExpanded, setTrainingReadinessExpanded] = useState(true);
+  const [staffingCommandCenterExpanded, setStaffingCommandCenterExpanded] = useState(false);
+  const [trainingReadinessExpanded, setTrainingReadinessExpanded] = useState(false);
   const [planningWindowExpanded, setPlanningWindowExpanded] = useState<Record<PlanningWindowKey, boolean>>({
-    "event-status": true,
+    "event-status": false,
     "staffing-training": false,
     "operations-support": false,
     "materials-communications": false,
@@ -7555,7 +7555,7 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       setContactPanelExpanded(false);
       return;
     }
-    setContactPanelExpanded(!facultyReadinessComplete);
+    setContactPanelExpanded(false);
   }, [facultyReadinessComplete, id]);
   useEffect(() => {
     if (typeof window === "undefined" || !id) return;
@@ -7570,7 +7570,7 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       setStaffingCommandCenterExpanded(false);
       return;
     }
-    setStaffingCommandCenterExpanded(commandCenterMode === "planning" ? !staffingCommandCenterCanCollapse : false);
+    setStaffingCommandCenterExpanded(false);
   }, [commandCenterMode, id, staffingCommandCenterCanCollapse]);
   useEffect(() => {
     if (typeof window === "undefined" || !id) return;
@@ -20507,7 +20507,7 @@ Cory`;
         </div>
       ) : null}
 
-      <details open style={cardStyle}>
+      <details style={cardStyle}>
         <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 900, fontSize: "20px" }}>
           {isTrainingMode ? "Training Command Center" : "Coverage Actions"}
         </summary>
@@ -20947,7 +20947,41 @@ Cory`;
               boxShadow: commandCenterVisual.shellShadow,
             }}
           >
-            <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Event Summary</div>
+            <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Operational Summary</div>
+            <div
+              style={{
+                marginTop: "8px",
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(112px, 1fr))",
+                gap: "6px",
+              }}
+            >
+              {[
+                { label: "Learners", value: effectiveLearnerCount > 0 ? String(effectiveLearnerCount) : "TBD" },
+                { label: "Rooms", value: effectiveRoomCount || selectedRoundRoomCount || "TBD" },
+                { label: "Rounds", value: activeRotationCount || 0 },
+                { label: "Coverage", value: needed > 0 ? `${confirmedCount}/${needed}` : `${confirmedCount}` },
+                { label: "Readiness", value: operationalReadinessItems.primary },
+              ].map((metric) => (
+                <div
+                  key={`compact-operational-summary-${metric.label}`}
+                  style={{
+                    borderRadius: "12px",
+                    border: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.16)" : "1px solid rgba(126, 231, 219, 0.16)",
+                    background: isPlanningVisualMode ? "rgba(255,255,255,0.72)" : "rgba(15, 23, 42, 0.42)",
+                    padding: "7px 9px",
+                    display: "grid",
+                    gap: "3px",
+                    minHeight: "52px",
+                  }}
+                >
+                  <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>{metric.label}</div>
+                  <div style={{ color: commandCenterVisual.headingColor, fontSize: "15px", fontWeight: 950, lineHeight: 1.1 }}>
+                    {metric.value}
+                  </div>
+                </div>
+              ))}
+            </div>
             <div style={{ marginTop: "10px", display: "grid", gap: "6px" }}>
               <section
                 style={{
@@ -20977,8 +21011,8 @@ Cory`;
                   }}
                 >
                   <div style={{ minWidth: 0, display: "grid", gap: "7px" }}>
-                    <div style={{ ...statLabel, color: eventStatusWindowStyles.accent }}>Event Status Window</div>
-                    <div style={{ color: commandCenterVisual.headingColor, fontSize: "24px", fontWeight: 950, lineHeight: 1.15 }}>
+                    <div style={{ ...statLabel, color: eventStatusWindowStyles.accent }}>Compact Event Header</div>
+                    <div style={{ color: commandCenterVisual.headingColor, fontSize: "18px", fontWeight: 950, lineHeight: 1.15 }}>
                       {event?.name || "Untitled Event"}
                     </div>
                     <div style={{ color: commandCenterVisual.mutedColor, fontSize: "13px", fontWeight: 800 }}>
@@ -21347,7 +21381,7 @@ Cory`;
                   background: "rgba(255,255,255,0.98)",
                   boxShadow: "0 10px 24px rgba(20, 65, 95, 0.08)",
                   padding: "14px",
-                  display: "grid",
+                  display: "none",
                   gap: "6px",
                 }}
               >
@@ -21461,7 +21495,7 @@ Cory`;
 	                    "radial-gradient(circle at 10% 0%, rgba(126, 231, 219, 0.16), transparent 32%), radial-gradient(circle at 86% 12%, rgba(20, 91, 150, 0.1), transparent 30%), linear-gradient(135deg, rgba(255,255,255,0.98) 0%, rgba(239, 249, 252, 0.94) 58%, rgba(245, 249, 255, 0.96) 100%)",
 	                  boxShadow: "0 14px 30px rgba(20, 65, 95, 0.08), inset 0 1px 0 rgba(255,255,255,0.76)",
 	                  padding: "14px",
-	                  display: "grid",
+	                  display: "none",
 	                  gap: "6px",
 	                  position: "relative",
 	                  overflow: "hidden",
@@ -22479,16 +22513,16 @@ Cory`;
                 >
                   <div
                     style={{
-                      color: isPlanningVisualMode ? commandCenterVisual.mutedColor : "#e2e8f0",
+                      color: isPlanningVisualMode ? "#145b96" : "#e2e8f0",
                       fontSize: "11px",
-                      fontWeight: 800,
-                      background: "rgba(15, 23, 42, 0.5)",
-                      border: "1px solid rgba(129, 140, 248, 0.2)",
+                      fontWeight: 900,
+                      background: isPlanningVisualMode ? "rgba(232, 244, 255, 0.88)" : "rgba(15, 23, 42, 0.5)",
+                      border: isPlanningVisualMode ? "1px solid rgba(20, 91, 150, 0.18)" : "1px solid rgba(129, 140, 248, 0.2)",
                       borderRadius: "10px",
                       padding: "4px 10px",
                     }}
                   >
-                    Central Command workspace: overview, coverage, learner flow, schedules, announcements, and operations.
+                    Central Operations Window
                   </div>
                   <button
                     type="button"
@@ -22520,7 +22554,7 @@ Cory`;
                           : "0 12px 28px rgba(25, 138, 112, 0.18)",
                     }}
                   >
-                    {rotationCommandSurfaceOpen ? "Close Central Command" : "Open Central Command"}
+                    {rotationCommandSurfaceOpen ? "Collapse Central Command" : "Open Central Command"}
                   </button>
                 </div>
                 {rotationCommandSurfaceOpen ? (
@@ -22719,7 +22753,7 @@ Cory`;
                     <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
                       <div>
                         <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>
-                          {isPlanningVisualMode ? "Round Details" : "Round Operations"}
+                          Central Operations Window
                         </div>
                         <div style={{ marginTop: "4px", color: commandCenterVisual.headingColor, fontSize: "18px", fontWeight: 900 }}>
                           {selectedRotationRound ? `Round ${activeSelectedRotationRoundIndex + 1}` : "No round selected"}
@@ -22727,10 +22761,14 @@ Cory`;
                       </div>
                       <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                         {[
+                          { value: "overview", label: "Overview" },
+                          { value: "coverage", label: "Coverage" },
+                          { value: "learner", label: "Learner Flow" },
+                          { value: "live", label: "Live Preview" },
                           { value: "announcements", label: "Announcements" },
                           { value: "student", label: "Student Schedule" },
                           { value: "sp", label: "SP Schedule" },
-                          { value: "operations", label: "Operations View" },
+                          { value: "operations", label: "Operations" },
                         ].map((view) => (
                           <button
                             key={view.value}
@@ -25032,7 +25070,7 @@ Cory`;
               </div>
             </section>
 
-            <details open style={{ ...cardStyle, background: "var(--cfsp-surface)" }}>
+            <details style={{ ...cardStyle, background: "var(--cfsp-surface)" }}>
               <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 900, fontSize: "20px" }}>
                 Communication
               </summary>
@@ -25938,8 +25976,18 @@ Cory`;
 
       {!isTrainingMode ? (
         <>
-          {renderOperationalReadinessBoard("xl:hidden")}
-          {renderOperationalReadinessBoard("hidden xl:block", { marginTop: "12px" })}
+          <details className="xl:hidden" style={cardStyle}>
+            <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 900, fontSize: "18px" }}>
+              Operational QA / Readiness Board
+            </summary>
+            {renderOperationalReadinessBoard("", { marginTop: "12px" })}
+          </details>
+          <details className="hidden xl:block" style={{ ...cardStyle, marginTop: "12px" }}>
+            <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 900, fontSize: "18px" }}>
+              Operational QA / Readiness Board
+            </summary>
+            {renderOperationalReadinessBoard("", { marginTop: "12px" })}
+          </details>
           {readinessDetailDialog}
           {learnerFlowDetailsDialog}
         </>
@@ -26774,7 +26822,6 @@ Cory`;
           </div>
 
           <details
-            open
             style={{
               border: "1px solid var(--cfsp-border)",
               borderRadius: "14px",
