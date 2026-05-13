@@ -20513,8 +20513,8 @@ Cory`;
         </div>
       ) : null}
 
-      <details style={{ ...cardStyle, display: "none" }}>
-        <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 900, fontSize: "20px" }}>
+      <details open style={{ ...cardStyle, border: "none", background: "transparent", boxShadow: "none", padding: 0 }}>
+        <summary style={{ display: "none", cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 900, fontSize: "20px" }}>
           {isTrainingMode ? "Training Command Center" : "Coverage Actions"}
         </summary>
         <div style={{ marginTop: "12px" }}>
