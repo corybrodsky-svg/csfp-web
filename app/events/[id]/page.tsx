@@ -4448,6 +4448,7 @@ export default function EventDetailPage() {
   const [expandedCommandDockTool, setExpandedCommandDockTool] = useState<CommandDockTool | "">("");
   const [selectedCommandTool, setSelectedCommandTool] = useState<SelectedCommandTool>("primary");
   const [primaryEventTool, setPrimaryEventTool] = useState<PrimaryEventTool>("commandCenter");
+  const activeCommandContentRef = useRef<HTMLDivElement | null>(null);
   const [staffingCommandCenterExpanded, setStaffingCommandCenterExpanded] = useState(false);
   const [trainingReadinessExpanded, setTrainingReadinessExpanded] = useState(false);
   const [planningWindowExpanded, setPlanningWindowExpanded] = useState<Record<PlanningWindowKey, boolean>>({
@@ -12493,6 +12494,14 @@ Cory`;
           },
       nextMode === "live" ? "Live mode started." : "Returned to planning mode."
     );
+  }
+
+  function queueCommandContentScroll() {
+    if (typeof window === "undefined") return;
+    window.requestAnimationFrame(() => {
+      activeCommandContentRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      activeCommandContentRef.current?.focus?.({ preventScroll: true });
+    });
   }
 
   function buildEventSchedulePreviewHref(
@@ -22775,8 +22784,9 @@ Cory`;
                       borderRadius: "24px",
                       border: isPlanningVisualMode ? "1px solid rgba(20, 91, 150, 0.22)" : "1px solid rgba(126, 231, 219, 0.24)",
                       background: isPlanningVisualMode
-                        ? "radial-gradient(circle at 12% 0%, rgba(125, 211, 252, 0.24), transparent 34%), radial-gradient(circle at 90% 10%, rgba(25, 138, 112, 0.16), transparent 32%), linear-gradient(135deg, rgba(247, 253, 255, 0.98) 0%, rgba(232, 246, 250, 0.96) 48%, rgba(235, 252, 246, 0.94) 100%)"
-                        : "radial-gradient(circle at 12% 0%, rgba(34, 211, 238, 0.16), transparent 36%), radial-gradient(circle at 90% 0%, rgba(45, 212, 191, 0.14), transparent 34%), linear-gradient(135deg, rgba(4, 14, 25, 0.98) 0%, rgba(8, 31, 47, 0.96) 50%, rgba(5, 46, 44, 0.9) 100%)",
+                        ? "linear-gradient(rgba(20, 91, 150, 0.045) 1px, transparent 1px), linear-gradient(90deg, rgba(20, 91, 150, 0.045) 1px, transparent 1px), radial-gradient(circle at 12% 0%, rgba(125, 211, 252, 0.28), transparent 34%), radial-gradient(circle at 90% 10%, rgba(25, 138, 112, 0.18), transparent 32%), linear-gradient(135deg, rgba(247, 253, 255, 0.98) 0%, rgba(232, 246, 250, 0.96) 48%, rgba(235, 252, 246, 0.94) 100%)"
+                        : "linear-gradient(rgba(126, 231, 219, 0.055) 1px, transparent 1px), linear-gradient(90deg, rgba(126, 231, 219, 0.055) 1px, transparent 1px), radial-gradient(circle at 12% 0%, rgba(34, 211, 238, 0.18), transparent 36%), radial-gradient(circle at 90% 0%, rgba(45, 212, 191, 0.16), transparent 34%), linear-gradient(135deg, rgba(4, 14, 25, 0.98) 0%, rgba(8, 31, 47, 0.96) 50%, rgba(5, 46, 44, 0.9) 100%)",
+                      backgroundSize: isPlanningVisualMode ? "26px 26px, 26px 26px, auto, auto, auto" : "28px 28px, 28px 28px, auto, auto, auto",
                       boxShadow: isPlanningVisualMode
                         ? "0 22px 54px rgba(24, 52, 78, 0.14), inset 0 1px 0 rgba(255,255,255,0.74)"
                         : "0 24px 64px rgba(2, 6, 23, 0.48), inset 0 1px 0 rgba(255,255,255,0.08)",
@@ -22786,8 +22796,21 @@ Cory`;
                       position: "sticky",
                       top: "74px",
                       minHeight: "100%",
+                      overflow: "hidden",
                     }}
                   >
+                    <div
+                      aria-hidden="true"
+                      style={{
+                        position: "absolute",
+                        inset: 0,
+                        pointerEvents: "none",
+                        background: isPlanningVisualMode
+                          ? "linear-gradient(120deg, transparent 0%, rgba(255,255,255,0.36) 42%, transparent 64%)"
+                          : "linear-gradient(120deg, transparent 0%, rgba(126, 231, 219, 0.08) 42%, transparent 64%)",
+                        opacity: 0.48,
+                      }}
+                    />
                     <div style={{ display: "grid", gap: "10px" }}>
                       <div>
                         <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>
@@ -22822,6 +22845,7 @@ Cory`;
                               type="button"
                               onClick={() => {
                                 setPrimaryEventTool(tool.value);
+                                queueCommandContentScroll();
                                 if (tool.value === "commandCenter" && selectedCommandTool === "staffing") {
                                   setSelectedCommandTool("primary");
                                 }
@@ -22844,6 +22868,9 @@ Cory`;
                                 border: selected
                                   ? isPlanningVisualMode ? "1px solid rgba(20, 91, 150, 0.26)" : "1px solid rgba(126, 231, 219, 0.34)"
                                   : isPlanningVisualMode ? "1px solid rgba(128, 167, 182, 0.18)" : "1px solid rgba(148, 163, 184, 0.16)",
+                                boxShadow: selected
+                                  ? isPlanningVisualMode ? "0 0 0 1px rgba(25, 138, 112, 0.08), 0 10px 22px rgba(25, 138, 112, 0.14)" : "0 0 22px rgba(126, 231, 219, 0.18)"
+                                  : "none",
                               }}
                             >
                               <span style={{ fontSize: "13px", fontWeight: 950 }}>{tool.label}</span>
@@ -22869,7 +22896,11 @@ Cory`;
                           <button
                             key={view.value}
                             type="button"
-                            onClick={() => setRoundCompanionView(view.value as RotationCompanionView)}
+                            onClick={() => {
+                              setSelectedCommandTool("primary");
+                              setRoundCompanionView(view.value as RotationCompanionView);
+                              queueCommandContentScroll();
+                            }}
                             style={{
                               ...buttonStyle,
                               padding: "7px 10px",
@@ -22893,6 +22924,9 @@ Cory`;
                                   : isPlanningVisualMode
                                     ? "1px solid rgba(128, 167, 182, 0.2)"
                                     : "1px solid rgba(148, 163, 184, 0.18)",
+                              boxShadow: roundCompanionView === view.value && selectedCommandTool === "primary"
+                                ? isPlanningVisualMode ? "0 0 0 1px rgba(25, 138, 112, 0.08), 0 8px 18px rgba(25, 138, 112, 0.14)" : "0 0 18px rgba(126, 231, 219, 0.18)"
+                                : "none",
                             }}
                           >
                             {view.label}
@@ -22902,7 +22936,7 @@ Cory`;
                       ) : null}
                     </div>
 
-                    {primaryEventTool === "commandCenter" ? (
+                    {primaryEventTool === "commandCenter" && selectedCommandTool !== "primary" ? (
                     <div
                       aria-label="Secondary tool dock"
                       style={{
@@ -22937,6 +22971,7 @@ Cory`;
                                 return;
                               }
                               setSelectedCommandTool(tool.value);
+                              queueCommandContentScroll();
                             }}
                             aria-pressed={selected}
                             style={{
@@ -22956,6 +22991,9 @@ Cory`;
                               border: selected
                                 ? isPlanningVisualMode ? "1px solid rgba(25, 138, 112, 0.24)" : "1px solid rgba(126, 231, 219, 0.32)"
                                 : isPlanningVisualMode ? "1px solid rgba(128, 167, 182, 0.18)" : "1px solid rgba(148, 163, 184, 0.16)",
+                              boxShadow: selected
+                                ? isPlanningVisualMode ? "0 0 0 1px rgba(25, 138, 112, 0.08), 0 8px 18px rgba(25, 138, 112, 0.14)" : "0 0 18px rgba(126, 231, 219, 0.18)"
+                                : "none",
                             }}
                           >
                             <span style={{ fontSize: "11px", fontWeight: 950 }}>{tool.label}</span>
@@ -22967,6 +23005,13 @@ Cory`;
                       })}
                     </div>
                     ) : null}
+
+                    <div
+                      ref={activeCommandContentRef}
+                      tabIndex={-1}
+                      aria-label="Active command content"
+                      style={{ scrollMarginTop: "96px", outline: "none" }}
+                    />
 
                     {primaryEventTool === "spFinder" ? (
                       <section
@@ -24971,6 +25016,59 @@ Cory`;
                         Select a rotation round to view operational details.
                       </div>
                     )}
+                      <div
+                        aria-label="Secondary command tools"
+                        style={{
+                          borderRadius: "16px",
+                          border: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.18)" : "1px solid rgba(126, 231, 219, 0.2)",
+                          background: isPlanningVisualMode ? "rgba(247, 253, 255, 0.66)" : "rgba(5, 18, 31, 0.38)",
+                          padding: "8px",
+                          display: "grid",
+                          gridTemplateColumns: "repeat(auto-fit, minmax(112px, 1fr))",
+                          gap: "6px",
+                          alignItems: "center",
+                        }}
+                      >
+                        {[
+                          { value: "faculty" as const, label: "Faculty", status: facultyPanelStatusLabel },
+                          { value: "training" as const, label: "Training", status: normalEventTrainingStatusLabel },
+                          { value: "fileCabinet" as const, label: "File Cabinet", status: commandFileCabinetSummaryLabel },
+                          { value: "staffing" as const, label: "Staffing", status: staffingCoverageMet ? "Ready" : "Needs scan" },
+                          { value: "communication" as const, label: "Communication", status: outreachProgressLabel },
+                          { value: "qa" as const, label: "QA Board", status: workflowBoardStatusLabel },
+                          { value: "advanced" as const, label: "Advanced Settings", status: scheduleStatusLabel },
+                        ].map((tool) => (
+                          <button
+                            key={`central-command-support-tool-${tool.value}`}
+                            type="button"
+                            onClick={() => {
+                              if (tool.value === "advanced") {
+                                router.push(`/settings?eventId=${encodeURIComponent(id)}`);
+                                return;
+                              }
+                              setSelectedCommandTool(tool.value);
+                              queueCommandContentScroll();
+                            }}
+                            style={{
+                              ...buttonStyle,
+                              padding: "7px 9px",
+                              borderRadius: "11px",
+                              display: "grid",
+                              gap: "2px",
+                              minWidth: 0,
+                              textAlign: "center",
+                              background: isPlanningVisualMode ? "rgba(255,255,255,0.72)" : "rgba(15, 23, 42, 0.52)",
+                              color: commandCenterVisual.textColor,
+                              border: isPlanningVisualMode ? "1px solid rgba(128, 167, 182, 0.18)" : "1px solid rgba(148, 163, 184, 0.16)",
+                            }}
+                          >
+                            <span style={{ fontSize: "11px", fontWeight: 950 }}>{tool.label}</span>
+                            <span style={{ color: commandCenterVisual.mutedColor, fontSize: "9px", fontWeight: 800, lineHeight: 1.2 }}>
+                              {tool.status}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
                       </>
                     ) : (
                       <section
