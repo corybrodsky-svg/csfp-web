@@ -2089,29 +2089,30 @@ html body #simulation-command-file-cabinet [data-cfsp-schedule-file-link="true"]
 /* END CFSP COMMUNICATION COMPLETION CHECKBOXES v14 */
 
 
-/* CFSP FLOATING CHEST COMPACT DRAWER v16 */
+/* CFSP FLOATING CHEST ANCHORED DRAWER v17 */
 
 /*
   Correct behavior:
-  - small magic chest icon pinned top-right
-  - opens into compact light CFSP drawer
-  - no giant dark modal
-  - no lucky-charms fantasy
-  - subtle animated scroll accents
+  - small chest icon stays fixed in upper-right
+  - drawer opens beneath the icon
+  - drawer does not become a giant modal
+  - light CFSP palette, not dark cyber panel
 */
 
 html body .cfsp-floating-command-chest {
   position: fixed !important;
+  top: 96px !important;
   right: 24px !important;
-  top: 142px !important;
   z-index: 9999 !important;
   width: 76px !important;
-  max-width: calc(100vw - 28px) !important;
+  max-width: 76px !important;
   pointer-events: auto !important;
 }
 
+/* Keep the container small even when open */
 html body .cfsp-floating-command-chest[open] {
-  width: min(370px, calc(100vw - 28px)) !important;
+  width: 76px !important;
+  max-width: 76px !important;
 }
 
 /* Hide default marker */
@@ -2123,7 +2124,7 @@ html body .cfsp-floating-command-chest summary {
   list-style: none !important;
 }
 
-/* The clickable chest icon */
+/* Small pinned chest button */
 html body .cfsp-floating-command-chest .cfsp-chest-summary {
   width: 76px !important;
   min-height: 72px !important;
@@ -2131,24 +2132,33 @@ html body .cfsp-floating-command-chest .cfsp-chest-summary {
   display: grid !important;
   place-items: center !important;
   border-radius: 24px !important;
-  border: 1px solid rgba(20, 184, 166, 0.36) !important;
+  border: 1px solid rgba(20, 184, 166, 0.40) !important;
   background:
-    radial-gradient(circle at 20% 0%, rgba(20,184,166,0.20), transparent 34%),
+    radial-gradient(circle at 18% 0%, rgba(20,184,166,0.22), transparent 34%),
     radial-gradient(circle at 82% 18%, rgba(251,146,60,0.14), transparent 32%),
     linear-gradient(135deg, rgba(255,255,255,0.98), rgba(240,253,250,0.94)) !important;
   box-shadow:
-    0 18px 40px rgba(15,91,120,0.14),
+    0 18px 40px rgba(15,91,120,0.15),
     0 0 24px rgba(20,184,166,0.14),
-    inset 0 1px 0 rgba(255,255,255,0.80) !important;
+    inset 0 1px 0 rgba(255,255,255,0.82) !important;
   cursor: pointer !important;
+  transition: transform 160ms ease, box-shadow 160ms ease !important;
 }
 
-/* Hide text while collapsed/open; drawer gets its own header */
+html body .cfsp-floating-command-chest .cfsp-chest-summary:hover {
+  transform: translateY(-1px) !important;
+  box-shadow:
+    0 22px 46px rgba(15,91,120,0.18),
+    0 0 28px rgba(20,184,166,0.18),
+    inset 0 1px 0 rgba(255,255,255,0.82) !important;
+}
+
+/* Hide title in icon button */
 html body .cfsp-floating-command-chest .cfsp-chest-title {
   display: none !important;
 }
 
-/* Chest icon: CFSP teal chest with orange/gold latch */
+/* Chest icon */
 html body .cfsp-floating-command-chest .cfsp-chest-box {
   position: relative !important;
   width: 54px !important;
@@ -2175,7 +2185,7 @@ html body .cfsp-floating-command-chest .cfsp-chest-box::before {
   background: linear-gradient(90deg, #14b8a6, #fb923c, #84cc16) !important;
   border: 2px solid rgba(251,146,60,0.56) !important;
   transform-origin: bottom center !important;
-  animation: cfspCompactChestLid 6s ease-in-out infinite !important;
+  animation: cfspAnchoredChestLid 6s ease-in-out infinite !important;
 }
 
 html body .cfsp-floating-command-chest .cfsp-chest-box::after {
@@ -2192,10 +2202,15 @@ html body .cfsp-floating-command-chest .cfsp-chest-box::after {
   box-shadow: 0 0 10px rgba(250,204,21,0.60) !important;
 }
 
-/* Open drawer appears BELOW the icon, not as a giant modal */
+/* Drawer anchored below the small icon */
 html body .cfsp-floating-command-chest .cfsp-chest-drawer {
-  width: min(370px, calc(100vw - 28px)) !important;
-  margin-top: 10px !important;
+  position: absolute !important;
+  top: 84px !important;
+  right: 0 !important;
+  width: min(370px, calc(100vw - 32px)) !important;
+  max-height: calc(100vh - 120px) !important;
+  overflow: auto !important;
+  margin: 0 !important;
   padding: 16px !important;
   border-radius: 24px !important;
   border: 1px solid rgba(20,184,166,0.30) !important;
@@ -2204,37 +2219,35 @@ html body .cfsp-floating-command-chest .cfsp-chest-drawer {
     radial-gradient(circle at 12% 92%, rgba(132,204,22,0.10), transparent 30%),
     linear-gradient(135deg, rgba(255,255,255,0.98), rgba(240,253,250,0.94)) !important;
   box-shadow:
-    0 22px 48px rgba(15,91,120,0.16),
+    0 22px 48px rgba(15,91,120,0.18),
     0 0 28px rgba(20,184,166,0.10),
     inset 0 1px 0 rgba(255,255,255,0.82) !important;
-  position: relative !important;
-  overflow: hidden !important;
 }
 
 /* Drawer title */
 html body .cfsp-floating-command-chest .cfsp-chest-drawer::before {
   content: "Simulation Command File Cabinet" !important;
   display: block !important;
-  margin: 0 0 8px 0 !important;
+  margin: 0 0 6px 0 !important;
   color: #12324a !important;
-  font-size: 0.98rem !important;
+  font-size: 1rem !important;
   line-height: 1.2 !important;
   font-weight: 950 !important;
   letter-spacing: -0.01em !important;
 }
 
-/* Subtle subtitle */
+/* Drawer subtitle */
 html body .cfsp-floating-command-chest .cfsp-chest-drawer::after {
   content: "Files, training, communications, staffing, schedule, and recording." !important;
   display: block !important;
-  margin: 0 0 12px 0 !important;
+  margin: 10px 0 0 0 !important;
   color: #557085 !important;
   font-size: 0.74rem !important;
   line-height: 1.35 !important;
   font-weight: 750 !important;
 }
 
-/* Existing new-content chip */
+/* New content chip */
 html body .cfsp-floating-command-chest .cfsp-chest-new {
   width: fit-content !important;
   margin: 8px 0 12px 0 !important;
@@ -2248,14 +2261,14 @@ html body .cfsp-floating-command-chest .cfsp-chest-new {
   box-shadow: 0 8px 18px rgba(20,91,150,0.06) !important;
 }
 
-/* Grid */
+/* Button grid */
 html body .cfsp-floating-command-chest .cfsp-chest-grid {
   display: grid !important;
   grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
   gap: 10px !important;
 }
 
-/* Button cards: clean, light, with scroll-tab accent */
+/* Clean drawer buttons */
 html body .cfsp-floating-command-chest .cfsp-chest-link {
   position: relative !important;
   min-height: 44px !important;
@@ -2295,40 +2308,9 @@ html body .cfsp-floating-command-chest .cfsp-chest-link:hover {
     0 0 14px rgba(132,204,22,0.10) !important;
 }
 
-/* Subtle scroll/parchment hints inside drawer */
-html body .cfsp-floating-command-chest .cfsp-chest-new::before,
-html body .cfsp-floating-command-chest .cfsp-chest-new::after {
-  content: "" !important;
-  position: absolute !important;
-  pointer-events: none !important;
-  width: 52px !important;
-  height: 18px !important;
-  border-radius: 999px !important;
-  border: 1px solid rgba(251,146,60,0.26) !important;
-  background:
-    radial-gradient(circle at 12% 50%, rgba(251,191,36,0.38), transparent 16%),
-    radial-gradient(circle at 88% 50%, rgba(251,191,36,0.30), transparent 16%),
-    linear-gradient(90deg, rgba(255,247,237,0.78), rgba(236,253,245,0.70), rgba(255,247,237,0.78)) !important;
-  opacity: 0.35 !important;
-  box-shadow: 0 8px 16px rgba(20,91,150,0.06) !important;
-}
-
-html body .cfsp-floating-command-chest .cfsp-chest-new::before {
-  right: -58px !important;
-  top: -4px !important;
-  transform: rotate(7deg) !important;
-  animation: cfspDrawerScrollA 7s ease-in-out infinite !important;
-}
-
-html body .cfsp-floating-command-chest .cfsp-chest-new::after {
-  right: -34px !important;
-  bottom: -28px !important;
-  transform: rotate(-8deg) !important;
-  animation: cfspDrawerScrollB 8s ease-in-out infinite !important;
-}
-
+/* Staggered reveal */
 html body .cfsp-floating-command-chest[open] .cfsp-chest-link {
-  animation: cfspDrawerButtonSettle 220ms ease-out both !important;
+  animation: cfspAnchoredDrawerButtonSettle 220ms ease-out both !important;
 }
 
 html body .cfsp-floating-command-chest[open] .cfsp-chest-link:nth-child(2) { animation-delay: 35ms !important; }
@@ -2337,25 +2319,15 @@ html body .cfsp-floating-command-chest[open] .cfsp-chest-link:nth-child(4) { ani
 html body .cfsp-floating-command-chest[open] .cfsp-chest-link:nth-child(5) { animation-delay: 140ms !important; }
 html body .cfsp-floating-command-chest[open] .cfsp-chest-link:nth-child(6) { animation-delay: 175ms !important; }
 
-@keyframes cfspCompactChestLid {
+@keyframes cfspAnchoredChestLid {
   0%, 100% { transform: translateY(0) rotateX(0deg); }
   50% { transform: translateY(-1px) rotateX(8deg); }
 }
 
-@keyframes cfspDrawerButtonSettle {
+@keyframes cfspAnchoredDrawerButtonSettle {
   0% { opacity: 0; transform: translateY(-4px) scale(0.985); }
   100% { opacity: 1; transform: translateY(0) scale(1); }
 }
 
-@keyframes cfspDrawerScrollA {
-  0%, 100% { opacity: 0.25; transform: translateY(0) rotate(7deg); }
-  50% { opacity: 0.48; transform: translateY(4px) rotate(4deg); }
-}
-
-@keyframes cfspDrawerScrollB {
-  0%, 100% { opacity: 0.20; transform: translateY(0) rotate(-8deg); }
-  50% { opacity: 0.42; transform: translateY(-4px) rotate(-5deg); }
-}
-
-/* END CFSP FLOATING CHEST COMPACT DRAWER v16 */
+/* END CFSP FLOATING CHEST ANCHORED DRAWER v17 */
 
