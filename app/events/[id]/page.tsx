@@ -22719,10 +22719,13 @@ Cory`;
                       </div>
                       <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                         {[
+                          { value: "overview", label: "Overview" },
+                          { value: "coverage", label: "Coverage" },
+                          { value: "learner", label: "Learner Flow" },
                           { value: "announcements", label: "Announcements" },
                           { value: "student", label: "Student Schedule" },
                           { value: "sp", label: "SP Schedule" },
-                          { value: "operations", label: "Operations View" },
+                          { value: "operations", label: "Operations" },
                         ].map((view) => (
                           <button
                             key={view.value}
