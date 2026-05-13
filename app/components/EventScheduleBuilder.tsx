@@ -2186,10 +2186,7 @@ function isPrimaryScheduleWideTimelineBlock(block: TimelineBlock) {
 function filterRoundsForView(rounds: ScheduledRound[], viewMode: ScheduleBuilderViewMode) {
   return rounds.map((round) => ({
     ...round,
-    roomSlots:
-      viewMode === "student"
-        ? round.roomSlots.filter((slot) => slot.learnerLabels.length > 0)
-        : round.roomSlots,
+    roomSlots: round.roomSlots,
     subBlocks: round.subBlocks.filter((block) =>
       isDayBlockVisibleToView(block.visibleTo || "both", viewMode) && !isFillerTimingLabel(block.label)
     ),
