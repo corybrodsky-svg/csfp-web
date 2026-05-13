@@ -10454,6 +10454,28 @@ Cory`;
   const trainingAccessUrl = normalizeExternalHref(
     normalEventTrainingLink || trainingMetadata.zoom_url || trainingMetadata.training_zoom_link
   );
+  const virtualAccessRequired = selectedModalityLabel === "Virtual" || selectedModalityLabel === "Hybrid" || eventMeta.isVirtualSp;
+  const virtualAccessStatusLabel = trainingAccessUrl
+    ? "Virtual Access Ready"
+    : virtualAccessRequired
+      ? "Zoom Link Needed"
+      : "Virtual Access Optional";
+  async function handleCopyVirtualAccessLink() {
+    if (!trainingAccessUrl) {
+      setEventSaveError("No Zoom or virtual access link is saved yet.");
+      return;
+    }
+    try {
+      if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
+        throw new Error("Clipboard is unavailable in this browser.");
+      }
+      await navigator.clipboard.writeText(trainingAccessUrl);
+      setEventSaveMessage("Virtual access link copied.");
+      setEventSaveError("");
+    } catch (error) {
+      setEventSaveError(error instanceof Error ? error.message : "Could not copy virtual access link.");
+    }
+  }
   function scrollToAdminTools() {
     const adminTools = document.getElementById("coverage-actions") as HTMLDetailsElement | null;
     if (adminTools) {
@@ -11323,7 +11345,8 @@ Cory`;
     ...(caseFileOperationallyRequired ? [uploadedCaseFileCount ? "available" : caseFileCount ? "draft" : "missing"] : []),
     scheduleCompleted ? "complete" : scheduleInProgress || rotationRounds.length ? "draft" : "missing",
     learnerRosterDocumentReady ? "available" : "missing",
-    ...(trainingZoomRequired ? [trainingAccessUrl ? "available" : "missing"] : []),
+    ...(virtualAccessRequired ? [trainingAccessUrl ? "available" : "missing"] : []),
+    ...(trainingZoomRequired && !virtualAccessRequired ? [trainingAccessUrl ? "available" : "missing"] : []),
     ...(eventRecordingEnabled ? [recordingGuideUrl || hasEventRecordingUrl ? "available" : "missing"] : []),
     ...(materialsReadinessNeedsAttention && !hasAnyMaterialEvidence ? ["missing"] : []),
   ];
@@ -11332,6 +11355,7 @@ Cory`;
     eventMaterialUrl ? "available" : "optional",
     trainingMetadata.doorsign_url || trainingMetadata.doorsign_storage_path ? "available" : "optional",
     trainingMetadata.supplemental_doc_url || trainingMetadata.supplemental_doc_storage_path ? "available" : "optional",
+    !virtualAccessRequired ? trainingAccessUrl ? "available" : "optional" : null,
     !eventRecordingEnabled ? recordingGuideUrl || hasEventRecordingUrl ? "available" : "optional" : null,
     !trainingZoomRequired ? trainingAccessUrl ? "available" : "optional" : null,
   ].filter(Boolean) as string[];
@@ -22537,6 +22561,52 @@ Cory`;
                                 Open
                                 </a>
                               ) : null}
+                            </>
+                          ),
+                        },
+                        {
+                          key: "virtual_access",
+                          title: "VIRTUAL ACCESS / ZOOM",
+                          detail: trainingAccessUrl ? trainingAccessUrl : "Zoom link pending",
+                          status: trainingAccessUrl ? "available" : virtualAccessRequired ? "missing" : "draft",
+                          featured: virtualAccessRequired,
+                          accent: trainingAccessUrl ? "#14b8a6" : virtualAccessRequired ? "#7c3aed" : "#64748b",
+                          primaryHref: trainingAccessUrl || "",
+                          metadata: [
+                            virtualAccessStatusLabel,
+                            selectedModalityLabel,
+                            trainingAccessUrl ? "Schedule packet ready" : "Add link before export",
+                          ].filter(Boolean),
+                          actions: (
+                            <>
+                              {trainingAccessUrl ? (
+                                <a
+                                  href={trainingAccessUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="cfsp-button-tactical"
+                                  style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "6px 9px" }}
+                                >
+                                  Open Zoom
+                                </a>
+                              ) : null}
+                              <button
+                                type="button"
+                                onClick={() => void handleCopyVirtualAccessLink()}
+                                disabled={!trainingAccessUrl}
+                                className="cfsp-button-tactical"
+                                style={{ ...buttonStyle, padding: "6px 9px", opacity: trainingAccessUrl ? 1 : 0.55 }}
+                              >
+                                Copy Link
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => focusAdminEditField("zoom_url")}
+                                className="cfsp-button-tactical"
+                                style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px" }}
+                              >
+                                Add/Edit Zoom Link
+                              </button>
                             </>
                           ),
                         },
