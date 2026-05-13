@@ -192,6 +192,7 @@ type PollLocationFilter = "any" | "elkins_park" | "center_city" | "virtual";
 type CommandCenterMode = "planning" | "live";
 type RotationCompanionView = "overview" | "coverage" | "learner" | "live" | "announcements" | "student" | "sp" | "operations";
 type CommandDockTool = "faculty" | "training" | "file-cabinet" | "staffing" | "communication" | "qa" | "advanced";
+type SelectedCommandTool = "primary" | "faculty" | "training" | "fileCabinet" | "staffing" | "communication" | "qa" | "advanced";
 type LiveRoomStatusValue = "ready" | "in_session" | "delayed" | "empty" | "sp_missing" | "complete";
 type RoomDisplayEntry = {
   roomName: string;
@@ -4444,6 +4445,7 @@ export default function EventDetailPage() {
   const [contactPanelSavedAt, setContactPanelSavedAt] = useState("");
   const [contactPanelExpanded, setContactPanelExpanded] = useState(false);
   const [expandedCommandDockTool, setExpandedCommandDockTool] = useState<CommandDockTool | "">("");
+  const [selectedCommandTool, setSelectedCommandTool] = useState<SelectedCommandTool>("primary");
   const [staffingCommandCenterExpanded, setStaffingCommandCenterExpanded] = useState(false);
   const [trainingReadinessExpanded, setTrainingReadinessExpanded] = useState(false);
   const [planningWindowExpanded, setPlanningWindowExpanded] = useState<Record<PlanningWindowKey, boolean>>({
@@ -22808,6 +22810,66 @@ Cory`;
                       </div>
                     </div>
 
+                    <div
+                      aria-label="Secondary tool dock"
+                      style={{
+                        borderRadius: "16px",
+                        border: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.18)" : "1px solid rgba(126, 231, 219, 0.2)",
+                        background: isPlanningVisualMode ? "rgba(247, 253, 255, 0.82)" : "rgba(5, 18, 31, 0.48)",
+                        padding: "8px",
+                        display: "flex",
+                        gap: "6px",
+                        flexWrap: "wrap",
+                        alignItems: "center",
+                      }}
+                    >
+                      {[
+                        { value: "primary" as const, label: "Primary Board", status: roundCompanionView === "overview" ? "Overview" : "Tabs" },
+                        { value: "faculty" as const, label: "Faculty", status: facultyPanelStatusLabel },
+                        { value: "training" as const, label: "Training", status: normalEventTrainingStatusLabel },
+                        { value: "fileCabinet" as const, label: "File Cabinet", status: commandFileCabinetSummaryLabel },
+                        { value: "staffing" as const, label: "Staffing", status: staffingCoverageMet ? "Ready" : "Needs scan" },
+                        { value: "communication" as const, label: "Communication", status: outreachProgressLabel },
+                        { value: "qa" as const, label: "QA Board", status: workflowBoardStatusLabel },
+                        { value: "advanced" as const, label: "Advanced", status: scheduleStatusLabel },
+                      ].map((tool) => {
+                        const selected = selectedCommandTool === tool.value;
+                        return (
+                          <button
+                            key={`central-command-tool-${tool.value}`}
+                            type="button"
+                            onClick={() => setSelectedCommandTool(tool.value)}
+                            aria-pressed={selected}
+                            style={{
+                              ...buttonStyle,
+                              padding: "7px 9px",
+                              borderRadius: "11px",
+                              display: "grid",
+                              gap: "2px",
+                              minWidth: "112px",
+                              textAlign: "left",
+                              background: selected
+                                ? isPlanningVisualMode ? "rgba(209, 250, 229, 0.62)" : "rgba(126, 231, 219, 0.18)"
+                                : isPlanningVisualMode ? "rgba(255,255,255,0.72)" : "rgba(15, 23, 42, 0.52)",
+                              color: selected
+                                ? isPlanningVisualMode ? "#0f766e" : "#d6f6f2"
+                                : commandCenterVisual.textColor,
+                              border: selected
+                                ? isPlanningVisualMode ? "1px solid rgba(25, 138, 112, 0.24)" : "1px solid rgba(126, 231, 219, 0.32)"
+                                : isPlanningVisualMode ? "1px solid rgba(128, 167, 182, 0.18)" : "1px solid rgba(148, 163, 184, 0.16)",
+                            }}
+                          >
+                            <span style={{ fontSize: "11px", fontWeight: 950 }}>{tool.label}</span>
+                            <span style={{ color: selected ? "inherit" : commandCenterVisual.mutedColor, fontSize: "9px", fontWeight: 800, lineHeight: 1.2 }}>
+                              {tool.status}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {selectedCommandTool === "primary" ? (
+                      <>
                     {!hasTouchedRoundCompanion ? (
                       <div style={{ color: commandCenterVisual.mutedColor, fontWeight: 700, fontSize: "13px" }}>
                         Select a rotation round to view operational details.
@@ -24227,6 +24289,155 @@ Cory`;
                         Select a rotation round to view operational details.
                       </div>
                     )}
+                      </>
+                    ) : (
+                      <section
+                        style={{
+                          borderRadius: "16px",
+                          border: commandCenterVisual.rowBorder,
+                          background: commandCenterVisual.rowBackground,
+                          padding: "12px",
+                          display: "grid",
+                          gap: "10px",
+                        }}
+                      >
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+                          <div>
+                            <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>
+                              {selectedCommandTool === "faculty"
+                                ? "Faculty / Contact"
+                                : selectedCommandTool === "training"
+                                  ? "Training & Prep"
+                                  : selectedCommandTool === "fileCabinet"
+                                    ? "Command File Cabinet"
+                                    : selectedCommandTool === "staffing"
+                                      ? "Staffing Command"
+                                      : selectedCommandTool === "communication"
+                                        ? "Communication"
+                                        : selectedCommandTool === "qa"
+                                          ? "Operational QA"
+                                          : "Advanced Event Details"}
+                            </div>
+                            <div style={{ marginTop: "3px", color: commandCenterVisual.headingColor, fontSize: "17px", fontWeight: 950 }}>
+                              {selectedCommandTool === "faculty"
+                                ? facultyContactSummary || facultyReadinessLabel
+                                : selectedCommandTool === "training"
+                                  ? normalEventTrainingStatusLabel
+                                  : selectedCommandTool === "fileCabinet"
+                                    ? commandFileCabinetSummaryLabel
+                                    : selectedCommandTool === "staffing"
+                                      ? (staffingCoverageMet ? "Coverage ready" : coverageStatus.message)
+                                      : selectedCommandTool === "communication"
+                                        ? outreachProgressLabel
+                                        : selectedCommandTool === "qa"
+                                          ? workflowBoardStatusLabel
+                                          : scheduleStatusLabel}
+                            </div>
+                          </div>
+                          <button type="button" onClick={() => setSelectedCommandTool("primary")} style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px" }}>
+                            Back to Primary Board
+                          </button>
+                        </div>
+
+                        {selectedCommandTool === "faculty" ? (
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: "8px" }}>
+                            {[
+                              { label: "Faculty", value: trainingFacultyText || "Needs contact" },
+                              { label: "Program", value: trainingMetadata.faculty_program || "Not set" },
+                              { label: "Email", value: facultyEmailText || "Not set" },
+                              { label: "Sim Contact", value: trainingMetadata.sim_contact || "Not set" },
+                            ].map((item) => (
+                              <div key={`central-faculty-${item.label}`} style={{ borderRadius: "12px", border: commandCenterVisual.rowBorder, background: isPlanningVisualMode ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.05)", padding: "9px" }}>
+                                <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>{item.label}</div>
+                                <div style={{ marginTop: "4px", color: commandCenterVisual.textColor, fontSize: "12px", fontWeight: 850, overflowWrap: "anywhere" }}>{item.value}</div>
+                              </div>
+                            ))}
+                            <button type="button" onClick={() => { setContactPanelExpanded(true); }} style={{ ...buttonStyle, padding: "7px 10px", justifySelf: "start" }}>
+                              Expand Full Contact Drawer Below
+                            </button>
+                          </div>
+                        ) : selectedCommandTool === "training" ? (
+                          <div style={{ display: "grid", gap: "8px" }}>
+                            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                              {[normalEventTrainingDateText || "Training date TBD", normalEventTrainingTimeText || "Time TBD", trainingOwnershipValue, trainingRequirementValue].map((chip) => (
+                                <span key={`central-training-${chip}`} style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText }}>{chip}</span>
+                              ))}
+                            </div>
+                            <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 750, lineHeight: 1.45 }}>
+                              {normalEventTrainingInfoText || "Training notes and attendance controls remain available in the full drawer."}
+                            </div>
+                            <button type="button" onClick={() => handleTrainingReadinessExpandedChange(true)} style={{ ...buttonStyle, padding: "7px 10px", justifySelf: "start" }}>
+                              Expand Full Training Drawer Below
+                            </button>
+                          </div>
+                        ) : selectedCommandTool === "fileCabinet" ? (
+                          <div style={{ display: "grid", gap: "8px" }}>
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "8px" }}>
+                              {[
+                                { label: "Cases", value: uploadedCaseFileCount ? `${uploadedCaseFileCount} uploaded` : "No case file" },
+                                { label: "Materials", value: materialsStatusLabel },
+                                { label: "Schedule", value: scheduleStatusLabel },
+                                { label: "Missing", value: commandFileCabinetStatusCounts.missing },
+                              ].map((item) => (
+                                <div key={`central-file-${item.label}`} style={{ borderRadius: "12px", border: commandCenterVisual.rowBorder, background: isPlanningVisualMode ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.05)", padding: "9px" }}>
+                                  <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>{item.label}</div>
+                                  <div style={{ marginTop: "4px", color: commandCenterVisual.textColor, fontSize: "13px", fontWeight: 900 }}>{item.value}</div>
+                                </div>
+                              ))}
+                            </div>
+                            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                              <button type="button" onClick={() => openCaseFilePicker(uploadedCaseFileCount ? { mode: "add" } : { mode: "replace", index: 0 })} style={{ ...buttonStyle, padding: "7px 10px" }}>
+                                Upload Case
+                              </button>
+                              <button type="button" onClick={() => handleOpenEventScheduleRouteInNewTab("operations", "schedule")} style={{ ...buttonStyle, padding: "7px 10px" }}>
+                                Open Schedule
+                              </button>
+                              <button type="button" onClick={() => handleCommandFileCabinetExpandedChange(true)} style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px" }}>
+                                Expand File Drawer Below
+                              </button>
+                            </div>
+                          </div>
+                        ) : selectedCommandTool === "staffing" ? (
+                          <div style={{ display: "grid", gap: "8px" }}>
+                            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                              {[`${confirmedCount} confirmed`, `${backupCount} backup`, needed > 0 ? `${needed} needed` : "Need not set", staffingEmailWorkflowDetail || "Communication pending"].map((chip) => (
+                                <span key={`central-staffing-${chip}`} style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText }}>{chip}</span>
+                              ))}
+                            </div>
+                            <button type="button" onClick={() => handleStaffingCommandCenterExpandedChange(true)} style={{ ...buttonStyle, padding: "7px 10px", justifySelf: "start" }}>
+                              Expand Staffing Controls Below
+                            </button>
+                          </div>
+                        ) : selectedCommandTool === "communication" ? (
+                          <div style={{ display: "grid", gap: "8px" }}>
+                            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                              {[hiringEmailStatusLabel, confirmationEmailStatusLabel, facultyTrainingCoordinationLabel].filter(Boolean).map((chip) => (
+                                <span key={`central-comms-${chip}`} style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText }}>{chip}</span>
+                              ))}
+                            </div>
+                            <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 750 }}>
+                              Email draft buttons and mailto workflows remain in the communication fallback drawer.
+                            </div>
+                          </div>
+                        ) : selectedCommandTool === "qa" ? (
+                          <div style={{ display: "grid", gap: "8px" }}>
+                            <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 750 }}>{workflowBoardStatusDetail}</div>
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "8px" }}>
+                              {workflowReportItems.slice(0, 4).map((item) => renderWorkflowReadinessItem(item, true))}
+                            </div>
+                          </div>
+                        ) : (
+                          <div style={{ display: "grid", gap: "8px" }}>
+                            <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 750 }}>
+                              Advanced event fields stay available as a collapsed maintenance drawer below the command station.
+                            </div>
+                            <button type="button" onClick={() => void saveEventDetails()} disabled={saving} style={{ ...buttonStyle, padding: "7px 10px", justifySelf: "start", opacity: saving ? 0.65 : 1 }}>
+                              Save Event Details
+                            </button>
+                          </div>
+                        )}
+                      </section>
+                    )}
                   </aside>
                 </div>
                   </>
@@ -24250,7 +24461,7 @@ Cory`;
                 : "linear-gradient(135deg, rgba(9, 22, 36, 0.96), rgba(12, 36, 44, 0.9))",
               boxShadow: isPlanningVisualMode ? "0 12px 28px rgba(24, 52, 78, 0.08)" : "0 16px 36px rgba(2, 6, 23, 0.32)",
               padding: "10px",
-              display: "grid",
+              display: "none",
               gap: "8px",
             }}
           >
@@ -24400,6 +24611,8 @@ Cory`;
               padding: "14px",
               background: facultyPanelTone.cardBackground,
               boxShadow: facultyCoordinationComplete ? operationalReadinessGoldTone.glow : isPlanningVisualMode ? "0 12px 28px rgba(42, 112, 140, 0.08)" : "0 16px 32px rgba(8, 20, 34, 0.28)",
+              display: contactPanelExpanded ? "grid" : "none",
+              gap: "10px",
             }}
           >
             <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
