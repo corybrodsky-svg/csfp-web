@@ -52,7 +52,6 @@ import {
 } from "../../lib/roomNaming";
 import { type TrainingEventMetadata } from "../../lib/trainingEventNotes";
 
-import HolographicUniverseOrb from "../../components/HolographicUniverseOrb";
 
 type EventDetailRow = {
   id: string;
@@ -4389,9 +4388,7 @@ export default function EventDetailPage() {
     const timeout = window.setTimeout(() => {
       setPollImportSuccess("");
     }, 6500);
-    return (
-      <HolographicUniverseOrb />
-) => window.clearTimeout(timeout);
+    return () => window.clearTimeout(timeout);
   }, [pollImportSuccess]);
   const [loading, setLoading] = useState(Boolean(id));
   const [saving, setSaving] = useState(false);
