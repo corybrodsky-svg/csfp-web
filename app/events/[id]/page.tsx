@@ -695,7 +695,7 @@ const detailGridStyle: React.CSSProperties = {
 const compactSectionTitleStyle: React.CSSProperties = {
   margin: 0,
   color: "var(--cfsp-text)",
-  fontSize: "22px",
+  fontSize: "18px",
   lineHeight: 1.1,
 };
 
@@ -14724,7 +14724,7 @@ Cory`;
 	                      <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
 	                        <div>
 	                          <div style={{ color: livePanelTitleText, fontWeight: 950, fontSize: "17px" }}>{row.roomName}</div>
-	                          <div style={{ marginTop: "4px", color: livePanelBodyText, fontSize: "12px", fontWeight: 750 }}>
+	                          <div style={{ marginTop: "4px", color: livePanelBodyText, fontSize: "10px", fontWeight: 700 }}>
 	                            {row.sp ? getFullName(row.sp) : "SP TBD"}
 	                          </div>
 	                        </div>
@@ -15060,7 +15060,7 @@ Cory`;
                       <div style={{ marginTop: "4px", color: livePanelTitleText, fontSize: "19px", fontWeight: 950 }}>
                         Simulation Lab Occupancy
                       </div>
-                      <div style={{ marginTop: "4px", color: "#dbeafe", fontSize: "12px", fontWeight: 750, lineHeight: 1.45 }}>
+                      <div style={{ marginTop: "4px", color: "#dbeafe", fontSize: "10px", fontWeight: 700, lineHeight: 1.45 }}>
                         Track SP check-in and learner arrival from prebrief into active exam rooms.
                       </div>
                       <div style={{ marginTop: "4px", color: "#cbd5e1", fontSize: "11px", fontWeight: 800 }}>
@@ -16753,7 +16753,7 @@ Cory`;
                               selectedLiveFlowRelation === "current"
                                 ? "rgba(16, 44, 59, 0.72)"
                                 : "rgba(13, 27, 42, 0.72)",
-                            padding: "12px 13px",
+                            padding: "8px 10px",
                             display: "grid",
                             gap: "8px",
                           }}
@@ -16798,12 +16798,12 @@ Cory`;
                             </div>
                           </div>
                           {selectedLiveFlowBlock.note ? (
-                            <div style={{ color: livePanelBodyText, fontSize: "12px", fontWeight: 750 }}>
+                            <div style={{ color: livePanelBodyText, fontSize: "10px", fontWeight: 700 }}>
                               {selectedLiveFlowBlock.note}
                             </div>
                           ) : null}
                           {selectedLiveFlowAnnouncementText ? (
-                            <div style={{ color: livePanelBodyText, fontSize: "12px", fontWeight: 750 }}>
+                            <div style={{ color: livePanelBodyText, fontSize: "10px", fontWeight: 700 }}>
                               Announcement: {selectedLiveFlowAnnouncementText}
                             </div>
                           ) : null}
@@ -17693,7 +17693,7 @@ Cory`;
                     Payroll Summary Coming Soon
                   </button>
                 </div>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "8px" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: "8px" }}>
                   {liveCloseoutItems.map((item) => (
                     <div key={`live-closeout-${item.label}`} style={staffingMetricCardStyle}>
                       <div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>{item.label}</div>
@@ -18247,7 +18247,7 @@ Cory`;
                       <div
                         style={{
                           display: "grid",
-                          gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+                          gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))",
                           gap: "8px",
                         }}
                       >
@@ -21029,7 +21029,7 @@ Cory`;
                     <div
                       style={{
                         display: "grid",
-                        gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+                        gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))",
                         gap: "10px",
                       }}
                     >
@@ -21049,14 +21049,14 @@ Cory`;
                             borderRadius: "16px",
                             border: eventStatusWindowStyles.border,
                             background: commandCenterVisual.rowBackground,
-                            padding: "12px 13px",
+                            padding: "8px 10px",
                             display: "grid",
                             gap: "4px",
                           }}
                         >
                           <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>{metric.label}</div>
-                          <div style={{ color: commandCenterVisual.headingColor, fontSize: "22px", fontWeight: 950, lineHeight: 1.1 }}>{metric.value}</div>
-                          <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 750 }}>{metric.detail}</div>
+                          <div style={{ color: commandCenterVisual.headingColor, fontSize: "18px", fontWeight: 950, lineHeight: 1.1 }}>{metric.value}</div>
+                          <div style={{ color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 700 }}>{metric.detail}</div>
                         </div>
                       ))}
                     </div>
@@ -21235,7 +21235,7 @@ Cory`;
                           <div style={{ marginTop: "4px", color: commandCenterVisual.textColor, fontSize: "14px", fontWeight: 950, lineHeight: 1.3 }}>
                             {windowCard.summary || windowCard.subtitle}
                           </div>
-                          <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 750, lineHeight: 1.45 }}>
+                          <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 700, lineHeight: 1.45 }}>
                             {windowCard.subtitle}
                           </div>
                         </div>
@@ -21308,7 +21308,7 @@ Cory`;
                                   <div style={{ color: commandCenterVisual.textColor, fontSize: "14px", fontWeight: 950, textAlign: "right" }}>{row.value}</div>
                                 </div>
                                 {row.detail ? (
-                                  <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 750, lineHeight: 1.45 }}>
+                                  <div style={{ color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 700, lineHeight: 1.45 }}>
                                     {row.detail}
                                   </div>
                                 ) : null}
@@ -21357,7 +21357,7 @@ Cory`;
                     <div style={{ marginTop: "4px", color: "#102d44", fontWeight: 950, fontSize: "17px" }}>
                       Learner planning summary
                     </div>
-                    <div style={{ marginTop: "4px", color: "#4d6678", fontSize: "12px", fontWeight: 750, lineHeight: 1.45, maxWidth: "740px" }}>
+                    <div style={{ marginTop: "4px", color: "#4d6678", fontSize: "10px", fontWeight: 700, lineHeight: 1.45, maxWidth: "740px" }}>
                       Imported roster and assignment coverage from the current schedule surface.
                     </div>
                   </div>
@@ -21445,7 +21445,7 @@ Cory`;
                   ))}
                 </div>
                 {learnerPlannerMissingSignals.length ? (
-                  <div style={{ color: "#5e7388", fontSize: "12px", fontWeight: 750, display: "grid", gap: "4px" }}>
+                  <div style={{ color: "#5e7388", fontSize: "10px", fontWeight: 700, display: "grid", gap: "4px" }}>
                     {learnerPlannerMissingSignals.map((signal, index) => (
                       <div key={`learner-planner-signal-${index}`}>{signal}</div>
                     ))}
@@ -21486,7 +21486,7 @@ Cory`;
 	                      <div style={{ marginTop: "4px", color: "#102d44", fontWeight: 950, fontSize: "18px", letterSpacing: "0.01em" }}>
 	                        Planning-side live command preview
 	                      </div>
-	                      <div style={{ marginTop: "4px", color: "#4d6678", fontSize: "12px", fontWeight: 750, lineHeight: 1.45, maxWidth: "760px" }}>
+	                      <div style={{ marginTop: "4px", color: "#4d6678", fontSize: "10px", fontWeight: 700, lineHeight: 1.45, maxWidth: "760px" }}>
 	                        Check the live-day sequence, blockers, staffing, materials, and schedule readiness before switching into Live Mode.
 	                      </div>
 	                    </div>
@@ -21713,7 +21713,7 @@ Cory`;
                       <div>
                         <div style={{ color: commandCenterVisual.textColor, fontWeight: 900 }}>{item.value}</div>
                         {item.detail ? (
-                        <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 750, lineHeight: 1.45 }}>
+                        <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 700, lineHeight: 1.45 }}>
                           {item.detail}
                         </div>
                         ) : null}
@@ -21867,7 +21867,7 @@ Cory`;
                         >
                           Simulation Command File Cabinet
                         </div>
-                        <div style={{ marginTop: "4px", color: commandFileCabinetVisual.detailColor, fontSize: "12px", fontWeight: 750, lineHeight: 1.45, maxWidth: "680px" }}>
+                        <div style={{ marginTop: "4px", color: commandFileCabinetVisual.detailColor, fontSize: "10px", fontWeight: 700, lineHeight: 1.45, maxWidth: "680px" }}>
                           Keep the mission packet, exports, timing tickets, materials, and live-access links together in one tactical rack.
                         </div>
                       </div>
@@ -23873,7 +23873,7 @@ Cory`;
                                         ) : null}
                                       </div>
                                     </div>
-                                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "8px" }}>
+                                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: "8px" }}>
                                       <div>
                                         <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Learner</div>
                                         <div style={{ color: commandCenterVisual.textColor, fontWeight: 800, fontSize: "13px", display: "flex", gap: "8px", flexWrap: "wrap" }}>
@@ -23921,7 +23921,7 @@ Cory`;
                                       </div>
                                     </div>
                                     {row.notes ? (
-                                      <div style={{ borderRadius: "10px", border: commandCenterVisual.rowBorder, background: commandCenterVisual.chipBackground, color: commandCenterVisual.textColor, padding: "8px 10px", fontSize: "12px", fontWeight: 750 }}>
+                                      <div style={{ borderRadius: "10px", border: commandCenterVisual.rowBorder, background: commandCenterVisual.chipBackground, color: commandCenterVisual.textColor, padding: "8px 10px", fontSize: "10px", fontWeight: 700 }}>
                                         {row.notes}
                                       </div>
                                     ) : null}
@@ -24199,7 +24199,7 @@ Cory`;
             </div>
 
             {(!facultyReadinessComplete || contactPanelExpanded) ? (
-            <div style={{ display: "grid", gap: "10px", marginTop: "12px", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))" }}>
+            <div style={{ display: "grid", gap: "10px", marginTop: "12px", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))" }}>
               <label style={{ display: "grid", gap: "6px" }}>
                 <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Faculty name</span>
                 <input
@@ -26404,7 +26404,7 @@ Cory`;
                   >
                     <div>
                       <div style={{ ...statLabel, color: "#145b96" }}>Case Setup</div>
-                      <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 750 }}>
+                      <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontSize: "10px", fontWeight: 700 }}>
                         First-class case objects used by File Cabinet, Schedule Builder, Round Operations, Viewer, and exports.
                       </div>
                     </div>
@@ -26485,7 +26485,7 @@ Cory`;
                     <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
                       <div>
                         <div style={statLabel}>Multiple Case Files</div>
-                        <div style={{ marginTop: "3px", color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 750 }}>
+                        <div style={{ marginTop: "3px", color: "var(--cfsp-text-muted)", fontSize: "10px", fontWeight: 700 }}>
                           {uploadedCaseFileCount
                             ? `${uploadedCaseFileCount} case${uploadedCaseFileCount === 1 ? "" : "s"} available for this session.`
                             : caseFileCount
@@ -28187,7 +28187,7 @@ Cory`;
     <div
       style={{
         display: "grid",
-        gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+        gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))",
         gap: "10px",
         marginBottom: "14px",
       }}
@@ -28878,7 +28878,7 @@ Cory`;
                           : "matched"}
                     </span>
                   </div>
-                  <div style={{ color: "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 750, lineHeight: 1.5 }}>
+                  <div style={{ color: "var(--cfsp-text-muted)", fontSize: "10px", fontWeight: 700, lineHeight: 1.5 }}>
                     {[
                       formatEventDateText(node.date_text, importedYearHint),
                       node.location,
