@@ -20513,7 +20513,7 @@ Cory`;
         </div>
       ) : null}
 
-      <details style={cardStyle}>
+      <details style={{ ...cardStyle, display: "none" }}>
         <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 900, fontSize: "20px" }}>
           {isTrainingMode ? "Training Command Center" : "Coverage Actions"}
         </summary>
@@ -22948,8 +22948,8 @@ Cory`;
                               Primary and backup staffing workflow
                             </div>
                           </div>
-                          <button type="button" onClick={() => handleStaffingCommandCenterExpandedChange(true)} style={{ ...buttonStyle, padding: "7px 10px" }}>
-                            Open Full Staffing Controls
+                          <button type="button" onClick={() => setSpFinderMatchMakerOpen(true)} style={{ ...buttonStyle, padding: "7px 10px" }}>
+                            Open Match Maker
                           </button>
                         </div>
                         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "8px" }}>
@@ -23232,6 +23232,54 @@ Cory`;
                                 <div style={{ color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 750, lineHeight: 1.35 }}>{item.detail}</div>
                               </div>
                             ))}
+                          </div>
+                        </section>
+                        <section
+                          style={{
+                            borderRadius: "16px",
+                            border: commandCenterVisual.rowBorder,
+                            background: isPlanningVisualMode ? "rgba(255,255,255,0.62)" : "rgba(255,255,255,0.04)",
+                            padding: "10px",
+                            display: "grid",
+                            gap: "8px",
+                          }}
+                        >
+                          <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Live Attendance Blueprint</div>
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "8px" }}>
+                            {liveCloseoutItems.map((item) => (
+                              <div key={`central-live-blueprint-${item.label}`} style={{ borderRadius: "12px", border: commandCenterVisual.rowBorder, background: isPlanningVisualMode ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.05)", padding: "8px" }}>
+                                <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>{item.label}</div>
+                                <div style={{ marginTop: "3px", color: commandCenterVisual.textColor, fontSize: "14px", fontWeight: 950 }}>{item.value}</div>
+                                <div style={{ marginTop: "2px", color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 750 }}>{item.detail}</div>
+                              </div>
+                            ))}
+                          </div>
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "8px" }}>
+                            <div style={{ display: "grid", gap: "6px" }}>
+                              <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Learner Arrival Rail</div>
+                              {liveLearnerPresenceTokens.slice(0, 6).map((token) => (
+                                <div key={`central-learner-rail-${token.attendanceKey}`} style={{ display: "flex", justifyContent: "space-between", gap: "8px", alignItems: "center", borderRadius: "10px", border: commandCenterVisual.rowBorder, background: isPlanningVisualMode ? "rgba(255,255,255,0.68)" : "rgba(255,255,255,0.04)", padding: "7px 8px" }}>
+                                  <span style={{ color: commandCenterVisual.textColor, fontSize: "11px", fontWeight: 900 }}>{token.learnerName}</span>
+                                  <span style={{ ...commandChipStyle, background: token.status === "late" || token.status === "absent" ? "rgba(248,113,113,0.14)" : commandCenterVisual.activeSoftBackground, color: token.status === "late" || token.status === "absent" ? staffingWorkspacePalette.dangerText : commandCenterVisual.activeSoftText }}>
+                                    {token.status.replace("_", " ")}
+                                  </span>
+                                </div>
+                              ))}
+                              {!liveLearnerPresenceTokens.length ? (
+                                <div style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 750 }}>No learner arrival rail available yet.</div>
+                              ) : null}
+                            </div>
+                            <div style={{ display: "grid", gap: "6px" }}>
+                              <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Room Occupancy Status</div>
+                              {liveAttendanceBlueprintRooms.slice(0, 6).map((room) => (
+                                <div key={`central-room-occupancy-${room.key}`} style={{ display: "flex", justifyContent: "space-between", gap: "8px", alignItems: "center", borderRadius: "10px", border: commandCenterVisual.rowBorder, background: isPlanningVisualMode ? "rgba(255,255,255,0.68)" : "rgba(255,255,255,0.04)", padding: "7px 8px" }}>
+                                  <span style={{ color: commandCenterVisual.textColor, fontSize: "11px", fontWeight: 900 }}>{room.roomName}</span>
+                                  <span style={{ ...commandChipStyle, background: room.status === "checked_in" ? commandCenterVisual.activeSoftBackground : commandCenterVisual.chipBackground, color: room.status === "checked_in" ? commandCenterVisual.activeSoftText : commandCenterVisual.chipText }}>
+                                    {room.status.replace("_", " ")}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
                           </div>
                         </section>
 
@@ -24682,8 +24730,8 @@ Cory`;
                                 <div style={{ marginTop: "4px", color: commandCenterVisual.textColor, fontSize: "12px", fontWeight: 850, overflowWrap: "anywhere" }}>{item.value}</div>
                               </div>
                             ))}
-                            <button type="button" onClick={() => { setContactPanelExpanded(true); }} style={{ ...buttonStyle, padding: "7px 10px", justifySelf: "start" }}>
-                              Expand Full Contact Drawer Below
+                            <button type="button" disabled style={{ ...buttonStyle, padding: "7px 10px", justifySelf: "start", opacity: 0.6 }}>
+                              Contact Summary In Command Center
                             </button>
                           </div>
                         ) : selectedCommandTool === "training" ? (
@@ -24760,8 +24808,8 @@ Cory`;
                                 Open File Cabinet
                               </button>
                             </div>
-                            <button type="button" onClick={() => handleTrainingReadinessExpandedChange(true)} style={{ ...buttonStyle, padding: "7px 10px", justifySelf: "start" }}>
-                              Open Full Training Drawer
+                            <button type="button" disabled style={{ ...buttonStyle, padding: "7px 10px", justifySelf: "start", opacity: 0.6 }}>
+                              Training Active In Command Center
                             </button>
                           </div>
                         ) : selectedCommandTool === "fileCabinet" ? (
@@ -24870,6 +24918,35 @@ Cory`;
                                   ),
                                 },
                                 {
+                                  key: "schedule",
+                                  title: "Schedule Packet",
+                                  detail: scheduleStatusLabel,
+                                  ready: scheduleCompleted || scheduleInProgress || rotationRounds.length > 0,
+                                  actions: (
+                                    <>
+                                      <button type="button" onClick={() => handleOpenEventScheduleRouteInNewTab("operations", "schedule")} style={{ ...buttonStyle, padding: "4px 7px", fontSize: "10px" }}>
+                                        Open Schedule
+                                      </button>
+                                      {canEditSchedule ? (
+                                        <Link href={expandedScheduleBuilderHref} style={{ ...staffingSecondaryButtonStyle, padding: "4px 7px", fontSize: "10px", textDecoration: "none", display: "inline-flex", alignItems: "center" }}>
+                                          {scheduleCompleted || scheduleInProgress ? "Edit Schedule" : "Add Schedule"}
+                                        </Link>
+                                      ) : null}
+                                      {scheduleSummaryActions.map((action) =>
+                                        action.href ? (
+                                          <Link key={`central-file-schedule-action-${action.label}`} href={action.href} style={{ ...staffingSecondaryButtonStyle, padding: "4px 7px", fontSize: "10px", textDecoration: "none", display: "inline-flex", alignItems: "center" }}>
+                                            {action.label}
+                                          </Link>
+                                        ) : (
+                                          <button key={`central-file-schedule-action-${action.label}`} type="button" onClick={action.onClick} disabled={Boolean(action.disabled)} style={{ ...staffingSecondaryButtonStyle, padding: "4px 7px", fontSize: "10px", opacity: action.disabled ? 0.65 : 1 }}>
+                                            {action.label}
+                                          </button>
+                                        )
+                                      )}
+                                    </>
+                                  ),
+                                },
+                                {
                                   key: "recording",
                                   title: "Recording Guide",
                                   detail: recordingGuideUrl ? getFilenameFromUrl(recordingGuideUrl) || eventRecordingStatus.label : eventRecordingStatus.label,
@@ -24907,8 +24984,8 @@ Cory`;
                                 <span key={`central-staffing-${chip}`} style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText }}>{chip}</span>
                               ))}
                             </div>
-                            <button type="button" onClick={() => handleStaffingCommandCenterExpandedChange(true)} style={{ ...buttonStyle, padding: "7px 10px", justifySelf: "start" }}>
-                              Expand Staffing Controls Below
+                            <button type="button" onClick={() => setPrimaryEventTool("spFinder")} style={{ ...buttonStyle, padding: "7px 10px", justifySelf: "start" }}>
+                              Open SP Finder Mode
                             </button>
                           </div>
                         ) : selectedCommandTool === "communication" ? (
@@ -24919,7 +24996,7 @@ Cory`;
                               ))}
                             </div>
                             <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 750 }}>
-                              Email draft buttons and mailto workflows remain in the communication fallback drawer.
+                              Email draft buttons and mailto workflows remain connected to the existing communication handlers.
                             </div>
                           </div>
                         ) : selectedCommandTool === "qa" ? (
@@ -24932,7 +25009,7 @@ Cory`;
                         ) : (
                           <div style={{ display: "grid", gap: "8px" }}>
                             <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 750 }}>
-                              Advanced event fields stay available as a collapsed maintenance drawer below the command station.
+                              Advanced event fields remain connected to the same event save logic from inside the workstation.
                             </div>
                             <button type="button" onClick={() => void saveEventDetails()} disabled={saving} style={{ ...buttonStyle, padding: "7px 10px", justifySelf: "start", opacity: saving ? 0.65 : 1 }}>
                               Save Event Details
@@ -25293,6 +25370,7 @@ Cory`;
           background: isPlanningVisualMode
             ? "linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(246, 251, 253, 0.98) 100%)"
             : commandCenterVisual.cardBackground,
+          display: "none",
         }}
       >
         <summary style={{ cursor: "pointer", color: commandCenterVisual.headingColor, fontWeight: 950, fontSize: "20px" }}>
@@ -26849,13 +26927,13 @@ Cory`;
 
       {!isTrainingMode ? (
         <>
-          <details id="command-dock-qa" className="xl:hidden" style={cardStyle}>
+          <details id="command-dock-qa" className="xl:hidden" style={{ ...cardStyle, display: "none" }}>
             <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 900, fontSize: "18px" }}>
               Operational QA / Readiness Board
             </summary>
             {renderOperationalReadinessBoard("", { marginTop: "12px" })}
           </details>
-          <details className="hidden xl:block" style={{ ...cardStyle, marginTop: "12px" }}>
+          <details className="hidden xl:block" style={{ ...cardStyle, marginTop: "12px", display: "none" }}>
             <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 900, fontSize: "18px" }}>
               Operational QA / Readiness Board
             </summary>
@@ -26898,12 +26976,12 @@ Cory`;
         </div>
       ) : null}
 
-      <div id="command-dock-staffing">
+      <div id="command-dock-staffing" style={{ display: "none" }}>
         {normalEventStaffingCommandCenter}
       </div>
 
       {!isTrainingMode ? (
-      <details id="command-dock-advanced" style={cardStyle}>
+      <details id="command-dock-advanced" style={{ ...cardStyle, display: "none" }}>
         <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 900, fontSize: "20px" }}>
           Advanced Event Details
         </summary>
