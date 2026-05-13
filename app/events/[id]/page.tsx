@@ -191,6 +191,7 @@ type SuggestedAssignmentFilter = "all" | "available" | "confirmed" | "needs_outr
 type PollLocationFilter = "any" | "elkins_park" | "center_city" | "virtual";
 type CommandCenterMode = "planning" | "live";
 type RotationCompanionView = "overview" | "coverage" | "learner" | "live" | "announcements" | "student" | "sp" | "operations";
+type CommandDockTool = "faculty" | "training" | "file-cabinet" | "staffing" | "communication" | "qa" | "advanced";
 type LiveRoomStatusValue = "ready" | "in_session" | "delayed" | "empty" | "sp_missing" | "complete";
 type RoomDisplayEntry = {
   roomName: string;
@@ -4442,6 +4443,7 @@ export default function EventDetailPage() {
   const [contactPanelSaving, setContactPanelSaving] = useState(false);
   const [contactPanelSavedAt, setContactPanelSavedAt] = useState("");
   const [contactPanelExpanded, setContactPanelExpanded] = useState(false);
+  const [expandedCommandDockTool, setExpandedCommandDockTool] = useState<CommandDockTool | "">("");
   const [staffingCommandCenterExpanded, setStaffingCommandCenterExpanded] = useState(false);
   const [trainingReadinessExpanded, setTrainingReadinessExpanded] = useState(false);
   const [planningWindowExpanded, setPlanningWindowExpanded] = useState<Record<PlanningWindowKey, boolean>>({
@@ -21756,6 +21758,7 @@ Cory`;
                   ))}
 
                     <div
+                    id="command-dock-file-cabinet"
                     aria-label="Simulation Command File Cabinet"
                     className={`cfsp-command-cabinet-shell ${commandFileCabinetExpanded ? "is-open" : ""}`}
                     style={{
@@ -24237,6 +24240,160 @@ Cory`;
           </div>
 
           <section
+            aria-label="Command Dock"
+            style={{
+              marginTop: "12px",
+              border: isPlanningVisualMode ? "1px solid rgba(20, 91, 150, 0.2)" : "1px solid rgba(126, 231, 219, 0.2)",
+              borderRadius: "18px",
+              background: isPlanningVisualMode
+                ? "linear-gradient(135deg, rgba(247,253,255,0.98), rgba(236,248,251,0.92))"
+                : "linear-gradient(135deg, rgba(9, 22, 36, 0.96), rgba(12, 36, 44, 0.9))",
+              boxShadow: isPlanningVisualMode ? "0 12px 28px rgba(24, 52, 78, 0.08)" : "0 16px 36px rgba(2, 6, 23, 0.32)",
+              padding: "10px",
+              display: "grid",
+              gap: "8px",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+              <div>
+                <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Command Dock</div>
+                <div style={{ marginTop: "3px", color: commandCenterVisual.headingColor, fontSize: "16px", fontWeight: 950 }}>
+                  Secondary tools
+                </div>
+              </div>
+              <span style={{ ...commandChipStyle, background: commandCenterVisual.activeSoftBackground, color: commandCenterVisual.activeSoftText }}>
+                Drawers compact by default
+              </span>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(185px, 1fr))", gap: "8px" }}>
+              {([
+                {
+                  key: "faculty" as const,
+                  label: "Faculty",
+                  status: facultyPanelStatusLabel,
+                  detail: facultyContactSummary || facultyReadinessLabel,
+                  actionLabel: "Open Contact",
+                  action: () => {
+                    setContactPanelExpanded(true);
+                    window.requestAnimationFrame(() => document.getElementById("command-dock-faculty")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+                  },
+                },
+                {
+                  key: "training" as const,
+                  label: "Training",
+                  status: normalEventTrainingStatusLabel,
+                  detail: normalEventTrainingDateText || normalEventTrainingTimeText || "Prep drawer",
+                  actionLabel: "Open Prep",
+                  action: () => {
+                    handleTrainingReadinessExpandedChange(true);
+                    window.requestAnimationFrame(() => document.getElementById("command-dock-training")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+                  },
+                },
+                {
+                  key: "file-cabinet" as const,
+                  label: "File Cabinet",
+                  status: commandFileCabinetSummaryLabel,
+                  detail: `${commandFileCabinetStatusCounts.complete} complete · ${commandFileCabinetStatusCounts.missing} missing`,
+                  actionLabel: "Open Files",
+                  action: () => {
+                    handleCommandFileCabinetExpandedChange(true);
+                    window.requestAnimationFrame(() => document.getElementById("command-dock-file-cabinet")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+                  },
+                },
+                {
+                  key: "staffing" as const,
+                  label: "Staffing",
+                  status: staffingCoverageMet ? "Coverage ready" : coverageStatus.message,
+                  detail: staffingEmailWorkflowDetail || `${confirmedCount} confirmed · ${backupCount} backup`,
+                  actionLabel: "Open Staffing",
+                  action: () => {
+                    handleStaffingCommandCenterExpandedChange(true);
+                    window.requestAnimationFrame(() => document.getElementById("command-dock-staffing")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+                  },
+                },
+                {
+                  key: "communication" as const,
+                  label: "Communication",
+                  status: outreachProgressLabel,
+                  detail: [hiringEmailStatusLabel, confirmationEmailStatusLabel].filter(Boolean).join(" · "),
+                  actionLabel: "Open Comms",
+                  action: () => {
+                    window.requestAnimationFrame(() => document.getElementById("command-dock-communication")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+                  },
+                },
+                {
+                  key: "qa" as const,
+                  label: "QA Board",
+                  status: workflowBoardStatusLabel,
+                  detail: workflowBoardStatusDetail,
+                  actionLabel: "Open QA",
+                  action: () => {
+                    window.requestAnimationFrame(() => document.getElementById("command-dock-qa")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+                  },
+                },
+                {
+                  key: "advanced" as const,
+                  label: "Advanced",
+                  status: scheduleStatusLabel,
+                  detail: "Record maintenance and admin fields",
+                  actionLabel: "Open Details",
+                  action: () => {
+                    window.requestAnimationFrame(() => document.getElementById("command-dock-advanced")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+                  },
+                },
+              ]).map((tool) => {
+                const expanded = expandedCommandDockTool === tool.key;
+                return (
+                  <div
+                    key={`command-dock-${tool.key}`}
+                    style={{
+                      borderRadius: "14px",
+                      border: expanded
+                        ? isPlanningVisualMode ? "1px solid rgba(25, 138, 112, 0.28)" : "1px solid rgba(126, 231, 219, 0.3)"
+                        : isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.16)" : "1px solid rgba(148, 163, 184, 0.16)",
+                      background: expanded
+                        ? isPlanningVisualMode ? "rgba(236, 253, 245, 0.7)" : "rgba(20, 83, 78, 0.22)"
+                        : isPlanningVisualMode ? "rgba(255,255,255,0.72)" : "rgba(15, 23, 42, 0.48)",
+                      padding: "9px",
+                      display: "grid",
+                      gap: "7px",
+                      minHeight: "104px",
+                    }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setExpandedCommandDockTool(expanded ? "" : tool.key)}
+                      style={{ border: "none", padding: 0, background: "transparent", textAlign: "left", cursor: "pointer", display: "grid", gap: "5px" }}
+                      aria-expanded={expanded}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", alignItems: "center" }}>
+                        <span style={{ color: commandCenterVisual.headingColor, fontSize: "13px", fontWeight: 950 }}>{tool.label}</span>
+                        <span style={{ ...commandChipStyle, padding: "3px 7px", fontSize: "9px", background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText }}>
+                          {expanded ? "Open" : "Docked"}
+                        </span>
+                      </div>
+                      <span style={{ color: commandCenterVisual.textColor, fontSize: "12px", fontWeight: 900, lineHeight: 1.25 }}>
+                        {tool.status}
+                      </span>
+                    </button>
+                    {expanded ? (
+                      <div style={{ display: "grid", gap: "7px", borderTop: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.16)" : "1px solid rgba(148, 163, 184, 0.16)", paddingTop: "7px" }}>
+                        <div style={{ color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 750, lineHeight: 1.4 }}>
+                          {tool.detail}
+                        </div>
+                        <button type="button" onClick={tool.action} style={{ ...buttonStyle, padding: "6px 9px", fontSize: "11px", justifySelf: "start" }}>
+                          {tool.actionLabel}
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+
+          <section
+            id="command-dock-faculty"
             style={{
               border: facultyPanelTone.border,
               borderRadius: "18px",
@@ -24411,7 +24568,7 @@ Cory`;
 
       {showEmbeddedTrainingPrep ? (
       <details
-        id="training-prep"
+        id="command-dock-training"
         open={trainingReadinessExpanded}
         onToggle={(event) => handleTrainingReadinessExpandedChange(event.currentTarget.open)}
         style={{
@@ -25070,7 +25227,7 @@ Cory`;
               </div>
             </section>
 
-            <details style={{ ...cardStyle, background: "var(--cfsp-surface)" }}>
+            <details id="command-dock-communication" style={{ ...cardStyle, background: "var(--cfsp-surface)" }}>
               <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 900, fontSize: "20px" }}>
                 Communication
               </summary>
@@ -25976,7 +26133,7 @@ Cory`;
 
       {!isTrainingMode ? (
         <>
-          <details className="xl:hidden" style={cardStyle}>
+          <details id="command-dock-qa" className="xl:hidden" style={cardStyle}>
             <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 900, fontSize: "18px" }}>
               Operational QA / Readiness Board
             </summary>
@@ -26025,10 +26182,12 @@ Cory`;
         </div>
       ) : null}
 
-      {normalEventStaffingCommandCenter}
+      <div id="command-dock-staffing">
+        {normalEventStaffingCommandCenter}
+      </div>
 
       {!isTrainingMode ? (
-      <details id="coverage-actions" style={cardStyle}>
+      <details id="command-dock-advanced" style={cardStyle}>
         <summary style={{ cursor: "pointer", color: "var(--cfsp-text)", fontWeight: 900, fontSize: "20px" }}>
           Advanced Event Details
         </summary>
