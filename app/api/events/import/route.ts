@@ -328,9 +328,12 @@ function parseExcelDate(value: unknown) {
     return `${year}-${String(Number(mmddyy[1])).padStart(2, "0")}-${String(Number(mmddyy[2])).padStart(2, "0")}`;
   }
 
-  const parsed = new Date(raw);
-  if (Number.isNaN(parsed.getTime())) return null;
-  return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, "0")}-${String(parsed.getDate()).padStart(2, "0")}`;
+  const isoMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (isoMatch) {
+    return raw;
+  }
+
+  return null;
 }
 
 function parseTimeValue(value: unknown) {
