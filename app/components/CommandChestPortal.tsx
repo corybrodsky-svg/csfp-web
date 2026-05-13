@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 
 type CommandChestPortalProps = {
@@ -8,673 +9,758 @@ type CommandChestPortalProps = {
   scheduleCompleted?: boolean;
 };
 
-type ChestAction = {
+type CommandAction = {
   key: string;
   label: string;
+  glyph: string;
   onClick: () => void;
 };
+
+function normalizeText(value: string) {
+  return value.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function findByText(patterns: string[]) {
+  const nodes = Array.from(
+    document.querySelectorAll("a, button, h1, h2, h3, summary, section, article, div")
+  );
+
+  return nodes.find((node) => {
+    if (!(node instanceof HTMLElement)) return false;
+    if (node.closest(".cfsp-command-center-panel")) return false;
+
+    const text = normalizeText(node.textContent || "");
+    return patterns.some((pattern) => text.includes(normalizeText(pattern)));
+  }) as HTMLElement | undefined;
+}
+
+function scrollToTarget(id: string, fallbackPatterns: string[]) {
+  const direct = document.getElementById(id);
+
+  if (direct) {
+    direct.scrollIntoView({ behavior: "smooth", block: "start" });
+    return;
+  }
+
+  const fallback = findByText(fallbackPatterns);
+  fallback?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
 
 export default function CommandChestPortal({
   eventId,
   scheduleCompleted = false,
 }: CommandChestPortalProps) {
   const router = useRouter();
-  const [open, setOpen] = useState(true);
-
+  const [open, setOpen] = useState(false);
+  const portalRoot = typeof document === "undefined" ? null : document.body;
   const id = String(eventId);
 
-  function scrollToKnownTarget(candidates: string[], headingText?: string) {
-    for (const candidate of candidates) {
-      const el = document.querySelector(candidate) as HTMLElement | null;
-      if (el) {
-        el.scrollIntoView({ behavior: "smooth", block: "start" });
-        return true;
-      }
-    }
+  if (!portalRoot) return null;
 
-    if (headingText) {
-      const all = Array.from(document.querySelectorAll("h1,h2,h3,h4,summary,strong,div"));
-      const match = all.find((node) =>
-        (node.textContent || "").trim().toLowerCase() === headingText.toLowerCase()
-      ) as HTMLElement | undefined;
-
-      if (match) {
-        match.scrollIntoView({ behavior: "smooth", block: "start" });
-        return true;
-      }
-    }
-
-    return false;
-  }
-
-  function openCompletedSchedule() {
-    const existingAction =
-      (document.querySelector('[data-open-completed-schedule="true"]') as HTMLElement | null) ||
-      (document.querySelector('[data-open-schedule="true"]') as HTMLElement | null);
-
-    if (existingAction) {
-      existingAction.click();
-      return;
-    }
-
+  const openSchedule = () => {
     if (scheduleCompleted) {
-      router.push(`/events/${encodeURIComponent(id)}/schedule-builder?view=preview`);
+      const existingOpenSchedule = findByText(["open schedule"]);
+      if (existingOpenSchedule) {
+        existingOpenSchedule.click();
+        return;
+      }
+
+      scrollToTarget("simulation-command-file-cabinet", [
+        "completed schedule file",
+        "schedule is complete",
+        "simulation command file cabinet",
+      ]);
       return;
     }
 
-    router.push(`/events/${encodeURIComponent(id)}/schedule-builder`);
-  }
+    const params = new URLSearchParams();
+    params.set("source", "cfsp-command-center");
+    params.set("view", "builder");
 
-  const actions: ChestAction[] = [
-      {
-        key: "materials",
-        label: "Materials Cabinet",
-        onClick: () =>
-          scrollToKnownTarget(
-            [
-              "#simulation-command-file-cabinet",
-              '[data-section="file-cabinet"]',
-              '[data-command-chest-target="materials"]',
-            ],
-            "Simulation Command File Cabinet"
-          ),
-      },
-      {
-        key: "training",
-        label: "Training Files",
-        onClick: () =>
-          scrollToKnownTarget(
-            [
-              "#training-attendance",
-              '[data-section="training"]',
-              '[data-command-chest-target="training"]',
-            ],
-            "Training Attendance"
-          ),
-      },
-      {
-        key: "communication",
-        label: "Communication",
-        onClick: () =>
-          scrollToKnownTarget(
-            [
-              "#communication-hub",
-              "#communication",
-              '[data-section="communication"]',
-              '[data-command-chest-target="communication"]',
-            ],
-            "Communication"
-          ),
-      },
-      {
-        key: "staffing",
-        label: "Staffing",
-        onClick: () =>
-          scrollToKnownTarget(
-            [
-              "#selected-sps",
-              '[data-section="staffing"]',
-              '[data-command-chest-target="staffing"]',
-            ],
-            "Selected SPs"
-          ),
-      },
-      {
-        key: "schedule",
-        label: "Schedule File",
-        onClick: () => openCompletedSchedule(),
-      },
-      {
-        key: "recording",
-        label: "Recording",
-        onClick: () =>
-          scrollToKnownTarget(
-            [
-              "#recording",
-              '[data-section="recording"]',
-              '[data-command-chest-target="recording"]',
-            ],
-            "Recording"
-          ),
-      },
+    router.push(`/events/${encodeURIComponent(id)}/schedule-builder?${params.toString()}`);
+  };
+
+  const actions: CommandAction[] = [
+    {
+      key: "materials",
+      label: "Materials Cabinet",
+      glyph: "▣",
+      onClick: () =>
+        scrollToTarget("simulation-command-file-cabinet", [
+          "simulation command file cabinet",
+          "case file",
+          "doorsign",
+        ]),
+    },
+    {
+      key: "training",
+      label: "Training Files",
+      glyph: "◈",
+      onClick: () =>
+        scrollToTarget("training-center", [
+          "training attendance",
+          "training center",
+          "training files",
+        ]),
+    },
+    {
+      key: "communication",
+      label: "Communication",
+      glyph: "●",
+      onClick: () =>
+        scrollToTarget("communication-center", [
+          "draft event emails",
+          "sp hiring poll email",
+          "communication",
+        ]),
+    },
+    {
+      key: "staffing",
+      label: "Staffing",
+      glyph: "✦",
+      onClick: () =>
+        scrollToTarget("coverage-actions", [
+          "coverage actions",
+          "staffing command center",
+          "selected sps",
+        ]),
+    },
+    {
+      key: "schedule",
+      label: scheduleCompleted ? "Schedule File" : "Schedule Builder",
+      glyph: "▤",
+      onClick: openSchedule,
+    },
+    {
+      key: "recording",
+      label: "Recording",
+      glyph: "▱",
+      onClick: () =>
+        scrollToTarget("recording-status", [
+          "recording guide",
+          "recording status",
+          "recording",
+        ]),
+    },
   ];
 
-  return (
+  return createPortal(
     <>
-      <div className="cfsp-chest-launcher-wrap">
-        {!open ? (
-          <button
-            type="button"
-            className="cfsp-chest-launcher"
-            onClick={() => setOpen(true)}
-            aria-label="Open Simulation Command File Cabinet"
-          >
-            <span className="cfsp-chest-launcher-shell" />
-            <span className="cfsp-chest-launcher-core" />
-          </button>
-        ) : null}
-      </div>
+      <button
+        type="button"
+        className={`cfsp-command-pokeball ${open ? "cfsp-command-pokeball-open" : ""}`}
+        aria-label={open ? "Close CFSP Command Center" : "Open CFSP Command Center"}
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+      >
+        <span className="cfsp-command-pokeball-shell" aria-hidden="true" />
+        <span className="cfsp-command-pokeball-core" aria-hidden="true" />
+      </button>
 
       {open ? (
-        <div className="cfsp-chest-portal" aria-label="Simulation Command File Cabinet">
+        <section className="cfsp-command-center-panel" aria-label="CFSP Command Center">
           <button
             type="button"
-            className="cfsp-chest-close"
+            className="cfsp-command-center-close"
+            aria-label="Close CFSP Command Center"
             onClick={() => setOpen(false)}
-            aria-label="Close Simulation Command File Cabinet"
           >
             ×
           </button>
 
-          <div className="cfsp-chest-title">
-            <div className="cfsp-chest-kicker">SIMULATION COMMAND</div>
-            <div className="cfsp-chest-name">FILE CABINET</div>
-            <div className="cfsp-chest-subtitle">
-              Open chest for files, training, materials, and packets.
+          <header className="cfsp-command-center-header">
+            <div className="cfsp-command-center-kicker">CFSP Command Center</div>
+            <h2>Operations Core</h2>
+            <p>Files, training, communications, staffing, schedule, and recording.</p>
+          </header>
+
+          <div className="cfsp-command-center-stage" aria-hidden="true">
+            <div className="cfsp-command-center-orbit cfsp-command-center-orbit-one" />
+            <div className="cfsp-command-center-orbit cfsp-command-center-orbit-two" />
+            <div className="cfsp-command-center-beam" />
+            <div className="cfsp-command-center-beam-hotspot" />
+
+            <div className="cfsp-command-center-scroll cfsp-command-center-scroll-left">
+              <span />
             </div>
-          </div>
-
-          <div className="cfsp-chest-scene">
-            <div className="cfsp-orbit-ring" />
-            <div className="cfsp-beam" />
-            <div className="cfsp-beam-glow" />
-
-            <div className="cfsp-scroll cfsp-scroll-left">
-              <div className="cfsp-scroll-core" />
+            <div className="cfsp-command-center-scroll cfsp-command-center-scroll-right">
+              <span />
+            </div>
+            <div className="cfsp-command-center-scroll cfsp-command-center-scroll-center">
+              <span />
             </div>
 
-            <div className="cfsp-scroll cfsp-scroll-right">
-              <div className="cfsp-scroll-core" />
-            </div>
-
-            <div className="cfsp-craft-wrap">
-              <div className="cfsp-craft-top" />
-              <div className="cfsp-craft-body">
-                <div className="cfsp-craft-latch" />
+            <div className="cfsp-command-center-craft">
+              <div className="cfsp-command-center-craft-lid" />
+              <div className="cfsp-command-center-craft-body">
+                <div className="cfsp-command-center-craft-lock" />
               </div>
             </div>
+
+            <div className="cfsp-command-center-spark cfsp-command-center-spark-one" />
+            <div className="cfsp-command-center-spark cfsp-command-center-spark-two" />
+            <div className="cfsp-command-center-spark cfsp-command-center-spark-three" />
           </div>
 
-          <div className="cfsp-beam-caption">NEW CONTENT DETECTED WHEN FILES UPDATE</div>
+          <div className="cfsp-command-center-status">
+            New content detected when files update
+          </div>
 
-          <div className="cfsp-floating-links">
+          <div className="cfsp-command-center-actions">
             {actions.map((action) => (
               <button
                 key={action.key}
                 type="button"
-                className="cfsp-floating-link"
+                className="cfsp-command-center-action"
                 onClick={action.onClick}
               >
-                <span className="cfsp-link-dot" />
+                <span className="cfsp-command-center-action-glyph">{action.glyph}</span>
                 <span>{action.label}</span>
               </button>
             ))}
           </div>
-        </div>
+
+          <footer className="cfsp-command-center-footer">
+            Secure • Organized • Always Ready
+          </footer>
+        </section>
       ) : null}
 
-      <style jsx>{`
-        .cfsp-chest-launcher-wrap {
-          position: fixed;
-          top: 160px;
-          right: 28px;
-          z-index: 80;
-          pointer-events: none;
+      <style>{`
+        .cfsp-floating-command-chest,
+        #cfsp-floating-command-chest,
+        details.cfsp-floating-command-chest,
+        .cfsp-command-chest-launcher-v2,
+        .cfsp-command-chest-panel-v2,
+        .cfsp-command-vault-launcher-v4,
+        .cfsp-command-vault-panel-v4 {
+          display: none !important;
+          visibility: hidden !important;
+          pointer-events: none !important;
         }
 
-        .cfsp-chest-launcher {
-          pointer-events: auto;
-          position: relative;
-          width: 74px;
-          height: 74px;
-          border: none;
+        .cfsp-command-pokeball {
+          position: fixed;
+          top: 50%;
+          right: 22px;
+          z-index: 10000;
+          width: 76px;
+          height: 76px;
+          transform: translateY(-50%);
+          border: 0;
           border-radius: 999px;
-          background: radial-gradient(circle at 30% 30%, rgba(255,255,255,0.95), rgba(230,255,250,0.82));
+          background:
+            radial-gradient(circle at 35% 20%, rgba(255,255,255,0.96), transparent 22%),
+            radial-gradient(circle at 50% 58%, rgba(20,184,166,0.34), transparent 44%),
+            linear-gradient(135deg, rgba(255,255,255,0.98), rgba(236,253,245,0.94));
           box-shadow:
-            0 12px 28px rgba(15, 23, 42, 0.18),
-            0 0 24px rgba(45, 212, 191, 0.28);
+            0 18px 42px rgba(15, 91, 120, 0.20),
+            0 0 26px rgba(20, 184, 166, 0.24),
+            inset 0 1px 0 rgba(255,255,255,0.88);
           cursor: pointer;
+          transition: transform 160ms ease, box-shadow 160ms ease;
         }
 
-        .cfsp-chest-launcher-shell {
+        .cfsp-command-pokeball:hover,
+        .cfsp-command-pokeball-open {
+          transform: translateY(-50%) scale(1.04);
+          box-shadow:
+            0 24px 54px rgba(15, 91, 120, 0.26),
+            0 0 34px rgba(20, 184, 166, 0.32),
+            inset 0 1px 0 rgba(255,255,255,0.88);
+        }
+
+        .cfsp-command-pokeball-shell {
           position: absolute;
-          inset: 13px;
-          border-radius: 20px;
-          background: linear-gradient(145deg, #17c3c7, #0f766e);
-          border: 2px solid rgba(255, 193, 70, 0.88);
+          inset: 15px 12px 17px;
+          border-radius: 17px 17px 14px 14px;
+          background:
+            linear-gradient(180deg, #14b8a6 0%, #0f9488 56%, #11806f 100%);
+          border: 2px solid rgba(251,146,60,0.74);
+          box-shadow:
+            inset 0 0 0 3px rgba(255,255,255,0.34),
+            0 10px 22px rgba(15,91,120,0.16),
+            0 0 18px rgba(20,184,166,0.24);
         }
 
-        .cfsp-chest-launcher-core {
-          position: absolute;
-          left: 50%;
-          bottom: 17px;
-          transform: translateX(-50%);
-          width: 14px;
-          height: 14px;
-          border-radius: 999px;
-          background: radial-gradient(circle, #ffd86b 0%, #ffb100 72%, #d97706 100%);
-          box-shadow: 0 0 14px rgba(255, 184, 0, 0.7);
-        }
-
-        .cfsp-chest-portal {
-          position: fixed;
-          top: 150px;
-          right: 24px;
-          width: 420px;
-          z-index: 90;
-          pointer-events: none;
-        }
-
-        .cfsp-chest-close {
-          pointer-events: auto;
-          position: absolute;
-          top: 6px;
-          right: 0;
-          width: 40px;
-          height: 40px;
-          border: none;
-          border-radius: 999px;
-          background: rgba(9, 64, 72, 0.9);
-          color: #8ff7ef;
-          font-size: 28px;
-          line-height: 1;
-          box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
-          cursor: pointer;
-        }
-
-        .cfsp-chest-title {
-          text-align: center;
-          margin-bottom: 10px;
-          pointer-events: none;
-          text-shadow: 0 0 14px rgba(45, 212, 191, 0.18);
-        }
-
-        .cfsp-chest-kicker {
-          font-size: 0.88rem;
-          font-weight: 800;
-          letter-spacing: 0.16em;
-          color: #43f3ef;
-        }
-
-        .cfsp-chest-name {
-          margin-top: 2px;
-          font-size: 2rem;
-          font-weight: 900;
-          letter-spacing: 0.04em;
-          color: #b7fff8;
-        }
-
-        .cfsp-chest-subtitle {
-          margin-top: 6px;
-          font-size: 1rem;
-          font-weight: 700;
-          color: rgba(214, 255, 248, 0.92);
-        }
-
-        .cfsp-chest-scene {
-          position: relative;
-          height: 290px;
-          pointer-events: none;
-        }
-
-        .cfsp-orbit-ring {
-          position: absolute;
-          left: 50%;
-          bottom: 16px;
-          transform: translateX(-50%);
-          width: 255px;
-          height: 68px;
-          border-radius: 999px;
-          border: 2px solid rgba(42, 242, 225, 0.35);
-          box-shadow: 0 0 28px rgba(0, 255, 229, 0.18);
-          animation: cfspOrbitSpin 12s linear infinite;
-        }
-
-        .cfsp-orbit-ring::before,
-        .cfsp-orbit-ring::after {
+        .cfsp-command-pokeball-shell::before {
           content: "";
           position: absolute;
-          inset: 10px;
+          left: 7px;
+          right: 7px;
+          top: -7px;
+          height: 19px;
+          border-radius: 15px 15px 8px 8px;
+          background: linear-gradient(90deg, #14b8a6, #fb923c, #84cc16);
+          border: 2px solid rgba(251,146,60,0.62);
+          transform-origin: bottom center;
+          animation: cfspPokeballLid 5.6s ease-in-out infinite;
+        }
+
+        .cfsp-command-pokeball-core {
+          position: absolute;
+          left: 50%;
+          bottom: 22px;
+          width: 13px;
+          height: 13px;
+          transform: translateX(-50%);
           border-radius: 999px;
-          border: 1px solid rgba(42, 242, 225, 0.22);
-        }
-
-        .cfsp-beam {
-          position: absolute;
-          left: 50%;
-          top: 62px;
-          transform: translateX(-50%);
-          width: 280px;
-          height: 215px;
-          clip-path: polygon(40% 0%, 60% 0%, 96% 100%, 4% 100%);
-          background:
-            linear-gradient(
-              180deg,
-              rgba(63, 246, 226, 0.16) 0%,
-              rgba(36, 220, 199, 0.22) 26%,
-              rgba(28, 197, 186, 0.18) 60%,
-              rgba(0, 0, 0, 0) 100%
-            );
-          filter: blur(1px);
-          animation: cfspBeamPulse 3.4s ease-in-out infinite;
-        }
-
-        .cfsp-beam-glow {
-          position: absolute;
-          left: 50%;
-          top: 92px;
-          transform: translateX(-50%);
-          width: 220px;
-          height: 160px;
-          clip-path: polygon(44% 0%, 56% 0%, 88% 100%, 12% 100%);
-          background: radial-gradient(circle at 50% 0%, rgba(255, 201, 75, 0.26), rgba(0,0,0,0) 72%);
-          filter: blur(12px);
-          opacity: 0.95;
-        }
-
-        .cfsp-scroll {
-          position: absolute;
-          top: 112px;
-          width: 60px;
-          height: 138px;
-          border-radius: 22px;
-          background: linear-gradient(180deg, rgba(240, 248, 245, 0.95), rgba(198, 214, 214, 0.92));
+          background: #facc15;
+          border: 2px solid rgba(255,247,237,0.92);
           box-shadow:
-            0 0 18px rgba(144, 255, 244, 0.3),
-            0 8px 18px rgba(15, 23, 42, 0.18);
+            0 0 14px rgba(250,204,21,0.72),
+            0 0 20px rgba(20,184,166,0.20);
+        }
+
+        .cfsp-command-center-panel {
+          position: fixed;
+          top: 110px;
+          right: 104px;
+          z-index: 9999;
+          width: min(440px, calc(100vw - 126px));
+          max-height: calc(100vh - 132px);
+          overflow: auto;
+          padding: 18px;
+          border-radius: 30px;
+          border: 1px solid rgba(45, 212, 191, 0.62);
+          background:
+            radial-gradient(circle at 20% 8%, rgba(45,212,191,0.20), transparent 32%),
+            radial-gradient(circle at 86% 18%, rgba(20,184,166,0.16), transparent 30%),
+            radial-gradient(circle at 70% 94%, rgba(124,58,237,0.08), transparent 28%),
+            linear-gradient(145deg, rgba(3,18,23,0.98), rgba(5,38,45,0.97) 52%, rgba(4,28,36,0.985));
+          box-shadow:
+            0 30px 80px rgba(2, 8, 23, 0.50),
+            0 0 0 1px rgba(45,212,191,0.16) inset,
+            0 0 44px rgba(20,184,166,0.30);
+          color: #d9fffb;
+        }
+
+        .cfsp-command-center-close {
+          position: absolute;
+          top: 12px;
+          right: 12px;
+          z-index: 6;
+          width: 34px;
+          height: 34px;
+          border-radius: 999px;
+          border: 1px solid rgba(45,212,191,0.46);
+          background: rgba(6,78,82,0.34);
+          color: #a7fff5;
+          font-size: 24px;
+          line-height: 1;
+          cursor: pointer;
+          box-shadow: 0 0 18px rgba(45,212,191,0.16);
+        }
+
+        .cfsp-command-center-header {
+          text-align: center;
+          padding: 14px 38px 4px;
+        }
+
+        .cfsp-command-center-kicker {
+          color: #5ff4e8;
+          font-size: 0.76rem;
+          font-weight: 950;
+          text-transform: uppercase;
+          letter-spacing: 0.12em;
+          text-shadow: 0 0 18px rgba(45,212,191,0.34);
+        }
+
+        .cfsp-command-center-header h2 {
+          margin: 4px 0;
+          color: #7ffbf0;
+          font-size: 1.34rem;
+          line-height: 1.14;
+          font-weight: 950;
+          text-transform: uppercase;
+          letter-spacing: 0.06em;
+          text-shadow: 0 0 18px rgba(45,212,191,0.36);
+        }
+
+        .cfsp-command-center-header p {
+          margin: 0;
+          color: #b9e9e5;
+          font-size: 0.78rem;
+          line-height: 1.35;
+          font-weight: 760;
+        }
+
+        .cfsp-command-center-stage {
+          position: relative;
+          height: 258px;
+          margin: 8px 0 14px;
+          border-radius: 24px;
+          background:
+            radial-gradient(circle at 50% 82%, rgba(45,212,191,0.24), transparent 48%),
+            radial-gradient(circle at 50% 14%, rgba(251,146,60,0.08), transparent 32%),
+            linear-gradient(180deg, rgba(45,212,191,0.08), rgba(3,18,23,0.10));
           overflow: hidden;
         }
 
-        .cfsp-scroll::before,
-        .cfsp-scroll::after {
-          content: "";
-          position: absolute;
-          left: 8px;
-          right: 8px;
-          height: 2px;
-          background: rgba(86, 122, 124, 0.36);
-          box-shadow:
-            0 14px 0 rgba(86, 122, 124, 0.36),
-            0 28px 0 rgba(86, 122, 124, 0.36),
-            0 42px 0 rgba(86, 122, 124, 0.36),
-            0 56px 0 rgba(86, 122, 124, 0.36),
-            0 70px 0 rgba(86, 122, 124, 0.36),
-            0 84px 0 rgba(86, 122, 124, 0.36);
-        }
-
-        .cfsp-scroll::before {
-          top: 20px;
-        }
-
-        .cfsp-scroll::after {
-          width: 14px;
-          height: 14px;
-          border-radius: 999px;
-          background: linear-gradient(180deg, #efb871, #d68f47);
-          box-shadow: none;
-          top: 8px;
-          left: auto;
-          right: 8px;
-        }
-
-        .cfsp-scroll-core {
-          position: absolute;
-          inset: 0;
-          border-radius: 22px;
-          background: linear-gradient(180deg, rgba(255,255,255,0.12), rgba(255,255,255,0));
-        }
-
-        .cfsp-scroll-left {
-          left: 82px;
-          transform: rotate(-12deg);
-          animation: cfspScrollFloatLeft 4.8s ease-in-out infinite;
-        }
-
-        .cfsp-scroll-right {
-          right: 82px;
-          transform: rotate(12deg);
-          animation: cfspScrollFloatRight 5.1s ease-in-out infinite;
-        }
-
-        .cfsp-craft-wrap {
+        .cfsp-command-center-orbit {
           position: absolute;
           left: 50%;
-          top: 78px;
-          width: 250px;
-          height: 184px;
+          bottom: 18px;
           transform: translateX(-50%);
-          animation: cfspCraftFloat 4.4s ease-in-out infinite;
+          border-radius: 50%;
+          border: 1px solid rgba(45,212,191,0.28);
+          box-shadow:
+            0 0 24px rgba(45,212,191,0.16),
+            inset 0 0 22px rgba(45,212,191,0.08);
         }
 
-        .cfsp-craft-top {
+        .cfsp-command-center-orbit-one {
+          width: 276px;
+          height: 60px;
+          animation: cfspCommandOrbitSpinA 10s linear infinite;
+        }
+
+        .cfsp-command-center-orbit-two {
+          width: 214px;
+          height: 42px;
+          bottom: 28px;
+          opacity: 0.72;
+          animation: cfspCommandOrbitSpinB 8s linear infinite reverse;
+        }
+
+        .cfsp-command-center-beam {
+          position: absolute;
+          left: 50%;
+          top: 52px;
+          width: 284px;
+          height: 230px;
+          transform: translateX(-50%);
+          clip-path: polygon(42% 0%, 58% 0%, 98% 100%, 2% 100%);
+          background:
+            linear-gradient(
+              180deg,
+              rgba(63,246,226,0.16) 0%,
+              rgba(36,220,199,0.24) 28%,
+              rgba(28,197,186,0.16) 62%,
+              rgba(0,0,0,0) 100%
+            );
+          filter: blur(1px);
+          animation: cfspCommandBeamPulse 3.4s ease-in-out infinite;
+        }
+
+        .cfsp-command-center-beam-hotspot {
+          position: absolute;
+          left: 50%;
+          top: 92px;
+          width: 226px;
+          height: 154px;
+          transform: translateX(-50%);
+          clip-path: polygon(44% 0%, 56% 0%, 88% 100%, 12% 100%);
+          background: radial-gradient(circle at 50% 0%, rgba(255,201,75,0.26), rgba(0,0,0,0) 72%);
+          filter: blur(12px);
+          opacity: 0.94;
+        }
+
+        .cfsp-command-center-scroll {
+          position: absolute;
+          top: 98px;
+          width: 70px;
+          height: 136px;
+          border-radius: 20px;
+          background:
+            repeating-linear-gradient(
+              to bottom,
+              rgba(236,253,245,0.92) 0px,
+              rgba(236,253,245,0.92) 10px,
+              rgba(20,184,166,0.16) 10px,
+              rgba(20,184,166,0.16) 12px
+            ),
+            linear-gradient(135deg, rgba(255,247,237,0.90), rgba(236,253,245,0.84));
+          border: 1px solid rgba(45,212,191,0.34);
+          box-shadow:
+            0 18px 32px rgba(0,0,0,0.22),
+            0 0 24px rgba(45,212,191,0.22),
+            inset 0 0 18px rgba(251,146,60,0.12);
+          opacity: 0.78;
+        }
+
+        .cfsp-command-center-scroll-left {
+          left: 34px;
+          transform: rotate(-13deg);
+          animation: cfspCommandScrollLeft 6.8s ease-in-out infinite;
+        }
+
+        .cfsp-command-center-scroll-right {
+          right: 34px;
+          transform: rotate(13deg);
+          animation: cfspCommandScrollRight 7.2s ease-in-out infinite;
+        }
+
+        .cfsp-command-center-scroll-center {
+          left: 50%;
+          top: 66px;
+          width: 60px;
+          height: 116px;
+          transform: translateX(-50%);
+          opacity: 0.90;
+          animation: cfspCommandScrollCenter 7s ease-in-out infinite;
+        }
+
+        .cfsp-command-center-craft {
+          position: absolute;
+          left: 50%;
+          top: 74px;
+          width: 244px;
+          height: 174px;
+          transform: translateX(-50%);
+          animation: cfspCommandCraftFloat 4.4s ease-in-out infinite;
+        }
+
+        .cfsp-command-center-craft-lid {
           position: absolute;
           left: 50%;
           top: 0;
+          width: 158px;
+          height: 80px;
           transform: translateX(-50%);
-          width: 160px;
-          height: 82px;
           border-radius: 90px 90px 40px 40px;
           background:
             linear-gradient(90deg, #3ef2df 0%, #1bc6c4 26%, #f1a13b 62%, #b6d937 100%);
           border: 4px solid #ffd043;
           box-shadow:
-            0 0 24px rgba(255, 191, 72, 0.34),
-            0 0 50px rgba(36, 217, 212, 0.2);
+            0 0 24px rgba(255,191,72,0.34),
+            0 0 50px rgba(36,217,212,0.20);
+          animation: cfspCommandCraftLid 5.4s ease-in-out infinite;
         }
 
-        .cfsp-craft-body {
+        .cfsp-command-center-craft-body {
           position: absolute;
           left: 50%;
-          bottom: 8px;
-          transform: translateX(-50%);
-          width: 215px;
+          bottom: 6px;
+          width: 216px;
           height: 112px;
+          transform: translateX(-50%);
           border-radius: 32px;
           background:
-            linear-gradient(135deg, rgba(28, 192, 191, 0.95), rgba(8, 127, 127, 0.96));
+            linear-gradient(135deg, rgba(28,192,191,0.95), rgba(8,127,127,0.96));
           border: 5px solid #f4b346;
           box-shadow:
-            0 0 26px rgba(255, 179, 71, 0.28),
-            inset 0 0 0 3px rgba(123, 255, 245, 0.18);
+            0 0 26px rgba(255,179,71,0.28),
+            inset 0 0 0 3px rgba(123,255,245,0.18);
         }
 
-        .cfsp-craft-body::before,
-        .cfsp-craft-body::after {
+        .cfsp-command-center-craft-body::before,
+        .cfsp-command-center-craft-body::after {
           content: "";
           position: absolute;
           top: 14px;
           bottom: 14px;
           width: 8px;
           border-radius: 999px;
-          background: rgba(240, 178, 87, 0.95);
+          background: rgba(240,178,87,0.95);
         }
 
-        .cfsp-craft-body::before {
+        .cfsp-command-center-craft-body::before {
           left: 28px;
         }
 
-        .cfsp-craft-body::after {
+        .cfsp-command-center-craft-body::after {
           right: 28px;
         }
 
-        .cfsp-craft-latch {
+        .cfsp-command-center-craft-lock {
           position: absolute;
           left: 50%;
           top: 50%;
-          transform: translate(-50%, -42%);
           width: 52px;
           height: 52px;
+          transform: translate(-50%, -42%);
           border-radius: 999px;
           background: radial-gradient(circle, #ffcb47 0%, #ef9b1d 65%, #b96500 100%);
           box-shadow:
-            0 0 20px rgba(255, 199, 72, 0.65),
+            0 0 20px rgba(255,199,72,0.65),
             0 0 0 6px rgba(255,255,255,0.75);
         }
 
-        .cfsp-craft-latch::before {
+        .cfsp-command-center-craft-lock::before {
           content: "";
           position: absolute;
           left: 50%;
           top: 50%;
-          transform: translate(-50%, -50%);
           width: 18px;
           height: 7px;
+          transform: translate(-50%, -50%);
           border-radius: 999px;
           background: #7a4200;
         }
 
-        .cfsp-craft-latch::after {
-          content: "";
+        .cfsp-command-center-spark {
           position: absolute;
-          left: 50%;
-          top: calc(50% + 12px);
-          transform: translateX(-50%);
-          width: 20px;
-          height: 12px;
-          border-left: 4px solid #d48b17;
-          border-right: 4px solid #d48b17;
-          border-top: 4px solid transparent;
-          border-bottom: 4px solid transparent;
-          clip-path: polygon(0 0, 100% 0, 75% 100%, 25% 100%);
-        }
-
-        .cfsp-beam-caption {
-          margin: 2px auto 14px;
-          width: min(100%, 386px);
-          padding: 10px 16px;
+          width: 5px;
+          height: 5px;
           border-radius: 999px;
-          text-align: center;
-          font-size: 0.92rem;
-          font-weight: 900;
-          letter-spacing: 0.05em;
-          color: #8ffff0;
-          background: rgba(5, 82, 88, 0.72);
-          border: 2px solid rgba(55, 241, 217, 0.5);
-          box-shadow: 0 0 24px rgba(23, 217, 198, 0.14);
-          pointer-events: none;
+          background: #a7fff5;
+          box-shadow: 0 0 12px rgba(167,255,245,0.72);
+          animation: cfspCommandSpark 4.8s ease-in-out infinite;
         }
 
-        .cfsp-floating-links {
+        .cfsp-command-center-spark-one {
+          left: 64px;
+          top: 54px;
+        }
+
+        .cfsp-command-center-spark-two {
+          right: 70px;
+          top: 62px;
+          animation-delay: 1.2s;
+        }
+
+        .cfsp-command-center-spark-three {
+          right: 54px;
+          bottom: 52px;
+          background: #facc15;
+          animation-delay: 2.1s;
+        }
+
+        .cfsp-command-center-status {
+          border-radius: 999px;
+          border: 1px solid rgba(45,212,191,0.42);
+          background: rgba(20,184,166,0.16);
+          color: #9ffcf1;
+          text-transform: uppercase;
+          letter-spacing: 0.045em;
+          font-size: 0.68rem;
+          font-weight: 950;
+          padding: 8px 10px;
+          text-align: center;
+          box-shadow: 0 0 18px rgba(45,212,191,0.12);
+        }
+
+        .cfsp-command-center-actions {
           display: grid;
           grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap: 14px;
-          width: min(100%, 418px);
-          pointer-events: auto;
+          gap: 10px;
+          margin-top: 12px;
         }
 
-        .cfsp-floating-link {
-          display: flex;
+        .cfsp-command-center-action {
+          min-height: 50px;
+          display: inline-flex;
           align-items: center;
-          gap: 12px;
-          min-height: 78px;
-          padding: 18px 18px;
-          border-radius: 18px;
-          border: 2px solid rgba(36, 223, 205, 0.48);
-          background:
-            linear-gradient(180deg, rgba(4, 67, 74, 0.78), rgba(2, 48, 56, 0.88));
-          color: #e3fffb;
-          font-size: 1.08rem;
-          font-weight: 800;
+          gap: 10px;
+          border-radius: 13px;
+          border: 1px solid rgba(45,212,191,0.34);
+          background: linear-gradient(135deg, rgba(8,47,73,0.92), rgba(6,78,82,0.80));
+          color: #d9fffb;
+          font-weight: 900;
           text-align: left;
-          box-shadow:
-            0 10px 24px rgba(3, 22, 29, 0.28),
-            inset 0 0 0 1px rgba(83, 255, 234, 0.07);
+          padding: 10px 12px;
           cursor: pointer;
-          transition:
-            transform 0.18s ease,
-            box-shadow 0.18s ease,
-            border-color 0.18s ease;
-        }
-
-        .cfsp-floating-link:hover {
-          transform: translateY(-2px);
-          border-color: rgba(92, 255, 239, 0.9);
           box-shadow:
-            0 12px 28px rgba(3, 22, 29, 0.34),
-            0 0 22px rgba(37, 224, 206, 0.18);
+            0 10px 20px rgba(0,0,0,0.20),
+            inset 0 1px 0 rgba(255,255,255,0.08),
+            0 0 14px rgba(45,212,191,0.10);
+          transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
         }
 
-        .cfsp-link-dot {
-          flex: 0 0 auto;
+        .cfsp-command-center-action:hover {
+          transform: translateY(-1px);
+          border-color: rgba(45,212,191,0.68);
+          box-shadow:
+            0 14px 26px rgba(0,0,0,0.24),
+            0 0 22px rgba(45,212,191,0.18);
+        }
+
+        .cfsp-command-center-action-glyph {
           width: 24px;
           height: 24px;
+          display: grid;
+          place-items: center;
           border-radius: 8px;
-          background: linear-gradient(180deg, rgba(13, 151, 163, 0.95), rgba(11, 96, 118, 0.95));
-          border: 1px solid rgba(126, 255, 243, 0.55);
-          box-shadow: 0 0 12px rgba(63, 246, 226, 0.28);
+          border: 1px solid rgba(45,212,191,0.38);
+          color: #5ff4e8;
+          background: rgba(20,184,166,0.12);
+          font-size: 12px;
         }
 
-        @keyframes cfspCraftFloat {
-          0%, 100% { transform: translateX(-50%) translateY(0px); }
-          50% { transform: translateX(-50%) translateY(-7px); }
+        .cfsp-command-center-footer {
+          margin-top: 12px;
+          color: #75d8d0;
+          font-size: 0.72rem;
+          font-weight: 850;
+          text-align: center;
+          letter-spacing: 0.03em;
         }
 
-        @keyframes cfspBeamPulse {
+        @keyframes cfspPokeballLid {
+          0%, 100% { transform: translateY(0) rotateX(0deg); }
+          50% { transform: translateY(-1px) rotateX(8deg); }
+        }
+
+        @keyframes cfspCommandCraftFloat {
+          0%, 100% { transform: translateX(-50%) translateY(0) rotate(-1.2deg); }
+          50% { transform: translateX(-50%) translateY(-7px) rotate(1.2deg); }
+        }
+
+        @keyframes cfspCommandCraftLid {
+          0%, 100% { transform: translateX(-50%) translateY(0) rotateX(0deg); }
+          50% { transform: translateX(-50%) translateY(-3px) rotateX(12deg); }
+        }
+
+        @keyframes cfspCommandBeamPulse {
           0%, 100% { opacity: 0.72; }
           50% { opacity: 1; }
         }
 
-        @keyframes cfspOrbitSpin {
+        @keyframes cfspCommandOrbitSpinA {
           from { transform: translateX(-50%) rotate(0deg); }
           to { transform: translateX(-50%) rotate(360deg); }
         }
 
-        @keyframes cfspScrollFloatLeft {
-          0%, 100% { transform: rotate(-12deg) translateY(0px); }
-          50% { transform: rotate(-7deg) translateY(-10px); }
+        @keyframes cfspCommandOrbitSpinB {
+          from { transform: translateX(-50%) rotate(0deg); }
+          to { transform: translateX(-50%) rotate(360deg); }
         }
 
-        @keyframes cfspScrollFloatRight {
-          0%, 100% { transform: rotate(12deg) translateY(0px); }
-          50% { transform: rotate(7deg) translateY(-10px); }
+        @keyframes cfspCommandScrollLeft {
+          0%, 100% { transform: rotate(-13deg) translateY(0); opacity: 0.56; }
+          50% { transform: rotate(-8deg) translateY(-10px); opacity: 0.88; }
+        }
+
+        @keyframes cfspCommandScrollRight {
+          0%, 100% { transform: rotate(13deg) translateY(0); opacity: 0.56; }
+          50% { transform: rotate(8deg) translateY(-10px); opacity: 0.88; }
+        }
+
+        @keyframes cfspCommandScrollCenter {
+          0%, 100% { transform: translateX(-50%) translateY(0) rotate(0deg); opacity: 0.80; }
+          50% { transform: translateX(-50%) translateY(-8px) rotate(-2deg); opacity: 0.96; }
+        }
+
+        @keyframes cfspCommandSpark {
+          0%, 100% { opacity: 0.24; transform: scale(0.8); }
+          50% { opacity: 1; transform: scale(1.2); }
         }
 
         @media (max-width: 1200px) {
-          .cfsp-chest-portal {
-            top: 140px;
-            right: 12px;
-            width: 360px;
-          }
-
-          .cfsp-chest-name {
-            font-size: 1.72rem;
-          }
-
-          .cfsp-chest-scene {
-            height: 262px;
-          }
-
-          .cfsp-beam {
-            width: 240px;
-          }
-
-          .cfsp-floating-link {
-            min-height: 70px;
-            padding: 16px 14px;
-            font-size: 0.98rem;
+          .cfsp-command-center-panel {
+            right: 92px;
+            width: min(400px, calc(100vw - 112px));
           }
         }
 
-        @media (max-width: 860px) {
-          .cfsp-chest-portal {
-            right: 10px;
-            top: 120px;
-            width: min(92vw, 340px);
+        @media (max-width: 760px) {
+          .cfsp-command-pokeball {
+            right: 12px;
           }
 
-          .cfsp-floating-links {
+          .cfsp-command-center-panel {
+            top: 96px;
+            right: 12px;
+            width: calc(100vw - 24px);
+          }
+
+          .cfsp-command-center-actions {
             grid-template-columns: 1fr;
-          }
-
-          .cfsp-scroll-left {
-            left: 48px;
-          }
-
-          .cfsp-scroll-right {
-            right: 48px;
           }
         }
       `}</style>
-    </>
+    </>,
+    portalRoot
   );
 }

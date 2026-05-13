@@ -2089,19 +2089,4 @@ html body #simulation-command-file-cabinet [data-cfsp-schedule-file-link="true"]
 /* END CFSP COMMUNICATION COMPLETION CHECKBOXES v14 */
 
 
-/* CFSP REMOVE LEGACY FLOATING CHEST v19 */
-
-/* Kill the old injected details-based floating chest.
-   The new app/components/CommandChestPortal.tsx is now the only command chest. */
-html body .cfsp-floating-command-chest,
-html body #cfsp-floating-command-chest,
-html body details.cfsp-floating-command-chest,
-html body details#cfsp-floating-command-chest {
-  display: none !important;
-  visibility: hidden !important;
-  opacity: 0 !important;
-  pointer-events: none !important;
-}
-
-/* END CFSP REMOVE LEGACY FLOATING CHEST v19 */
 
