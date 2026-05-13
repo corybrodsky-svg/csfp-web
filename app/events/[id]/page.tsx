@@ -22936,14 +22936,16 @@ Cory`;
                       ) : null}
                     </div>
 
-                    {primaryEventTool === "commandCenter" && selectedCommandTool !== "primary" ? (
+                    {primaryEventTool === "commandCenter" ? (
                     <div
                       aria-label="Secondary tool dock"
                       style={{
                         borderRadius: "16px",
-                        border: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.18)" : "1px solid rgba(126, 231, 219, 0.2)",
-                        background: isPlanningVisualMode ? "rgba(247, 253, 255, 0.82)" : "rgba(5, 18, 31, 0.48)",
-                        padding: "8px",
+                        border: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.2)" : "1px solid rgba(126, 231, 219, 0.22)",
+                        background: isPlanningVisualMode
+                          ? "linear-gradient(135deg, rgba(255,255,255,0.78), rgba(232, 246, 250, 0.58))"
+                          : "linear-gradient(135deg, rgba(5, 18, 31, 0.66), rgba(10, 39, 49, 0.46))",
+                        padding: "7px",
                         display: "grid",
                         gridTemplateColumns: "repeat(auto-fit, minmax(112px, 1fr))",
                         gap: "6px",
@@ -22951,7 +22953,6 @@ Cory`;
                       }}
                     >
                       {[
-                        { value: "primary" as const, label: "Primary Board", status: roundCompanionView === "overview" ? "Overview" : "Tabs" },
                         { value: "faculty" as const, label: "Faculty", status: facultyPanelStatusLabel },
                         { value: "training" as const, label: "Training", status: normalEventTrainingStatusLabel },
                         { value: "fileCabinet" as const, label: "File Cabinet", status: commandFileCabinetSummaryLabel },
@@ -22976,7 +22977,7 @@ Cory`;
                             aria-pressed={selected}
                             style={{
                               ...buttonStyle,
-                              padding: "7px 9px",
+                              padding: "7px 8px",
                               borderRadius: "11px",
                               display: "grid",
                               gap: "2px",
@@ -23056,6 +23057,7 @@ Cory`;
                             padding: "10px",
                             display: "grid",
                             gap: "8px",
+                            order: 40,
                           }}
                         >
                           <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Quick Add SP</div>
@@ -23419,6 +23421,7 @@ Cory`;
                             display: "grid",
                             gap: "10px",
                             overflow: "hidden",
+                            order: 41,
                           }}
                         >
                           <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "flex-start" }}>
@@ -25023,7 +25026,7 @@ Cory`;
                           border: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.18)" : "1px solid rgba(126, 231, 219, 0.2)",
                           background: isPlanningVisualMode ? "rgba(247, 253, 255, 0.66)" : "rgba(5, 18, 31, 0.38)",
                           padding: "8px",
-                          display: "grid",
+                          display: "none",
                           gridTemplateColumns: "repeat(auto-fit, minmax(112px, 1fr))",
                           gap: "6px",
                           alignItems: "center",
