@@ -22635,33 +22635,6 @@ Cory`;
                           ),
                         },
                         {
-                          key: "recording",
-                          title: "RECORDING CHANNEL",
-                          detail: recordingGuideUrl ? getFilenameFromUrl(recordingGuideUrl) || "Recording link ready" : "No recording link posted",
-                          status: recordingGuideUrl ? "available" : "missing",
-                          accent: recordingGuideUrl ? "#6366f1" : "#64748b",
-                          primaryHref: recordingGuideUrl || "",
-                          metadata: [
-                            trainingRecordingStatusOption?.label || "No status set",
-                            recordingGuideUrl ? "Support posted" : "Awaiting link",
-                          ].filter(Boolean),
-                          actions: (
-                            <>
-                              {recordingGuideUrl ? (
-                              <a
-                                href={recordingGuideUrl}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="cfsp-button-tactical"
-                                style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "6px 9px" }}
-                              >
-                                Open
-                                </a>
-                              ) : null}
-                            </>
-                          ),
-                        },
-                        {
                           key: "location_access",
                           title: "LOCATION / ACCESS",
                           detail: locationAccessPrimaryLabel,
@@ -22834,6 +22807,34 @@ Cory`;
                             </div>
                           ),
                         },
+                        {
+                          key: "recording",
+                          title: "RECORDING CHANNEL",
+                          detail: recordingGuideUrl ? getFilenameFromUrl(recordingGuideUrl) || "Recording link ready" : "No recording link posted",
+                          status: recordingGuideUrl ? "available" : "missing",
+                          accent: recordingGuideUrl ? "#6366f1" : "#64748b",
+                          primaryHref: recordingGuideUrl || "",
+                          metadata: [
+                            trainingRecordingStatusOption?.label || "No status set",
+                            recordingGuideUrl ? "Support posted" : "Awaiting link",
+                          ].filter(Boolean),
+                          actions: (
+                            <>
+                              {recordingGuideUrl ? (
+                              <a
+                                href={recordingGuideUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="cfsp-button-tactical"
+                                style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "6px 9px" }}
+                              >
+                                Open
+                                </a>
+                              ) : null}
+                            </>
+                          ),
+                        },
+                        
                         {
                           key: "training_access",
                           title: "TRAINING ACCESS NODE",
