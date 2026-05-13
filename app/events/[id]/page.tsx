@@ -6653,6 +6653,125 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
   const scheduleCompleted = scheduleWorkflowStatus === "complete";
   const scheduleInProgress = scheduleWorkflowStatus === "in_progress";
 
+  // CFSP communication completion checkboxes v14
+  useEffect(() => {
+    if (typeof document === "undefined" || !id) return;
+
+    const emailItems = [
+      { key: "sp_hiring_poll", label: "SP Hiring Poll Email" },
+      { key: "hire_confirmation", label: "Hire Confirmation Email" },
+      { key: "prep_for_training", label: "Prep for Training Email" },
+      { key: "post_training_pre_event", label: "Post-Training / Pre-Event Email" },
+      { key: "post_event_payroll", label: "Post-Event Payroll / Wrap-Up Email" },
+      { key: "faculty_training_date", label: "Faculty Training Date Email" },
+    ];
+
+    const storageKey = `cfsp:communication-complete:${id}`;
+
+    const readState = () => {
+      try {
+        const parsed = JSON.parse(window.localStorage.getItem(storageKey) || "{}");
+        return parsed && typeof parsed === "object" ? parsed as Record<string, boolean> : {};
+      } catch {
+        return {};
+      }
+    };
+
+    const writeState = (next: Record<string, boolean>) => {
+      window.localStorage.setItem(storageKey, JSON.stringify(next));
+    };
+
+    const normalize = (value: string) =>
+      value.toLowerCase().replace(/\s+/g, " ").trim();
+
+    const findEmailCard = (label: string) => {
+      const wanted = normalize(label);
+
+      const candidates = Array.from(document.querySelectorAll("div, article, section"))
+        .filter((node): node is HTMLElement => node instanceof HTMLElement)
+        .filter((node) => {
+          const text = normalize(node.textContent || "");
+          return (
+            text.includes(wanted) &&
+            text.includes("draft") &&
+            !node.closest("[data-cfsp-email-complete-control='true']")
+          );
+        })
+        .sort((a, b) => (a.textContent || "").length - (b.textContent || "").length);
+
+      return candidates[0] || null;
+    };
+
+    const applyCompletionVisual = (card: HTMLElement, complete: boolean) => {
+      card.setAttribute("data-cfsp-email-complete-card", complete ? "true" : "false");
+
+      const badge = card.querySelector("[data-cfsp-email-complete-badge='true']") as HTMLElement | null;
+      if (badge) {
+        badge.textContent = complete ? "Complete" : "Not complete";
+      }
+    };
+
+    const installCheckboxes = () => {
+      const state = readState();
+      let installed = 0;
+
+      for (const item of emailItems) {
+        const card = findEmailCard(item.label);
+        if (!card) continue;
+
+        card.setAttribute("data-cfsp-email-card-key", item.key);
+
+        if (card.querySelector(`[data-cfsp-email-complete-key="${item.key}"]`)) {
+          applyCompletionVisual(card, Boolean(state[item.key]));
+          continue;
+        }
+
+        const row = document.createElement("label");
+        row.setAttribute("data-cfsp-email-complete-control", "true");
+        row.setAttribute("data-cfsp-email-complete-key", item.key);
+        row.className = "cfsp-email-complete-check";
+
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.checked = Boolean(state[item.key]);
+
+        const text = document.createElement("span");
+        text.textContent = "Mark email complete";
+
+        const badge = document.createElement("strong");
+        badge.setAttribute("data-cfsp-email-complete-badge", "true");
+        badge.textContent = checkbox.checked ? "Complete" : "Not complete";
+
+        row.appendChild(checkbox);
+        row.appendChild(text);
+        row.appendChild(badge);
+
+        checkbox.addEventListener("change", () => {
+          const next = readState();
+          next[item.key] = checkbox.checked;
+          writeState(next);
+          applyCompletionVisual(card, checkbox.checked);
+        });
+
+        card.insertBefore(row, card.firstChild);
+        applyCompletionVisual(card, checkbox.checked);
+        installed += 1;
+      }
+
+      return installed;
+    };
+
+    installCheckboxes();
+
+    const interval = window.setInterval(installCheckboxes, 500);
+    const timeout = window.setTimeout(() => window.clearInterval(interval), 8000);
+
+    return () => {
+      window.clearInterval(interval);
+      window.clearTimeout(timeout);
+    };
+  }, [id]);
+
   // CFSP schedule file inside cabinet v13
   useEffect(() => {
     if (typeof document === "undefined") return;

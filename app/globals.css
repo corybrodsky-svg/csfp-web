@@ -2027,3 +2027,64 @@ html body #simulation-command-file-cabinet [data-cfsp-schedule-file-link="true"]
 
 /* END CFSP FINAL UNBLACKEN CABINET BUTTONS v13 */
 
+
+/* CFSP COMMUNICATION COMPLETION CHECKBOXES v14 */
+
+.cfsp-email-complete-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  margin: 0 0 10px 0;
+  padding: 7px 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(20, 184, 166, 0.24);
+  background: linear-gradient(135deg, rgba(236,253,245,0.96), rgba(255,247,237,0.72));
+  color: #12324a;
+  font-size: 0.78rem;
+  font-weight: 850;
+  cursor: pointer;
+  box-shadow: 0 8px 18px rgba(20, 91, 150, 0.07);
+}
+
+.cfsp-email-complete-check input {
+  width: 17px;
+  height: 17px;
+  accent-color: #0f9488;
+  cursor: pointer;
+}
+
+.cfsp-email-complete-check strong {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.78);
+  color: #145b96;
+  font-size: 0.68rem;
+  font-weight: 950;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+[data-cfsp-email-complete-card="true"] {
+  border-color: rgba(16, 185, 129, 0.46) !important;
+  background: linear-gradient(135deg, rgba(236,253,245,0.98), rgba(240,253,244,0.90)) !important;
+  box-shadow:
+    0 12px 24px rgba(16, 185, 129, 0.10),
+    inset 0 1px 0 rgba(255,255,255,0.78) !important;
+}
+
+[data-cfsp-email-complete-card="true"] .cfsp-email-complete-check {
+  border-color: rgba(16, 185, 129, 0.38);
+  background: linear-gradient(135deg, rgba(209,250,229,0.96), rgba(236,253,245,0.92));
+}
+
+[data-cfsp-email-complete-card="true"] .cfsp-email-complete-check strong {
+  background: rgba(16,185,129,0.14);
+  color: #047857;
+}
+
+/* END CFSP COMMUNICATION COMPLETION CHECKBOXES v14 */
+
