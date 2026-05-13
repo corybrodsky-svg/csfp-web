@@ -15063,7 +15063,7 @@ Cory`;
                       <div style={{ marginTop: "4px", color: "#dbeafe", fontSize: "10px", fontWeight: 700, lineHeight: 1.45 }}>
                         Track SP check-in and learner arrival from prebrief into active exam rooms.
                       </div>
-                      <div style={{ marginTop: "4px", color: "#cbd5e1", fontSize: "11px", fontWeight: 800 }}>
+                      <div style={{ marginTop: "4px", color: "#cbd5e1", fontSize: "10px", fontWeight: 800 }}>
                         schedule rows loaded: {currentLiveReferenceScheduleRows.length} · selected round learners:{" "}
                         {currentLiveReferenceScheduleRows.reduce((total, row) => total + row.learnerLabels.length, 0)}
                       </div>
@@ -15648,7 +15648,7 @@ Cory`;
                                     <div style={{ color: "#bfdbfe", fontSize: "10px", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.08em" }}>
                                       Backup / Standby
                                     </div>
-                                    <div style={{ color: "#e0f2fe", fontSize: "11px", fontWeight: 800, overflowWrap: "anywhere" }}>
+                                    <div style={{ color: "#e0f2fe", fontSize: "10px", fontWeight: 800, overflowWrap: "anywhere" }}>
                                       {room.standbySpName || "Standby slot open"}
                                     </div>
                                   </div>
@@ -16022,7 +16022,7 @@ Cory`;
                     >
                       <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
                         <div style={{ ...statLabel, color: livePanelAccentText }}>Learner Arrival Rail</div>
-                        <span style={{ color: livePanelMutedText, fontSize: "11px", fontWeight: 800 }}>
+                        <span style={{ color: livePanelMutedText, fontSize: "10px", fontWeight: 800 }}>
                           {liveLearnerPresenceTokens.length} learner assignment{liveLearnerPresenceTokens.length === 1 ? "" : "s"} in active flow
                         </span>
                       </div>
@@ -16158,7 +16158,7 @@ Cory`;
                     >
                       <div>
                         <div style={{ ...statLabel, color: livePanelAccentText }}>Learner Arrival Rail</div>
-                        <div style={{ marginTop: "4px", color: livePanelMutedText, fontSize: "11px", fontWeight: 800, lineHeight: 1.45 }}>
+                        <div style={{ marginTop: "4px", color: livePanelMutedText, fontSize: "10px", fontWeight: 800, lineHeight: 1.45 }}>
                           {learnerPlannerExpectedCount > 0
                             ? "Learner count exists, but learner names/room assignments are not available for live check-in yet."
                             : "No learner roster or room assignment data is available for live check-in yet."}
@@ -16184,7 +16184,7 @@ Cory`;
                     <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
                       <div style={{ ...statLabel, color: livePanelAccentText }}>Live Attendance Log</div>
                       <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
-                        <span style={{ color: livePanelMutedText, fontSize: "11px", fontWeight: 800 }}>
+                        <span style={{ color: livePanelMutedText, fontSize: "10px", fontWeight: 800 }}>
                           {liveVisibleRoomCount} rooms • {liveBlueprintStaffedCount} staffed SP{liveBlueprintStaffedCount === 1 ? "" : "s"} • {liveBlueprintCheckedCount} checked in
                         </span>
                         <button
@@ -16210,12 +16210,12 @@ Cory`;
                         }}
                       >
                         <span style={{ ...commandChipStyle, background: "rgba(25, 138, 112, 0.14)", color: "#b8e4d4" }}>All SPs arrived</span>
-                        <span style={{ color: "#d6edf4", fontSize: "11px", fontWeight: 800 }}>
+                        <span style={{ color: "#d6edf4", fontSize: "10px", fontWeight: 800 }}>
                           {liveBlueprintCheckedCount} / {liveBlueprintStaffedCount} checked in
                         </span>
-                        <span style={{ color: livePanelBodyText, fontSize: "11px", fontWeight: 800 }}>0 late</span>
-                        <span style={{ color: livePanelBodyText, fontSize: "11px", fontWeight: 800 }}>0 no-show</span>
-                        <span style={{ color: livePanelBodyText, fontSize: "11px", fontWeight: 800 }}>Room coverage ready</span>
+                        <span style={{ color: livePanelBodyText, fontSize: "10px", fontWeight: 800 }}>0 late</span>
+                        <span style={{ color: livePanelBodyText, fontSize: "10px", fontWeight: 800 }}>0 no-show</span>
+                        <span style={{ color: livePanelBodyText, fontSize: "10px", fontWeight: 800 }}>Room coverage ready</span>
                       </div>
                     ) : liveAttendanceLogRows.length ? (
                       <div style={{ display: "grid", gap: "6px" }}>
@@ -16446,7 +16446,7 @@ Cory`;
                       <div style={{ color: livePanelTitleText, fontWeight: 950, fontSize: "14px" }}>
                         {liveAnnouncementQueue[0].announcementText}
                       </div>
-                      <div style={{ color: livePanelMutedText, fontSize: "11px", fontWeight: 800 }}>
+                      <div style={{ color: livePanelMutedText, fontSize: "10px", fontWeight: 800 }}>
                         {liveAnnouncementQueue[0].label} • {formatMinuteRange(liveAnnouncementQueue[0].startMinutes, liveAnnouncementQueue[0].endMinutes)}
                       </div>
                     </div>
@@ -17090,7 +17090,7 @@ Cory`;
                 <div style={{ marginTop: "3px", color: trainingDateMarkerToneStyle.text, fontSize: "17px", fontWeight: 950, lineHeight: 1.25 }}>
                   {collapsedTrainingSummaryLabel}
                 </div>
-                <div style={{ marginTop: "4px", color: trainingDateMarkerToneStyle.muted, fontSize: "11px", fontWeight: 800 }}>
+                <div style={{ marginTop: "4px", color: trainingDateMarkerToneStyle.muted, fontSize: "10px", fontWeight: 800 }}>
                   {selectedStaffingCount} selected SP{selectedStaffingCount === 1 ? "" : "s"} • {normalEventTrainingAttendanceLabel}
                 </div>
               </div>
@@ -17147,7 +17147,7 @@ Cory`;
                 <div style={{ marginTop: "3px", color: trainingDateMarkerToneStyle.text, fontSize: "18px", fontWeight: 950, lineHeight: 1.2 }}>
                   Training: {trainingDateMarkerValue}
                 </div>
-                <div style={{ marginTop: "4px", color: trainingDateMarkerToneStyle.muted, fontSize: "11px", fontWeight: 800 }}>
+                <div style={{ marginTop: "4px", color: trainingDateMarkerToneStyle.muted, fontSize: "10px", fontWeight: 800 }}>
                   {normalEventTrainingTimeText || "Training time TBD"}
                 </div>
               </div>
@@ -18203,7 +18203,7 @@ Cory`;
                           ) : null}
                         </div>
                         {viewerRole !== "sp" ? (
-                          <div style={{ display: "grid", gap: "4px", fontSize: "11px", fontWeight: 800, color: staffingWorkspacePalette.textMuted }}>
+                          <div style={{ display: "grid", gap: "4px", fontSize: "10px", fontWeight: 800, color: staffingWorkspacePalette.textMuted }}>
                             <div>hiring_email_sent_at: {hiringEmailSentAt || "missing"}</div>
                             <div>confirmation_email_sent_at: {confirmationEmailSentAt || "missing"}</div>
                             {eventSaveError.includes("Could not save email sent status") ? (
@@ -18364,7 +18364,7 @@ Cory`;
                   >
                     <div style={{ fontWeight: 900 }}>{pollImportSuccess}</div>
                     {pollImportSummary ? (
-                      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", fontSize: "11px", fontWeight: 800 }}>
+                      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", fontSize: "10px", fontWeight: 800 }}>
                         <span>{pollImportSummary.parsedResponses} parsed</span>
                         <span>{pollImportSummary.matchedCount} matched</span>
                         <span>{pollImportSummary.availableCount} available</span>
@@ -19966,7 +19966,7 @@ Cory`;
         <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "flex-start" }}>
           <div>
             <div style={{ color: "var(--cfsp-text)", fontWeight: 900, fontSize: "14px" }}>{item.label}</div>
-            <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 800 }}>
+            <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontSize: "10px", fontWeight: 800 }}>
               {isReadyState ? "Ready explanation" : "Needs action"}
             </div>
           </div>
@@ -21527,7 +21527,7 @@ Cory`;
 	                      borderRadius: "16px",
 	                      border: "1px solid rgba(96, 137, 164, 0.14)",
 	                      background: "rgba(255,255,255,0.66)",
-	                      padding: "10px 11px",
+	                      padding: "6px 8px",
 	                      display: "grid",
 	                      gap: "6px",
 	                    }}
@@ -21577,7 +21577,7 @@ Cory`;
 	                          );
 	                        })
 	                      ) : (
-	                        <span style={{ color: "#496678", fontSize: "11px", fontWeight: 800 }}>
+	                        <span style={{ color: "#496678", fontSize: "10px", fontWeight: 800 }}>
 	                          No live flow blocks available yet.
 	                        </span>
 	                      )}
@@ -21603,7 +21603,7 @@ Cory`;
 	                              borderRadius: "14px",
 	                              border: "1px solid rgba(96, 137, 164, 0.16)",
 	                              background: "rgba(255,255,255,0.76)",
-	                              padding: "10px 11px",
+	                              padding: "6px 8px",
 	                              display: "grid",
 	                              gap: "4px",
 	                              boxShadow: "inset 0 1px 0 rgba(255,255,255,0.72)",
@@ -21621,7 +21621,7 @@ Cory`;
 	                          borderRadius: "15px",
 	                          border: planningLivePreviewAlerts.length ? "1px solid rgba(124, 58, 237, 0.16)" : planningSuccessBorder,
 	                          background: planningLivePreviewAlerts.length ? "rgba(250, 245, 255, 0.72)" : planningSuccessBackground,
-	                          padding: "10px 11px",
+	                          padding: "6px 8px",
 	                          display: "grid",
 	                          gap: "6px",
 	                        }}
@@ -21934,7 +21934,7 @@ Cory`;
                           borderRadius: "16px",
                           border: isPlanningVisualMode ? "1px solid rgba(96, 137, 164, 0.14)" : `1px solid ${commandFileCabinetVisual.railGlow}`,
                           background: isPlanningVisualMode ? "rgba(255,255,255,0.62)" : "rgba(15, 23, 42, 0.5)",
-                          padding: "10px 11px",
+                          padding: "6px 8px",
                           display: "flex",
                           gap: "6px",
                           flexWrap: "wrap",
@@ -21943,7 +21943,7 @@ Cory`;
                           boxShadow: isPlanningVisualMode ? undefined : "0 10px 22px rgba(2, 6, 23, 0.3)",
                         }}
                       >
-                        <div style={{ color: commandFileCabinetVisual.moduleMetaColor, fontSize: "11px", fontWeight: 800 }}>
+                        <div style={{ color: commandFileCabinetVisual.moduleMetaColor, fontSize: "10px", fontWeight: 800 }}>
                           {commandFileCabinetStatusCounts.complete} complete · {commandFileCabinetStatusCounts.available} available · {commandFileCabinetStatusCounts.draft} draft
                         </div>
                         <div style={{ display: "flex", gap: "7px", flexWrap: "wrap" }}>
@@ -21952,7 +21952,7 @@ Cory`;
                               type="button"
                               onClick={() => openCaseFilePicker({ mode: "add" })}
                               className="cfsp-button-tactical"
-                              style={{ ...buttonStyle, padding: "6px 9px" }}
+                              style={{ ...buttonStyle, padding: "4px 7px", fontSize: "11px" }}
                             >
                               Upload Case
                             </button>
@@ -21961,7 +21961,7 @@ Cory`;
                             type="button"
                             onClick={() => handleOpenEventScheduleRouteInNewTab("operations", "schedule")}
                             className="cfsp-button-tactical"
-                            style={{ ...buttonStyle, padding: "6px 9px" }}
+                            style={{ ...buttonStyle, padding: "4px 7px", fontSize: "11px" }}
                           >
                             Open Schedule
                           </button>
@@ -21969,7 +21969,7 @@ Cory`;
                             <Link
                               href={expandedScheduleBuilderHref}
                               className="cfsp-button-tactical"
-                              style={{ ...buttonStyle, padding: "6px 9px", textDecoration: "none", display: "inline-flex", alignItems: "center" }}
+                              style={{ ...buttonStyle, padding: "4px 7px", fontSize: "11px", textDecoration: "none", display: "inline-flex", alignItems: "center" }}
                             >
                               Edit Schedule
                             </Link>
@@ -22089,7 +22089,7 @@ Cory`;
                                   })}
                                 </div>
                               ) : (
-                                <span style={{ color: commandFileCabinetVisual.moduleMetaColor, fontSize: "11px", fontWeight: 800 }}>
+                                <span style={{ color: commandFileCabinetVisual.moduleMetaColor, fontSize: "10px", fontWeight: 800 }}>
                                   No cases uploaded. Load the first case packet for this event.
                                 </span>
                               )}
@@ -22124,7 +22124,7 @@ Cory`;
                                 type="button"
                                 onClick={() => handleOpenEventScheduleRouteInNewTab("operations", "schedule")}
                                 className="cfsp-button-tactical"
-                                style={{ ...buttonStyle, padding: "6px 9px" }}
+                                style={{ ...buttonStyle, padding: "4px 7px", fontSize: "11px" }}
                               >
                                 Open Schedule
                               </button>
@@ -22132,7 +22132,7 @@ Cory`;
                                 <Link
                                   href={expandedScheduleBuilderHref}
                                   className="cfsp-button-tactical"
-                                  style={{ ...buttonStyle, padding: "6px 9px", textDecoration: "none", display: "inline-flex", alignItems: "center" }}
+                                  style={{ ...buttonStyle, padding: "4px 7px", fontSize: "11px", textDecoration: "none", display: "inline-flex", alignItems: "center" }}
                                 >
                                   Edit Schedule
                                 </Link>
@@ -22594,7 +22594,7 @@ Cory`;
                   </div>
                 </div>
                 {hiddenExtraBackendRounds > 0 ? (
-                  <div style={{ marginTop: "6px", color: "var(--cfsp-warning)", fontSize: "11px", fontWeight: 800 }}>
+                  <div style={{ marginTop: "6px", color: "var(--cfsp-warning)", fontSize: "10px", fontWeight: 800 }}>
                     Extra backend room slots are hidden because learner capacity only requires {rotationRounds.length} rotation round{rotationRounds.length === 1 ? "" : "s"}.
                   </div>
                 ) : null}
@@ -23434,7 +23434,7 @@ Cory`;
                                         {currentAnnouncementText}
                                       </div>
                                       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "6px" }}>
-                                        <div style={{ borderRadius: "13px", border: commandCenterVisual.rowBorder, background: commandCenterVisual.rowBackground, padding: "10px 11px" }}>
+                                        <div style={{ borderRadius: "13px", border: commandCenterVisual.rowBorder, background: commandCenterVisual.rowBackground, padding: "6px 8px" }}>
                                           <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Next</div>
                                           <div style={{ marginTop: "5px", color: commandCenterVisual.textColor, fontWeight: 900 }}>
                                             {nextAnnouncement ? `${nextAnnouncement.phaseLabel} · ${nextAnnouncement.timeLabel}` : "No next announcement"}
@@ -23445,7 +23445,7 @@ Cory`;
                                             </div>
                                           ) : null}
                                         </div>
-                                        <div style={{ borderRadius: "13px", border: commandCenterVisual.rowBorder, background: commandCenterVisual.rowBackground, padding: "10px 11px" }}>
+                                        <div style={{ borderRadius: "13px", border: commandCenterVisual.rowBorder, background: commandCenterVisual.rowBackground, padding: "6px 8px" }}>
                                           <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Upcoming</div>
                                           <div style={{ marginTop: "6px", display: "flex", gap: "6px", flexWrap: "wrap" }}>
                                             {selectedRoundAnnouncementTimeline.slice(2, 5).length ? selectedRoundAnnouncementTimeline.slice(2, 5).map((entry) => (
@@ -23591,12 +23591,12 @@ Cory`;
                                   <div key={`${row.key}-sp`} style={{ borderRadius: "12px", border: commandCenterVisual.rowBorder, background: commandCenterVisual.rowBackground, padding: "8px 10px", display: "flex", justifyContent: "space-between", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
                                     <div>
                                       <div style={{ color: commandCenterVisual.textColor, fontWeight: 800 }}>{row.roomName || `Room ${index + 1}`}</div>
-                                      <div style={{ marginTop: "4px", color: commandCenterVisual.textColor, fontSize: "11px", fontWeight: 800, display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                                      <div style={{ marginTop: "4px", color: commandCenterVisual.textColor, fontSize: "10px", fontWeight: 800, display: "inline-flex", alignItems: "center", gap: "6px" }}>
                                         <RoundOperationAvatar name={row.sp ? getFullName(row.sp) : "SP TBD"} role="sp" />
                                         {row.sp ? getFullName(row.sp) : "SP TBD"}
                                       </div>
                                       {row.caseLabel || row.stationLabel ? (
-                                        <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 800 }}>
+                                        <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 800 }}>
                                           {[row.stationLabel, row.caseLabel].filter(Boolean).join(" · ")}
                                         </div>
                                       ) : null}
@@ -23677,7 +23677,7 @@ Cory`;
                                   <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
                                     <div>
                                       <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Backup + Room Controls</div>
-                                      <div style={{ marginTop: "3px", color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 800 }}>
+                                      <div style={{ marginTop: "3px", color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 800 }}>
                                         {confirmedAssignments.length} primary SPs · {backupAssignments.length} backup SPs · {selectedRoundRoomCount} rooms
                                       </div>
                                     </div>
@@ -23760,7 +23760,7 @@ Cory`;
                                           </div>
                                         );
                                       }) : (
-                                        <div style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 800 }}>No primary SPs confirmed.</div>
+                                        <div style={{ color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 800 }}>No primary SPs confirmed.</div>
                                       )}
                                     </div>
                                     <div style={{ display: "grid", gap: "6px" }}>
@@ -23832,7 +23832,7 @@ Cory`;
                                           </div>
                                         );
                                       }) : (
-                                        <div style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 800 }}>No backup SPs selected.</div>
+                                        <div style={{ color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 800 }}>No backup SPs selected.</div>
                                       )}
                                     </div>
                                   </div>
@@ -23862,7 +23862,7 @@ Cory`;
                                     <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
                                       <div>
                                         <div style={{ color: commandCenterVisual.textColor, fontWeight: 900 }}>{row.roomName || `Room ${index + 1}`}</div>
-                                        <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 800 }}>
+                                        <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 800 }}>
                                           {[row.stationLabel, row.caseLabel].filter(Boolean).join(" · ") || "Case not assigned"}
                                         </div>
                                       </div>
@@ -24324,7 +24324,7 @@ Cory`;
       >
         <summary style={{ cursor: "pointer", color: commandCenterVisual.headingColor, fontWeight: 950, fontSize: "20px" }}>
           Training & Prep
-          <span style={{ marginLeft: "10px", color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 800 }}>
+          <span style={{ marginLeft: "10px", color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 800 }}>
             {normalEventTrainingStatusLabel} · {embeddedTrainingMetadataSourceLabel}
           </span>
         </summary>
@@ -25772,7 +25772,7 @@ Cory`;
                             {sp ? getEmail(sp) || sp.phone || "No contact details" : assignment.sp_id || "No SP id"}
                           </div>
                           {canManageTrainingAttendance && assignment.training_attended && checkedAt ? (
-                            <div style={{ marginTop: "4px", color: "var(--cfsp-green)", fontSize: "11px", fontWeight: 800 }}>
+                            <div style={{ marginTop: "4px", color: "var(--cfsp-green)", fontSize: "10px", fontWeight: 800 }}>
                               Checked in {checkedAt}
                             </div>
                           ) : null}
@@ -27003,7 +27003,7 @@ Cory`;
                           <div>{email || assignment.sp_id || "No SP id"}</div>
                           <div>{sp?.phone || "No phone on file"}</div>
                           {canManageTrainingAttendance && assignment.training_attended && checkedAt ? (
-                            <div style={{ color: "var(--cfsp-green)", fontSize: "11px", fontWeight: 800 }}>
+                            <div style={{ color: "var(--cfsp-green)", fontSize: "10px", fontWeight: 800 }}>
                               Checked in {checkedAt}
                             </div>
                           ) : null}
@@ -28894,7 +28894,7 @@ Cory`;
                       .filter(Boolean)
                       .join(" · ")}
                   </div>
-                  <div style={{ color: "var(--cfsp-text)", fontSize: "11px", fontWeight: 800, lineHeight: 1.5 }}>
+                  <div style={{ color: "var(--cfsp-text)", fontSize: "10px", fontWeight: 800, lineHeight: 1.5 }}>
                     {node.match_reason || "Matched by exact course"}
                   </div>
                   <div style={{ display: "flex", justifyContent: "flex-end", gap: "6px", flexWrap: "wrap" }}>
