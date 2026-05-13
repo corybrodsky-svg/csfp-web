@@ -2031,7 +2031,7 @@ function getScheduleNoteValue(notes: string | null | undefined, labels: string[]
   return "";
 }
 
-function getVirtualAccessFromBuilderEvent(event: EventRow | null) {
+function getLocationAccessFromBuilderEvent(event: EventRow | null) {
   const metadata = parseEventMetadata(event?.notes).training;
   const sourceText = [event?.name, event?.location, event?.status, event?.notes]
     .map((value) => asText(value))
@@ -2044,10 +2044,12 @@ function getVirtualAccessFromBuilderEvent(event: EventRow | null) {
     asText(metadata.zoom_url) ||
     asText(metadata.training_zoom_link) ||
     getScheduleNoteValue(event?.notes, ["Virtual Access", "Virtual Access / Zoom", "Zoom", "Zoom Link", "SimIQ", "Virtual Link"]);
+  const physicalLocation = asText(event?.location);
 
   return {
     isVirtual,
-    label: link || (isVirtual ? "Zoom link pending" : ""),
+    modeLabel: isVirtual ? "Virtual Access" : "In-person Location",
+    label: isVirtual ? link || "Zoom link pending" : physicalLocation || "Location pending",
   };
 }
 
@@ -3126,7 +3128,7 @@ function buildSchedulePreviewData(args: {
   const isOperations = kind === "operations" || kind === "rotation";
   const isStudentPreview = kind === "student";
   const isFacultyPreview = kind === "timeline";
-  const virtualAccess = getVirtualAccessFromBuilderEvent(event);
+  const locationAccess = getLocationAccessFromBuilderEvent(event);
   const effectivePreviewFamily = getPreviewFamilyForKind(kind, previewFamily);
   const titleMap: Record<SchedulePreviewKind, string> = {
     timeline: "Faculty Schedule",
@@ -3154,12 +3156,10 @@ function buildSchedulePreviewData(args: {
 
   if (event) {
     lines.push(`Event: ${event.name || "Untitled Event"}`);
-    lines.push(`Date/Location: ${formatEventDate(event)}${event.location ? ` · ${event.location}` : ""}`);
+    lines.push(`Date: ${formatEventDate(event)}`);
+    lines.push(`Location / Access: ${locationAccess.label}`);
     if (selectedEventSummaryTime) {
       lines.push(`Time Window: ${selectedEventSummaryTime}`);
-    }
-    if (virtualAccess.isVirtual) {
-      lines.push(`Virtual Access / Zoom: ${virtualAccess.label || "Zoom link pending"}`);
     }
     lines.push(`Rooms in Rotation: ${generated.rounds[0]?.roomSlots.length || 0}`);
     lines.push("");
@@ -3280,19 +3280,14 @@ function buildSchedulePreviewData(args: {
             <div class="event-meta-value">${escapeHtml(event.name || "Untitled Event")}</div>
           </div>
           <div class="event-meta-card">
-            <div class="event-meta-label">Date / Location</div>
-            <div class="event-meta-value">${escapeHtml(`${formatEventDate(event)}${event.location ? ` · ${event.location}` : ""}`)}</div>
+            <div class="event-meta-label">Date</div>
+            <div class="event-meta-value">${escapeHtml(formatEventDate(event))}</div>
           </div>
-          ${
-            virtualAccess.isVirtual
-              ? `
-                <div class="event-meta-card virtual-access-card">
-                  <div class="event-meta-label">Virtual Access / Zoom</div>
-                  <div class="event-meta-value">${escapeHtml(virtualAccess.label || "Zoom link pending")}</div>
-                </div>
-              `
-              : ""
-          }
+          <div class="event-meta-card virtual-access-card">
+            <div class="event-meta-label">Location / Access</div>
+            <div class="event-meta-value">${escapeHtml(locationAccess.label)}</div>
+            <div class="event-meta-subtle">${escapeHtml(locationAccess.modeLabel)}</div>
+          </div>
           ${
             selectedEventSummaryTime
               ? `

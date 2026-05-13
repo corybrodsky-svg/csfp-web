@@ -466,6 +466,7 @@ type CommandFileCabinetModuleKey =
   | "time_ticket"
   | "materials"
   | "recording"
+  | "location_access"
   | "training_access";
 
 type TrainingImportResult = {
@@ -3036,6 +3037,7 @@ function renderCommandFileCabinetIcon(
           <circle cx="9.7" cy="12" r="1.8" />
         </svg>
       );
+    case "location_access":
     case "training_access":
     default:
       return (
@@ -4437,6 +4439,8 @@ export default function EventDetailPage() {
   const [expandedCommandFileCabinetModules, setExpandedCommandFileCabinetModules] = useState<Record<string, boolean>>({});
   const [virtualAccessEditorOpen, setVirtualAccessEditorOpen] = useState(false);
   const [virtualAccessDraftUrl, setVirtualAccessDraftUrl] = useState("");
+  const [locationAccessEditorOpen, setLocationAccessEditorOpen] = useState(false);
+  const [locationAccessDraftLocation, setLocationAccessDraftLocation] = useState("");
   const [planningLivePreviewExpanded, setPlanningLivePreviewExpanded] = useState(false);
   const [selectedRotationRoundKey, setSelectedRotationRoundKey] = useState("");
   const [roundCompanionView, setRoundCompanionView] = useState<RotationCompanionView>("overview");
@@ -10469,16 +10473,34 @@ Cory`;
       : virtualAccessRequired
         ? "Missing"
         : "Optional";
-  const virtualAccessDetailLabel = trainingAccessUrl
-    ? "Virtual Access Ready"
-    : virtualAccessInvalid
-      ? "Invalid Link"
-    : virtualAccessRequired
-      ? "Zoom Link Needed"
-      : "Virtual Access Optional";
+  const locationAccessIsVirtual = virtualAccessRequired;
+  const physicalLocationValue = asText(eventEditor.location || event?.location);
+  const locationAccessReady = locationAccessIsVirtual ? Boolean(trainingAccessUrl) : Boolean(physicalLocationValue);
+  const locationAccessInvalid = locationAccessIsVirtual ? virtualAccessInvalid : false;
+  const locationAccessStatusLabel = locationAccessInvalid
+    ? "Invalid Link"
+    : locationAccessReady
+      ? "Ready"
+      : "Missing";
+  const locationAccessModeLabel = locationAccessIsVirtual ? "Virtual Access" : "In-person Location";
+  const locationAccessDetailLabel = locationAccessIsVirtual
+    ? trainingAccessUrl
+      ? "Virtual Access Ready"
+      : locationAccessInvalid
+        ? "Invalid Link"
+        : "Zoom Link Needed"
+    : physicalLocationValue
+      ? "Simulation Center"
+      : "Location Needed";
+  const locationAccessPrimaryLabel = locationAccessIsVirtual
+    ? trainingAccessUrl || virtualAccessRawUrl || "Zoom link pending"
+    : physicalLocationValue || "Location pending";
   useEffect(() => {
     setVirtualAccessDraftUrl(virtualAccessRawUrl);
   }, [virtualAccessRawUrl]);
+  useEffect(() => {
+    setLocationAccessDraftLocation(physicalLocationValue);
+  }, [physicalLocationValue]);
   async function handleCopyVirtualAccessLink() {
     if (!trainingAccessUrl) {
       setEventSaveError("No Zoom or virtual access link is saved yet.");
@@ -10521,6 +10543,35 @@ Cory`;
     });
     await persistTrainingNotes(nextNotes, "Virtual access link cleared.");
     setVirtualAccessEditorOpen(false);
+  }
+  async function handleSaveLocationAccessLocation() {
+    if (!id) return;
+    const nextLocation = asText(locationAccessDraftLocation).trim();
+    setSaving(true);
+    setEventSaveMessage("Saving location...");
+    setEventSaveError("");
+    try {
+      const response = await fetch(`/api/events/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          event_updates: {
+            location: nextLocation,
+          },
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(await parseApiError(response));
+      }
+      setEventEditor((current) => ({ ...current, location: nextLocation }));
+      setEvent((current) => (current ? { ...current, location: nextLocation } : current));
+      showSuccessMessage(nextLocation ? "Location saved." : "Location cleared.");
+      setLocationAccessEditorOpen(false);
+    } catch (error) {
+      setEventSaveError(error instanceof Error ? error.message : "Could not save location.");
+    } finally {
+      setSaving(false);
+    }
   }
   function scrollToAdminTools() {
     const adminTools = document.getElementById("coverage-actions") as HTMLDetailsElement | null;
@@ -22611,62 +22662,76 @@ Cory`;
                           ),
                         },
                         {
-                          key: "virtual_access",
-                          title: "VIRTUAL ACCESS / ZOOM",
-                          detail: trainingAccessUrl || virtualAccessRawUrl || "Zoom link pending",
-                          status: trainingAccessUrl ? "available" : virtualAccessInvalid || virtualAccessRequired ? "missing" : "draft",
-                          featured: virtualAccessRequired,
-                          accent: trainingAccessUrl ? "#14b8a6" : virtualAccessInvalid ? "#ef4444" : virtualAccessRequired ? "#7c3aed" : "#64748b",
-                          primaryHref: trainingAccessUrl || "",
+                          key: "location_access",
+                          title: "LOCATION / ACCESS",
+                          detail: locationAccessPrimaryLabel,
+                          status: locationAccessReady ? "available" : "missing",
+                          featured: true,
+                          accent: locationAccessReady ? "#14b8a6" : locationAccessInvalid ? "#ef4444" : "#7c3aed",
+                          primaryHref: locationAccessIsVirtual ? trainingAccessUrl || "" : "",
                           metadata: [
-                            virtualAccessStatusLabel,
-                            virtualAccessDetailLabel,
+                            locationAccessStatusLabel,
+                            locationAccessDetailLabel,
+                            locationAccessModeLabel,
                             selectedModalityLabel,
-                            trainingAccessUrl ? "Schedule packet ready" : "Add link before export",
+                            locationAccessReady ? "Schedule packet ready" : "Add before export",
                           ].filter(Boolean),
                           actions: (
                             <div style={{ display: "grid", gap: "7px", width: "100%" }}>
                               <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                              {trainingAccessUrl ? (
-                                <a
-                                  href={trainingAccessUrl}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="cfsp-button-tactical"
-                                  style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "6px 9px" }}
-                                >
-                                  Open Zoom
-                                </a>
-                              ) : null}
-                              <button
-                                type="button"
-                                onClick={() => void handleCopyVirtualAccessLink()}
-                                disabled={!trainingAccessUrl}
-                                className="cfsp-button-tactical"
-                                style={{ ...buttonStyle, padding: "6px 9px", opacity: trainingAccessUrl ? 1 : 0.55 }}
-                              >
-                                Copy Link
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setVirtualAccessEditorOpen((current) => !current)}
-                                className="cfsp-button-tactical"
-                                style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px" }}
-                              >
-                                {virtualAccessEditorOpen ? "Close Editor" : "Add/Edit Zoom Link"}
-                              </button>
-                              {trainingAccessUrl || virtualAccessRawUrl ? (
+                              {locationAccessIsVirtual ? (
+                                <>
+                                  {trainingAccessUrl ? (
+                                    <a
+                                      href={trainingAccessUrl}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="cfsp-button-tactical"
+                                      style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "6px 9px" }}
+                                    >
+                                      Open Zoom
+                                    </a>
+                                  ) : null}
+                                  <button
+                                    type="button"
+                                    onClick={() => void handleCopyVirtualAccessLink()}
+                                    disabled={!trainingAccessUrl}
+                                    className="cfsp-button-tactical"
+                                    style={{ ...buttonStyle, padding: "6px 9px", opacity: trainingAccessUrl ? 1 : 0.55 }}
+                                  >
+                                    Copy Link
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setVirtualAccessEditorOpen((current) => !current)}
+                                    className="cfsp-button-tactical"
+                                    style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px" }}
+                                  >
+                                    {virtualAccessEditorOpen ? "Close Editor" : "Add/Edit Zoom Link"}
+                                  </button>
+                                  {trainingAccessUrl || virtualAccessRawUrl ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => void handleClearVirtualAccessLink()}
+                                      className="cfsp-button-tactical"
+                                      style={{ ...dangerButtonStyle, padding: "6px 9px" }}
+                                    >
+                                      Clear Link
+                                    </button>
+                                  ) : null}
+                                </>
+                              ) : (
                                 <button
                                   type="button"
-                                  onClick={() => void handleClearVirtualAccessLink()}
+                                  onClick={() => setLocationAccessEditorOpen((current) => !current)}
                                   className="cfsp-button-tactical"
-                                  style={{ ...dangerButtonStyle, padding: "6px 9px" }}
+                                  style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px" }}
                                 >
-                                  Clear Link
+                                  {locationAccessEditorOpen ? "Close Editor" : "Edit Location"}
                                 </button>
-                              ) : null}
+                              )}
                               </div>
-                              {virtualAccessEditorOpen ? (
+                              {locationAccessIsVirtual && virtualAccessEditorOpen ? (
                                 <div
                                   style={{
                                     borderRadius: "14px",
@@ -22714,6 +22779,54 @@ Cory`;
                                       }}
                                     >
                                       {virtualAccessStatusLabel}
+                                    </span>
+                                  </div>
+                                </div>
+                              ) : null}
+                              {!locationAccessIsVirtual && locationAccessEditorOpen ? (
+                                <div
+                                  style={{
+                                    borderRadius: "14px",
+                                    border: isPlanningVisualMode ? "1px solid rgba(20, 184, 166, 0.2)" : "1px solid rgba(126, 231, 219, 0.24)",
+                                    background: isPlanningVisualMode ? "rgba(236, 253, 245, 0.62)" : "rgba(20, 184, 166, 0.08)",
+                                    padding: "8px",
+                                    display: "grid",
+                                    gap: "7px",
+                                  }}
+                                >
+                                  <label style={{ display: "grid", gap: "5px" }}>
+                                    <span style={{ ...statLabel, color: commandFileCabinetVisual.moduleLabelColor }}>
+                                      Physical Location
+                                    </span>
+                                    <input
+                                      value={locationAccessDraftLocation}
+                                      onChange={(event) => setLocationAccessDraftLocation(event.target.value)}
+                                      placeholder="CICSP • 8W04"
+                                      style={{ ...inputStyle, width: "100%", boxSizing: "border-box", fontSize: "11px", padding: "7px 8px" }}
+                                      data-admin-field="location"
+                                    />
+                                  </label>
+                                  <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
+                                    <button
+                                      type="button"
+                                      onClick={() => void handleSaveLocationAccessLocation()}
+                                      className="cfsp-button-tactical"
+                                      style={{ ...buttonStyle, padding: "6px 9px" }}
+                                    >
+                                      Save Location
+                                    </button>
+                                    <span
+                                      style={{
+                                        ...commandChipStyle,
+                                        background: locationAccessReady
+                                          ? commandCenterVisual.activeSoftBackground
+                                          : commandCenterVisual.chipBackground,
+                                        color: locationAccessReady
+                                          ? commandCenterVisual.activeSoftText
+                                          : commandCenterVisual.chipText,
+                                      }}
+                                    >
+                                      {locationAccessStatusLabel}
                                     </span>
                                   </div>
                                 </div>
