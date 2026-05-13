@@ -22463,7 +22463,7 @@ Cory`;
                 <div id="round-operations" style={{ marginTop: "10px" }}>
                 <div
                   style={{
-                    padding: "2px 0 8px",
+                    padding: "6px 8px",
                     display: "flex",
                     justifyContent: "space-between",
                     gap: "12px",
@@ -22488,7 +22488,7 @@ Cory`;
                       padding: "4px 10px",
                     }}
                   >
-                    Round operations are available when you need announcements, learner schedules, SP schedules, or staff workflow details.
+                    Central Command workspace: overview, coverage, learner flow, schedules, announcements, and operations.
                   </div>
                   <button
                     type="button"
@@ -22497,7 +22497,7 @@ Cory`;
                     className="cfsp-button-tactical"
                     style={{
                       ...buttonStyle,
-                      padding: "9px 13px",
+                      padding: "7px 10px",
                       background: rotationCommandSurfaceOpen
                         ? isPlanningVisualMode
                           ? "rgba(255, 255, 255, 0.92)"
@@ -22520,7 +22520,7 @@ Cory`;
                           : "0 12px 28px rgba(25, 138, 112, 0.18)",
                     }}
                   >
-                    {rotationCommandSurfaceOpen ? "Close Round Operations" : "Open Round Operations"}
+                    {rotationCommandSurfaceOpen ? "Close Central Command" : "Open Central Command"}
                   </button>
                 </div>
                 {rotationCommandSurfaceOpen ? (
