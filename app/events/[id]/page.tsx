@@ -193,6 +193,7 @@ type CommandCenterMode = "planning" | "live";
 type RotationCompanionView = "overview" | "coverage" | "learner" | "live" | "announcements" | "student" | "sp" | "operations";
 type CommandDockTool = "faculty" | "training" | "file-cabinet" | "staffing" | "communication" | "qa" | "advanced";
 type SelectedCommandTool = "primary" | "faculty" | "training" | "fileCabinet" | "staffing" | "communication" | "qa" | "advanced";
+type PrimaryEventTool = "commandCenter" | "spFinder" | "scheduleBuilder";
 type LiveRoomStatusValue = "ready" | "in_session" | "delayed" | "empty" | "sp_missing" | "complete";
 type RoomDisplayEntry = {
   roomName: string;
@@ -4446,6 +4447,7 @@ export default function EventDetailPage() {
   const [contactPanelExpanded, setContactPanelExpanded] = useState(false);
   const [expandedCommandDockTool, setExpandedCommandDockTool] = useState<CommandDockTool | "">("");
   const [selectedCommandTool, setSelectedCommandTool] = useState<SelectedCommandTool>("primary");
+  const [primaryEventTool, setPrimaryEventTool] = useState<PrimaryEventTool>("commandCenter");
   const [staffingCommandCenterExpanded, setStaffingCommandCenterExpanded] = useState(false);
   const [trainingReadinessExpanded, setTrainingReadinessExpanded] = useState(false);
   const [planningWindowExpanded, setPlanningWindowExpanded] = useState<Record<PlanningWindowKey, boolean>>({
@@ -21770,7 +21772,7 @@ Cory`;
                       background: commandFileCabinetVisual.shellBackground,
                       boxShadow: commandFileCabinetVisual.shellShadow,
                       padding: "14px",
-                      display: "grid",
+                      display: "none",
                       gap: "6px",
                       position: "relative",
                       overflow: "hidden",
@@ -22766,6 +22768,52 @@ Cory`;
                       </div>
                       <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                         {[
+                          { value: "commandCenter" as const, label: "Command Center", status: selectedCommandTool === "primary" ? "Operational board" : "Tool selected" },
+                          { value: "spFinder" as const, label: "SP Finder", status: `${confirmedCount} confirmed` },
+                          { value: "scheduleBuilder" as const, label: "Schedule Builder", status: scheduleStatusLabel },
+                        ].map((tool) => {
+                          const selected = primaryEventTool === tool.value;
+                          return (
+                            <button
+                              key={`primary-event-tool-${tool.value}`}
+                              type="button"
+                              onClick={() => {
+                                setPrimaryEventTool(tool.value);
+                                if (tool.value === "commandCenter" && selectedCommandTool === "staffing") {
+                                  setSelectedCommandTool("primary");
+                                }
+                              }}
+                              aria-pressed={selected}
+                              style={{
+                                ...buttonStyle,
+                                padding: "8px 11px",
+                                borderRadius: "12px",
+                                display: "grid",
+                                gap: "2px",
+                                minWidth: "128px",
+                                textAlign: "left",
+                                background: selected
+                                  ? isPlanningVisualMode ? "rgba(20, 91, 150, 0.12)" : "rgba(126, 231, 219, 0.18)"
+                                  : isPlanningVisualMode ? "rgba(255,255,255,0.82)" : "rgba(15, 23, 42, 0.58)",
+                                color: selected
+                                  ? isPlanningVisualMode ? "#145b96" : "#d6f6f2"
+                                  : commandCenterVisual.textColor,
+                                border: selected
+                                  ? isPlanningVisualMode ? "1px solid rgba(20, 91, 150, 0.26)" : "1px solid rgba(126, 231, 219, 0.34)"
+                                  : isPlanningVisualMode ? "1px solid rgba(128, 167, 182, 0.18)" : "1px solid rgba(148, 163, 184, 0.16)",
+                              }}
+                            >
+                              <span style={{ fontSize: "12px", fontWeight: 950 }}>{tool.label}</span>
+                              <span style={{ color: selected ? "inherit" : commandCenterVisual.mutedColor, fontSize: "9px", fontWeight: 800 }}>
+                                {tool.status}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                      {primaryEventTool === "commandCenter" ? (
+                      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                        {[
                           { value: "overview", label: "Overview" },
                           { value: "coverage", label: "Coverage" },
                           { value: "learner", label: "Learner Flow" },
@@ -22808,8 +22856,10 @@ Cory`;
                           </button>
                         ))}
                       </div>
+                      ) : null}
                     </div>
 
+                    {primaryEventTool === "commandCenter" ? (
                     <div
                       aria-label="Secondary tool dock"
                       style={{
@@ -22867,8 +22917,112 @@ Cory`;
                         );
                       })}
                     </div>
+                    ) : null}
 
-                    {selectedCommandTool === "primary" ? (
+                    {primaryEventTool === "spFinder" ? (
+                      <section
+                        style={{
+                          borderRadius: "16px",
+                          border: commandCenterVisual.rowBorder,
+                          background: commandCenterVisual.rowBackground,
+                          padding: "12px",
+                          display: "grid",
+                          gap: "10px",
+                        }}
+                      >
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+                          <div>
+                            <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>SP Finder</div>
+                            <div style={{ marginTop: "3px", color: commandCenterVisual.headingColor, fontSize: "17px", fontWeight: 950 }}>
+                              Primary and backup staffing workflow
+                            </div>
+                          </div>
+                          <button type="button" onClick={() => handleStaffingCommandCenterExpandedChange(true)} style={{ ...buttonStyle, padding: "7px 10px" }}>
+                            Open Full Staffing Controls
+                          </button>
+                        </div>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "8px" }}>
+                          {[
+                            { label: "Needed", value: needed > 0 ? needed : "Not set" },
+                            { label: "Confirmed", value: confirmedCount },
+                            { label: "Backup", value: backupCount },
+                            { label: "Coverage", value: staffingCoverageMet ? "Ready" : coverageStatus.message },
+                          ].map((item) => (
+                            <div key={`central-sp-finder-${item.label}`} style={{ borderRadius: "12px", border: commandCenterVisual.rowBorder, background: isPlanningVisualMode ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.05)", padding: "9px" }}>
+                              <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>{item.label}</div>
+                              <div style={{ marginTop: "4px", color: commandCenterVisual.textColor, fontSize: "14px", fontWeight: 950 }}>{item.value}</div>
+                            </div>
+                          ))}
+                        </div>
+                        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                          <button type="button" onClick={() => setSpFinderMatchMakerOpen(true)} style={{ ...buttonStyle, padding: "7px 10px" }}>
+                            Open Match Maker
+                          </button>
+                          <button type="button" onClick={() => setStaffingOverviewOpen(true)} style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px" }}>
+                            Open Staffing Overview
+                          </button>
+                          <span style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText }}>
+                            {staffingEmailWorkflowDetail || "Staffing communication pending"}
+                          </span>
+                        </div>
+                      </section>
+                    ) : primaryEventTool === "scheduleBuilder" ? (
+                      <section
+                        style={{
+                          borderRadius: "16px",
+                          border: commandCenterVisual.rowBorder,
+                          background: commandCenterVisual.rowBackground,
+                          padding: "12px",
+                          display: "grid",
+                          gap: "10px",
+                        }}
+                      >
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+                          <div>
+                            <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Schedule Builder</div>
+                            <div style={{ marginTop: "3px", color: commandCenterVisual.headingColor, fontSize: "17px", fontWeight: 950 }}>
+                              {scheduleStatusLabel}
+                            </div>
+                          </div>
+                          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                            <button type="button" onClick={() => handleOpenEventScheduleRouteInNewTab("operations", "schedule")} style={{ ...buttonStyle, padding: "7px 10px" }}>
+                              Open Schedule
+                            </button>
+                            {canEditSchedule ? (
+                              <Link href={expandedScheduleBuilderHref} style={{ ...buttonStyle, padding: "7px 10px", textDecoration: "none", display: "inline-flex", alignItems: "center" }}>
+                                Edit Builder
+                              </Link>
+                            ) : null}
+                          </div>
+                        </div>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "8px" }}>
+                          {[
+                            { label: "Rounds", value: activeRotationCount || 0 },
+                            { label: "Rooms", value: effectiveRoomCount || selectedRoundRoomCount || 0 },
+                            { label: "Learners", value: effectiveLearnerCount || learnerPlannerRosterCount || 0 },
+                            { label: "Next block", value: planningLivePreviewPrimaryBlock?.label || "No block" },
+                          ].map((item) => (
+                            <div key={`central-schedule-builder-${item.label}`} style={{ borderRadius: "12px", border: commandCenterVisual.rowBorder, background: isPlanningVisualMode ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.05)", padding: "9px" }}>
+                              <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>{item.label}</div>
+                              <div style={{ marginTop: "4px", color: commandCenterVisual.textColor, fontSize: "14px", fontWeight: 950, overflowWrap: "anywhere" }}>{item.value}</div>
+                            </div>
+                          ))}
+                        </div>
+                        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                          {scheduleSummaryActions.map((action) =>
+                            action.href ? (
+                              <Link key={`central-schedule-action-${action.label}`} href={action.href} style={{ ...buttonStyle, padding: "7px 10px", textDecoration: "none", display: "inline-flex", alignItems: "center" }}>
+                                {action.label}
+                              </Link>
+                            ) : (
+                              <button key={`central-schedule-action-${action.label}`} type="button" onClick={action.onClick} disabled={Boolean(action.disabled)} style={{ ...buttonStyle, padding: "7px 10px", opacity: action.disabled ? 0.65 : 1 }}>
+                                {action.label}
+                              </button>
+                            )
+                          )}
+                        </div>
+                      </section>
+                    ) : selectedCommandTool === "primary" ? (
                       <>
                     {!hasTouchedRoundCompanion ? (
                       <div style={{ color: commandCenterVisual.mutedColor, fontWeight: 700, fontSize: "13px" }}>
@@ -24366,8 +24520,72 @@ Cory`;
                             <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 750, lineHeight: 1.45 }}>
                               {normalEventTrainingInfoText || "Training notes and attendance controls remain available in the full drawer."}
                             </div>
+                            <div style={{ display: "grid", gap: "6px" }}>
+                              <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Selected SPs / Training Attendance</div>
+                              {sortedAssignments.length ? (
+                                sortedAssignments.slice(0, 6).map((assignment) => {
+                                  const sp = assignment.sp_id ? spsById.get(assignment.sp_id) : null;
+                                  const spName = getFullName(sp || emptySpRow) || "Selected SP";
+                                  const status = getAssignmentStatus(assignment);
+                                  return (
+                                    <div
+                                      key={`central-training-assignment-${assignment.id}`}
+                                      style={{
+                                        borderRadius: "12px",
+                                        border: commandCenterVisual.rowBorder,
+                                        background: isPlanningVisualMode ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.05)",
+                                        padding: "8px 9px",
+                                        display: "flex",
+                                        justifyContent: "space-between",
+                                        gap: "8px",
+                                        flexWrap: "wrap",
+                                        alignItems: "center",
+                                      }}
+                                    >
+                                      <div style={{ display: "grid", gap: "3px" }}>
+                                        <div style={{ color: commandCenterVisual.textColor, fontSize: "12px", fontWeight: 900 }}>{spName}</div>
+                                        <div style={{ color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 800 }}>
+                                          {assignmentStatusLabels[status]} · {assignment.training_attended ? "Training present" : "Attendance not marked"}
+                                        </div>
+                                      </div>
+                                      <div style={{ display: "flex", gap: "5px", flexWrap: "wrap", alignItems: "center" }}>
+                                        {canManageTrainingAttendance ? (
+                                          <label style={{ display: "inline-flex", alignItems: "center", gap: "5px", color: commandCenterVisual.textColor, fontSize: "10px", fontWeight: 850 }}>
+                                            <input
+                                              type="checkbox"
+                                              checked={Boolean(assignment.training_attended)}
+                                              disabled={attendanceSaving || trainingAttendanceFieldsMissing || !isTrainingAttendanceInteractive}
+                                              onChange={(event) => void handleTrainingAttendanceToggle(assignment, event.target.checked)}
+                                            />
+                                            Present
+                                          </label>
+                                        ) : null}
+                                        <button type="button" onClick={() => void handleStatusChange(assignment, "confirmed")} disabled={saving || status === "confirmed"} style={{ ...staffingSecondaryButtonStyle, padding: "4px 7px", fontSize: "10px", opacity: saving || status === "confirmed" ? 0.55 : 1 }}>
+                                          Primary
+                                        </button>
+                                        <button type="button" onClick={() => void handleStatusChange(assignment, "backup")} disabled={saving || status === "backup"} style={{ ...staffingSecondaryButtonStyle, padding: "4px 7px", fontSize: "10px", opacity: saving || status === "backup" ? 0.55 : 1 }}>
+                                          Backup
+                                        </button>
+                                      </div>
+                                    </div>
+                                  );
+                                })
+                              ) : (
+                                <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 750 }}>
+                                  No SPs selected yet.
+                                </div>
+                              )}
+                            </div>
+                            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                              <button type="button" onClick={() => openCaseFilePicker(uploadedCaseFileCount ? { mode: "add" } : { mode: "replace", index: 0 })} style={{ ...buttonStyle, padding: "7px 10px" }}>
+                                Upload Training Materials
+                              </button>
+                              <button type="button" disabled style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px", opacity: 0.6 }}>
+                                File Cabinet Open
+                              </button>
+                            </div>
                             <button type="button" onClick={() => handleTrainingReadinessExpandedChange(true)} style={{ ...buttonStyle, padding: "7px 10px", justifySelf: "start" }}>
-                              Expand Full Training Drawer Below
+                              Open Full Training Drawer
                             </button>
                           </div>
                         ) : selectedCommandTool === "fileCabinet" ? (
@@ -24392,8 +24610,8 @@ Cory`;
                               <button type="button" onClick={() => handleOpenEventScheduleRouteInNewTab("operations", "schedule")} style={{ ...buttonStyle, padding: "7px 10px" }}>
                                 Open Schedule
                               </button>
-                              <button type="button" onClick={() => handleCommandFileCabinetExpandedChange(true)} style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px" }}>
-                                Expand File Drawer Below
+                              <button type="button" onClick={() => setSelectedCommandTool("fileCabinet")} style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px" }}>
+                                Open File Cabinet
                               </button>
                             </div>
                           </div>
