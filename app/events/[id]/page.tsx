@@ -11094,27 +11094,45 @@ Cory`;
     commandRailText: isPlanningVisualMode ? "#f8fbff" : "#dbeafe",
     commandRailGlow: isPlanningVisualMode ? "rgba(99, 181, 217, 0.22)" : "rgba(165, 180, 252, 0.22)",
   } as const;
+  const learnerRosterDocumentReady =
+    learnerPlannerRosterCount > 0 ||
+    selectedRoundAssignedLearnerCount > 0 ||
+    currentLiveReferenceScheduleRows.some((row) => row.learnerLabels.length > 0);
+  const caseFileOperationallyRequired =
+    staffingRelevant || activeEventTypeSet.has("sp") || isMetadataYes(trainingMetadata.case_rotation_required);
+  const commandFileCabinetRequiredModuleStatuses = [
+    ...(caseFileOperationallyRequired ? [uploadedCaseFileCount ? "available" : caseFileCount ? "draft" : "missing"] : []),
+    scheduleCompleted ? "complete" : scheduleInProgress || rotationRounds.length ? "draft" : "missing",
+    learnerRosterDocumentReady ? "available" : "missing",
+    ...(trainingZoomRequired ? [trainingAccessUrl ? "available" : "missing"] : []),
+    ...(eventRecordingEnabled ? [recordingGuideUrl || hasEventRecordingUrl ? "available" : "missing"] : []),
+    ...(materialsReadinessNeedsAttention && !hasAnyMaterialEvidence ? ["missing"] : []),
+  ];
+  const commandFileCabinetOptionalModuleStatuses = [
+    caseFileOperationallyRequired ? null : uploadedCaseFileCount ? "available" : caseFileCount ? "draft" : "optional",
+    eventMaterialUrl ? "available" : "optional",
+    trainingMetadata.doorsign_url || trainingMetadata.doorsign_storage_path ? "available" : "optional",
+    trainingMetadata.supplemental_doc_url || trainingMetadata.supplemental_doc_storage_path ? "available" : "optional",
+    !eventRecordingEnabled ? recordingGuideUrl || hasEventRecordingUrl ? "available" : "optional" : null,
+    !trainingZoomRequired ? trainingAccessUrl ? "available" : "optional" : null,
+  ].filter(Boolean) as string[];
   const commandFileCabinetModuleStatuses = [
-    uploadedCaseFileCount ? "available" : caseFileCount ? "draft" : "missing",
-    scheduleCompleted ? "complete" : scheduleInProgress ? "draft" : "missing",
-    scheduleCompleted ? "complete" : scheduleInProgress ? "draft" : "missing",
-    scheduleCompleted ? "complete" : scheduleInProgress ? "draft" : "missing",
-    scheduleCompleted ? "complete" : scheduleInProgress ? "draft" : "missing",
-    eventMaterialUrl ? "available" : "missing",
-    recordingGuideUrl ? "available" : "missing",
-    trainingAccessUrl ? "available" : trainingZoomRequired ? "missing" : "draft",
+    ...commandFileCabinetRequiredModuleStatuses,
+    ...commandFileCabinetOptionalModuleStatuses,
   ];
   const commandFileCabinetStatusCounts = commandFileCabinetModuleStatuses.reduce(
     (counts, status) => ({
       ...counts,
       [status]: (counts[status as keyof typeof counts] || 0) + 1,
     }),
-    { complete: 0, available: 0, draft: 0, missing: 0 }
+    { complete: 0, available: 0, draft: 0, missing: 0, optional: 0 }
   );
-  const commandFileCabinetReadyCount =
-    commandFileCabinetStatusCounts.complete + commandFileCabinetStatusCounts.available;
-  const commandFileCabinetSummaryLabel = `${commandFileCabinetReadyCount}/${commandFileCabinetModuleStatuses.length} modules ready`;
-  const commandFileCabinetFullyReady = commandFileCabinetReadyCount === commandFileCabinetModuleStatuses.length;
+  const commandFileCabinetRequiredReadyCount = commandFileCabinetRequiredModuleStatuses.filter((status) => status === "complete" || status === "available").length;
+  const commandFileCabinetRequiredTotal = commandFileCabinetRequiredModuleStatuses.length;
+  const commandFileCabinetSummaryLabel = commandFileCabinetRequiredTotal
+    ? `${commandFileCabinetRequiredReadyCount}/${commandFileCabinetRequiredTotal} required ready`
+    : "No required files";
+  const commandFileCabinetFullyReady = commandFileCabinetRequiredTotal === 0 || commandFileCabinetRequiredReadyCount === commandFileCabinetRequiredTotal;
   function handleCommandFileCabinetExpandedChange(nextExpanded: boolean) {
     setCommandFileCabinetExpanded(nextExpanded);
     if (typeof window !== "undefined" && id) {
@@ -11446,7 +11464,7 @@ Cory`;
     },
   ];
   const workflowRequiredReadyIds = new Set(["staffing", "faculty", "materials", "schedule", "email"]);
-  const workflowDetailActionStatuses = new Set<WorkflowReadinessStatus>(["Needs Action", "Blocked", "Not Started", "In Progress"]);
+  const workflowDetailActionStatuses = new Set<WorkflowReadinessStatus>(["Needs Action", "Blocked"]);
   const readinessGroups: WorkflowReadinessGroup[] = [...workflowGroups, ...planningWindowReadinessGroups];
   const planningWindowReadinessGroupByKey: Record<PlanningWindowKey, WorkflowGroupKey | null> = {
     "event-status": null,
@@ -11465,11 +11483,13 @@ Cory`;
   const workflowRequiredReady = workflowReportItems
     .filter((item) => workflowRequiredReadyIds.has(item.id))
     .every((item) => item.status === "Ready");
-  const workflowBoardStatus: WorkflowReadinessStatus = workflowActionCount > 0 ? "Needs Action" : "Ready";
+  const workflowBoardStatus: WorkflowReadinessStatus = workflowActionCount > 0 ? "Needs Action" : workflowRequiredReady ? "Ready" : "In Progress";
   const workflowBoardStatusLabel = workflowRequiredReady ? "Operationally Ready" : workflowBoardStatus;
   const workflowBoardStatusDetail = workflowRequiredReady
     ? "All required readiness systems are complete."
-    : `${workflowReadyCount} ready / optional · ${workflowActionCount} action${workflowActionCount === 1 ? "" : "s"}`;
+    : workflowActionCount > 0
+      ? `${workflowReadyCount} ready / optional · ${workflowActionCount} blocker${workflowActionCount === 1 ? "" : "s"}`
+      : `${workflowReadyCount} ready / optional · no unresolved blockers`;
   const workflowDetailItemMap = new Map<string, WorkflowReadinessItem>();
   readinessGroups.forEach((group) => {
     group.items.forEach((item) => {
@@ -11763,7 +11783,9 @@ Cory`;
         ? "Drafted"
         : facultyTrainingDateEmailRecipientFingerprint.length
           ? "Ready to draft"
-          : "Needs info";
+          : facultyReadinessComplete
+            ? "Add faculty email"
+            : "Add faculty contact";
   const communicationCards = [
     {
       key: "hiring-poll",
@@ -11879,14 +11901,16 @@ Cory`;
       title: "Faculty Training Date Email",
       description: "Draft a scheduling email to faculty with date/time, location, and expectations.",
       status: facultyTrainingDateEmailCardStatus,
-      statusDetail: facultyTrainingDateEmailCardStatus === "Needs info"
-        ? "Add faculty email and/or faculty contact before drafting."
+      statusDetail: facultyTrainingDateEmailCardStatus === "Add faculty email"
+          ? "Faculty/contact exists. Add an email address in Faculty or Settings before drafting."
+          : facultyTrainingDateEmailCardStatus === "Add faculty contact"
+            ? "Add faculty or contact information in Faculty or Settings before drafting."
         : facultyTrainingDateEmailCardStatus === "Ready to draft"
           ? "Draft the faculty scheduling message."
           : facultyTrainingDateEmailCardStatus === "Drafted"
             ? "Faculty draft logged for this recipient set."
             : "Faculty email marked sent.",
-      ready: facultyTrainingDateEmailCardStatus !== "Needs info",
+      ready: facultyTrainingDateEmailRecipientFingerprint.length > 0 || !facultyTrainingDateEmailRequired,
       href: "javascript:void(0)",
       onClick: async () => {
         if (!facultyTrainingDateEmailRequired) {
@@ -23192,8 +23216,11 @@ Cory`;
                                 <div style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 750, overflowWrap: "anywhere" }}>
                                   {(() => {
                                     const completedScheduleLearners =
-                                      currentLiveReferenceScheduleRows.find((candidate) => compareRoomLabels(candidate.roomName, row.roomName) === 0)?.learnerLabels || [];
-                                    const learnerLabels = row.learnerLabels.length ? row.learnerLabels : completedScheduleLearners;
+                                      currentLiveReferenceScheduleRows.find((candidate) => compareRoomLabels(candidate.roomName, row.roomName) === 0)?.learnerLabels ||
+                                      currentLiveReferenceScheduleRows[index]?.learnerLabels ||
+                                      [];
+                                    const rowLearners = row.learnerLabels.filter((label) => isAssignedLearnerRoomLabel(label));
+                                    const learnerLabels = rowLearners.length ? rowLearners : completedScheduleLearners.filter((label) => isAssignedLearnerRoomLabel(label));
                                     return learnerLabels.length ? learnerLabels.join(", ") : "Learner TBD";
                                   })()}
                                 </div>
@@ -24995,21 +25022,67 @@ Cory`;
                         </div>
 
                         {selectedCommandTool === "faculty" ? (
-                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: "8px" }}>
-                            {[
-                              { label: "Faculty", value: trainingFacultyText || "Needs contact" },
-                              { label: "Program", value: trainingMetadata.faculty_program || "Not set" },
-                              { label: "Email", value: facultyEmailText || "Not set" },
-                              { label: "Sim Contact", value: trainingMetadata.sim_contact || "Not set" },
-                            ].map((item) => (
-                              <div key={`central-faculty-${item.label}`} style={{ borderRadius: "12px", border: commandCenterVisual.rowBorder, background: isPlanningVisualMode ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.05)", padding: "9px" }}>
-                                <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>{item.label}</div>
-                                <div style={{ marginTop: "4px", color: commandCenterVisual.textColor, fontSize: "12px", fontWeight: 850, overflowWrap: "anywhere" }}>{item.value}</div>
-                              </div>
-                            ))}
-                            <button type="button" disabled style={{ ...buttonStyle, padding: "7px 10px", justifySelf: "start", opacity: 0.6 }}>
-                              Contact Summary In Command Center
-                            </button>
+                          <div style={{ display: "grid", gap: "8px" }}>
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: "8px" }}>
+                              {[
+                                { key: "faculty_names" as const, label: "Faculty name", value: trainingMetadata.faculty_names, placeholder: fallbackFacultyText || "Faculty name" },
+                                { key: "faculty_program" as const, label: "Program / course", value: trainingMetadata.faculty_program, placeholder: "Program or course" },
+                                { key: "faculty_email" as const, label: "Faculty email", value: trainingMetadata.faculty_email, placeholder: "name@school.edu" },
+                                { key: "faculty_phone" as const, label: "Faculty phone", value: trainingMetadata.faculty_phone, placeholder: "Phone" },
+                                { key: "sim_contact" as const, label: "Sim team / event lead", value: trainingMetadata.sim_contact, placeholder: simStaffNames.join(", ") || "Sim lead or event lead" },
+                              ].map((field) => (
+                                <label key={`central-faculty-field-${field.key}`} style={{ display: "grid", gap: "5px" }}>
+                                  <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>{field.label}</span>
+                                  <input
+                                    value={field.value}
+                                    onChange={(event) => handleTrainingMetadataChange(field.key, event.target.value)}
+                                    onBlur={(event) => void saveFacultyContactField(field.key, event.target.value)}
+                                    disabled={contactPanelSaving}
+                                    placeholder={field.placeholder}
+                                    style={{ ...inputStyle, width: "100%", boxSizing: "border-box", fontSize: "11px", padding: "7px 8px" }}
+                                  />
+                                </label>
+                              ))}
+                              <label style={{ display: "grid", gap: "5px", gridColumn: "1 / -1" }}>
+                                <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Internal notes</span>
+                                <textarea
+                                  value={trainingMetadata.contact_internal_notes}
+                                  onChange={(event) => handleTrainingMetadataChange("contact_internal_notes", event.target.value)}
+                                  onBlur={(event) => void saveFacultyContactField("contact_internal_notes", event.target.value, "Faculty notes saved.")}
+                                  disabled={contactPanelSaving}
+                                  placeholder="Internal context, escalation notes, or faculty preferences"
+                                  style={{ ...textareaStyle, minHeight: "64px", fontSize: "11px" }}
+                                />
+                              </label>
+                            </div>
+                            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  void saveFacultyContactFields(
+                                    {
+                                      faculty_names: trainingMetadata.faculty_names,
+                                      faculty_program: trainingMetadata.faculty_program,
+                                      faculty_email: trainingMetadata.faculty_email,
+                                      faculty_phone: trainingMetadata.faculty_phone,
+                                      sim_contact: trainingMetadata.sim_contact,
+                                      contact_internal_notes: trainingMetadata.contact_internal_notes,
+                                    },
+                                    "Faculty/contact saved."
+                                  )
+                                }
+                                disabled={contactPanelSaving}
+                                style={{ ...buttonStyle, padding: "7px 10px", opacity: contactPanelSaving ? 0.65 : 1 }}
+                              >
+                                {contactPanelSaving ? "Saving..." : "Save Faculty Info"}
+                              </button>
+                              <Link href={`/settings?eventId=${encodeURIComponent(id)}`} style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px", textDecoration: "none", display: "inline-flex", alignItems: "center" }}>
+                                Open Settings
+                              </Link>
+                              <span style={{ ...commandChipStyle, background: facultyReadinessComplete ? commandCenterVisual.activeSoftBackground : commandCenterVisual.chipBackground, color: facultyReadinessComplete ? commandCenterVisual.activeSoftText : commandCenterVisual.chipText }}>
+                                {facultyReadinessComplete ? "Faculty info available" : "Add faculty/contact info"}
+                              </span>
+                            </div>
                           </div>
                         ) : selectedCommandTool === "training" ? (
                           <div style={{ display: "grid", gap: "8px" }}>
@@ -25096,7 +25169,7 @@ Cory`;
                                 { label: "Cases", value: uploadedCaseFileCount ? `${uploadedCaseFileCount} uploaded` : "No case file" },
                                 { label: "Materials", value: materialsStatusLabel },
                                 { label: "Schedule", value: scheduleStatusLabel },
-                                { label: "Missing", value: commandFileCabinetStatusCounts.missing },
+                                { label: "Required missing", value: commandFileCabinetStatusCounts.missing },
                               ].map((item) => (
                                 <div key={`central-file-${item.label}`} style={{ borderRadius: "12px", border: commandCenterVisual.rowBorder, background: isPlanningVisualMode ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.05)", padding: "9px" }}>
                                   <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>{item.label}</div>
@@ -25109,7 +25182,8 @@ Cory`;
                                 {
                                   key: "case-files",
                                   title: "Case Files",
-                                  detail: uploadedCaseFileCount ? `${uploadedCaseFileCount} uploaded` : "No case file uploaded",
+                                  detail: uploadedCaseFileCount ? `${uploadedCaseFileCount} uploaded` : caseFileOperationallyRequired ? "No required case file uploaded" : "Optional case file not uploaded",
+                                  required: caseFileOperationallyRequired,
                                   ready: uploadedCaseFileCount > 0,
                                   actions: (
                                     <>
@@ -25147,9 +25221,31 @@ Cory`;
                                   ),
                                 },
                                 {
+                                  key: "student-list",
+                                  title: "Student List / Learner Roster",
+                                  detail: learnerRosterDocumentReady
+                                    ? `${Math.max(learnerPlannerRosterCount, selectedRoundAssignedLearnerCount)} learner${Math.max(learnerPlannerRosterCount, selectedRoundAssignedLearnerCount) === 1 ? "" : "s"} available`
+                                    : "No learner roster detected",
+                                  required: true,
+                                  ready: learnerRosterDocumentReady,
+                                  actions: (
+                                    <>
+                                      <button type="button" onClick={() => handleOpenEventScheduleRouteInNewTab("student", "schedule")} style={{ ...buttonStyle, padding: "4px 7px", fontSize: "10px" }}>
+                                        Open Student Schedule
+                                      </button>
+                                      {canEditSchedule ? (
+                                        <Link href={expandedScheduleBuilderHref} style={{ ...staffingSecondaryButtonStyle, padding: "4px 7px", fontSize: "10px", textDecoration: "none", display: "inline-flex", alignItems: "center" }}>
+                                          Edit Roster / Schedule
+                                        </Link>
+                                      ) : null}
+                                    </>
+                                  ),
+                                },
+                                {
                                   key: "doorsign",
                                   title: "Doorsign",
                                   detail: trainingMetadata.doorsign_file_name || getFilenameFromUrl(trainingMetadata.doorsign_url) || "No doorsign uploaded",
+                                  required: false,
                                   ready: Boolean(trainingMetadata.doorsign_url || trainingMetadata.doorsign_storage_path),
                                   actions: (
                                     <>
@@ -25174,6 +25270,7 @@ Cory`;
                                   key: "supplemental",
                                   title: "Supplemental Docs",
                                   detail: trainingMetadata.supplemental_doc_name || getFilenameFromUrl(trainingMetadata.supplemental_doc_url) || "No supplemental docs uploaded",
+                                  required: false,
                                   ready: Boolean(trainingMetadata.supplemental_doc_url || trainingMetadata.supplemental_doc_storage_path),
                                   actions: (
                                     <>
@@ -25198,6 +25295,7 @@ Cory`;
                                   key: "schedule",
                                   title: "Schedule Packet",
                                   detail: scheduleStatusLabel,
+                                  required: true,
                                   ready: scheduleCompleted || scheduleInProgress || rotationRounds.length > 0,
                                   actions: (
                                     <>
@@ -25226,7 +25324,8 @@ Cory`;
                                 {
                                   key: "recording",
                                   title: "Recording Guide",
-                                  detail: recordingGuideUrl ? getFilenameFromUrl(recordingGuideUrl) || eventRecordingStatus.label : eventRecordingStatus.label,
+                                  detail: recordingGuideUrl ? getFilenameFromUrl(recordingGuideUrl) || eventRecordingStatus.label : eventRecordingEnabled ? eventRecordingStatus.label : "Optional recording guide",
+                                  required: eventRecordingEnabled,
                                   ready: Boolean(recordingGuideUrl),
                                   actions: recordingGuideUrl ? (
                                     <a href={recordingGuideUrl} target="_blank" rel="noreferrer" style={{ ...buttonStyle, padding: "4px 7px", fontSize: "10px", textDecoration: "none" }}>
@@ -25244,7 +25343,7 @@ Cory`;
                                       <div style={{ marginTop: "3px", color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 750 }}>{resource.detail}</div>
                                     </div>
                                     <span style={{ ...commandChipStyle, background: resource.ready ? commandCenterVisual.activeSoftBackground : commandCenterVisual.chipBackground, color: resource.ready ? commandCenterVisual.activeSoftText : commandCenterVisual.chipText }}>
-                                      {resource.ready ? "Ready" : "Missing"}
+                                      {resource.ready ? "Ready" : resource.required ? "Required missing" : "Optional"}
                                     </span>
                                   </div>
                                   <div style={{ display: "flex", gap: "5px", flexWrap: "wrap", alignItems: "center" }}>
@@ -25259,6 +25358,46 @@ Cory`;
                             <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                               {[`${confirmedCount} confirmed`, `${backupCount} backup`, needed > 0 ? `${needed} needed` : "Need not set", staffingEmailWorkflowDetail || "Communication pending"].map((chip) => (
                                 <span key={`central-staffing-${chip}`} style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText }}>{chip}</span>
+                              ))}
+                            </div>
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: "8px" }}>
+                              {[
+                                {
+                                  label: "Sim team / event lead",
+                                  value: trainingSimContact || "Sim team not assigned",
+                                  detail: trainingMetadata.sim_contact ? "Saved contact" : simStaffNames.length ? "Parsed from event notes" : "Add in Faculty or Settings",
+                                },
+                                {
+                                  label: "Hired / confirmed SPs",
+                                  value: confirmedAssignments.length
+                                    ? confirmedAssignments
+                                        .slice(0, 5)
+                                        .map((assignment) => getFullName(assignment.sp_id ? spsById.get(assignment.sp_id) || emptySpRow : emptySpRow) || "Assigned SP")
+                                        .join(", ")
+                                    : "No confirmed SPs",
+                                  detail: `${confirmedCount}${needed > 0 ? `/${needed}` : ""} primary coverage`,
+                                },
+                                {
+                                  label: "Backups",
+                                  value: backupAssignments.length
+                                    ? backupAssignments
+                                        .slice(0, 5)
+                                        .map((assignment) => getFullName(assignment.sp_id ? spsById.get(assignment.sp_id) || emptySpRow : emptySpRow) || "Backup SP")
+                                        .join(", ")
+                                    : "No backups selected",
+                                  detail: backupCount ? `${backupCount} backup${backupCount === 1 ? "" : "s"}` : "Backup optional",
+                                },
+                                {
+                                  label: "Coverage status",
+                                  value: staffingCoverageMet ? "Coverage ready" : coverageStatus.message,
+                                  detail: staffingRelevant ? staffingHealthLabel : "SP staffing not required",
+                                },
+                              ].map((item) => (
+                                <div key={`central-staffing-truth-${item.label}`} style={{ borderRadius: "12px", border: commandCenterVisual.rowBorder, background: isPlanningVisualMode ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.05)", padding: "9px", display: "grid", gap: "4px" }}>
+                                  <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>{item.label}</div>
+                                  <div style={{ color: commandCenterVisual.textColor, fontSize: "12px", fontWeight: 900, lineHeight: 1.35, overflowWrap: "anywhere" }}>{item.value}</div>
+                                  <div style={{ color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 750, lineHeight: 1.35 }}>{item.detail}</div>
+                                </div>
                               ))}
                             </div>
                             <button type="button" onClick={() => setPrimaryEventTool("spFinder")} style={{ ...buttonStyle, padding: "7px 10px", justifySelf: "start" }}>
@@ -25318,7 +25457,9 @@ Cory`;
                           <div style={{ display: "grid", gap: "8px" }}>
                             <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 750 }}>{workflowBoardStatusDetail}</div>
                             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "8px" }}>
-                              {workflowReportItems.slice(0, 4).map((item) => renderWorkflowReadinessItem(item, true))}
+                              {workflowReportItems.filter((item) => workflowDetailActionStatuses.has(item.status)).length
+                                ? workflowReportItems.filter((item) => workflowDetailActionStatuses.has(item.status)).map((item) => renderWorkflowReadinessItem(item, true))
+                                : workflowReportItems.slice(0, 4).map((item) => renderWorkflowReadinessItem(item, true))}
                             </div>
                           </div>
                         ) : (
