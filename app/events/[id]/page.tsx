@@ -21364,7 +21364,7 @@ Cory`;
                   <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "flex-end" }}>
                     <button
                       type="button"
-                      onClick={() => setShowLearnerFlowDetails(true)}
+                      onClick={() => setShowLearnerFlowDetails((current) => !current)}
                       style={{
                         ...commandChipStyle,
                         background: learnerAssignmentsIncomplete ? "rgba(237, 233, 254, 0.72)" : planningSuccessBackground,
