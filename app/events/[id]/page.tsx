@@ -22488,7 +22488,7 @@ Cory`;
                       padding: "4px 10px",
                     }}
                   >
-                    Round operations are available when you need announcements, learner schedules, SP schedules, or staff workflow details.
+                    Central Command keeps coverage, learner flow, rounds, schedules, and live operations in one workspace.
                   </div>
                   <button
                     type="button"
@@ -22520,7 +22520,7 @@ Cory`;
                           : "0 12px 28px rgba(25, 138, 112, 0.18)",
                     }}
                   >
-                    {rotationCommandSurfaceOpen ? "Close Round Operations" : "Open Round Operations"}
+                    {rotationCommandSurfaceOpen ? "Close Central Command" : "Open Central Command"}
                   </button>
                 </div>
                 {rotationCommandSurfaceOpen ? (
@@ -22549,7 +22549,7 @@ Cory`;
                 >
                   <div>
                     <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>
-                      {isPlanningVisualMode ? "Rotation Plan" : "Round Operations"}
+                      Central Command
                     </div>
                     <div style={{ marginTop: "4px", color: commandCenterVisual.headingColor, fontWeight: 900, fontSize: "16px" }}>
                       {event?.name || "Untitled Event"}
