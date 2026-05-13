@@ -22634,179 +22634,7 @@ Cory`;
                             </>
                           ),
                         },
-                        {
-                          key: "location_access",
-                          title: "LOCATION / ACCESS",
-                          detail: locationAccessPrimaryLabel,
-                          status: locationAccessReady ? "available" : "missing",
-                          featured: true,
-                          accent: locationAccessReady ? "#14b8a6" : locationAccessInvalid ? "#ef4444" : "#7c3aed",
-                          primaryHref: locationAccessIsVirtual ? trainingAccessUrl || "" : "",
-                          metadata: [
-                            locationAccessStatusLabel,
-                            locationAccessDetailLabel,
-                            locationAccessModeLabel,
-                            selectedModalityLabel,
-                            locationAccessReady ? "Schedule packet ready" : "Add before export",
-                          ].filter(Boolean),
-                          actions: (
-                            <div style={{ display: "grid", gap: "7px", width: "100%" }}>
-                              <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                              {locationAccessIsVirtual ? (
-                                <>
-                                  {trainingAccessUrl ? (
-                                    <a
-                                      href={trainingAccessUrl}
-                                      target="_blank"
-                                      rel="noreferrer"
-                                      className="cfsp-button-tactical"
-                                      style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "6px 9px" }}
-                                    >
-                                      Open Zoom
-                                    </a>
-                                  ) : null}
-                                  <button
-                                    type="button"
-                                    onClick={() => void handleCopyVirtualAccessLink()}
-                                    disabled={!trainingAccessUrl}
-                                    className="cfsp-button-tactical"
-                                    style={{ ...buttonStyle, padding: "6px 9px", opacity: trainingAccessUrl ? 1 : 0.55 }}
-                                  >
-                                    Copy Link
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => setVirtualAccessEditorOpen((current) => !current)}
-                                    className="cfsp-button-tactical"
-                                    style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px" }}
-                                  >
-                                    {virtualAccessEditorOpen ? "Close Editor" : "Add/Edit Zoom Link"}
-                                  </button>
-                                  {trainingAccessUrl || virtualAccessRawUrl ? (
-                                    <button
-                                      type="button"
-                                      onClick={() => void handleClearVirtualAccessLink()}
-                                      className="cfsp-button-tactical"
-                                      style={{ ...dangerButtonStyle, padding: "6px 9px" }}
-                                    >
-                                      Clear Link
-                                    </button>
-                                  ) : null}
-                                </>
-                              ) : (
-                                <button
-                                  type="button"
-                                  onClick={() => setLocationAccessEditorOpen((current) => !current)}
-                                  className="cfsp-button-tactical"
-                                  style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px" }}
-                                >
-                                  {locationAccessEditorOpen ? "Close Editor" : "Edit Location"}
-                                </button>
-                              )}
-                              </div>
-                              {locationAccessIsVirtual && virtualAccessEditorOpen ? (
-                                <div
-                                  style={{
-                                    borderRadius: "14px",
-                                    border: isPlanningVisualMode ? "1px solid rgba(20, 184, 166, 0.2)" : "1px solid rgba(126, 231, 219, 0.24)",
-                                    background: isPlanningVisualMode ? "rgba(236, 253, 245, 0.62)" : "rgba(20, 184, 166, 0.08)",
-                                    padding: "8px",
-                                    display: "grid",
-                                    gap: "7px",
-                                  }}
-                                >
-                                  <label style={{ display: "grid", gap: "5px" }}>
-                                    <span style={{ ...statLabel, color: commandFileCabinetVisual.moduleLabelColor }}>
-                                      Zoom / Virtual Access Link
-                                    </span>
-                                    <input
-                                      value={virtualAccessDraftUrl}
-                                      onChange={(event) => setVirtualAccessDraftUrl(event.target.value)}
-                                      placeholder="https://zoom.us/j/..."
-                                      style={{ ...inputStyle, width: "100%", boxSizing: "border-box", fontSize: "11px", padding: "7px 8px" }}
-                                      data-admin-field="zoom_url"
-                                    />
-                                  </label>
-                                  <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
-                                    <button
-                                      type="button"
-                                      onClick={() => void handleSaveVirtualAccessLink()}
-                                      className="cfsp-button-tactical"
-                                      style={{ ...buttonStyle, padding: "6px 9px" }}
-                                    >
-                                      Save Zoom Link
-                                    </button>
-                                    <span
-                                      style={{
-                                        ...commandChipStyle,
-                                        background: trainingAccessUrl
-                                          ? commandCenterVisual.activeSoftBackground
-                                          : virtualAccessInvalid
-                                            ? "rgba(248, 113, 113, 0.12)"
-                                            : commandCenterVisual.chipBackground,
-                                        color: trainingAccessUrl
-                                          ? commandCenterVisual.activeSoftText
-                                          : virtualAccessInvalid
-                                            ? staffingWorkspacePalette.dangerText
-                                            : commandCenterVisual.chipText,
-                                      }}
-                                    >
-                                      {virtualAccessStatusLabel}
-                                    </span>
-                                  </div>
-                                </div>
-                              ) : null}
-                              {!locationAccessIsVirtual && locationAccessEditorOpen ? (
-                                <div
-                                  style={{
-                                    borderRadius: "14px",
-                                    border: isPlanningVisualMode ? "1px solid rgba(20, 184, 166, 0.2)" : "1px solid rgba(126, 231, 219, 0.24)",
-                                    background: isPlanningVisualMode ? "rgba(236, 253, 245, 0.62)" : "rgba(20, 184, 166, 0.08)",
-                                    padding: "8px",
-                                    display: "grid",
-                                    gap: "7px",
-                                  }}
-                                >
-                                  <label style={{ display: "grid", gap: "5px" }}>
-                                    <span style={{ ...statLabel, color: commandFileCabinetVisual.moduleLabelColor }}>
-                                      Physical Location
-                                    </span>
-                                    <input
-                                      value={locationAccessDraftLocation}
-                                      onChange={(event) => setLocationAccessDraftLocation(event.target.value)}
-                                      placeholder="CICSP • 8W04"
-                                      style={{ ...inputStyle, width: "100%", boxSizing: "border-box", fontSize: "11px", padding: "7px 8px" }}
-                                      data-admin-field="location"
-                                    />
-                                  </label>
-                                  <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
-                                    <button
-                                      type="button"
-                                      onClick={() => void handleSaveLocationAccessLocation()}
-                                      className="cfsp-button-tactical"
-                                      style={{ ...buttonStyle, padding: "6px 9px" }}
-                                    >
-                                      Save Location
-                                    </button>
-                                    <span
-                                      style={{
-                                        ...commandChipStyle,
-                                        background: locationAccessReady
-                                          ? commandCenterVisual.activeSoftBackground
-                                          : commandCenterVisual.chipBackground,
-                                        color: locationAccessReady
-                                          ? commandCenterVisual.activeSoftText
-                                          : commandCenterVisual.chipText,
-                                      }}
-                                    >
-                                      {locationAccessStatusLabel}
-                                    </span>
-                                  </div>
-                                </div>
-                              ) : null}
-                            </div>
-                          ),
-                        },
+                        
                         {
                           key: "recording",
                           title: "RECORDING CHANNEL",
@@ -26092,6 +25920,179 @@ Cory`;
                                     </>
                                   ),
                                 },
+                                {
+                          key: "location_access",
+                          title: "LOCATION / ACCESS",
+                          detail: locationAccessPrimaryLabel,
+                          status: locationAccessReady ? "available" : "missing",
+                          featured: true,
+                          accent: locationAccessReady ? "#14b8a6" : locationAccessInvalid ? "#ef4444" : "#7c3aed",
+                          primaryHref: locationAccessIsVirtual ? trainingAccessUrl || "" : "",
+                          metadata: [
+                            locationAccessStatusLabel,
+                            locationAccessDetailLabel,
+                            locationAccessModeLabel,
+                            selectedModalityLabel,
+                            locationAccessReady ? "Schedule packet ready" : "Add before export",
+                          ].filter(Boolean),
+                          actions: (
+                            <div style={{ display: "grid", gap: "7px", width: "100%" }}>
+                              <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                              {locationAccessIsVirtual ? (
+                                <>
+                                  {trainingAccessUrl ? (
+                                    <a
+                                      href={trainingAccessUrl}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="cfsp-button-tactical"
+                                      style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "6px 9px" }}
+                                    >
+                                      Open Zoom
+                                    </a>
+                                  ) : null}
+                                  <button
+                                    type="button"
+                                    onClick={() => void handleCopyVirtualAccessLink()}
+                                    disabled={!trainingAccessUrl}
+                                    className="cfsp-button-tactical"
+                                    style={{ ...buttonStyle, padding: "6px 9px", opacity: trainingAccessUrl ? 1 : 0.55 }}
+                                  >
+                                    Copy Link
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setVirtualAccessEditorOpen((current) => !current)}
+                                    className="cfsp-button-tactical"
+                                    style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px" }}
+                                  >
+                                    {virtualAccessEditorOpen ? "Close Editor" : "Add/Edit Zoom Link"}
+                                  </button>
+                                  {trainingAccessUrl || virtualAccessRawUrl ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => void handleClearVirtualAccessLink()}
+                                      className="cfsp-button-tactical"
+                                      style={{ ...dangerButtonStyle, padding: "6px 9px" }}
+                                    >
+                                      Clear Link
+                                    </button>
+                                  ) : null}
+                                </>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => setLocationAccessEditorOpen((current) => !current)}
+                                  className="cfsp-button-tactical"
+                                  style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px" }}
+                                >
+                                  {locationAccessEditorOpen ? "Close Editor" : "Edit Location"}
+                                </button>
+                              )}
+                              </div>
+                              {locationAccessIsVirtual && virtualAccessEditorOpen ? (
+                                <div
+                                  style={{
+                                    borderRadius: "14px",
+                                    border: isPlanningVisualMode ? "1px solid rgba(20, 184, 166, 0.2)" : "1px solid rgba(126, 231, 219, 0.24)",
+                                    background: isPlanningVisualMode ? "rgba(236, 253, 245, 0.62)" : "rgba(20, 184, 166, 0.08)",
+                                    padding: "8px",
+                                    display: "grid",
+                                    gap: "7px",
+                                  }}
+                                >
+                                  <label style={{ display: "grid", gap: "5px" }}>
+                                    <span style={{ ...statLabel, color: commandFileCabinetVisual.moduleLabelColor }}>
+                                      Zoom / Virtual Access Link
+                                    </span>
+                                    <input
+                                      value={virtualAccessDraftUrl}
+                                      onChange={(event) => setVirtualAccessDraftUrl(event.target.value)}
+                                      placeholder="https://zoom.us/j/..."
+                                      style={{ ...inputStyle, width: "100%", boxSizing: "border-box", fontSize: "11px", padding: "7px 8px" }}
+                                      data-admin-field="zoom_url"
+                                    />
+                                  </label>
+                                  <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
+                                    <button
+                                      type="button"
+                                      onClick={() => void handleSaveVirtualAccessLink()}
+                                      className="cfsp-button-tactical"
+                                      style={{ ...buttonStyle, padding: "6px 9px" }}
+                                    >
+                                      Save Zoom Link
+                                    </button>
+                                    <span
+                                      style={{
+                                        ...commandChipStyle,
+                                        background: trainingAccessUrl
+                                          ? commandCenterVisual.activeSoftBackground
+                                          : virtualAccessInvalid
+                                            ? "rgba(248, 113, 113, 0.12)"
+                                            : commandCenterVisual.chipBackground,
+                                        color: trainingAccessUrl
+                                          ? commandCenterVisual.activeSoftText
+                                          : virtualAccessInvalid
+                                            ? staffingWorkspacePalette.dangerText
+                                            : commandCenterVisual.chipText,
+                                      }}
+                                    >
+                                      {virtualAccessStatusLabel}
+                                    </span>
+                                  </div>
+                                </div>
+                              ) : null}
+                              {!locationAccessIsVirtual && locationAccessEditorOpen ? (
+                                <div
+                                  style={{
+                                    borderRadius: "14px",
+                                    border: isPlanningVisualMode ? "1px solid rgba(20, 184, 166, 0.2)" : "1px solid rgba(126, 231, 219, 0.24)",
+                                    background: isPlanningVisualMode ? "rgba(236, 253, 245, 0.62)" : "rgba(20, 184, 166, 0.08)",
+                                    padding: "8px",
+                                    display: "grid",
+                                    gap: "7px",
+                                  }}
+                                >
+                                  <label style={{ display: "grid", gap: "5px" }}>
+                                    <span style={{ ...statLabel, color: commandFileCabinetVisual.moduleLabelColor }}>
+                                      Physical Location
+                                    </span>
+                                    <input
+                                      value={locationAccessDraftLocation}
+                                      onChange={(event) => setLocationAccessDraftLocation(event.target.value)}
+                                      placeholder="CICSP • 8W04"
+                                      style={{ ...inputStyle, width: "100%", boxSizing: "border-box", fontSize: "11px", padding: "7px 8px" }}
+                                      data-admin-field="location"
+                                    />
+                                  </label>
+                                  <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
+                                    <button
+                                      type="button"
+                                      onClick={() => void handleSaveLocationAccessLocation()}
+                                      className="cfsp-button-tactical"
+                                      style={{ ...buttonStyle, padding: "6px 9px" }}
+                                    >
+                                      Save Location
+                                    </button>
+                                    <span
+                                      style={{
+                                        ...commandChipStyle,
+                                        background: locationAccessReady
+                                          ? commandCenterVisual.activeSoftBackground
+                                          : commandCenterVisual.chipBackground,
+                                        color: locationAccessReady
+                                          ? commandCenterVisual.activeSoftText
+                                          : commandCenterVisual.chipText,
+                                      }}
+                                    >
+                                      {locationAccessStatusLabel}
+                                    </span>
+                                  </div>
+                                </div>
+                              ) : null}
+                            </div>
+                          ),
+                        },
                                 {
                                   key: "schedule",
                                   title: "Schedule Packet",
