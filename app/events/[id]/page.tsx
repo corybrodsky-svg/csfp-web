@@ -190,7 +190,7 @@ type AssignmentFilterStatus = "all" | "invited" | "confirmed" | "backup" | "decl
 type SuggestedAssignmentFilter = "all" | "available" | "confirmed" | "needs_outreach" | "backup";
 type PollLocationFilter = "any" | "elkins_park" | "center_city" | "virtual";
 type CommandCenterMode = "planning" | "live";
-type RotationCompanionView = "announcements" | "student" | "sp" | "operations";
+type RotationCompanionView = "overview" | "coverage" | "learner" | "announcements" | "student" | "sp" | "operations";
 type LiveRoomStatusValue = "ready" | "in_session" | "delayed" | "empty" | "sp_missing" | "complete";
 type RoomDisplayEntry = {
   roomName: string;
@@ -22488,7 +22488,7 @@ Cory`;
                       padding: "4px 10px",
                     }}
                   >
-                    Central Command keeps coverage, learner flow, rounds, schedules, and live operations in one workspace.
+                    Round operations are available when you need announcements, learner schedules, SP schedules, or staff workflow details.
                   </div>
                   <button
                     type="button"
@@ -22520,7 +22520,7 @@ Cory`;
                           : "0 12px 28px rgba(25, 138, 112, 0.18)",
                     }}
                   >
-                    {rotationCommandSurfaceOpen ? "Close Central Command" : "Open Central Command"}
+                    {rotationCommandSurfaceOpen ? "Close Round Operations" : "Open Round Operations"}
                   </button>
                 </div>
                 {rotationCommandSurfaceOpen ? (
@@ -22549,7 +22549,7 @@ Cory`;
                 >
                   <div>
                     <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>
-                      Central Command
+                      {isPlanningVisualMode ? "Rotation Plan" : "Round Operations"}
                     </div>
                     <div style={{ marginTop: "4px", color: commandCenterVisual.headingColor, fontWeight: 900, fontSize: "16px" }}>
                       {event?.name || "Untitled Event"}
@@ -22719,13 +22719,10 @@ Cory`;
                       </div>
                       <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                         {[
-                          { value: "overview", label: "Overview" },
-                          { value: "coverage", label: "Coverage" },
-                          { value: "learner", label: "Learner Flow" },
                           { value: "announcements", label: "Announcements" },
                           { value: "student", label: "Student Schedule" },
                           { value: "sp", label: "SP Schedule" },
-                          { value: "operations", label: "Operations" },
+                          { value: "operations", label: "Operations View" },
                         ].map((view) => (
                           <button
                             key={view.value}
@@ -23198,7 +23195,168 @@ Cory`;
                                   ? "SP Assignments"
                                   : "Round Operations"}
                           </div>
-                          {roundCompanionView === "announcements" ? (
+                          {roundCompanionView === "overview" ? (
+  <div
+    style={{
+      display: "grid",
+      gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+      gap: "10px",
+    }}
+  >
+    {[
+      {
+        label: "Learners",
+        value: effectiveLearnerCount || 0,
+      },
+      {
+        label: "Rooms",
+        value: selectedRoundRoomCount,
+      },
+      {
+        label: "Coverage",
+        value: `${selectedRoundAssignedLearnerCount}/${selectedRoundRoomCount}`,
+      },
+      {
+        label: "Support Alerts",
+        value: selectedRoundOperationsFlags.length,
+      },
+    ].map((item) => (
+      <div
+        key={item.label}
+        style={{
+          borderRadius: "14px",
+          border: commandCenterVisual.rowBorder,
+          background: commandCenterVisual.rowBackground,
+          padding: "14px",
+          display: "grid",
+          gap: "6px",
+        }}
+      >
+        <div
+          style={{
+            ...statLabel,
+            color: commandCenterVisual.mutedColor,
+          }}
+        >
+          {item.label}
+        </div>
+
+        <div
+          style={{
+            color: commandCenterVisual.headingColor,
+            fontSize: "1.7rem",
+            fontWeight: 900,
+          }}
+        >
+          {item.value}
+        </div>
+      </div>
+    ))}
+  </div>
+) : roundCompanionView === "coverage" ? (
+  <div style={{ display: "grid", gap: "8px" }}>
+    {selectedRoundScheduleRows.map((row, index) => (
+      <div
+        key={`${row.key}-coverage`}
+        style={{
+          borderRadius: "12px",
+          border: commandCenterVisual.rowBorder,
+          background: commandCenterVisual.rowBackground,
+          padding: "12px 14px",
+          display: "flex",
+          justifyContent: "space-between",
+          gap: "10px",
+          flexWrap: "wrap",
+          alignItems: "center",
+        }}
+      >
+        <div>
+          <div style={{ color: commandCenterVisual.textColor, fontWeight: 900 }}>
+            {row.roomName || `Room ${index + 1}`}
+          </div>
+
+          <div
+            style={{
+              marginTop: "4px",
+              color: commandCenterVisual.mutedColor,
+              fontSize: "12px",
+              fontWeight: 700,
+            }}
+          >
+            {row.sp ? getFullName(row.sp) : "No SP Assigned"}
+          </div>
+        </div>
+
+        <span
+          style={{
+            ...commandChipStyle,
+            background: row.sp
+              ? commandCenterVisual.activeSoftBackground
+              : "rgba(248, 113, 113, 0.14)",
+            color: row.sp
+              ? commandCenterVisual.activeSoftText
+              : "#dc2626",
+          }}
+        >
+          {row.sp ? "Covered" : "Needs Coverage"}
+        </span>
+      </div>
+    ))}
+  </div>
+) : roundCompanionView === "learner" ? (
+  <div style={{ display: "grid", gap: "8px" }}>
+    {selectedRoundScheduleRows.map((row, index) => (
+      <div
+        key={`${row.key}-learnerflow`}
+        style={{
+          borderRadius: "12px",
+          border: commandCenterVisual.rowBorder,
+          background: commandCenterVisual.rowBackground,
+          padding: "12px 14px",
+          display: "grid",
+          gap: "8px",
+        }}
+      >
+        <div
+          style={{
+            color: commandCenterVisual.headingColor,
+            fontWeight: 900,
+          }}
+        >
+          {row.roomName || `Room ${index + 1}`}
+        </div>
+
+        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+          {row.learnerLabels?.length ? (
+            row.learnerLabels.map((learner, learnerIndex) => (
+              <span
+                key={`${row.key}-${learnerIndex}`}
+                style={{
+                  ...commandChipStyle,
+                  background: "rgba(255,255,255,0.78)",
+                  color: commandCenterVisual.textColor,
+                  border: commandCenterVisual.rowBorder,
+                }}
+              >
+                {learner}
+              </span>
+            ))
+          ) : (
+            <span
+              style={{
+                color: commandCenterVisual.mutedColor,
+                fontSize: "12px",
+                fontWeight: 700,
+              }}
+            >
+              No learners assigned
+            </span>
+          )}
+        </div>
+      </div>
+    ))}
+  </div>
+) : roundCompanionView === "announcements" ? (
                             selectedRoundAnnouncementTimeline.length ? (
                               <div style={{ display: "grid", gap: "10px" }}>
                                 {(() => {
@@ -29074,6 +29232,6 @@ Cory`;
         : null}
 
       <CommandChestPortal eventId={id} scheduleCompleted={scheduleCompleted} />
-</SiteShell>
+ </SiteShell>
   );
 }
