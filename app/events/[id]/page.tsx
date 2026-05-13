@@ -1,5 +1,7 @@
 "use client";
 
+import CommandChestPortal from "../../components/CommandChestPortal";
+
 import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
 import Image from "next/image";
@@ -29067,6 +29069,7 @@ Cory`;
           )
         : null}
 
+      <CommandChestPortal eventId={id} scheduleCompleted={scheduleCompleted} />
 </SiteShell>
   );
 }
