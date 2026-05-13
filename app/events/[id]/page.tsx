@@ -1408,8 +1408,8 @@ function getRoundOperationAvatarLabel(value: string, role: RoundOperationAvatarR
 }
 
 function getRoundOperationAvatarSymbol(role: RoundOperationAvatarRole) {
-  if (role === "student") return "◈";
-  if (role === "sp") return "◉";
+  if (role === "student") return "👤";
+  if (role === "sp") return "◆";
   return "✦";
 }
 
@@ -1425,7 +1425,33 @@ function RoundOperationAvatar({
   const symbol = getRoundOperationAvatarSymbol(role);
 
   return (
-    <span className={`cfsp-hologram-avatar is-${role}`} aria-hidden="true" title={label}>
+    <span
+      className={`cfsp-hologram-avatar is-${role}`}
+      aria-hidden="true"
+      title={label}
+      style={{
+        width: role === "operations" ? "34px" : "32px",
+        height: role === "operations" ? "34px" : "32px",
+        borderRadius: "999px",
+        display: "inline-grid",
+        placeItems: "center",
+        position: "relative",
+        isolation: "isolate",
+        color: role === "sp" ? "#f0f9ff" : "#ecfeff",
+        background:
+          role === "sp"
+            ? "radial-gradient(circle at 35% 25%, rgba(216, 180, 254, 0.92), rgba(124, 58, 237, 0.58) 46%, rgba(15, 23, 42, 0.95) 100%)"
+            : "radial-gradient(circle at 35% 25%, rgba(153, 246, 228, 0.96), rgba(20, 184, 166, 0.62) 46%, rgba(6, 31, 45, 0.95) 100%)",
+        border: role === "sp" ? "1px solid rgba(216, 180, 254, 0.72)" : "1px solid rgba(94, 234, 212, 0.72)",
+        boxShadow:
+          role === "sp"
+            ? "0 0 18px rgba(168, 85, 247, 0.34), inset 0 0 12px rgba(255,255,255,0.22)"
+            : "0 0 18px rgba(45, 212, 191, 0.34), inset 0 0 12px rgba(255,255,255,0.22)",
+        animation: "cfspMatrixAvatarFloat 3.6s ease-in-out infinite",
+        overflow: "hidden",
+        flex: "0 0 auto",
+      }}
+    >
       <span className="cfsp-hologram-avatar-icon" aria-hidden="true">{symbol}</span>
       <span className="cfsp-hologram-avatar-text">{initials}</span>
     </span>
@@ -3666,6 +3692,52 @@ function isAssignedLearnerRoomLabel(label: unknown) {
     normalized !== UNASSIGNED_LEARNER_ROOM_LABEL.toLowerCase() &&
     normalized !== "overflow / standby"
   );
+}
+
+function getResolvedRoundLearnerLabels(args: {
+  learnerRoster: string[];
+  roomCapacity: number;
+  roundIndex: number;
+  slotIndex: number;
+  roomSlotCount: number;
+  activeCaseCount: number;
+  isMultiCaseMode: boolean;
+  isVirtualEvent: boolean;
+}) {
+  const roster = normalizeLearnerNames(args.learnerRoster);
+  const safeRoomCapacity = Math.max(args.roomCapacity, 1);
+  const safeRoomSlotCount = Math.max(args.roomSlotCount, 1);
+
+  if (!roster.length) return [] as string[];
+
+  if (args.isMultiCaseMode && args.activeCaseCount > 1) {
+    const learnerGroups: Array<{ labels: string[] }> = [];
+    for (let index = 0; index < roster.length; index += safeRoomCapacity) {
+      learnerGroups.push({ labels: roster.slice(index, index + safeRoomCapacity) });
+    }
+
+    const activeRoomCount = Math.min(Math.max(args.activeCaseCount, 1), safeRoomSlotCount);
+    const groupCount = learnerGroups.length;
+    if (!activeRoomCount || !groupCount || args.slotIndex >= activeRoomCount) return [];
+
+    const rotationIndex = args.roundIndex % Math.max(args.activeCaseCount, groupCount, 1);
+    const effectiveSlotIndex = args.isVirtualEvent ? args.slotIndex : args.slotIndex;
+    let groupIndex: number | null = null;
+    if (groupCount >= activeRoomCount) {
+      groupIndex = (rotationIndex + effectiveSlotIndex) % groupCount;
+    } else {
+      const candidateGroup = args.isVirtualEvent
+        ? (rotationIndex + effectiveSlotIndex) % activeRoomCount
+        : ((effectiveSlotIndex - rotationIndex) % activeRoomCount + activeRoomCount) % activeRoomCount;
+      groupIndex = candidateGroup < groupCount ? candidateGroup : null;
+    }
+
+    return groupIndex === null ? [] : learnerGroups[groupIndex]?.labels || [];
+  }
+
+  const firstLearnerIndex = args.roundIndex * safeRoomSlotCount * safeRoomCapacity + args.slotIndex * safeRoomCapacity;
+  return Array.from({ length: safeRoomCapacity }, (_, learnerOffset) => roster[firstLearnerIndex + learnerOffset] || "")
+    .filter(Boolean);
 }
 
 function normalizeScheduleBuilderDayBlocks(value: unknown) {
@@ -8064,6 +8136,13 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     () => scheduleBuilderDraftRoomCapacity,
     [scheduleBuilderDraftRoomCapacity]
   );
+  const resolvedScheduleMatrixCaseCount = useMemo(() => {
+    if (!isMetadataYes(trainingMetadata.case_rotation_required)) return 0;
+    const explicitCaseCount = parsePositiveInteger(trainingMetadata.case_count, 0);
+    const parsedCaseCount = parseCaseFileEntries(trainingMetadata.case_manager_cases || trainingMetadata.case_files).filter((entry) => entry.status !== "inactive").length;
+    return Math.max(explicitCaseCount, parsedCaseCount);
+  }, [trainingMetadata.case_count, trainingMetadata.case_files, trainingMetadata.case_manager_cases, trainingMetadata.case_rotation_required]);
+  const isScheduleMatrixVirtual = selectedModalityLabel === "Virtual";
   const currentLiveReferenceRoundIndex = useMemo(
     () =>
       currentLiveReferenceRound
@@ -8116,17 +8195,17 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
         })
       : [];
 
-    const rowCount = Math.max(displayRows.length, 1);
-    const learnersPerRow = scheduleBuilderLearnerNames.length ? scheduleBuilderRoomCapacity : 1;
-    const learnersPerRound = rowCount * Math.max(learnersPerRow, 1);
-    const firstLearnerIndex = Math.max(currentLiveReferenceRoundIndex, 0) * learnersPerRound;
-
     return displayRows.map(({ roomName, slotIndex }) => {
-      const learnerLabels = Array.from({ length: Math.max(learnersPerRow, 1) }, (_, learnerOffset) => {
-        const learnerIndex = firstLearnerIndex + slotIndex * Math.max(learnersPerRow, 1) + learnerOffset;
-        if (scheduleBuilderLearnerNames[learnerIndex]) return scheduleBuilderLearnerNames[learnerIndex];
-        return "";
-      }).filter(Boolean);
+      const learnerLabels = getResolvedRoundLearnerLabels({
+        learnerRoster: scheduleBuilderLearnerNames,
+        roomCapacity: scheduleBuilderRoomCapacity,
+        roundIndex: Math.max(currentLiveReferenceRoundIndex, 0),
+        slotIndex,
+        roomSlotCount: Math.max(displayRows.length, 1),
+        activeCaseCount: resolvedScheduleMatrixCaseCount,
+        isMultiCaseMode: resolvedScheduleMatrixCaseCount > 1,
+        isVirtualEvent: isScheduleMatrixVirtual,
+      });
       return { roomName, learnerLabels };
     });
   }, [
@@ -8134,6 +8213,8 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     currentLiveReferenceRoundIndex,
     currentLiveReferenceRoomSlotEntries,
     currentLiveReferenceSessions,
+    isScheduleMatrixVirtual,
+    resolvedScheduleMatrixCaseCount,
     roomNamingContext,
     scheduleBuilderLearnerNames,
     scheduleBuilderRoomCapacity,
@@ -8222,11 +8303,6 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
             slotIndex: 0,
           },
         ];
-    const rowCount = Math.max(displayRows.length, 1);
-    const learnersPerRow = scheduleBuilderLearnerNames.length ? scheduleBuilderRoomCapacity : 1;
-    const learnersPerRound = rowCount * Math.max(learnersPerRow, 1);
-    const firstLearnerIndex = activeSelectedRotationRoundIndex * learnersPerRound;
-
       const roundAdjustments = activeScheduleRoomAdjustments.get(activeSelectedRotationRoundIndex + 1) || [];
       return displayRows.map(({ session, sourceIndex, slotIndex }, index) => {
         const slotOverride = roundAdjustments.find((slot: ScheduleRoomAdjustmentSlot) => slot.slotIndex === slotIndex) || null;
@@ -8244,11 +8320,16 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
           : null;
         const assignment = assignmentFromOverride || (sourceIndex >= 0 ? confirmedAssignments[sourceIndex] || null : null);
         const sp = assignment?.sp_id ? spsById.get(assignment.sp_id) || null : null;
-        const generatedLearnerLabels = Array.from({ length: Math.max(learnersPerRow, 1) }, (_, learnerOffset) => {
-          const learnerIndex = firstLearnerIndex + slotIndex * Math.max(learnersPerRow, 1) + learnerOffset;
-          if (scheduleBuilderLearnerNames[learnerIndex]) return scheduleBuilderLearnerNames[learnerIndex];
-          return "";
-        }).filter(Boolean);
+        const generatedLearnerLabels = getResolvedRoundLearnerLabels({
+          learnerRoster: scheduleBuilderLearnerNames,
+          roomCapacity: scheduleBuilderRoomCapacity,
+          roundIndex: activeSelectedRotationRoundIndex,
+          slotIndex,
+          roomSlotCount: Math.max(displayRows.length, 1),
+          activeCaseCount: resolvedScheduleMatrixCaseCount,
+          isMultiCaseMode: resolvedScheduleMatrixCaseCount > 1,
+          isVirtualEvent: isScheduleMatrixVirtual,
+        });
         const learnerLabels = slotOverride?.learnerLabels?.length
           ? normalizeLearnerNames(slotOverride.learnerLabels)
           : generatedLearnerLabels;
@@ -8280,6 +8361,8 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     event?.id,
     event?.location,
     effectiveLearnerCount,
+    isScheduleMatrixVirtual,
+    resolvedScheduleMatrixCaseCount,
     scheduleBuilderLearnerNames,
     scheduleBuilderRoomCapacity,
     activeScheduleRoomAdjustments,
@@ -8296,13 +8379,15 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
   ]);
   const selectedRoundLearnerCount = useMemo(() => {
     if (!selectedRotationRound) return null;
+    const resolvedLearnerCount = selectedRoundScheduleRows.reduce((total, row) => total + row.learnerLabels.length, 0);
+    if (resolvedLearnerCount > 0) return resolvedLearnerCount;
     if (effectiveLearnerCount <= 0) return null;
     const roomCapacity = selectedRoundRoomCount || 0;
     if (roomCapacity <= 0) return null;
     const remaining = effectiveLearnerCount - activeSelectedRotationRoundIndex * roomCapacity;
     if (remaining <= 0) return 0;
     return Math.min(roomCapacity, remaining);
-  }, [activeSelectedRotationRoundIndex, effectiveLearnerCount, selectedRotationRound, selectedRoundRoomCount]);
+  }, [activeSelectedRotationRoundIndex, effectiveLearnerCount, selectedRotationRound, selectedRoundRoomCount, selectedRoundScheduleRows]);
   const selectedRoundEmptySlots = useMemo(() => {
     if (!selectedRotationRound) return null;
     if (selectedRoundLearnerCount === null) return null;
@@ -8605,10 +8690,6 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
         rowsByRoomName.set(asText(row.roomName).toLowerCase(), row);
       });
 
-      const learnersPerRow = scheduleBuilderLearnerNames.length ? scheduleBuilderRoomCapacity : 1;
-      const learnersPerRound = Math.max(roomSlotEntries.length, 1) * Math.max(learnersPerRow, 1);
-      const firstLearnerIndex = activeSelectedRotationRoundIndex * learnersPerRound;
-
       return roomSlotEntries.map((entry, index) => {
         const roomNumber = getRoomDisplayNumber(entry.roomName);
         const existingRow =
@@ -8622,11 +8703,16 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
         const sp = assignment?.sp_id ? spsById.get(assignment.sp_id) || null : null;
         const learnerLabels = existingRow?.learnerLabels.length
           ? existingRow.learnerLabels
-          : Array.from({ length: Math.max(learnersPerRow, 1) }, (_, learnerOffset) => {
-              const learnerIndex = firstLearnerIndex + index * Math.max(learnersPerRow, 1) + learnerOffset;
-              if (scheduleBuilderLearnerNames[learnerIndex]) return scheduleBuilderLearnerNames[learnerIndex];
-              return "";
-            }).filter(Boolean);
+          : getResolvedRoundLearnerLabels({
+              learnerRoster: scheduleBuilderLearnerNames,
+              roomCapacity: scheduleBuilderRoomCapacity,
+              roundIndex: activeSelectedRotationRoundIndex,
+              slotIndex: index,
+              roomSlotCount: Math.max(roomSlotEntries.length, 1),
+              activeCaseCount: resolvedScheduleMatrixCaseCount,
+              isMultiCaseMode: resolvedScheduleMatrixCaseCount > 1,
+              isVirtualEvent: isScheduleMatrixVirtual,
+            });
         const hasRoomIdentity = roomNumber !== null || Boolean(entry.roomName);
         const rowTimingExists = Boolean(
           asText(selectedRotationRound.start_time) ||
@@ -8674,6 +8760,8 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     [
       activeSelectedRotationRoundIndex,
       event?.location,
+      isScheduleMatrixVirtual,
+      resolvedScheduleMatrixCaseCount,
       selectedRoundCoverageShortage,
       scheduleBuilderLearnerNames,
       scheduleBuilderRoomCapacity,
@@ -9324,9 +9412,11 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
           isCurrentRotationRoom: Boolean(currentLiveRoomDisplayEntries.length && index < currentLiveRoomDisplayEntries.length),
           issueNote: boardRow?.issueNote || "",
           delayMinutes: boardRow?.delayMinutes || 0,
-          learnerLabel: isAssignedLearnerRoomLabel(boardRow?.learnerLabel)
-            ? asText(boardRow?.learnerLabel)
-            : getLearnerRoomAssignmentLabel(scheduleRow?.learnerLabels || []),
+          learnerLabel: scheduleRow?.learnerLabels?.length
+            ? getLearnerRoomAssignmentLabel(scheduleRow.learnerLabels)
+            : isAssignedLearnerRoomLabel(boardRow?.learnerLabel)
+              ? asText(boardRow?.learnerLabel)
+              : getLearnerRoomAssignmentLabel([]),
           encounterLabel: boardRow?.encounterLabel || "Case not assigned",
           standbyAssignment,
           standbySp,
@@ -11785,7 +11875,7 @@ Cory`;
         : facultyTrainingDateEmailRecipientFingerprint.length
           ? "Ready to draft"
           : facultyReadinessComplete
-            ? "Add faculty email"
+            ? "Faculty email needed"
             : "Add faculty contact";
   const communicationCards = [
     {
@@ -11902,7 +11992,7 @@ Cory`;
       title: "Faculty Training Date Email",
       description: "Draft a scheduling email to faculty with date/time, location, and expectations.",
       status: facultyTrainingDateEmailCardStatus,
-      statusDetail: facultyTrainingDateEmailCardStatus === "Add faculty email"
+      statusDetail: facultyTrainingDateEmailCardStatus === "Faculty email needed"
           ? "Faculty/contact exists. Add an email address in Faculty or Settings before drafting."
           : facultyTrainingDateEmailCardStatus === "Add faculty contact"
             ? "Add faculty or contact information in Faculty or Settings before drafting."
@@ -11912,10 +12002,21 @@ Cory`;
             ? "Faculty draft logged for this recipient set."
             : "Faculty email marked sent.",
       ready: facultyTrainingDateEmailRecipientFingerprint.length > 0 || !facultyTrainingDateEmailRequired,
+      actionEnabled: true,
+      actionLabel: facultyTrainingDateEmailRecipientFingerprint.length || !facultyTrainingDateEmailRequired
+        ? "Draft Email"
+        : "Add/Edit Faculty Email",
       href: "javascript:void(0)",
       onClick: async () => {
         if (!facultyTrainingDateEmailRequired) {
           setEventSaveError("Faculty-led training date email is not required for this event.");
+          return;
+        }
+        if (!facultyTrainingDateEmailRecipientFingerprint.length) {
+          setSelectedCommandTool("faculty");
+          setContactPanelExpanded(true);
+          setEventSaveError("");
+          queueCommandContentScroll();
           return;
         }
         await handleDraftFacultyTrainingAvailabilityRequest();
@@ -21834,6 +21935,37 @@ Cory`;
                         0%, 100% { transform: translateY(0px); }
                         50% { transform: translateY(-1.2px); }
                       }
+                      @keyframes cfspMatrixAvatarFloat {
+                        0%, 100% { transform: translateY(0) scale(1); filter: saturate(1); }
+                        45% { transform: translateY(-2px) scale(1.035); filter: saturate(1.2); }
+                        70% { transform: translateY(1px) scale(0.99); }
+                      }
+                      .cfsp-hologram-avatar::before {
+                        content: "";
+                        position: absolute;
+                        inset: 3px 6px 13px;
+                        border-radius: 999px 999px 60% 60%;
+                        background: rgba(255,255,255,0.24);
+                        filter: blur(0.3px);
+                        z-index: -1;
+                      }
+                      .cfsp-hologram-avatar-icon {
+                        position: absolute;
+                        inset: 3px 0 auto;
+                        text-align: center;
+                        font-size: 9px;
+                        line-height: 1;
+                        opacity: 0.86;
+                      }
+                      .cfsp-hologram-avatar-text {
+                        position: relative;
+                        font-size: 10px;
+                        line-height: 1;
+                        font-weight: 950;
+                        letter-spacing: 0.03em;
+                        text-shadow: 0 0 8px rgba(255,255,255,0.45);
+                        transform: translateY(4px);
+                      }
                       .cfsp-command-cabinet-shell::after {
                         content: "";
                         position: absolute;
@@ -23428,7 +23560,7 @@ Cory`;
                             <div>
                               <div style={{ ...statLabel, color: "rgba(186, 230, 253, 0.88)" }}>Simulation Lab Occupancy</div>
                               <div style={{ marginTop: "4px", color: "#e6fffb", fontSize: "18px", fontWeight: 950 }}>
-                                Hallway command map
+                                Simulation Lab Occupancy Map
                               </div>
                               <div style={{ marginTop: "3px", color: "rgba(226, 250, 247, 0.72)", fontSize: "11px", fontWeight: 750 }}>
                                 Live attendance blueprint, learner arrival rail, room status, and current block in one board.
@@ -23526,11 +23658,13 @@ Cory`;
                                               <RoundOperationAvatar key={`central-lab-learner-${room.key}-${learnerIndex}`} name={learnerName} role="student" />
                                             ))
                                           ) : (
-                                            <RoundOperationAvatar name="Learner TBD" role="student" />
+                                            <span style={{ color: "rgba(226, 250, 247, 0.68)", fontSize: "10px", fontWeight: 850 }}>
+                                              No learner assigned
+                                            </span>
                                           )}
                                         </div>
                                         <div style={{ color: "rgba(226, 250, 247, 0.7)", fontSize: "10px", fontWeight: 750, lineHeight: 1.35 }}>
-                                          SP: {room.spName || "TBD"} · Learner: {learnerNames.length ? learnerNames.join(", ") : "TBD"}
+                                          SP: {room.spName || "TBD"} · Learner: {learnerNames.length ? learnerNames.join(", ") : "No learner assigned"}
                                         </div>
                                       </div>
                                     );
@@ -25518,6 +25652,7 @@ Cory`;
                             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: "8px" }}>
                               {communicationCards.map((card) => {
                                 const isReady = card.ready;
+                                const actionEnabled = card.actionEnabled ?? isReady;
                                 return (
                                   <div
                                     key={`central-communication-card-${card.key}`}
@@ -25544,10 +25679,10 @@ Cory`;
                                       onClick={() => {
                                         void card.onClick();
                                       }}
-                                      disabled={!isReady}
-                                      style={{ ...buttonStyle, padding: "6px 9px", justifySelf: "start", fontSize: "11px", opacity: isReady ? 1 : 0.62 }}
+                                      disabled={!actionEnabled}
+                                      style={{ ...buttonStyle, padding: "6px 9px", justifySelf: "start", fontSize: "11px", opacity: actionEnabled ? 1 : 0.62 }}
                                     >
-                                      Draft Email
+                                      {card.actionLabel || "Draft Email"}
                                     </button>
                                   </div>
                                 );
