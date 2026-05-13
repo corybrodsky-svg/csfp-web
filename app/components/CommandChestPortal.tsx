@@ -20,30 +20,229 @@ function normalizeText(value: string) {
   return value.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
-function findByText(patterns: string[]) {
-  const nodes = Array.from(
-    document.querySelectorAll("a, button, h1, h2, h3, summary, section, article, div")
-  );
+type TextFindOptions = {
+  selector?: string;
+  requireAll?: string[];
+};
 
-  return nodes.find((node) => {
-    if (!(node instanceof HTMLElement)) return false;
-    if (node.closest(".cfsp-holo-command-center")) return false;
-
-    const text = normalizeText(node.textContent || "");
-    return patterns.some((pattern) => text.includes(normalizeText(pattern)));
-  }) as HTMLElement | undefined;
+function isHTMLElement(node: Element | null | undefined): node is HTMLElement {
+  return node instanceof HTMLElement;
 }
 
-function scrollToTarget(id: string, fallbackPatterns: string[]) {
-  const direct = document.getElementById(id);
+function isCommandCenterNode(node: HTMLElement) {
+  return Boolean(
+    node.closest(".cfsp-holo-command-center") ||
+      node.closest(".cfsp-command-center-field") ||
+      node.closest(".cfsp-core-wrap") ||
+      node.closest("[data-cfsp-command-orb='true']")
+  );
+}
 
-  if (direct) {
-    direct.scrollIntoView({ behavior: "smooth", block: "start" });
-    return;
+function findByText(patterns: string[], options: TextFindOptions = {}) {
+  const selector =
+    options.selector ||
+    "h1, h2, h3, h4, summary, section, article, div, button, a";
+
+  const wantedPatterns = patterns.map(normalizeText).filter(Boolean);
+  const requiredPatterns = (options.requireAll || []).map(normalizeText).filter(Boolean);
+
+  const nodes = Array.from(document.querySelectorAll(selector))
+    .filter(isHTMLElement)
+    .filter((node) => !isCommandCenterNode(node));
+
+  const matches = nodes.filter((node) => {
+    const text = normalizeText(node.textContent || "");
+
+    const matchesWanted =
+      wantedPatterns.length === 0 ||
+      wantedPatterns.some((pattern) => text.includes(pattern));
+
+    const matchesRequired = requiredPatterns.every((pattern) => text.includes(pattern));
+
+    return matchesWanted && matchesRequired;
+  });
+
+  matches.sort((a, b) => {
+    const aText = normalizeText(a.textContent || "");
+    const bText = normalizeText(b.textContent || "");
+
+    const aHeading = /^H[1-4]$/.test(a.tagName) || a.tagName === "SUMMARY" ? 0 : 1;
+    const bHeading = /^H[1-4]$/.test(b.tagName) || b.tagName === "SUMMARY" ? 0 : 1;
+
+    const aExact = wantedPatterns.some((pattern) => aText === pattern) ? 0 : 1;
+    const bExact = wantedPatterns.some((pattern) => bText === pattern) ? 0 : 1;
+
+    return aExact - bExact || aHeading - bHeading || aText.length - bText.length;
+  });
+
+  return matches[0];
+}
+
+function scrollElement(element: HTMLElement | null | undefined) {
+  if (!element) return false;
+
+  element.scrollIntoView({ behavior: "smooth", block: "start" });
+  return true;
+}
+
+function scrollToSelectors(selectors: string[]) {
+  for (const selector of selectors) {
+    const target = document.querySelector(selector);
+
+    if (target instanceof HTMLElement) {
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+      return true;
+    }
   }
 
-  findByText(fallbackPatterns)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  return false;
 }
+
+function scrollToMaterialsCabinet() {
+  return (
+    scrollToSelectors([
+      "#simulation-command-file-cabinet",
+      "[data-command-chest-target='materials']",
+      "[data-section='file-cabinet']",
+    ]) ||
+    scrollElement(
+      findByText(["simulation command file cabinet"], {
+        selector: "h1, h2, h3, h4, summary, section, article, div",
+      })
+    )
+  );
+}
+
+function scrollToTrainingPrep() {
+  return (
+    scrollToSelectors([
+      "#training-prep",
+      "#training-and-prep",
+      "#training-center",
+      "[data-command-chest-target='training']",
+      "[data-section='training']",
+    ]) ||
+    scrollElement(
+      findByText(["training & prep"], {
+        selector: "h1, h2, h3, h4, summary",
+      })
+    ) ||
+    scrollElement(
+      findByText(["training overview"], {
+        selector: "h1, h2, h3, h4, section, article, div",
+      })
+    ) ||
+    scrollElement(
+      findByText(["training completed"], {
+        selector: "section, article, div",
+        requireAll: ["training data embedded"],
+      })
+    )
+  );
+}
+
+function scrollToCommunicationHub() {
+  return (
+    scrollToSelectors([
+      "#communication-center",
+      "#communication-hub",
+      "#communication",
+      "[data-command-chest-target='communication']",
+      "[data-section='communication']",
+    ]) ||
+    scrollElement(
+      findByText(["communication"], {
+        selector: "h1, h2, h3, h4, summary",
+      })
+    ) ||
+    scrollElement(
+      findByText(["draft event emails"], {
+        selector: "section, article, div",
+        requireAll: ["communication"],
+      })
+    )
+  );
+}
+
+function scrollToStaffing() {
+  return (
+    scrollToSelectors([
+      "#selected-sps",
+      "#coverage-actions",
+      "[data-command-chest-target='staffing']",
+      "[data-section='staffing']",
+    ]) ||
+    scrollElement(
+      findByText(["selected sps"], {
+        selector: "h1, h2, h3, h4, section, article, div",
+      })
+    ) ||
+    scrollElement(
+      findByText(["coverage actions"], {
+        selector: "h1, h2, h3, h4, summary, section, article, div",
+      })
+    )
+  );
+}
+
+function scrollToScheduleFile() {
+  const card = document.querySelector(
+    "[data-cfsp-schedule-file-card='true'], [data-cfsp-schedule-file-container='true']"
+  );
+
+  if (card instanceof HTMLElement) {
+    card.scrollIntoView({ behavior: "smooth", block: "start" });
+    return true;
+  }
+
+  const link = document.querySelector("[data-cfsp-schedule-file-link='true']");
+  const linkCard =
+    link instanceof HTMLElement
+      ? link.closest("[data-cfsp-schedule-file-card='true'], [data-cfsp-schedule-file-container='true']")
+      : null;
+
+  if (linkCard instanceof HTMLElement) {
+    linkCard.scrollIntoView({ behavior: "smooth", block: "start" });
+    return true;
+  }
+
+  return (
+    scrollElement(
+      findByText(["completed schedule file"], {
+        selector: "h1, h2, h3, h4, section, article, div",
+      })
+    ) ||
+    scrollElement(
+      findByText(["schedule is complete"], {
+        selector: "section, article, div",
+        requireAll: ["file cabinet"],
+      })
+    ) ||
+    scrollToMaterialsCabinet()
+  );
+}
+
+function scrollToRecording() {
+  return (
+    scrollToSelectors([
+      "#recording",
+      "#recording-status",
+      "[data-command-chest-target='recording']",
+      "[data-section='recording']",
+    ]) ||
+    scrollElement(
+      findByText(["recording guide"], {
+        selector: "h1, h2, h3, h4, section, article, div",
+      })
+    ) ||
+    scrollElement(
+      findByText(["recording"], {
+        selector: "h1, h2, h3, h4, summary, section, article, div",
+      })
+    )
+  );
+}
+
 
 export default function CommandChestPortal({
   eventId,
@@ -115,18 +314,7 @@ export default function CommandChestPortal({
 
   const openSchedule = () => {
     if (scheduleCompleted) {
-      const existingOpenSchedule = findByText(["open schedule"]);
-
-      if (existingOpenSchedule) {
-        existingOpenSchedule.click();
-        return;
-      }
-
-      scrollToTarget("simulation-command-file-cabinet", [
-        "completed schedule file",
-        "schedule is complete",
-        "simulation command file cabinet",
-      ]);
+      scrollToScheduleFile();
       return;
     }
 
@@ -142,45 +330,25 @@ export default function CommandChestPortal({
       key: "materials",
       label: "Materials",
       glyph: "▣",
-      onClick: () =>
-        scrollToTarget("simulation-command-file-cabinet", [
-          "simulation command file cabinet",
-          "case file",
-          "doorsign",
-        ]),
+      onClick: scrollToMaterialsCabinet,
     },
     {
       key: "training",
       label: "Training",
       glyph: "◈",
-      onClick: () =>
-        scrollToTarget("training-center", [
-          "training attendance",
-          "training center",
-          "training files",
-        ]),
+      onClick: scrollToTrainingPrep,
     },
     {
       key: "communication",
       label: "Comms",
       glyph: "●",
-      onClick: () =>
-        scrollToTarget("communication-center", [
-          "draft event emails",
-          "sp hiring poll email",
-          "communication",
-        ]),
+      onClick: scrollToCommunicationHub,
     },
     {
       key: "staffing",
       label: "Staffing",
       glyph: "✦",
-      onClick: () =>
-        scrollToTarget("coverage-actions", [
-          "coverage actions",
-          "staffing command center",
-          "selected sps",
-        ]),
+      onClick: scrollToStaffing,
     },
     {
       key: "schedule",
@@ -192,12 +360,7 @@ export default function CommandChestPortal({
       key: "recording",
       label: "Recording",
       glyph: "▱",
-      onClick: () =>
-        scrollToTarget("recording-status", [
-          "recording guide",
-          "recording status",
-          "recording",
-        ]),
+      onClick: scrollToRecording,
     },
   ];
 
