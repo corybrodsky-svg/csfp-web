@@ -190,7 +190,7 @@ type AssignmentFilterStatus = "all" | "invited" | "confirmed" | "backup" | "decl
 type SuggestedAssignmentFilter = "all" | "available" | "confirmed" | "needs_outreach" | "backup";
 type PollLocationFilter = "any" | "elkins_park" | "center_city" | "virtual";
 type CommandCenterMode = "planning" | "live";
-type RotationCompanionView = "overview" | "coverage" | "learner" | "announcements" | "student" | "sp" | "operations";
+type RotationCompanionView = "overview" | "coverage" | "learner" | "live" | "announcements" | "student" | "sp" | "operations";
 type LiveRoomStatusValue = "ready" | "in_session" | "delayed" | "empty" | "sp_missing" | "complete";
 type RoomDisplayEntry = {
   roomName: string;
@@ -22583,6 +22583,8 @@ Cory`;
                         ? "Coverage"
                         : roundCompanionView === "learner"
                         ? "Learner Flow"
+                        : roundCompanionView === "live"
+                        ? "Live Preview"
                         : roundCompanionView === "announcements"
                         ? "Announcements"
                         : roundCompanionView === "student"
