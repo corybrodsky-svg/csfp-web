@@ -6417,8 +6417,8 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
   useEffect(() => {
     if (typeof window === "undefined" || !id) return;
 
-    const savedState = window.localStorage.getItem(getRotationCommandSurfaceStorageKey(id));
-    setRotationCommandSurfaceOpen(savedState === "open");
+    window.localStorage.setItem(getRotationCommandSurfaceStorageKey(id), "open");
+    setRotationCommandSurfaceOpen(true);
   }, [id]);
   useEffect(() => {
     if (typeof window === "undefined" || !id) return;
@@ -13899,10 +13899,10 @@ Cory`;
     );
   }
 
-  function handleRotationCommandSurfaceOpenChange(nextOpen: boolean) {
-    setRotationCommandSurfaceOpen(nextOpen);
+  function handleRotationCommandSurfaceOpenChange() {
+    setRotationCommandSurfaceOpen(true);
     if (typeof window !== "undefined") {
-      window.localStorage.setItem(getRotationCommandSurfaceStorageKey(id), nextOpen ? "open" : "closed");
+      window.localStorage.setItem(getRotationCommandSurfaceStorageKey(id), "open");
     }
   }
 
@@ -21688,7 +21688,7 @@ Cory`;
 	                        <button
 	                          type="button"
 	                          onClick={() => {
-	                            handleRotationCommandSurfaceOpenChange(true);
+	                            handleRotationCommandSurfaceOpenChange();
 	                            window.requestAnimationFrame(() => {
 	                              document.getElementById("round-operations")?.scrollIntoView({ behavior: "smooth", block: "start" });
 	                            });
@@ -22534,10 +22534,11 @@ Cory`;
                   <button
                     type="button"
                     aria-expanded={rotationCommandSurfaceOpen}
-                    onClick={() => handleRotationCommandSurfaceOpenChange(!rotationCommandSurfaceOpen)}
+                    onClick={() => handleRotationCommandSurfaceOpenChange()}
                     className="cfsp-button-tactical"
                     style={{
                       ...buttonStyle,
+                      display: "none",
                       padding: "7px 10px",
                       background: rotationCommandSurfaceOpen
                         ? isPlanningVisualMode
@@ -22602,7 +22603,7 @@ Cory`;
                   <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
                     <button
                       type="button"
-                      onClick={() => handleRotationCommandSurfaceOpenChange(false)}
+                      onClick={() => handleRotationCommandSurfaceOpenChange()}
                       className="cfsp-button-tactical"
                       style={{
                         ...staffingSecondaryButtonStyle,
@@ -22757,7 +22758,7 @@ Cory`;
                       minHeight: "100%",
                     }}
                   >
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
+                    <div style={{ display: "grid", gap: "10px" }}>
                       <div>
                         <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>
                           Central Operations Window
@@ -22766,7 +22767,17 @@ Cory`;
                           {selectedRotationRound ? `Round ${activeSelectedRotationRoundIndex + 1}` : "No round selected"}
                         </div>
                       </div>
-                      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+                          gap: "8px",
+                          borderRadius: "16px",
+                          border: isPlanningVisualMode ? "1px solid rgba(20, 91, 150, 0.18)" : "1px solid rgba(126, 231, 219, 0.2)",
+                          background: isPlanningVisualMode ? "rgba(255,255,255,0.68)" : "rgba(5, 18, 31, 0.48)",
+                          padding: "7px",
+                        }}
+                      >
                         {[
                           { value: "commandCenter" as const, label: "Command Center", status: selectedCommandTool === "primary" ? "Operational board" : "Tool selected" },
                           { value: "spFinder" as const, label: "SP Finder", status: `${confirmedCount} confirmed` },
@@ -22786,14 +22797,14 @@ Cory`;
                               aria-pressed={selected}
                               style={{
                                 ...buttonStyle,
-                                padding: "8px 11px",
+                                padding: "10px 12px",
                                 borderRadius: "12px",
                                 display: "grid",
-                                gap: "2px",
-                                minWidth: "128px",
-                                textAlign: "left",
+                                gap: "3px",
+                                minWidth: 0,
+                                textAlign: "center",
                                 background: selected
-                                  ? isPlanningVisualMode ? "rgba(20, 91, 150, 0.12)" : "rgba(126, 231, 219, 0.18)"
+                                  ? isPlanningVisualMode ? "linear-gradient(135deg, rgba(232,244,255,0.98), rgba(209,250,229,0.76))" : "linear-gradient(135deg, rgba(20, 91, 150, 0.32), rgba(25, 138, 112, 0.24))"
                                   : isPlanningVisualMode ? "rgba(255,255,255,0.82)" : "rgba(15, 23, 42, 0.58)",
                                 color: selected
                                   ? isPlanningVisualMode ? "#145b96" : "#d6f6f2"
@@ -22803,7 +22814,7 @@ Cory`;
                                   : isPlanningVisualMode ? "1px solid rgba(128, 167, 182, 0.18)" : "1px solid rgba(148, 163, 184, 0.16)",
                               }}
                             >
-                              <span style={{ fontSize: "12px", fontWeight: 950 }}>{tool.label}</span>
+                              <span style={{ fontSize: "13px", fontWeight: 950 }}>{tool.label}</span>
                               <span style={{ color: selected ? "inherit" : commandCenterVisual.mutedColor, fontSize: "9px", fontWeight: 800 }}>
                                 {tool.status}
                               </span>
@@ -22867,9 +22878,9 @@ Cory`;
                         border: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.18)" : "1px solid rgba(126, 231, 219, 0.2)",
                         background: isPlanningVisualMode ? "rgba(247, 253, 255, 0.82)" : "rgba(5, 18, 31, 0.48)",
                         padding: "8px",
-                        display: "flex",
+                        display: "grid",
+                        gridTemplateColumns: "repeat(auto-fit, minmax(112px, 1fr))",
                         gap: "6px",
-                        flexWrap: "wrap",
                         alignItems: "center",
                       }}
                     >
@@ -22896,8 +22907,8 @@ Cory`;
                               borderRadius: "11px",
                               display: "grid",
                               gap: "2px",
-                              minWidth: "112px",
-                              textAlign: "left",
+                              minWidth: 0,
+                              textAlign: "center",
                               background: selected
                                 ? isPlanningVisualMode ? "rgba(209, 250, 229, 0.62)" : "rgba(126, 231, 219, 0.18)"
                                 : isPlanningVisualMode ? "rgba(255,255,255,0.72)" : "rgba(15, 23, 42, 0.52)",
@@ -22954,6 +22965,95 @@ Cory`;
                             </div>
                           ))}
                         </div>
+                        <div
+                          style={{
+                            borderRadius: "14px",
+                            border: commandCenterVisual.rowBorder,
+                            background: isPlanningVisualMode ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.05)",
+                            padding: "10px",
+                            display: "grid",
+                            gap: "8px",
+                          }}
+                        >
+                          <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Quick Add SP</div>
+                          <div style={{ display: "grid", gridTemplateColumns: "minmax(130px, 0.8fr) minmax(190px, 1.2fr) auto auto", gap: "6px", alignItems: "center" }}>
+                            <input
+                              value={quickStaffingQuery}
+                              onChange={(event) => setQuickStaffingQuery(event.target.value)}
+                              placeholder="Search SP"
+                              style={{ ...inputStyle, width: "100%", boxSizing: "border-box", fontSize: "11px", padding: "7px 8px" }}
+                            />
+                            <select
+                              value={quickStaffingSpId}
+                              onChange={(event) => setQuickStaffingSpId(event.target.value)}
+                              disabled={saving || quickStaffingOptions.length === 0}
+                              style={{ ...selectStyle, width: "100%", maxWidth: "none", fontSize: "11px", padding: "7px 8px" }}
+                            >
+                              <option value="">{quickStaffingOptions.length === 0 ? "No matching SPs" : "Select SP"}</option>
+                              {quickStaffingOptions.map((sp) => (
+                                <option key={`central-quick-sp-${sp.id}`} value={sp.id}>
+                                  {getFullName(sp)}
+                                </option>
+                              ))}
+                            </select>
+                            <button type="button" onClick={() => void handleQuickStaffingAdd("confirmed")} disabled={saving || !quickStaffingSpId} style={{ ...buttonStyle, padding: "7px 9px", fontSize: "11px", opacity: saving || !quickStaffingSpId ? 0.65 : 1 }}>
+                              Add Primary
+                            </button>
+                            <button type="button" onClick={() => void handleQuickStaffingAdd("backup")} disabled={saving || !quickStaffingSpId} style={{ ...staffingSecondaryButtonStyle, padding: "7px 9px", fontSize: "11px", opacity: saving || !quickStaffingSpId ? 0.65 : 1 }}>
+                              Add Backup
+                            </button>
+                          </div>
+                        </div>
+                        <div style={{ display: "grid", gap: "6px" }}>
+                          <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Assigned SPs</div>
+                          {sortedAssignments.length ? (
+                            sortedAssignments.slice(0, 8).map((assignment) => {
+                              const sp = assignment.sp_id ? spsById.get(assignment.sp_id) : null;
+                              const status = getAssignmentStatus(assignment);
+                              return (
+                                <div
+                                  key={`central-sp-finder-assignment-${assignment.id}`}
+                                  style={{
+                                    borderRadius: "12px",
+                                    border: commandCenterVisual.rowBorder,
+                                    background: isPlanningVisualMode ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.05)",
+                                    padding: "8px 9px",
+                                    display: "flex",
+                                    justifyContent: "space-between",
+                                    gap: "8px",
+                                    flexWrap: "wrap",
+                                    alignItems: "center",
+                                  }}
+                                >
+                                  <div style={{ display: "grid", gap: "3px" }}>
+                                    <div style={{ color: commandCenterVisual.textColor, fontSize: "12px", fontWeight: 900 }}>{getFullName(sp || emptySpRow) || "Assigned SP"}</div>
+                                    <div style={{ color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 800 }}>
+                                      {assignmentStatusLabels[status]} · {assignment.confirmed ? "confirmed" : "not confirmed"}
+                                    </div>
+                                  </div>
+                                  <div style={{ display: "flex", gap: "5px", flexWrap: "wrap" }}>
+                                    <button type="button" onClick={() => void handleStatusChange(assignment, "confirmed")} disabled={saving || status === "confirmed"} style={{ ...staffingSecondaryButtonStyle, padding: "4px 7px", fontSize: "10px", opacity: saving || status === "confirmed" ? 0.55 : 1 }}>
+                                      Primary
+                                    </button>
+                                    <button type="button" onClick={() => void handleStatusChange(assignment, "backup")} disabled={saving || status === "backup"} style={{ ...staffingSecondaryButtonStyle, padding: "4px 7px", fontSize: "10px", opacity: saving || status === "backup" ? 0.55 : 1 }}>
+                                      Backup
+                                    </button>
+                                    <button type="button" onClick={() => void handleRemoveAssignment(assignment)} disabled={saving} style={{ ...dangerButtonStyle, padding: "4px 7px", fontSize: "10px", opacity: saving ? 0.65 : 1 }}>
+                                      Remove
+                                    </button>
+                                    {canDeleteAssignmentHistory ? (
+                                      <button type="button" onClick={() => void handleDeleteAssignmentHistory(assignment)} disabled={saving} style={{ ...dangerButtonStyle, padding: "4px 7px", fontSize: "10px", opacity: saving ? 0.65 : 1 }}>
+                                        Delete
+                                      </button>
+                                    ) : null}
+                                  </div>
+                                </div>
+                              );
+                            })
+                          ) : (
+                            <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 750 }}>No assigned SPs yet.</div>
+                          )}
+                        </div>
                         <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                           <button type="button" onClick={() => setSpFinderMatchMakerOpen(true)} style={{ ...buttonStyle, padding: "7px 10px" }}>
                             Open Match Maker
@@ -23009,6 +23109,15 @@ Cory`;
                           ))}
                         </div>
                         <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                          {[
+                            { kind: "student" as const, label: "Student Schedule" },
+                            { kind: "sp" as const, label: "SP Schedule" },
+                            { kind: "operations" as const, label: "Operations Schedule" },
+                          ].map((scheduleView) => (
+                            <button key={`central-schedule-view-${scheduleView.kind}`} type="button" onClick={() => handleOpenEventScheduleRouteInNewTab(scheduleView.kind, "schedule")} style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px" }}>
+                              {scheduleView.label}
+                            </button>
+                          ))}
                           {scheduleSummaryActions.map((action) =>
                             action.href ? (
                               <Link key={`central-schedule-action-${action.label}`} href={action.href} style={{ ...buttonStyle, padding: "7px 10px", textDecoration: "none", display: "inline-flex", alignItems: "center" }}>
@@ -23058,6 +23167,73 @@ Cory`;
                             </span>
                           ))}
                         </div>
+
+                        <section
+                          style={{
+                            borderRadius: "16px",
+                            border: commandCenterVisual.rowBorder,
+                            background: isPlanningVisualMode ? "rgba(247, 253, 255, 0.74)" : "rgba(4, 15, 26, 0.48)",
+                            padding: "10px",
+                            display: "grid",
+                            gap: "8px",
+                          }}
+                        >
+                          <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                            <div>
+                              <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Live Operations Telemetry</div>
+                              <div style={{ marginTop: "3px", color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 750 }}>
+                                Communication, room occupancy, alerts, and current flow inside the command board.
+                              </div>
+                            </div>
+                            <span style={{ ...commandChipStyle, background: commandCenterVisual.activeSoftBackground, color: commandCenterVisual.activeSoftText }}>
+                              {commandCenterMode === "live" ? "Live mode" : "Planning preview"}
+                            </span>
+                          </div>
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: "8px" }}>
+                            {[
+                              {
+                                label: "Communication",
+                                value: outreachProgressLabel,
+                                detail: staffingEmailWorkflowDetail || "No active communication blockers",
+                              },
+                              {
+                                label: "Lab Occupancy",
+                                value: `${selectedRoundScheduleRows.filter((row) => row.sp || row.learnerLabels.length).length}/${selectedRoundRoomCount} rooms active`,
+                                detail: `${Object.values(liveRoomStates).filter((roomState) => roomState.status && roomState.status !== "empty").length} live room override${Object.values(liveRoomStates).filter((roomState) => roomState.status && roomState.status !== "empty").length === 1 ? "" : "s"}`,
+                              },
+                              {
+                                label: "Live Alerts",
+                                value: `${liveSupportNeeds.length + selectedRoundOperationsFlags.length} signal${liveSupportNeeds.length + selectedRoundOperationsFlags.length === 1 ? "" : "s"}`,
+                                detail: liveSupportNeeds[0]?.label || selectedRoundOperationsFlags[0] || "No active operational alerts",
+                              },
+                              {
+                                label: "Live Flow",
+                                value: planningLivePreviewPrimaryBlock?.label || selectedLiveFlowBlock?.label || "No block",
+                                detail: planningLivePreviewPrimaryBlock
+                                  ? formatMinuteRange(planningLivePreviewPrimaryBlock.startMinutes, planningLivePreviewPrimaryBlock.endMinutes)
+                                  : selectedLiveFlowBlock
+                                    ? formatMinuteRange(selectedLiveFlowBlock.startMinutes, selectedLiveFlowBlock.endMinutes)
+                                    : "Build schedule to preview flow",
+                              },
+                            ].map((item) => (
+                              <div
+                                key={`central-live-telemetry-${item.label}`}
+                                style={{
+                                  borderRadius: "12px",
+                                  border: commandCenterVisual.rowBorder,
+                                  background: isPlanningVisualMode ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.05)",
+                                  padding: "9px",
+                                  display: "grid",
+                                  gap: "4px",
+                                }}
+                              >
+                                <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>{item.label}</div>
+                                <div style={{ color: commandCenterVisual.textColor, fontSize: "13px", fontWeight: 950 }}>{item.value}</div>
+                                <div style={{ color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 750, lineHeight: 1.35 }}>{item.detail}</div>
+                              </div>
+                            ))}
+                          </div>
+                        </section>
 
                         {false && tacticalRoomBoardOpen ? (
                         <section
@@ -24580,8 +24756,8 @@ Cory`;
                               <button type="button" onClick={() => openCaseFilePicker(uploadedCaseFileCount ? { mode: "add" } : { mode: "replace", index: 0 })} style={{ ...buttonStyle, padding: "7px 10px" }}>
                                 Upload Training Materials
                               </button>
-                              <button type="button" disabled style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px", opacity: 0.6 }}>
-                                File Cabinet Open
+                              <button type="button" onClick={() => setSelectedCommandTool("fileCabinet")} style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px" }}>
+                                Open File Cabinet
                               </button>
                             </div>
                             <button type="button" onClick={() => handleTrainingReadinessExpandedChange(true)} style={{ ...buttonStyle, padding: "7px 10px", justifySelf: "start" }}>
@@ -24603,16 +24779,125 @@ Cory`;
                                 </div>
                               ))}
                             </div>
-                            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                              <button type="button" onClick={() => openCaseFilePicker(uploadedCaseFileCount ? { mode: "add" } : { mode: "replace", index: 0 })} style={{ ...buttonStyle, padding: "7px 10px" }}>
-                                Upload Case
-                              </button>
-                              <button type="button" onClick={() => handleOpenEventScheduleRouteInNewTab("operations", "schedule")} style={{ ...buttonStyle, padding: "7px 10px" }}>
-                                Open Schedule
-                              </button>
-                              <button type="button" onClick={() => setSelectedCommandTool("fileCabinet")} style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px" }}>
-                                Open File Cabinet
-                              </button>
+                            <div style={{ display: "grid", gap: "8px" }}>
+                              {[
+                                {
+                                  key: "case-files",
+                                  title: "Case Files",
+                                  detail: uploadedCaseFileCount ? `${uploadedCaseFileCount} uploaded` : "No case file uploaded",
+                                  ready: uploadedCaseFileCount > 0,
+                                  actions: (
+                                    <>
+                                      {caseFileEntries.slice(0, 3).map((caseEntry, caseIndex) => {
+                                        const assetUrls = buildTrainingMaterialAssetUrls({
+                                          eventId: id,
+                                          rawUrl: caseEntry.url,
+                                          storagePath: caseEntry.storagePath,
+                                          fileName: caseEntry.name || `case-${caseIndex + 1}`,
+                                        });
+                                        return (
+                                          <div key={`central-case-file-${caseEntry.id}-${caseIndex}`} style={{ display: "flex", gap: "5px", flexWrap: "wrap", alignItems: "center" }}>
+                                            <span style={{ color: commandCenterVisual.textColor, fontSize: "11px", fontWeight: 850 }}>{caseEntry.name || `Case ${caseIndex + 1}`}</span>
+                                            <button type="button" onClick={() => openCaseFilePreview(caseEntry)} disabled={!caseEntry.url && !caseEntry.storagePath} style={{ ...staffingSecondaryButtonStyle, padding: "4px 7px", fontSize: "10px", opacity: caseEntry.url || caseEntry.storagePath ? 1 : 0.55 }}>
+                                              Preview
+                                            </button>
+                                            {caseEntry.url || caseEntry.storagePath ? (
+                                              <a href={assetUrls.downloadUrl} target="_blank" rel="noreferrer" download={assetUrls.fileName} style={{ ...staffingSecondaryButtonStyle, padding: "4px 7px", fontSize: "10px", textDecoration: "none" }}>
+                                                Download
+                                              </a>
+                                            ) : null}
+                                            <button type="button" onClick={() => openCaseFilePicker({ mode: "replace", index: caseIndex })} disabled={trainingMaterialSaving.case_file} style={{ ...staffingSecondaryButtonStyle, padding: "4px 7px", fontSize: "10px", opacity: trainingMaterialSaving.case_file ? 0.65 : 1 }}>
+                                              Replace
+                                            </button>
+                                            <button type="button" onClick={() => void handleRemoveCaseFile(caseIndex)} disabled={trainingMaterialSaving.case_file || (!caseEntry.url && !caseEntry.storagePath)} style={{ ...dangerButtonStyle, padding: "4px 7px", fontSize: "10px", opacity: trainingMaterialSaving.case_file || (!caseEntry.url && !caseEntry.storagePath) ? 0.55 : 1 }}>
+                                              Remove
+                                            </button>
+                                          </div>
+                                        );
+                                      })}
+                                      <button type="button" onClick={() => openCaseFilePicker({ mode: "add" })} disabled={trainingMaterialSaving.case_file} style={{ ...buttonStyle, padding: "6px 9px", fontSize: "11px", opacity: trainingMaterialSaving.case_file ? 0.65 : 1 }}>
+                                        Add Case
+                                      </button>
+                                    </>
+                                  ),
+                                },
+                                {
+                                  key: "doorsign",
+                                  title: "Doorsign",
+                                  detail: trainingMetadata.doorsign_file_name || getFilenameFromUrl(trainingMetadata.doorsign_url) || "No doorsign uploaded",
+                                  ready: Boolean(trainingMetadata.doorsign_url || trainingMetadata.doorsign_storage_path),
+                                  actions: (
+                                    <>
+                                      <button type="button" onClick={() => openMaterialPreview({ title: "Doorsign", rawUrl: trainingMetadata.doorsign_url, storagePath: trainingMetadata.doorsign_storage_path, fileName: trainingMetadata.doorsign_file_name || "doorsign" })} disabled={!trainingMetadata.doorsign_url && !trainingMetadata.doorsign_storage_path} style={{ ...staffingSecondaryButtonStyle, padding: "4px 7px", fontSize: "10px", opacity: trainingMetadata.doorsign_url || trainingMetadata.doorsign_storage_path ? 1 : 0.55 }}>
+                                        Preview
+                                      </button>
+                                      {(trainingMetadata.doorsign_url || trainingMetadata.doorsign_storage_path) ? (
+                                        <a href={buildTrainingMaterialAssetUrls({ eventId: id, rawUrl: trainingMetadata.doorsign_url, storagePath: trainingMetadata.doorsign_storage_path, fileName: trainingMetadata.doorsign_file_name || "doorsign" }).downloadUrl} target="_blank" rel="noreferrer" style={{ ...staffingSecondaryButtonStyle, padding: "4px 7px", fontSize: "10px", textDecoration: "none" }}>
+                                          Download
+                                        </a>
+                                      ) : null}
+                                      <button type="button" onClick={() => openTrainingMaterialPicker("doorsign")} disabled={trainingMaterialSaving.doorsign} style={{ ...buttonStyle, padding: "4px 7px", fontSize: "10px", opacity: trainingMaterialSaving.doorsign ? 0.65 : 1 }}>
+                                        {trainingMetadata.doorsign_url || trainingMetadata.doorsign_storage_path ? "Replace" : "Upload"}
+                                      </button>
+                                      <button type="button" onClick={() => void handleRemoveTrainingMaterial("doorsign")} disabled={trainingMaterialSaving.doorsign || (!trainingMetadata.doorsign_url && !trainingMetadata.doorsign_storage_path)} style={{ ...dangerButtonStyle, padding: "4px 7px", fontSize: "10px", opacity: trainingMaterialSaving.doorsign || (!trainingMetadata.doorsign_url && !trainingMetadata.doorsign_storage_path) ? 0.55 : 1 }}>
+                                        Remove
+                                      </button>
+                                    </>
+                                  ),
+                                },
+                                {
+                                  key: "supplemental",
+                                  title: "Supplemental Docs",
+                                  detail: trainingMetadata.supplemental_doc_name || getFilenameFromUrl(trainingMetadata.supplemental_doc_url) || "No supplemental docs uploaded",
+                                  ready: Boolean(trainingMetadata.supplemental_doc_url || trainingMetadata.supplemental_doc_storage_path),
+                                  actions: (
+                                    <>
+                                      <button type="button" onClick={() => openMaterialPreview({ title: "Supplemental Doc", rawUrl: trainingMetadata.supplemental_doc_url, storagePath: trainingMetadata.supplemental_doc_storage_path, fileName: trainingMetadata.supplemental_doc_name || "supplemental-doc" })} disabled={!trainingMetadata.supplemental_doc_url && !trainingMetadata.supplemental_doc_storage_path} style={{ ...staffingSecondaryButtonStyle, padding: "4px 7px", fontSize: "10px", opacity: trainingMetadata.supplemental_doc_url || trainingMetadata.supplemental_doc_storage_path ? 1 : 0.55 }}>
+                                        Preview
+                                      </button>
+                                      {(trainingMetadata.supplemental_doc_url || trainingMetadata.supplemental_doc_storage_path) ? (
+                                        <a href={buildTrainingMaterialAssetUrls({ eventId: id, rawUrl: trainingMetadata.supplemental_doc_url, storagePath: trainingMetadata.supplemental_doc_storage_path, fileName: trainingMetadata.supplemental_doc_name || "supplemental-doc" }).downloadUrl} target="_blank" rel="noreferrer" style={{ ...staffingSecondaryButtonStyle, padding: "4px 7px", fontSize: "10px", textDecoration: "none" }}>
+                                          Download
+                                        </a>
+                                      ) : null}
+                                      <button type="button" onClick={() => openTrainingMaterialPicker("supplemental_doc")} disabled={trainingMaterialSaving.supplemental_doc} style={{ ...buttonStyle, padding: "4px 7px", fontSize: "10px", opacity: trainingMaterialSaving.supplemental_doc ? 0.65 : 1 }}>
+                                        {trainingMetadata.supplemental_doc_url || trainingMetadata.supplemental_doc_storage_path ? "Replace" : "Upload"}
+                                      </button>
+                                      <button type="button" onClick={() => void handleRemoveTrainingMaterial("supplemental_doc")} disabled={trainingMaterialSaving.supplemental_doc || (!trainingMetadata.supplemental_doc_url && !trainingMetadata.supplemental_doc_storage_path)} style={{ ...dangerButtonStyle, padding: "4px 7px", fontSize: "10px", opacity: trainingMaterialSaving.supplemental_doc || (!trainingMetadata.supplemental_doc_url && !trainingMetadata.supplemental_doc_storage_path) ? 0.55 : 1 }}>
+                                        Remove
+                                      </button>
+                                    </>
+                                  ),
+                                },
+                                {
+                                  key: "recording",
+                                  title: "Recording Guide",
+                                  detail: recordingGuideUrl ? getFilenameFromUrl(recordingGuideUrl) || eventRecordingStatus.label : eventRecordingStatus.label,
+                                  ready: Boolean(recordingGuideUrl),
+                                  actions: recordingGuideUrl ? (
+                                    <a href={recordingGuideUrl} target="_blank" rel="noreferrer" style={{ ...buttonStyle, padding: "4px 7px", fontSize: "10px", textDecoration: "none" }}>
+                                      Open Recording
+                                    </a>
+                                  ) : (
+                                    <span style={{ color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 750 }}>Add recording link in Advanced.</span>
+                                  ),
+                                },
+                              ].map((resource) => (
+                                <div key={`central-file-resource-${resource.key}`} style={{ borderRadius: "12px", border: commandCenterVisual.rowBorder, background: isPlanningVisualMode ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.05)", padding: "9px", display: "grid", gap: "7px" }}>
+                                  <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap" }}>
+                                    <div>
+                                      <div style={{ color: commandCenterVisual.textColor, fontSize: "12px", fontWeight: 950 }}>{resource.title}</div>
+                                      <div style={{ marginTop: "3px", color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 750 }}>{resource.detail}</div>
+                                    </div>
+                                    <span style={{ ...commandChipStyle, background: resource.ready ? commandCenterVisual.activeSoftBackground : commandCenterVisual.chipBackground, color: resource.ready ? commandCenterVisual.activeSoftText : commandCenterVisual.chipText }}>
+                                      {resource.ready ? "Ready" : "Missing"}
+                                    </span>
+                                  </div>
+                                  <div style={{ display: "flex", gap: "5px", flexWrap: "wrap", alignItems: "center" }}>
+                                    {resource.actions}
+                                  </div>
+                                </div>
+                              ))}
                             </div>
                           </div>
                         ) : selectedCommandTool === "staffing" ? (
