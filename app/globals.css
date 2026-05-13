@@ -2307,3 +2307,24 @@ html body #simulation-command-file-cabinet [data-cfsp-schedule-file-link="true"]
     width: 64px;
   }
 }
+
+
+/* CFSP COMMAND ORB CLICK FIX v20 */
+
+html body [data-cfsp-command-orb="true"] {
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+  z-index: 2147483647 !important;
+  cursor: pointer !important;
+  touch-action: manipulation !important;
+  user-select: none !important;
+}
+
+html body [data-cfsp-command-orb="true"] * {
+  pointer-events: none !important;
+}
+
+/* END CFSP COMMAND ORB CLICK FIX v20 */
+

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 
@@ -53,6 +53,57 @@ export default function CommandChestPortal({
   const [open, setOpen] = useState(false);
   const portalRoot = typeof document === "undefined" ? null : document.body;
   const id = String(eventId);
+
+  // CFSP force orb click bridge v20
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+
+    const orbSelector = '[data-cfsp-command-orb="true"]';
+
+    const isInsideOrb = (event: PointerEvent | MouseEvent) => {
+      const orb = document.querySelector(orbSelector) as HTMLElement | null;
+      if (!orb) return false;
+
+      const target = event.target;
+      if (target instanceof Element && target.closest(orbSelector)) {
+        return true;
+      }
+
+      const rect = orb.getBoundingClientRect();
+      return (
+        event.clientX >= rect.left - 12 &&
+        event.clientX <= rect.right + 12 &&
+        event.clientY >= rect.top - 12 &&
+        event.clientY <= rect.bottom + 12
+      );
+    };
+
+    const stopEvent = (event: Event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+    };
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!isInsideOrb(event)) return;
+      stopEvent(event);
+      setOpen((current) => !current);
+    };
+
+    const handleClick = (event: MouseEvent) => {
+      if (!isInsideOrb(event)) return;
+      stopEvent(event);
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown, true);
+    document.addEventListener("click", handleClick, true);
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown, true);
+      document.removeEventListener("click", handleClick, true);
+    };
+  }, []);
+
 
   if (!portalRoot) return null;
 
@@ -155,6 +206,7 @@ export default function CommandChestPortal({
       <button
         type="button"
         className={`cfsp-holo-orb ${open ? "cfsp-holo-orb-active" : ""}`}
+        data-cfsp-command-orb="true"
         aria-label={open ? "Close CFSP Command Center" : "Open CFSP Command Center"}
         aria-expanded={open}
         onPointerDown={toggleOpen}
