@@ -1,632 +1,680 @@
 "use client";
 
 import { useState } from "react";
-import { createPortal } from "react-dom";
+import { useRouter } from "next/navigation";
 
 type CommandChestPortalProps = {
-  eventId: string;
-  scheduleCompleted: boolean;
+  eventId: string | number;
+  scheduleCompleted?: boolean;
 };
 
-function normalizeText(value: string) {
-  return value.toLowerCase().replace(/\s+/g, " ").trim();
-}
+type ChestAction = {
+  key: string;
+  label: string;
+  onClick: () => void;
+};
 
-function findByText(patterns: string[]) {
-  const nodes = Array.from(
-    document.querySelectorAll("a, button, h1, h2, h3, summary, section, article, div")
-  );
+export default function CommandChestPortal({
+  eventId,
+  scheduleCompleted = false,
+}: CommandChestPortalProps) {
+  const router = useRouter();
+  const [open, setOpen] = useState(true);
 
-  return nodes.find((node) => {
-    if (!(node instanceof HTMLElement)) return false;
-    if (node.closest(".cfsp-command-vault-panel-v4")) return false;
+  const id = String(eventId);
 
-    const text = normalizeText(node.textContent || "");
-    return patterns.some((pattern) => text.includes(normalizeText(pattern)));
-  }) as HTMLElement | undefined;
-}
+  function scrollToKnownTarget(candidates: string[], headingText?: string) {
+    for (const candidate of candidates) {
+      const el = document.querySelector(candidate) as HTMLElement | null;
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "start" });
+        return true;
+      }
+    }
 
-function scrollToTarget(id: string, fallbackPatterns: string[]) {
-  const direct = document.getElementById(id);
+    if (headingText) {
+      const all = Array.from(document.querySelectorAll("h1,h2,h3,h4,summary,strong,div"));
+      const match = all.find((node) =>
+        (node.textContent || "").trim().toLowerCase() === headingText.toLowerCase()
+      ) as HTMLElement | undefined;
 
-  if (direct) {
-    direct.scrollIntoView({ behavior: "smooth", block: "start" });
-    return;
+      if (match) {
+        match.scrollIntoView({ behavior: "smooth", block: "start" });
+        return true;
+      }
+    }
+
+    return false;
   }
 
-  const fallback = findByText(fallbackPatterns);
-  fallback?.scrollIntoView({ behavior: "smooth", block: "start" });
-}
+  function openCompletedSchedule() {
+    const existingAction =
+      (document.querySelector('[data-open-completed-schedule="true"]') as HTMLElement | null) ||
+      (document.querySelector('[data-open-schedule="true"]') as HTMLElement | null);
 
-export default function CommandChestPortal({ eventId, scheduleCompleted }: CommandChestPortalProps) {
-  const [open, setOpen] = useState(false);
-  const portalRoot = typeof document === "undefined" ? null : document.body;
-
-  if (!portalRoot) return null;
-
-  const openSchedule = () => {
-    if (scheduleCompleted) {
-      const existingOpenSchedule = findByText(["open schedule"]);
-      if (existingOpenSchedule) {
-        existingOpenSchedule.click();
-        return;
-      }
-
-      scrollToTarget("simulation-command-file-cabinet", [
-        "completed schedule file",
-        "schedule is complete",
-      ]);
+    if (existingAction) {
+      existingAction.click();
       return;
     }
 
-    const params = new URLSearchParams();
-    params.set("source", "command-chest");
-    params.set("view", "builder");
+    if (scheduleCompleted) {
+      router.push(`/events/${encodeURIComponent(id)}/schedule-builder?view=preview`);
+      return;
+    }
 
-    window.location.assign(
-      `/events/${encodeURIComponent(eventId)}/schedule-builder?${params.toString()}`
-    );
-  };
+    router.push(`/events/${encodeURIComponent(id)}/schedule-builder`);
+  }
 
-  return createPortal(
+  const actions: ChestAction[] = [
+      {
+        key: "materials",
+        label: "Materials Cabinet",
+        onClick: () =>
+          scrollToKnownTarget(
+            [
+              "#simulation-command-file-cabinet",
+              '[data-section="file-cabinet"]',
+              '[data-command-chest-target="materials"]',
+            ],
+            "Simulation Command File Cabinet"
+          ),
+      },
+      {
+        key: "training",
+        label: "Training Files",
+        onClick: () =>
+          scrollToKnownTarget(
+            [
+              "#training-attendance",
+              '[data-section="training"]',
+              '[data-command-chest-target="training"]',
+            ],
+            "Training Attendance"
+          ),
+      },
+      {
+        key: "communication",
+        label: "Communication",
+        onClick: () =>
+          scrollToKnownTarget(
+            [
+              "#communication-hub",
+              "#communication",
+              '[data-section="communication"]',
+              '[data-command-chest-target="communication"]',
+            ],
+            "Communication"
+          ),
+      },
+      {
+        key: "staffing",
+        label: "Staffing",
+        onClick: () =>
+          scrollToKnownTarget(
+            [
+              "#selected-sps",
+              '[data-section="staffing"]',
+              '[data-command-chest-target="staffing"]',
+            ],
+            "Selected SPs"
+          ),
+      },
+      {
+        key: "schedule",
+        label: "Schedule File",
+        onClick: () => openCompletedSchedule(),
+      },
+      {
+        key: "recording",
+        label: "Recording",
+        onClick: () =>
+          scrollToKnownTarget(
+            [
+              "#recording",
+              '[data-section="recording"]',
+              '[data-command-chest-target="recording"]',
+            ],
+            "Recording"
+          ),
+      },
+  ];
+
+  return (
     <>
-      {!open ? (
-        <button
-          type="button"
-          className="cfsp-command-vault-launcher-v4"
-          aria-label="Open Simulation Command File Cabinet"
-          aria-expanded="false"
-          onClick={() => setOpen(true)}
-        >
-          <span className="cfsp-command-vault-mini-v4" aria-hidden="true" />
-        </button>
-      ) : null}
-
-      {open ? (
-        <section className="cfsp-command-vault-panel-v4" aria-label="Simulation Command File Cabinet">
+      <div className="cfsp-chest-launcher-wrap">
+        {!open ? (
           <button
             type="button"
-            className="cfsp-command-vault-close-v4"
-            aria-label="Close file cabinet"
+            className="cfsp-chest-launcher"
+            onClick={() => setOpen(true)}
+            aria-label="Open Simulation Command File Cabinet"
+          >
+            <span className="cfsp-chest-launcher-shell" />
+            <span className="cfsp-chest-launcher-core" />
+          </button>
+        ) : null}
+      </div>
+
+      {open ? (
+        <div className="cfsp-chest-portal" aria-label="Simulation Command File Cabinet">
+          <button
+            type="button"
+            className="cfsp-chest-close"
             onClick={() => setOpen(false)}
+            aria-label="Close Simulation Command File Cabinet"
           >
             ×
           </button>
 
-          <div className="cfsp-command-vault-header-v4">
-            <div className="cfsp-command-vault-kicker-v4">Simulation Command</div>
-            <h2>File Cabinet</h2>
-            <p>Open chest for files, training, materials, and packets.</p>
+          <div className="cfsp-chest-title">
+            <div className="cfsp-chest-kicker">SIMULATION COMMAND</div>
+            <div className="cfsp-chest-name">FILE CABINET</div>
+            <div className="cfsp-chest-subtitle">
+              Open chest for files, training, materials, and packets.
+            </div>
           </div>
 
-          <div className="cfsp-command-vault-stage-v4" aria-hidden="true">
-            <svg viewBox="0 0 420 270" role="img" className="cfsp-command-vault-svg-v4">
-              <defs>
-                <linearGradient id="cfspVaultChestBodyV4" x1="0" x2="1" y1="0" y2="1">
-                  <stop offset="0%" stopColor="#2dd4bf" />
-                  <stop offset="42%" stopColor="#0f9488" />
-                  <stop offset="100%" stopColor="#063f3a" />
-                </linearGradient>
+          <div className="cfsp-chest-scene">
+            <div className="cfsp-orbit-ring" />
+            <div className="cfsp-beam" />
+            <div className="cfsp-beam-glow" />
 
-                <linearGradient id="cfspVaultChestLidV4" x1="0" x2="1">
-                  <stop offset="0%" stopColor="#14b8a6" />
-                  <stop offset="45%" stopColor="#fb923c" />
-                  <stop offset="100%" stopColor="#84cc16" />
-                </linearGradient>
+            <div className="cfsp-scroll cfsp-scroll-left">
+              <div className="cfsp-scroll-core" />
+            </div>
 
-                <linearGradient id="cfspVaultScrollV4" x1="0" x2="1">
-                  <stop offset="0%" stopColor="#ecfeff" />
-                  <stop offset="48%" stopColor="#f0fdfa" />
-                  <stop offset="100%" stopColor="#fff7ed" />
-                </linearGradient>
+            <div className="cfsp-scroll cfsp-scroll-right">
+              <div className="cfsp-scroll-core" />
+            </div>
 
-                <radialGradient id="cfspVaultGoldV4" cx="50%" cy="50%" r="50%">
-                  <stop offset="0%" stopColor="#fde68a" />
-                  <stop offset="58%" stopColor="#f59e0b" />
-                  <stop offset="100%" stopColor="#92400e" />
-                </radialGradient>
-
-                <filter id="cfspVaultGlowV4" x="-45%" y="-45%" width="190%" height="190%">
-                  <feGaussianBlur stdDeviation="5" result="blur" />
-                  <feMerge>
-                    <feMergeNode in="blur" />
-                    <feMergeNode in="SourceGraphic" />
-                  </feMerge>
-                </filter>
-
-                <filter id="cfspVaultSoftGlowV4" x="-40%" y="-40%" width="180%" height="180%">
-                  <feGaussianBlur stdDeviation="3" result="blur" />
-                  <feMerge>
-                    <feMergeNode in="blur" />
-                    <feMergeNode in="SourceGraphic" />
-                  </feMerge>
-                </filter>
-              </defs>
-
-              <g className="cfsp-vault-rotating-ring-v4">
-                <ellipse cx="210" cy="222" rx="150" ry="30" fill="none" stroke="#2dd4bf" strokeOpacity="0.30" strokeWidth="2" />
-                <ellipse cx="210" cy="222" rx="104" ry="20" fill="none" stroke="#84cc16" strokeOpacity="0.18" strokeWidth="2" />
-                <path d="M86 222 C128 246 292 246 334 222" fill="none" stroke="#2dd4bf" strokeOpacity="0.22" strokeWidth="2" />
-              </g>
-
-              <g className="cfsp-vault-scroll-v4 cfsp-vault-scroll-left-v4" filter="url(#cfspVaultSoftGlowV4)">
-                <path
-                  d="M68 64 C50 70 49 88 62 101 L99 207 C104 219 123 217 129 203 L93 78 C88 66 78 60 68 64Z"
-                  fill="url(#cfspVaultScrollV4)"
-                  stroke="#2dd4bf"
-                  strokeOpacity="0.72"
-                  strokeWidth="2"
-                />
-                <path d="M68 99 L101 94 M75 122 L109 117 M82 145 L116 140 M89 168 L122 163" stroke="#0f9488" strokeOpacity="0.42" strokeWidth="3" strokeLinecap="round" />
-                <circle cx="61" cy="77" r="7" fill="#fb923c" opacity="0.74" />
-                <circle cx="123" cy="205" r="7" fill="#fb923c" opacity="0.54" />
-              </g>
-
-              <g className="cfsp-vault-scroll-v4 cfsp-vault-scroll-right-v4" filter="url(#cfspVaultSoftGlowV4)">
-                <path
-                  d="M352 64 C370 70 371 88 358 101 L321 207 C316 219 297 217 291 203 L327 78 C332 66 342 60 352 64Z"
-                  fill="url(#cfspVaultScrollV4)"
-                  stroke="#2dd4bf"
-                  strokeOpacity="0.72"
-                  strokeWidth="2"
-                />
-                <path d="M352 99 L319 94 M345 122 L311 117 M338 145 L304 140 M331 168 L298 163" stroke="#0f9488" strokeOpacity="0.42" strokeWidth="3" strokeLinecap="round" />
-                <circle cx="359" cy="77" r="7" fill="#fb923c" opacity="0.74" />
-                <circle cx="297" cy="205" r="7" fill="#fb923c" opacity="0.54" />
-              </g>
-
-              <g className="cfsp-vault-scroll-v4 cfsp-vault-scroll-center-v4" filter="url(#cfspVaultSoftGlowV4)">
-                <path
-                  d="M184 49 C173 53 171 66 179 75 L179 168 C180 182 201 184 208 170 L208 65 C204 53 194 45 184 49Z"
-                  fill="url(#cfspVaultScrollV4)"
-                  stroke="#2dd4bf"
-                  strokeOpacity="0.62"
-                  strokeWidth="2"
-                />
-                <path d="M184 84 L203 81 M184 106 L203 103 M184 128 L203 125 M184 150 L203 147" stroke="#0f9488" strokeOpacity="0.34" strokeWidth="3" strokeLinecap="round" />
-              </g>
-
-              <g className="cfsp-vault-chest-rotor-v4" filter="url(#cfspVaultGlowV4)">
-                <g className="cfsp-vault-chest-main-v4">
-                  <path
-                    className="cfsp-vault-chest-lid-v4"
-                    d="M118 121 C124 76 160 50 210 50 C260 50 296 76 302 121 Z"
-                    fill="url(#cfspVaultChestLidV4)"
-                    stroke="#fbbf24"
-                    strokeWidth="5"
-                  />
-                  <rect
-                    x="98"
-                    y="114"
-                    width="224"
-                    height="122"
-                    rx="26"
-                    fill="url(#cfspVaultChestBodyV4)"
-                    stroke="#fbbf24"
-                    strokeWidth="5"
-                  />
-                  <path d="M135 119 V229 M285 119 V229" stroke="#fb923c" strokeWidth="9" strokeOpacity="0.78" />
-                  <path d="M115 156 H305" stroke="#ffffff" strokeOpacity="0.16" strokeWidth="3" />
-                  <circle cx="210" cy="175" r="23" fill="url(#cfspVaultGoldV4)" stroke="#fff7ed" strokeWidth="5" />
-                  <path d="M200 175 H220" stroke="#92400e" strokeWidth="5" strokeLinecap="round" />
-                  <path d="M185 213 L196 198 L210 208 L224 198 L235 213" fill="none" stroke="#facc15" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" opacity="0.72" />
-                </g>
-              </g>
-
-              <g className="cfsp-vault-sparkles-v4">
-                <circle cx="92" cy="52" r="2.5" fill="#a7fff5" />
-                <circle cx="332" cy="48" r="2.5" fill="#a7fff5" />
-                <circle cx="349" cy="224" r="2" fill="#facc15" />
-                <circle cx="70" cy="225" r="2" fill="#facc15" />
-                <path d="M84 230 C128 255 292 255 336 230" fill="none" stroke="#2dd4bf" strokeOpacity="0.28" strokeWidth="2" />
-              </g>
-            </svg>
+            <div className="cfsp-craft-wrap">
+              <div className="cfsp-craft-top" />
+              <div className="cfsp-craft-body">
+                <div className="cfsp-craft-latch" />
+              </div>
+            </div>
           </div>
 
-          <div className="cfsp-command-vault-status-v4">New content detected when files update</div>
+          <div className="cfsp-beam-caption">NEW CONTENT DETECTED WHEN FILES UPDATE</div>
 
-          <div className="cfsp-command-vault-grid-v4">
-            <button
-              type="button"
-              onClick={() =>
-                scrollToTarget("simulation-command-file-cabinet", [
-                  "simulation command file cabinet",
-                  "case file",
-                  "doorsign",
-                ])
-              }
-            >
-              <span>▣</span>
-              Materials Cabinet
-            </button>
-
-            <button
-              type="button"
-              onClick={() =>
-                scrollToTarget("training-center", [
-                  "training attendance",
-                  "training center",
-                  "training files",
-                ])
-              }
-            >
-              <span>◈</span>
-              Training Files
-            </button>
-
-            <button
-              type="button"
-              onClick={() =>
-                scrollToTarget("communication-center", [
-                  "draft event emails",
-                  "sp hiring poll email",
-                  "communication",
-                ])
-              }
-            >
-              <span>●</span>
-              Communication
-            </button>
-
-            <button
-              type="button"
-              onClick={() =>
-                scrollToTarget("coverage-actions", [
-                  "coverage actions",
-                  "staffing command center",
-                  "selected sps",
-                ])
-              }
-            >
-              <span>✦</span>
-              Staffing
-            </button>
-
-            <button type="button" onClick={openSchedule}>
-              <span>▤</span>
-              {scheduleCompleted ? "Schedule File" : "Schedule Builder"}
-            </button>
-
-            <button
-              type="button"
-              onClick={() =>
-                scrollToTarget("recording-status", [
-                  "recording guide",
-                  "recording status",
-                  "recording",
-                ])
-              }
-            >
-              <span>▱</span>
-              Recording
-            </button>
+          <div className="cfsp-floating-links">
+            {actions.map((action) => (
+              <button
+                key={action.key}
+                type="button"
+                className="cfsp-floating-link"
+                onClick={action.onClick}
+              >
+                <span className="cfsp-link-dot" />
+                <span>{action.label}</span>
+              </button>
+            ))}
           </div>
-
-          <div className="cfsp-command-vault-footer-v4">Secure • Organized • Always Ready</div>
-        </section>
+        </div>
       ) : null}
 
-      <style>{`
-        .cfsp-floating-command-chest,
-        .cfsp-command-chest-launcher-v2,
-        .cfsp-command-chest-panel-v2,
-        .cfsp-command-chest-launcher-v3,
-        .cfsp-command-chest-panel-v3 {
-          display: none !important;
+      <style jsx>{`
+        .cfsp-chest-launcher-wrap {
+          position: fixed;
+          top: 160px;
+          right: 28px;
+          z-index: 80;
+          pointer-events: none;
         }
 
-        .cfsp-command-vault-launcher-v4 {
-          position: fixed;
-          top: 112px;
-          right: 26px;
-          z-index: 10000;
+        .cfsp-chest-launcher {
+          pointer-events: auto;
+          position: relative;
           width: 74px;
           height: 74px;
-          display: grid;
-          place-items: center;
-          border-radius: 24px;
-          border: 1px solid rgba(20, 184, 166, 0.46);
-          background:
-            radial-gradient(circle at 20% 0%, rgba(20,184,166,0.22), transparent 34%),
-            radial-gradient(circle at 82% 18%, rgba(251,146,60,0.16), transparent 32%),
-            linear-gradient(135deg, rgba(255,255,255,0.98), rgba(240,253,250,0.94));
+          border: none;
+          border-radius: 999px;
+          background: radial-gradient(circle at 30% 30%, rgba(255,255,255,0.95), rgba(230,255,250,0.82));
           box-shadow:
-            0 18px 42px rgba(15, 91, 120, 0.18),
-            0 0 28px rgba(20, 184, 166, 0.16),
-            inset 0 1px 0 rgba(255,255,255,0.86);
+            0 12px 28px rgba(15, 23, 42, 0.18),
+            0 0 24px rgba(45, 212, 191, 0.28);
           cursor: pointer;
-          transition: transform 160ms ease, box-shadow 160ms ease;
         }
 
-        .cfsp-command-vault-launcher-v4:hover {
-          transform: translateY(-2px);
-          box-shadow:
-            0 22px 48px rgba(15, 91, 120, 0.22),
-            0 0 32px rgba(20, 184, 166, 0.20),
-            inset 0 1px 0 rgba(255,255,255,0.86);
-        }
-
-        .cfsp-command-vault-mini-v4 {
-          position: relative;
-          width: 52px;
-          height: 40px;
-          border-radius: 15px 15px 12px 12px;
-          background: linear-gradient(180deg, #14b8a6 0%, #0f9488 56%, #11806f 100%);
-          border: 2px solid rgba(251,146,60,0.70);
-          box-shadow:
-            inset 0 0 0 3px rgba(255,255,255,0.36),
-            0 10px 22px rgba(15,91,120,0.16),
-            0 0 18px rgba(20,184,166,0.24);
-        }
-
-        .cfsp-command-vault-mini-v4::before {
-          content: "";
+        .cfsp-chest-launcher-shell {
           position: absolute;
-          left: 6px;
-          right: 6px;
-          top: -6px;
-          height: 17px;
-          border-radius: 13px 13px 7px 7px;
-          background: linear-gradient(90deg, #14b8a6, #fb923c, #84cc16);
-          border: 2px solid rgba(251,146,60,0.58);
-          transform-origin: bottom center;
-          animation: cfspVaultMiniLidV4 5.8s ease-in-out infinite;
+          inset: 13px;
+          border-radius: 20px;
+          background: linear-gradient(145deg, #17c3c7, #0f766e);
+          border: 2px solid rgba(255, 193, 70, 0.88);
         }
 
-        .cfsp-command-vault-mini-v4::after {
-          content: "";
+        .cfsp-chest-launcher-core {
           position: absolute;
           left: 50%;
-          top: 21px;
-          width: 10px;
-          height: 10px;
+          bottom: 17px;
           transform: translateX(-50%);
+          width: 14px;
+          height: 14px;
           border-radius: 999px;
-          background: #facc15;
-          border: 2px solid rgba(255,247,237,0.94);
-          box-shadow: 0 0 12px rgba(250,204,21,0.70);
+          background: radial-gradient(circle, #ffd86b 0%, #ffb100 72%, #d97706 100%);
+          box-shadow: 0 0 14px rgba(255, 184, 0, 0.7);
         }
 
-        .cfsp-command-vault-panel-v4 {
+        .cfsp-chest-portal {
           position: fixed;
-          top: 118px;
-          right: 26px;
-          z-index: 9999;
-          width: min(430px, calc(100vw - 32px));
-          max-height: calc(100vh - 138px);
-          overflow: auto;
-          border-radius: 28px;
-          border: 1px solid rgba(45, 212, 191, 0.62);
-          background:
-            radial-gradient(circle at 20% 8%, rgba(45, 212, 191, 0.18), transparent 30%),
-            radial-gradient(circle at 86% 18%, rgba(20, 184, 166, 0.16), transparent 30%),
-            linear-gradient(145deg, rgba(3, 18, 23, 0.98), rgba(5, 38, 45, 0.97) 52%, rgba(4, 28, 36, 0.985));
-          box-shadow:
-            0 30px 80px rgba(2, 8, 23, 0.48),
-            0 0 0 1px rgba(45, 212, 191, 0.16) inset,
-            0 0 44px rgba(20, 184, 166, 0.28);
-          padding: 18px;
-          color: #d9fffb;
+          top: 150px;
+          right: 24px;
+          width: 420px;
+          z-index: 90;
+          pointer-events: none;
         }
 
-        .cfsp-command-vault-close-v4 {
+        .cfsp-chest-close {
+          pointer-events: auto;
           position: absolute;
-          top: 12px;
-          right: 12px;
-          z-index: 5;
-          width: 34px;
-          height: 34px;
+          top: 6px;
+          right: 0;
+          width: 40px;
+          height: 40px;
+          border: none;
           border-radius: 999px;
-          border: 1px solid rgba(45,212,191,0.46);
-          background: rgba(6, 78, 82, 0.34);
-          color: #a7fff5;
-          font-size: 24px;
+          background: rgba(9, 64, 72, 0.9);
+          color: #8ff7ef;
+          font-size: 28px;
           line-height: 1;
+          box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
           cursor: pointer;
-          box-shadow: 0 0 18px rgba(45,212,191,0.16);
         }
 
-        .cfsp-command-vault-header-v4 {
+        .cfsp-chest-title {
           text-align: center;
-          padding: 16px 38px 6px;
+          margin-bottom: 10px;
+          pointer-events: none;
+          text-shadow: 0 0 14px rgba(45, 212, 191, 0.18);
         }
 
-        .cfsp-command-vault-kicker-v4 {
-          color: #5ff4e8;
-          font-weight: 950;
-          text-transform: uppercase;
-          letter-spacing: 0.10em;
-          font-size: 0.76rem;
-          text-shadow: 0 0 18px rgba(45,212,191,0.32);
+        .cfsp-chest-kicker {
+          font-size: 0.88rem;
+          font-weight: 800;
+          letter-spacing: 0.16em;
+          color: #43f3ef;
         }
 
-        .cfsp-command-vault-header-v4 h2 {
-          margin: 4px 0 4px;
-          color: #7ffbf0;
-          text-transform: uppercase;
-          letter-spacing: 0.055em;
-          font-size: 1.18rem;
-          line-height: 1.16;
-          font-weight: 950;
-          text-shadow: 0 0 18px rgba(45,212,191,0.32);
+        .cfsp-chest-name {
+          margin-top: 2px;
+          font-size: 2rem;
+          font-weight: 900;
+          letter-spacing: 0.04em;
+          color: #b7fff8;
         }
 
-        .cfsp-command-vault-header-v4 p {
-          margin: 0;
-          color: #b9e9e5;
-          font-size: 0.78rem;
-          line-height: 1.35;
-          font-weight: 760;
+        .cfsp-chest-subtitle {
+          margin-top: 6px;
+          font-size: 1rem;
+          font-weight: 700;
+          color: rgba(214, 255, 248, 0.92);
         }
 
-        .cfsp-command-vault-stage-v4 {
+        .cfsp-chest-scene {
           position: relative;
-          height: 240px;
-          margin: 4px 0 14px;
-          border-radius: 22px;
+          height: 290px;
+          pointer-events: none;
+        }
+
+        .cfsp-orbit-ring {
+          position: absolute;
+          left: 50%;
+          bottom: 16px;
+          transform: translateX(-50%);
+          width: 255px;
+          height: 68px;
+          border-radius: 999px;
+          border: 2px solid rgba(42, 242, 225, 0.35);
+          box-shadow: 0 0 28px rgba(0, 255, 229, 0.18);
+          animation: cfspOrbitSpin 12s linear infinite;
+        }
+
+        .cfsp-orbit-ring::before,
+        .cfsp-orbit-ring::after {
+          content: "";
+          position: absolute;
+          inset: 10px;
+          border-radius: 999px;
+          border: 1px solid rgba(42, 242, 225, 0.22);
+        }
+
+        .cfsp-beam {
+          position: absolute;
+          left: 50%;
+          top: 62px;
+          transform: translateX(-50%);
+          width: 280px;
+          height: 215px;
+          clip-path: polygon(40% 0%, 60% 0%, 96% 100%, 4% 100%);
           background:
-            radial-gradient(circle at 50% 80%, rgba(45,212,191,0.24), transparent 48%),
-            linear-gradient(180deg, rgba(45,212,191,0.08), rgba(3,18,23,0.10));
+            linear-gradient(
+              180deg,
+              rgba(63, 246, 226, 0.16) 0%,
+              rgba(36, 220, 199, 0.22) 26%,
+              rgba(28, 197, 186, 0.18) 60%,
+              rgba(0, 0, 0, 0) 100%
+            );
+          filter: blur(1px);
+          animation: cfspBeamPulse 3.4s ease-in-out infinite;
+        }
+
+        .cfsp-beam-glow {
+          position: absolute;
+          left: 50%;
+          top: 92px;
+          transform: translateX(-50%);
+          width: 220px;
+          height: 160px;
+          clip-path: polygon(44% 0%, 56% 0%, 88% 100%, 12% 100%);
+          background: radial-gradient(circle at 50% 0%, rgba(255, 201, 75, 0.26), rgba(0,0,0,0) 72%);
+          filter: blur(12px);
+          opacity: 0.95;
+        }
+
+        .cfsp-scroll {
+          position: absolute;
+          top: 112px;
+          width: 60px;
+          height: 138px;
+          border-radius: 22px;
+          background: linear-gradient(180deg, rgba(240, 248, 245, 0.95), rgba(198, 214, 214, 0.92));
+          box-shadow:
+            0 0 18px rgba(144, 255, 244, 0.3),
+            0 8px 18px rgba(15, 23, 42, 0.18);
           overflow: hidden;
         }
 
-        .cfsp-command-vault-svg-v4 {
-          width: 100%;
-          height: 100%;
-          display: block;
+        .cfsp-scroll::before,
+        .cfsp-scroll::after {
+          content: "";
+          position: absolute;
+          left: 8px;
+          right: 8px;
+          height: 2px;
+          background: rgba(86, 122, 124, 0.36);
+          box-shadow:
+            0 14px 0 rgba(86, 122, 124, 0.36),
+            0 28px 0 rgba(86, 122, 124, 0.36),
+            0 42px 0 rgba(86, 122, 124, 0.36),
+            0 56px 0 rgba(86, 122, 124, 0.36),
+            0 70px 0 rgba(86, 122, 124, 0.36),
+            0 84px 0 rgba(86, 122, 124, 0.36);
         }
 
-        .cfsp-vault-rotating-ring-v4 {
-          transform-box: fill-box;
-          transform-origin: center;
-          animation: cfspVaultRingSpinV4 10s linear infinite;
+        .cfsp-scroll::before {
+          top: 20px;
         }
 
-        .cfsp-vault-chest-rotor-v4 {
-          transform-box: fill-box;
-          transform-origin: center;
-          animation: cfspVaultChestRotateV4 5.8s ease-in-out infinite;
-        }
-
-        .cfsp-vault-chest-lid-v4 {
-          transform-box: fill-box;
-          transform-origin: center bottom;
-          animation: cfspVaultChestLidV4 5.8s ease-in-out infinite;
-        }
-
-        .cfsp-vault-scroll-left-v4 {
-          transform-box: fill-box;
-          transform-origin: center;
-          animation: cfspVaultScrollLeftV4 6.8s ease-in-out infinite;
-        }
-
-        .cfsp-vault-scroll-right-v4 {
-          transform-box: fill-box;
-          transform-origin: center;
-          animation: cfspVaultScrollRightV4 7.2s ease-in-out infinite;
-        }
-
-        .cfsp-vault-scroll-center-v4 {
-          transform-box: fill-box;
-          transform-origin: center;
-          animation: cfspVaultScrollCenterV4 7s ease-in-out infinite;
-        }
-
-        .cfsp-vault-sparkles-v4 {
-          animation: cfspVaultSparklesV4 4.8s ease-in-out infinite;
-        }
-
-        .cfsp-command-vault-status-v4 {
+        .cfsp-scroll::after {
+          width: 14px;
+          height: 14px;
           border-radius: 999px;
-          border: 1px solid rgba(45,212,191,0.42);
-          background: rgba(20,184,166,0.16);
-          color: #9ffcf1;
-          text-transform: uppercase;
-          letter-spacing: 0.045em;
-          font-size: 0.68rem;
-          font-weight: 950;
-          padding: 8px 10px;
-          text-align: center;
-          box-shadow: 0 0 18px rgba(45,212,191,0.12);
+          background: linear-gradient(180deg, #efb871, #d68f47);
+          box-shadow: none;
+          top: 8px;
+          left: auto;
+          right: 8px;
         }
 
-        .cfsp-command-vault-grid-v4 {
+        .cfsp-scroll-core {
+          position: absolute;
+          inset: 0;
+          border-radius: 22px;
+          background: linear-gradient(180deg, rgba(255,255,255,0.12), rgba(255,255,255,0));
+        }
+
+        .cfsp-scroll-left {
+          left: 82px;
+          transform: rotate(-12deg);
+          animation: cfspScrollFloatLeft 4.8s ease-in-out infinite;
+        }
+
+        .cfsp-scroll-right {
+          right: 82px;
+          transform: rotate(12deg);
+          animation: cfspScrollFloatRight 5.1s ease-in-out infinite;
+        }
+
+        .cfsp-craft-wrap {
+          position: absolute;
+          left: 50%;
+          top: 78px;
+          width: 250px;
+          height: 184px;
+          transform: translateX(-50%);
+          animation: cfspCraftFloat 4.4s ease-in-out infinite;
+        }
+
+        .cfsp-craft-top {
+          position: absolute;
+          left: 50%;
+          top: 0;
+          transform: translateX(-50%);
+          width: 160px;
+          height: 82px;
+          border-radius: 90px 90px 40px 40px;
+          background:
+            linear-gradient(90deg, #3ef2df 0%, #1bc6c4 26%, #f1a13b 62%, #b6d937 100%);
+          border: 4px solid #ffd043;
+          box-shadow:
+            0 0 24px rgba(255, 191, 72, 0.34),
+            0 0 50px rgba(36, 217, 212, 0.2);
+        }
+
+        .cfsp-craft-body {
+          position: absolute;
+          left: 50%;
+          bottom: 8px;
+          transform: translateX(-50%);
+          width: 215px;
+          height: 112px;
+          border-radius: 32px;
+          background:
+            linear-gradient(135deg, rgba(28, 192, 191, 0.95), rgba(8, 127, 127, 0.96));
+          border: 5px solid #f4b346;
+          box-shadow:
+            0 0 26px rgba(255, 179, 71, 0.28),
+            inset 0 0 0 3px rgba(123, 255, 245, 0.18);
+        }
+
+        .cfsp-craft-body::before,
+        .cfsp-craft-body::after {
+          content: "";
+          position: absolute;
+          top: 14px;
+          bottom: 14px;
+          width: 8px;
+          border-radius: 999px;
+          background: rgba(240, 178, 87, 0.95);
+        }
+
+        .cfsp-craft-body::before {
+          left: 28px;
+        }
+
+        .cfsp-craft-body::after {
+          right: 28px;
+        }
+
+        .cfsp-craft-latch {
+          position: absolute;
+          left: 50%;
+          top: 50%;
+          transform: translate(-50%, -42%);
+          width: 52px;
+          height: 52px;
+          border-radius: 999px;
+          background: radial-gradient(circle, #ffcb47 0%, #ef9b1d 65%, #b96500 100%);
+          box-shadow:
+            0 0 20px rgba(255, 199, 72, 0.65),
+            0 0 0 6px rgba(255,255,255,0.75);
+        }
+
+        .cfsp-craft-latch::before {
+          content: "";
+          position: absolute;
+          left: 50%;
+          top: 50%;
+          transform: translate(-50%, -50%);
+          width: 18px;
+          height: 7px;
+          border-radius: 999px;
+          background: #7a4200;
+        }
+
+        .cfsp-craft-latch::after {
+          content: "";
+          position: absolute;
+          left: 50%;
+          top: calc(50% + 12px);
+          transform: translateX(-50%);
+          width: 20px;
+          height: 12px;
+          border-left: 4px solid #d48b17;
+          border-right: 4px solid #d48b17;
+          border-top: 4px solid transparent;
+          border-bottom: 4px solid transparent;
+          clip-path: polygon(0 0, 100% 0, 75% 100%, 25% 100%);
+        }
+
+        .cfsp-beam-caption {
+          margin: 2px auto 14px;
+          width: min(100%, 386px);
+          padding: 10px 16px;
+          border-radius: 999px;
+          text-align: center;
+          font-size: 0.92rem;
+          font-weight: 900;
+          letter-spacing: 0.05em;
+          color: #8ffff0;
+          background: rgba(5, 82, 88, 0.72);
+          border: 2px solid rgba(55, 241, 217, 0.5);
+          box-shadow: 0 0 24px rgba(23, 217, 198, 0.14);
+          pointer-events: none;
+        }
+
+        .cfsp-floating-links {
           display: grid;
           grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap: 10px;
-          margin-top: 12px;
+          gap: 14px;
+          width: min(100%, 418px);
+          pointer-events: auto;
         }
 
-        .cfsp-command-vault-grid-v4 button {
-          min-height: 50px;
-          display: inline-flex;
+        .cfsp-floating-link {
+          display: flex;
           align-items: center;
-          gap: 10px;
-          border-radius: 13px;
-          border: 1px solid rgba(45,212,191,0.34);
-          background: linear-gradient(135deg, rgba(8,47,73,0.92), rgba(6,78,82,0.80));
-          color: #d9fffb;
-          font-weight: 900;
+          gap: 12px;
+          min-height: 78px;
+          padding: 18px 18px;
+          border-radius: 18px;
+          border: 2px solid rgba(36, 223, 205, 0.48);
+          background:
+            linear-gradient(180deg, rgba(4, 67, 74, 0.78), rgba(2, 48, 56, 0.88));
+          color: #e3fffb;
+          font-size: 1.08rem;
+          font-weight: 800;
           text-align: left;
-          padding: 10px 12px;
+          box-shadow:
+            0 10px 24px rgba(3, 22, 29, 0.28),
+            inset 0 0 0 1px rgba(83, 255, 234, 0.07);
           cursor: pointer;
-          box-shadow:
-            0 10px 20px rgba(0,0,0,0.20),
-            inset 0 1px 0 rgba(255,255,255,0.08),
-            0 0 14px rgba(45,212,191,0.10);
-          transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+          transition:
+            transform 0.18s ease,
+            box-shadow 0.18s ease,
+            border-color 0.18s ease;
         }
 
-        .cfsp-command-vault-grid-v4 button:hover {
-          transform: translateY(-1px);
-          border-color: rgba(45,212,191,0.68);
+        .cfsp-floating-link:hover {
+          transform: translateY(-2px);
+          border-color: rgba(92, 255, 239, 0.9);
           box-shadow:
-            0 14px 26px rgba(0,0,0,0.24),
-            0 0 22px rgba(45,212,191,0.18);
+            0 12px 28px rgba(3, 22, 29, 0.34),
+            0 0 22px rgba(37, 224, 206, 0.18);
         }
 
-        .cfsp-command-vault-grid-v4 span {
+        .cfsp-link-dot {
+          flex: 0 0 auto;
           width: 24px;
           height: 24px;
-          display: grid;
-          place-items: center;
           border-radius: 8px;
-          border: 1px solid rgba(45,212,191,0.38);
-          color: #5ff4e8;
-          background: rgba(20,184,166,0.12);
-          font-size: 12px;
+          background: linear-gradient(180deg, rgba(13, 151, 163, 0.95), rgba(11, 96, 118, 0.95));
+          border: 1px solid rgba(126, 255, 243, 0.55);
+          box-shadow: 0 0 12px rgba(63, 246, 226, 0.28);
         }
 
-        .cfsp-command-vault-footer-v4 {
-          margin-top: 12px;
-          color: #75d8d0;
-          font-size: 0.72rem;
-          font-weight: 850;
-          text-align: center;
-          letter-spacing: 0.03em;
+        @keyframes cfspCraftFloat {
+          0%, 100% { transform: translateX(-50%) translateY(0px); }
+          50% { transform: translateX(-50%) translateY(-7px); }
         }
 
-        @keyframes cfspVaultMiniLidV4 {
-          0%, 100% { transform: translateY(0) rotateX(0deg); }
-          50% { transform: translateY(-1px) rotateX(8deg); }
+        @keyframes cfspBeamPulse {
+          0%, 100% { opacity: 0.72; }
+          50% { opacity: 1; }
         }
 
-        @keyframes cfspVaultRingSpinV4 {
-          0% { transform: rotate(0deg); }
-          100% { transform: rotate(360deg); }
+        @keyframes cfspOrbitSpin {
+          from { transform: translateX(-50%) rotate(0deg); }
+          to { transform: translateX(-50%) rotate(360deg); }
         }
 
-        @keyframes cfspVaultChestRotateV4 {
-          0%, 100% { transform: translateY(0) rotate(-1.8deg); }
-          50% { transform: translateY(-4px) rotate(1.8deg); }
+        @keyframes cfspScrollFloatLeft {
+          0%, 100% { transform: rotate(-12deg) translateY(0px); }
+          50% { transform: rotate(-7deg) translateY(-10px); }
         }
 
-        @keyframes cfspVaultChestLidV4 {
-          0%, 100% { transform: translateY(0) rotateX(0deg); }
-          50% { transform: translateY(-4px) rotateX(16deg); }
+        @keyframes cfspScrollFloatRight {
+          0%, 100% { transform: rotate(12deg) translateY(0px); }
+          50% { transform: rotate(7deg) translateY(-10px); }
         }
 
-        @keyframes cfspVaultScrollLeftV4 {
-          0%, 100% { transform: translateY(0) rotate(0deg); opacity: 0.58; }
-          50% { transform: translateY(-8px) rotate(4deg); opacity: 0.90; }
+        @media (max-width: 1200px) {
+          .cfsp-chest-portal {
+            top: 140px;
+            right: 12px;
+            width: 360px;
+          }
+
+          .cfsp-chest-name {
+            font-size: 1.72rem;
+          }
+
+          .cfsp-chest-scene {
+            height: 262px;
+          }
+
+          .cfsp-beam {
+            width: 240px;
+          }
+
+          .cfsp-floating-link {
+            min-height: 70px;
+            padding: 16px 14px;
+            font-size: 0.98rem;
+          }
         }
 
-        @keyframes cfspVaultScrollRightV4 {
-          0%, 100% { transform: translateY(0) rotate(0deg); opacity: 0.58; }
-          50% { transform: translateY(-9px) rotate(-4deg); opacity: 0.90; }
-        }
+        @media (max-width: 860px) {
+          .cfsp-chest-portal {
+            right: 10px;
+            top: 120px;
+            width: min(92vw, 340px);
+          }
 
-        @keyframes cfspVaultScrollCenterV4 {
-          0%, 100% { transform: translateY(0) rotate(0deg); opacity: 0.78; }
-          50% { transform: translateY(-7px) rotate(-2deg); opacity: 0.96; }
-        }
+          .cfsp-floating-links {
+            grid-template-columns: 1fr;
+          }
 
-        @keyframes cfspVaultSparklesV4 {
-          0%, 100% { opacity: 0.34; }
-          50% { opacity: 0.90; }
+          .cfsp-scroll-left {
+            left: 48px;
+          }
+
+          .cfsp-scroll-right {
+            right: 48px;
+          }
         }
       `}</style>
-    </>,
-    portalRoot
+    </>
   );
 }
