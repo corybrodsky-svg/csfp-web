@@ -4349,7 +4349,7 @@ export default function EventDetailPage() {
   const [expandedCommandFileCabinetModules, setExpandedCommandFileCabinetModules] = useState<Record<string, boolean>>({});
   const [planningLivePreviewExpanded, setPlanningLivePreviewExpanded] = useState(false);
   const [selectedRotationRoundKey, setSelectedRotationRoundKey] = useState("");
-  const [roundCompanionView, setRoundCompanionView] = useState<RotationCompanionView>("announcements");
+  const [roundCompanionView, setRoundCompanionView] = useState<RotationCompanionView>("overview");
   const [roundAnnouncementDrafts, setRoundAnnouncementDrafts] = useState<Record<string, string>>({});
   const [hasTouchedRoundCompanion, setHasTouchedRoundCompanion] = useState(false);
   const [rotationCommandSurfaceOpen, setRotationCommandSurfaceOpen] = useState(false);
