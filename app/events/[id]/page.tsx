@@ -23376,6 +23376,66 @@ Cory`;
       </div>
     ))}
   </div>
+) : roundCompanionView === "live" ? (
+  <div style={{ display: "grid", gap: "8px" }}>
+    <section
+      style={{
+        borderRadius: "16px",
+        border: commandCenterVisual.rowBorder,
+        background: commandCenterVisual.rowBackground,
+        padding: "10px 12px",
+        display: "grid",
+        gap: "8px",
+      }}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+        <div>
+          <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Live Preview</div>
+          <div style={{ marginTop: "3px", color: commandCenterVisual.headingColor, fontWeight: 950, fontSize: "16px" }}>
+            {planningLivePreviewPrimaryBlock?.label || "No live block selected"}
+          </div>
+          <div style={{ marginTop: "3px", color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 750 }}>
+            {planningLivePreviewPrimaryBlock
+              ? `${formatMinuteRange(planningLivePreviewPrimaryBlock.startMinutes, planningLivePreviewPrimaryBlock.endMinutes)}${planningLivePreviewPrimaryBlock.roundNumber ? ` · Round ${planningLivePreviewPrimaryBlock.roundNumber}` : ""}`
+              : "Build schedule to preview live flow"}
+          </div>
+        </div>
+        <span
+          style={{
+            ...commandChipStyle,
+            background: planningLivePreviewAlerts.length ? "rgba(237, 233, 254, 0.68)" : planningSuccessBackground,
+            border: planningLivePreviewAlerts.length ? "1px solid rgba(124, 58, 237, 0.16)" : planningSuccessBorder,
+            color: planningLivePreviewAlerts.length ? "#5b21b6" : planningSuccessText,
+          }}
+        >
+          {planningLivePreviewAlerts.length ? `${planningLivePreviewAlerts.length} alert${planningLivePreviewAlerts.length === 1 ? "" : "s"}` : "No active blockers"}
+        </span>
+      </div>
+
+      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+        {planningLivePreviewBlocks.length ? (
+          planningLivePreviewBlocks.slice(0, 8).map((block, index) => (
+            <span
+              key={`central-live-preview-${block.key}-${index}`}
+              style={{
+                ...commandChipStyle,
+                background: block.key === planningLivePreviewPrimaryBlock?.key ? commandCenterVisual.activeSoftBackground : commandCenterVisual.chipBackground,
+                color: block.key === planningLivePreviewPrimaryBlock?.key ? commandCenterVisual.activeSoftText : commandCenterVisual.chipText,
+                border: commandCenterVisual.rowBorder,
+              }}
+            >
+              {block.roundNumber ? `Round ${block.roundNumber} · ` : ""}
+              {block.label}
+            </span>
+          ))
+        ) : (
+          <span style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 700 }}>
+            No live flow blocks available yet.
+          </span>
+        )}
+      </div>
+    </section>
+  </div>
 ) : roundCompanionView === "announcements" ? (
                             selectedRoundAnnouncementTimeline.length ? (
                               <div style={{ display: "grid", gap: "10px" }}>
