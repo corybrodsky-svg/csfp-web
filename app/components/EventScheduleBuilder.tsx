@@ -144,6 +144,7 @@ type ScheduledRoomSlot = GeneratedRoomSlot & {
   learnerLabels: string[];
   learnerIndexes: number[];
   assignedSpIndex?: number;
+  assignedSpName?: string;
   caseLabel?: string;
   caseIndex?: number;
   backupSpName?: string;
@@ -3256,9 +3257,10 @@ function buildSchedulePreviewData(args: {
   const includeOperationsContext = isOperations;
   const previewLabel = titleMap[kind];
   const getSlotSpName = (slot: ScheduledRoomSlot) =>
-    typeof slot.assignedSpIndex === "number"
+    normalizeDisplayText(slot.assignedSpName) ||
+    (typeof slot.assignedSpIndex === "number"
       ? normalizeDisplayText(assignedSpNames?.[slot.assignedSpIndex])
-      : "";
+      : "");
 
   if (kind === "timeline") {
     lines.push("EVENT FLOW");
@@ -3929,7 +3931,8 @@ function buildPersistedScheduleBuilderRounds(
       roomName: asText(slot.roomName),
       learnerLabels: normalizeLearnerNames(slot.learnerLabels),
       assignedSpName:
-        typeof slot.assignedSpIndex === "number" ? asText(assignedNames[slot.assignedSpIndex]) : "",
+        normalizeDisplayText(slot.assignedSpName) ||
+        (typeof slot.assignedSpIndex === "number" ? asText(assignedNames[slot.assignedSpIndex]) : ""),
       backupSpName: asText(slot.backupSpName),
       caseLabel: asText(slot.caseLabel),
       roleLabel: asText(slot.roleLabel),
@@ -7846,9 +7849,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                                   <div style={{ marginTop: "6px", fontSize: "12px", fontWeight: 700, color: "#4f677d", lineHeight: 1.5 }}>
                                     <div>
                                       SP:{" "}
-                                      {typeof slot.assignedSpIndex === "number"
-                                        ? normalizeDisplayText(selectedEvent?.assigned_sp_names?.[slot.assignedSpIndex]) || "Unassigned SP"
-                                        : "Unassigned SP"}
+                                      {normalizeDisplayText(slot.assignedSpName) ||
+                                        (typeof slot.assignedSpIndex === "number"
+                                          ? normalizeDisplayText(selectedEvent?.assigned_sp_names?.[slot.assignedSpIndex]) || "Unassigned SP"
+                                          : "Unassigned SP")}
                                     </div>
                                     {normalizeDisplayText(slot.backupSpName) ? (
                                       <div>
