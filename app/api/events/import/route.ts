@@ -623,11 +623,7 @@ function parseSpInfoSheet(sheet: XLSX.WorkSheet, sheetName: string): ParsedSheet
     if (date) statusColumnsByDate.set(date, column);
   });
 
-  const looksValid =
-    Boolean(title) &&
-    emailHeader.includes("email") &&
-    hiredHeader.includes("sp hired") &&
-    sessions.length > 0;
+  const looksValid = Boolean(title) && sessions.length > 0;
 
   if (!looksValid) return null;
 
