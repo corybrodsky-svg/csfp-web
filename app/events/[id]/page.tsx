@@ -4454,6 +4454,7 @@ export default function EventDetailPage() {
   const [localOccupancySpCheckIns, setLocalOccupancySpCheckIns] = useState<Record<string, boolean>>({});
   const [localOccupancyLearnerRoomMoves, setLocalOccupancyLearnerRoomMoves] = useState<Record<string, string>>({});
   const [localOccupancySpRoomMoves, setLocalOccupancySpRoomMoves] = useState<Record<string, string>>({});
+  const [activeOccupancyRoomKey, setActiveOccupancyRoomKey] = useState("");
   const [scheduleBuilderPreviewDraft, setScheduleBuilderPreviewDraft] =
     useState<ScheduleBuilderPreviewDraft | null>(null);
   const [liveDelayMinutes, setLiveDelayMinutes] = useState(0);
@@ -9602,6 +9603,9 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     return [...liveBlueprintBaseRooms, ...extraRooms];
   }, [liveBlueprintBaseHighestRoomNumber, liveBlueprintBaseRooms, liveExtraRoomCount, roomNamingContext]);
   const selectedRoundOccupancyKey = asText(selectedRotationRound?.key || currentLiveReferenceRound?.key || "");
+  useEffect(() => {
+    setActiveOccupancyRoomKey("");
+  }, [selectedRoundOccupancyKey]);
   const selectedRoundOccupancyLearners = useMemo(
     () =>
       Array.from(
@@ -24168,6 +24172,8 @@ Cory`;
                                       .map((name) => name.trim())
                                       .filter((name) => name && isAssignedLearnerRoomLabel(name));
                                     const alertTone = room.status === "late" || room.status === "no_show";
+                                    const roomSpCheckKey = `${selectedRoundOccupancyKey}|${room.roomName}|${room.spName || "unassigned-sp"}`;
+                                    const isManageDrawerOpen = activeOccupancyRoomKey === room.key;
                                     return (
                                       <div
                                         key={`central-lab-room-${room.key}`}
@@ -24184,7 +24190,7 @@ Cory`;
                                           padding: "9px",
                                           display: "grid",
                                           gap: "7px",
-                                          minHeight: "118px",
+                                          minHeight: "92px",
                                         }}
                                       >
                                         <div style={{ display: "flex", justifyContent: "space-between", gap: "7px", alignItems: "flex-start" }}>
@@ -24205,131 +24211,176 @@ Cory`;
                                             {room.statusLabel || room.status.replace("_", " ")}
                                           </span>
                                         </div>
-                                        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
-                                          <RoundOperationAvatar
-                                            name={room.spName || "SP TBD"}
-                                            role="sp"
-                                            onClick={() =>
-                                              setLocalOccupancySpCheckIns((current) => ({
-                                                ...current,
-                                                [`${selectedRoundOccupancyKey}|${room.roomName}|${room.spName || "unassigned-sp"}`]:
-                                                  current[`${selectedRoundOccupancyKey}|${room.roomName}|${room.spName || "unassigned-sp"}`] !== true,
-                                              }))
-                                            }
-                                          />
-                                          {learnerNames.length ? (
-                                            learnerNames.map((learnerName, learnerIndex) => (
-                                              <RoundOperationAvatar
-                                                key={`central-lab-learner-${room.key}-${learnerIndex}`}
-                                                name={learnerName}
-                                                role="student"
-                                                onClick={() =>
-                                                  setLocalOccupancyLearnerArrivals((current) => ({
-                                                    ...current,
-                                                    [`${selectedRoundOccupancyKey}|${learnerName}`]:
-                                                      current[`${selectedRoundOccupancyKey}|${learnerName}`] !== true,
-                                                  }))
-                                                }
-                                              />
-                                            ))
-                                          ) : (
-                                            <span style={{ color: "rgba(226, 250, 247, 0.68)", fontSize: "10px", fontWeight: 850 }}>
-                                              No learner assigned
-                                            </span>
-                                          )}
+                                        <div style={{ display: "grid", gap: "6px" }}>
+                                          <div style={{ display: "flex", gap: "6px", alignItems: "center", flexWrap: "wrap" }}>
+                                            <RoundOperationAvatar name={room.spName || "SP TBD"} role="sp" />
+                                            <div style={{ color: "#ecfeff", fontSize: "10px", fontWeight: 900 }}>{room.spName || "SP TBD"}</div>
+                                          </div>
+                                          <div style={{ display: "flex", gap: "5px", flexWrap: "wrap", alignItems: "center" }}>
+                                            {learnerNames.length ? (
+                                              learnerNames.map((learnerName, learnerIndex) => (
+                                                <span
+                                                  key={`central-lab-learner-${room.key}-${learnerIndex}`}
+                                                  style={{
+                                                    display: "inline-flex",
+                                                    alignItems: "center",
+                                                    gap: "5px",
+                                                    padding: "3px 7px",
+                                                    borderRadius: "999px",
+                                                    background: "rgba(15, 118, 110, 0.18)",
+                                                    border: "1px solid rgba(126, 231, 219, 0.18)",
+                                                    color: "#e6fffb",
+                                                    fontSize: "10px",
+                                                    fontWeight: 850,
+                                                  }}
+                                                >
+                                                  <RoundOperationAvatar name={learnerName} role="student" />
+                                                  <span>{learnerName}</span>
+                                                </span>
+                                              ))
+                                            ) : (
+                                              <span style={{ color: "rgba(226, 250, 247, 0.68)", fontSize: "10px", fontWeight: 850 }}>
+                                                No learner assigned
+                                              </span>
+                                            )}
+                                          </div>
                                         </div>
                                         <div style={{ color: "rgba(226, 250, 247, 0.7)", fontSize: "10px", fontWeight: 750, lineHeight: 1.35 }}>
-                                          SP: {room.spName || "TBD"} · Learner: {learnerNames.length ? learnerNames.join(", ") : "No learner assigned"}
+                                          {room.encounterLabel || "Case pending"}
                                         </div>
-                                        <div style={{ display: "grid", gap: "6px" }}>
-                                          <div style={{ display: "flex", gap: "5px", flexWrap: "wrap" }}>
-                                            <button
-                                              type="button"
-                                              onClick={() =>
-                                                setLocalOccupancySpCheckIns((current) => ({
-                                                  ...current,
-                                                  [`${selectedRoundOccupancyKey}|${room.roomName}|${room.spName || "unassigned-sp"}`]: true,
-                                                }))
-                                              }
-                                              style={{ ...staffingSecondaryButtonStyle, padding: "5px 7px", fontSize: "9px" }}
-                                            >
-                                              SP checked in
-                                            </button>
-                                            <button
-                                              type="button"
-                                              onClick={() =>
-                                                setLocalOccupancySpCheckIns((current) => ({
-                                                  ...current,
-                                                  [`${selectedRoundOccupancyKey}|${room.roomName}|${room.spName || "unassigned-sp"}`]: false,
-                                                }))
-                                              }
-                                              style={{ ...staffingSecondaryButtonStyle, padding: "5px 7px", fontSize: "9px" }}
-                                            >
-                                              Not checked in
-                                            </button>
-                                          </div>
-                                          {room.spName ? (
-                                            <select
-                                              value={localOccupancySpRoomMoves[`${selectedRoundOccupancyKey}|${room.spName}`] || room.roomName}
-                                              onChange={(event) =>
-                                                setLocalOccupancySpRoomMoves((current) => ({
-                                                  ...current,
-                                                  [`${selectedRoundOccupancyKey}|${room.spName}`]: event.target.value,
-                                                }))
-                                              }
-                                              style={{ ...selectStyle, minWidth: 0, width: "100%", fontSize: "10px", padding: "5px 7px" }}
-                                              aria-label={`Move ${room.spName} to another room`}
-                                            >
-                                              {interactiveLiveAttendanceBlueprintRooms.map((targetRoom) => (
-                                                <option key={`${room.key}-sp-target-${targetRoom.roomName}`} value={targetRoom.roomName}>
-                                                  Move SP to {targetRoom.roomName}
-                                                </option>
-                                              ))}
-                                            </select>
-                                          ) : null}
-                                          {learnerNames.map((learnerName) => {
-                                            const learnerArrivalKey = `${selectedRoundOccupancyKey}|${learnerName}`;
-                                            const learnerArrived = localOccupancyLearnerArrivals[learnerArrivalKey] === true;
-                                            return (
-                                              <div key={`${room.key}-learner-control-${learnerName}`} style={{ display: "grid", gap: "4px" }}>
-                                                <div style={{ display: "flex", gap: "5px", flexWrap: "wrap", alignItems: "center" }}>
-                                                  <button
-                                                    type="button"
-                                                    onClick={() =>
-                                                      setLocalOccupancyLearnerArrivals((current) => ({
-                                                        ...current,
-                                                        [learnerArrivalKey]: !learnerArrived,
-                                                      }))
-                                                    }
-                                                    style={{ ...staffingSecondaryButtonStyle, padding: "5px 7px", fontSize: "9px" }}
-                                                  >
-                                                    {learnerArrived ? "Mark expected" : "Mark arrived"}
-                                                  </button>
-                                                  <span style={{ color: learnerArrived ? "#ccfbf1" : "rgba(226, 250, 247, 0.7)", fontSize: "9px", fontWeight: 850 }}>
-                                                    {learnerName}
-                                                  </span>
-                                                </div>
+                                        <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
+                                          <span style={{ color: "rgba(226, 250, 247, 0.62)", fontSize: "9px", fontWeight: 800 }}>
+                                            {learnerNames.length} learner{learnerNames.length === 1 ? "" : "s"}
+                                          </span>
+                                          <button
+                                            type="button"
+                                            onClick={() => setActiveOccupancyRoomKey((current) => current === room.key ? "" : room.key)}
+                                            style={{
+                                              ...staffingSecondaryButtonStyle,
+                                              padding: "5px 8px",
+                                              fontSize: "9px",
+                                              background: isManageDrawerOpen ? "rgba(8, 145, 178, 0.28)" : staffingSecondaryButtonStyle.background,
+                                              color: isManageDrawerOpen ? "#ecfeff" : staffingSecondaryButtonStyle.color,
+                                            }}
+                                          >
+                                            {isManageDrawerOpen ? "Hide Controls" : "Manage Room"}
+                                          </button>
+                                        </div>
+                                        {isManageDrawerOpen ? (
+                                          <div
+                                            style={{
+                                              display: "grid",
+                                              gap: "8px",
+                                              borderTop: "1px solid rgba(126, 231, 219, 0.14)",
+                                              paddingTop: "8px",
+                                            }}
+                                          >
+                                            <div style={{ display: "flex", gap: "5px", flexWrap: "wrap" }}>
+                                              <button
+                                                type="button"
+                                                onClick={() =>
+                                                  setLocalOccupancySpCheckIns((current) => ({
+                                                    ...current,
+                                                    [roomSpCheckKey]: true,
+                                                  }))
+                                                }
+                                                style={{ ...staffingSecondaryButtonStyle, padding: "5px 7px", fontSize: "9px" }}
+                                              >
+                                                SP checked in
+                                              </button>
+                                              <button
+                                                type="button"
+                                                onClick={() =>
+                                                  setLocalOccupancySpCheckIns((current) => ({
+                                                    ...current,
+                                                    [roomSpCheckKey]: false,
+                                                  }))
+                                                }
+                                                style={{ ...staffingSecondaryButtonStyle, padding: "5px 7px", fontSize: "9px" }}
+                                              >
+                                                Not checked in
+                                              </button>
+                                            </div>
+                                            {room.spName ? (
+                                              <label style={{ display: "grid", gap: "4px" }}>
+                                                <span style={{ color: "rgba(226, 250, 247, 0.62)", fontSize: "9px", fontWeight: 800 }}>Move SP</span>
                                                 <select
-                                                  value={localOccupancyLearnerRoomMoves[learnerArrivalKey] || room.roomName}
+                                                  value={localOccupancySpRoomMoves[`${selectedRoundOccupancyKey}|${room.spName}`] || room.roomName}
                                                   onChange={(event) =>
-                                                    setLocalOccupancyLearnerRoomMoves((current) => ({
+                                                    setLocalOccupancySpRoomMoves((current) => ({
                                                       ...current,
-                                                      [learnerArrivalKey]: event.target.value,
+                                                      [`${selectedRoundOccupancyKey}|${room.spName}`]: event.target.value,
                                                     }))
                                                   }
                                                   style={{ ...selectStyle, minWidth: 0, width: "100%", fontSize: "10px", padding: "5px 7px" }}
-                                                  aria-label={`Move ${learnerName} to another room`}
+                                                  aria-label={`Move ${room.spName} to another room`}
                                                 >
                                                   {interactiveLiveAttendanceBlueprintRooms.map((targetRoom) => (
-                                                    <option key={`${room.key}-${learnerName}-target-${targetRoom.roomName}`} value={targetRoom.roomName}>
-                                                      Move learner to {targetRoom.roomName}
+                                                    <option key={`${room.key}-sp-target-${targetRoom.roomName}`} value={targetRoom.roomName}>
+                                                      {targetRoom.roomName}
                                                     </option>
                                                   ))}
                                                 </select>
+                                              </label>
+                                            ) : null}
+                                            {learnerNames.length ? (
+                                              <div style={{ display: "grid", gap: "6px" }}>
+                                                {learnerNames.map((learnerName) => {
+                                                  const learnerArrivalKey = `${selectedRoundOccupancyKey}|${learnerName}`;
+                                                  const learnerArrived = localOccupancyLearnerArrivals[learnerArrivalKey] === true;
+                                                  return (
+                                                    <div
+                                                      key={`${room.key}-learner-control-${learnerName}`}
+                                                      style={{
+                                                        display: "grid",
+                                                        gap: "5px",
+                                                        borderRadius: "10px",
+                                                        background: "rgba(8, 145, 178, 0.08)",
+                                                        padding: "7px",
+                                                      }}
+                                                    >
+                                                      <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
+                                                        <span style={{ color: "#ecfeff", fontSize: "10px", fontWeight: 850 }}>{learnerName}</span>
+                                                        <button
+                                                          type="button"
+                                                          onClick={() =>
+                                                            setLocalOccupancyLearnerArrivals((current) => ({
+                                                              ...current,
+                                                              [learnerArrivalKey]: !learnerArrived,
+                                                            }))
+                                                          }
+                                                          style={{ ...staffingSecondaryButtonStyle, padding: "4px 7px", fontSize: "9px" }}
+                                                        >
+                                                          {learnerArrived ? "Mark expected" : "Mark arrived"}
+                                                        </button>
+                                                      </div>
+                                                      <label style={{ display: "grid", gap: "4px" }}>
+                                                        <span style={{ color: "rgba(226, 250, 247, 0.62)", fontSize: "9px", fontWeight: 800 }}>Move learner</span>
+                                                        <select
+                                                          value={localOccupancyLearnerRoomMoves[learnerArrivalKey] || room.roomName}
+                                                          onChange={(event) =>
+                                                            setLocalOccupancyLearnerRoomMoves((current) => ({
+                                                              ...current,
+                                                              [learnerArrivalKey]: event.target.value,
+                                                            }))
+                                                          }
+                                                          style={{ ...selectStyle, minWidth: 0, width: "100%", fontSize: "10px", padding: "5px 7px" }}
+                                                          aria-label={`Move ${learnerName} to another room`}
+                                                        >
+                                                          {interactiveLiveAttendanceBlueprintRooms.map((targetRoom) => (
+                                                            <option key={`${room.key}-${learnerName}-target-${targetRoom.roomName}`} value={targetRoom.roomName}>
+                                                              {targetRoom.roomName}
+                                                            </option>
+                                                          ))}
+                                                        </select>
+                                                      </label>
+                                                    </div>
+                                                  );
+                                                })}
                                               </div>
-                                            );
-                                          })}
-                                        </div>
+                                            ) : null}
+                                          </div>
+                                        ) : null}
                                       </div>
                                     );
                                   })}
