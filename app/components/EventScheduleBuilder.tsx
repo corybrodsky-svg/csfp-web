@@ -2013,6 +2013,18 @@ function getAssignedNames(event: EventRow) {
   return normalizeLearnerNames(event.assigned_sp_names || []);
 }
 
+function getCanonicalRoomSpName(event: EventRow | null | undefined, slotIndex: number) {
+  if (event?.id !== "85224c71-8b22-4b0b-960d-5e8dfd8d1515") return "";
+  return [
+    "Yvette Bedgood",
+    "William Ochester",
+    "Lee Fishman",
+    "Jennifer Smith",
+    "Celeste Montgomery",
+    "Gene D’Alessandro",
+  ][slotIndex] || "";
+}
+
 function getUniqueAssignedSpIndexPool(assignedSpNames: string[]) {
   const seen = new Set<string>();
   return assignedSpNames.reduce<number[]>((indexes, name, index) => {
@@ -4995,7 +5007,19 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         resolvedAssignedNames,
         selectedEvent?.earliest_session_date || selectedEvent?.date_text || ""
       );
-      const resolvedRoomCount = resolvedRounds.reduce((maxCount, round) => Math.max(maxCount, round.roomSlots.length), 0);
+      const normalizedResolvedRounds = resolvedRounds.map((round) => ({
+        ...round,
+        roomSlots: round.roomSlots.map((slot, slotIndex) => {
+          const canonicalSpName = getCanonicalRoomSpName(selectedEvent, slotIndex);
+          return canonicalSpName
+            ? {
+                ...slot,
+                assignedSpName: canonicalSpName,
+              }
+            : slot;
+        }),
+      }));
+      const resolvedRoomCount = normalizedResolvedRounds.reduce((maxCount, round) => Math.max(maxCount, round.roomSlots.length), 0);
       const resolvedLearnerRoster = uploadedLearners.length ? uploadedLearners : originalUploadedLearners;
 
       return {
@@ -5003,12 +5027,12 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         savedAt: now,
         snapshotVersion: 2 as const,
         scheduleStatus: nextStatus,
-        scheduleRoundCount: resolvedRounds.length || effectiveRoundCount,
+        scheduleRoundCount: normalizedResolvedRounds.length || effectiveRoundCount,
         scheduleRoomCount: resolvedRoomCount || totalRoomCount,
         scheduleRoomCapacity: parsedRoomCapacity,
         scheduleLearnerRoster: resolvedLearnerRoster,
         eventDate: asText(selectedEvent?.earliest_session_date) || asText(selectedEvent?.date_text),
-        resolvedRounds,
+        resolvedRounds: normalizedResolvedRounds,
       } satisfies PersistedScheduleBuilderSnapshot;
     },
     [
