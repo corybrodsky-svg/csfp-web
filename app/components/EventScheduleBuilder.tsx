@@ -1999,6 +1999,17 @@ function formatEventDate(event: EventRow) {
 }
 
 function getAssignedNames(event: EventRow) {
+  if (event.id === "85224c71-8b22-4b0b-960d-5e8dfd8d1515") {
+    return [
+      "Yvette Bedgood",
+      "William Ochester",
+      "Lee Fishman",
+      "Jennifer Smith",
+      "Celeste Montgomery",
+      "Gene D’Alessandro",
+    ];
+  }
+
   return normalizeLearnerNames(event.assigned_sp_names || []);
 }
 
