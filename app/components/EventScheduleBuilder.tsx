@@ -7488,7 +7488,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
             ) : !scheduledRounds.length ? (
               <div className="cfsp-alert cfsp-alert-info mt-5">Add enough rooms and schedule timing to generate the rotation schedule grid.</div>
             ) : (
-              <div className="mt-5 max-w-full min-w-0 overflow-hidden rounded-[16px] border border-[#dce6ee] bg-[#f8fbfd]">
+              <div
+                className="mt-5 max-w-full min-w-0 overflow-hidden rounded-[16px] border border-[#dce6ee] bg-[#f8fbfd]"
+                style={{ width: "100%", maxWidth: "100%", contain: "inline-size" }}
+              >
                 <div className="border-b border-[#dce6ee] px-4 py-3 text-sm font-semibold text-[#5e7388]">
                   {scheduleViewMode === "student"
                     ? "Student Schedule excludes internal SP and case details."
@@ -7496,11 +7499,19 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                 </div>
                 <div
                   className="w-full max-w-full min-w-0 overflow-x-auto"
-                  style={{ WebkitOverflowScrolling: "touch" }}
+                  style={{
+                    WebkitOverflowScrolling: "touch",
+                    contain: "inline-size",
+                    overscrollBehaviorX: "contain",
+                  }}
                 >
                 <table
                   className="border-collapse text-left"
-                  style={{ minWidth: "100%", width: "max-content" }}
+                  style={{
+                    minWidth: "100%",
+                    width: "max-content",
+                    maxWidth: "none",
+                  }}
                 >
                   <thead>
                     <tr className="border-b border-[#dce6ee] text-sm text-[#5e7388]">
