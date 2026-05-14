@@ -5866,13 +5866,23 @@ export default function EventDetailPage() {
       ),
     [rotationRounds]
   );
-  const activeDateRotationRounds = useMemo(
-    () =>
-      selectedEventDateContext
-        ? rotationRounds.filter((round) => asText(round.session_date) === selectedEventDateContext)
-        : rotationRounds,
-    [rotationRounds, selectedEventDateContext]
-  );
+  const activeDateRotationRounds = useMemo(() => {
+    if (!selectedEventDateContext) return rotationRounds;
+
+    const filteredRounds = rotationRounds.filter(
+      (round) => asText(round.session_date) === selectedEventDateContext
+    );
+
+    const usingCompletedBuilderSnapshot = Boolean(scheduleBuilderPreviewDraft?.resolvedRounds?.length);
+
+    // Completed builder snapshots are the source of truth. Do not hide saved
+    // rounds just because imported/fallback dates do not line up perfectly.
+    if (usingCompletedBuilderSnapshot && filteredRounds.length < rotationRounds.length) {
+      return rotationRounds;
+    }
+
+    return filteredRounds;
+  }, [rotationRounds, scheduleBuilderPreviewDraft?.resolvedRounds?.length, selectedEventDateContext]);
   useEffect(() => {
     if (!scheduleRoundCountResolution.hasConflict || !scheduleRoundCountResolution.candidates.length) return;
 
