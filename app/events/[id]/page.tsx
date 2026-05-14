@@ -4442,6 +4442,7 @@ export default function EventDetailPage() {
   const [locationAccessEditorOpen, setLocationAccessEditorOpen] = useState(false);
   const [locationAccessDraftLocation, setLocationAccessDraftLocation] = useState("");
   const [planningLivePreviewExpanded, setPlanningLivePreviewExpanded] = useState(false);
+  const [selectedEventDateContext, setSelectedEventDateContext] = useState("");
   const [selectedRotationRoundKey, setSelectedRotationRoundKey] = useState("");
   const [roundCompanionView, setRoundCompanionView] = useState<RotationCompanionView>("overview");
   const [roundAnnouncementDrafts, setRoundAnnouncementDrafts] = useState<Record<string, string>>({});
@@ -5569,7 +5570,7 @@ export default function EventDetailPage() {
     trainingMetadata.schedule_status,
   ]);
   const activeRotationCount = useMemo(
-    () => Math.max(scheduleRoundCountResolution.rounds, scheduleBuilderDraftRoundCount, 0),
+    () => scheduleRoundCountResolution.rounds || scheduleBuilderDraftRoundCount || 0,
     [scheduleRoundCountResolution.rounds, scheduleBuilderDraftRoundCount]
   );
   const eventEndTimeText = asText(trainingMetadata.event_end_time);
@@ -5599,6 +5600,24 @@ export default function EventDetailPage() {
       trainingMetadata.schedule_status,
       resolvedRotationDraftEndText,
     ]
+  );
+  const eventDateOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          rotationRounds
+            .map((round) => asText(round.session_date))
+            .filter(Boolean)
+        )
+      ),
+    [rotationRounds]
+  );
+  const activeDateRotationRounds = useMemo(
+    () =>
+      selectedEventDateContext
+        ? rotationRounds.filter((round) => asText(round.session_date) === selectedEventDateContext)
+        : rotationRounds,
+    [rotationRounds, selectedEventDateContext]
   );
   useEffect(() => {
     if (!scheduleRoundCountResolution.hasConflict || !scheduleRoundCountResolution.candidates.length) return;
@@ -6199,18 +6218,18 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     currentLiveBlock?.tone === "rotation" ? currentLiveBlock.roundNumber : null;
   const currentLiveReferenceRound = useMemo(() => {
     if (selectedRotationRoundKey) {
-      const selectedRound = rotationRounds.find((round) => round.key === selectedRotationRoundKey) || null;
+      const selectedRound = activeDateRotationRounds.find((round) => round.key === selectedRotationRoundKey) || null;
       if (selectedRound) return selectedRound;
     }
     if (
       currentRotationRoundNumber &&
       currentRotationRoundNumber > 0 &&
-      currentRotationRoundNumber <= rotationRounds.length
+      currentRotationRoundNumber <= activeDateRotationRounds.length
     ) {
-      return rotationRounds[currentRotationRoundNumber - 1] || null;
+      return activeDateRotationRounds[currentRotationRoundNumber - 1] || null;
     }
-    return rotationRounds[0] || null;
-  }, [currentRotationRoundNumber, rotationRounds, selectedRotationRoundKey]);
+    return activeDateRotationRounds[0] || null;
+  }, [activeDateRotationRounds, currentRotationRoundNumber, selectedRotationRoundKey]);
   const currentLiveRoomDisplayEntries = useMemo(() => {
     if (currentLiveReferenceRound) {
       return (
@@ -6237,16 +6256,16 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     roomSlotEntriesByRoundKey,
   ]);
   const defaultSelectedRotationRoundKey = useMemo(() => {
-    if (!rotationRounds.length) return "";
+    if (!activeDateRotationRounds.length) return "";
     if (
       currentRotationRoundNumber &&
       currentRotationRoundNumber > 0 &&
-      currentRotationRoundNumber <= rotationRounds.length
+      currentRotationRoundNumber <= activeDateRotationRounds.length
     ) {
-      return rotationRounds[currentRotationRoundNumber - 1]?.key || rotationRounds[0]?.key || "";
+      return activeDateRotationRounds[currentRotationRoundNumber - 1]?.key || activeDateRotationRounds[0]?.key || "";
     }
-    return rotationRounds[0]?.key || "";
-  }, [currentRotationRoundNumber, rotationRounds]);
+    return activeDateRotationRounds[0]?.key || "";
+  }, [activeDateRotationRounds, currentRotationRoundNumber]);
   const currentLiveAssignmentRows = useMemo(() => {
     if (!currentLiveRoomDisplayEntries.length) return [] as Array<{
       assignment: AssignmentRow;
@@ -6444,15 +6463,22 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
   const liveRoomMissingCount = currentLiveRoomBoardRows.filter((row) => row.status === "sp_missing").length;
   const liveRoomActiveCount = currentLiveRoomBoardRows.filter((row) => row.status === "in_session" || row.status === "ready").length;
   useEffect(() => {
-    if (!rotationRounds.length) {
+    if (!activeDateRotationRounds.length) {
       setSelectedRotationRoundKey("");
       setHasTouchedRoundCompanion(false);
       return;
     }
     setSelectedRotationRoundKey((current) =>
-      current && rotationRounds.some((round) => round.key === current) ? current : defaultSelectedRotationRoundKey
+      current && activeDateRotationRounds.some((round) => round.key === current) ? current : defaultSelectedRotationRoundKey
     );
-  }, [defaultSelectedRotationRoundKey, rotationRounds]);
+  }, [activeDateRotationRounds, defaultSelectedRotationRoundKey]);
+  useEffect(() => {
+    if (!eventDateOptions.length) {
+      setSelectedEventDateContext("");
+      return;
+    }
+    setSelectedEventDateContext((current) => (current && eventDateOptions.includes(current) ? current : eventDateOptions[0]));
+  }, [eventDateOptions]);
   useEffect(() => {
     if (typeof window === "undefined" || !id) return;
 
@@ -6755,6 +6781,10 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
   const rotationScheduleBuilt = ["built", "saved", "complete"].includes(
     asText(trainingMetadata.rotation_schedule_status).toLowerCase()
   );
+  const hasCompletedScheduleSnapshot = Boolean(
+    asText(trainingMetadata.schedule_status).toLowerCase() === "complete" &&
+      parseCompletedScheduleBuilderSnapshot(trainingMetadata.schedule_builder_snapshot)
+  );
   const hasSavedScheduleDraft = Boolean(
     scheduleBuilderPreviewDraft?.startTime ||
       scheduleBuilderPreviewDraft?.roundCount ||
@@ -6762,7 +6792,10 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       scheduleBuilderPreviewDraft?.originalUploadedLearners?.length ||
       trainingMetadata.rotation_schedule_status
   );
-  const scheduleCompleted = scheduleWorkflowStatus === "complete" || rotationScheduleBuilt;
+  const scheduleCompleted =
+    scheduleWorkflowStatus === "complete" ||
+    asText(trainingMetadata.rotation_schedule_status).toLowerCase() === "complete" ||
+    hasCompletedScheduleSnapshot;
   const scheduleInProgress =
     !scheduleCompleted && (scheduleWorkflowStatus === "in_progress" || hasSavedScheduleDraft || hasRoomsBuilt);
 
@@ -8117,12 +8150,18 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     staffingRelevant,
   ]);
   const selectedRotationRoundIndex = useMemo(
-    () => rotationRounds.findIndex((round) => round.key === selectedRotationRoundKey),
-    [rotationRounds, selectedRotationRoundKey]
+    () => activeDateRotationRounds.findIndex((round) => round.key === selectedRotationRoundKey),
+    [activeDateRotationRounds, selectedRotationRoundKey]
   );
   const activeSelectedRotationRoundIndex = selectedRotationRoundIndex >= 0 ? selectedRotationRoundIndex : 0;
   const selectedRotationRound =
-    selectedRotationRoundIndex >= 0 ? rotationRounds[selectedRotationRoundIndex] : rotationRounds[0] || null;
+    selectedRotationRoundIndex >= 0 ? activeDateRotationRounds[selectedRotationRoundIndex] : activeDateRotationRounds[0] || null;
+  const selectedRotationRoundGlobalIndex = useMemo(
+    () => (selectedRotationRound ? rotationRounds.findIndex((round) => round.key === selectedRotationRound.key) : -1),
+    [rotationRounds, selectedRotationRound]
+  );
+  const activeSelectedRotationRoundGlobalIndex =
+    selectedRotationRoundGlobalIndex >= 0 ? selectedRotationRoundGlobalIndex : activeSelectedRotationRoundIndex;
   const liveRoomAdjustments = useMemo(
     () => parseLiveRoomAdjustments(trainingMetadata.live_room_adjustments),
     [trainingMetadata.live_room_adjustments]
@@ -8342,7 +8381,7 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
             slotIndex: 0,
           },
         ];
-      const roundAdjustments = activeScheduleRoomAdjustments.get(activeSelectedRotationRoundIndex + 1) || [];
+      const roundAdjustments = activeScheduleRoomAdjustments.get(activeSelectedRotationRoundGlobalIndex + 1) || [];
       return displayRows.map(({ session, sourceIndex, slotIndex }, index) => {
         const slotOverride = roundAdjustments.find((slot: ScheduleRoomAdjustmentSlot) => slot.slotIndex === slotIndex) || null;
         const rawRoomName =
@@ -8362,7 +8401,7 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
         const generatedLearnerLabels = getResolvedRoundLearnerLabels({
           learnerRoster: scheduleBuilderLearnerNames,
           roomCapacity: scheduleBuilderRoomCapacity,
-          roundIndex: activeSelectedRotationRoundIndex,
+          roundIndex: activeSelectedRotationRoundGlobalIndex,
           slotIndex,
           roomSlotCount: Math.max(displayRows.length, 1),
           activeCaseCount: resolvedScheduleMatrixCaseCount,
@@ -8396,7 +8435,7 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
         } satisfies RoundRoomRow;
       });
   }, [
-    activeSelectedRotationRoundIndex,
+    activeSelectedRotationRoundGlobalIndex,
     event?.id,
     event?.location,
     effectiveLearnerCount,
@@ -8423,10 +8462,10 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     if (effectiveLearnerCount <= 0) return null;
     const roomCapacity = selectedRoundRoomCount || 0;
     if (roomCapacity <= 0) return null;
-    const remaining = effectiveLearnerCount - activeSelectedRotationRoundIndex * roomCapacity;
+    const remaining = effectiveLearnerCount - activeSelectedRotationRoundGlobalIndex * roomCapacity;
     if (remaining <= 0) return 0;
     return Math.min(roomCapacity, remaining);
-  }, [activeSelectedRotationRoundIndex, effectiveLearnerCount, selectedRotationRound, selectedRoundRoomCount, selectedRoundScheduleRows]);
+  }, [activeSelectedRotationRoundGlobalIndex, effectiveLearnerCount, selectedRotationRound, selectedRoundRoomCount, selectedRoundScheduleRows]);
   const selectedRoundEmptySlots = useMemo(() => {
     if (!selectedRotationRound) return null;
     if (selectedRoundLearnerCount === null) return null;
@@ -21354,7 +21393,7 @@ Cory`;
               }}
             >
               {[
-                { label: "Learners", value: effectiveLearnerCount > 0 ? String(effectiveLearnerCount) : "TBD" },
+                { label: "Learners", value: selectedRoundLearnerCount !== null ? String(selectedRoundLearnerCount) : effectiveLearnerCount > 0 ? String(effectiveLearnerCount) : "TBD" },
                 { label: "Rooms", value: effectiveRoomCount || selectedRoundRoomCount || "TBD" },
                 { label: "Rounds", value: activeRotationCount || 0 },
                 { label: "Coverage", value: needed > 0 ? `${confirmedCount}/${needed}` : `${confirmedCount}` },
@@ -21413,8 +21452,32 @@ Cory`;
                       {event?.name || "Untitled Event"}
                     </div>
                     <div style={{ color: commandCenterVisual.mutedColor, fontSize: "13px", fontWeight: 800 }}>
-                      {[sessionSummaryLabel, summaryTimeLabel, event?.location || "Location TBD"].filter(Boolean).join(" · ")}
+                      {[sessionSummaryLabel, summaryTimeLabel, `Location / Access: ${locationAccessPrimaryLabel}`].filter(Boolean).join(" · ")}
                     </div>
+                    {eventDateOptions.length > 1 ? (
+                      <label style={{ display: "inline-grid", gap: "4px", maxWidth: "240px" }}>
+                        <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Active Event Date</span>
+                        <select
+                          value={selectedEventDateContext}
+                          onChange={(event) => {
+                            const nextDate = event.target.value;
+                            setSelectedEventDateContext(nextDate);
+                            const firstRoundForDate = rotationRounds.find((round) => asText(round.session_date) === nextDate);
+                            if (firstRoundForDate) {
+                              setSelectedRotationRoundKey(firstRoundForDate.key);
+                              setHasTouchedRoundCompanion(true);
+                            }
+                          }}
+                          style={{ ...selectStyle, minWidth: 0, fontSize: "11px", padding: "7px 8px" }}
+                        >
+                          {eventDateOptions.map((dateOption) => (
+                            <option key={`event-date-context-${dateOption}`} value={dateOption}>
+                              {formatHumanDate(dateOption, importedYearHint)}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    ) : null}
                   </div>
                   <div style={{ display: "grid", gap: "6px", justifyItems: "end" }}>
                     <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
@@ -21465,7 +21528,7 @@ Cory`;
                       }}
                     >
                       {[
-                        { label: "Learners", value: effectiveLearnerCount > 0 ? String(effectiveLearnerCount) : "TBD", detail: "Current roster source" },
+                        { label: "Learners", value: selectedRoundLearnerCount !== null ? String(selectedRoundLearnerCount) : effectiveLearnerCount > 0 ? String(effectiveLearnerCount) : "TBD", detail: effectiveLearnerCount > 0 ? `Roster: ${effectiveLearnerCount}` : "Current roster source" },
                         { label: "Rooms", value: effectiveRoomCount || "TBD", detail: "Operational room surface" },
                           { label: "Rounds", value: activeRotationCount || 0, detail: scheduleRoundCountResolution.label },
                         {
@@ -22022,7 +22085,7 @@ Cory`;
 	                          { label: "Event time", value: summaryTimeLabel || "Time TBD", detail: eventDateMarkerValue || "Date TBD" },
 	                          { label: "Rounds", value: String(activeRotationCount || 0), detail: planningLivePreviewNextBlock ? `Next: ${planningLivePreviewNextBlock.label}` : "No next block" },
 	                          { label: "Rooms", value: String(effectiveRoomCount || selectedRoundRoomCount || 0), detail: hasRoomsBuilt ? "Room surface ready" : "Room plan pending" },
-	                          { label: "Learners", value: String(effectiveLearnerCount || learnerPlannerRosterCount || 0), detail: learnerAssignmentsIncomplete ? "Assignment review needed" : "Learner flow ready" },
+	                          { label: "Learners", value: String(selectedRoundAssignedLearnerCount || effectiveLearnerCount || learnerPlannerRosterCount || 0), detail: effectiveLearnerCount > 0 ? `Roster: ${effectiveLearnerCount}` : learnerAssignmentsIncomplete ? "Assignment review needed" : "Learner flow ready" },
 	                          { label: "SP coverage", value: needed > 0 ? `${confirmedCount}/${needed}` : `${confirmedCount}`, detail: shortageCount > 0 ? "Staffing gap" : "Coverage stable" },
 	                          { label: "Materials", value: materialsStatusLabel, detail: eventMaterialName || (hasUploadedEventMaterial ? "Packet loaded" : "No event packet uploaded") },
                           { label: "Recording", value: eventRecordingStatus.label, detail: eventRecordingIndicatorLabel || "Recording optional/not set" },
@@ -23084,16 +23147,26 @@ Cory`;
                   }}
                 >
                   <div className="cfsp-round-list-rail" style={{ display: "grid", gap: "6px" }}>
-                    {rotationRounds.map((round, index) => {
+                    {activeDateRotationRounds.map((round, index) => {
                       const selected = selectedRotationRound?.key === round.key;
-                      const roundRoomCount = roomSlotEntriesByRoundKey.get(round.key)?.length || 0;
-                      const roundLearnerCount =
-                        effectiveLearnerCount > 0 && roundRoomCount > 0
-                          ? Math.max(
-                              0,
-                              Math.min(roundRoomCount, effectiveLearnerCount - index * roundRoomCount)
-                            )
-                          : null;
+                      const roundGlobalIndex = rotationRounds.findIndex((candidate) => candidate.key === round.key);
+                      const roundSlotEntries = roomSlotEntriesByRoundKey.get(round.key) || [];
+                      const roundRoomCount = roundSlotEntries.length || 0;
+                      const roundLearnerCount = roundSlotEntries.reduce(
+                        (total, _slotEntry, slotIndex) =>
+                          total +
+                          getResolvedRoundLearnerLabels({
+                            learnerRoster: scheduleBuilderLearnerNames,
+                            roomCapacity: scheduleBuilderRoomCapacity,
+                            roundIndex: Math.max(roundGlobalIndex, index, 0),
+                            slotIndex,
+                            roomSlotCount: Math.max(roundSlotEntries.length, 1),
+                            activeCaseCount: resolvedScheduleMatrixCaseCount,
+                            isMultiCaseMode: resolvedScheduleMatrixCaseCount > 1,
+                            isVirtualEvent: isScheduleMatrixVirtual,
+                          }).length,
+                        0
+                      );
                       return (
                         <button
                           key={round.key}
@@ -23165,7 +23238,7 @@ Cory`;
                             <span style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText, border: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.18)" : commandChipStyle.border }}>
                               {roundRoomCount} rooms
                             </span>
-                            {roundLearnerCount !== null ? (
+                            {roundLearnerCount > 0 ? (
                               <span style={{ ...commandChipStyle, background: commandCenterVisual.activeSoftBackground, color: commandCenterVisual.activeSoftText, border: isPlanningVisualMode ? "1px solid rgba(25, 138, 112, 0.2)" : commandChipStyle.border }}>
                                 {roundLearnerCount} learners
                               </span>
@@ -23598,7 +23671,7 @@ Cory`;
                           {[
                             { label: "Rounds", value: activeRotationCount || 0 },
                             { label: "Rooms", value: effectiveRoomCount || selectedRoundRoomCount || 0 },
-                            { label: "Learners", value: effectiveLearnerCount || learnerPlannerRosterCount || 0 },
+                            { label: "Learners", value: selectedRoundAssignedLearnerCount || effectiveLearnerCount || learnerPlannerRosterCount || 0 },
                             { label: "Next block", value: planningLivePreviewPrimaryBlock?.label || "No block" },
                           ].map((item) => (
                             <div key={`central-schedule-builder-${item.label}`} style={{ borderRadius: "12px", border: commandCenterVisual.rowBorder, background: isPlanningVisualMode ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.05)", padding: "9px" }}>
@@ -23634,7 +23707,7 @@ Cory`;
                               }}
                               style={{ ...selectStyle, minWidth: "180px", fontSize: "11px", padding: "7px 8px" }}
                             >
-                              {rotationRounds.map((round, index) => (
+                              {activeDateRotationRounds.map((round, index) => (
                                 <option key={`central-schedule-preview-round-${round.key}`} value={round.key}>
                                   Round {index + 1}
                                 </option>
@@ -23894,8 +23967,7 @@ Cory`;
                                     const learnerNames = asText(room.learnerLabel)
                                       .split(",")
                                       .map((name) => name.trim())
-                                      .filter((name) => name && isAssignedLearnerRoomLabel(name))
-                                      .slice(0, 3);
+                                      .filter((name) => name && isAssignedLearnerRoomLabel(name));
                                     const alertTone = room.status === "late" || room.status === "no_show";
                                     return (
                                       <div

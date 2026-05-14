@@ -6012,6 +6012,15 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     }
   }
 
+  function handleManualLearnerRosterChange(value: string) {
+    const names = normalizeLearnerNames(value.split(/\r?\n/));
+    setLearnerFileName(names.length ? "Manual student list" : "");
+    setOriginalUploadedLearners(names);
+    setUploadedLearners(names);
+    setLearnerUploadError("");
+    setSaveState("unsaved");
+  }
+
   function handleRandomizeLearners() {
     const source = uploadedLearners.length ? uploadedLearners : learnerRoster;
     if (!source.length) return;
@@ -6458,6 +6467,16 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                 <div className="text-sm font-semibold text-[#5e7388]">
                   Use the Student Name column for learner names. Email Address and Notes are optional.
                 </div>
+                <label className="grid gap-2">
+                  <span className="cfsp-label">Manual Student / Learner List</span>
+                  <textarea
+                    className="cfsp-input"
+                    value={uploadedLearners.join("\n")}
+                    onChange={(event) => handleManualLearnerRosterChange(event.target.value)}
+                    placeholder={"One learner per line\nAlex Smith\nJordan Lee"}
+                    style={{ minHeight: 132, resize: "vertical" }}
+                  />
+                </label>
                 {learnerUploadError ? <div className="cfsp-alert cfsp-alert-error">{learnerUploadError}</div> : null}
                 <div className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
                   <div className="cfsp-label">Active learner roster</div>
@@ -6614,12 +6633,28 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
               </div>
               <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                 <div style={{ display: "grid", gap: "10px" }}>
-  <NumberInput
-    label={roomCountLabel}
-    value={examRoomCount}
-    onChange={setExamRoomCount}
-  />
-</div>
+                  <NumberInput
+                    label={roomCountLabel}
+                    value={examRoomCount}
+                    onChange={setExamRoomCount}
+                  />
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      className="cfsp-btn cfsp-btn-secondary"
+                      onClick={() => setExamRoomCount(String(Math.max(1, parseNumber(examRoomCount, 1) - 1)))}
+                    >
+                      − Room
+                    </button>
+                    <button
+                      type="button"
+                      className="cfsp-btn cfsp-btn-primary"
+                      onClick={() => setExamRoomCount(String(Math.max(1, parseNumber(examRoomCount, 0) + 1)))}
+                    >
+                      + Room
+                    </button>
+                  </div>
+                </div>
                 <NumberInput label={roomCapacityLabel} value={roomCapacity} onChange={handleRoomCapacityChange} />
                 {!isVirtualEvent ? (
                   <>
@@ -7441,14 +7476,14 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                   <button
                     type="button"
                     className="cfsp-btn cfsp-btn-secondary"
-                    onClick={() => setExamRoomCount(String(Math.max(1, Number(examRoomCount || "1") - 1)))}
+                    onClick={() => setExamRoomCount(String(Math.max(1, parseNumber(examRoomCount, 1) - 1)))}
                   >
                     − Room
                   </button>
                   <button
                     type="button"
                     className="cfsp-btn cfsp-btn-primary"
-                    onClick={() => setExamRoomCount(String(Number(examRoomCount || "0") + 1))}
+                    onClick={() => setExamRoomCount(String(Math.max(1, parseNumber(examRoomCount, 0) + 1)))}
                   >
                     + Room
                   </button>
