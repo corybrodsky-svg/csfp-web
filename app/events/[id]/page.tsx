@@ -16196,9 +16196,9 @@ Cory`;
                 <div style={{ position: "relative", display: "grid", gap: "6px" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", flexWrap: "wrap", alignItems: "flex-start" }}>
                     <div>
-                      <div style={{ ...statLabel, color: livePanelAccentText }}>3D Simulation Lab</div>
+                      <div style={{ ...statLabel, color: livePanelAccentText }}>Live Attendance</div>
                       <div style={{ marginTop: "4px", color: livePanelTitleText, fontSize: "19px", fontWeight: 950 }}>
-                        3D Simulation Lab
+                        Live Attendance
                       </div>
                       <div style={{ marginTop: "4px", color: "#dbeafe", fontSize: "10px", fontWeight: 700, lineHeight: 1.45 }}>
                         Track SP check-in and learner arrival from prebrief into active exam rooms.
@@ -22703,12 +22703,12 @@ Cory`;
 	                <div style={{ position: "relative", display: "grid", gap: "6px" }}>
 	                  <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", flexWrap: "wrap", alignItems: "flex-start" }}>
 	                    <div>
-	                      <div style={{ ...statLabel, color: "#12617f" }}>Live Event Preview</div>
+	                      <div style={{ ...statLabel, color: "#12617f" }}>Live</div>
 	                      <div style={{ marginTop: "4px", color: "#102d44", fontWeight: 950, fontSize: "18px", letterSpacing: "0.01em" }}>
-	                        Planning-side live command preview
+	                        Live command center
 	                      </div>
 	                      <div style={{ marginTop: "4px", color: "#4d6678", fontSize: "10px", fontWeight: 700, lineHeight: 1.45, maxWidth: "760px" }}>
-	                        Check the live-day sequence, blockers, staffing, materials, and schedule readiness before switching into Live Mode.
+	                        Use the live attendance blueprint, learner arrival rail, room status, and current flow inside the command board.
 	                      </div>
 	                    </div>
 	                    <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end", alignItems: "center" }}>
@@ -23847,7 +23847,7 @@ Cory`;
                         : roundCompanionView === "learner"
                         ? "Learner Flow"
                         : roundCompanionView === "live"
-                        ? "Live Preview"
+                        ? "Live"
                         : roundCompanionView === "announcements"
                         ? "Announcements"
                         : roundCompanionView === "student"
@@ -24115,7 +24115,7 @@ Cory`;
                           { value: "overview", label: "Overview" },
                           { value: "coverage", label: "Coverage" },
                           { value: "learner", label: "Learner Flow" },
-                          { value: "live", label: "Live Preview" },
+                          { value: "live", label: "Live" },
                           { value: "announcements", label: "Announcements" },
                           { value: "student", label: "Student Schedule" },
                           { value: "sp", label: "SP Schedule" },
@@ -24677,12 +24677,12 @@ Cory`;
                         >
                           <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "flex-start" }}>
                             <div>
-                              <div style={{ ...statLabel, color: "rgba(186, 230, 253, 0.88)" }}>3D Simulation Lab</div>
+                              <div style={{ ...statLabel, color: "rgba(186, 230, 253, 0.88)" }}>Live Attendance</div>
                               <div style={{ marginTop: "4px", color: "#e6fffb", fontSize: "18px", fontWeight: 950 }}>
-                                3D Simulation Lab
+                                Live Attendance
                               </div>
                               <div style={{ marginTop: "3px", color: "rgba(226, 250, 247, 0.72)", fontSize: "11px", fontWeight: 750 }}>
-                                Live attendance blueprint, learner arrival rail, room status, and current block in one board.
+                                Live attendance visual, learner arrival rail, room status, and current encounter flow.
                               </div>
                             </div>
                             <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
@@ -24989,7 +24989,7 @@ Cory`;
                             gap: "8px",
                           }}
                         >
-                          <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>3D Simulation Lab</div>
+                          <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Live Attendance</div>
                           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "8px" }}>
                             {liveCloseoutItems.map((item) => (
                               <div key={`central-live-blueprint-${item.label}`} style={{ borderRadius: "12px", border: commandCenterVisual.rowBorder, background: isPlanningVisualMode ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.05)", padding: "8px" }}>
@@ -25628,7 +25628,7 @@ Cory`;
     >
       <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
         <div>
-          <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Live Preview</div>
+          <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Live</div>
           <div style={{ marginTop: "3px", color: commandCenterVisual.headingColor, fontWeight: 950, fontSize: "16px" }}>
             {planningLivePreviewPrimaryBlock?.label || "No live block selected"}
           </div>
