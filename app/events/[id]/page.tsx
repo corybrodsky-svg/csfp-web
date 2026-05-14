@@ -3932,6 +3932,59 @@ function parseCompletedScheduleBuilderSnapshot(value: unknown) {
   return null;
 }
 
+function parseScheduleBuilderPreviewDays(raw: string | null | undefined) {
+  const text = asText(raw);
+  if (!text) return new Map<number, ScheduleBuilderPreviewDraft>();
+
+  try {
+    const parsed = JSON.parse(text) as Record<string, string>;
+    if (!parsed || typeof parsed !== "object") return new Map<number, ScheduleBuilderPreviewDraft>();
+
+    const output = new Map<number, ScheduleBuilderPreviewDraft>();
+    Object.entries(parsed).forEach(([rawKey, encodedSnapshot]) => {
+      const day = Number.parseInt(rawKey, 10);
+      if (!Number.isFinite(day) || day <= 0 || typeof encodedSnapshot !== "string") return;
+      const snapshot = parseCompletedScheduleBuilderSnapshot(encodedSnapshot);
+      if (snapshot) output.set(day, snapshot);
+    });
+
+    return output;
+  } catch {
+    return new Map<number, ScheduleBuilderPreviewDraft>();
+  }
+}
+
+function resolveScheduleBuilderPreviewSnapshot(
+  metadata: Partial<TrainingEventMetadata> | null | undefined,
+  options?: { scheduleDay?: number | null; localStorageSnapshot?: string | null }
+) {
+  const effectiveDay = options?.scheduleDay && options.scheduleDay > 0 ? options.scheduleDay : 1;
+  const serverDaySnapshots = parseScheduleBuilderPreviewDays(asText(metadata?.schedule_builder_days));
+  const serverSnapshotFromDay = serverDaySnapshots.get(effectiveDay) || null;
+  const inheritedDaySnapshot =
+    effectiveDay > 1 && serverDaySnapshots.has(effectiveDay - 1)
+      ? serverDaySnapshots.get(effectiveDay - 1) || null
+      : null;
+  const fallbackLegacySnapshot = parseCompletedScheduleBuilderSnapshot(metadata?.schedule_builder_snapshot);
+  const serverSnapshot = serverSnapshotFromDay || inheritedDaySnapshot || fallbackLegacySnapshot;
+  const completedSnapshot =
+    asText(metadata?.schedule_status).toLowerCase() === "complete" ? serverSnapshot : null;
+  const localSnapshot = options?.localStorageSnapshot
+    ? parseScheduleBuilderPreviewDraft(options.localStorageSnapshot)
+    : null;
+
+  return {
+    effectiveDay,
+    serverDaySnapshots,
+    serverSnapshotFromDay,
+    inheritedDaySnapshot,
+    fallbackLegacySnapshot,
+    serverSnapshot,
+    completedSnapshot,
+    draft: completedSnapshot || serverSnapshot || localSnapshot,
+  };
+}
+
 function getScheduleBuilderBlockAudience(block: ScheduleBuilderPreviewDayBlock): RotationCompanionView[] {
   const visibleTo = asText(block.visibleTo).toLowerCase();
   const labelAudience = getRoundCompanionAudience(block.label);
@@ -6673,16 +6726,11 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
 
     const storageKey = getScheduleBuilderStorageKey(id);
     const loadScheduleBuilderDraft = () => {
-      const serverSnapshot = parseCompletedScheduleBuilderSnapshot(trainingMetadata.schedule_builder_snapshot);
-      const completedSnapshot =
-        asText(trainingMetadata.schedule_status).toLowerCase() === "complete" ? serverSnapshot : null;
-      const draft = completedSnapshot || serverSnapshot || parseScheduleBuilderPreviewDraft(window.localStorage.getItem(storageKey));
-      setScheduleBuilderPreviewDraft(draft);
-      console.info(
-        `Schedule source: ${
-          completedSnapshot ? "completed_snapshot" : serverSnapshot ? "saved_draft" : draft ? "draft" : sessions.length ? "event_sessions" : "fallback"
-        }`
-      );
+      const resolvedSnapshot = resolveScheduleBuilderPreviewSnapshot(trainingMetadata, {
+        scheduleDay: scheduleBuilderDay,
+        localStorageSnapshot: window.localStorage.getItem(storageKey),
+      });
+      setScheduleBuilderPreviewDraft(resolvedSnapshot.draft);
     };
     const handleStorage = (event: StorageEvent) => {
       if (event.key === storageKey) loadScheduleBuilderDraft();
@@ -6701,7 +6749,14 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       window.removeEventListener("focus", loadScheduleBuilderDraft);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [id, sessions.length, trainingMetadata.schedule_builder_snapshot, trainingMetadata.schedule_status]);
+  }, [
+    id,
+    scheduleBuilderDay,
+    trainingMetadata,
+    trainingMetadata.schedule_builder_days,
+    trainingMetadata.schedule_builder_snapshot,
+    trainingMetadata.schedule_status,
+  ]);
   useEffect(() => {
     if (!materialPreview || typeof document === "undefined") return;
 
@@ -13060,14 +13115,35 @@ Cory`;
       nextTrainingMetadata.schedule_room_count = String(options.nextRoomCount);
     }
 
-    if (scheduleBuilderPreviewDraft) {
+    const resolvedSchedulePreview = resolveScheduleBuilderPreviewSnapshot(trainingMetadata, {
+      scheduleDay: scheduleBuilderDay,
+    });
+    const basePreviewSnapshot = scheduleBuilderPreviewDraft || resolvedSchedulePreview.serverSnapshot || null;
+
+    if (basePreviewSnapshot) {
+      const nextPreviewSnapshot: ScheduleBuilderPreviewDraft = {
+        ...basePreviewSnapshot,
+        ...(options?.nextRoomCount !== undefined
+          ? {
+              examRoomCount: String(options.nextRoomCount),
+              scheduleRoomCount: options.nextRoomCount,
+            }
+          : {}),
+        savedAt: now,
+      };
       nextTrainingMetadata.schedule_builder_snapshot = encodeURIComponent(
-        JSON.stringify({
-          ...scheduleBuilderPreviewDraft,
-          ...(options?.nextRoomCount !== undefined ? { examRoomCount: String(options.nextRoomCount) } : {}),
-          savedAt: now,
-        })
+        JSON.stringify(nextPreviewSnapshot)
       );
+      const nextDays = new Map(resolvedSchedulePreview.serverDaySnapshots);
+      nextDays.set(resolvedSchedulePreview.effectiveDay, nextPreviewSnapshot);
+      nextTrainingMetadata.schedule_builder_days = JSON.stringify(
+        Object.fromEntries(
+          Array.from(nextDays.entries())
+            .sort(([a], [b]) => a - b)
+            .map(([day, snapshot]) => [String(day), encodeURIComponent(JSON.stringify(snapshot))])
+        )
+      );
+      setScheduleBuilderPreviewDraft(nextPreviewSnapshot);
     }
 
     await persistTrainingMetadataFields(nextTrainingMetadata, successMessage);
