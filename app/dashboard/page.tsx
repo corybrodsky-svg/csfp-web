@@ -756,7 +756,7 @@ function WorkflowSection({
                 <article
                   key={item.event.id}
                   ref={(node) => registerEventRef(item.event.id, node)}
-                  className="rounded-[12px] px-4 py-4"
+                  className="cursor-pointer rounded-[12px] px-4 py-4"
                   style={{
                     border:
                       highlightedEventId === item.event.id
@@ -776,7 +776,18 @@ function WorkflowSection({
                           : visualTone.cardShadow,
                     transition: "box-shadow 180ms ease, border-color 180ms ease, background 180ms ease",
                   }}
-                >
+                
+                data-clickable-event-card
+                role="button"
+                tabIndex={0}
+                onClick={() => window.location.assign(`/events/${encodeURIComponent(item.event.id)}?family=n421`)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    window.location.assign(`/events/${encodeURIComponent(item.event.id)}?family=n421`);
+                  }
+                }}
+              >
                   <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                     <div className="min-w-0 flex-1">
                       <div className="mb-2 flex flex-wrap gap-2">
@@ -821,15 +832,6 @@ function WorkflowSection({
                         <div className="cfsp-label">Assigned SPs</div>
                         <div className="flex flex-wrap gap-2">{renderAssignedPeople(item.event.assigned_sp_names)}</div>
                       </div>
-                    </div>
-
-                    <div className="flex flex-wrap gap-2">
-                      <Link href={`/events/${item.event.id}#coverage-actions`} className="cfsp-btn cfsp-btn-primary">
-                        Quick Assign
-                      </Link>
-                      <Link href={`/events/${encodeURIComponent(item.event.id)}?family=n421`} className="cfsp-btn cfsp-btn-secondary">
-                        Open Event
-                      </Link>
                     </div>
                   </div>
                 </article>
@@ -1395,10 +1397,21 @@ function RecentEventsPanel({
             return (
               <article
                 key={recent.id}
-                className="rounded-[12px] px-3 py-3"
+                className="cursor-pointer rounded-[12px] px-3 py-3"
                 style={{
                   border: "1px solid rgba(20, 91, 150, 0.1)",
                   background: "rgba(255,255,255,0.72)",
+                }}
+              
+                data-clickable-event-card
+                role="button"
+                tabIndex={0}
+                onClick={() => window.location.assign(`/events/${encodeURIComponent(recent.id)}?family=n421`)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    window.location.assign(`/events/${encodeURIComponent(recent.id)}?family=n421`);
+                  }
                 }}
               >
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -1424,9 +1437,6 @@ function RecentEventsPanel({
                       {openedLabel ? <span>Opened {openedLabel}</span> : null}
                     </div>
                   </div>
-                  <Link href={`/events/${encodeURIComponent(recent.id)}?family=n421`} className="cfsp-btn cfsp-btn-secondary shrink-0 px-3 py-1.5 text-xs">
-                    Open
-                  </Link>
                 </div>
               </article>
             );
