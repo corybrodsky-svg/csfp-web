@@ -5855,6 +5855,33 @@ export default function EventDetailPage() {
       resolvedRotationDraftEndText,
     ]
   );
+
+  useEffect(() => {
+    console.info("CFSP schedule debug", {
+      scheduleStatus: trainingMetadata.schedule_status,
+      scheduleBuilderDay,
+      selectedEventDateContext,
+      draftRoundCount: scheduleBuilderPreviewDraft?.scheduleRoundCount,
+      resolvedRoundsLength: scheduleBuilderPreviewDraft?.resolvedRounds?.length,
+      rotationRoundsLength: rotationRounds.length,
+      activeRotationCount,
+      firstRounds: rotationRounds.slice(0, 8).map((round) => ({
+        key: round.key,
+        date: round.session_date,
+        start: round.start_time,
+        end: round.end_time,
+        rooms: round.rooms?.length,
+      })),
+    });
+  }, [
+    activeRotationCount,
+    rotationRounds,
+    scheduleBuilderDay,
+    scheduleBuilderPreviewDraft?.resolvedRounds?.length,
+    scheduleBuilderPreviewDraft?.scheduleRoundCount,
+    selectedEventDateContext,
+    trainingMetadata.schedule_status,
+  ]);
   const eventDateOptions = useMemo(
     () =>
       Array.from(
