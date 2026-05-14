@@ -5569,8 +5569,8 @@ export default function EventDetailPage() {
     trainingMetadata.schedule_status,
   ]);
   const activeRotationCount = useMemo(
-    () => Math.max(scheduleRoundCountResolution.rounds, 0),
-    [scheduleRoundCountResolution.rounds]
+    () => Math.max(scheduleRoundCountResolution.rounds, scheduleBuilderDraftRoundCount, 0),
+    [scheduleRoundCountResolution.rounds, scheduleBuilderDraftRoundCount]
   );
   const eventEndTimeText = asText(trainingMetadata.event_end_time);
   const lastSessionEndTimeText = asText(sessions[sessions.length - 1]?.end_time);
@@ -6755,8 +6755,16 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
   const rotationScheduleBuilt = ["built", "saved", "complete"].includes(
     asText(trainingMetadata.rotation_schedule_status).toLowerCase()
   );
-  const scheduleCompleted = scheduleWorkflowStatus === "complete";
-  const scheduleInProgress = scheduleWorkflowStatus === "in_progress";
+  const hasSavedScheduleDraft = Boolean(
+    scheduleBuilderPreviewDraft?.startTime ||
+      scheduleBuilderPreviewDraft?.roundCount ||
+      scheduleBuilderPreviewDraft?.uploadedLearners?.length ||
+      scheduleBuilderPreviewDraft?.originalUploadedLearners?.length ||
+      trainingMetadata.rotation_schedule_status
+  );
+  const scheduleCompleted = scheduleWorkflowStatus === "complete" || rotationScheduleBuilt;
+  const scheduleInProgress =
+    !scheduleCompleted && (scheduleWorkflowStatus === "in_progress" || hasSavedScheduleDraft || hasRoomsBuilt);
 
   // CFSP communication completion checkboxes v14
   useEffect(() => {
