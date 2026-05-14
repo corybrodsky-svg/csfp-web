@@ -5632,7 +5632,7 @@ export default function EventDetailPage() {
   const resolvedRotationDraftEndText = eventEndTimeText || lastSessionEndTimeText;
   const rotationRounds = useMemo(
     () => {
-      if (asText(trainingMetadata.schedule_status).toLowerCase() === "complete" && scheduleBuilderPreviewDraft?.startTime) {
+      if (scheduleBuilderPreviewDraft?.startTime) {
         const snapshotRounds = buildRotationRoundsFromScheduleDraft(
           scheduleBuilderPreviewDraft,
           activeRotationCount,
@@ -5642,6 +5642,7 @@ export default function EventDetailPage() {
         );
         if (snapshotRounds.length) return snapshotRounds;
       }
+
       return capRotationRounds(allRotationRounds, activeRotationCount);
     },
     [
@@ -5651,7 +5652,6 @@ export default function EventDetailPage() {
       importedYearHint,
       scheduleBuilderPreviewDraft,
       sessions,
-      trainingMetadata.schedule_status,
       resolvedRotationDraftEndText,
     ]
   );
