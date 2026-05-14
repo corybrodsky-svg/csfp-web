@@ -5014,6 +5014,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
           return canonicalSpName
             ? {
                 ...slot,
+                assignedSpIndex: slotIndex,
                 assignedSpName: canonicalSpName,
               }
             : slot;

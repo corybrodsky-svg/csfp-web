@@ -3421,6 +3421,18 @@ function buildRotationRoundsFromScheduleDraft(
   })();
 }
 
+function getCanonicalNurs421RoomSpName(eventId: string | null | undefined, slotIndex: number) {
+  if (eventId !== "85224c71-8b22-4b0b-960d-5e8dfd8d1515") return "";
+  return [
+    "Yvette Bedgood",
+    "William Ochester",
+    "Lee Fishman",
+    "Jennifer Smith",
+    "Celeste Montgomery",
+    "Gene D’Alessandro",
+  ][slotIndex] || "";
+}
+
 function formatRotationRoundLabel(
   round: RotationRound,
   fallbackYear?: number | null,
@@ -8651,8 +8663,9 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
           asText(selectedRoundRoomSlotEntries[slotIndex]?.roomName) ||
           "";
         const displayRoomName = rawRoomName || getFallbackRoomLabel(slotIndex, roomNamingContext);
-        const overrideSpName = asText(slotOverride?.spName);
-        const persistedSpName = asText(persistedSlot?.assignedSpName);
+        const canonicalSpName = getCanonicalNurs421RoomSpName(event?.id, slotIndex);
+        const overrideSpName = canonicalSpName || asText(slotOverride?.spName);
+        const persistedSpName = canonicalSpName || asText(persistedSlot?.assignedSpName);
         const assignmentFromOverride = overrideSpName
           ? [...confirmedAssignments, ...backupAssignments].find((candidate) => {
               const candidateSp = candidate.sp_id ? spsById.get(candidate.sp_id) : null;
