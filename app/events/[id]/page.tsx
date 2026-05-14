@@ -9739,11 +9739,18 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
           ) ||
           null;
         const projection = liveBlueprintRoomAssignmentPlan.assignments[index];
+        const canonicalSpName = getCanonicalNurs421RoomSpName(event?.id, index);
+        const canonicalAssignment = canonicalSpName
+          ? confirmedAssignments.find((item) => {
+              const candidateSp = item.sp_id ? spsById.get(item.sp_id) || null : null;
+              return asText(getFullName(candidateSp || emptySpRow)).toLowerCase() === canonicalSpName.toLowerCase();
+            }) || null
+          : null;
         const restoredAssignment =
           asText(adjustment.restoredAssignmentId)
             ? confirmedAssignments.find((item) => item.id === adjustment.restoredAssignmentId) || null
             : null;
-        const plannedAssignment = boardRow?.assignment || projection?.assignment || null;
+        const plannedAssignment = canonicalAssignment || boardRow?.assignment || projection?.assignment || null;
         const plannedAssignmentOverrideRoom = plannedAssignment?.id
           ? liveRestoredAssignmentRoomById.get(plannedAssignment.id)
           : "";
@@ -16148,9 +16155,9 @@ Cory`;
                 <div style={{ position: "relative", display: "grid", gap: "6px" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", flexWrap: "wrap", alignItems: "flex-start" }}>
                     <div>
-                      <div style={{ ...statLabel, color: livePanelAccentText }}>Live Attendance Blueprint</div>
+                      <div style={{ ...statLabel, color: livePanelAccentText }}>3D Simulation Lab</div>
                       <div style={{ marginTop: "4px", color: livePanelTitleText, fontSize: "19px", fontWeight: 950 }}>
-                        Simulation Lab Occupancy
+                        3D Simulation Lab
                       </div>
                       <div style={{ marginTop: "4px", color: "#dbeafe", fontSize: "10px", fontWeight: 700, lineHeight: 1.45 }}>
                         Track SP check-in and learner arrival from prebrief into active exam rooms.
@@ -24633,9 +24640,9 @@ Cory`;
                         >
                           <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "flex-start" }}>
                             <div>
-                              <div style={{ ...statLabel, color: "rgba(186, 230, 253, 0.88)" }}>Simulation Lab Occupancy</div>
+                              <div style={{ ...statLabel, color: "rgba(186, 230, 253, 0.88)" }}>3D Simulation Lab</div>
                               <div style={{ marginTop: "4px", color: "#e6fffb", fontSize: "18px", fontWeight: 950 }}>
-                                Simulation Lab Occupancy Map
+                                3D Simulation Lab
                               </div>
                               <div style={{ marginTop: "3px", color: "rgba(226, 250, 247, 0.72)", fontSize: "11px", fontWeight: 750 }}>
                                 Live attendance blueprint, learner arrival rail, room status, and current block in one board.
@@ -24945,7 +24952,7 @@ Cory`;
                             gap: "8px",
                           }}
                         >
-                          <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Live Attendance Blueprint</div>
+                          <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>3D Simulation Lab</div>
                           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "8px" }}>
                             {liveCloseoutItems.map((item) => (
                               <div key={`central-live-blueprint-${item.label}`} style={{ borderRadius: "12px", border: commandCenterVisual.rowBorder, background: isPlanningVisualMode ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.05)", padding: "8px" }}>
