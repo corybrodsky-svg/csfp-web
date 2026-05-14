@@ -607,54 +607,96 @@ function parseSpEventInfoSheet(sheet: XLSX.WorkSheet, sheetName: string): Parsed
 }
 
 function parseSpInfoSheet(sheet: XLSX.WorkSheet, sheetName: string): ParsedSheet | null {
-  const title = getMergedCellText(sheet, "A1");
-  const term = getMergedCellText(sheet, "A2") || null;
-  const emailHeader = getMergedCellText(sheet, "A14").toLowerCase();
-  const hiredHeader = getMergedCellText(sheet, "B14").toLowerCase();
-  const staffHiringRaw = getMergedCellText(sheet, "D13");
+  const title =
+    getMergedCellText(sheet, "B1") ||
+    findLabeledValue(sheet, ["event title", "workbook title", "event"]) ||
+    "";
+
+  const term = getMergedCellText(sheet, "B13") || null;
+  const staffHiringRaw = findLabeledValue(sheet, ["staff hiring", "sim staff", "event lead", "event lead team"]) || null;
+
   const sessions: ParsedSession[] = [];
-  const dateColumns = ["D", "E", "F", "G"];
   const statusColumnsByDate = new Map<string, string>();
+  const range = getSheetRange(sheet);
 
-  dateColumns.forEach((column) => {
-    const date = parseExcelDate(getMergedCellValue(sheet, `${column}14`));
-    const time = parseTimeValue(getMergedCellValue(sheet, `${column}15`));
-    addUniqueDateSession(sessions, date, time);
-    if (date) statusColumnsByDate.set(date, column);
-  });
+  if (range) {
+    for (let col = range.s.c; col <= range.e.c; col += 1) {
+      const columnLetter = XLSX.utils.encode_col(col);
+      const header = getMergedCellText(sheet, `${columnLetter}14`);
+      const lowerHeader = header.toLowerCase();
 
-  const looksValid = Boolean(title) && sessions.length > 0;
+      const dateMatch = header.match(/(\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)/);
+      const isEventColumn =
+        lowerHeader.includes("event") ||
+        lowerHeader.includes("encounter") ||
+        lowerHeader.includes("simulation");
 
-  if (!looksValid) return null;
+      if (!isEventColumn && !dateMatch) continue;
+
+      const date = parseExcelDate(dateMatch?.[1] || header);
+      if (!date) continue;
+
+      const time =
+        parseTimeValue(getMergedCellText(sheet, `${columnLetter}15`)) ||
+        parseTimeValue(header);
+
+      addUniqueDateSession(sessions, date, time);
+      statusColumnsByDate.set(date, columnLetter);
+    }
+  }
 
   const rosterRows: ParsedRosterRow[] = [];
   let blankRowStreak = 0;
 
   for (let row = 16; row <= 250; row += 1) {
-    const email = getMergedCellText(sheet, `A${row}`);
-    const name = getMergedCellText(sheet, `B${row}`);
-    const caseText = getMergedCellText(sheet, `H${row}`) || null;
-    const assignmentText = getMergedCellText(sheet, `I${row}`) || null;
-    const notesText = getMergedCellText(sheet, `J${row}`) || null;
+    const email =
+      getMergedCellText(sheet, `B${row}`) ||
+      getMergedCellText(sheet, `A${row}`);
+
+    const name =
+      getMergedCellText(sheet, `C${row}`) ||
+      getMergedCellText(sheet, `B${row}`);
+
+    const caseText =
+      getMergedCellText(sheet, `G${row}`) ||
+      getMergedCellText(sheet, `H${row}`) ||
+      null;
+
+    const assignmentText =
+      getMergedCellText(sheet, `H${row}`) ||
+      getMergedCellText(sheet, `I${row}`) ||
+      null;
+
+    const notesText =
+      getMergedCellText(sheet, `I${row}`) ||
+      getMergedCellText(sheet, `J${row}`) ||
+      null;
 
     const statuses = Object.fromEntries(
       [...statusColumnsByDate.entries()].map(([date, column]) => [date, getMergedCellText(sheet, `${column}${row}`)])
     );
+
     const hasUsefulStatus = Object.values(statuses).some(Boolean);
     const isBlank = !email && !name && !caseText && !assignmentText && !notesText && !hasUsefulStatus;
 
     if (isBlank) {
       blankRowStreak += 1;
-      if (blankRowStreak >= 5) break;
+      if (blankRowStreak >= 8) break;
       continue;
     }
 
     blankRowStreak = 0;
-    if (!email && !name) continue;
+
+    const looksLikeEmail = /@/.test(email);
+    const cleanedName = looksLikeEmail ? name : email || name;
+    const cleanedEmail = looksLikeEmail ? email : /@/.test(name) ? name : "";
+
+    if (!cleanedEmail && !cleanedName) continue;
+    if (isKnownHeader(cleanedEmail) || isKnownHeader(cleanedName)) continue;
 
     rosterRows.push({
-      email,
-      name,
+      email: cleanedEmail,
+      name: cleanedName,
       caseText,
       assignmentText,
       notesText,
@@ -662,12 +704,16 @@ function parseSpInfoSheet(sheet: XLSX.WorkSheet, sheetName: string): ParsedSheet
     });
   }
 
+  const looksValid = Boolean(title) && sessions.length > 0 && rosterRows.length > 0;
+  if (!looksValid) return null;
+
   const staffLine = staffHiringRaw
     ? /^staff hiring\s*:/i.test(staffHiringRaw)
       ? staffHiringRaw
       : `Staff Hiring: ${staffHiringRaw}`
     : null;
-  const simStaffNames = splitPeopleList(staffHiringRaw);
+
+  const simStaffNames = splitPeopleList(staffHiringRaw || "");
   const caseText = rosterRows.map((row) => row.caseText).find(Boolean) || null;
 
   return {
@@ -683,7 +729,7 @@ function parseSpInfoSheet(sheet: XLSX.WorkSheet, sheetName: string): ParsedSheet
     location: null,
     simStaffNames,
     staffLine,
-    eventLeadTeam: null,
+    eventLeadTeam: staffHiringRaw,
     courseFaculty: null,
     rosterRows,
   };
