@@ -4856,11 +4856,11 @@ export default function EventDetailPage() {
 
     return sps
       .filter((sp) => {
-        if (assignedSpIds.has(String(sp.id))) return false;
         if (!queryTokens.length) return true;
 
         const quickSearchText = [
           getCandidateSearchText(sp),
+          getFullName(sp),
           ...Object.values(sp).map(asText),
         ]
           .join(" ")
@@ -4868,8 +4868,13 @@ export default function EventDetailPage() {
 
         return queryTokens.every((token) => quickSearchText.includes(token));
       })
-      .sort(sortSPs)
-      .slice(0, 30);
+      .sort((a, b) => {
+        const aAssigned = assignedSpIds.has(String(a.id)) ? 1 : 0;
+        const bAssigned = assignedSpIds.has(String(b.id)) ? 1 : 0;
+        if (aAssigned !== bAssigned) return aAssigned - bAssigned;
+        return sortSPs(a, b);
+      })
+      .slice(0, 50);
   }, [assignedSpIds, quickStaffingQuery, sps]);
 
   const pollMetadata = useMemo(() => parsePollMetadata(eventEditor.notes), [eventEditor.notes]);
@@ -5552,7 +5557,7 @@ export default function EventDetailPage() {
     const hasDraftTiming = Boolean(scheduleBuilderPreviewDraft?.startTime);
     const completedCandidate =
       scheduleStatus === "complete" && hasDraftTiming
-        ? metadataBasedRotationCount || scheduleBuilderDraftRoundCount
+        ? scheduleBuilderDraftRoundCount || metadataBasedRotationCount
         : 0;
     const draftCandidate =
       !completedCandidate && hasDraftTiming
@@ -23931,7 +23936,7 @@ Cory`;
                               disabled={saving || quickStaffingOptions.length === 0}
                               style={{ ...selectStyle, width: "100%", maxWidth: "none", fontSize: "11px", padding: "7px 8px" }}
                             >
-                              <option value="">{quickStaffingOptions.length === 0 ? "No matching SPs" : "Select SP"}</option>
+                              <option value="">{quickStaffingOptions.length === 0 ? "No SPs loaded / no match" : "Select SP"}</option>
                               {quickStaffingOptions.map((sp) => (
                                 <option key={`central-quick-sp-${sp.id}`} value={sp.id}>
                                   {getFullName(sp)}
@@ -26754,7 +26759,7 @@ Cory`;
                                   disabled={saving || quickStaffingOptions.length === 0}
                                   style={{ ...selectStyle, width: "100%", maxWidth: "none", fontSize: "11px", padding: "7px 8px" }}
                                 >
-                                  <option value="">{quickStaffingOptions.length === 0 ? "No matching SPs" : "Select SP"}</option>
+                                  <option value="">{quickStaffingOptions.length === 0 ? "No SPs loaded / no match" : "Select SP"}</option>
                                   {quickStaffingOptions.map((sp) => (
                                     <option key={`central-staffing-quick-sp-${sp.id}`} value={sp.id}>
                                       {getFullName(sp)}
