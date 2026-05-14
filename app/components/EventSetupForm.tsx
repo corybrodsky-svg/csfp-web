@@ -639,8 +639,18 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
     setSaving(true);
     setErrorMessage("");
 
-    if (warnings.some((warning) => warning.toLowerCase().includes("required"))) {
-      const message = `Please complete the required fields before ${isEditMode ? "saving" : "creating"} the event.`;
+    const blockingWarnings = warnings.filter((warning) => {
+      const normalized = warning.toLowerCase();
+      return (
+        normalized.includes("event name is required") ||
+        normalized.includes("date is required") ||
+        normalized.includes("start time is required") ||
+        normalized.includes("end time is required")
+      );
+    });
+
+    if (blockingWarnings.length) {
+      const message = blockingWarnings[0] || `Please complete the required fields before ${isEditMode ? "saving" : "creating"} the event.`;
       setErrorMessage(message);
       fail(message);
       setSaving(false);
