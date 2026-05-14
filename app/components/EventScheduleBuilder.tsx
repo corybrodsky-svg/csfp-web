@@ -6619,28 +6619,6 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     value={examRoomCount}
     onChange={setExamRoomCount}
   />
-
-  <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-    <button
-      type="button"
-      className="cfsp-btn cfsp-btn-secondary"
-      onClick={() =>
-  setExamRoomCount(String(Math.max(1, Number(examRoomCount || "1") - 1)))
-}
-    >
-      − Room
-    </button>
-
-    <button
-      type="button"
-      className="cfsp-btn cfsp-btn-primary"
-      onClick={() =>
-  setExamRoomCount(String(Number(examRoomCount || "0") + 1))
-}
-    >
-      + Room
-    </button>
-  </div>
 </div>
                 <NumberInput label={roomCapacityLabel} value={roomCapacity} onChange={handleRoomCapacityChange} />
                 {!isVirtualEvent ? (
@@ -7456,6 +7434,25 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <h3 className="m-0 text-[1.2rem] font-black text-[#14304f]">Rotation Schedule</h3>
+                <div style={{ display: "flex", gap: "10px", alignItems: "center", margin: "14px 0", flexWrap: "wrap" }}>
+                  <span style={{ fontWeight: 800, color: "#17324d" }}>
+                    Breakout Rooms: {examRoomCount}
+                  </span>
+                  <button
+                    type="button"
+                    className="cfsp-btn cfsp-btn-secondary"
+                    onClick={() => setExamRoomCount(String(Math.max(1, Number(examRoomCount || "1") - 1)))}
+                  >
+                    − Room
+                  </button>
+                  <button
+                    type="button"
+                    className="cfsp-btn cfsp-btn-primary"
+                    onClick={() => setExamRoomCount(String(Number(examRoomCount || "0") + 1))}
+                  >
+                    + Room
+                  </button>
+                </div>
                 <p className="mt-2 mb-0 text-sm leading-6 text-[#5e7388]">
                   Rows track the same rotation rounds shown on the event command surface, with room columns, learner flow, timing blocks, and operations context.
                 </p>
