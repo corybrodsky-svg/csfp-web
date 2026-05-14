@@ -6613,7 +6613,35 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                 </div>
               </div>
               <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                <NumberInput label={roomCountLabel} value={examRoomCount} onChange={setExamRoomCount} />
+                <div style={{ display: "grid", gap: "10px" }}>
+  <NumberInput
+    label={roomCountLabel}
+    value={examRoomCount}
+    onChange={setExamRoomCount}
+  />
+
+  <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+    <button
+      type="button"
+      className="cfsp-btn cfsp-btn-secondary"
+      onClick={() =>
+  setExamRoomCount(String(Math.max(1, Number(examRoomCount || "1") - 1)))
+}
+    >
+      − Room
+    </button>
+
+    <button
+      type="button"
+      className="cfsp-btn cfsp-btn-primary"
+      onClick={() =>
+  setExamRoomCount(String(Number(examRoomCount || "0") + 1))
+}
+    >
+      + Room
+    </button>
+  </div>
+</div>
                 <NumberInput label={roomCapacityLabel} value={roomCapacity} onChange={handleRoomCapacityChange} />
                 {!isVirtualEvent ? (
                   <>
