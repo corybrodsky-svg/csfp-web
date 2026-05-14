@@ -9041,6 +9041,53 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     selectedRotationRound,
     visibleSelectedRoundDayBlocks,
   ]);
+  const selectedRoundAnnouncementExportRows = useMemo(
+    () =>
+      selectedRoundAnnouncementTimeline.map((entry) => ({
+        ...entry,
+        message: roundAnnouncementDrafts[entry.key] ?? entry.announcement,
+      })),
+    [roundAnnouncementDrafts, selectedRoundAnnouncementTimeline]
+  );
+  const selectedRoundAnnouncementExportText = useMemo(() => {
+    const eventName = event?.name || "Untitled Event";
+    const eventDate = selectedRotationRound?.session_date
+      ? formatHumanDate(selectedRotationRound.session_date, importedYearHint) || selectedRotationRound.session_date
+      : event?.date_text || "Date TBD";
+    const timeWindow =
+      selectedRotationRound?.start_time || selectedRotationRound?.end_time
+        ? `${formatDisplayTime(selectedRotationRound.start_time)}${selectedRotationRound.end_time ? ` - ${formatDisplayTime(selectedRotationRound.end_time)}` : ""}`
+        : summaryTimeLabel || "Time TBD";
+    const selectedRoundLabel = selectedRotationRound
+      ? `Round ${activeSelectedRotationRoundIndex + 1}`
+      : "Selected timeline";
+    const lines = [
+      "ANNOUNCEMENT SCHEDULE",
+      eventName,
+      `Date: ${eventDate}`,
+      `Time Window: ${timeWindow}`,
+      `Scope: ${selectedRoundLabel}`,
+      "",
+      ...selectedRoundAnnouncementExportRows.flatMap((entry, index) => [
+        `${index + 1}. ${entry.timeLabel} - ${entry.phaseLabel}`,
+        entry.detail ? `Context: ${entry.detail}` : "Context: Operational announcement",
+        `Message: ${entry.message}`,
+        "",
+      ]),
+      "OPERATOR NOTES",
+      "--------------",
+      "",
+    ];
+    return lines.join("\n");
+  }, [
+    activeSelectedRotationRoundIndex,
+    event?.date_text,
+    event?.name,
+    importedYearHint,
+    selectedRotationRound,
+    selectedRoundAnnouncementExportRows,
+    summaryTimeLabel,
+  ]);
   const selectedRoundOperationsNotes = useMemo(
     () =>
       [
@@ -14356,6 +14403,135 @@ Cory`;
     } catch (error) {
       setEventSaveError(error instanceof Error ? error.message : "Could not copy announcement.");
     }
+  }
+
+  function escapeAnnouncementHtml(value: unknown) {
+    return asText(value)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  }
+
+  function getAnnouncementExportSlug(value: unknown) {
+    return asText(value)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 72) || "event";
+  }
+
+  function buildAnnouncementPrintHtml() {
+    const eventName = event?.name || "Untitled Event";
+    const eventDate = selectedRotationRound?.session_date
+      ? formatHumanDate(selectedRotationRound.session_date, importedYearHint) || selectedRotationRound.session_date
+      : event?.date_text || "Date TBD";
+    const timeWindow =
+      selectedRotationRound?.start_time || selectedRotationRound?.end_time
+        ? `${formatDisplayTime(selectedRotationRound.start_time)}${selectedRotationRound.end_time ? ` - ${formatDisplayTime(selectedRotationRound.end_time)}` : ""}`
+        : summaryTimeLabel || "Time TBD";
+    const scope = selectedRotationRound ? `Round ${activeSelectedRotationRoundIndex + 1}` : "Selected timeline";
+    const rowsHtml = selectedRoundAnnouncementExportRows
+      .map(
+        (entry, index) => `
+          <tr>
+            <td>${index + 1}</td>
+            <td>${escapeAnnouncementHtml(entry.timeLabel)}</td>
+            <td>${escapeAnnouncementHtml(entry.phaseLabel)}</td>
+            <td>${escapeAnnouncementHtml(entry.detail || "Operational announcement")}</td>
+            <td>${escapeAnnouncementHtml(entry.message)}</td>
+          </tr>
+        `
+      )
+      .join("");
+
+    return `<!doctype html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>Announcement Schedule - ${escapeAnnouncementHtml(eventName)}</title>
+          <style>
+            body { margin: 0; padding: 28px; font-family: Arial, sans-serif; color: #14304f; background: #ffffff; }
+            h1 { margin: 0; font-size: 24px; letter-spacing: 0.03em; }
+            .meta { margin: 12px 0 20px; display: grid; gap: 6px; font-size: 13px; font-weight: 700; color: #45657d; }
+            table { width: 100%; border-collapse: collapse; font-size: 12px; }
+            th { text-align: left; background: #e8f4ff; color: #145b96; text-transform: uppercase; letter-spacing: 0.06em; font-size: 10px; }
+            th, td { border: 1px solid #cfe0eb; padding: 9px; vertical-align: top; }
+            td:last-child { font-size: 14px; font-weight: 800; line-height: 1.45; color: #14304f; }
+            .notes { margin-top: 24px; border: 1px solid #cfe0eb; min-height: 120px; padding: 12px; }
+            .notes-title { font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.08em; color: #145b96; }
+            @media print { body { padding: 18px; } button { display: none; } }
+          </style>
+        </head>
+        <body>
+          <h1>Announcement Schedule</h1>
+          <div class="meta">
+            <div>Event: ${escapeAnnouncementHtml(eventName)}</div>
+            <div>Date: ${escapeAnnouncementHtml(eventDate)}</div>
+            <div>Time Window: ${escapeAnnouncementHtml(timeWindow)}</div>
+            <div>Scope: ${escapeAnnouncementHtml(scope)}</div>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Time</th>
+                <th>Type</th>
+                <th>Timing Context</th>
+                <th>Message</th>
+              </tr>
+            </thead>
+            <tbody>${rowsHtml}</tbody>
+          </table>
+          <div class="notes">
+            <div class="notes-title">Operator Notes</div>
+          </div>
+        </body>
+      </html>`;
+  }
+
+  function handlePrintAnnouncementSchedule() {
+    if (typeof window === "undefined") return;
+    const printWindow = window.open("", "_blank", "noopener,noreferrer,width=960,height=720");
+    if (!printWindow) {
+      setEventSaveError("Could not open print window. Check popup settings.");
+      return;
+    }
+    printWindow.document.open();
+    printWindow.document.write(buildAnnouncementPrintHtml());
+    printWindow.document.close();
+    printWindow.focus();
+    window.setTimeout(() => {
+      printWindow.print();
+    }, 250);
+  }
+
+  async function handleCopyAnnouncementScript() {
+    if (!selectedRoundAnnouncementExportText.trim()) return;
+    try {
+      if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
+        throw new Error("Clipboard is unavailable in this browser.");
+      }
+      await navigator.clipboard.writeText(selectedRoundAnnouncementExportText);
+      setEventSaveMessage("Announcement script copied.");
+      setEventSaveError("");
+    } catch (error) {
+      setEventSaveError(error instanceof Error ? error.message : "Could not copy announcement script.");
+    }
+  }
+
+  function handleDownloadAnnouncementText() {
+    if (typeof document === "undefined") return;
+    const blob = new Blob([selectedRoundAnnouncementExportText], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${getAnnouncementExportSlug(event?.name || "event")}-announcement-schedule.txt`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
   }
 
   async function handleTrainingAttendanceToggle(assignment: AssignmentRow, checked: boolean) {
@@ -23369,7 +23545,19 @@ Cory`;
                         </Link>
                       </div>
                       {primaryEventTool === "commandCenter" ? (
-                      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "repeat(auto-fit, minmax(118px, 1fr))",
+                          gap: "7px",
+                          borderRadius: "16px",
+                          border: isPlanningVisualMode ? "1px solid rgba(20, 91, 150, 0.18)" : "1px solid rgba(126, 231, 219, 0.22)",
+                          background: isPlanningVisualMode
+                            ? "linear-gradient(135deg, rgba(255,255,255,0.78), rgba(232,246,250,0.5))"
+                            : "linear-gradient(135deg, rgba(5,18,31,0.72), rgba(10,39,49,0.52))",
+                          padding: "7px",
+                        }}
+                      >
                         {[
                           { value: "overview", label: "Overview" },
                           { value: "coverage", label: "Coverage" },
@@ -23390,29 +23578,38 @@ Cory`;
                             }}
                             style={{
                               ...buttonStyle,
-                              padding: "7px 10px",
+                              minHeight: "46px",
+                              padding: "9px 10px",
+                              borderRadius: "12px",
+                              display: "inline-flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              textAlign: "center",
+                              fontSize: "11px",
+                              fontWeight: 950,
+                              letterSpacing: "0.01em",
                               background: roundCompanionView === view.value
                                 ? isPlanningVisualMode
-                                  ? "rgba(209, 250, 229, 0.46)"
-                                  : "rgba(126, 231, 219, 0.18)"
+                                  ? "linear-gradient(135deg, rgba(209,250,229,0.68), rgba(232,244,255,0.88))"
+                                  : "linear-gradient(135deg, rgba(20,91,150,0.32), rgba(25,138,112,0.24))"
                                 : isPlanningVisualMode
-                                  ? "rgba(255, 255, 255, 0.84)"
-                                  : "rgba(15, 23, 42, 0.62)",
+                                  ? "rgba(255,255,255,0.78)"
+                                  : "rgba(15,23,42,0.56)",
                               color: roundCompanionView === view.value
                                 ? isPlanningVisualMode
-                                  ? "#0f766e"
+                                  ? "#145b96"
                                   : "#d6f6f2"
-                                : commandCenterVisual.mutedColor,
+                                : commandCenterVisual.textColor,
                               border:
                                 roundCompanionView === view.value
                                   ? isPlanningVisualMode
-                                    ? "1px solid rgba(25, 138, 112, 0.24)"
-                                    : "1px solid rgba(126, 231, 219, 0.32)"
+                                    ? "1px solid rgba(20, 91, 150, 0.28)"
+                                    : "1px solid rgba(126, 231, 219, 0.34)"
                                   : isPlanningVisualMode
-                                    ? "1px solid rgba(128, 167, 182, 0.2)"
-                                    : "1px solid rgba(148, 163, 184, 0.18)",
+                                    ? "1px solid rgba(128, 167, 182, 0.18)"
+                                    : "1px solid rgba(148, 163, 184, 0.16)",
                               boxShadow: roundCompanionView === view.value && selectedCommandTool === "primary"
-                                ? isPlanningVisualMode ? "0 0 0 1px rgba(25, 138, 112, 0.08), 0 8px 18px rgba(25, 138, 112, 0.14)" : "0 0 18px rgba(126, 231, 219, 0.18)"
+                                ? isPlanningVisualMode ? "0 0 0 1px rgba(25, 138, 112, 0.08), 0 10px 22px rgba(25, 138, 112, 0.14)" : "0 0 22px rgba(126, 231, 219, 0.18)"
                                 : "none",
                             }}
                           >
@@ -23434,8 +23631,8 @@ Cory`;
                           : "linear-gradient(135deg, rgba(5, 18, 31, 0.66), rgba(10, 39, 49, 0.46))",
                         padding: "7px",
                         display: "grid",
-                        gridTemplateColumns: "repeat(auto-fit, minmax(112px, 1fr))",
-                        gap: "6px",
+                        gridTemplateColumns: "repeat(auto-fit, minmax(126px, 1fr))",
+                        gap: "7px",
                         alignItems: "center",
                       }}
                     >
@@ -23464,27 +23661,29 @@ Cory`;
                             aria-pressed={selected}
                             style={{
                               ...buttonStyle,
-                              padding: "7px 8px",
-                              borderRadius: "11px",
+                              minHeight: "50px",
+                              padding: "8px 9px",
+                              borderRadius: "12px",
                               display: "grid",
-                              gap: "2px",
+                              gap: "3px",
                               minWidth: 0,
                               textAlign: "center",
+                              alignContent: "center",
                               background: selected
-                                ? isPlanningVisualMode ? "rgba(209, 250, 229, 0.62)" : "rgba(126, 231, 219, 0.18)"
-                                : isPlanningVisualMode ? "rgba(255,255,255,0.72)" : "rgba(15, 23, 42, 0.52)",
+                                ? isPlanningVisualMode ? "linear-gradient(135deg, rgba(209,250,229,0.64), rgba(232,244,255,0.82))" : "linear-gradient(135deg, rgba(20, 91, 150, 0.3), rgba(25, 138, 112, 0.22))"
+                                : isPlanningVisualMode ? "rgba(255,255,255,0.72)" : "rgba(15,23,42,0.52)",
                               color: selected
-                                ? isPlanningVisualMode ? "#0f766e" : "#d6f6f2"
+                                ? isPlanningVisualMode ? "#145b96" : "#d6f6f2"
                                 : commandCenterVisual.textColor,
                               border: selected
-                                ? isPlanningVisualMode ? "1px solid rgba(25, 138, 112, 0.24)" : "1px solid rgba(126, 231, 219, 0.32)"
+                                ? isPlanningVisualMode ? "1px solid rgba(20, 91, 150, 0.28)" : "1px solid rgba(126, 231, 219, 0.32)"
                                 : isPlanningVisualMode ? "1px solid rgba(128, 167, 182, 0.18)" : "1px solid rgba(148, 163, 184, 0.16)",
                               boxShadow: selected
                                 ? isPlanningVisualMode ? "0 0 0 1px rgba(25, 138, 112, 0.08), 0 8px 18px rgba(25, 138, 112, 0.14)" : "0 0 18px rgba(126, 231, 219, 0.18)"
                                 : "none",
                             }}
                           >
-                            <span style={{ fontSize: "11px", fontWeight: 950 }}>{tool.label}</span>
+                            <span style={{ fontSize: "11px", fontWeight: 950, lineHeight: 1.15 }}>{tool.label}</span>
                             <span style={{ color: selected ? "inherit" : commandCenterVisual.mutedColor, fontSize: "9px", fontWeight: 800, lineHeight: 1.2 }}>
                               {tool.status}
                             </span>
@@ -24931,13 +25130,43 @@ Cory`;
                                             {currentAnnouncement.timeLabel}
                                           </div>
                                         </div>
-                                        <button
-                                          type="button"
-                                          onClick={() => handleCopyRoundAnnouncement(currentAnnouncementText)}
-                                          style={{ ...buttonStyle, padding: "8px 11px" }}
-                                        >
-                                          Copy Announcement
-                                        </button>
+                                        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                                          <button
+                                            type="button"
+                                            onClick={() => handleCopyRoundAnnouncement(currentAnnouncementText)}
+                                            style={{ ...buttonStyle, padding: "8px 11px" }}
+                                          >
+                                            Copy Announcement
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={handlePrintAnnouncementSchedule}
+                                            style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px" }}
+                                          >
+                                            Print Announcement Schedule
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={handlePrintAnnouncementSchedule}
+                                            style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px" }}
+                                          >
+                                            Download PDF / Save as PDF
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => void handleCopyAnnouncementScript()}
+                                            style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px" }}
+                                          >
+                                            Copy Full Script
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={handleDownloadAnnouncementText}
+                                            style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px" }}
+                                          >
+                                            Download Notes/Text
+                                          </button>
+                                        </div>
                                       </div>
                                       <div
                                         style={{
