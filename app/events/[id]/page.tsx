@@ -326,6 +326,7 @@ type ScheduleBuilderPreviewDraft = {
 type ScheduleRoomAdjustmentSlot = {
   slotIndex: number;
   learnerLabels: string[];
+  manualOverride?: boolean;
   roomName?: string;
   spName?: string;
   backupSpName?: string;
@@ -3586,6 +3587,7 @@ function parseScheduleRoomAdjustments(value: unknown) {
         slots?: Array<{
           slotIndex?: unknown;
           learnerLabels?: unknown;
+          manualOverride?: unknown;
           roomName?: unknown;
           spName?: unknown;
           backupSpName?: unknown;
@@ -3604,16 +3606,18 @@ function parseScheduleRoomAdjustments(value: unknown) {
           const slotIndex = Number(slotEntry?.slotIndex);
           if (!Number.isFinite(slotIndex) || slotIndex < 0) return null;
           const learnerLabels = normalizeLearnerNames(slotEntry?.learnerLabels || []);
+          const manualOverride = parseBooleanValue(slotEntry?.manualOverride, false);
           const roomName = normalizeDisplayText(slotEntry?.roomName);
           const spName = normalizeDisplayText(slotEntry?.spName);
           const backupSpName = normalizeDisplayText(slotEntry?.backupSpName);
           const caseLabel = normalizeDisplayText(slotEntry?.caseLabel);
           const roleLabel = normalizeDisplayText(slotEntry?.roleLabel);
           const notes = normalizeDisplayText(slotEntry?.notes);
-          if (!learnerLabels.length && !roomName && !spName && !backupSpName && !caseLabel && !roleLabel && !notes) return null;
+          if (!learnerLabels.length && !manualOverride && !roomName && !spName && !backupSpName && !caseLabel && !roleLabel && !notes) return null;
           return {
             slotIndex,
             learnerLabels,
+            ...(manualOverride ? { manualOverride: true } : {}),
             ...(roomName ? { roomName } : {}),
             ...(spName ? { spName } : {}),
             ...(backupSpName ? { backupSpName } : {}),
@@ -3622,7 +3626,7 @@ function parseScheduleRoomAdjustments(value: unknown) {
             ...(notes ? { notes } : {}),
           } satisfies ScheduleRoomAdjustmentSlot;
         })
-        .filter((slot): slot is ScheduleRoomAdjustmentSlot => Boolean(slot));
+        .filter(Boolean) as ScheduleRoomAdjustmentSlot[];
       if (slots.length) roundsByNumber.set(roundNumber, slots);
     });
   } catch {
@@ -3645,6 +3649,7 @@ function serializeScheduleRoomAdjustments(value: ParsedScheduleRoomAdjustments) 
           .map((slot) => ({
             slotIndex: slot.slotIndex,
             learnerLabels: normalizeLearnerNames(slot.learnerLabels || []),
+            ...(slot.manualOverride ? { manualOverride: true } : {}),
             ...(normalizeDisplayText(slot.roomName) ? { roomName: normalizeDisplayText(slot.roomName) } : {}),
             ...(normalizeDisplayText(slot.spName) ? { spName: normalizeDisplayText(slot.spName) } : {}),
             ...(normalizeDisplayText(slot.backupSpName) ? { backupSpName: normalizeDisplayText(slot.backupSpName) } : {}),
@@ -3656,6 +3661,7 @@ function serializeScheduleRoomAdjustments(value: ParsedScheduleRoomAdjustments) 
       .filter((entry) =>
         entry.slots.some((slot) =>
           slot.learnerLabels.length ||
+          slot.manualOverride ||
           normalizeDisplayText(slot.roomName) ||
           normalizeDisplayText(slot.spName) ||
           normalizeDisplayText(slot.backupSpName) ||
@@ -3683,6 +3689,10 @@ function upsertScheduleRoomAdjustmentSlot(
     ...existing,
     ...partial,
     slotIndex,
+    manualOverride:
+      partial.learnerLabels !== undefined
+        ? true
+        : Boolean(existing.manualOverride),
     learnerLabels:
       partial.learnerLabels !== undefined
         ? normalizeLearnerNames(partial.learnerLabels)
@@ -3691,6 +3701,7 @@ function upsertScheduleRoomAdjustmentSlot(
   const filtered = currentSlots.filter((slot) => slot.slotIndex !== slotIndex);
   if (
     merged.learnerLabels.length ||
+    merged.manualOverride ||
     asText(merged.roomName) ||
     asText(merged.spName) ||
     asText(merged.backupSpName) ||
@@ -8416,9 +8427,12 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
           isMultiCaseMode: resolvedScheduleMatrixCaseCount > 1,
           isVirtualEvent: isScheduleMatrixVirtual,
         });
-        const learnerLabels = slotOverride?.learnerLabels?.length
-          ? normalizeLearnerNames(slotOverride.learnerLabels)
-          : generatedLearnerLabels;
+        const learnerLabels =
+          slotOverride?.manualOverride
+            ? normalizeLearnerNames(slotOverride.learnerLabels)
+            : slotOverride?.learnerLabels?.length
+              ? normalizeLearnerNames(slotOverride.learnerLabels)
+              : generatedLearnerLabels;
         const resolvedRoomName = asText(slotOverride?.roomName) || displayRoomName;
         const flags = [
           rawRoomName ? "" : "Missing room",

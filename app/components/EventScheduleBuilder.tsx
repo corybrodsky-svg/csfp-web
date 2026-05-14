@@ -234,6 +234,7 @@ type ScheduleBuilderDraft = {
 type ScheduleRoomAdjustmentSlot = {
   slotIndex: number;
   learnerLabels: string[];
+  manualOverride?: boolean;
   roomName?: string;
   spName?: string;
   backupSpName?: string;
@@ -2867,6 +2868,7 @@ function parseScheduleRoomAdjustments(raw: string | null): ParsedScheduleRoomAdj
       slots?: Array<{
         slotIndex?: number;
         learnerLabels?: string[];
+        manualOverride?: boolean;
         roomName?: string;
         spName?: string;
         backupSpName?: string;
@@ -2893,6 +2895,12 @@ function parseScheduleRoomAdjustments(raw: string | null): ParsedScheduleRoomAdj
           if (!Number.isFinite(slotIndex) || slotIndex < 0) return null;
 
           const learnerLabels = normalizeLearnerNames((slotEntry as { learnerLabels?: unknown }).learnerLabels || []);
+          const manualOverrideValue = (slotEntry as { manualOverride?: unknown }).manualOverride;
+          const manualOverride =
+            manualOverrideValue === true ||
+            asText(manualOverrideValue).toLowerCase() === "true" ||
+            asText(manualOverrideValue).toLowerCase() === "1" ||
+            asText(manualOverrideValue).toLowerCase() === "yes";
           const roomName = normalizeDisplayText((slotEntry as { roomName?: unknown }).roomName);
           const spName = normalizeDisplayText((slotEntry as { spName?: unknown }).spName);
           const backupSpName = normalizeDisplayText((slotEntry as { backupSpName?: unknown }).backupSpName);
@@ -2902,6 +2910,7 @@ function parseScheduleRoomAdjustments(raw: string | null): ParsedScheduleRoomAdj
           return {
             slotIndex,
             learnerLabels,
+            ...(manualOverride ? { manualOverride: true } : {}),
             ...(roomName ? { roomName } : {}),
             ...(spName ? { spName } : {}),
             ...(backupSpName ? { backupSpName } : {}),
@@ -2939,6 +2948,7 @@ function normalizeScheduleRoomAdjustments(value: ParsedScheduleRoomAdjustments) 
       slots
       .map((slot) => {
         const learnerLabels = normalizeLearnerNames(slot.learnerLabels || []);
+        const manualOverride = Boolean(slot.manualOverride);
         const roomName = normalizeDisplayText(slot.roomName);
         const spName = normalizeDisplayText(slot.spName);
         const backupSpName = normalizeDisplayText(slot.backupSpName);
@@ -2948,6 +2958,7 @@ function normalizeScheduleRoomAdjustments(value: ParsedScheduleRoomAdjustments) 
         return {
           slotIndex: slot.slotIndex,
           learnerLabels,
+          ...(manualOverride ? { manualOverride: true } : {}),
           ...(roomName ? { roomName } : {}),
           ...(spName ? { spName } : {}),
           ...(backupSpName ? { backupSpName } : {}),
@@ -2958,6 +2969,7 @@ function normalizeScheduleRoomAdjustments(value: ParsedScheduleRoomAdjustments) 
       })
       .filter((slot) =>
         slot.learnerLabels.length ||
+        slot.manualOverride ||
         slot.roomName ||
         slot.spName ||
         slot.backupSpName ||
@@ -2984,6 +2996,7 @@ function serializeScheduleRoomAdjustments(value: ParsedScheduleRoomAdjustments) 
           .map((slot) => ({
             slotIndex: slot.slotIndex,
             learnerLabels: normalizeLearnerNames(slot.learnerLabels || []),
+            ...(slot.manualOverride ? { manualOverride: true } : {}),
             ...(normalizeDisplayText(slot.roomName) ? { roomName: normalizeDisplayText(slot.roomName) } : {}),
             ...(normalizeDisplayText(slot.spName) ? { spName: normalizeDisplayText(slot.spName) } : {}),
             ...(normalizeDisplayText(slot.backupSpName) ? { backupSpName: normalizeDisplayText(slot.backupSpName) } : {}),
@@ -2995,6 +3008,7 @@ function serializeScheduleRoomAdjustments(value: ParsedScheduleRoomAdjustments) 
       .filter((entry) =>
         entry.slots.some((slot) =>
           slot.learnerLabels.length ||
+          Boolean(slot.manualOverride) ||
           normalizeDisplayText(slot.roomName) ||
           normalizeDisplayText(slot.spName) ||
           normalizeDisplayText(slot.backupSpName) ||
@@ -3020,6 +3034,10 @@ function upsertScheduleRoomAdjustmentSlot(
     ...existing,
     ...partial,
     slotIndex,
+    manualOverride:
+      partial.learnerLabels !== undefined
+        ? true
+        : Boolean(existing.manualOverride),
     learnerLabels:
       partial.learnerLabels !== undefined
         ? normalizeLearnerNames(partial.learnerLabels)
@@ -3028,6 +3046,7 @@ function upsertScheduleRoomAdjustmentSlot(
   const nextSlots = currentSlots.filter((slot) => slot.slotIndex !== slotIndex);
   if (
     merged.learnerLabels.length ||
+    Boolean(merged.manualOverride) ||
     normalizeDisplayText(merged.roomName) ||
     normalizeDisplayText(merged.spName) ||
     normalizeDisplayText(merged.backupSpName) ||
@@ -3057,7 +3076,11 @@ function applyScheduleRoomAdjustments(
         (entry) => entry.slotIndex === slotIndex
       );
       const nextLearners =
-        overrides?.learnerLabels?.length ? normalizeLearnerNames(overrides.learnerLabels) : slot.learnerLabels;
+        overrides?.manualOverride
+          ? normalizeLearnerNames(overrides.learnerLabels)
+          : overrides?.learnerLabels?.length
+            ? normalizeLearnerNames(overrides.learnerLabels)
+            : slot.learnerLabels;
       const nextSpName = normalizeDisplayText(overrides?.spName);
       const matchedSpIndex = nextSpName
         ? assignedSpNames.findIndex((candidate) =>
