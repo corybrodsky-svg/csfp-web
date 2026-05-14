@@ -12752,6 +12752,7 @@ Cory`;
     setAccessDenied(result.accessDenied);
     setNotFound(result.notFound);
     setSelectedSpId("");
+    return result;
   }
 
   async function saveAssignmentRequest(method: "POST" | "PATCH" | "DELETE", body: object) {
@@ -14354,7 +14355,21 @@ Cory`;
       return;
     }
 
-    await refreshData();
+    const refreshed = await refreshData();
+    const refreshedAssignments = Array.isArray(refreshed?.assignments) ? refreshed.assignments : [];
+    const assignmentNowExists = refreshedAssignments.some(
+      (assignment) =>
+        asText(assignment.sp_id) === spId &&
+        (!options?.status || getAssignmentStatus(assignment) === options.status)
+    );
+
+    if (!assignmentNowExists) {
+      setErrorMessage("The SP save request completed, but the refreshed event roster did not include that SP. Please refresh the page before continuing.");
+      setAssigningSpId("");
+      setSaving(false);
+      return;
+    }
+
     setRecentAssignedSpId(spId);
     showSuccessMessage(options?.successMessage || "SP assigned");
     window.setTimeout(() => {
