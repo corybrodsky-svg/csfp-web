@@ -326,6 +326,7 @@ type ScheduleBuilderPreviewDraft = {
 type ScheduleRoomAdjustmentSlot = {
   slotIndex: number;
   learnerLabels: string[];
+  roomName?: string;
   spName?: string;
   backupSpName?: string;
   caseLabel?: string;
@@ -3585,6 +3586,7 @@ function parseScheduleRoomAdjustments(value: unknown) {
         slots?: Array<{
           slotIndex?: unknown;
           learnerLabels?: unknown;
+          roomName?: unknown;
           spName?: unknown;
           backupSpName?: unknown;
           caseLabel?: unknown;
@@ -3602,15 +3604,17 @@ function parseScheduleRoomAdjustments(value: unknown) {
           const slotIndex = Number(slotEntry?.slotIndex);
           if (!Number.isFinite(slotIndex) || slotIndex < 0) return null;
           const learnerLabels = normalizeLearnerNames(slotEntry?.learnerLabels || []);
+          const roomName = normalizeDisplayText(slotEntry?.roomName);
           const spName = normalizeDisplayText(slotEntry?.spName);
           const backupSpName = normalizeDisplayText(slotEntry?.backupSpName);
           const caseLabel = normalizeDisplayText(slotEntry?.caseLabel);
           const roleLabel = normalizeDisplayText(slotEntry?.roleLabel);
           const notes = normalizeDisplayText(slotEntry?.notes);
-          if (!learnerLabels.length && !spName && !backupSpName && !caseLabel && !roleLabel && !notes) return null;
+          if (!learnerLabels.length && !roomName && !spName && !backupSpName && !caseLabel && !roleLabel && !notes) return null;
           return {
             slotIndex,
             learnerLabels,
+            ...(roomName ? { roomName } : {}),
             ...(spName ? { spName } : {}),
             ...(backupSpName ? { backupSpName } : {}),
             ...(caseLabel ? { caseLabel } : {}),
@@ -3641,6 +3645,7 @@ function serializeScheduleRoomAdjustments(value: ParsedScheduleRoomAdjustments) 
           .map((slot) => ({
             slotIndex: slot.slotIndex,
             learnerLabels: normalizeLearnerNames(slot.learnerLabels || []),
+            ...(normalizeDisplayText(slot.roomName) ? { roomName: normalizeDisplayText(slot.roomName) } : {}),
             ...(normalizeDisplayText(slot.spName) ? { spName: normalizeDisplayText(slot.spName) } : {}),
             ...(normalizeDisplayText(slot.backupSpName) ? { backupSpName: normalizeDisplayText(slot.backupSpName) } : {}),
             ...(normalizeDisplayText(slot.caseLabel) ? { caseLabel: normalizeDisplayText(slot.caseLabel) } : {}),
@@ -3651,6 +3656,7 @@ function serializeScheduleRoomAdjustments(value: ParsedScheduleRoomAdjustments) 
       .filter((entry) =>
         entry.slots.some((slot) =>
           slot.learnerLabels.length ||
+          normalizeDisplayText(slot.roomName) ||
           normalizeDisplayText(slot.spName) ||
           normalizeDisplayText(slot.backupSpName) ||
           normalizeDisplayText(slot.caseLabel) ||
@@ -3685,6 +3691,7 @@ function upsertScheduleRoomAdjustmentSlot(
   const filtered = currentSlots.filter((slot) => slot.slotIndex !== slotIndex);
   if (
     merged.learnerLabels.length ||
+    asText(merged.roomName) ||
     asText(merged.spName) ||
     asText(merged.backupSpName) ||
     asText(merged.caseLabel) ||
@@ -4295,6 +4302,41 @@ function getDefaultRelatedEventKeyword(title?: string | null) {
     .filter((token) => token.length >= 3);
 
   return tokens[0] || "";
+}
+
+function normalizeRelatedEventFamilyTitle(title?: string | null) {
+  return asText(title)
+    .replace(/\b(SP\s*)?Training\b/gi, " ")
+    .replace(/\b(Orientation|Prep|Onboarding)\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function getRelatedEventScheduleStatusLabel(args: {
+  status?: string | null;
+  trainingMetadata?: Partial<TrainingEventMetadata> | null;
+}) {
+  const scheduleStatus = asText(args.trainingMetadata?.schedule_status).toLowerCase();
+  const rotationStatus = asText(args.trainingMetadata?.rotation_schedule_status).toLowerCase();
+  const hasScheduleDraft = Boolean(
+    asText(args.trainingMetadata?.schedule_builder_snapshot) ||
+      asText(args.trainingMetadata?.schedule_last_saved_at) ||
+      asText(args.trainingMetadata?.schedule_room_adjustments)
+  );
+  if (scheduleStatus === "complete" || rotationStatus === "complete") return "Schedule complete";
+  const normalizedStatus = asText(args.status).toLowerCase();
+  if (
+    /needs?\s+(sp|staff|staffing)/.test(normalizedStatus) ||
+    /staffing/.test(normalizedStatus) ||
+    /needs?\s+coverage/.test(normalizedStatus)
+  ) {
+    return "Needs staffing";
+  }
+  if (scheduleStatus === "in_progress" || rotationStatus === "in_progress" || hasScheduleDraft) {
+    return "Draft schedule";
+  }
+  return asText(args.status) || "Ready";
 }
 
 function parseRelatedEventsHiddenIds(value: string | null | undefined) {
@@ -6481,6 +6523,17 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     setSelectedEventDateContext((current) => (current && eventDateOptions.includes(current) ? current : eventDateOptions[0]));
   }, [eventDateOptions]);
   useEffect(() => {
+    setRoundOperationsDraftAdjustments(null);
+    setRoundOperationsSaveState("saved");
+    setRoundOperationsLastSavedAt("");
+    setRoundOperationsSaveError("");
+    setLocalOccupancyLearnerArrivals({});
+    setLocalOccupancySpCheckIns({});
+    setLocalOccupancyLearnerRoomMoves({});
+    setLocalOccupancySpRoomMoves({});
+    setActiveOccupancyRoomKey("");
+  }, [id]);
+  useEffect(() => {
     if (typeof window === "undefined" || !id) return;
 
     const storageKey = getScheduleBuilderStorageKey(id);
@@ -6718,52 +6771,6 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       .replace(/\s+/g, " ")
       .trim();
   }, [event?.name, isTrainingOnlyEvent]);
-
-  useEffect(() => {
-    if (!id || isTrainingOnlyEvent) return;
-
-    const exactOperationalMatches = relatedOperationalEvents.filter((node) => {
-      if (!node?.id || node.id === id) return false;
-
-      const currentName = (event?.name || "")
-        .toLowerCase()
-        .replace(/\s+/g, " ")
-        .trim();
-
-      const candidateName = (node.name || "")
-        .toLowerCase()
-        .replace(/\s+/g, " ")
-        .trim();
-
-      return currentName && candidateName === currentName;
-    });
-
-    if (!exactOperationalMatches.length) return;
-
-    const sortedMatches = [
-      { id, name: event?.name, date_text: event?.date_text },
-      ...exactOperationalMatches,
-    ].sort((a, b) => {
-      const aDate = new Date(a.date_text || "").getTime();
-      const bDate = new Date(b.date_text || "").getTime();
-      return aDate - bDate;
-    });
-
-    const canonicalParent = sortedMatches[0];
-
-    if (canonicalParent?.id && canonicalParent.id !== id) {
-      router.replace(
-        `/events/${encodeURIComponent(canonicalParent.id)}?instanceId=${encodeURIComponent(id)}`
-      );
-    }
-  }, [
-    event?.date_text,
-    event?.name,
-    id,
-    isTrainingOnlyEvent,
-    relatedOperationalEvents,
-    router,
-  ]);
 
   useEffect(() => {
     if (!id || !isTrainingOnlyEvent) return;
@@ -8412,6 +8419,7 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
         const learnerLabels = slotOverride?.learnerLabels?.length
           ? normalizeLearnerNames(slotOverride.learnerLabels)
           : generatedLearnerLabels;
+        const resolvedRoomName = asText(slotOverride?.roomName) || displayRoomName;
         const flags = [
           rawRoomName ? "" : "Missing room",
           assignment && !sp ? "Missing SP profile" : "",
@@ -8422,7 +8430,7 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
         return {
           key: `${selectedRotationRound.key}-${session.id || slotIndex}-${index}`,
           slotIndex,
-          roomName: displayRoomName,
+          roomName: resolvedRoomName,
           location: asText(session.location) || asText(event?.location),
           learnerLabels,
           assignment,
@@ -9510,7 +9518,7 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
 
         return {
           key: boardRow?.key || `blueprint-room-${index}`,
-          roomName,
+          roomName: asText(scheduleRow?.roomName) || roomName,
           assignment,
           sp,
           spName: sp ? getFullName(sp) : "",
@@ -10856,6 +10864,86 @@ Cory`;
       ),
     [relatedOperationalEvents]
   );
+  const eventFamilyQueryKey = useMemo(
+    () =>
+      asText(searchParams.get("family")) ||
+      getDefaultRelatedEventKeyword(event?.name) ||
+      normalizeRelatedEventFamilyTitle(event?.name).replace(/\s+/g, "-"),
+    [event?.name, searchParams]
+  );
+  const relatedEventDateOptions = useMemo(() => {
+    if (!id || !event) return [] as Array<{ id: string; dateText: string; statusLabel: string; statusDetail: string }>;
+    const currentKeyword = getDefaultRelatedEventKeyword(event.name).toLowerCase();
+    const currentNormalizedTitle = normalizeRelatedEventFamilyTitle(event.name);
+    const optionMap = new Map<string, { id: string; dateText: string; statusLabel: string; statusDetail: string; sortKey: number }>();
+    const addOption = (args: {
+      id: string;
+      dateText?: string | null;
+      status?: string | null;
+      location?: string | null;
+      trainingMetadata?: Partial<TrainingEventMetadata> | null;
+      statusLabel: string;
+    }) => {
+      const dateText = asText(args.dateText) || normalizeLooseDateToIso(args.trainingMetadata?.event_session_date) || "";
+      optionMap.set(args.id, {
+        id: args.id,
+        dateText,
+        statusLabel: args.statusLabel,
+        statusDetail: [args.statusLabel, asText(args.status) || "", asText(args.location) || ""].filter(Boolean).join(" · "),
+        sortKey: dateText ? new Date(dateText).getTime() : Number.MAX_SAFE_INTEGER,
+      });
+    };
+    addOption({
+      id,
+      dateText: event.date_text,
+      status: event.status,
+      location: event.location,
+      trainingMetadata,
+      statusLabel: scheduleCompleted
+        ? "Schedule complete"
+        : staffingRelevant && hasPrimaryStaffingShortage
+          ? "Needs staffing"
+          : scheduleInProgress
+            ? "Draft schedule"
+            : getRelatedEventScheduleStatusLabel({ status: event.status, trainingMetadata }),
+    });
+    relatedOperationalEvents.forEach((node) => {
+      if (!node.id || node.kind === "training") return;
+      const confidenceMatch =
+        node.match_confidence === "exact_course" ||
+        node.match_confidence === "title_family" ||
+        node.match_confidence === "source_batch" ||
+        node.isConfirmed;
+      if (!confidenceMatch) return;
+      const nodeKeyword = getDefaultRelatedEventKeyword(node.name).toLowerCase();
+      const nodeNormalizedTitle = normalizeRelatedEventFamilyTitle(node.name);
+      const sameFamily =
+        Boolean(currentNormalizedTitle && nodeNormalizedTitle && currentNormalizedTitle === nodeNormalizedTitle) ||
+        Boolean(currentKeyword && nodeKeyword && currentKeyword === nodeKeyword);
+      if (!sameFamily) return;
+      addOption({
+        id: node.id,
+        dateText: node.date_text,
+        status: node.status,
+        location: node.location,
+        trainingMetadata: node.trainingMetadata || null,
+        statusLabel: getRelatedEventScheduleStatusLabel({
+          status: node.status,
+          trainingMetadata: node.trainingMetadata || null,
+        }),
+      });
+    });
+    return Array.from(optionMap.values()).sort((a, b) => a.sortKey - b.sortKey || a.dateText.localeCompare(b.dateText));
+  }, [
+    event,
+    hasPrimaryStaffingShortage,
+    id,
+    relatedOperationalEvents,
+    scheduleCompleted,
+    scheduleInProgress,
+    staffingRelevant,
+    trainingMetadata,
+  ]);
   const scheduleWorkflowActions: Array<{
     label: string;
     href?: string;
@@ -12966,6 +13054,22 @@ Cory`;
     });
   }
 
+  function handleRelatedEventDateSwitch(nextEventId: string) {
+    if (!nextEventId || nextEventId === id) return;
+    if (saving || roundOperationsSaveState === "saving") return;
+    if (
+      roundOperationsSaveState === "unsaved" &&
+      !window.confirm("You have unsaved round assignment changes. Switch event dates and discard those unsaved changes?")
+    ) {
+      return;
+    }
+    setLoading(true);
+    const nextUrl = eventFamilyQueryKey
+      ? `/events/${encodeURIComponent(nextEventId)}?family=${encodeURIComponent(eventFamilyQueryKey)}`
+      : `/events/${encodeURIComponent(nextEventId)}`;
+    router.push(nextUrl);
+  }
+
   function buildEventSchedulePreviewHref(
     kind: EventSchedulePreviewKind,
     previewFamily?: "ticket" | "schedule",
@@ -13837,6 +13941,8 @@ Cory`;
     if (!id) {
       return;
     }
+
+    setLoading(true);
 
     const refresh = () => {
       void fetchCommandCenterData(id).then((result) => {
@@ -21648,9 +21754,32 @@ Cory`;
                     <div style={{ color: commandCenterVisual.mutedColor, fontSize: "13px", fontWeight: 800 }}>
                       {[sessionSummaryLabel, summaryTimeLabel, `Location / Access: ${locationAccessPrimaryLabel}`].filter(Boolean).join(" · ")}
                     </div>
+                    {relatedEventDateOptions.length > 1 ? (
+                      <label style={{ display: "inline-grid", gap: "4px", maxWidth: "240px" }}>
+                        <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Event Date</span>
+                        <select
+                          value={id}
+                          onChange={(event) => handleRelatedEventDateSwitch(event.target.value)}
+                          style={{ ...selectStyle, minWidth: 0, fontSize: "11px", padding: "7px 8px" }}
+                        >
+                          {relatedEventDateOptions.map((dateOption) => (
+                            <option key={`event-date-instance-${dateOption.id}`} value={dateOption.id}>
+                              {`${formatHumanDate(dateOption.dateText, importedYearHint) || "Date TBD"} - ${dateOption.statusLabel}`}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    ) : (
+                      <div style={{ display: "grid", gap: "4px" }}>
+                        <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Event Date</span>
+                        <div style={{ color: commandCenterVisual.textColor, fontSize: "12px", fontWeight: 900 }}>
+                          {formatHumanDate(event?.date_text, importedYearHint) || event?.date_text || "Date TBD"}
+                        </div>
+                      </div>
+                    )}
                     {eventDateOptions.length > 1 ? (
                       <label style={{ display: "inline-grid", gap: "4px", maxWidth: "240px" }}>
-                        <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Active Event Date</span>
+                        <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Displayed Schedule Date</span>
                         <select
                           value={selectedEventDateContext}
                           onChange={(event) => {
@@ -23796,7 +23925,7 @@ Cory`;
                         <div style={{ display: "grid", gap: "6px" }}>
                           <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Assigned SPs</div>
                           {sortedAssignments.length ? (
-                            sortedAssignments.slice(0, 8).map((assignment) => {
+                            sortedAssignments.map((assignment) => {
                               const sp = assignment.sp_id ? spsById.get(assignment.sp_id) : null;
                               const status = getAssignmentStatus(assignment);
                               return (
@@ -23820,7 +23949,19 @@ Cory`;
                                       {assignmentStatusLabels[status]} · {assignment.confirmed ? "confirmed" : "not confirmed"}
                                     </div>
                                   </div>
-                                  <div style={{ display: "flex", gap: "5px", flexWrap: "wrap" }}>
+                                  <div style={{ display: "flex", gap: "5px", flexWrap: "wrap", alignItems: "center" }}>
+                                    <select
+                                      value={status}
+                                      onChange={(event) => void handleStatusChange(assignment, event.target.value as AssignmentStatus)}
+                                      disabled={saving}
+                                      style={{ ...selectStyle, fontSize: "10px", padding: "4px 6px", minWidth: "126px" }}
+                                    >
+                                      {assignmentStatuses.map((option) => (
+                                        <option key={`${assignment.id}-spfinder-status-${option}`} value={option}>
+                                          {assignmentStatusLabels[option]}
+                                        </option>
+                                      ))}
+                                    </select>
                                     <button type="button" onClick={() => void handleStatusChange(assignment, "confirmed")} disabled={saving || status === "confirmed"} style={{ ...staffingSecondaryButtonStyle, padding: "4px 7px", fontSize: "10px", opacity: saving || status === "confirmed" ? 0.55 : 1 }}>
                                       Primary
                                     </button>
@@ -24315,28 +24456,6 @@ Cory`;
                                                 Not checked in
                                               </button>
                                             </div>
-                                            {room.spName ? (
-                                              <label style={{ display: "grid", gap: "4px" }}>
-                                                <span style={{ color: "rgba(226, 250, 247, 0.62)", fontSize: "9px", fontWeight: 800 }}>Move SP</span>
-                                                <select
-                                                  value={localOccupancySpRoomMoves[`${selectedRoundOccupancyKey}|${room.spName}`] || room.roomName}
-                                                  onChange={(event) =>
-                                                    setLocalOccupancySpRoomMoves((current) => ({
-                                                      ...current,
-                                                      [`${selectedRoundOccupancyKey}|${room.spName}`]: event.target.value,
-                                                    }))
-                                                  }
-                                                  style={{ ...selectStyle, minWidth: 0, width: "100%", fontSize: "10px", padding: "5px 7px" }}
-                                                  aria-label={`Move ${room.spName} to another room`}
-                                                >
-                                                  {interactiveLiveAttendanceBlueprintRooms.map((targetRoom) => (
-                                                    <option key={`${room.key}-sp-target-${targetRoom.roomName}`} value={targetRoom.roomName}>
-                                                      {targetRoom.roomName}
-                                                    </option>
-                                                  ))}
-                                                </select>
-                                              </label>
-                                            ) : null}
                                             {learnerNames.length ? (
                                               <div style={{ display: "grid", gap: "6px" }}>
                                                 {learnerNames.map((learnerName) => {
@@ -24368,31 +24487,22 @@ Cory`;
                                                           {learnerArrived ? "Mark expected" : "Mark arrived"}
                                                         </button>
                                                       </div>
-                                                      <label style={{ display: "grid", gap: "4px" }}>
-                                                        <span style={{ color: "rgba(226, 250, 247, 0.62)", fontSize: "9px", fontWeight: 800 }}>Move learner</span>
-                                                        <select
-                                                          value={localOccupancyLearnerRoomMoves[learnerArrivalKey] || room.roomName}
-                                                          onChange={(event) =>
-                                                            setLocalOccupancyLearnerRoomMoves((current) => ({
-                                                              ...current,
-                                                              [learnerArrivalKey]: event.target.value,
-                                                            }))
-                                                          }
-                                                          style={{ ...selectStyle, minWidth: 0, width: "100%", fontSize: "10px", padding: "5px 7px" }}
-                                                          aria-label={`Move ${learnerName} to another room`}
-                                                        >
-                                                          {interactiveLiveAttendanceBlueprintRooms.map((targetRoom) => (
-                                                            <option key={`${room.key}-${learnerName}-target-${targetRoom.roomName}`} value={targetRoom.roomName}>
-                                                              {targetRoom.roomName}
-                                                            </option>
-                                                          ))}
-                                                        </select>
-                                                      </label>
                                                     </div>
                                                   );
                                                 })}
                                               </div>
                                             ) : null}
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                setSelectedCommandTool("primary");
+                                                setRoundCompanionView("operations");
+                                                queueCommandContentScroll();
+                                              }}
+                                              style={{ ...buttonStyle, padding: "6px 9px", justifySelf: "start", fontSize: "10px" }}
+                                            >
+                                              Edit Room Assignment
+                                            </button>
                                           </div>
                                         ) : null}
                                       </div>
@@ -25755,28 +25865,31 @@ Cory`;
                                       }}
                                     >
                                       <label style={{ display: "grid", gap: "4px" }}>
-                                        <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Learner room</span>
-                                        <select
-                                          value={row.learnerLabels[0] || ""}
-                                          onChange={(event) =>
-                                            void handleRoundRoomAdjustment(
-                                              row.slotIndex,
-                                              { learnerLabels: event.target.value ? [event.target.value] : [] }
-                                            )
-                                          }
+                                        <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Room name</span>
+                                        <input
+                                          value={row.roomName}
+                                          onChange={(event) => void handleRoundRoomAdjustment(row.slotIndex, { roomName: event.target.value })}
                                           disabled={saving}
-                                          style={{ ...selectStyle, width: "100%", maxWidth: "none", fontSize: "11px", padding: "6px 7px" }}
-                                        >
-                                          <option value="">Learner TBD</option>
-                                          {scheduleBuilderLearnerNames.map((learner) => (
-                                            <option key={`${row.key}-learner-option-${learner}`} value={learner}>
-                                              {learner}
-                                            </option>
-                                          ))}
-                                        </select>
+                                          placeholder={`Room ${row.slotIndex + 1}`}
+                                          style={{ ...inputStyle, width: "100%", boxSizing: "border-box", fontSize: "11px", padding: "6px 7px" }}
+                                        />
                                       </label>
                                       <label style={{ display: "grid", gap: "4px" }}>
-                                        <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>SP / backup room</span>
+                                        <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Learners in room</span>
+                                        <textarea
+                                          value={row.learnerLabels.join("\n")}
+                                          onChange={(event) =>
+                                            void handleRoundRoomAdjustment(row.slotIndex, {
+                                              learnerLabels: normalizeLearnerNames(event.target.value.split(/\r?\n|,/g)),
+                                            })
+                                          }
+                                          disabled={saving}
+                                          placeholder="One learner per line"
+                                          style={{ ...inputStyle, width: "100%", boxSizing: "border-box", minHeight: "58px", resize: "vertical", fontSize: "11px", padding: "6px 7px" }}
+                                        />
+                                      </label>
+                                      <label style={{ display: "grid", gap: "4px" }}>
+                                        <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Primary SP</span>
                                         <select
                                           value={row.sp ? getFullName(row.sp) : ""}
                                           onChange={(event) =>
@@ -26592,6 +26705,102 @@ Cory`;
                                   <div style={{ color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 750, lineHeight: 1.35 }}>{item.detail}</div>
                                 </div>
                               ))}
+                            </div>
+                            <div
+                              style={{
+                                borderRadius: "14px",
+                                border: commandCenterVisual.rowBorder,
+                                background: isPlanningVisualMode ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.05)",
+                                padding: "10px",
+                                display: "grid",
+                                gap: "8px",
+                              }}
+                            >
+                              <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Quick Add SP</div>
+                              <div style={{ display: "grid", gridTemplateColumns: "minmax(130px, 0.8fr) minmax(190px, 1.2fr) auto auto", gap: "6px", alignItems: "center" }}>
+                                <input
+                                  value={quickStaffingQuery}
+                                  onChange={(event) => setQuickStaffingQuery(event.target.value)}
+                                  placeholder="Search SP"
+                                  style={{ ...inputStyle, width: "100%", boxSizing: "border-box", fontSize: "11px", padding: "7px 8px" }}
+                                />
+                                <select
+                                  value={quickStaffingSpId}
+                                  onChange={(event) => setQuickStaffingSpId(event.target.value)}
+                                  disabled={saving || quickStaffingOptions.length === 0}
+                                  style={{ ...selectStyle, width: "100%", maxWidth: "none", fontSize: "11px", padding: "7px 8px" }}
+                                >
+                                  <option value="">{quickStaffingOptions.length === 0 ? "No matching SPs" : "Select SP"}</option>
+                                  {quickStaffingOptions.map((sp) => (
+                                    <option key={`central-staffing-quick-sp-${sp.id}`} value={sp.id}>
+                                      {getFullName(sp)}
+                                    </option>
+                                  ))}
+                                </select>
+                                <button type="button" onClick={() => void handleQuickStaffingAdd("confirmed")} disabled={saving || !quickStaffingSpId} style={{ ...buttonStyle, padding: "7px 9px", fontSize: "11px", opacity: saving || !quickStaffingSpId ? 0.65 : 1 }}>
+                                  Add Primary
+                                </button>
+                                <button type="button" onClick={() => void handleQuickStaffingAdd("backup")} disabled={saving || !quickStaffingSpId} style={{ ...staffingSecondaryButtonStyle, padding: "7px 9px", fontSize: "11px", opacity: saving || !quickStaffingSpId ? 0.65 : 1 }}>
+                                  Add Backup
+                                </button>
+                              </div>
+                            </div>
+                            <div style={{ display: "grid", gap: "6px" }}>
+                              <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Editable Operational Assignments</div>
+                              {sortedAssignments.length ? (
+                                sortedAssignments.map((assignment) => {
+                                  const sp = assignment.sp_id ? spsById.get(assignment.sp_id) : null;
+                                  const status = getAssignmentStatus(assignment);
+                                  return (
+                                    <div
+                                      key={`central-staffing-assignment-${assignment.id}`}
+                                      style={{
+                                        borderRadius: "12px",
+                                        border: commandCenterVisual.rowBorder,
+                                        background: isPlanningVisualMode ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.05)",
+                                        padding: "8px 9px",
+                                        display: "flex",
+                                        justifyContent: "space-between",
+                                        gap: "8px",
+                                        flexWrap: "wrap",
+                                        alignItems: "center",
+                                      }}
+                                    >
+                                      <div style={{ display: "grid", gap: "3px" }}>
+                                        <div style={{ color: commandCenterVisual.textColor, fontSize: "12px", fontWeight: 900 }}>{getFullName(sp || emptySpRow) || "Assigned SP"}</div>
+                                        <div style={{ color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 800 }}>
+                                          {assignmentStatusLabels[status]} · {assignment.confirmed ? "confirmed" : "not confirmed"}
+                                        </div>
+                                      </div>
+                                      <div style={{ display: "flex", gap: "5px", flexWrap: "wrap", alignItems: "center" }}>
+                                        <select
+                                          value={status}
+                                          onChange={(event) => void handleStatusChange(assignment, event.target.value as AssignmentStatus)}
+                                          disabled={saving}
+                                          style={{ ...selectStyle, fontSize: "10px", padding: "4px 6px", minWidth: "126px" }}
+                                        >
+                                          {assignmentStatuses.map((option) => (
+                                            <option key={`${assignment.id}-central-status-${option}`} value={option}>
+                                              {assignmentStatusLabels[option]}
+                                            </option>
+                                          ))}
+                                        </select>
+                                        <button type="button" onClick={() => void handleStatusChange(assignment, "confirmed")} disabled={saving || status === "confirmed"} style={{ ...staffingSecondaryButtonStyle, padding: "4px 7px", fontSize: "10px", opacity: saving || status === "confirmed" ? 0.55 : 1 }}>
+                                          Primary
+                                        </button>
+                                        <button type="button" onClick={() => void handleStatusChange(assignment, "backup")} disabled={saving || status === "backup"} style={{ ...staffingSecondaryButtonStyle, padding: "4px 7px", fontSize: "10px", opacity: saving || status === "backup" ? 0.55 : 1 }}>
+                                          Backup
+                                        </button>
+                                        <button type="button" onClick={() => void handleRemoveAssignment(assignment)} disabled={saving} style={{ ...dangerButtonStyle, padding: "4px 7px", fontSize: "10px", opacity: saving ? 0.65 : 1 }}>
+                                          Remove
+                                        </button>
+                                      </div>
+                                    </div>
+                                  );
+                                })
+                              ) : (
+                                <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 750 }}>No assigned SPs yet.</div>
+                              )}
                             </div>
                             <button type="button" onClick={() => setPrimaryEventTool("spFinder")} style={{ ...buttonStyle, padding: "7px 10px", justifySelf: "start" }}>
                               Open SP Finder Mode

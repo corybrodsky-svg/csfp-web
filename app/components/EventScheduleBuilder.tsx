@@ -234,6 +234,7 @@ type ScheduleBuilderDraft = {
 type ScheduleRoomAdjustmentSlot = {
   slotIndex: number;
   learnerLabels: string[];
+  roomName?: string;
   spName?: string;
   backupSpName?: string;
   caseLabel?: string;
@@ -2866,6 +2867,7 @@ function parseScheduleRoomAdjustments(raw: string | null): ParsedScheduleRoomAdj
       slots?: Array<{
         slotIndex?: number;
         learnerLabels?: string[];
+        roomName?: string;
         spName?: string;
         backupSpName?: string;
         caseLabel?: string;
@@ -2891,6 +2893,7 @@ function parseScheduleRoomAdjustments(raw: string | null): ParsedScheduleRoomAdj
           if (!Number.isFinite(slotIndex) || slotIndex < 0) return null;
 
           const learnerLabels = normalizeLearnerNames((slotEntry as { learnerLabels?: unknown }).learnerLabels || []);
+          const roomName = normalizeDisplayText((slotEntry as { roomName?: unknown }).roomName);
           const spName = normalizeDisplayText((slotEntry as { spName?: unknown }).spName);
           const backupSpName = normalizeDisplayText((slotEntry as { backupSpName?: unknown }).backupSpName);
           const caseLabel = normalizeDisplayText((slotEntry as { caseLabel?: unknown }).caseLabel);
@@ -2899,6 +2902,7 @@ function parseScheduleRoomAdjustments(raw: string | null): ParsedScheduleRoomAdj
           return {
             slotIndex,
             learnerLabels,
+            ...(roomName ? { roomName } : {}),
             ...(spName ? { spName } : {}),
             ...(backupSpName ? { backupSpName } : {}),
             ...(caseLabel ? { caseLabel } : {}),
@@ -2935,6 +2939,7 @@ function normalizeScheduleRoomAdjustments(value: ParsedScheduleRoomAdjustments) 
       slots
       .map((slot) => {
         const learnerLabels = normalizeLearnerNames(slot.learnerLabels || []);
+        const roomName = normalizeDisplayText(slot.roomName);
         const spName = normalizeDisplayText(slot.spName);
         const backupSpName = normalizeDisplayText(slot.backupSpName);
         const caseLabel = normalizeDisplayText(slot.caseLabel);
@@ -2943,6 +2948,7 @@ function normalizeScheduleRoomAdjustments(value: ParsedScheduleRoomAdjustments) 
         return {
           slotIndex: slot.slotIndex,
           learnerLabels,
+          ...(roomName ? { roomName } : {}),
           ...(spName ? { spName } : {}),
           ...(backupSpName ? { backupSpName } : {}),
           ...(caseLabel ? { caseLabel } : {}),
@@ -2952,6 +2958,7 @@ function normalizeScheduleRoomAdjustments(value: ParsedScheduleRoomAdjustments) 
       })
       .filter((slot) =>
         slot.learnerLabels.length ||
+        slot.roomName ||
         slot.spName ||
         slot.backupSpName ||
         slot.caseLabel ||
@@ -2977,6 +2984,7 @@ function serializeScheduleRoomAdjustments(value: ParsedScheduleRoomAdjustments) 
           .map((slot) => ({
             slotIndex: slot.slotIndex,
             learnerLabels: normalizeLearnerNames(slot.learnerLabels || []),
+            ...(normalizeDisplayText(slot.roomName) ? { roomName: normalizeDisplayText(slot.roomName) } : {}),
             ...(normalizeDisplayText(slot.spName) ? { spName: normalizeDisplayText(slot.spName) } : {}),
             ...(normalizeDisplayText(slot.backupSpName) ? { backupSpName: normalizeDisplayText(slot.backupSpName) } : {}),
             ...(normalizeDisplayText(slot.caseLabel) ? { caseLabel: normalizeDisplayText(slot.caseLabel) } : {}),
@@ -2987,6 +2995,7 @@ function serializeScheduleRoomAdjustments(value: ParsedScheduleRoomAdjustments) 
       .filter((entry) =>
         entry.slots.some((slot) =>
           slot.learnerLabels.length ||
+          normalizeDisplayText(slot.roomName) ||
           normalizeDisplayText(slot.spName) ||
           normalizeDisplayText(slot.backupSpName) ||
           normalizeDisplayText(slot.caseLabel) ||
@@ -3019,6 +3028,7 @@ function upsertScheduleRoomAdjustmentSlot(
   const nextSlots = currentSlots.filter((slot) => slot.slotIndex !== slotIndex);
   if (
     merged.learnerLabels.length ||
+    normalizeDisplayText(merged.roomName) ||
     normalizeDisplayText(merged.spName) ||
     normalizeDisplayText(merged.backupSpName) ||
     normalizeDisplayText(merged.caseLabel) ||
@@ -3056,6 +3066,7 @@ function applyScheduleRoomAdjustments(
         : -1;
       return {
         ...slot,
+        roomName: normalizeDisplayText(overrides?.roomName) || normalizeDisplayText(slot.roomName),
         learnerLabels: nextLearners,
         caseLabel: normalizeDisplayText(overrides?.caseLabel) || normalizeDisplayText(slot.caseLabel),
         backupSpName: normalizeDisplayText(overrides?.backupSpName) || normalizeDisplayText(slot.backupSpName),
