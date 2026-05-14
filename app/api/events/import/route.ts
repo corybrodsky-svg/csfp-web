@@ -1016,14 +1016,39 @@ async function syncRosterAssignments(
   for (const row of actionableRows) {
     const normalizedEmail = normalizeEmail(row.email);
     const normalizedName = normalizeName(row.name);
-    const matchedSp =
+    let matchedSp =
       spDirectory.find((sp) => normalizedEmail && normalizeEmail(sp.working_email) === normalizedEmail) ||
       spDirectory.find((sp) => normalizedEmail && normalizeEmail(sp.email) === normalizedEmail) ||
       spDirectory.find((sp) => normalizedName && normalizeName(sp.full_name) === normalizedName);
 
     if (!matchedSp) {
-      unmatchedSpRows.push({ name: row.name, email: row.email });
-      continue;
+      const fullName = asText(row.name) || normalizedEmail;
+      const email = normalizedEmail || "";
+
+      if (!fullName && !email) {
+        unmatchedSpRows.push({ name: row.name, email: row.email });
+        continue;
+      }
+
+      const { data: insertedSp, error: insertedSpError } = await supabaseServer
+        .from("sps")
+        .insert({
+          full_name: fullName || null,
+          working_email: email || null,
+          email: email || null,
+          notes: "Created from workbook import",
+        })
+        .select("id,full_name,working_email,email")
+        .single();
+
+      if (insertedSpError) throw new Error(insertedSpError.message);
+      if (!insertedSp) {
+        unmatchedSpRows.push({ name: row.name, email: row.email });
+        continue;
+      }
+
+      matchedSp = insertedSp as SPDirectoryRow;
+      spDirectory.push(matchedSp);
     }
 
     spMatched += 1;
