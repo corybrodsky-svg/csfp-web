@@ -4431,6 +4431,15 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         typeof body?.event?.notes === "string" || body?.event?.notes === null
           ? body.event.notes
           : nextNotes;
+
+      const persistedMetadata = parseEventMetadata(persistedNotes).training;
+      if (
+        partial.schedule_status &&
+        asText(persistedMetadata.schedule_status) !== asText(partial.schedule_status)
+      ) {
+        throw new Error("Schedule metadata save did not persist to the event record.");
+      }
+
       setEvents((current) =>
         current.map((event) =>
           event.id === selectedEvent.id
