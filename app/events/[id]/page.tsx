@@ -9857,6 +9857,7 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       confirmedAssignments,
       currentLiveRoomDisplayEntries.length,
       currentLiveRoomBoardRows,
+      event?.id,
       currentLiveReferenceScheduleRows,
       firstLiveRotationStartMinutes,
       liveBlueprintRoomEntries,
