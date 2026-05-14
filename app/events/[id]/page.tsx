@@ -3966,12 +3966,35 @@ function resolveScheduleBuilderPreviewSnapshot(
       ? serverDaySnapshots.get(effectiveDay - 1) || null
       : null;
   const fallbackLegacySnapshot = parseCompletedScheduleBuilderSnapshot(metadata?.schedule_builder_snapshot);
-  const serverSnapshot = serverSnapshotFromDay || inheritedDaySnapshot || fallbackLegacySnapshot;
-  const completedSnapshot =
-    asText(metadata?.schedule_status).toLowerCase() === "complete" ? serverSnapshot : null;
   const localSnapshot = options?.localStorageSnapshot
     ? parseScheduleBuilderPreviewDraft(options.localStorageSnapshot)
     : null;
+
+  const getSnapshotRoundCount = (snapshot: ScheduleBuilderPreviewDraft | null) =>
+    Math.max(
+      snapshot?.resolvedRounds?.length || 0,
+      snapshot?.scheduleRoundCount || 0,
+      parsePositiveInteger(snapshot?.roundCount, 0)
+    );
+
+  const orderedServerSnapshots = [
+    serverSnapshotFromDay,
+    inheritedDaySnapshot,
+    fallbackLegacySnapshot,
+  ].filter(Boolean) as ScheduleBuilderPreviewDraft[];
+
+  const bestCompletedServerSnapshot =
+    orderedServerSnapshots.length > 0
+      ? [...orderedServerSnapshots].sort(
+          (a, b) => getSnapshotRoundCount(b) - getSnapshotRoundCount(a)
+        )[0]
+      : null;
+
+  const serverSnapshot = serverSnapshotFromDay || inheritedDaySnapshot || fallbackLegacySnapshot;
+  const completedSnapshot =
+    asText(metadata?.schedule_status).toLowerCase() === "complete"
+      ? bestCompletedServerSnapshot || serverSnapshot
+      : null;
 
   return {
     effectiveDay,
