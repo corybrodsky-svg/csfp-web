@@ -9606,32 +9606,45 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
   useEffect(() => {
     setActiveOccupancyRoomKey("");
   }, [selectedRoundOccupancyKey]);
-  const selectedRoundOccupancyLearners = useMemo(
+  const selectedRoundOccupancyRoomLearners = useMemo(
+    () =>
+      selectedRoundScheduleRows.map((row, index) => ({
+        roomName: row.roomName,
+        learnerLabels: normalizeLearnerNames(row.learnerLabels).filter((learner) => isAssignedLearnerRoomLabel(learner)),
+        fallbackIndex: index,
+      })),
+    [selectedRoundScheduleRows]
+  );
+  const selectedRoundOccupancyScheduledLearners = useMemo(
     () =>
       Array.from(
         new Set(
-          selectedRoundScheduleRows
-            .flatMap((row) => row.learnerLabels)
+          selectedRoundOccupancyRoomLearners
+            .flatMap((room) => room.learnerLabels)
             .map((learner) => normalizeLearnerName(learner))
             .filter(Boolean)
         )
       ),
-    [selectedRoundScheduleRows]
+    [selectedRoundOccupancyRoomLearners]
   );
   const interactiveLiveAttendanceBlueprintRooms = useMemo(
     () =>
-      liveAttendanceBlueprintRooms.map((room) => {
-        const baseLearners = isAssignedLearnerRoomLabel(room.learnerLabel)
-          ? asText(room.learnerLabel).split(",").map((learner) => normalizeLearnerName(learner)).filter(Boolean)
-          : [];
+      liveAttendanceBlueprintRooms.map((room, roomIndex) => {
+        const matchedOccupancyRoom =
+          selectedRoundOccupancyRoomLearners.find((candidate) => compareRoomLabels(candidate.roomName, room.roomName) === 0) ||
+          selectedRoundOccupancyRoomLearners[roomIndex] ||
+          null;
+        const baseLearners = matchedOccupancyRoom?.learnerLabels || [];
         const learnerNames = Array.from(
           new Set([
             ...baseLearners.filter((learner) => {
               const moveTarget = localOccupancyLearnerRoomMoves[`${selectedRoundOccupancyKey}|${learner}`];
               return !moveTarget || compareRoomLabels(moveTarget, room.roomName) === 0;
             }),
-            ...selectedRoundOccupancyLearners.filter(
-              (learner) => compareRoomLabels(localOccupancyLearnerRoomMoves[`${selectedRoundOccupancyKey}|${learner}`], room.roomName) === 0
+            ...selectedRoundOccupancyScheduledLearners.filter(
+              (learner) =>
+                !baseLearners.includes(learner) &&
+                compareRoomLabels(localOccupancyLearnerRoomMoves[`${selectedRoundOccupancyKey}|${learner}`], room.roomName) === 0
             ),
           ])
         );
@@ -9672,7 +9685,8 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       localOccupancySpCheckIns,
       localOccupancySpRoomMoves,
       selectedRoundOccupancyKey,
-      selectedRoundOccupancyLearners,
+      selectedRoundOccupancyRoomLearners,
+      selectedRoundOccupancyScheduledLearners,
     ]
   );
   const liveVisibleRoomCount = interactiveLiveAttendanceBlueprintRooms.length;
