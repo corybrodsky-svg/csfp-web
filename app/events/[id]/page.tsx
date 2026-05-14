@@ -4852,11 +4852,21 @@ export default function EventDetailPage() {
 
   const quickStaffingOptions = useMemo(() => {
     const query = quickStaffingQuery.trim().toLowerCase();
+    const queryTokens = query.split(/\s+/).filter(Boolean);
+
     return sps
       .filter((sp) => {
         if (assignedSpIds.has(String(sp.id))) return false;
-        if (!query) return true;
-        return getCandidateSearchText(sp).includes(query);
+        if (!queryTokens.length) return true;
+
+        const quickSearchText = [
+          getCandidateSearchText(sp),
+          ...Object.values(sp).map(asText),
+        ]
+          .join(" ")
+          .toLowerCase();
+
+        return queryTokens.every((token) => quickSearchText.includes(token));
       })
       .sort(sortSPs)
       .slice(0, 30);
