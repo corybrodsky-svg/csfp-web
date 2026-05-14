@@ -5855,7 +5855,15 @@ export default function EventDetailPage() {
         if (snapshotRounds.length) return snapshotRounds;
       }
 
-      return capRotationRounds(allRotationRounds, activeRotationCount);
+      const cappedRounds = capRotationRounds(allRotationRounds, activeRotationCount);
+
+      // Operations must not hide real backend/session rounds just because the
+      // learner-capacity planner thinks fewer rounds are needed.
+      if (allRotationRounds.length > cappedRounds.length) {
+        return allRotationRounds;
+      }
+
+      return cappedRounds;
     },
     [
       activeRotationCount,
