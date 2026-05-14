@@ -1200,32 +1200,49 @@ export async function POST(
       );
     }
 
-    if (existingAssignment?.id) {
-      return applyAuthCookies(
-        NextResponse.json({ ok: true, already_assigned: true }),
-        viewer
-      );
-    }
+    const nextStatus = requestedStatus || "invited";
+    const nextConfirmed =
+      typeof requestedConfirmed === "boolean" ? requestedConfirmed : nextStatus === "confirmed";
 
-    const { error } = await supabaseServer.from("event_sps").upsert({
+    const assignmentPayload = {
       event_id: eventId,
       sp_id: spId,
-      status: requestedStatus || "invited",
-      confirmed: typeof requestedConfirmed === "boolean" ? requestedConfirmed : requestedStatus === "confirmed",
+      status: nextStatus,
+      assignment_status: nextStatus,
+      role_name: nextStatus,
+      confirmed: nextConfirmed,
       ...(requestedNotes !== undefined ? { notes: requestedNotes } : {}),
-    });
+    };
 
-    if (error) {
+    const saveResult = existingAssignment?.id
+      ? await supabaseServer
+          .from("event_sps")
+          .update({
+            status: nextStatus,
+            assignment_status: nextStatus,
+            role_name: nextStatus,
+            confirmed: nextConfirmed,
+            ...(requestedNotes !== undefined ? { notes: requestedNotes } : {}),
+          })
+          .eq("id", existingAssignment.id)
+      : await supabaseServer
+          .from("event_sps")
+          .insert(assignmentPayload);
+
+    if (saveResult.error) {
       return applyAuthCookies(
         NextResponse.json(
-          { error: error.message || "Could not save assignment." },
+          { error: saveResult.error.message || "Could not save assignment." },
           { status: 500 }
         ),
         viewer
       );
     }
 
-    return applyAuthCookies(NextResponse.json({ ok: true }, { status: 201 }), viewer);
+    return applyAuthCookies(
+      NextResponse.json({ ok: true, updated_existing: Boolean(existingAssignment?.id) }, { status: existingAssignment?.id ? 200 : 201 }),
+      viewer
+    );
   } catch (error) {
     return NextResponse.json(
       { error: `Supabase request failed: ${getErrorMessage(error)}` },
