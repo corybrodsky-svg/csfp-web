@@ -8573,14 +8573,36 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
   }, [selectedRotationRound, sessions]);
   const selectedRoundRoomSlotEntries = useMemo(() => {
     if (!selectedRotationRound) return [] as RoomDisplayEntry[];
-    return (
-      roomSlotEntriesByRoundKey.get(selectedRotationRound.key) ||
-      buildFullRoomSlotsForRound(selectedRotationRound, {
-        metadataRoomCount: effectiveRoomCount,
-        roomContext: roomNamingContext,
-      })
+
+    const mappedSlots = roomSlotEntriesByRoundKey.get(selectedRotationRound.key) || [];
+    const operationalRoomCount = Math.max(
+      mappedSlots.length,
+      effectiveRoomCount,
+      needed,
+      confirmedAssignments.length
     );
-  }, [effectiveRoomCount, roomNamingContext, roomSlotEntriesByRoundKey, selectedRotationRound]);
+
+    const expandedSlots = buildFullRoomSlotsForRound(selectedRotationRound, {
+      metadataRoomCount: operationalRoomCount,
+      roomContext: roomNamingContext,
+    });
+
+    // Operations must follow actual room/SP coverage, not learner-capacity compression.
+    if (mappedSlots.length >= operationalRoomCount) return mappedSlots;
+
+    return expandedSlots.map((slot, index) => ({
+      ...slot,
+      ...(mappedSlots[index] || {}),
+      roomName: mappedSlots[index]?.roomName || slot.roomName,
+    }));
+  }, [
+    confirmedAssignments.length,
+    effectiveRoomCount,
+    needed,
+    roomNamingContext,
+    roomSlotEntriesByRoundKey,
+    selectedRotationRound,
+  ]);
   const selectedRoundRoomCount = selectedRoundRoomSlotEntries.length;
   const selectedRoundCaseLabel = useMemo(
     () =>
@@ -10323,24 +10345,21 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     "Date TBD";
   const trainingEmailTimeLabel = normalEventTrainingTimeText || summaryTimeLabel || "Time TBD";
   const trainingRoleNeedLabel = needed > 0 ? `${needed} SP${needed === 1 ? "" : "s"} required` : "Role need TBD";
-  const trainingEmailSubject = `${event?.name || "Event"}: SP Training - ${trainingEmailDateLabel}`;
+  const trainingEmailSubject = `${event?.name || "Event"}: Prep for VIR SP Training - ${trainingEmailDateLabel}, ${trainingEmailTimeLabel}`;
   const trainingEmailBody = [
-    "<b>SPs,</b>",
+    "SPs,",
     "",
-    `In preparation for ${event?.name || "this"} SP training, please review the following:`,
+    `In preparation for ${event?.name || "this event"} Training, please review the following:`,
     "",
-    `<b>Date:</b> ${trainingEmailDateLabel}`,
-    `<b>Time:</b> ${trainingEmailTimeLabel}`,
-    `<b>Location/Modality:</b> ${trainingLocationModality || "TBD"}`,
-    `<b>Role Need:</b> ${trainingRoleNeedLabel}`,
-    `<b>Case:</b> ${trainingMetadata.case_name || "Case name TBD"}`,
-    `<b>Zoom Link:</b> ${normalEventTrainingLink || trainingMetadata.zoom_url || "TBD"}`,
-    `<b>Materials:</b> ${eventMaterialName || trainingMetadata.case_name || "TBD"}`,
-    `<b>Sim Contact:</b> ${trainingSimContact || "Sim Team Assigned"}`,
+    `Date: ${trainingEmailDateLabel}`,
+    `Time: ${trainingEmailTimeLabel}`,
+    `Zoom Link: ${normalEventTrainingLink || trainingMetadata.zoom_url || "TBD"}`,
+    `Case: ${trainingMetadata.case_name || "Case name TBD"}`,
+    `Sim Contact: ${trainingSimContact || "Sim Team Assigned"}`,
     "",
     "Thank you,",
     "",
-    `<b>From:</b> ${me?.fullName || me?.scheduleName || me?.email || "CFSP Simulation Operations"}`,
+    me?.fullName || me?.scheduleName || me?.email || "CFSP Simulation Operations",
   ].join("\n");
   const trainingMailtoHref = buildMailtoHref({
     to: me?.email || "",
@@ -23818,11 +23837,7 @@ Cory`;
                     </span>
                   </div>
                 </div>
-                {hiddenExtraBackendRounds > 0 ? (
-                  <div style={{ marginTop: "6px", color: "var(--cfsp-warning)", fontSize: "10px", fontWeight: 800 }}>
-                    Extra backend room slots are hidden because learner capacity only requires {rotationRounds.length} rotation round{rotationRounds.length === 1 ? "" : "s"}.
-                  </div>
-                ) : null}
+                {hiddenExtraBackendRounds > 0 ? null : null}
                 <div
                   className="cfsp-round-details-layout"
                   style={{
