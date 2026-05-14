@@ -14163,17 +14163,18 @@ Cory`;
 
   async function handleQuickStaffingAdd(status: "confirmed" | "backup") {
     if (!quickStaffingSpId) return;
-    const sp = spsById.get(quickStaffingSpId);
-    const pollNote = getImportedPollNoteForSpId(quickStaffingSpId);
-    await assignMultipleSpIds(
-      [quickStaffingSpId],
-      `${sp ? getFullName(sp) : "SP"} added as ${status === "confirmed" ? "primary" : "backup"}.`,
-      {
-        status,
-        confirmed: status === "confirmed",
-        notesBySpId: pollNote ? { [quickStaffingSpId]: pollNote } : undefined,
-      }
-    );
+
+    const spId = quickStaffingSpId;
+    const sp = spsById.get(spId);
+    const pollNote = getImportedPollNoteForSpId(spId);
+
+    await handleAddAssignment(spId, {
+      status,
+      confirmed: status === "confirmed",
+      notes: pollNote || undefined,
+      successMessage: `${sp ? getFullName(sp) : "SP"} added as ${status === "confirmed" ? "primary" : "backup"}.`,
+    });
+
     setQuickStaffingSpId("");
     setQuickStaffingQuery("");
   }
