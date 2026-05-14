@@ -231,6 +231,37 @@ type ScheduleBuilderDraft = {
   savedAt?: string | null;
 };
 
+type PersistedScheduleBuilderRoomSlot = {
+  roomName: string;
+  learnerLabels: string[];
+  assignedSpName?: string;
+  backupSpName?: string;
+  caseLabel?: string;
+  roleLabel?: string;
+  notes?: string;
+  roomType?: GeneratedRoomSlot["roomType"];
+  capacity?: number;
+};
+
+type PersistedScheduleBuilderRound = {
+  round: number;
+  sessionDate: string;
+  startTime: string;
+  endTime: string;
+  roomSlots: PersistedScheduleBuilderRoomSlot[];
+};
+
+type PersistedScheduleBuilderSnapshot = ScheduleBuilderDraft & {
+  snapshotVersion: 2;
+  scheduleStatus: "complete" | "in_progress";
+  scheduleRoundCount: number;
+  scheduleRoomCount: number;
+  scheduleRoomCapacity: number;
+  scheduleLearnerRoster: string[];
+  eventDate: string;
+  resolvedRounds: PersistedScheduleBuilderRound[];
+};
+
 type ScheduleRoomAdjustmentSlot = {
   slotIndex: number;
   learnerLabels: string[];
@@ -3826,9 +3857,9 @@ function parseSavedDraft(raw: string | null): ScheduleBuilderDraft | null {
   }
 }
 
-function encodeScheduleBuilderSnapshot(draft: ScheduleBuilderDraft) {
+function encodeScheduleBuilderSnapshot(snapshot: unknown) {
   try {
-    return encodeURIComponent(JSON.stringify(draft));
+    return encodeURIComponent(JSON.stringify(snapshot));
   } catch {
     return "";
   }
@@ -3858,6 +3889,32 @@ function formatSavedTimestamp(value: string | null) {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return "";
   return parsed.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
+function buildPersistedScheduleBuilderRounds(
+  rounds: ScheduledRound[],
+  assignedNames: string[],
+  sessionDate: string | null | undefined
+) {
+  const resolvedDate = asText(sessionDate);
+  return rounds.map((round) => ({
+    round: round.round,
+    sessionDate: resolvedDate,
+    startTime: minutesToInputTime(round.start),
+    endTime: minutesToInputTime(round.end),
+    roomSlots: round.roomSlots.map((slot) => ({
+      roomName: asText(slot.roomName),
+      learnerLabels: normalizeLearnerNames(slot.learnerLabels),
+      assignedSpName:
+        typeof slot.assignedSpIndex === "number" ? asText(assignedNames[slot.assignedSpIndex]) : "",
+      backupSpName: asText(slot.backupSpName),
+      caseLabel: asText(slot.caseLabel),
+      roleLabel: asText(slot.roleLabel),
+      notes: asText(slot.notes),
+      roomType: slot.roomType,
+      capacity: slot.capacity,
+    })),
+  }));
 }
 
 function getSaveStateAppearance(state: SaveState) {
@@ -4894,16 +4951,71 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     () => buildLearnerRoster(uploadedLearners, Math.max(slotsPerRound, 1), generated.rounds.length),
     [generated.rounds.length, slotsPerRound, uploadedLearners]
   );
-  const buildScheduleWorkflowPartial = useCallback(
+  const buildPersistedScheduleSnapshot = useCallback(
     (now: string, statusOverride?: "complete" | "in_progress") => {
       const nextStatus = statusOverride || (scheduleWorkflowStatus === "complete" ? "complete" : "in_progress");
+      const resolvedAssignedNames = selectedEvent ? getAssignedNames(selectedEvent) : [];
+      const resolvedRounds = buildPersistedScheduleBuilderRounds(
+        applyScheduleRoomAdjustments(
+          assignUniquePrimarySpIndexes(
+            attachLearners(
+              generated.rounds,
+              learnerRoster,
+              parsedRoomCapacity,
+              activeCaseCount,
+              multipleCasesEnabled,
+              isVirtualEvent
+            ),
+            resolvedAssignedNames,
+            !multipleCasesEnabled
+          ),
+          resolvedAssignedNames,
+          roomAdjustments
+        ),
+        resolvedAssignedNames,
+        selectedEvent?.earliest_session_date || selectedEvent?.date_text || ""
+      );
+      const resolvedRoomCount = resolvedRounds.reduce((maxCount, round) => Math.max(maxCount, round.roomSlots.length), 0);
+      const resolvedLearnerRoster = uploadedLearners.length ? uploadedLearners : originalUploadedLearners;
+
+      return {
+        ...draftSnapshot,
+        savedAt: now,
+        snapshotVersion: 2 as const,
+        scheduleStatus: nextStatus,
+        scheduleRoundCount: resolvedRounds.length || effectiveRoundCount,
+        scheduleRoomCount: resolvedRoomCount || totalRoomCount,
+        scheduleRoomCapacity: parsedRoomCapacity,
+        scheduleLearnerRoster: resolvedLearnerRoster,
+        eventDate: asText(selectedEvent?.earliest_session_date) || asText(selectedEvent?.date_text),
+        resolvedRounds,
+      } satisfies PersistedScheduleBuilderSnapshot;
+    },
+    [
+      activeCaseCount,
+      draftSnapshot,
+      effectiveRoundCount,
+      generated.rounds,
+      isVirtualEvent,
+      learnerRoster,
+      multipleCasesEnabled,
+      originalUploadedLearners,
+      parsedRoomCapacity,
+      roomAdjustments,
+      scheduleWorkflowStatus,
+      selectedEvent,
+      totalRoomCount,
+      uploadedLearners,
+    ]
+  );
+  const buildScheduleWorkflowPartial = useCallback(
+    (now: string, statusOverride?: "complete" | "in_progress") => {
+      const persistedSnapshot = buildPersistedScheduleSnapshot(now, statusOverride);
+      const nextStatus = persistedSnapshot.scheduleStatus;
       const nextDays = new Map(scheduleBuilderDaySnapshots);
       nextDays.set(
         scheduleDay,
-        {
-          ...draftSnapshot,
-          savedAt: now,
-        }
+        persistedSnapshot
       );
       const nextDaysRecord = Object.fromEntries(
         Array.from(nextDays.entries())
@@ -4916,37 +5028,32 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         schedule_started_at: selectedEventMetadata.schedule_started_at || now,
         schedule_last_saved_at: now,
         schedule_updated_at: now,
-        schedule_learner_count: String(learnerRoster.length),
-        schedule_room_count: String(totalRoomCount),
-        schedule_round_count: String(effectiveRoundCount),
-        schedule_room_capacity: String(parsedRoomCapacity),
+        schedule_learner_count: String(persistedSnapshot.scheduleLearnerRoster.length),
+        schedule_room_count: String(persistedSnapshot.scheduleRoomCount),
+        schedule_round_count: String(persistedSnapshot.scheduleRoundCount),
+        schedule_room_capacity: String(persistedSnapshot.scheduleRoomCapacity),
         schedule_learner_roster: serializeScheduleLearnerRosterMetadata(
           uploadedLearners.length ? uploadedLearners : originalUploadedLearners
         ),
-        schedule_builder_snapshot: encodeScheduleBuilderSnapshot({ ...draftSnapshot, savedAt: now }),
+        schedule_builder_snapshot: encodeScheduleBuilderSnapshot(persistedSnapshot),
         schedule_builder_days: JSON.stringify(nextDaysRecord),
         schedule_preview_enabled_for_sps: selectedEventMetadata.schedule_preview_enabled_for_sps || "no",
       };
     },
     [
-      draftSnapshot,
-      effectiveRoundCount,
+      buildPersistedScheduleSnapshot,
       scheduleBuilderDaySnapshots,
-      learnerRoster.length,
       originalUploadedLearners,
-      parsedRoomCapacity,
       scheduleDay,
-      scheduleWorkflowStatus,
       selectedEventMetadata.schedule_preview_enabled_for_sps,
       selectedEventMetadata.schedule_started_at,
-      totalRoomCount,
       uploadedLearners,
     ]
   );
   const handleSaveScheduleChanges = useCallback(async () => {
     if (props.previewOnly || saveState === "saving") return;
     const now = new Date().toISOString();
-    const savedSnapshot = { ...draftSnapshot, savedAt: now };
+    const savedSnapshot = buildPersistedScheduleSnapshot(now);
 
     if (autosaveTimeoutRef.current) {
       window.clearTimeout(autosaveTimeoutRef.current);
@@ -4977,8 +5084,8 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       showCopyMessage(message, "error", 3200);
     }
   }, [
+    buildPersistedScheduleSnapshot,
     buildScheduleWorkflowPartial,
-    draftSnapshot,
     persistScheduleWorkflowMetadata,
     props.previewOnly,
     saveState,
@@ -5956,10 +6063,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     setSaveState("saving");
     setSaveErrorMessage("");
     try {
-      const completedSnapshot = {
-        ...draftSnapshot,
-        savedAt: now,
-      };
+      const completedSnapshot = buildPersistedScheduleSnapshot(now, "complete");
       await persistScheduleWorkflowMetadata({
         schedule_status: "complete",
         schedule_started_at: selectedEventMetadata.schedule_started_at || now,
@@ -5968,10 +6072,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         schedule_completed_at: now,
         schedule_completed_by: getBuilderUserLabel(me),
         rotation_schedule_status: "complete",
-        schedule_learner_count: String(learnerRoster.length),
-        schedule_room_count: String(totalRoomCount),
-        schedule_round_count: String(effectiveRoundCount),
-        schedule_room_capacity: String(parsedRoomCapacity),
+        schedule_learner_count: String(completedSnapshot.scheduleLearnerRoster.length),
+        schedule_room_count: String(completedSnapshot.scheduleRoomCount),
+        schedule_round_count: String(completedSnapshot.scheduleRoundCount),
+        schedule_room_capacity: String(completedSnapshot.scheduleRoomCapacity),
         schedule_learner_roster: serializeScheduleLearnerRosterMetadata(
           uploadedLearners.length ? uploadedLearners : originalUploadedLearners
         ),
