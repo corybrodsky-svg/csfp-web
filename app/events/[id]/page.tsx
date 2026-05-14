@@ -23270,6 +23270,23 @@ Cory`;
                           );
                         })}
                       </div>
+                      <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                        <Link
+                          href={`/events/${encodeURIComponent(id)}/edit`}
+                          className="cfsp-button-tactical"
+                          style={{
+                            ...staffingSecondaryButtonStyle,
+                            padding: "7px 10px",
+                            textDecoration: "none",
+                            display: "inline-flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            fontSize: "11px",
+                          }}
+                        >
+                          Edit Event Setup
+                        </Link>
+                      </div>
                       {primaryEventTool === "commandCenter" ? (
                       <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                         {[

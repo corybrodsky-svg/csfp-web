@@ -752,6 +752,43 @@ function getSafeSessionUpdates(rawUpdates: unknown) {
   return Object.keys(updates).length ? updates : null;
 }
 
+function getSafeSessionReplacementPayload(rawSessions: unknown, eventId: string, fallbackLocation: unknown) {
+  if (!Array.isArray(rawSessions)) return null;
+
+  const fallbackLocationText = asText(fallbackLocation) || null;
+  const sessions = rawSessions
+    .map((session) => {
+      if (!session || typeof session !== "object") return null;
+      const source = session as Record<string, unknown>;
+      const sessionDate = asText(source.session_date) || null;
+      const startTime = asText(source.start_time) || null;
+      const endTime = asText(source.end_time) || null;
+      const room = asText(source.room) || null;
+      const location = asText(source.location) || fallbackLocationText;
+
+      if (!sessionDate || !startTime) return null;
+
+      return {
+        event_id: eventId,
+        session_date: sessionDate,
+        start_time: startTime,
+        end_time: endTime,
+        room,
+        location,
+      };
+    })
+    .filter((session): session is {
+      event_id: string;
+      session_date: string;
+      start_time: string;
+      end_time: string | null;
+      room: string | null;
+      location: string | null;
+    } => Boolean(session));
+
+  return sessions;
+}
+
 function sanitizeEventForSp(event: {
   id: string;
   name: string | null;
@@ -1194,12 +1231,17 @@ export async function PATCH(
     const body = await request.json();
     const eventUpdates = getSafeEventUpdates(body?.event_updates);
     const sessionUpdates = getSafeSessionUpdates(body?.session_updates);
+    const sessionReplacements = getSafeSessionReplacementPayload(
+      body?.session_replacements,
+      eventId,
+      eventUpdates?.location
+    );
     const assignmentId = typeof body?.assignment_id === "string" ? body.assignment_id : "";
     const updates = getSafeAssignmentUpdates(body?.updates);
     const attendanceAction =
       typeof body?.attendance_action === "string" ? body.attendance_action.trim().toLowerCase() : "";
 
-    if (eventId && (eventUpdates || sessionUpdates)) {
+    if (eventId && (eventUpdates || sessionUpdates || sessionReplacements)) {
       const nextEventUpdates = eventUpdates ? { ...eventUpdates } : {};
       let updatedEvent: Record<string, unknown> | null = null;
       if (eventUpdates && Object.prototype.hasOwnProperty.call(eventUpdates, "notes")) {
@@ -1253,7 +1295,38 @@ export async function PATCH(
         updatedEvent = (savedEvent as Record<string, unknown> | null) || null;
       }
 
-      if (sessionUpdates) {
+      if (sessionReplacements) {
+        const { error: deleteSessionsError } = await supabaseServer
+          .from("event_sessions")
+          .delete()
+          .eq("event_id", eventId);
+
+        if (deleteSessionsError) {
+          return applyAuthCookies(
+            NextResponse.json(
+              { error: deleteSessionsError.message || "Could not replace event sessions." },
+              { status: 500 }
+            ),
+            viewer
+          );
+        }
+
+        if (sessionReplacements.length) {
+          const { error: insertSessionsError } = await supabaseServer
+            .from("event_sessions")
+            .insert(sessionReplacements);
+
+          if (insertSessionsError) {
+            return applyAuthCookies(
+              NextResponse.json(
+                { error: insertSessionsError.message || "Could not save event sessions." },
+                { status: 500 }
+              ),
+              viewer
+            );
+          }
+        }
+      } else if (sessionUpdates) {
         const { data: existingSession, error: existingSessionError } = await supabaseServer
           .from("event_sessions")
           .select("id")
