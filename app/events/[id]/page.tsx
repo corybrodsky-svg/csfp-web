@@ -13182,6 +13182,39 @@ Cory`;
     const basePreviewSnapshot = scheduleBuilderPreviewDraft || resolvedSchedulePreview.serverSnapshot || null;
 
     if (basePreviewSnapshot) {
+      const adjustedResolvedRounds = (basePreviewSnapshot.resolvedRounds || []).map((round, roundIndex) => {
+        const roundNumber = Number(round.round) || roundIndex + 1;
+        const roundAdjustments = nextAdjustments.get(roundNumber) || [];
+        if (!roundAdjustments.length) return round;
+
+        const adjustedRoomSlots = [...(round.roomSlots || [])];
+
+        roundAdjustments.forEach((slotAdjustment) => {
+          const slotIndex = Number(slotAdjustment.slotIndex);
+          if (!Number.isFinite(slotIndex) || slotIndex < 0) return;
+
+          const existingSlot = adjustedRoomSlots[slotIndex] || {
+            roomName: getFallbackRoomLabel(slotIndex, roomNamingContext),
+          };
+
+          adjustedRoomSlots[slotIndex] = {
+            ...existingSlot,
+            roomName: asText(existingSlot.roomName) || getFallbackRoomLabel(slotIndex, roomNamingContext),
+            assignedSpName: asText(slotAdjustment.spName) || "",
+            backupSpName: asText(slotAdjustment.backupSpName) || "",
+            learnerLabels: Array.isArray(slotAdjustment.learnerLabels) ? slotAdjustment.learnerLabels : [],
+            caseLabel: asText(slotAdjustment.caseLabel),
+            roleLabel: asText(slotAdjustment.roleLabel),
+            notes: asText(slotAdjustment.notes),
+          };
+        });
+
+        return {
+          ...round,
+          roomSlots: adjustedRoomSlots,
+        };
+      });
+
       const nextPreviewSnapshot: ScheduleBuilderPreviewDraft = {
         ...basePreviewSnapshot,
         ...(options?.nextRoomCount !== undefined
@@ -13190,6 +13223,8 @@ Cory`;
               scheduleRoomCount: options.nextRoomCount,
             }
           : {}),
+        resolvedRounds: adjustedResolvedRounds,
+        scheduleRoundCount: adjustedResolvedRounds.length || basePreviewSnapshot.scheduleRoundCount,
         savedAt: now,
       };
       nextTrainingMetadata.schedule_builder_snapshot = encodeURIComponent(
