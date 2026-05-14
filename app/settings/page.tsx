@@ -230,13 +230,15 @@ function SettingsContent() {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name: eventEdit.name,
-          status: eventEdit.status,
-          visibility: eventEdit.visibility,
-          location: eventEdit.location,
-          sp_needed: eventEdit.spNeeded ? Number(eventEdit.spNeeded) : null,
-          date_text: eventEdit.dateText,
-          notes: eventEdit.notes,
+          event_updates: {
+            name: eventEdit.name,
+            status: eventEdit.status,
+            visibility: eventEdit.visibility,
+            location: eventEdit.location,
+            sp_needed: eventEdit.spNeeded ? Number(eventEdit.spNeeded) : null,
+            date_text: eventEdit.dateText,
+            notes: eventEdit.notes,
+          },
         }),
       });
 
@@ -321,6 +323,98 @@ function SettingsContent() {
                 onChange={(value) => update("notes", value)}
                 placeholder="Sim Staff, faculty, hiring notes, operational reminders, support needs, etc."
               />
+            </Panel>
+
+            <Panel title="Faculty Requests" detail="Track exactly what faculty requested for this event.">
+              <div className="grid gap-3 md:grid-cols-2">
+                <label className="flex items-center gap-3 rounded-xl border border-[var(--cfsp-border)] bg-white px-3 py-3 text-sm font-black text-[var(--cfsp-text)]">
+                  <input type="checkbox" onChange={(e) => update("notes", `${eventEdit.notes}\nfaculty_requested_recording: ${e.target.checked ? "yes" : "no"}`)} />
+                  Recording requested
+                </label>
+                <label className="flex items-center gap-3 rounded-xl border border-[var(--cfsp-border)] bg-white px-3 py-3 text-sm font-black text-[var(--cfsp-text)]">
+                  <input type="checkbox" onChange={(e) => update("notes", `${eventEdit.notes}\nfaculty_requested_zoom: ${e.target.checked ? "yes" : "no"}`)} />
+                  Zoom / telehealth requested
+                </label>
+                <label className="flex items-center gap-3 rounded-xl border border-[var(--cfsp-border)] bg-white px-3 py-3 text-sm font-black text-[var(--cfsp-text)]">
+                  <input type="checkbox" onChange={(e) => update("notes", `${eventEdit.notes}\nfaculty_requested_av: ${e.target.checked ? "yes" : "no"}`)} />
+                  AV requested
+                </label>
+                <label className="flex items-center gap-3 rounded-xl border border-[var(--cfsp-border)] bg-white px-3 py-3 text-sm font-black text-[var(--cfsp-text)]">
+                  <input type="checkbox" onChange={(e) => update("notes", `${eventEdit.notes}\nfaculty_requested_sim_tech: ${e.target.checked ? "yes" : "no"}`)} />
+                  Sim tech requested
+                </label>
+                <label className="flex items-center gap-3 rounded-xl border border-[var(--cfsp-border)] bg-white px-3 py-3 text-sm font-black text-[var(--cfsp-text)]">
+                  <input type="checkbox" onChange={(e) => update("notes", `${eventEdit.notes}\nfaculty_requested_door_sign: ${e.target.checked ? "yes" : "no"}`)} />
+                  Door sign requested
+                </label>
+                <label className="flex items-center gap-3 rounded-xl border border-[var(--cfsp-border)] bg-white px-3 py-3 text-sm font-black text-[var(--cfsp-text)]">
+                  <input type="checkbox" onChange={(e) => update("notes", `${eventEdit.notes}\nfaculty_requested_case_materials: ${e.target.checked ? "yes" : "no"}`)} />
+                  Case/materials requested
+                </label>
+              </div>
+              <Field label="Faculty contact" value="" onChange={(value) => update("notes", `${eventEdit.notes}\nfaculty_contact: ${value}`)} />
+              <Field label="Faculty email" value="" onChange={(value) => update("notes", `${eventEdit.notes}\nfaculty_email: ${value}`)} />
+              <TextAreaField label="Faculty request notes" value="" onChange={(value) => update("notes", `${eventEdit.notes}\nfaculty_request_notes: ${value}`)} />
+            </Panel>
+
+            <Panel title="Staffing Requirements" detail="Configure SP hiring and staffing needs for this event.">
+              <div className="grid gap-3 md:grid-cols-2">
+                <Field label="Backups needed" value="" onChange={(value) => update("notes", `${eventEdit.notes}\nbackups_needed: ${value}`)} />
+                <Field label="SP portrayal / role notes" value="" onChange={(value) => update("notes", `${eventEdit.notes}\nsp_role_notes: ${value}`)} />
+                <label className="flex items-center gap-3 rounded-xl border border-[var(--cfsp-border)] bg-white px-3 py-3 text-sm font-black text-[var(--cfsp-text)]">
+                  <input type="checkbox" onChange={(e) => update("notes", `${eventEdit.notes}\npt_preferred: ${e.target.checked ? "yes" : "no"}`)} />
+                  PT preferred
+                </label>
+                <label className="flex items-center gap-3 rounded-xl border border-[var(--cfsp-border)] bg-white px-3 py-3 text-sm font-black text-[var(--cfsp-text)]">
+                  <input type="checkbox" onChange={(e) => update("notes", `${eventEdit.notes}\nspanish_speaking_needed: ${e.target.checked ? "yes" : "no"}`)} />
+                  Spanish-speaking SP needed
+                </label>
+                <label className="flex items-center gap-3 rounded-xl border border-[var(--cfsp-border)] bg-white px-3 py-3 text-sm font-black text-[var(--cfsp-text)]">
+                  <input type="checkbox" onChange={(e) => update("notes", `${eventEdit.notes}\ntelehealth_capable_needed: ${e.target.checked ? "yes" : "no"}`)} />
+                  Telehealth-capable SP needed
+                </label>
+                <label className="flex items-center gap-3 rounded-xl border border-[var(--cfsp-border)] bg-white px-3 py-3 text-sm font-black text-[var(--cfsp-text)]">
+                  <input type="checkbox" onChange={(e) => update("notes", `${eventEdit.notes}\nstaffing_ready: ${e.target.checked ? "yes" : "no"}`)} />
+                  Staffing ready
+                </label>
+              </div>
+              <TextAreaField label="Hiring / staffing notes" value="" onChange={(value) => update("notes", `${eventEdit.notes}\nstaffing_notes: ${value}`)} />
+            </Panel>
+
+            <Panel title="Room & Simulation Setup" detail="Capture the room setup, sim equipment, moulage, and operational layout needs.">
+              <div className="grid gap-3 md:grid-cols-2">
+                <Field label="Room list" value="" onChange={(value) => update("notes", `${eventEdit.notes}\nroom_list: ${value}`)} />
+                <Field label="Room count" value="" onChange={(value) => update("notes", `${eventEdit.notes}\nroom_count: ${value}`)} />
+                <Field label="Equipment needs" value="" onChange={(value) => update("notes", `${eventEdit.notes}\nequipment_needs: ${value}`)} />
+                <Field label="Simulator / manikin needs" value="" onChange={(value) => update("notes", `${eventEdit.notes}\nsimulator_needs: ${value}`)} />
+                <Field label="Task trainer needs" value="" onChange={(value) => update("notes", `${eventEdit.notes}\ntask_trainer_needs: ${value}`)} />
+                <Field label="Moulage needs" value="" onChange={(value) => update("notes", `${eventEdit.notes}\nmoulage_needs: ${value}`)} />
+              </div>
+            </Panel>
+
+            <Panel title="Training, Materials & Tech" detail="Readiness controls for training, prep materials, recording, Zoom, and SimulationIQ.">
+              <div className="grid gap-3 md:grid-cols-2">
+                <Field label="Training date/time" value="" onChange={(value) => update("notes", `${eventEdit.notes}\ntraining_datetime: ${value}`)} />
+                <Field label="Training location / Zoom" value="" onChange={(value) => update("notes", `${eventEdit.notes}\ntraining_location_zoom: ${value}`)} />
+                <Field label="Training recording link" value="" onChange={(value) => update("notes", `${eventEdit.notes}\ntraining_recording_link: ${value}`)} />
+                <Field label="SimulationIQ / recording status" value="" onChange={(value) => update("notes", `${eventEdit.notes}\nrecording_status: ${value}`)} />
+                <label className="flex items-center gap-3 rounded-xl border border-[var(--cfsp-border)] bg-white px-3 py-3 text-sm font-black text-[var(--cfsp-text)]">
+                  <input type="checkbox" onChange={(e) => update("notes", `${eventEdit.notes}\ntraining_required: ${e.target.checked ? "yes" : "no"}`)} />
+                  Training required
+                </label>
+                <label className="flex items-center gap-3 rounded-xl border border-[var(--cfsp-border)] bg-white px-3 py-3 text-sm font-black text-[var(--cfsp-text)]">
+                  <input type="checkbox" onChange={(e) => update("notes", `${eventEdit.notes}\nmaterials_ready: ${e.target.checked ? "yes" : "no"}`)} />
+                  Materials ready
+                </label>
+                <label className="flex items-center gap-3 rounded-xl border border-[var(--cfsp-border)] bg-white px-3 py-3 text-sm font-black text-[var(--cfsp-text)]">
+                  <input type="checkbox" onChange={(e) => update("notes", `${eventEdit.notes}\ndoor_sign_ready: ${e.target.checked ? "yes" : "no"}`)} />
+                  Door sign ready
+                </label>
+                <label className="flex items-center gap-3 rounded-xl border border-[var(--cfsp-border)] bg-white px-3 py-3 text-sm font-black text-[var(--cfsp-text)]">
+                  <input type="checkbox" onChange={(e) => update("notes", `${eventEdit.notes}\ncase_file_ready: ${e.target.checked ? "yes" : "no"}`)} />
+                  Case file ready
+                </label>
+              </div>
             </Panel>
           </div>
         )}
