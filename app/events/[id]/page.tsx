@@ -5836,13 +5836,21 @@ export default function EventDetailPage() {
   const rotationRounds = useMemo(
     () => {
       if (scheduleBuilderPreviewDraft?.resolvedRounds?.length) {
-        return scheduleBuilderPreviewDraft.resolvedRounds.map((round) => ({
+        const completedSnapshotRounds = scheduleBuilderPreviewDraft.resolvedRounds.map((round) => ({
           key: `completed-snapshot-round-${round.round}`,
           session_date: asText(round.sessionDate) || event?.date_text || sessions[0]?.session_date || null,
           start_time: asText(round.startTime) || null,
           end_time: asText(round.endTime) || null,
           rooms: round.roomSlots.map((slot) => asText(slot.roomName)).filter(Boolean),
         }));
+
+        // Do not let a stale completed schedule snapshot hide real backend/session rounds.
+        // If imported/event sessions contain more operational rounds, they win.
+        if (allRotationRounds.length > completedSnapshotRounds.length) {
+          return allRotationRounds;
+        }
+
+        return completedSnapshotRounds;
       }
       if (scheduleBuilderPreviewDraft?.startTime) {
         const snapshotRounds = buildRotationRoundsFromScheduleDraft(
@@ -5852,7 +5860,12 @@ export default function EventDetailPage() {
           resolvedRotationDraftEndText,
           importedYearHint
         );
-        if (snapshotRounds.length) return snapshotRounds;
+        if (snapshotRounds.length) {
+          if (allRotationRounds.length > snapshotRounds.length) {
+            return allRotationRounds;
+          }
+          return snapshotRounds;
+        }
       }
 
       const cappedRounds = capRotationRounds(allRotationRounds, activeRotationCount);
