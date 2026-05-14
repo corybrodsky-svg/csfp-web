@@ -140,6 +140,8 @@ type AssignmentApiRow = {
   event_id: string | null;
   sp_id: string | null;
   status: string | null;
+  assignment_status?: string | null;
+  role_name?: string | null;
   confirmed: boolean | null;
   notes?: string | null;
   last_contacted_at?: string | null;
@@ -690,7 +692,11 @@ function getSafeAssignmentUpdates(rawUpdates: unknown) {
   const source = rawUpdates as Record<string, unknown>;
   const updates: Record<string, string | boolean | null> = {};
 
-  if (typeof source.status === "string") updates.status = source.status;
+  if (typeof source.status === "string") {
+    updates.status = source.status;
+    updates.assignment_status = source.status;
+    updates.role_name = source.status;
+  }
   if (typeof source.confirmed === "boolean") updates.confirmed = source.confirmed;
   if (typeof source.notes === "string" || source.notes === null) updates.notes = source.notes;
   if (typeof source.last_contacted_at === "string" || source.last_contacted_at === null) {
@@ -805,32 +811,51 @@ function sanitizeEventForSp(event: {
   };
 }
 
+function normalizeAssignmentRow(row: AssignmentApiRow): AssignmentApiRow {
+  const normalizedStatus =
+    asText(row.status) ||
+    asText(row.assignment_status) ||
+    asText(row.role_name) ||
+    "";
+
+  return {
+    ...row,
+    status: normalizedStatus || null,
+    confirmed:
+      typeof row.confirmed === "boolean"
+        ? row.confirmed
+        : normalizedStatus.toLowerCase() === "confirmed",
+  };
+}
+
 async function loadEventAssignments(supabaseServer: ReturnType<typeof createSupabaseServerClient>, eventId: string) {
   const primary = await supabaseServer
     .from("event_sps")
     .select(
-      "id,event_id,sp_id,status,confirmed,notes,last_contacted_at,contact_method,created_at,training_attended,training_checked_in_at"
+      "id,event_id,sp_id,status,assignment_status,role_name,confirmed,notes,last_contacted_at,contact_method,created_at,training_attended,training_checked_in_at"
     )
     .eq("event_id", eventId);
 
   if (!primary.error) {
     return {
-      assignments: (primary.data || []) as AssignmentApiRow[],
+      assignments: ((primary.data || []) as AssignmentApiRow[]).map(normalizeAssignmentRow),
       error: null,
     };
   }
 
   const fallback = await supabaseServer
     .from("event_sps")
-    .select("id,event_id,sp_id,status,confirmed,notes,last_contacted_at,contact_method,created_at")
+    .select("id,event_id,sp_id,status,assignment_status,role_name,confirmed,notes,last_contacted_at,contact_method,created_at")
     .eq("event_id", eventId);
 
   return {
-    assignments: ((fallback.data || []) as AssignmentApiRow[]).map((assignment) => ({
-      ...assignment,
-      training_attended: false,
-      training_checked_in_at: null,
-    })),
+    assignments: ((fallback.data || []) as AssignmentApiRow[]).map((assignment) =>
+      normalizeAssignmentRow({
+        ...assignment,
+        training_attended: false,
+        training_checked_in_at: null,
+      })
+    ),
     error: fallback.error,
   };
 }
@@ -843,7 +868,7 @@ async function fetchAssignmentById(
   const primary = await supabaseServer
     .from("event_sps")
     .select(
-      "id,event_id,sp_id,status,confirmed,notes,last_contacted_at,contact_method,created_at,training_attended,training_checked_in_at"
+      "id,event_id,sp_id,status,assignment_status,role_name,confirmed,notes,last_contacted_at,contact_method,created_at,training_attended,training_checked_in_at"
     )
     .eq("event_id", eventId)
     .eq("id", assignmentId)
@@ -851,14 +876,14 @@ async function fetchAssignmentById(
 
   if (!primary.error) {
     return {
-      assignment: (primary.data || null) as AssignmentApiRow | null,
+      assignment: primary.data ? normalizeAssignmentRow(primary.data as AssignmentApiRow) : null,
       error: null,
     };
   }
 
   const fallback = await supabaseServer
     .from("event_sps")
-    .select("id,event_id,sp_id,status,confirmed,notes,last_contacted_at,contact_method,created_at")
+    .select("id,event_id,sp_id,status,assignment_status,role_name,confirmed,notes,last_contacted_at,contact_method,created_at")
     .eq("event_id", eventId)
     .eq("id", assignmentId)
     .maybeSingle();
@@ -1182,7 +1207,7 @@ export async function POST(
       );
     }
 
-    const { error } = await supabaseServer.from("event_sps").insert({
+    const { error } = await supabaseServer.from("event_sps").upsert({
       event_id: eventId,
       sp_id: spId,
       status: requestedStatus || "invited",
