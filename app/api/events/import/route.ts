@@ -333,7 +333,13 @@ function parseExcelDate(value: unknown) {
     return raw;
   }
 
-  return null;
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return null;
+
+  const year = parsed.getFullYear();
+  if (year < 2020 || year > 2035) return null;
+
+  return `${year}-${String(parsed.getMonth() + 1).padStart(2, "0")}-${String(parsed.getDate()).padStart(2, "0")}`;
 }
 
 function parseTimeValue(value: unknown) {
