@@ -37,36 +37,39 @@ const blankSnapshot: FieldSnapshot = {
   roomNames: "",
 };
 
-function normalizeText(value: string) {
-  return value.toLowerCase().replace(/\s+/g, " ").trim();
-}
-
-function fieldValueByLabel(labelNeedle: string) {
-  if (typeof document === "undefined") return "";
-
-  const needle = normalizeText(labelNeedle);
-  const labels = Array.from(document.querySelectorAll("label"));
-
-  const label = labels.find((item) => normalizeText(item.textContent || "").includes(needle));
-  if (!label) return "";
-
-  const scoped =
-    label.parentElement?.querySelector<HTMLInputElement | HTMLTextAreaElement>("input, textarea") ||
-    label.parentElement?.parentElement?.querySelector<HTMLInputElement | HTMLTextAreaElement>("input, textarea");
-
-  return scoped?.value || "";
+function isVisibleField(field: HTMLInputElement | HTMLTextAreaElement) {
+  const rect = field.getBoundingClientRect();
+  return rect.width > 0 && rect.height > 0 && field.type !== "hidden";
 }
 
 function takeSnapshot(): FieldSnapshot {
+  if (typeof document === "undefined") return blankSnapshot;
+
+  const previewRoot = document.querySelector("[data-new-event-schedule-preview]");
+  const form =
+    previewRoot?.closest("form") ||
+    previewRoot?.closest(".cfsp-card") ||
+    document.querySelector("form") ||
+    document.body;
+
+  const fields = Array.from(form.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>("textarea, input"))
+    .filter(isVisibleField);
+
+  const textareas = fields.filter((field) => field.tagName.toLowerCase() === "textarea");
+  const inputs = fields.filter((field) => field.tagName.toLowerCase() === "input");
+
+  const dates = textareas[0]?.value || "";
+  const roomNames = textareas[textareas.length - 1]?.value || "";
+
   return {
-    dates: fieldValueByLabel("date"),
-    studentCount: fieldValueByLabel("student count"),
-    roomCount: fieldValueByLabel("number of rooms"),
-    startTime: fieldValueByLabel("start time"),
-    endTime: fieldValueByLabel("end time"),
-    encounterMinutes: fieldValueByLabel("encounter length"),
-    transitionMinutes: fieldValueByLabel("feedback"),
-    roomNames: fieldValueByLabel("room names"),
+    dates,
+    studentCount: inputs[0]?.value || "",
+    roomCount: inputs[1]?.value || "",
+    startTime: inputs[2]?.value || "",
+    endTime: inputs[3]?.value || "",
+    encounterMinutes: inputs[4]?.value || "",
+    transitionMinutes: inputs[5]?.value || "",
+    roomNames,
   };
 }
 
@@ -244,7 +247,7 @@ export default function NewEventSchedulePreview() {
   const dates = preview.dates.length ? preview.dates : ["Preview Date"];
 
   return (
-    <section className="mt-5 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+    <section data-new-event-schedule-preview className="mt-5 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-4">
         <div>
           <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-500">Schedule Preview</p>

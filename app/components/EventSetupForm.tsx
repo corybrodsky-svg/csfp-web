@@ -301,6 +301,7 @@ function buildNotes(args: {
   roomNames: string[];
   roomCount: number;
   rotationsNeeded: number;
+
   generatedRotationRounds: number;
   generatedRoomSlots: number;
 }) {
@@ -868,7 +869,6 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
                 </label>
                 <label className="grid gap-2 md:col-span-2">
                   <span className="cfsp-label">Room Names</span>
-        <NewEventSchedulePreview />
 
                   <textarea
                     className="cfsp-input"
@@ -1218,7 +1218,8 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
           ) : null}
 
           <div className="flex flex-wrap justify-between gap-3">
-            <div className="flex gap-2">
+                        <NewEventSchedulePreview />
+<div className="flex gap-2">
               <button
                 type="button"
                 onClick={() => setStep((current) => Math.max(0, current - 1) as WizardStep)}
