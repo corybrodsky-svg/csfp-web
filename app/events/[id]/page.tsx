@@ -32104,7 +32104,16 @@ Cory`;
                       style={{ width: "100%", height: "min(72vh, 880px)", border: "none", background: "#ffffff" }}
                     />
                   )}
-                </>
+                
+      <button
+        type="button"
+        onClick={handleDeleteEvent}
+        className="fixed bottom-4 right-4 z-[9999] rounded-lg border border-red-200 bg-white/90 px-3 py-2 text-[11px] font-bold text-red-600 shadow-sm opacity-50 backdrop-blur transition hover:opacity-100 hover:bg-red-50 hover:border-red-300"
+        title="Delete this event"
+      >
+        Delete Event
+      </button>
+</>
               ) : null}
             </div>
           </div>
