@@ -551,6 +551,11 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
   const [feedbackLength, setFeedbackLength] = useState(() => getInitialNumberFromNotes(initialEvent?.notes, ["Feedback / Break Length"], "10"));
   const [roomCount, setRoomCount] = useState(() => asText(initialTrainingMetadata.schedule_room_count) || String(Math.max(1, getUniqueRoomNames(initialSessions).split("\n").filter(Boolean).length || 1)));
   const [roomNames, setRoomNames] = useState(() => getUniqueRoomNames(initialSessions));
+  const [numberOfCases, setNumberOfCases] = useState("1");
+  const [studentsSeeEachCase, setStudentsSeeEachCase] = useState("yes");
+  const [scheduleBreakBlock, setScheduleBreakBlock] = useState("");
+  const [backupSpsRequired, setBackupSpsRequired] = useState("");
+  const [backupSpCount, setBackupSpCount] = useState("");
   const [studentCount, setStudentCount] = useState(() => asText(initialTrainingMetadata.schedule_learner_count) || getInitialNumberFromNotes(initialEvent?.notes, ["Student Count"], ""));
   const [spNeededOverride, setSpNeededOverride] = useState(() => initialEvent?.sp_needed === null || initialEvent?.sp_needed === undefined ? "" : String(initialEvent.sp_needed));
 
@@ -719,6 +724,8 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
     }
     if (eventType !== "skills" && parsedSpNeeded <= 0) next.push("SP staffing is set to 0. This event will behave as no-SP-required.");
     if (!asText(simStaff) && !asText(eventLeadTeam)) next.push("Add sim staff or event lead/team so ownership is visible.");
+    if (!backupSpsRequired) next.push("Select whether backup SPs are needed.");
+    if (backupSpsRequired === "yes" && parseNumber(backupSpCount) <= 0) next.push("Enter how many backup SPs are needed.");
     if (trainingRequirement === "yes" && trainingOwnership === "tbd") next.push("SP training is marked Yes, but training ownership is still TBD.");
     if (facultyTrainingCoordinationRelevant && facultyAvailabilityUnknown && !facultyAvailabilityRequestPlanned) {
       next.push("Faculty-led/co-led training has unknown faculty availability. Consider requesting faculty availability before staffing locks.");
@@ -729,6 +736,8 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
     return next;
   }, [
     availableRoundCapacity,
+    backupSpsRequired,
+    backupSpCount,
     endTime,
     eventLeadTeam,
     eventType,
@@ -1094,7 +1103,61 @@ async function handleSubmit(event: React.FormEvent) {
                 </label>
               </div>
 
-              <div className="cfsp-alert cfsp-alert-info">
+                            <div className="grid gap-4 md:grid-cols-3">
+                <label className="grid gap-2">
+                  <span className="cfsp-label">Number of Cases</span>
+                  <input
+                    className="cfsp-input"
+                    type="number"
+                    min="1"
+                    value={numberOfCases}
+                    onChange={(e) => setNumberOfCases(e.target.value)}
+                    placeholder="1"
+                  />
+                </label>
+
+                {Number(numberOfCases || "1") > 1 ? (
+                  <>
+                    <label className="grid gap-2">
+                      <span className="cfsp-label">How many cases?</span>
+                      <input
+                        className="cfsp-input"
+                        type="number"
+                        min="2"
+                        value={numberOfCases}
+                        onChange={(e) => setNumberOfCases(e.target.value)}
+                        placeholder="2"
+                      />
+                    </label>
+
+                    <label className="grid gap-2">
+                      <span className="cfsp-label">Do students see each case?</span>
+                      <select
+                        className="cfsp-input"
+                        value={studentsSeeEachCase}
+                        onChange={(e) => setStudentsSeeEachCase(e.target.value)}
+                      >
+                        <option value="yes">Yes</option>
+                        <option value="no">No</option>
+                        <option value="partial">Some / partial rotation</option>
+                      </select>
+                    </label>
+                  </>
+                ) : null}
+              </div>
+
+              <label className="grid gap-2">
+                <span className="cfsp-label">Break / Block in Schedule Preview</span>
+                <textarea
+                  className="cfsp-textarea"
+                  style={{ minHeight: 72, resize: "vertical" }}
+                  value={scheduleBreakBlock}
+                  onChange={(e) => setScheduleBreakBlock(e.target.value)}
+                  placeholder={"Example: 10:30 AM - 10:45 AM Break\nExample: 12:00 PM - 12:30 PM Lunch"}
+                />
+              </label>
+
+<div className="cfsp-alert cfsp-alert-info">
                 {parsedStudentCount > 0
                   ? `CFSP needs ${rotationsNeeded || 0} learner rotation round${rotationsNeeded === 1 ? "" : "s"} for ${parsedStudentCount} students, generated ${generatedRotationRoundCount || 0}, and will store ${generatedRoomSlotCount || 0} room-slot record${generatedRoomSlotCount === 1 ? "" : "s"}.`
                   : `Student count is blank, so CFSP is showing an uncapped time-window preview with ${generatedRotationRoundCount || 0} learner rotation round${generatedRotationRoundCount === 1 ? "" : "s"} and ${generatedRoomSlotCount || 0} stored room-slot record${generatedRoomSlotCount === 1 ? "" : "s"}.`}
@@ -1123,7 +1186,38 @@ async function handleSubmit(event: React.FormEvent) {
                 </p>
               </div>
 
-              <div className="grid gap-4 md:grid-cols-2">
+                            <div className="grid gap-4 md:grid-cols-2">
+                <label className="grid gap-2">
+                  <span className="cfsp-label">Backups?</span>
+                  <select
+                    className="cfsp-input"
+                    required
+                    value={backupSpsRequired}
+                    onChange={(e) => setBackupSpsRequired(e.target.value)}
+                  >
+                    <option value="">Select one</option>
+                    <option value="no">No backups needed</option>
+                    <option value="yes">Yes, backups needed</option>
+                  </select>
+                </label>
+
+                {backupSpsRequired === "yes" ? (
+                  <label className="grid gap-2">
+                    <span className="cfsp-label">If so, how many?</span>
+                    <input
+                      className="cfsp-input"
+                      type="number"
+                      min="1"
+                      required
+                      value={backupSpCount}
+                      onChange={(e) => setBackupSpCount(e.target.value)}
+                      placeholder="2"
+                    />
+                  </label>
+                ) : null}
+              </div>
+
+<div className="grid gap-4 md:grid-cols-2">
                 <label className="grid gap-2">
                   <span className="cfsp-label">Calculated SPs Needed</span>
                   <input className="cfsp-input" value={calculatedSpNeeded} disabled />
