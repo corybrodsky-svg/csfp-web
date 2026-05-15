@@ -7,6 +7,8 @@ import SiteShell from "./SiteShell";
 import { ActionFeedback, useActionFeedback } from "./SaveActionFeedback";
 import { parseTrainingEventMetadata } from "../lib/trainingEventNotes";
 
+import NewEventSchedulePreview from "@/app/components/NewEventSchedulePreview";
+
 type EventType = "sp" | "skills" | "training" | "virtual" | "hifi";
 type WizardStep = 0 | 1 | 2 | 3;
 type TrainingRequirement = "yes" | "no" | "tbd";
@@ -866,6 +868,8 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
                 </label>
                 <label className="grid gap-2 md:col-span-2">
                   <span className="cfsp-label">Room Names</span>
+        <NewEventSchedulePreview />
+
                   <textarea
                     className="cfsp-input"
                     style={{ minHeight: 88, resize: "vertical" }}

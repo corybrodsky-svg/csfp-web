@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import EventSetupForm, { type EventSetupEvent, type EventSetupSession } from "../../../components/EventSetupForm";
 import SiteShell from "../../../components/SiteShell";
 
+
 type EventDetailResponse = {
   event?: EventSetupEvent | null;
   sessions?: EventSetupSession[];
