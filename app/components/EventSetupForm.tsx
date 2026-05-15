@@ -825,6 +825,17 @@ async function handleDownloadReviewPdf() {
   addLine("Rotations Needed", rotationsNeeded);
   addLine("Generated Rotations", generatedRotationRoundCount);
   addLine("Generated Room Slots", generatedRoomSlotCount);
+  addLine("Number of Cases", numberOfCases || "1");
+  if (Number(numberOfCases || "1") > 1) {
+    addLine("Students See Each Case", studentsSeeEachCase || "Not set");
+  }
+  addLine("Backups Required", backupSpsRequired || "Not set");
+  if (backupSpsRequired === "yes") {
+    addLine("Backup SP Count", backupSpCount || "Not set");
+  }
+  if (scheduleBreakBlock) {
+    addLine("Schedule Break / Block", scheduleBreakBlock);
+  }
   addLine("Start Time", startTime || "Not set");
   addLine("End Time", endTime || "Not set");
 
@@ -1540,6 +1551,17 @@ async function handleSubmit(event: React.FormEvent) {
                       </>
                     ) : null}
                     <div><strong>Room Names:</strong> {normalizedRoomNames.join(", ")}</div>
+                    <div><strong>Number of Cases:</strong> {numberOfCases || "1"}</div>
+                    {Number(numberOfCases || "1") > 1 ? (
+                      <div><strong>Students See Each Case:</strong> {studentsSeeEachCase || "Not set"}</div>
+                    ) : null}
+                    <div><strong>Backups Required:</strong> {backupSpsRequired || "Not set"}</div>
+                    {backupSpsRequired === "yes" ? (
+                      <div><strong>Backup SP Count:</strong> {backupSpCount || "Not set"}</div>
+                    ) : null}
+                    {scheduleBreakBlock ? (
+                      <div><strong>Schedule Break / Block:</strong> {scheduleBreakBlock}</div>
+                    ) : null}
                   </div>
                 </div>
               </div>
