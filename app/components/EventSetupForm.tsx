@@ -398,7 +398,26 @@ function parseClockTimeToMinutes(value: string) {
   return null;
 }
 
-function formatClockMinutesForInput(value: number) {
+
+function formatDateListForDisplay(value: string) {
+  return asText(value)
+    .split(/\n|,|;/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .map((item) => {
+      const iso = item.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+
+      if (iso) {
+        return `${iso[2]}/${iso[3]}/${iso[1].slice(2)}`;
+      }
+
+      return item;
+    })
+    .join("\n");
+}
+
+
+function formatClockLabel(value: number) {
   const normalized = ((value % 1440) + 1440) % 1440;
   let hours = Math.floor(normalized / 60);
   const minutes = normalized % 60;
@@ -409,6 +428,15 @@ function formatClockMinutesForInput(value: number) {
 
   return `${hours}:${String(minutes).padStart(2, "0")} ${meridiem}`;
 }
+
+function formatClockMinutesForInput(value: number) {
+  const normalized = ((value % 1440) + 1440) % 1440;
+  const hours = Math.floor(normalized / 60);
+  const minutes = normalized % 60;
+
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
+
 
 function getRecommendedStatus(eventType: EventType, spNeeded: number) {
   if (eventType === "skills" || spNeeded <= 0) return "Scheduled";
@@ -721,7 +749,108 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
     trainingZoomRequired,
   ]);
 
-  async function handleSubmit(event: React.FormEvent) {
+  
+async function handleDownloadReviewPdf() {
+  const { default: jsPDF } = await import("jspdf");
+
+  const doc = new jsPDF({
+    orientation: "landscape",
+    unit: "pt",
+    format: "letter",
+  });
+
+  let y = 40;
+  const margin = 40;
+
+  const addLine = (label: string, value: string | number) => {
+    doc.setFont("helvetica", "bold");
+    doc.text(`${label}:`, margin, y);
+
+    doc.setFont("helvetica", "normal");
+    doc.text(String(value || "Not set"), margin + 170, y);
+
+    y += 18;
+  };
+
+  const addSection = (title: string) => {
+    y += 14;
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(14);
+    doc.text(title, margin, y);
+
+    y += 18;
+
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "normal");
+  };
+
+  const nextPage = () => {
+    if (y > 520) {
+      doc.addPage();
+      y = 40;
+    }
+  };
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(20);
+  doc.text("CFSP Event Review Summary", margin, y);
+
+  y += 30;
+
+  doc.setFontSize(10);
+
+  addSection("Event Information");
+
+  addLine("Event", name || "Untitled Event");
+  addLine("Type", eventType);
+  addLine("Location", location || "Not set");
+  addLine("Sim Lead", eventLeadTeam || "Not set");
+  addLine("Sim Staff", simStaff || "Not set");
+  addLine("Faculty", courseFaculty || "Not set");
+
+  addSection("Schedule Projection");
+
+  addLine("Student Count", parsedStudentCount);
+  addLine("Rooms", parsedRoomCount);
+  addLine("Rotations Needed", rotationsNeeded);
+  addLine("Generated Rotations", generatedRotationRoundCount);
+  addLine("Generated Room Slots", generatedRoomSlotCount);
+  addLine("Start Time", startTime || "Not set");
+  addLine("End Time", endTime || "Not set");
+
+  addSection("Rotation Rounds");
+
+  if (rotationRounds.length) {
+    rotationRounds.forEach((round, index) => {
+      nextPage();
+
+      const startMinutes = parseClockTimeToMinutes(startTime);
+      const blockMinutes = sessionLengthMinutes + feedbackLengthMinutes;
+      const roundStart = startMinutes === null ? null : startMinutes + index * blockMinutes;
+      const roundEnd = roundStart === null ? null : roundStart + sessionLengthMinutes;
+      const roundLabel =
+        roundStart === null || roundEnd === null
+          ? `Round ${index + 1}`
+          : `Round ${index + 1} · ${formatClockLabel(roundStart)} - ${formatClockLabel(roundEnd)}`;
+
+      doc.text(roundLabel, margin, y);
+
+      y += 16;
+    });
+  } else {
+    doc.text("No rotation rounds generated.", margin, y);
+    y += 16;
+  }
+
+  const safeName = (name || "event-review")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-");
+
+  doc.save(`${safeName}.pdf`);
+}
+
+async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
     begin();
     setSaving(true);
@@ -923,7 +1052,7 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
                   <textarea
                     className="cfsp-input"
                     style={{ minHeight: 88, resize: "vertical" }}
-                    value={dateList}
+                    value={formatDateListForDisplay(dateList)}
                     onChange={(e) => setDateList(e.target.value)}
                     placeholder={"05/26/2026\n05/27/2026"}
                   />
@@ -1270,7 +1399,7 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
                     )}
                     {rotationRounds.length > 18 ? (
                       <div className="text-sm font-semibold text-[#6a7e91]">
-                        Showing first 18 of {rotationRounds.length} learner rotation rounds.
+                        Showing first 18 of {generatedRotationRoundCount} learner rotation rounds.
                       </div>
                     ) : null}
                   </div>
@@ -1282,9 +1411,9 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
                     <button
                       type="button"
                       className="cfsp-btn cfsp-btn-secondary"
-                      onClick={() => window.print()}
+                      onClick={handleDownloadReviewPdf}
                     >
-                      Print / Save PDF
+                      Download PDF
                     </button>
                   </div>
                   <div className="mt-3 grid gap-3 text-sm leading-6 text-[#14304f]">
