@@ -6222,16 +6222,93 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     if (!file) return;
 
     setLearnerUploadError("");
-    setLearnerFileName(file.name);
-    setSaveState("unsaved");
 
     try {
       const names = await parseLearnerFile(file);
       if (!names.length) {
         throw new Error("No learner names were found in the uploaded file.");
       }
+
+      const existingScheduleDetected =
+        uploadedLearners.length > 0 ||
+        originalUploadedLearners.length > 0 ||
+        generated.rounds.length > 0 ||
+        Boolean(selectedEventMetadata.schedule_builder_snapshot) ||
+        scheduleBuilderDaySnapshots.size > 0;
+
+      let uploadMode: "add" | "replace" = "replace";
+
+      if (existingScheduleDetected) {
+        const choice = window
+          .prompt(
+            [
+              "This event already has a saved/current schedule.",
+              "",
+              "Type ADD to add this upload as a new schedule/day and keep the current schedule.",
+              "Type REPLACE to replace the current schedule.",
+              "Type CANCEL to stop.",
+            ].join("\\n"),
+            "ADD"
+          )
+          ?.trim()
+          .toUpperCase();
+
+        if (!choice || choice === "CANCEL") {
+          setLearnerUploadError("");
+          showCopyMessage("Schedule upload canceled. Current schedule was not changed.", "success", 3200);
+          return;
+        }
+
+        if (choice === "ADD") {
+          uploadMode = "add";
+        } else if (choice === "REPLACE") {
+          const replaceConfirmed = window.confirm(
+            "Replace the current schedule? This will rebuild the current schedule from this upload."
+          );
+
+          if (!replaceConfirmed) {
+            showCopyMessage("Replace canceled. Current schedule was not changed.", "success", 3200);
+            return;
+          }
+
+          uploadMode = "replace";
+        } else {
+          showCopyMessage("Upload canceled. Type ADD, REPLACE, or CANCEL.", "error", 4200);
+          return;
+        }
+      }
+
+      if (uploadMode === "add") {
+        const knownDays = Array.from(scheduleBuilderDaySnapshots.keys()).filter((day) => Number.isFinite(day));
+        const nextDay = Math.max(scheduleDay, 1, ...knownDays) + 1;
+
+        lockedScheduleSourceRef.current = null;
+        hydratedTimePrefillKeyRef.current = "";
+        skipNextAutosaveRef.current = true;
+        setSelectedBuilderRound(null);
+        setLearnerFileName(file.name);
+        setOriginalUploadedLearners(names);
+        setUploadedLearners(names);
+        setRoundCount(String(Math.max(1, Math.ceil(names.length / Math.max(slotsPerRound, 1)))));
+        setManualRoundOverride(false);
+        setSaveState("unsaved");
+        setScheduleMathEpoch((current) => current + 1);
+        showCopyMessage(
+          `Added ${file.name} as schedule/day ${nextDay}. Current schedule was preserved. Save changes to archive it.`,
+          "success",
+          5600
+        );
+        return;
+      }
+
+      setLearnerFileName(file.name);
       setOriginalUploadedLearners(names);
       setUploadedLearners(names);
+      setRoundCount(String(Math.max(1, Math.ceil(names.length / Math.max(slotsPerRound, 1)))));
+      setManualRoundOverride(false);
+      setSaveState("unsaved");
+      setScheduleMathEpoch((current) => current + 1);
+      showCopyMessage(`Uploaded ${names.length} learners from ${file.name}.`, "success", 3200);
     } catch (error) {
       setOriginalUploadedLearners([]);
       setUploadedLearners([]);
