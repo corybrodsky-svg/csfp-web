@@ -298,6 +298,9 @@ function buildNotes(args: {
   notes: string;
   sessionLength: string;
   feedbackLength: string;
+  prebriefingRequired: string;
+  prebriefingMinutes: string;
+  prebriefingLocation: string;
   roomNames: string[];
   roomCount: number;
   rotationsNeeded: number;
@@ -362,6 +365,9 @@ function buildNotes(args: {
     `Room Slots Generated: ${args.generatedRoomSlots}`,
     args.sessionLength ? `Session Length: ${args.sessionLength} minutes` : "",
     args.feedbackLength ? `Feedback / Break Length: ${args.feedbackLength} minutes` : "",
+    `Pre-briefing Required: ${args.prebriefingRequired === "yes" ? "Yes" : "No"}`,
+    args.prebriefingRequired === "yes" ? `Pre-briefing Length: ${args.prebriefingMinutes || "15"} minutes` : "",
+    args.prebriefingRequired === "yes" && args.prebriefingLocation ? `Pre-briefing Location: ${args.prebriefingLocation}` : "",
     `Rooms: ${args.roomCount}`,
     args.roomNames.length ? `Rooms: ${args.roomNames.join(", ")}` : "",
     args.notes,
@@ -549,6 +555,9 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
   const [endTime, setEndTime] = useState(() => toInputTime(firstSession?.end_time, "12:00"));
   const [sessionLength, setSessionLength] = useState(() => getInitialNumberFromNotes(initialEvent?.notes, ["Session Length"], "25"));
   const [feedbackLength, setFeedbackLength] = useState(() => getInitialNumberFromNotes(initialEvent?.notes, ["Feedback / Break Length"], "10"));
+  const [prebriefingRequired, setPrebriefingRequired] = useState("no");
+  const [prebriefingMinutes, setPrebriefingMinutes] = useState("15");
+  const [prebriefingLocation, setPrebriefingLocation] = useState("");
   const [roomCount, setRoomCount] = useState(() => asText(initialTrainingMetadata.schedule_room_count) || String(Math.max(1, getUniqueRoomNames(initialSessions).split("\n").filter(Boolean).length || 1)));
   const [roomNames, setRoomNames] = useState(() => getUniqueRoomNames(initialSessions));
   const [numberOfCases, setNumberOfCases] = useState("1");
@@ -700,6 +709,9 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
     notes,
     sessionLength,
     feedbackLength,
+    prebriefingRequired,
+    prebriefingMinutes,
+    prebriefingLocation,
     roomCount: parsedRoomCount,
     roomNames: normalizedRoomNames,
     rotationsNeeded,
@@ -825,6 +837,11 @@ async function handleDownloadReviewPdf() {
   addLine("Rotations Needed", rotationsNeeded);
   addLine("Generated Rotations", generatedRotationRoundCount);
   addLine("Generated Room Slots", generatedRoomSlotCount);
+  addLine("Pre-briefing Required", prebriefingRequired === "yes" ? "Yes" : "No");
+  if (prebriefingRequired === "yes") {
+    addLine("Pre-briefing Length", `${prebriefingMinutes || "15"} minutes`);
+    addLine("Pre-briefing Location", prebriefingLocation || "Not set");
+  }
   addLine("Number of Cases", numberOfCases || "1");
   if (Number(numberOfCases || "1") > 1) {
     addLine("Students See Each Case", studentsSeeEachCase || "Not set");
@@ -1101,7 +1118,46 @@ async function handleSubmit(event: React.FormEvent) {
                   <span className="cfsp-label">Feedback / Transition Length (minutes)</span>
                   <input className="cfsp-input" type="number" min={0} step={5} value={feedbackLength} onChange={(e) => setFeedbackLength(e.target.value)} />
                 </label>
-                <label className="grid gap-2 md:col-span-2">
+                                <label className="grid gap-2">
+                  <span className="cfsp-label">Pre-briefing?</span>
+                  <select
+                    className="cfsp-input"
+                    value={prebriefingRequired}
+                    onChange={(e) => setPrebriefingRequired(e.target.value)}
+                  >
+                    <option value="no">No pre-briefing</option>
+                    <option value="yes">Yes, include pre-briefing</option>
+                  </select>
+                </label>
+
+                {prebriefingRequired === "yes" ? (
+                  <>
+                    <label className="grid gap-2">
+                      <span className="cfsp-label">Pre-briefing Length (minutes)</span>
+                      <input
+                        className="cfsp-input"
+                        type="number"
+                        min="1"
+                        step="5"
+                        value={prebriefingMinutes}
+                        onChange={(e) => setPrebriefingMinutes(e.target.value)}
+                        placeholder="15"
+                      />
+                    </label>
+
+                    <label className="grid gap-2 md:col-span-2">
+                      <span className="cfsp-label">Pre-briefing Location</span>
+                      <input
+                        className="cfsp-input"
+                        value={prebriefingLocation}
+                        onChange={(e) => setPrebriefingLocation(e.target.value)}
+                        placeholder="Example: Classroom, hallway, Zoom, room 401"
+                      />
+                    </label>
+                  </>
+                ) : null}
+
+<label className="grid gap-2 md:col-span-2">
                   <span className="cfsp-label">Room Names</span>
 
                   <textarea
@@ -1182,6 +1238,9 @@ async function handleSubmit(event: React.FormEvent) {
                   endTime,
                   encounterMinutes: sessionLength,
                   transitionMinutes: feedbackLength,
+                  prebriefingRequired,
+                  prebriefingMinutes,
+                  prebriefingLocation,
                   roomNames,
                 }}
               />
@@ -1533,6 +1592,13 @@ async function handleSubmit(event: React.FormEvent) {
                     <div><strong>Rotations Needed:</strong> {parsedStudentCount > 0 ? rotationsNeeded : `Uncapped preview (${maxRoundsThatFit})`}</div>
                     <div><strong>Generated Rotations:</strong> {generatedRotationRoundCount}</div>
                     <div><strong>Generated Room Slots:</strong> {generatedRoomSlotCount}</div>
+                    <div><strong>Pre-briefing Required:</strong> {prebriefingRequired === "yes" ? "Yes" : "No"}</div>
+                    {prebriefingRequired === "yes" ? (
+                      <>
+                        <div><strong>Pre-briefing Length:</strong> {prebriefingMinutes || "15"} minutes</div>
+                        <div><strong>Pre-briefing Location:</strong> {prebriefingLocation || "Not set"}</div>
+                      </>
+                    ) : null}
                     <div><strong>Empty Room Slots In Final Round:</strong> {parsedStudentCount > 0 ? emptyRoomSlotsInFinalRound : "—"}</div>
                     <div><strong>SPs Needed:</strong> {eventType === "skills" ? "No SPs required" : parsedSpNeeded}</div>
                     <div><strong>SP Training:</strong> {getTrainingRequirementLabel(trainingRequirement)}</div>

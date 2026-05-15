@@ -10,6 +10,9 @@ type FieldSnapshot = {
   endTime: string;
   encounterMinutes: string;
   transitionMinutes: string;
+  prebriefingRequired?: string;
+  prebriefingMinutes?: string;
+  prebriefingLocation?: string;
   roomNames: string;
 };
 
@@ -34,6 +37,9 @@ const blankSnapshot: FieldSnapshot = {
   endTime: "",
   encounterMinutes: "",
   transitionMinutes: "",
+  prebriefingRequired: "no",
+  prebriefingMinutes: "15",
+  prebriefingLocation: "",
   roomNames: "",
 };
 
@@ -137,6 +143,9 @@ function buildPreview(snapshot: FieldSnapshot) {
   const roomCount = Math.max(1, parseNumber(snapshot.roomCount) || 1);
   const encounter = parseNumber(snapshot.encounterMinutes);
   const transition = parseNumber(snapshot.transitionMinutes);
+  const prebriefingRequired = snapshot.prebriefingRequired === "yes";
+  const prebriefingMinutes = prebriefingRequired ? parseNumber(snapshot.prebriefingMinutes || "15") || 15 : 0;
+  const prebriefingLocation = snapshot.prebriefingLocation || "";
   const start = parseTimeToMinutes(snapshot.startTime);
   const end = parseTimeToMinutes(snapshot.endTime);
   const dates = parseDates(snapshot.dates);
@@ -152,6 +161,9 @@ function buildPreview(snapshot: FieldSnapshot) {
       studentCount,
       roomCount,
       roundCount: 0,
+      prebriefingRequired: false,
+      prebriefingMinutes: 0,
+      prebriefingLocation: "",
     };
   }
 
@@ -165,6 +177,9 @@ function buildPreview(snapshot: FieldSnapshot) {
       studentCount,
       roomCount,
       roundCount: 0,
+      prebriefingRequired: false,
+      prebriefingMinutes: 0,
+      prebriefingLocation: "",
     };
   }
 
@@ -181,6 +196,9 @@ function buildPreview(snapshot: FieldSnapshot) {
       studentCount,
       roomCount,
       roundCount: 0,
+      prebriefingRequired: false,
+      prebriefingMinutes: 0,
+      prebriefingLocation: "",
     };
   }
 
@@ -219,6 +237,9 @@ function buildPreview(snapshot: FieldSnapshot) {
     studentCount,
     roomCount,
     roundCount,
+    prebriefingRequired,
+    prebriefingMinutes,
+    prebriefingLocation,
   };
 }
 
@@ -333,6 +354,12 @@ export default function NewEventSchedulePreview({ snapshotOverride }: { snapshot
                             {formatMinutes(round.start)} - {formatMinutes(round.end)}
                           </div>
                           <div className="mt-2 space-y-1 text-xs font-bold text-slate-500">
+                            {preview.prebriefingRequired ? (
+                              <p>
+                                Pre-brief: {formatMinutes(round.start - preview.prebriefingMinutes)} - {formatMinutes(round.start)}
+                                {preview.prebriefingLocation ? ` · ${preview.prebriefingLocation}` : ""}
+                              </p>
+                            ) : null}
                             <p>Encounter: {formatMinutes(round.start)} - {formatMinutes(round.encounterEnd)}</p>
                             <p>Feedback: {formatMinutes(round.encounterEnd)} - {formatMinutes(round.end)}</p>
                           </div>
