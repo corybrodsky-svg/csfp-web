@@ -23720,7 +23720,7 @@ Cory`;
 
             </div>
 
-	            {sessions.length ? (
+	            {(sessions.length || rotationRounds.length) ? (
                 <div id="round-operations" style={{ marginTop: "10px" }}>
                 <div
                   style={{
