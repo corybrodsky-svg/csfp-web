@@ -736,6 +736,14 @@ function parseSpInfoSheet(sheet: XLSX.WorkSheet, sheetName: string): ParsedSheet
 }
 
 
+function parseImportStaffNames(value: unknown) {
+  return asText(value)
+    .replace(/^\s*(sim staff|staff hiring|event lead\/team|event lead|team|course faculty|faculty)\s*:\s*/i, "")
+    .split(/[,;/&\n]+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
 function normalizeMasterHeader(value: unknown) {
   return asText(value)
     .toLowerCase()
@@ -913,7 +921,7 @@ function parseMasterScheduleSheet(sheet: XLSX.WorkSheet, sheetName: string): Par
       zoomLink: null,
       caseText,
       location: location || null,
-      simStaffNames: parseStaffNames(eventLeadTeam),
+      simStaffNames: parseImportStaffNames(eventLeadTeam),
       staffLine: eventLeadTeam || null,
       eventLeadTeam: eventLeadTeam || null,
       courseFaculty: courseFaculty || null,
