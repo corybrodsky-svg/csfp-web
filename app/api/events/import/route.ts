@@ -899,6 +899,23 @@ function upsertImportSection(existingNotes: string | null, parsed: ParsedSheet, 
   return withoutSection ? `${withoutSection}\n\n${section}` : section;
 }
 
+function buildScheduleSetImportNote(baseNotes: string, scheduleSetName: string, importMode: string, fileName: string) {
+  const cleanScheduleSetName = asText(scheduleSetName) || "Imported Schedule Set";
+  const cleanImportMode = asText(importMode) || "match_existing";
+  const cleanFileName = asText(fileName);
+
+  const block = [
+    "[CFSP_SCHEDULE_SET_IMPORT]",
+    `Schedule Set: ${cleanScheduleSetName}`,
+    `Import Mode: ${cleanImportMode}`,
+    `Source File: ${cleanFileName}`,
+    `Imported At: ${new Date().toISOString()}`,
+    "[/CFSP_SCHEDULE_SET_IMPORT]",
+  ].join("\n");
+
+  return [asText(baseNotes), block].filter(Boolean).join("\n\n");
+}
+
 function buildPreviewEntry(
   fileName: string,
   parsed: ParsedSheet,
@@ -1159,6 +1176,8 @@ export async function POST(request: Request) {
 
     const formData = await request.formData();
     const action = asText(formData.get("action")).toLowerCase() || "preview";
+    const importMode = asText(formData.get("import_mode")).toLowerCase() || "match_existing";
+    const scheduleSetName = asText(formData.get("schedule_set_name")) || "";
     const uploadedFiles = [
       ...formData.getAll("files").filter((value): value is File => value instanceof File),
       ...formData.getAll("file").filter((value): value is File => value instanceof File),
@@ -1231,8 +1250,66 @@ export async function POST(request: Request) {
 
           if (action !== "apply") continue;
 
+          if (importMode === "new_schedule_set") {
+            const primaryDate = getPrimaryDate(item.parsed);
+            const importNotes = buildScheduleSetImportNote(
+              upsertImportSection("", item.parsed, file.name),
+              scheduleSetName,
+              importMode,
+              file.name
+            );
+
+            const eventPayload = {
+              name: item.parsed.title || entry.extractedTitle || file.name,
+              status: "Needs SPs",
+              date_text: primaryDate ? normalizeDateKey(primaryDate) : null,
+              sp_needed: item.parsed.rosterRows.length || 0,
+              visibility: "team",
+              location: item.parsed.location || null,
+              notes: importNotes,
+            };
+
+            const { data: createdEvent, error: createError } = await supabaseServer
+              .from("events")
+              .insert(eventPayload)
+              .select("id,name,notes")
+              .single();
+
+            if (createError || !createdEvent) {
+              results.errors.push({
+                ...entry,
+                error: createError?.message || "Could not create imported event.",
+              });
+              continue;
+            }
+
+            await ensureSessions(supabaseServer, createdEvent.id, item.parsed);
+            const assignmentResult = await syncRosterAssignments(
+              supabaseServer,
+              createdEvent.id,
+              item.parsed,
+              [...(spDirectory || [])] as SPDirectoryRow[]
+            );
+
+            results.updated.push({
+              ...entry,
+              matchedEvent: createdEvent.name || undefined,
+              matchedEventId: createdEvent.id,
+              spMatched: assignmentResult.spMatched,
+              spAssignmentsCreated: assignmentResult.spAssignmentsCreated,
+              duplicatesAvoided: assignmentResult.duplicatesAvoided,
+              unmatchedSpRows: assignmentResult.unmatchedSpRows,
+            });
+            continue;
+          }
+
           const matchedEvent = item.match.event;
-          const nextNotes = upsertImportSection(matchedEvent.notes, item.parsed, file.name);
+          const nextNotes = buildScheduleSetImportNote(
+            upsertImportSection(matchedEvent.notes, item.parsed, file.name),
+            scheduleSetName,
+            importMode,
+            file.name
+          );
           const updatePayload: Record<string, unknown> = { notes: nextNotes };
 
           if (!asText(matchedEvent.location) && item.parsed.location) {

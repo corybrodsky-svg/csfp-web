@@ -167,6 +167,51 @@ export default function EventUploadPage() {
       return;
     }
 
+    let importMode = "match_existing";
+    let scheduleSetName = "";
+
+    if (action === "apply") {
+      const rawMode = window
+        .prompt(
+          [
+            "How should CFSP import this schedule?",
+            "",
+            "Type NEW to import as a new schedule set/term. Example: Summer 2026. This keeps Spring untouched.",
+            "Type ADD to add/update matching existing events.",
+            "Type REPLACE only if you intentionally want to replace existing matching data.",
+            "Type CANCEL to stop.",
+          ].join("\n"),
+          "NEW"
+        )
+        ?.trim()
+        .toUpperCase();
+
+      if (!rawMode || rawMode === "CANCEL") {
+        setErrorMessage("Import canceled. No schedule data was changed.");
+        return;
+      }
+
+      if (rawMode === "NEW") {
+        importMode = "new_schedule_set";
+        scheduleSetName =
+          window.prompt("Name this schedule set / term:", "Summer 2026")?.trim() || "Summer 2026";
+      } else if (rawMode === "ADD") {
+        importMode = "match_existing";
+      } else if (rawMode === "REPLACE") {
+        const confirmed = window.confirm(
+          "Replace matching existing schedule data? This should only be used intentionally."
+        );
+        if (!confirmed) {
+          setErrorMessage("Replace canceled. No schedule data was changed.");
+          return;
+        }
+        importMode = "replace_existing";
+      } else {
+        setErrorMessage("Import canceled. Type NEW, ADD, REPLACE, or CANCEL.");
+        return;
+      }
+    }
+
     if (action === "preview") {
       beginPreview();
       setSummary(null);
@@ -178,6 +223,8 @@ export default function EventUploadPage() {
     try {
       const formData = new FormData();
       formData.append("action", action);
+      formData.append("import_mode", importMode);
+      formData.append("schedule_set_name", scheduleSetName);
       files.forEach((file) => formData.append("files", file));
 
       const response = await fetch("/api/events/import", {
