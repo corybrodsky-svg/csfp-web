@@ -2336,6 +2336,7 @@ function calculateRoundTimingsWithBlocks(args: {
   maxPairsPerFlexRoom: number;
   cases?: ScheduleCaseDefinition[];
   encounterMinutes: number;
+  facultyPrebriefMinutes?: string | number;
   dayBlocks: DayBlockConfig[];
   timingVisibility?: ScheduleTimingVisibility;
   referenceEndMinutes?: number | null;
@@ -2369,6 +2370,17 @@ function calculateRoundTimingsWithBlocks(args: {
     const roundNumber = roundIndex + 1;
     const subBlocks: RoundSubBlock[] = [];
     let current = roundStart;
+    const prebriefMinutes = parseNumber(asText(args.facultyPrebriefMinutes), 0);
+
+    if (prebriefMinutes > 0) {
+      subBlocks.push({
+        label: "Pre-briefing",
+        start: current - prebriefMinutes,
+        end: current,
+        visibleTo: "both",
+      });
+    }
+
     const encounterEnd = current + sanitizeEncounterMinutes(args.encounterMinutes);
     subBlocks.push({
       label: "Encounter",
