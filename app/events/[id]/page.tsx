@@ -13025,6 +13025,53 @@ Cory`;
     }
   }
 
+  useEffect(() => {
+    const existing = document.getElementById("cfsp-delete-event-floating-button");
+    if (existing) existing.remove();
+
+    const button = document.createElement("button");
+    button.id = "cfsp-delete-event-floating-button";
+    button.type = "button";
+    button.textContent = "Delete Event";
+    button.title = "Delete this event";
+    button.style.position = "fixed";
+    button.style.right = "18px";
+    button.style.bottom = "18px";
+    button.style.zIndex = "2147483647";
+    button.style.padding = "8px 10px";
+    button.style.borderRadius = "10px";
+    button.style.border = "1px solid rgba(220, 38, 38, 0.28)";
+    button.style.background = "rgba(255, 255, 255, 0.92)";
+    button.style.color = "#dc2626";
+    button.style.fontSize = "11px";
+    button.style.fontWeight = "800";
+    button.style.boxShadow = "0 8px 22px rgba(15, 23, 42, 0.16)";
+    button.style.opacity = "0.55";
+    button.style.cursor = "pointer";
+    button.style.backdropFilter = "blur(10px)";
+
+    button.onmouseenter = () => {
+      button.style.opacity = "1";
+      button.style.background = "#fef2f2";
+    };
+
+    button.onmouseleave = () => {
+      button.style.opacity = "0.55";
+      button.style.background = "rgba(255, 255, 255, 0.92)";
+    };
+
+    button.onclick = () => {
+      void handleDeleteEvent();
+    };
+
+    document.body.appendChild(button);
+
+    return () => {
+      button.remove();
+    };
+  }, [event.id]);
+
+
   function handleSelectEventType(nextType: EditableEventType) {
     setEventSaveMessage("");
     setEventSaveError("");
