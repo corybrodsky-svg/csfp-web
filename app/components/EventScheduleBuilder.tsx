@@ -4886,6 +4886,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       maxPairsPerFlexRoom: scheduleMathFlexCapacity,
       cases: scheduleCasesForGeneration,
       encounterMinutes: parsedEncounter,
+      facultyPrebriefMinutes,
       dayBlocks: normalizedDayBlocks,
       timingVisibility,
       referenceEndMinutes: normalizedReferenceEndMinutes,
@@ -6889,6 +6890,9 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                   </>
                 ) : null}
                 <NumberInput label="Encounter minutes" value={encounterMinutes} onChange={setEncounterMinutes} />
+
+                {/* CORE_PREBRIEF_FIELD_INSERTED */}
+              <NumberInput label="Faculty prebrief minutes" value={facultyPrebriefMinutes} onChange={setFacultyPrebriefMinutes} />
                 <NumberInput label="Round target minutes (optional)" value={sessionLengthMinutes} onChange={setSessionLengthMinutes} />
               </div>
               {multipleCasesEnabled ? (
