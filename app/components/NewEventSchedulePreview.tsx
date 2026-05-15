@@ -222,7 +222,7 @@ function buildPreview(snapshot: FieldSnapshot) {
   };
 }
 
-export default function NewEventSchedulePreview() {
+export default function NewEventSchedulePreview({ snapshotOverride }: { snapshotOverride?: Partial<FieldSnapshot> } = {}) {
   const [snapshot, setSnapshot] = useState<FieldSnapshot>(blankSnapshot);
   const [view, setView] = useState<"student" | "admin">("student");
 
@@ -243,7 +243,11 @@ export default function NewEventSchedulePreview() {
     };
   }, []);
 
-  const preview = useMemo(() => buildPreview(snapshot), [snapshot]);
+  const effectiveSnapshot = useMemo(
+    () => ({ ...snapshot, ...(snapshotOverride || {}) }),
+    [snapshot, snapshotOverride]
+  );
+  const preview = useMemo(() => buildPreview(effectiveSnapshot), [effectiveSnapshot]);
   const dates = preview.dates.length ? preview.dates : ["Preview Date"];
 
   return (

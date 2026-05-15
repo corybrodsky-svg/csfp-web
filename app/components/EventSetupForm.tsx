@@ -373,6 +373,31 @@ function buildNotes(args: {
   return lines.join("\n");
 }
 
+function parseClockTimeToMinutes(value: string) {
+  const trimmed = asText(value);
+  if (!trimmed) return null;
+
+  const native = trimmed.match(/^(\d{1,2}):(\d{2})$/);
+  if (native) {
+    const hours = Number(native[1]);
+    const minutes = Number(native[2]);
+    if (hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59) return hours * 60 + minutes;
+  }
+
+  const friendly = trimmed.match(/^(\d{1,2})(?::(\d{2}))?\s*(AM|PM)$/i);
+  if (!friendly) return null;
+
+  let hours = Number(friendly[1]);
+  const minutes = Number(friendly[2] || "0");
+  const meridiem = friendly[3].toUpperCase();
+
+  if (hours === 12) hours = 0;
+  if (meridiem === "PM") hours += 12;
+
+  if (hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59) return hours * 60 + minutes;
+  return null;
+}
+
 function getRecommendedStatus(eventType: EventType, spNeeded: number) {
   if (eventType === "skills" || spNeeded <= 0) return "Scheduled";
   return "Needs SPs";
@@ -513,6 +538,26 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
       }),
     [endTime, feedbackLengthMinutes, parsedDates, sessionLengthMinutes, startTime]
   );
+
+  const fallbackStartMinutes = parseClockTimeToMinutes(startTime);
+  const fallbackEndMinutes = parseClockTimeToMinutes(endTime);
+  const fallbackBlockMinutes = sessionLengthMinutes + feedbackLengthMinutes;
+  const fallbackAvailableMinutes =
+    fallbackStartMinutes !== null && fallbackEndMinutes !== null ? fallbackEndMinutes - fallbackStartMinutes : 0;
+  const fallbackRoundsThatFit =
+    fallbackAvailableMinutes > 0 && fallbackBlockMinutes > 0 ? Math.floor(fallbackAvailableMinutes / fallbackBlockMinutes) : 0;
+  const scheduleTimeWindowRounds = Math.max(maxRoundsThatFit, fallbackRoundsThatFit);
+  const generatedRotationRoundCount =
+    parsedStudentCount > 0
+      ? Math.min(rotationsNeeded, scheduleTimeWindowRounds)
+      : scheduleTimeWindowRounds;
+  const generatedRoomSlotCount = generatedRotationRoundCount * parsedRoomCount;
+  const effectiveAvailableRoundCapacity = generatedRoomSlotCount;
+  const effectiveEmptyRoomSlotsInFinalRound =
+    parsedStudentCount > 0 && generatedRotationRoundCount >= rotationsNeeded
+      ? Math.max(0, generatedRoomSlotCount - parsedStudentCount)
+      : 0;
+
   const calculatedSpNeeded = eventType === "skills" ? 0 : parsedRoomCount;
   const trainingRequired = trainingRequirement === "yes";
   const facultyTrainingCoordinationRelevant =
@@ -549,13 +594,9 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
     [location, normalizedRoomNames, rotationRounds]
   );
 
-  const availableRoundCapacity = rotationRounds.length * parsedRoomCount;
-  const servedStudents = parsedStudentCount > 0 ? Math.min(parsedStudentCount, availableRoundCapacity) : 0;
-  const emptyRoomSlotsInFinalRound =
-    parsedStudentCount > 0 && rotationRounds.length > 0
-      ? Math.max(0, availableRoundCapacity - servedStudents)
-      : 0;
-  const totalSpCoverageNeeded = eventType === "skills" || parsedSpNeeded <= 0 ? 0 : rotationRounds.length * parsedSpNeeded;
+  const availableRoundCapacity = effectiveAvailableRoundCapacity;
+  const emptyRoomSlotsInFinalRound = effectiveEmptyRoomSlotsInFinalRound;
+  const totalSpCoverageNeeded = eventType === "skills" || parsedSpNeeded <= 0 ? 0 : generatedRotationRoundCount * parsedSpNeeded;
   const dateText = parsedDates.join(", ");
   const compiledNotes = buildNotes({
     eventType,
@@ -585,8 +626,8 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
     roomCount: parsedRoomCount,
     roomNames: normalizedRoomNames,
     rotationsNeeded,
-    generatedRotationRounds: rotationRounds.length,
-    generatedRoomSlots: generatedSessions.length,
+    generatedRotationRounds: generatedRotationRoundCount,
+    generatedRoomSlots: generatedRoomSlotCount,
   });
 
   const warnings = useMemo(() => {
@@ -594,12 +635,12 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
     if (!asText(name)) next.push("Event name is required.");
     if (!parsedDates.length) next.push("At least one event date is required.");
     if (!startTime || !endTime) next.push("Start and end times are required.");
-    if (!rotationRounds.length) next.push("Schedule builder could not generate any rotation rounds.");
+    if (!generatedRotationRoundCount) next.push("Schedule builder could not generate any rotation rounds.");
     if (parsedStudentCount <= 0) {
       next.push("Student count is blank, so this schedule is shown as an uncapped preview based on the time window.");
     }
-    if (rotationsNeeded > 0 && rotationRounds.length < rotationsNeeded) {
-      next.push(`Time window only fits ${rotationRounds.length} of ${rotationsNeeded} needed rotations.`);
+    if (rotationsNeeded > 0 && generatedRotationRoundCount < rotationsNeeded) {
+      next.push(`Time window only fits ${generatedRotationRoundCount} of ${rotationsNeeded} needed rotations.`);
     }
     if (parsedStudentCount > 0 && availableRoundCapacity < parsedStudentCount) {
       next.push(`Only ${availableRoundCapacity} learner slots fit in the current schedule. Increase time, reduce feedback, or add rooms.`);
@@ -627,7 +668,7 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
     parsedSpNeeded,
     parsedStudentCount,
     preferredTrainingDate,
-    rotationRounds.length,
+    generatedRotationRoundCount,
     rotationsNeeded,
     simStaff,
     startTime,
@@ -882,8 +923,8 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
 
               <div className="cfsp-alert cfsp-alert-info">
                 {parsedStudentCount > 0
-                  ? `CFSP needs ${rotationsNeeded || 0} learner rotation round${rotationsNeeded === 1 ? "" : "s"} for ${parsedStudentCount} students, generated ${rotationRounds.length || 0}, and will store ${generatedSessions.length || 0} room-slot record${generatedSessions.length === 1 ? "" : "s"}.`
-                  : `Student count is blank, so CFSP is showing an uncapped time-window preview with ${rotationRounds.length || 0} learner rotation round${rotationRounds.length === 1 ? "" : "s"} and ${generatedSessions.length || 0} stored room-slot record${generatedSessions.length === 1 ? "" : "s"}.`}
+                  ? `CFSP needs ${rotationsNeeded || 0} learner rotation round${rotationsNeeded === 1 ? "" : "s"} for ${parsedStudentCount} students, generated ${generatedRotationRoundCount || 0}, and will store ${generatedRoomSlotCount || 0} room-slot record${generatedRoomSlotCount === 1 ? "" : "s"}.`
+                  : `Student count is blank, so CFSP is showing an uncapped time-window preview with ${generatedRotationRoundCount || 0} learner rotation round${generatedRotationRoundCount === 1 ? "" : "s"} and ${generatedRoomSlotCount || 0} stored room-slot record${generatedRoomSlotCount === 1 ? "" : "s"}.`}
               </div>
             </section>
           ) : null}
@@ -1132,14 +1173,14 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
                 </div>
                 <div className="cfsp-stat-card">
                   <div className="cfsp-label">Generated Rotations</div>
-                  <div className="cfsp-stat-value">{rotationRounds.length}</div>
+                  <div className="cfsp-stat-value">{generatedRotationRoundCount}</div>
                 </div>
               </div>
 
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                 <div className="cfsp-stat-card">
                   <div className="cfsp-label">Generated Room Slots</div>
-                  <div className="cfsp-stat-value">{generatedSessions.length}</div>
+                  <div className="cfsp-stat-value">{generatedRoomSlotCount}</div>
                 </div>
                 <div className="cfsp-stat-card">
                   <div className="cfsp-label">Empty Room Slots In Final Round</div>
@@ -1191,8 +1232,8 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
                     <div><strong>Student Count:</strong> {parsedStudentCount || "Not set"}</div>
                     <div><strong>Rooms:</strong> {normalizedRoomNames.length}</div>
                     <div><strong>Rotations Needed:</strong> {parsedStudentCount > 0 ? rotationsNeeded : `Uncapped preview (${maxRoundsThatFit})`}</div>
-                    <div><strong>Generated Rotations:</strong> {rotationRounds.length}</div>
-                    <div><strong>Generated Room Slots:</strong> {generatedSessions.length}</div>
+                    <div><strong>Generated Rotations:</strong> {generatedRotationRoundCount}</div>
+                    <div><strong>Generated Room Slots:</strong> {generatedRoomSlotCount}</div>
                     <div><strong>Empty Room Slots In Final Round:</strong> {parsedStudentCount > 0 ? emptyRoomSlotsInFinalRound : "—"}</div>
                     <div><strong>SPs Needed:</strong> {eventType === "skills" ? "No SPs required" : parsedSpNeeded}</div>
                     <div><strong>SP Training:</strong> {getTrainingRequirementLabel(trainingRequirement)}</div>
@@ -1218,7 +1259,18 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
           ) : null}
 
           <div className="flex flex-wrap justify-between gap-3">
-                        <NewEventSchedulePreview />
+                        <NewEventSchedulePreview
+                          snapshotOverride={{
+                            dates: dateList,
+                            studentCount,
+                            roomCount,
+                            startTime,
+                            endTime,
+                            encounterMinutes: sessionLength,
+                            transitionMinutes: feedbackLength,
+                            roomNames,
+                          }}
+                        />
 <div className="flex gap-2">
               <button
                 type="button"
