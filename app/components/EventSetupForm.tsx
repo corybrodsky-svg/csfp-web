@@ -379,6 +379,19 @@ function buildNotes(args: {
   return lines.join("\n");
 }
 
+function sortRoomNamesNaturally(roomNames: string[]) {
+  return [...roomNames].sort((a, b) => {
+    const aMatch = a.match(/^(.*?)(\d+)\s*$/);
+    const bMatch = b.match(/^(.*?)(\d+)\s*$/);
+
+    if (aMatch && bMatch && aMatch[1].trim().toLowerCase() === bMatch[1].trim().toLowerCase()) {
+      return Number(aMatch[2]) - Number(bMatch[2]);
+    }
+
+    return a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
+  });
+}
+
 function parseClockTimeToMinutes(value: string) {
   const trimmed = asText(value);
   if (!trimmed) return null;
@@ -572,7 +585,7 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
   const parsedRoomCount = parseNumber(roomCount) || 1;
   const parsedStudentCount = parseNumber(studentCount);
   const normalizedRoomNames = useMemo(
-    () => parseRoomNames(roomNames, parsedRoomCount),
+    () => sortRoomNamesNaturally(parseRoomNames(roomNames, parsedRoomCount)),
     [parsedRoomCount, roomNames]
   );
   const sessionLengthMinutes = parseNumber(sessionLength);
