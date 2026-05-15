@@ -55,7 +55,7 @@ type ParsedRosterRow = {
 
 type ParsedSheet = {
   sheet: string;
-  format: "sp_event_info" | "sp_info";
+  format: "sp_event_info" | "sp_info" | "master_schedule";
   title: string;
   term: string | null;
   sessions: ParsedSession[];
@@ -735,8 +735,197 @@ function parseSpInfoSheet(sheet: XLSX.WorkSheet, sheetName: string): ParsedSheet
   };
 }
 
+
+function normalizeMasterHeader(value: unknown) {
+  return asText(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function parseMasterScheduleDate(value: unknown) {
+  const raw = asText(value);
+  if (!raw) return null;
+  if (/^week\s+\d+/i.test(raw)) return null;
+
+  const dateMatch = raw.match(/\b(\d{1,2})\/(\d{1,2})\/(\d{2,4})\b/);
+  if (!dateMatch) return null;
+
+  return normalizeLooseDateToIso(dateMatch[0]);
+}
+
+function parseMasterScheduleClockPart(value: string, fallbackMeridiem?: string | null) {
+  const raw = asText(value)
+    .toLowerCase()
+    .replace(/[?]/g, "")
+    .replace(/\s+/g, "")
+    .trim();
+
+  if (!raw) return null;
+
+  const explicitMeridiem = raw.includes("am") ? "am" : raw.includes("pm") ? "pm" : null;
+  const meridiem = explicitMeridiem || fallbackMeridiem || null;
+  const numeric = raw.replace(/am|pm/g, "");
+
+  let hours = 0;
+  let minutes = 0;
+
+  const colonMatch = numeric.match(/^(\d{1,2}):(\d{2})$/);
+  if (colonMatch) {
+    hours = Number(colonMatch[1]);
+    minutes = Number(colonMatch[2]);
+  } else {
+    const digits = numeric.replace(/\D/g, "");
+    if (!digits) return null;
+
+    if (digits.length <= 2) {
+      hours = Number(digits);
+      minutes = 0;
+    } else if (digits.length === 3) {
+      hours = Number(digits.slice(0, 1));
+      minutes = Number(digits.slice(1));
+    } else {
+      hours = Number(digits.slice(0, digits.length - 2));
+      minutes = Number(digits.slice(-2));
+    }
+  }
+
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+  if (hours <= 0 || hours > 24 || minutes < 0 || minutes > 59) return null;
+
+  if (meridiem === "pm" && hours < 12) hours += 12;
+  if (meridiem === "am" && hours === 12) hours = 0;
+
+  if (hours === 24) hours = 0;
+
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:00`;
+}
+
+function parseMasterScheduleStartTime(value: unknown) {
+  const raw = asText(value);
+  if (!raw) return null;
+
+  const normalized = raw.replace(/[–—]/g, "-");
+  const parts = normalized.split("-");
+  const firstPart = parts[0] || "";
+  const secondPart = parts[1] || "";
+
+  const fallbackMeridiem = /pm/i.test(secondPart) ? "pm" : /am/i.test(secondPart) ? "am" : null;
+  return parseMasterScheduleClockPart(firstPart, fallbackMeridiem);
+}
+
+function parseMasterScheduleSheet(sheet: XLSX.WorkSheet, sheetName: string): ParsedSheet[] {
+  const range = getSheetRange(sheet);
+  if (!range) return [];
+
+  let headerRow = -1;
+  const headerByName = new Map<string, number>();
+
+  for (let row = range.s.r; row <= Math.min(range.e.r, range.s.r + 12); row += 1) {
+    const headers = new Map<string, number>();
+
+    for (let col = range.s.c; col <= Math.min(range.e.c, range.s.c + 12); col += 1) {
+      const value = getMergedCellValue(sheet, XLSX.utils.encode_cell({ r: row, c: col }));
+      const normalized = normalizeMasterHeader(value);
+      if (normalized) headers.set(normalized, col);
+    }
+
+    const hasSessionName = Array.from(headers.keys()).some((key) => key.includes("session name"));
+    const hasEventLead = Array.from(headers.keys()).some((key) => key.includes("event lead") || key.includes("team"));
+    const hasRooms = Array.from(headers.keys()).some((key) => key.includes("rooms assigned"));
+    const hasTime = Array.from(headers.keys()).some((key) => key.includes("session time"));
+
+    if (hasSessionName && hasEventLead && hasRooms && hasTime) {
+      headerRow = row;
+      headers.forEach((col, key) => headerByName.set(key, col));
+      break;
+    }
+  }
+
+  if (headerRow === -1) return [];
+
+  const findColumn = (...needles: string[]) => {
+    for (const [header, col] of headerByName.entries()) {
+      if (needles.some((needle) => header.includes(needle))) return col;
+    }
+    return -1;
+  };
+
+  const titleCol = findColumn("session name");
+  const teamCol = findColumn("event lead", "team");
+  const roomCol = findColumn("rooms assigned");
+  const timeCol = findColumn("session time");
+  const formativeCol = findColumn("summative", "formative");
+  const studentCol = findColumn("number of students");
+  const facultyCol = findColumn("course faculty");
+  const notesCol = findColumn("notes");
+
+  if (titleCol === -1 || timeCol === -1) return [];
+
+  const parsedSheets: ParsedSheet[] = [];
+  let currentDate: string | null = null;
+
+  for (let row = headerRow + 1; row <= range.e.r; row += 1) {
+    const titleRaw = getMergedCellValue(sheet, XLSX.utils.encode_cell({ r: row, c: titleCol }));
+    const title = asText(titleRaw);
+
+    const maybeDate = parseMasterScheduleDate(titleRaw);
+    if (maybeDate) {
+      currentDate = maybeDate;
+      continue;
+    }
+
+    if (!title || /^week\s+\d+/i.test(title)) continue;
+    if (!currentDate) continue;
+
+    const timeRaw = timeCol >= 0 ? getMergedCellValue(sheet, XLSX.utils.encode_cell({ r: row, c: timeCol })) : null;
+    const startTime = parseMasterScheduleStartTime(timeRaw);
+
+    const eventLeadTeam = teamCol >= 0 ? asText(getMergedCellValue(sheet, XLSX.utils.encode_cell({ r: row, c: teamCol }))) : "";
+    const location = roomCol >= 0 ? asText(getMergedCellValue(sheet, XLSX.utils.encode_cell({ r: row, c: roomCol }))) : "";
+    const courseFaculty = facultyCol >= 0 ? asText(getMergedCellValue(sheet, XLSX.utils.encode_cell({ r: row, c: facultyCol }))) : "";
+    const notes = notesCol >= 0 ? asText(getMergedCellValue(sheet, XLSX.utils.encode_cell({ r: row, c: notesCol }))) : "";
+    const formative = formativeCol >= 0 ? asText(getMergedCellValue(sheet, XLSX.utils.encode_cell({ r: row, c: formativeCol }))) : "";
+    const students = studentCol >= 0 ? asText(getMergedCellValue(sheet, XLSX.utils.encode_cell({ r: row, c: studentCol }))) : "";
+
+    const caseText = [
+      formative ? `Type: ${formative}` : "",
+      students ? `Students: ${students}` : "",
+      notes ? `Notes: ${notes}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+
+    parsedSheets.push({
+      sheet: sheetName,
+      format: "master_schedule",
+      title,
+      term: sheetName,
+      sessions: [
+        {
+          date: currentDate,
+          time: startTime,
+        },
+      ],
+      trainingDate: null,
+      eventTime: startTime,
+      zoomLink: null,
+      caseText,
+      location: location || null,
+      simStaffNames: parseStaffNames(eventLeadTeam),
+      staffLine: eventLeadTeam || null,
+      eventLeadTeam: eventLeadTeam || null,
+      courseFaculty: courseFaculty || null,
+      rosterRows: [],
+    });
+  }
+
+  return parsedSheets;
+}
+
 function parseSupportedSheet(sheet: XLSX.WorkSheet, sheetName: string) {
-  return parseSpEventInfoSheet(sheet, sheetName) || parseSpInfoSheet(sheet, sheetName);
+  return parseSpEventInfoSheet(sheet, sheetName) || parseSpInfoSheet(sheet, sheetName) || parseMasterScheduleSheet(sheet, sheetName);
 }
 
 function tokenizeTitle(value: string) {
@@ -1116,7 +1305,11 @@ async function analyzeWorkbookFile(
   const workbook = XLSX.read(buffer, { type: "buffer", cellDates: true });
   const checkedSheets = [...workbook.SheetNames];
   const parsedSheets = workbook.SheetNames
-    .map((sheetName) => parseSupportedSheet(workbook.Sheets[sheetName], sheetName))
+    .flatMap((sheetName) => {
+      const parsed = parseSupportedSheet(workbook.Sheets[sheetName], sheetName);
+      if (Array.isArray(parsed)) return parsed;
+      return parsed ? [parsed] : [];
+    })
     .filter((value): value is ParsedSheet => Boolean(value));
 
   if (!parsedSheets.length) {
@@ -1126,7 +1319,7 @@ async function analyzeWorkbookFile(
         {
           file: file.name,
           sheet: "",
-          detectorMatched: "sp_event_info" as const,
+          detectorMatched: "master_schedule" as const,
           extractedTitle: "",
           extractedDates: [],
           fieldsFound: [],
