@@ -13069,7 +13069,7 @@ Cory`;
     return () => {
       button.remove();
     };
-  }, [event.id]);
+  }, [event?.id]);
 
 
   function handleSelectEventType(nextType: EditableEventType) {
