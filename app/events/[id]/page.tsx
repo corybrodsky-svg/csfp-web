@@ -32644,7 +32644,20 @@ Cory`;
                             Recording
                           </button>
                         </div>
-                      </div>
+                      
+        <section className="mt-10 border-t border-slate-200 pt-4 opacity-70 hover:opacity-100 transition-opacity">
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={handleDeleteEvent}
+              className="rounded-lg border border-red-200 bg-white px-3 py-2 text-xs font-bold text-red-600 shadow-sm hover:bg-red-50 hover:border-red-300"
+            >
+              Delete Event
+            </button>
+          </div>
+        </section>
+
+</div>
                     </details>
             ),
             document.body
