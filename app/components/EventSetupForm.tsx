@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect} from "react";
 import { useRouter } from "next/navigation";
 import SiteShell from "./SiteShell";
 import { ActionFeedback, useActionFeedback } from "./SaveActionFeedback";
@@ -339,7 +339,7 @@ function buildNotes(args: {
     `Event Type: ${EVENT_TYPE_OPTIONS.find((option) => option.value === args.eventType)?.label || "SP Event"}`,
     args.modality ? `Modality: ${args.modality}` : "",
     args.zoomUrl ? `Zoom Link: ${args.zoomUrl}` : "",
-    args.eventLeadTeam ? `Event Lead/Team: ${args.eventLeadTeam}` : "",
+    args.eventLeadTeam ? `Event Lead/Sim Lead: ${args.eventLeadTeam}` : "",
     args.simStaff ? `Sim Staff: ${args.simStaff}` : "",
     args.courseFaculty ? `Course Faculty: ${args.courseFaculty}` : "",
     `SP Training Required: ${getTrainingRequirementLabel(args.trainingRequirement)}`,
@@ -396,6 +396,18 @@ function parseClockTimeToMinutes(value: string) {
 
   if (hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59) return hours * 60 + minutes;
   return null;
+}
+
+function formatClockMinutesForInput(value: number) {
+  const normalized = ((value % 1440) + 1440) % 1440;
+  let hours = Math.floor(normalized / 60);
+  const minutes = normalized % 60;
+  const meridiem = hours >= 12 ? "PM" : "AM";
+
+  hours = hours % 12;
+  if (hours === 0) hours = 12;
+
+  return `${hours}:${String(minutes).padStart(2, "0")} ${meridiem}`;
 }
 
 function getRecommendedStatus(eventType: EventType, spNeeded: number) {
@@ -557,6 +569,38 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
     parsedStudentCount > 0 && generatedRotationRoundCount >= rotationsNeeded
       ? Math.max(0, generatedRoomSlotCount - parsedStudentCount)
       : 0;
+
+  // CFSP_AUTO_PROJECTED_END_TIME
+  useEffect(() => {
+    const startMinutes = parseClockTimeToMinutes(startTime);
+    const blockMinutes = sessionLengthMinutes + feedbackLengthMinutes;
+
+    if (
+      startMinutes === null ||
+      parsedStudentCount <= 0 ||
+      parsedRoomCount <= 0 ||
+      rotationsNeeded <= 0 ||
+      blockMinutes <= 0
+    ) {
+      return;
+    }
+
+    const projectedEndTime = formatClockMinutesForInput(startMinutes + rotationsNeeded * blockMinutes);
+
+    if (projectedEndTime && projectedEndTime !== endTime) {
+      window.requestAnimationFrame(() => {
+        setEndTime(projectedEndTime);
+      });
+    }
+  }, [
+    endTime,
+    feedbackLengthMinutes,
+    parsedRoomCount,
+    parsedStudentCount,
+    rotationsNeeded,
+    sessionLengthMinutes,
+    startTime,
+  ]);
 
   const calculatedSpNeeded = eventType === "skills" ? 0 : parsedRoomCount;
   const trainingRequired = trainingRequirement === "yes";
@@ -840,7 +884,7 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
                   </select>
                 </label>
                 <label className="grid gap-2 md:col-span-2">
-                  <span className="cfsp-label">Sim Staff / Event Lead/Team</span>
+                  <span className="cfsp-label">Sim Lead</span>
                   <input className="cfsp-input" value={eventLeadTeam} onChange={(e) => setEventLeadTeam(e.target.value)} placeholder="Cory/Cristina" />
                 </label>
                 <label className="grid gap-2">
@@ -881,7 +925,7 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
                     style={{ minHeight: 88, resize: "vertical" }}
                     value={dateList}
                     onChange={(e) => setDateList(e.target.value)}
-                    placeholder={"2026-05-10\n2026-05-11"}
+                    placeholder={"05/26/2026\n05/27/2026"}
                   />
                 </label>
                 <label className="grid gap-2">
@@ -926,6 +970,18 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
                   ? `CFSP needs ${rotationsNeeded || 0} learner rotation round${rotationsNeeded === 1 ? "" : "s"} for ${parsedStudentCount} students, generated ${generatedRotationRoundCount || 0}, and will store ${generatedRoomSlotCount || 0} room-slot record${generatedRoomSlotCount === 1 ? "" : "s"}.`
                   : `Student count is blank, so CFSP is showing an uncapped time-window preview with ${generatedRotationRoundCount || 0} learner rotation round${generatedRotationRoundCount === 1 ? "" : "s"} and ${generatedRoomSlotCount || 0} stored room-slot record${generatedRoomSlotCount === 1 ? "" : "s"}.`}
               </div>
+              <NewEventSchedulePreview
+                snapshotOverride={{
+                  dates: dateList,
+                  studentCount,
+                  roomCount,
+                  startTime,
+                  endTime,
+                  encounterMinutes: sessionLength,
+                  transitionMinutes: feedbackLength,
+                  roomNames,
+                }}
+              />
             </section>
           ) : null}
 
@@ -1221,12 +1277,21 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
                 </div>
 
                 <div className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-4">
-                  <div className="cfsp-label">Review Summary</div>
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="cfsp-label">Review Summary</div>
+                    <button
+                      type="button"
+                      className="cfsp-btn cfsp-btn-secondary"
+                      onClick={() => window.print()}
+                    >
+                      Print / Save PDF
+                    </button>
+                  </div>
                   <div className="mt-3 grid gap-3 text-sm leading-6 text-[#14304f]">
                     <div><strong>Event:</strong> {name || "Untitled Event"}</div>
                     <div><strong>Type:</strong> {EVENT_TYPE_OPTIONS.find((option) => option.value === eventType)?.label}</div>
                     <div><strong>Location:</strong> {location || "Not set"}</div>
-                    <div><strong>Team:</strong> {eventLeadTeam || "Not set"}</div>
+                    <div><strong>Sim Lead:</strong> {eventLeadTeam || "Not set"}</div>
                     <div><strong>Sim Staff:</strong> {simStaff || "Not set"}</div>
                     <div><strong>Course Faculty:</strong> {courseFaculty || "Not set"}</div>
                     <div><strong>Student Count:</strong> {parsedStudentCount || "Not set"}</div>
@@ -1259,18 +1324,6 @@ export default function EventSetupForm({ mode = "create", initialEvent = null, i
           ) : null}
 
           <div className="flex flex-wrap justify-between gap-3">
-                        <NewEventSchedulePreview
-                          snapshotOverride={{
-                            dates: dateList,
-                            studentCount,
-                            roomCount,
-                            startTime,
-                            endTime,
-                            encounterMinutes: sessionLength,
-                            transitionMinutes: feedbackLength,
-                            roomNames,
-                          }}
-                        />
 <div className="flex gap-2">
               <button
                 type="button"
