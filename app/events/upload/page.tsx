@@ -285,9 +285,9 @@ export default function EventUploadPage() {
           <Link href="/events" style={linkStyle}>
             ← Back to Events
           </Link>
-          <h1 style={{ margin: "14px 0 0", color: "#16213e", fontSize: "36px" }}>Bulk SP Event Info Import</h1>
+          <h1 style={{ margin: "14px 0 0", color: "#16213e", fontSize: "36px" }}>Schedule Import Center</h1>
           <p style={{ margin: "8px 0 0", color: "#5a667a", fontSize: "16px" }}>
-            Upload multiple SP Event Info workbooks, preview how each file maps to an existing CFSP event, then apply only confident updates.
+            Import SP Event Info workbooks or master term schedules like Spring, Summer, and Fall. Preview first, then choose whether to create a new schedule set or update existing events.
           </p>
         </div>
 
@@ -309,7 +309,7 @@ export default function EventUploadPage() {
           <div style={{ display: "grid", gap: "14px" }}>
             <div>
               <label style={{ display: "block", color: "#173b6c", fontWeight: 900, marginBottom: "8px" }}>
-                Upload Excel Files
+                Upload Schedule / Event Files
               </label>
               <input type="file" accept={acceptedSpreadsheetTypes} multiple onChange={(event) => mergeSelectedFiles(event.target.files)} />
             </div>
@@ -420,7 +420,7 @@ export default function EventUploadPage() {
         <div style={{ ...cardStyle, lineHeight: 1.7 }}>
           <h2 style={{ marginTop: 0, color: "#16213e" }}>Supported behavior</h2>
           <ul style={{ paddingLeft: "20px", margin: "12px 0 0", color: "#475569" }}>
-            <li>Detects valid SP Event Info sheets by workbook structure, not sheet name alone.</li>
+            <li>Detects SP Event Info sheets and supported master schedule tabs by workbook structure, not sheet name alone.</li>
             <li>Matches events by exact title + date first, then by title similarity + closest date.</li>
             <li>Preserves existing notes and appends imported workbook details inside a deduplicated <code>[SP_EVENT_INFO_IMPORT]</code> section.</li>
             <li>Creates missing <code>event_sps</code> assignments only for confident SP directory matches and avoids duplicates on re-import.</li>
