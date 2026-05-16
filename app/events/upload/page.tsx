@@ -167,51 +167,6 @@ export default function EventUploadPage() {
       return;
     }
 
-    let importMode = "match_existing";
-    let scheduleSetName = "";
-
-    if (action === "apply") {
-      const rawMode = window
-        .prompt(
-          [
-            "How should CFSP import this schedule?",
-            "",
-            "Type NEW to import as a new schedule set/term. Example: Summer 2026. This keeps Spring untouched.",
-            "Type ADD to add/update matching existing events.",
-            "Type REPLACE only if you intentionally want to replace existing matching data.",
-            "Type CANCEL to stop.",
-          ].join("\n"),
-          "NEW"
-        )
-        ?.trim()
-        .toUpperCase();
-
-      if (!rawMode || rawMode === "CANCEL") {
-        setErrorMessage("Import canceled. No schedule data was changed.");
-        return;
-      }
-
-      if (rawMode === "NEW") {
-        importMode = "new_schedule_set";
-        scheduleSetName =
-          window.prompt("Name this schedule set / term:", "Summer 2026")?.trim() || "Summer 2026";
-      } else if (rawMode === "ADD") {
-        importMode = "match_existing";
-      } else if (rawMode === "REPLACE") {
-        const confirmed = window.confirm(
-          "Replace matching existing schedule data? This should only be used intentionally."
-        );
-        if (!confirmed) {
-          setErrorMessage("Replace canceled. No schedule data was changed.");
-          return;
-        }
-        importMode = "replace_existing";
-      } else {
-        setErrorMessage("Import canceled. Type NEW, ADD, REPLACE, or CANCEL.");
-        return;
-      }
-    }
-
     if (action === "preview") {
       beginPreview();
       setSummary(null);
@@ -223,8 +178,9 @@ export default function EventUploadPage() {
     try {
       const formData = new FormData();
       formData.append("action", action);
-      formData.append("import_mode", importMode);
-      formData.append("schedule_set_name", scheduleSetName);
+      const shouldCreateNewScheduleSet = action === "apply" && summary?.needsReview.length && !(summary.preview || []).filter((entry) => entry.confidenceLabel === "exact" || entry.confidenceLabel === "high").length;
+      formData.append("import_mode", shouldCreateNewScheduleSet ? "new_schedule_set" : "match_existing");
+      formData.append("schedule_set_name", shouldCreateNewScheduleSet ? "Summer 2026" : "");
       files.forEach((file) => formData.append("files", file));
 
       const response = await fetch("/api/events/import", {
@@ -385,11 +341,11 @@ export default function EventUploadPage() {
                 disabled={applying || previewFeedback.state === "saving" || confidentPreviewCount === 0}
                 style={buttonStyle}
               >
-                {applying ? "Applying Import..." : summary.needsReview.length && !(summary.preview || []).filter((entry) => entry.confidenceLabel === "exact" || entry.confidenceLabel === "high").length ? "Create New Schedule Set" : "Apply Confident Updates"}
+                {applying ? "Applying Import..." : summary.needsReview.length && !(summary.preview || []).filter((entry) => entry.confidenceLabel === "exact" || entry.confidenceLabel === "high").length ? "Create Summer 2026 Schedule Set" : "Apply Confident Updates"}
               </button>
               <ActionFeedback feedback={applyFeedback} />
               <div style={{ color: "#475569", fontWeight: 700, alignSelf: "center" }}>
-                Exact/high-confidence matches can update existing events. For a new schedule set, review items can be created as new events after you choose NEW.
+                This import will create a new schedule set from the previewed master schedule rows. Existing Spring events will stay untouched.
               </div>
             </div>
 
