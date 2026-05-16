@@ -338,7 +338,7 @@ export default function EventUploadPage() {
               <button
                 type="button"
                 onClick={() => void submitImport("apply")}
-                disabled={applying || previewFeedback.state === "saving" || confidentPreviewCount === 0}
+                disabled={applying || (!summary.needsReview.length && !(summary.preview || []).filter((entry) => entry.confidenceLabel === "exact" || entry.confidenceLabel === "high").length)}
                 style={buttonStyle}
               >
                 {applying ? "Applying Import..." : summary.needsReview.length && !(summary.preview || []).filter((entry) => entry.confidenceLabel === "exact" || entry.confidenceLabel === "high").length ? "Create Summer 2026 Schedule Set" : "Apply Confident Updates"}
