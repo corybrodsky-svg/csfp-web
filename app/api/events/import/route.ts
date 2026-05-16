@@ -1441,12 +1441,20 @@ export async function POST(request: Request) {
           const entry = item.entry;
           results.preview.push(entry);
 
-          if (!item.match || item.match.label === "low" || item.match.label === "medium") {
+          const shouldHoldForReview = !item.match || item.match.label === "low" || item.match.label === "medium";
+
+          if (shouldHoldForReview) {
             results.needsReview.push({
               ...entry,
-              needsReviewReason: item.match?.reason || "No confident event match found",
+              needsReviewReason:
+                importMode === "new_schedule_set"
+                  ? "New schedule set import will create a new event instead of matching an existing one."
+                  : item.match?.reason || "No confident event match found",
             });
-            continue;
+
+            if (action !== "apply" || importMode !== "new_schedule_set") {
+              continue;
+            }
           }
 
           if (action !== "apply") continue;
@@ -1500,6 +1508,14 @@ export async function POST(request: Request) {
               spAssignmentsCreated: assignmentResult.spAssignmentsCreated,
               duplicatesAvoided: assignmentResult.duplicatesAvoided,
               unmatchedSpRows: assignmentResult.unmatchedSpRows,
+            });
+            continue;
+          }
+
+          if (!item.match) {
+            results.errors.push({
+              ...entry,
+              error: "No existing event match was available for non-NEW import mode.",
             });
             continue;
           }
