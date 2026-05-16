@@ -282,6 +282,7 @@ type LearnerAttendanceRecord = {
 };
 
 type LearnerAttendanceMap = Record<string, LearnerAttendanceRecord>;
+type EventAttendanceFilter = "all" | "expected" | "arrived" | "late" | "missing" | "in_room" | "completed";
 
 type EventSchedulePreviewKind =
   | "timeline"
@@ -1482,8 +1483,8 @@ function RoundOperationAvatar({
       role={onClick ? "button" : undefined}
       tabIndex={onClick ? 0 : undefined}
       style={{
-        width: role === "operations" ? "34px" : "32px",
-        height: role === "operations" ? "34px" : "32px",
+        width: role === "operations" ? "36px" : "34px",
+        height: role === "operations" ? "36px" : "34px",
         borderRadius: "999px",
         display: "inline-grid",
         placeItems: "center",
@@ -1503,10 +1504,38 @@ function RoundOperationAvatar({
         overflow: "hidden",
         flex: "0 0 auto",
         cursor: onClick ? "pointer" : "default",
+        transform: onClick ? "translateY(0)" : undefined,
+        transition: "transform 120ms ease, box-shadow 140ms ease",
       }}
     >
-      <span className="cfsp-hologram-avatar-icon" aria-hidden="true">{symbol}</span>
-      <span className="cfsp-hologram-avatar-text">{initials}</span>
+      <span
+        aria-hidden="true"
+        style={{
+          position: "absolute",
+          top: "5px",
+          width: "10px",
+          height: "10px",
+          borderRadius: "999px",
+          background: "rgba(255,255,255,0.88)",
+          boxShadow: "0 0 8px rgba(255,255,255,0.55)",
+          opacity: 0.85,
+        }}
+      />
+      <span
+        aria-hidden="true"
+        style={{
+          position: "absolute",
+          bottom: "5px",
+          width: "18px",
+          height: "10px",
+          borderRadius: "10px 10px 8px 8px",
+          background: "rgba(226, 250, 247, 0.35)",
+          boxShadow: "0 0 8px rgba(153, 246, 228, 0.35)",
+          opacity: 0.75,
+        }}
+      />
+      <span className="cfsp-hologram-avatar-icon" aria-hidden="true" style={{ fontSize: "8px", opacity: 0.82, transform: "translateY(-6px)" }}>{symbol}</span>
+      <span className="cfsp-hologram-avatar-text" style={{ position: "relative", zIndex: 2, fontSize: "10px", fontWeight: 900, letterSpacing: "0.02em", transform: "translateY(5px)" }}>{initials}</span>
     </span>
   );
 }
@@ -1539,6 +1568,16 @@ function getEventAttendanceStatusColors(value: unknown) {
     return { ring: "#64748b", bg: "rgba(100, 116, 139, 0.18)", text: "#e2e8f0" };
   }
   return { ring: "#94a3b8", bg: "rgba(148, 163, 184, 0.14)", text: "#e2e8f0" };
+}
+
+function normalizeEventAttendanceStatus(value: unknown): EventAttendanceFilter {
+  const status = asText(value).toLowerCase();
+  if (status === "arrived") return "arrived";
+  if (status === "late") return "late";
+  if (status === "missing" || status === "absent") return "missing";
+  if (status === "in_room") return "in_room";
+  if (status === "completed") return "completed";
+  return "expected";
 }
 
 function getRoomDisplayNumber(label?: string | null) {
@@ -4778,6 +4817,8 @@ export default function EventDetailPage() {
   const [collapsedBlueprintRoomKeys, setCollapsedBlueprintRoomKeys] = useState<Record<string, boolean>>({});
   const [activeLearnerAttendanceKey, setActiveLearnerAttendanceKey] = useState("");
   const [activeEventAttendanceKey, setActiveEventAttendanceKey] = useState("");
+  const [eventAttendanceFilter, setEventAttendanceFilter] = useState<EventAttendanceFilter>("all");
+  const [attendanceSavingKeys, setAttendanceSavingKeys] = useState<Record<string, boolean>>({});
   const [persistedLearnerAttendanceRecords, setPersistedLearnerAttendanceRecords] = useState<LearnerAttendanceMap>({});
   const [blueprintActionSavingKey, setBlueprintActionSavingKey] = useState("");
   const [blueprintRestoreAssignmentIdByRoom, setBlueprintRestoreAssignmentIdByRoom] = useState<Record<string, string>>({});
@@ -10250,6 +10291,24 @@ const operationalEventStatusLabel = useMemo(() => {
   const eventAttendanceLateCount =
     eventAttendanceSpTokens.filter((token) => asText(token.status) === "late").length +
     liveLearnerPresenceTokens.filter((token) => token.status === "late").length;
+  const visibleEventAttendanceSpTokens = useMemo(
+    () =>
+      eventAttendanceSpTokens.filter((token) =>
+        eventAttendanceFilter === "all"
+          ? true
+          : normalizeEventAttendanceStatus(token.status) === eventAttendanceFilter
+      ),
+    [eventAttendanceFilter, eventAttendanceSpTokens]
+  );
+  const visibleEventAttendanceLearnerTokens = useMemo(
+    () =>
+      liveLearnerPresenceTokens.filter((token) =>
+        eventAttendanceFilter === "all"
+          ? true
+          : normalizeEventAttendanceStatus(token.status) === eventAttendanceFilter
+      ),
+    [eventAttendanceFilter, liveLearnerPresenceTokens]
+  );
   const selectedRoundLiveTimingState = useMemo(() => {
     if (!selectedRotationRound) {
       return { status: "standby", label: "Standby", detail: "No selected round" };
@@ -15527,9 +15586,17 @@ Cory`;
   ) {
     const now = new Date().toISOString();
     const nextCheckedInAt = action === "expected" || action === "missing" ? null : (assignment.event_checked_in_at || now);
+    const savingKey = `sp:${assignment.id}`;
+    const previousAssignment = assignments.find((item) => item.id === assignment.id) || assignment;
+    const optimisticAssignment = {
+      ...previousAssignment,
+      event_checked_in_at: nextCheckedInAt,
+      event_attendance_status: action,
+      ...(note !== undefined ? { attendance_note: note } : {}),
+    };
 
-    setAttendanceSaving(true);
-    setBlueprintActionSavingKey(`${assignment.id}:${action}`);
+    setAttendanceSavingKeys((current) => ({ ...current, [savingKey]: true }));
+    setAssignments((current) => current.map((item) => (item.id === assignment.id ? optimisticAssignment : item)));
     setAttendanceError("");
     setAttendanceSuccess("");
 
@@ -15547,16 +15614,18 @@ Cory`;
         setAssignments((current) =>
           current.map((item) => (item.id === assignment.id ? { ...item, ...body.assignment } : item))
         );
-      } else {
-        await refreshData();
       }
 
       setAttendanceSuccess(`SP marked ${getEventAttendanceStatusLabel(action).toLowerCase()}.`);
     } catch (error) {
+      setAssignments((current) => current.map((item) => (item.id === assignment.id ? previousAssignment : item)));
       setAttendanceError(error instanceof Error ? error.message : "Could not update event attendance.");
     } finally {
-      setBlueprintActionSavingKey("");
-      setAttendanceSaving(false);
+      setAttendanceSavingKeys((current) => {
+        const next = { ...current };
+        delete next[savingKey];
+        return next;
+      });
     }
   }
 
@@ -15587,6 +15656,8 @@ Cory`;
     if (!id || !token.attendanceKey) return;
 
     const now = new Date().toISOString();
+    const savingKey = `learner:${token.attendanceKey}`;
+    const previousRecords = { ...liveLearnerAttendanceRecords };
     const nextRecords: LearnerAttendanceMap = { ...liveLearnerAttendanceRecords };
     if (action === "clear" || action === "expected") {
       delete nextRecords[token.attendanceKey];
@@ -15612,8 +15683,8 @@ Cory`;
       } as Partial<TrainingEventMetadata>,
     });
 
-    setAttendanceSaving(true);
-    setBlueprintActionSavingKey(`${token.attendanceKey}:${action}`);
+    setAttendanceSavingKeys((current) => ({ ...current, [savingKey]: true }));
+    setPersistedLearnerAttendanceRecords(nextRecords);
     setAttendanceError("");
     setAttendanceSuccess("");
 
@@ -15649,7 +15720,6 @@ Cory`;
         throw new Error(await parseApiError(response));
       }
 
-      setPersistedLearnerAttendanceRecords(nextRecords);
       setEventEditor((current) => ({ ...current, notes: nextNotes }));
       setEvent((current) => (current ? { ...current, notes: nextNotes } : current));
       setAttendanceSuccess(
@@ -15666,11 +15736,33 @@ Cory`;
                   : `${token.learnerName} attendance reset.`
       );
     } catch (error) {
+      setPersistedLearnerAttendanceRecords(previousRecords);
       setAttendanceError(error instanceof Error ? error.message : "Could not update learner attendance.");
     } finally {
-      setBlueprintActionSavingKey("");
-      setAttendanceSaving(false);
+      setAttendanceSavingKeys((current) => {
+        const next = { ...current };
+        delete next[savingKey];
+        return next;
+      });
     }
+  }
+
+  async function handleBulkEventSpAttendance(action: "arrived" | "expected") {
+    const targets = visibleEventAttendanceSpTokens;
+    if (!targets.length) return;
+    setAttendanceError("");
+    setAttendanceSuccess("");
+    await Promise.all(targets.map((token) => handleEventSpAttendanceAction(token.assignment, action)));
+    setAttendanceSuccess(action === "arrived" ? "Visible SPs marked arrived." : "Visible SPs reset to expected.");
+  }
+
+  async function handleBulkEventLearnerAttendance(action: "arrived" | "expected") {
+    const targets = visibleEventAttendanceLearnerTokens;
+    if (!targets.length) return;
+    setAttendanceError("");
+    setAttendanceSuccess("");
+    await Promise.all(targets.map((token) => handleLiveLearnerAttendanceAction(token, action)));
+    setAttendanceSuccess(action === "arrived" ? "Visible learners marked arrived." : "Visible learners reset to expected.");
   }
 
   function handleEventLearnerAttendanceNote(token: {
@@ -26224,6 +26316,55 @@ Cory`;
       </div>
     </div>
 
+    <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
+      {[
+        { value: "all" as const, label: "All" },
+        { value: "expected" as const, label: "Expected" },
+        { value: "arrived" as const, label: "Arrived" },
+        { value: "late" as const, label: "Late" },
+        { value: "missing" as const, label: "Missing" },
+        { value: "in_room" as const, label: "In Room" },
+        { value: "completed" as const, label: "Completed" },
+      ].map((filterOption) => {
+        const selected = eventAttendanceFilter === filterOption.value;
+        return (
+          <button
+            key={`event-attendance-filter-${filterOption.value}`}
+            type="button"
+            onClick={() => setEventAttendanceFilter(filterOption.value)}
+            style={{
+              ...staffingSecondaryButtonStyle,
+              padding: "5px 8px",
+              fontSize: "10px",
+              background: selected ? "rgba(20, 184, 166, 0.24)" : staffingSecondaryButtonStyle.background,
+              color: selected ? "#d6fff8" : staffingSecondaryButtonStyle.color,
+              border: selected ? "1px solid rgba(126, 231, 219, 0.3)" : staffingSecondaryButtonStyle.border,
+            }}
+          >
+            {filterOption.label}
+          </button>
+        );
+      })}
+      <span style={{ marginLeft: "6px", color: "rgba(226, 250, 247, 0.72)", fontSize: "11px", fontWeight: 750 }}>
+        Showing {visibleEventAttendanceSpTokens.length} SPs · {visibleEventAttendanceLearnerTokens.length} learners
+      </span>
+    </div>
+
+    <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
+      <button type="button" onClick={() => void handleBulkEventSpAttendance("arrived")} style={{ ...buttonStyle, padding: "6px 9px", fontSize: "10px" }}>
+        Mark Visible SPs Arrived
+      </button>
+      <button type="button" onClick={() => void handleBulkEventLearnerAttendance("arrived")} style={{ ...buttonStyle, padding: "6px 9px", fontSize: "10px" }}>
+        Mark Visible Learners Arrived
+      </button>
+      <button type="button" onClick={() => void handleBulkEventSpAttendance("expected")} style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px", fontSize: "10px" }}>
+        Reset Visible SPs
+      </button>
+      <button type="button" onClick={() => void handleBulkEventLearnerAttendance("expected")} style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px", fontSize: "10px" }}>
+        Reset Visible Learners
+      </button>
+    </div>
+
     {attendanceError ? (
       <div style={{ borderRadius: "12px", border: "1px solid rgba(248, 113, 113, 0.32)", background: "rgba(248, 113, 113, 0.12)", color: "#fecaca", padding: "9px 10px", fontSize: "12px", fontWeight: 850 }}>
         {attendanceError}
@@ -26238,18 +26379,26 @@ Cory`;
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))", gap: "10px" }}>
       <div style={{ borderRadius: "16px", border: "1px solid rgba(126, 231, 219, 0.18)", background: "rgba(15, 23, 42, 0.46)", padding: "10px", display: "grid", gap: "8px" }}>
         <div style={{ ...statLabel, color: "rgba(186, 230, 253, 0.88)" }}>SP Check-In</div>
-        {eventAttendanceSpTokens.length ? (
-          eventAttendanceSpTokens.map((token) => {
+        {visibleEventAttendanceSpTokens.length ? (
+          visibleEventAttendanceSpTokens.map((token) => {
             const colors = getEventAttendanceStatusColors(token.status);
             const isActive = activeEventAttendanceKey === token.key;
+            const tokenStatus = normalizeEventAttendanceStatus(token.status);
+            const tokenSaving = Boolean(attendanceSavingKeys[`sp:${token.assignment.id}`]);
             return (
-              <div key={token.key} style={{ borderRadius: "14px", border: `1px solid ${colors.ring}55`, background: colors.bg, padding: "8px", display: "grid", gap: "7px" }}>
+              <div key={token.key} style={{ borderRadius: "12px", border: `1px solid ${colors.ring}55`, background: colors.bg, padding: "7px", display: "grid", gap: "6px" }}>
                 <button
                   type="button"
-                  onClick={() => setActiveEventAttendanceKey((current) => current === token.key ? "" : token.key)}
+                  onClick={() => {
+                    if (tokenStatus === "expected") {
+                      void handleEventSpAttendanceAction(token.assignment, "arrived");
+                      return;
+                    }
+                    setActiveEventAttendanceKey((current) => current === token.key ? "" : token.key);
+                  }}
                   style={{ all: "unset", cursor: "pointer", display: "flex", gap: "8px", alignItems: "center" }}
                 >
-                  <span style={{ borderRadius: "999px", boxShadow: `0 0 0 2px ${colors.ring}, 0 0 18px ${colors.ring}66` }}>
+                  <span style={{ borderRadius: "999px", boxShadow: `0 0 0 2px ${colors.ring}, 0 0 18px ${colors.ring}66`, transform: tokenSaving ? "scale(0.98)" : "scale(1)", transition: "transform 120ms ease" }}>
                     <RoundOperationAvatar name={token.name} role="sp" />
                   </span>
                   <span style={{ display: "grid", gap: "2px", minWidth: 0 }}>
@@ -26259,6 +26408,26 @@ Cory`;
                     </span>
                   </span>
                 </button>
+                <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
+                  {[
+                    { label: "A", title: "Arrived", action: "arrived" as const },
+                    { label: "L", title: "Late", action: "late" as const },
+                    { label: "M", title: "Missing", action: "missing" as const },
+                    { label: "R", title: "In Room", action: "in_room" as const },
+                    { label: "C", title: "Completed", action: "completed" as const },
+                  ].map((action) => (
+                    <button
+                      key={`${token.key}-quick-${action.action}`}
+                      type="button"
+                      title={action.title}
+                      onClick={() => void handleEventSpAttendanceAction(token.assignment, action.action)}
+                      disabled={tokenSaving}
+                      style={{ ...staffingSecondaryButtonStyle, padding: "3px 6px", fontSize: "9px", minWidth: "26px", opacity: tokenSaving ? 0.6 : 1 }}
+                    >
+                      {action.label}
+                    </button>
+                  ))}
+                </div>
                 {isActive ? (
                   <div style={{ display: "flex", gap: "5px", flexWrap: "wrap", borderTop: "1px solid rgba(226,250,247,0.14)", paddingTop: "7px" }}>
                     {[
@@ -26273,13 +26442,13 @@ Cory`;
                         key={`${token.key}-${action.action}`}
                         type="button"
                         onClick={() => void handleEventSpAttendanceAction(token.assignment, action.action)}
-                        disabled={attendanceSaving}
-                        style={{ ...staffingSecondaryButtonStyle, padding: "5px 7px", fontSize: "9px", opacity: attendanceSaving ? 0.6 : 1 }}
+                        disabled={tokenSaving}
+                        style={{ ...staffingSecondaryButtonStyle, padding: "5px 7px", fontSize: "9px", opacity: tokenSaving ? 0.6 : 1 }}
                       >
-                        {blueprintActionSavingKey === `${token.assignment.id}:${action.action}` ? "Saving..." : action.label}
+                        {tokenSaving ? "Saving..." : action.label}
                       </button>
                     ))}
-                    <button type="button" onClick={() => handleEventSpAttendanceNote(token.assignment)} disabled={attendanceSaving} style={{ ...staffingSecondaryButtonStyle, padding: "5px 7px", fontSize: "9px", opacity: attendanceSaving ? 0.6 : 1 }}>
+                    <button type="button" onClick={() => handleEventSpAttendanceNote(token.assignment)} disabled={tokenSaving} style={{ ...staffingSecondaryButtonStyle, padding: "5px 7px", fontSize: "9px", opacity: tokenSaving ? 0.6 : 1 }}>
                       Add Note
                     </button>
                     {token.note ? <span style={{ color: "rgba(226,250,247,0.72)", fontSize: "10px", fontWeight: 750 }}>Note: {token.note}</span> : null}
@@ -26289,24 +26458,34 @@ Cory`;
             );
           })
         ) : (
-          <div style={{ color: "rgba(226, 250, 247, 0.68)", fontSize: "12px", fontWeight: 800 }}>No SPs assigned yet. Add SPs from SP Finder.</div>
+          <div style={{ color: "rgba(226, 250, 247, 0.68)", fontSize: "12px", fontWeight: 800 }}>
+            {eventAttendanceSpTokens.length ? "No SPs match the current filter." : "No SPs assigned yet. Add SPs from SP Finder."}
+          </div>
         )}
       </div>
 
       <div style={{ borderRadius: "16px", border: "1px solid rgba(126, 231, 219, 0.18)", background: "rgba(15, 23, 42, 0.46)", padding: "10px", display: "grid", gap: "8px" }}>
         <div style={{ ...statLabel, color: "rgba(186, 230, 253, 0.88)" }}>Student / Learner Arrival Rail</div>
-        {liveLearnerPresenceTokens.length ? (
-          liveLearnerPresenceTokens.map((token) => {
+        {visibleEventAttendanceLearnerTokens.length ? (
+          visibleEventAttendanceLearnerTokens.map((token) => {
             const colors = getEventAttendanceStatusColors(token.status);
             const isActive = activeEventAttendanceKey === token.key;
+            const tokenStatus = normalizeEventAttendanceStatus(token.status);
+            const tokenSaving = Boolean(attendanceSavingKeys[`learner:${token.attendanceKey}`]);
             return (
-              <div key={`event-attendance-${token.key}`} style={{ borderRadius: "14px", border: `1px solid ${colors.ring}55`, background: colors.bg, padding: "8px", display: "grid", gap: "7px" }}>
+              <div key={`event-attendance-${token.key}`} style={{ borderRadius: "12px", border: `1px solid ${colors.ring}55`, background: colors.bg, padding: "7px", display: "grid", gap: "6px" }}>
                 <button
                   type="button"
-                  onClick={() => setActiveEventAttendanceKey((current) => current === token.key ? "" : token.key)}
+                  onClick={() => {
+                    if (tokenStatus === "expected") {
+                      void handleLiveLearnerAttendanceAction(token, "arrived");
+                      return;
+                    }
+                    setActiveEventAttendanceKey((current) => current === token.key ? "" : token.key);
+                  }}
                   style={{ all: "unset", cursor: "pointer", display: "flex", gap: "8px", alignItems: "center" }}
                 >
-                  <span style={{ borderRadius: "999px", boxShadow: `0 0 0 2px ${colors.ring}, 0 0 18px ${colors.ring}66` }}>
+                  <span style={{ borderRadius: "999px", boxShadow: `0 0 0 2px ${colors.ring}, 0 0 18px ${colors.ring}66`, transform: tokenSaving ? "scale(0.98)" : "scale(1)", transition: "transform 120ms ease" }}>
                     <RoundOperationAvatar name={token.learnerName} role="student" />
                   </span>
                   <span style={{ display: "grid", gap: "2px", minWidth: 0 }}>
@@ -26316,6 +26495,26 @@ Cory`;
                     </span>
                   </span>
                 </button>
+                <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
+                  {[
+                    { label: "A", title: "Arrived", action: "arrived" as const },
+                    { label: "L", title: "Late", action: "late" as const },
+                    { label: "M", title: "Missing", action: "absent" as const },
+                    { label: "R", title: "In Room", action: "in_room" as const },
+                    { label: "C", title: "Completed", action: "completed" as const },
+                  ].map((action) => (
+                    <button
+                      key={`${token.key}-quick-${action.action}`}
+                      type="button"
+                      title={action.title}
+                      onClick={() => void handleLiveLearnerAttendanceAction(token, action.action)}
+                      disabled={tokenSaving}
+                      style={{ ...staffingSecondaryButtonStyle, padding: "3px 6px", fontSize: "9px", minWidth: "26px", opacity: tokenSaving ? 0.6 : 1 }}
+                    >
+                      {action.label}
+                    </button>
+                  ))}
+                </div>
                 {isActive ? (
                   <div style={{ display: "flex", gap: "5px", flexWrap: "wrap", borderTop: "1px solid rgba(226,250,247,0.14)", paddingTop: "7px" }}>
                     {[
@@ -26330,13 +26529,13 @@ Cory`;
                         key={`${token.key}-${action.action}`}
                         type="button"
                         onClick={() => void handleLiveLearnerAttendanceAction(token, action.action)}
-                        disabled={attendanceSaving}
-                        style={{ ...staffingSecondaryButtonStyle, padding: "5px 7px", fontSize: "9px", opacity: attendanceSaving ? 0.6 : 1 }}
+                        disabled={tokenSaving}
+                        style={{ ...staffingSecondaryButtonStyle, padding: "5px 7px", fontSize: "9px", opacity: tokenSaving ? 0.6 : 1 }}
                       >
-                        {blueprintActionSavingKey === `${token.attendanceKey}:${action.action}` ? "Saving..." : action.label}
+                        {tokenSaving ? "Saving..." : action.label}
                       </button>
                     ))}
-                    <button type="button" onClick={() => handleEventLearnerAttendanceNote(token)} disabled={attendanceSaving} style={{ ...staffingSecondaryButtonStyle, padding: "5px 7px", fontSize: "9px", opacity: attendanceSaving ? 0.6 : 1 }}>
+                    <button type="button" onClick={() => handleEventLearnerAttendanceNote(token)} disabled={tokenSaving} style={{ ...staffingSecondaryButtonStyle, padding: "5px 7px", fontSize: "9px", opacity: tokenSaving ? 0.6 : 1 }}>
                       Add Note
                     </button>
                     {liveLearnerAttendanceRecords[token.attendanceKey]?.note ? (
@@ -26348,7 +26547,11 @@ Cory`;
             );
           })
         ) : (
-          <div style={{ color: "rgba(226, 250, 247, 0.68)", fontSize: "12px", fontWeight: 800 }}>No learner roster found. Add or import learners from Schedule Builder.</div>
+          <div style={{ color: "rgba(226, 250, 247, 0.68)", fontSize: "12px", fontWeight: 800 }}>
+            {liveLearnerPresenceTokens.length
+              ? "No learners match the current filter."
+              : "No learner roster found. Add or import learners from Schedule Builder."}
+          </div>
         )}
       </div>
     </div>
