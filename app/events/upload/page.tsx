@@ -385,11 +385,11 @@ export default function EventUploadPage() {
                 disabled={applying || previewFeedback.state === "saving" || confidentPreviewCount === 0}
                 style={buttonStyle}
               >
-                {applying ? "Applying Updates..." : "Apply Confident Updates"}
+                {applying ? "Applying Import..." : summary.needsReview.length && !(summary.preview || []).filter((entry) => entry.confidenceLabel === "exact" || entry.confidenceLabel === "high").length ? "Create New Schedule Set" : "Apply Confident Updates"}
               </button>
               <ActionFeedback feedback={applyFeedback} />
               <div style={{ color: "#475569", fontWeight: 700, alignSelf: "center" }}>
-                Only exact and high-confidence matches are applied. Review items stay untouched.
+                Exact/high-confidence matches can update existing events. For a new schedule set, review items can be created as new events after you choose NEW.
               </div>
             </div>
 
