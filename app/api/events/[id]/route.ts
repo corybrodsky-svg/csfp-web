@@ -149,6 +149,9 @@ type AssignmentApiRow = {
   created_at?: string | null;
   training_attended?: boolean | null;
   training_checked_in_at?: string | null;
+  event_checked_in_at?: string | null;
+  event_attendance_status?: string | null;
+  attendance_note?: string | null;
 };
 
 type RelatedEventRow = {
@@ -709,6 +712,15 @@ function getSafeAssignmentUpdates(rawUpdates: unknown) {
   if (typeof source.training_checked_in_at === "string" || source.training_checked_in_at === null) {
     updates.training_checked_in_at = source.training_checked_in_at;
   }
+  if (typeof source.event_checked_in_at === "string" || source.event_checked_in_at === null) {
+    updates.event_checked_in_at = source.event_checked_in_at;
+  }
+  if (typeof source.event_attendance_status === "string" || source.event_attendance_status === null) {
+    updates.event_attendance_status = source.event_attendance_status;
+  }
+  if (typeof source.attendance_note === "string" || source.attendance_note === null) {
+    updates.attendance_note = source.attendance_note;
+  }
 
   return Object.keys(updates).length ? updates : null;
 }
@@ -832,7 +844,7 @@ async function loadEventAssignments(supabaseServer: ReturnType<typeof createSupa
   const primary = await supabaseServer
     .from("event_sps")
     .select(
-      "id,event_id,sp_id,status,assignment_status,role_name,confirmed,notes,last_contacted_at,contact_method,created_at,training_attended,training_checked_in_at"
+      "id,event_id,sp_id,status,assignment_status,role_name,confirmed,notes,last_contacted_at,contact_method,created_at,training_attended,training_checked_in_at,event_checked_in_at,event_attendance_status,attendance_note"
     )
     .eq("event_id", eventId);
 
@@ -854,6 +866,9 @@ async function loadEventAssignments(supabaseServer: ReturnType<typeof createSupa
         ...assignment,
         training_attended: false,
         training_checked_in_at: null,
+        event_checked_in_at: null,
+        event_attendance_status: "expected",
+        attendance_note: null,
       })
     ),
     error: fallback.error,
@@ -868,7 +883,7 @@ async function fetchAssignmentById(
   const primary = await supabaseServer
     .from("event_sps")
     .select(
-      "id,event_id,sp_id,status,assignment_status,role_name,confirmed,notes,last_contacted_at,contact_method,created_at,training_attended,training_checked_in_at"
+      "id,event_id,sp_id,status,assignment_status,role_name,confirmed,notes,last_contacted_at,contact_method,created_at,training_attended,training_checked_in_at,event_checked_in_at,event_attendance_status,attendance_note"
     )
     .eq("event_id", eventId)
     .eq("id", assignmentId)
@@ -894,6 +909,9 @@ async function fetchAssignmentById(
           ...(fallback.data as AssignmentApiRow),
           training_attended: false,
           training_checked_in_at: null,
+          event_checked_in_at: null,
+          event_attendance_status: "expected",
+          attendance_note: null,
         } satisfies AssignmentApiRow)
       : null,
     error: fallback.error,

@@ -6,7 +6,7 @@ import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
 import Image from "next/image";
 import Link from "next/link";
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import SiteShell from "../../components/SiteShell";
 import {
@@ -38,6 +38,13 @@ import {
   parseEventMetadata,
   upsertEventMetadata,
 } from "../../lib/eventMetadata";
+import {
+  DEFAULT_CFSP_EMAIL_TEMPLATES,
+  findEmailTemplate,
+  normalizeEmailPlainText,
+  renderEmailTemplate,
+  type EmailTemplateRecord,
+} from "../../lib/emailTemplates";
 import { normalizeDisplayText, normalizeLearnerName, normalizeLearnerNames } from "../../lib/learnerNames";
 import {
   getFacultyText,
@@ -159,6 +166,9 @@ type AssignmentRow = {
   created_at: string | null;
   training_attended?: boolean | null;
   training_checked_in_at?: string | null;
+  event_checked_in_at?: string | null;
+  event_attendance_status?: string | null;
+  attendance_note?: string | null;
 };
 
 type AvailabilityRow = {
@@ -4295,8 +4305,8 @@ function buildMailtoHref(args: {
   const parts: string[] = [];
   if (args.cc?.length) parts.push(`cc=${encodeURIComponent(args.cc.join(","))}`);
   if (args.bcc.length) parts.push(`bcc=${encodeURIComponent(args.bcc.join(","))}`);
-  parts.push(`subject=${encodeURIComponent(args.subject)}`);
-  parts.push(`body=${encodeURIComponent(args.body)}`);
+  parts.push(`subject=${encodeURIComponent(normalizeEmailPlainText(args.subject))}`);
+  parts.push(`body=${encodeURIComponent(normalizeEmailPlainText(args.body))}`);
   return `mailto:${encodeURIComponent(args.to || "")}?${parts.join("&")}`;
 }
 
@@ -4650,6 +4660,8 @@ export default function EventDetailPage() {
   const [candidateResultsLimit, setCandidateResultsLimit] = useState(10);
   const [selectedPollRosterLimit, setSelectedPollRosterLimit] = useState(10);
   const [showEmailDraft, setShowEmailDraft] = useState(false);
+  const [emailTemplates, setEmailTemplates] = useState<EmailTemplateRecord[]>(DEFAULT_CFSP_EMAIL_TEMPLATES);
+  const [emailTemplateSource, setEmailTemplateSource] = useState<"defaults" | "database">("defaults");
   const [assignmentFilter, setAssignmentFilter] = useState<AssignmentFilterStatus>("all");
   const [suggestedAssignmentFilter, setSuggestedAssignmentFilter] = useState<SuggestedAssignmentFilter>("all");
   const [commandCenterMode, setCommandCenterMode] = useState<CommandCenterMode>("planning");
@@ -4796,6 +4808,39 @@ export default function EventDetailPage() {
   const [relatedPushSummary, setRelatedPushSummary] = useState<PushRelatedSummary | null>(null);
   const [showConfirmationEmailPreview, setShowConfirmationEmailPreview] = useState(false);
   const [includeBackupConfirmationEmails, setIncludeBackupConfirmationEmails] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadEmailTemplates() {
+      try {
+        const response = await fetch("/api/email-templates", { cache: "no-store" });
+        const payload = await response.json().catch(() => null) as {
+          templates?: EmailTemplateRecord[];
+          source?: "defaults" | "database";
+        } | null;
+        const templates = Array.isArray(payload?.templates) && payload.templates.length
+          ? payload.templates
+          : DEFAULT_CFSP_EMAIL_TEMPLATES;
+
+        if (!cancelled) {
+          setEmailTemplates(templates);
+          setEmailTemplateSource(payload?.source === "database" ? "database" : "defaults");
+        }
+      } catch {
+        if (!cancelled) {
+          setEmailTemplates(DEFAULT_CFSP_EMAIL_TEMPLATES);
+          setEmailTemplateSource("defaults");
+        }
+      }
+    }
+
+    void loadEmailTemplates();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const [trainingMaterialSaving, setTrainingMaterialSaving] = useState<
     Record<TrainingMaterialKind, boolean>
   >({
@@ -5889,32 +5934,6 @@ export default function EventDetailPage() {
     ]
   );
 
-  useEffect(() => {
-    console.info("CFSP schedule debug", {
-      scheduleStatus: trainingMetadata.schedule_status,
-      scheduleBuilderDay,
-      selectedEventDateContext,
-      draftRoundCount: scheduleBuilderPreviewDraft?.scheduleRoundCount,
-      resolvedRoundsLength: scheduleBuilderPreviewDraft?.resolvedRounds?.length,
-      rotationRoundsLength: rotationRounds.length,
-      activeRotationCount,
-      firstRounds: rotationRounds.slice(0, 8).map((round) => ({
-        key: round.key,
-        date: round.session_date,
-        start: round.start_time,
-        end: round.end_time,
-        rooms: round.rooms?.length,
-      })),
-    });
-  }, [
-    activeRotationCount,
-    rotationRounds,
-    scheduleBuilderDay,
-    scheduleBuilderPreviewDraft?.resolvedRounds?.length,
-    scheduleBuilderPreviewDraft?.scheduleRoundCount,
-    selectedEventDateContext,
-    trainingMetadata.schedule_status,
-  ]);
   const eventDateOptions = useMemo(
     () =>
       Array.from(
@@ -5953,19 +5972,11 @@ export default function EventDetailPage() {
     if (scheduleRoundCountDebugRef.current === signature) return;
 
     scheduleRoundCountDebugRef.current = signature;
-    console.warn(
-      `Round count mismatch detected from multiple sources: ${signature}.`
-    );
-    if (typeof window !== "undefined") {
-      window.console.info(
-        "Loaded round count sources:",
-        scheduleRoundCountResolution.candidates.map((candidate) => ({
-          source: candidate.source,
-          rounds: candidate.rounds,
-          label: candidate.label,
-        }))
-      );
-    }
+    console.warn("[schedule] round count mismatch detected", {
+      candidateCount: scheduleRoundCountResolution.candidates.length,
+      resolvedRounds: scheduleRoundCountResolution.rounds,
+      source: scheduleRoundCountResolution.source,
+    });
   }, [
     scheduleRoundCountResolution.hasConflict,
     scheduleRoundCountResolution.rounds,
@@ -6707,7 +6718,7 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     return currentLiveRoomDisplayEntries.map(({ roomName, sourceIndex }, index) => {
       const assignment = currentLiveRoomAssignmentPlan.assignments[index]?.assignment || null;
       const sp = assignment?.sp_id ? spsById.get(assignment.sp_id) || null : null;
-      const checkedAt = assignment ? formatAttendanceTimestamp(assignment.training_checked_in_at) : "";
+      const checkedAt = assignment ? formatAttendanceTimestamp(assignment.event_checked_in_at || assignment.training_checked_in_at) : "";
       const resolvedRoomName = roomName || getFallbackRoomLabel(index, roomNamingContext);
       const resolvedRoomNumber = getRoomDisplayNumber(resolvedRoomName);
       const matchedLiveReferenceRow =
@@ -6734,8 +6745,15 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
         assignment?.training_attended !== true &&
         assignmentStatus !== "declined" &&
         assignmentStatus !== "no_show";
+      const persistedAttendanceStatus = asText(assignment?.event_attendance_status).toLowerCase();
       const defaultStatus: LiveRoomStatusValue = !assignment
         ? "empty"
+        : persistedAttendanceStatus === "arrived" || persistedAttendanceStatus === "in_room"
+          ? "ready"
+        : persistedAttendanceStatus === "late"
+          ? "delayed"
+        : persistedAttendanceStatus === "missing"
+          ? "sp_missing"
         : assignmentStatus === "no_show" || missingSp
           ? "sp_missing"
           : livePausedAtMs !== null
@@ -10382,12 +10400,38 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     "",
     me?.fullName || me?.scheduleName || me?.email || "CFSP Simulation Operations",
   ].join("\n");
+  const trainingEmailTemplate = findEmailTemplate(emailTemplates, "training", "Prep for Training");
+  const trainingEmailDraft = trainingEmailTemplate
+    ? renderEmailTemplate(trainingEmailTemplate, {
+        eventName: event?.name || "CFSP Event",
+        eventDate: trainingEmailDateLabel,
+        eventDates: sessionSummaryLabel || eventDateLabel || trainingEmailDateLabel,
+        eventTime: trainingEmailTimeLabel,
+        eventLocation: event?.location || trainingLocationModality || "TBD",
+        caseName: trainingMetadata.case_name || trainingRoleNeedLabel || "Case name TBD",
+        simStaff: trainingSimContact || "",
+        faculty: facultyEmailText || trainingFacultyText || "",
+        trainingDate: trainingEmailDateLabel,
+        trainingTime: trainingEmailTimeLabel,
+        trainingZoomLink: normalEventTrainingLink || trainingMetadata.zoom_url || "Training access TBD",
+        spFirstName: "",
+        spFullName: "",
+        spEmails: assignedBccEmails.join(","),
+        pollLink: eventPollLink || "Poll link TBD",
+        universityName: "Drexel University",
+        programName: "CFSP",
+        senderName: me?.fullName || me?.scheduleName || "CFSP Simulation Operations",
+        senderTitle: "Simulation Operations",
+        senderEmail: me?.email || "",
+        generalStaffSignature: [me?.fullName || me?.scheduleName || "CFSP Simulation Operations", me?.email || ""].filter(Boolean).join("\n"),
+      })
+    : null;
   const trainingMailtoHref = buildMailtoHref({
     to: me?.email || "",
     cc: communicationCcEmails,
     bcc: assignedBccEmails,
-    subject: trainingEmailSubject,
-    body: trainingEmailBody,
+    subject: trainingEmailDraft?.subject || trainingEmailSubject,
+    body: trainingEmailDraft?.body || trainingEmailBody,
   });
   function togglePollSp(spId: string) {
     setSelectedPollSpIds((current) =>
@@ -10537,20 +10581,8 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     setEventSaveMessage("");
 
     try {
-      console.info("CFSP poll import upload start", {
-        eventId: id,
-        fileName: file.name,
-        fileSize: file.size,
-        fileType: file.type,
-      });
-
       const formData = new FormData();
       formData.append("file", file, file.name);
-      console.info("CFSP poll import FormData ready", {
-        eventId: id,
-        hasFile: formData.has("file"),
-        fileName: file.name,
-      });
 
       const response = await fetch(`/api/events/${encodeURIComponent(id)}/poll-import`, {
         method: "POST",
@@ -10558,14 +10590,6 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
         credentials: "include",
       });
       const body = (await response.json().catch(() => null)) as PollImportApiResponse | null;
-
-      console.info("CFSP poll import response received", {
-        eventId: id,
-        ok: response.ok,
-        status: response.status,
-        summary: body?.summary,
-        detectedHeaders: body?.debug?.detectedHeaders,
-      });
 
       if (!response.ok || !body?.ok) {
         if (body?.debug) setPollImportDebugInfo(body.debug);
@@ -10590,10 +10614,6 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
         await refreshData();
       }
     } catch (error) {
-      console.error("CFSP poll import failed", {
-        eventId: id,
-        error: error instanceof Error ? error.message : error,
-      });
       setPollImportSuccess("");
       setPollImportSummary(null);
       setPollImportError(error instanceof Error ? error.message : "Could not import poll responses.");
@@ -11054,13 +11074,6 @@ Cory`;
     });
   }
   function openCaseFilePreview(caseEntry: CaseFileEntry | null = primaryCaseFileEntry || null) {
-    console.info("CFSP case file preview requested", {
-      eventId: id,
-      caseFileName: caseEntry?.name || "",
-      hasUrl: Boolean(caseEntry?.url),
-      hasStoragePath: Boolean(caseEntry?.storagePath),
-      storagePath: caseEntry?.storagePath || "",
-    });
     if (caseEntry?.url || caseEntry?.storagePath) {
       setMaterialPreviewLoading(false);
       setMaterialPreviewError("");
@@ -11072,9 +11085,8 @@ Cory`;
       });
       return;
     }
-    console.warn("CFSP case file preview missing file metadata", {
-      eventId: id,
-      caseEntry,
+    console.warn("[materials] case file preview metadata missing", {
+      hasCaseEntry: Boolean(caseEntry),
       hasFallbackMaterial: Boolean(eventMaterialUrl),
     });
     if (eventMaterialUrl) {
@@ -12429,6 +12441,52 @@ Cory`;
     facultyEmailText && `Faculty Email: ${facultyEmailText}`,
     facultyPhoneText && `Faculty Phone: ${facultyPhoneText}`,
   ].filter(Boolean);
+  const generalStaffSignature = [
+    me?.fullName || me?.scheduleName || "CFSP Simulation Operations",
+    me?.email || "",
+  ].filter(Boolean).join("\n");
+  const emailTemplateContext = {
+    eventName: event?.name || "CFSP Event",
+    eventDate: eventDateLabel || sessionSummaryLabel || "Date TBD",
+    eventDates: sessionSummaryLabel || eventDateLabel || "Date TBD",
+    eventTime: summaryTimeLabel || "Time TBD",
+    eventLocation: locationAccessPrimaryLabel || event?.location || trainingLocationModality || "TBD",
+    caseName: trainingMetadata.case_name || trainingRoleNeedLabel || "Case name TBD",
+    simStaff: trainingSimContact || "",
+    faculty: facultyEmailText || trainingFacultyText || "",
+    trainingDate: formatEventDateText(normalEventTrainingDateText, importedYearHint) || normalEventTrainingDateText || "Training date TBD",
+    trainingTime: normalEventTrainingTimeText || "Training time TBD",
+    trainingZoomLink: trainingMetadata.zoom_url || normalEventTrainingLink || trainingAccessUrl || "Training access TBD",
+    spFirstName: "",
+    spFullName: "",
+    spEmails: assignedBccEmails.join(","),
+    pollLink: eventPollLink || "Poll link TBD",
+    universityName: "Drexel University",
+    programName: "CFSP",
+    senderName: me?.fullName || me?.scheduleName || "CFSP Simulation Operations",
+    senderTitle: "Simulation Operations",
+    senderEmail: me?.email || "",
+    generalStaffSignature,
+  };
+  function renderCommandEmailDraft(
+    category: string,
+    templateName: string,
+    fallbackSubject: string,
+    fallbackBody: string
+  ) {
+    const template = findEmailTemplate(emailTemplates, category, templateName);
+    if (!template) {
+      return {
+        subject: normalizeEmailPlainText(fallbackSubject),
+        body: normalizeEmailPlainText(fallbackBody),
+      };
+    }
+    const rendered = renderEmailTemplate(template, emailTemplateContext);
+    return {
+      subject: rendered.subject || normalizeEmailPlainText(fallbackSubject),
+      body: rendered.body || normalizeEmailPlainText(fallbackBody),
+    };
+  }
   const confirmationEmailSubject = `CONFIRMED: ${event?.name || "CFSP Event"} - ${sessionSummaryLabel || eventDateLabel || "Date TBD"}`;
   const confirmationEmailBody = [
     "Hello,",
@@ -12460,12 +12518,13 @@ Cory`;
     "Thank you,",
     me?.fullName || me?.scheduleName || me?.email || "CFSP Simulation Operations",
   ].filter((line, index, lines) => line !== "" || lines[index - 1] !== "").join("\n");
+  const confirmationEmailDraft = renderCommandEmailDraft("confirmation", "Confirmation Hire", confirmationEmailSubject, confirmationEmailBody);
   const confirmationMailtoHref = buildMailtoHref({
     to: me?.email || "",
     cc: communicationCcEmails,
     bcc: confirmationBccEmails,
-    subject: confirmationEmailSubject,
-    body: confirmationEmailBody,
+    subject: confirmationEmailDraft.subject,
+    body: confirmationEmailDraft.body,
   });
   const hiringEmailSubjectDateLabel = hiringWindowDateLabel || eventDateLabel || "Date TBD";
   const hiringPollEmailSubject = `SP Hiring Poll: ${event?.name || "CFSP Event"} - ${hiringEmailSubjectDateLabel}`;
@@ -12485,13 +12544,14 @@ Cory`;
     "Thank you,",
     `<b>From:</b> ${me?.fullName || me?.scheduleName || me?.email || "CFSP Simulation Operations"}`,
   ].join("\n");
+  const hiringPollEmailDraft = renderCommandEmailDraft("hiring", "SP Availability Poll", hiringPollEmailSubject, hiringPollEmailBody);
   const hiringPollBccEmails = hiringEmailBccEmails.length ? hiringEmailBccEmails : assignedBccEmails;
   const hiringPollMailtoHref = buildMailtoHref({
     to: me?.email || "",
     cc: communicationCcEmails,
     bcc: hiringPollBccEmails,
-    subject: hiringPollEmailSubject,
-    body: hiringPollEmailBody,
+    subject: hiringPollEmailDraft.subject,
+    body: hiringPollEmailDraft.body,
   });
   const hiringPollReady = Boolean(hiringPollBccEmails.length && eventPollLink);
   const emailSubject = `[CFSP] ${event?.name || "CFSP Event"} - ${hiringEmailSubjectDateLabel}`;
@@ -12540,12 +12600,13 @@ Cory`;
     "Thank you,",
     `<b>From:</b> ${me?.fullName || me?.scheduleName || me?.email || "CFSP Simulation Operations"}`,
   ].join("\n");
+  const postTrainingEmailDraft = renderCommandEmailDraft("training", "Link to Recorded SP Training", postTrainingEmailSubject, postTrainingEmailBody);
   const postTrainingMailtoHref = buildMailtoHref({
     to: me?.email || "",
     cc: communicationCcEmails,
     bcc: assignedBccEmails,
-    subject: postTrainingEmailSubject,
-    body: postTrainingEmailBody,
+    subject: postTrainingEmailDraft.subject,
+    body: postTrainingEmailDraft.body,
   });
   const payrollDurationFromRoundsMinutes = useMemo(
     () =>
@@ -12622,12 +12683,13 @@ Cory`;
     "Thank you,",
     `<b>From:</b> ${me?.fullName || me?.scheduleName || me?.email || "CFSP Simulation Operations"}`,
   ].join("\n");
+  const payrollEmailDraft = renderCommandEmailDraft("confirmation", "Post-Event Payroll / Wrap-Up Email", payrollEmailSubject, payrollEmailBody);
   const payrollMailtoHref = buildMailtoHref({
     to: me?.email || "",
     cc: communicationCcEmails,
     bcc: payrollEmailBccEmails,
-    subject: payrollEmailSubject,
-    body: payrollEmailBody,
+    subject: payrollEmailDraft.subject,
+    body: payrollEmailDraft.body,
   });
   const hiringPollCardStatus = hiringEmailNeeded
     ? hiringEmailSentProof
@@ -12994,7 +13056,7 @@ Cory`;
     setSaving(false);
   }
 
-  async function handleDeleteEvent() {
+  const handleDeleteEvent = useCallback(async () => {
     if (!id || !event) return;
 
     const eventTitle = event?.name || "this event";
@@ -13023,7 +13085,7 @@ Cory`;
       setEventSaveError(error instanceof Error ? error.message : "Could not delete event.");
       setDeletingEvent(false);
     }
-  }
+  }, [event, id, router]);
 
   useEffect(() => {
     const existing = document.getElementById("cfsp-delete-event-floating-button");
@@ -13069,7 +13131,7 @@ Cory`;
     return () => {
       button.remove();
     };
-  }, [event?.id]);
+  }, [event?.id, handleDeleteEvent]);
 
 
   function handleSelectEventType(nextType: EditableEventType) {
@@ -13596,11 +13658,7 @@ Cory`;
     const storagePath = asText(args.storagePath);
     const fileName = asText(args.fileName) || getFilenameFromUrl(safeUrl) || getFilenameFromUrl(storagePath) || "training-material";
     if (!safeUrl && !storagePath) {
-      console.warn("CFSP material preview missing URL and storage path", {
-        eventId: id,
-        title: args.title,
-        fileName,
-      });
+      console.warn("[materials] preview source missing", { hasTitle: Boolean(args.title) });
       setMaterialPreviewLoading(false);
       setMaterialPreviewError("File missing or access expired. Please download the file or upload it again.");
       setMaterialOpenInNewTabError("");
@@ -13623,16 +13681,6 @@ Cory`;
       fileName,
     });
     const previewKind = getMaterialPreviewKind(assetUrls.fileName, safeUrl, storagePath, assetUrls.previewUrl);
-    console.info("CFSP material preview opened", {
-      eventId: id,
-      title: args.title,
-      fileName: assetUrls.fileName,
-      kind: previewKind,
-      hasRawUrl: Boolean(safeUrl),
-      storagePath,
-      previewUrl: assetUrls.previewUrl,
-      downloadUrl: assetUrls.downloadUrl,
-    });
     setMaterialPreviewLoading(previewKind !== "unsupported");
     setMaterialPreviewError("");
     setMaterialOpenInNewTabError("");
@@ -13857,21 +13905,7 @@ Cory`;
 
     async function loadDocumentPreview() {
       try {
-        console.info("CFSP material preview fetch start", {
-          eventId: id,
-          fileName: preview.fileName,
-          kind: preview.kind,
-          previewUrl: preview.previewUrl,
-        });
         const response = await fetch(preview.previewUrl, { cache: "no-store" });
-        console.info("CFSP material preview API response", {
-          eventId: id,
-          fileName: preview.fileName,
-          kind: preview.kind,
-          status: response.status,
-          ok: response.ok,
-          contentType: response.headers.get("content-type") || "",
-        });
         if (!response.ok) {
           throw new Error(getMaterialPreviewLoadError(response));
         }
@@ -13882,20 +13916,12 @@ Cory`;
         } else {
           setMaterialPreviewText(text);
         }
-        console.info("CFSP material preview load success", {
-          eventId: id,
-          fileName: preview.fileName,
-          kind: preview.kind,
-          bytes: text.length,
-        });
         setMaterialPreviewLoading(false);
       } catch (error) {
         if (cancelled) return;
-        console.warn("CFSP material preview load failure", {
-          eventId: id,
-          fileName: preview.fileName,
+        console.warn("[materials] preview load failed", {
           kind: preview.kind,
-          error: error instanceof Error ? error.message : error,
+          error: error instanceof Error ? error.message : "error",
         });
         setMaterialPreviewError(
           preview.kind === "html"
@@ -13928,23 +13954,9 @@ Cory`;
       if (!isSameOriginPreviewUrl(preview.previewUrl)) return;
 
       try {
-        console.info("CFSP material inline preview preflight start", {
-          eventId: id,
-          fileName: preview.fileName,
-          kind: preview.kind,
-          previewUrl: preview.previewUrl,
-        });
         const response = await fetch(preview.previewUrl, {
           cache: "no-store",
           signal: controller.signal,
-        });
-        console.info("CFSP material inline preview API response", {
-          eventId: id,
-          fileName: preview.fileName,
-          kind: preview.kind,
-          status: response.status,
-          ok: response.ok,
-          contentType: response.headers.get("content-type") || "",
         });
         if (response.body) void response.body.cancel().catch(() => undefined);
         if (!response.ok && !cancelled) {
@@ -13953,11 +13965,9 @@ Cory`;
         }
       } catch (error) {
         if (cancelled || (error instanceof DOMException && error.name === "AbortError")) return;
-        console.warn("CFSP material inline preview preflight failed", {
-          eventId: id,
-          fileName: preview.fileName,
+        console.warn("[materials] inline preview preflight failed", {
           kind: preview.kind,
-          error: error instanceof Error ? error.message : error,
+          error: error instanceof Error ? error.message : "error",
         });
         setMaterialPreviewError("Could not load preview. Please download the file.");
         setMaterialPreviewLoading(false);
@@ -13967,12 +13977,7 @@ Cory`;
     void validateInlinePreviewUrl();
 
     const timeout = window.setTimeout(() => {
-      console.warn("CFSP material preview timed out", {
-        eventId: id,
-        fileName: preview.fileName,
-        kind: preview.kind,
-        previewUrl: preview.previewUrl,
-      });
+      console.warn("[materials] preview timed out", { kind: preview.kind });
       setMaterialPreviewLoading(false);
       setMaterialPreviewError("Could not load preview. Please download the file.");
     }, 8000);
@@ -15160,27 +15165,32 @@ Cory`;
     let nextAttended = assignment.training_attended === true;
     let nextCheckedInAt: string | null = assignment.training_checked_in_at || null;
     let metadataStatus = "";
+    let nextEventAttendanceStatus = assignment.event_attendance_status || "expected";
 
     if (action === "check_in") {
       nextStatus = currentStatus === "backup" || restorableStatus === "backup" ? "backup" : "confirmed";
       nextAttended = true;
       nextCheckedInAt = now;
       metadataStatus = "checked_in";
+      nextEventAttendanceStatus = "arrived";
     } else if (action === "late") {
       nextStatus = currentStatus === "no_show" || currentStatus === "declined" ? restorableStatus : currentStatus;
       nextAttended = false;
       nextCheckedInAt = null;
       metadataStatus = "late";
+      nextEventAttendanceStatus = "late";
     } else if (action === "no_show") {
       nextStatus = "no_show";
       nextAttended = false;
       nextCheckedInAt = null;
       metadataStatus = "no_show";
+      nextEventAttendanceStatus = "missing";
     } else {
       nextStatus = restorableStatus;
       nextAttended = false;
       nextCheckedInAt = null;
       metadataStatus = "cleared";
+      nextEventAttendanceStatus = "expected";
     }
 
     setAttendanceSaving(true);
@@ -15196,6 +15206,8 @@ Cory`;
           confirmed: getConfirmedValueForStatus(nextStatus, assignment),
           training_attended: nextAttended,
           training_checked_in_at: nextCheckedInAt,
+          event_checked_in_at: nextCheckedInAt,
+          event_attendance_status: nextEventAttendanceStatus,
           notes: upsertLiveAttendanceMetadata(assignment.notes, {
             status: metadataStatus,
             updatedAt: now,
@@ -15279,6 +15291,18 @@ Cory`;
       if (!response.ok) {
         throw new Error(await parseApiError(response));
       }
+
+      await fetch(`/api/events/${encodeURIComponent(id)}/learner-attendance`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          round_id: asText(currentLiveReferenceRound?.key) || asText(selectedRotationRound?.key),
+          room: token.roomName,
+          learner_name: token.learnerName,
+          status: action === "clear" ? "expected" : action,
+          checked_in_at: action === "clear" || action === "expected" ? null : now,
+        }),
+      }).catch(() => null);
 
       setEventEditor((current) => ({ ...current, notes: nextNotes }));
       setEvent((current) => (current ? { ...current, notes: nextNotes } : current));
@@ -24780,7 +24804,6 @@ Cory`;
                                       .map((name) => name.trim())
                                       .filter((name) => name && isAssignedLearnerRoomLabel(name));
                                     const alertTone = room.status === "late" || room.status === "no_show";
-                                    const roomSpCheckKey = `${selectedRoundOccupancyKey}|${room.roomName}|${room.spName || "unassigned-sp"}`;
                                     const isManageDrawerOpen = activeOccupancyRoomKey === room.key;
                                     return (
                                       <div
@@ -24886,27 +24909,19 @@ Cory`;
                                             <div style={{ display: "flex", gap: "5px", flexWrap: "wrap" }}>
                                               <button
                                                 type="button"
-                                                onClick={() =>
-                                                  setLocalOccupancySpCheckIns((current) => ({
-                                                    ...current,
-                                                    [roomSpCheckKey]: true,
-                                                  }))
-                                                }
-                                                style={{ ...staffingSecondaryButtonStyle, padding: "5px 7px", fontSize: "9px" }}
+                                                onClick={() => void handleLiveBlueprintAttendanceAction(room.assignment, room.key, "check_in")}
+                                                disabled={!room.assignment || attendanceSaving}
+                                                style={{ ...staffingSecondaryButtonStyle, padding: "5px 7px", fontSize: "9px", opacity: !room.assignment || attendanceSaving ? 0.55 : 1 }}
                                               >
-                                                SP checked in
+                                                {blueprintActionSavingKey === `${room.key}:check_in` ? "Saving..." : "SP checked in"}
                                               </button>
                                               <button
                                                 type="button"
-                                                onClick={() =>
-                                                  setLocalOccupancySpCheckIns((current) => ({
-                                                    ...current,
-                                                    [roomSpCheckKey]: false,
-                                                  }))
-                                                }
-                                                style={{ ...staffingSecondaryButtonStyle, padding: "5px 7px", fontSize: "9px" }}
+                                                onClick={() => void handleLiveBlueprintAttendanceAction(room.assignment, room.key, "clear")}
+                                                disabled={!room.assignment || attendanceSaving}
+                                                style={{ ...staffingSecondaryButtonStyle, padding: "5px 7px", fontSize: "9px", opacity: !room.assignment || attendanceSaving ? 0.55 : 1 }}
                                               >
-                                                Not checked in
+                                                {blueprintActionSavingKey === `${room.key}:clear` ? "Saving..." : "Not checked in"}
                                               </button>
                                             </div>
                                             {learnerNames.length ? (
@@ -24914,6 +24929,11 @@ Cory`;
                                                 {learnerNames.map((learnerName) => {
                                                   const learnerArrivalKey = `${selectedRoundOccupancyKey}|${learnerName}`;
                                                   const learnerArrived = localOccupancyLearnerArrivals[learnerArrivalKey] === true;
+                                                  const learnerToken = liveLearnerPresenceTokens.find(
+                                                    (token) =>
+                                                      token.learnerName === learnerName &&
+                                                      compareRoomLabels(token.roomName, room.roomName) === 0
+                                                  );
                                                   return (
                                                     <div
                                                       key={`${room.key}-learner-control-${learnerName}`}
@@ -24929,13 +24949,18 @@ Cory`;
                                                         <span style={{ color: "#ecfeff", fontSize: "10px", fontWeight: 850 }}>{learnerName}</span>
                                                         <button
                                                           type="button"
-                                                          onClick={() =>
+                                                          onClick={() => {
+                                                            if (learnerToken) {
+                                                              void handleLiveLearnerAttendanceAction(learnerToken, learnerArrived ? "expected" : "arrived");
+                                                              return;
+                                                            }
                                                             setLocalOccupancyLearnerArrivals((current) => ({
                                                               ...current,
                                                               [learnerArrivalKey]: !learnerArrived,
-                                                            }))
-                                                          }
-                                                          style={{ ...staffingSecondaryButtonStyle, padding: "4px 7px", fontSize: "9px" }}
+                                                            }));
+                                                          }}
+                                                          disabled={attendanceSaving}
+                                                          style={{ ...staffingSecondaryButtonStyle, padding: "4px 7px", fontSize: "9px", opacity: attendanceSaving ? 0.6 : 1 }}
                                                         >
                                                           {learnerArrived ? "Mark expected" : "Mark arrived"}
                                                         </button>
@@ -27267,8 +27292,14 @@ Cory`;
                               ))}
                             </div>
                             <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 750 }}>
-                              Email draft buttons and mailto workflows remain connected to the existing communication handlers.
+                              Email draft buttons use CFSP templates when saved templates are available; Apple Mail drafts are plain text. Template source: {emailTemplateSource === "database" ? "saved templates" : "built-in defaults"}.
                             </div>
+                            <Link
+                              href={`/settings?eventId=${encodeURIComponent(id)}#email-templates`}
+                              style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px", justifySelf: "start", textDecoration: "none" }}
+                            >
+                              Manage Email Templates
+                            </Link>
                             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: "8px" }}>
                               {communicationCards.map((card) => {
                                 const isReady = card.ready;
@@ -32078,19 +32109,10 @@ Cory`;
                       height={1200}
                       unoptimized
                       onLoad={() => {
-                        console.info("CFSP material image preview load success", {
-                          eventId: id,
-                          fileName: materialPreview.fileName,
-                          previewUrl: materialPreview.previewUrl,
-                        });
                         setMaterialPreviewLoading(false);
                       }}
                       onError={() => {
-                        console.warn("CFSP material image preview load failure", {
-                          eventId: id,
-                          fileName: materialPreview.fileName,
-                          previewUrl: materialPreview.previewUrl,
-                        });
+                        console.warn("[materials] image preview load failed");
                         setMaterialPreviewLoading(false);
                         setMaterialPreviewError("Could not load preview. Please download the file.");
                       }}
@@ -32130,21 +32152,10 @@ Cory`;
                       title={materialPreview.title}
                       src={materialPreview.previewUrl}
                       onLoad={() => {
-                        console.info("CFSP material iframe preview load success", {
-                          eventId: id,
-                          fileName: materialPreview.fileName,
-                          kind: materialPreview.kind,
-                          previewUrl: materialPreview.previewUrl,
-                        });
                         setMaterialPreviewLoading(false);
                       }}
                       onError={() => {
-                        console.warn("CFSP material iframe preview load failure", {
-                          eventId: id,
-                          fileName: materialPreview.fileName,
-                          kind: materialPreview.kind,
-                          previewUrl: materialPreview.previewUrl,
-                        });
+                        console.warn("[materials] iframe preview load failed", { kind: materialPreview.kind });
                         setMaterialPreviewLoading(false);
                         setMaterialPreviewError("Could not load preview. Please download the file.");
                       }}

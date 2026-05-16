@@ -176,7 +176,6 @@ async function fetchSPs() {
   }
 
   const data = await response.json();
-  console.log("/api/sps response", data);
   return Array.isArray(data?.sps) ? (data.sps as SPRow[]) : [];
 }
 

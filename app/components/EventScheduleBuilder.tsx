@@ -4927,6 +4927,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     parsedExamRooms,
     parsedFacultyArrival,
     parsedFacultyPrebrief,
+    facultyPrebriefMinutes,
     scheduleMathFlexCapacity,
     scheduleMathFlexRoomCount,
     parsedRoomCapacity,

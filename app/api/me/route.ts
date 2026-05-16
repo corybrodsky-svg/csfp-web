@@ -107,6 +107,12 @@ function jsonNoStore(body: unknown, init?: ResponseInit) {
   return response;
 }
 
+function getSafeErrorLabel(error: unknown) {
+  if (error instanceof Error) return error.message || error.name || "error";
+  if (typeof error === "string") return error;
+  return "error";
+}
+
 async function resolveSession() {
   const supabase = createSupabaseServerClient();
 
@@ -115,7 +121,7 @@ async function resolveSession() {
   const refreshToken = cookieStore.get(AUTH_REFRESH_COOKIE)?.value?.trim() || "";
 
   if (!accessToken && !refreshToken) {
-    console.error("/api/me resolveSession missing tokens");
+    console.error("[auth] /api/me session tokens present: false");
     return {
       ok: false as const,
       reason: "missing_tokens",
@@ -138,7 +144,7 @@ async function resolveSession() {
       };
     }
     if (error) {
-      console.error("/api/me access token getUser failed", error.message);
+      console.error("[auth] /api/me access token validation failed");
     }
   }
 
@@ -157,15 +163,14 @@ async function resolveSession() {
         accessToken: data.session.access_token,
       };
     }
-    console.error("/api/me refreshSession failed", {
+    console.error("[auth] /api/me refresh failed", {
       hasError: Boolean(error),
-      error: error?.message || null,
       hasSession: Boolean(data.session),
       hasUser: Boolean(refreshedUser),
     });
   }
 
-  console.error("/api/me resolveSession invalid session");
+  console.error("[auth] /api/me session valid: false");
   return {
     ok: false as const,
     reason: "invalid_session",
@@ -375,13 +380,6 @@ async function handleGetOrSave(method: "GET" | "POST" | "PATCH", request?: Reque
       ...(profileResult.error || spLinkPersistError ? { warning: profileResult.error || spLinkPersistError } : {}),
     });
 
-    if (process.env.NODE_ENV !== "production") {
-      console.log("/api/me normalized profile returned", {
-        email: user.email || null,
-        profile: buildResponseProfile(ensuredProfile as ProfileRow | null, user),
-      });
-    }
-
     if (session.refreshedSession?.access_token && session.refreshedSession.refresh_token) {
       setAuthCookies(response, {
         accessToken: session.refreshedSession.access_token,
@@ -493,13 +491,6 @@ async function handleGetOrSave(method: "GET" | "POST" | "PATCH", request?: Reque
       : {}),
   });
 
-  if (process.env.NODE_ENV !== "production") {
-    console.log("/api/me normalized profile returned", {
-      email: user.email || null,
-      profile: buildResponseProfile(saveResult.profile as ProfileRow, user),
-    });
-  }
-
   if (session.refreshedSession?.access_token && session.refreshedSession.refresh_token) {
     setAuthCookies(response, {
       accessToken: session.refreshedSession.access_token,
@@ -514,7 +505,7 @@ export async function GET() {
   try {
     return await handleGetOrSave("GET");
   } catch (error) {
-    console.error("/api/me GET failed", error);
+    console.error("[auth] /api/me GET failed", getSafeErrorLabel(error));
 
     return jsonNoStore(
       {
@@ -530,7 +521,7 @@ export async function POST(request: Request) {
   try {
     return await handleGetOrSave("POST", request);
   } catch (error) {
-    console.error("/api/me POST failed", error);
+    console.error("[auth] /api/me POST failed", getSafeErrorLabel(error));
 
     return jsonNoStore(
       {
@@ -546,7 +537,7 @@ export async function PATCH(request: Request) {
   try {
     return await handleGetOrSave("PATCH", request);
   } catch (error) {
-    console.error("/api/me PATCH failed", error);
+    console.error("[auth] /api/me PATCH failed", getSafeErrorLabel(error));
 
     return jsonNoStore(
       {

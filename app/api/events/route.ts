@@ -295,7 +295,7 @@ async function getAuthenticatedViewer(): Promise<ViewerContext | null> {
       if (!error && accessUser) {
         user = accessUser;
       } else if (process.env.NODE_ENV !== "production") {
-        console.error("/api/events getUser failed", error?.message || "Unknown auth error");
+        console.error("[auth] /api/events access token validation failed", { hasError: Boolean(error) });
       }
     }
 
@@ -313,7 +313,11 @@ async function getAuthenticatedViewer(): Promise<ViewerContext | null> {
           refresh_token: data.session.refresh_token,
         };
       } else if (process.env.NODE_ENV !== "production") {
-        console.error("/api/events refreshSession failed", error?.message || "Unknown refresh error");
+        console.error("[auth] /api/events refresh failed", {
+          hasError: Boolean(error),
+          hasSession: Boolean(data.session),
+          hasUser: Boolean(refreshedUser),
+        });
       }
     }
 
@@ -367,9 +371,6 @@ export async function GET() {
     if (!viewer) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-
-    console.log("CFSP /api/events role:", viewer.role);
-    console.log("CFSP /api/events user:", viewer.id);
 
     const baseSelect = "id,name,status,date_text,sp_needed,visibility,location,notes,created_at";
     const ownerSelect = `${baseSelect},owner_id`;
@@ -559,8 +560,6 @@ export async function GET() {
           assigned_sp_names: [],
           assigned_sp_emails: [],
         }));
-      console.log("CFSP /api/events returning count:", filteredEvents.length);
-
       const response = NextResponse.json({
         events: filteredEvents,
         assignments: assignmentRows.filter(
@@ -578,7 +577,6 @@ export async function GET() {
       return response;
     }
 
-    console.log("CFSP /api/events returning count:", eventsWithCoverage.length);
       const response = NextResponse.json({ events: eventsWithCoverage, assignments: assignmentRows });
       if (viewer.refreshedSession?.access_token && viewer.refreshedSession.refresh_token) {
         setAuthCookies(response, {

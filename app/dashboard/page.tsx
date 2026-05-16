@@ -1543,15 +1543,11 @@ export default function DashboardPage() {
         if (cancelled) return;
 
         if (meRes.status === 401) {
-          console.error("/api/me returned 401 on dashboard", {
-            hasValidatedSession: hasValidatedSessionRef.current,
-          });
           if (hasValidatedSessionRef.current) {
             setAuthState("authed");
             setError("Your session could not be refreshed for one request. Please retry.");
             return;
           }
-          console.error("Dashboard redirecting to /login after /api/me 401");
           setAuthState("guest");
           router.replace("/login");
           return;
@@ -1560,10 +1556,6 @@ export default function DashboardPage() {
         const meJson = (await meRes.json()) as MeResponse;
 
         if (!meRes.ok || !meJson.ok) {
-          console.error("/api/me failed on dashboard", {
-            status: meRes.status,
-            error: meJson?.error || null,
-          });
           setAuthState("authed");
           setMe(meJson);
           setError(meJson.error || "Could not load current user.");
@@ -1587,9 +1579,6 @@ export default function DashboardPage() {
         if (cancelled) return;
 
         if (eventsRes.status === 401) {
-          console.error("/api/events returned 401 on dashboard after auth", {
-            hasValidatedSession: hasValidatedSessionRef.current,
-          });
           setAuthState("authed");
           setEvents([]);
           setError("Your dashboard session is active, but events could not be refreshed right now.");
@@ -1599,10 +1588,6 @@ export default function DashboardPage() {
         const eventsJson = (await eventsRes.json()) as EventsResponse;
 
         if (!eventsRes.ok) {
-          console.error("/api/events failed on dashboard", {
-            status: eventsRes.status,
-            error: eventsJson.error || null,
-          });
           setError(eventsJson.error || "Could not load events.");
           setEvents([]);
           return;
@@ -1612,7 +1597,6 @@ export default function DashboardPage() {
         setAssignments(Array.isArray(eventsJson.assignments) ? eventsJson.assignments : []);
       } catch (err) {
         if (cancelled) return;
-        console.error("Dashboard load failed", err);
         setError(err instanceof Error ? err.message : "Could not load dashboard.");
       }
     }
@@ -1638,15 +1622,6 @@ export default function DashboardPage() {
   const profileIncomplete = !asText(me?.profile?.full_name) || (!isSp && !scheduleMatchName);
   const spLinkPending = isSp && asText(me?.sp_link?.status).toLowerCase() !== "linked";
   const matchTerms = Array.from(new Set([scheduleMatchName, legacyScheduleName, firstName, emailUsername].filter(Boolean)));
-
-  useEffect(() => {
-    if (process.env.NODE_ENV !== "production") {
-      console.log("dashboard match terms", {
-        email: me?.user?.email || null,
-        matchTerms,
-      });
-    }
-  }, [matchTerms, me?.user?.email]);
 
   const primaryWorkflowEvents = useMemo(
     () => events.filter((event) => !isStandaloneTrainingEvent({

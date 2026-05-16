@@ -180,10 +180,6 @@ export default function EventsPage() {
         const data = (await response.json()) as EventsResponse;
 
         if (!response.ok) {
-          console.error("/api/events failed on /events", {
-            status: response.status,
-            error: data.error || null,
-          });
           throw new Error(data.error || "Could not load events.");
         }
 
@@ -192,7 +188,6 @@ export default function EventsPage() {
         }
       } catch (err) {
         if (!cancelled) {
-          console.error("/events page load failed", err);
           setError(err instanceof Error ? err.message : "Could not load events.");
         }
       } finally {

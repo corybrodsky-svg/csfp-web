@@ -498,14 +498,6 @@ export async function GET(request: Request) {
     const filename = asText(searchParams.get("filename"));
     const mode = asText(searchParams.get("mode")).toLowerCase() === "download" ? "download" : "preview";
 
-    console.info("CFSP training material request", {
-      eventId,
-      path,
-      filename,
-      mode,
-      viewerRole: viewer.role,
-    });
-
     if (!eventId || !path) {
       return applyAuthCookies(
         NextResponse.json({ error: "Event id and storage path are required." }, { status: 400 }),
@@ -534,10 +526,7 @@ export async function GET(request: Request) {
 
     const downloadResult = await storageClient.storage.from(STORAGE_BUCKET).download(path);
     if (downloadResult.error || !downloadResult.data) {
-      console.warn("CFSP training material storage download failed", {
-        eventId,
-        path,
-        filename,
+      console.warn("[materials] storage download failed", {
         mode,
         error: downloadResult.error?.message || "No storage object returned",
       });
@@ -554,25 +543,9 @@ export async function GET(request: Request) {
     const arrayBuffer = await file.arrayBuffer();
     const contentType = getContentTypeFromPath(path, file.type || "application/octet-stream");
 
-    console.info("CFSP training material storage download succeeded", {
-      eventId,
-      path,
-      filename,
-      mode,
-      bytes: arrayBuffer.byteLength,
-      contentType,
-      extension: getFileExtension(path, filename),
-    });
-
     if (mode === "preview" && getFileExtension(path, filename) === "docx") {
       const converted = await mammoth.convertToHtml({
         buffer: Buffer.from(arrayBuffer),
-      });
-      console.info("CFSP training material DOCX preview generated", {
-        eventId,
-        path,
-        filename,
-        messages: converted.messages.length,
       });
       const html = buildDocxPreviewHtml({
         title: buildDownloadName(path, filename),
@@ -606,7 +579,7 @@ export async function GET(request: Request) {
 
     return applyAuthCookies(response, viewer);
   } catch (error) {
-    console.error("CFSP training material request failed", {
+    console.error("[materials] request failed", {
       error: getErrorMessage(error),
     });
     return NextResponse.json(
@@ -711,7 +684,9 @@ export async function POST(request: Request) {
     if (replacePath && replacePath !== storagePath) {
       const cleanupResult = await storageClient.storage.from(STORAGE_BUCKET).remove([replacePath]);
       if (cleanupResult.error) {
-        console.warn("Could not remove replaced training material:", cleanupResult.error.message);
+        console.warn("[materials] replaced file cleanup failed", {
+          error: cleanupResult.error.message,
+        });
       }
     }
 

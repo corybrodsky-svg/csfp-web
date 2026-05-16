@@ -5,6 +5,11 @@ import { useSearchParams } from "next/navigation";
 import type { ReactNode } from "react";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import SiteShell from "../components/SiteShell";
+import {
+  DEFAULT_CFSP_EMAIL_TEMPLATES,
+  renderEmailTemplate,
+  type EmailTemplateRecord,
+} from "../lib/emailTemplates";
 
 type EventEditState = {
   name: string;
@@ -34,6 +39,13 @@ type MeResponse = {
   profile?: {
     role?: string | null;
   } | null;
+};
+
+type EmailTemplateApiResponse = {
+  templates?: EmailTemplateRecord[];
+  source?: "defaults" | "database";
+  canManage?: boolean;
+  warning?: string;
 };
 
 const initialEvent: EventEditState = {
@@ -126,6 +138,245 @@ function Panel({ title, detail, children }: { title: string; detail: string; chi
       <h2 className="mt-1 text-xl font-black text-[var(--cfsp-text)]">{title}</h2>
       <p className="mt-1 text-sm font-semibold leading-6 text-[var(--cfsp-text-muted)]">{detail}</p>
       <div className="mt-4 grid gap-3">{children}</div>
+    </section>
+  );
+}
+
+const blankTemplate: EmailTemplateRecord = {
+  name: "",
+  category: "training",
+  university_name: "CFSP",
+  program_name: "",
+  subject_template: "",
+  body_template: "",
+  body_format: "plain_text",
+  default_to: "{{senderEmail}}",
+  default_cc: "{{faculty}}",
+  default_bcc: "{{spEmails}}",
+  default_from_label: "{{senderName}}",
+  is_active: true,
+};
+
+function EmailTemplatesManager({ canEdit, eventName }: { canEdit: boolean; eventName: string }) {
+  const [templates, setTemplates] = useState<EmailTemplateRecord[]>(DEFAULT_CFSP_EMAIL_TEMPLATES);
+  const [selectedId, setSelectedId] = useState("");
+  const [draft, setDraft] = useState<EmailTemplateRecord>(blankTemplate);
+  const [source, setSource] = useState<"defaults" | "database">("defaults");
+  const [canManage, setCanManage] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadTemplates() {
+      setLoading(true);
+      setError("");
+      try {
+        const response = await fetch("/api/email-templates", { cache: "no-store" });
+        const payload = await response.json().catch(() => null) as EmailTemplateApiResponse | null;
+        const nextTemplates = Array.isArray(payload?.templates) && payload.templates.length
+          ? payload.templates
+          : DEFAULT_CFSP_EMAIL_TEMPLATES;
+        if (!cancelled) {
+          setTemplates(nextTemplates);
+          setCanManage(Boolean(payload?.canManage));
+          setSource(payload?.source === "database" ? "database" : "defaults");
+          if (payload?.warning) setError(payload.warning);
+          const first = nextTemplates[0] || blankTemplate;
+          setSelectedId(first.id || first.name);
+          setDraft(first);
+        }
+      } catch (loadError) {
+        if (!cancelled) {
+          setTemplates(DEFAULT_CFSP_EMAIL_TEMPLATES);
+          setSource("defaults");
+          setError(loadError instanceof Error ? loadError.message : "Could not load templates.");
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    void loadTemplates();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  function selectTemplate(template: EmailTemplateRecord) {
+    setSelectedId(template.id || template.name);
+    setDraft({ ...template });
+    setMessage("");
+    setError("");
+  }
+
+  function update<K extends keyof EmailTemplateRecord>(key: K, value: EmailTemplateRecord[K]) {
+    setDraft((current) => ({ ...current, [key]: value }));
+    setMessage("");
+  }
+
+  async function saveTemplate(nextDraft = draft, duplicate = false) {
+    if (!canEdit || !canManage) {
+      setError("Admin or Sim Ops access is required to manage email templates.");
+      return;
+    }
+    if (!text(nextDraft.name) || !text(nextDraft.subject_template) || !text(nextDraft.body_template)) {
+      setError("Template name, subject, and body are required.");
+      return;
+    }
+
+    setSaving(true);
+    setError("");
+    setMessage("");
+    const payload = duplicate
+      ? { ...nextDraft, id: undefined, name: `${nextDraft.name} Copy` }
+      : nextDraft;
+
+    try {
+      const response = await fetch("/api/email-templates", {
+        method: duplicate || !payload.id ? "POST" : "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const body = await response.json().catch(() => null) as { template?: EmailTemplateRecord; error?: string } | null;
+      if (!response.ok) throw new Error(body?.error || "Could not save template.");
+      const saved = body?.template;
+      if (!saved) throw new Error("Template was saved but not returned.");
+
+      setTemplates((current) => {
+        const withoutSaved = current.filter((template) => template.id !== saved.id);
+        return [...withoutSaved, saved].sort((a, b) => `${a.category || ""}${a.name}`.localeCompare(`${b.category || ""}${b.name}`));
+      });
+      setDraft(saved);
+      setSelectedId(saved.id || saved.name);
+      setSource("database");
+      setMessage(duplicate ? "Template duplicated." : "Template saved.");
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Could not save template.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const preview = renderEmailTemplate(draft, {
+    eventName: eventName || "NURS Simulation Event",
+    eventDate: "May 16, 2026",
+    eventDates: "May 16, 2026",
+    eventTime: "8:00 AM - 12:00 PM",
+    eventLocation: "CICSP 8W04 or Zoom",
+    caseName: "Case / Role TBD",
+    simStaff: "Simulation Operations",
+    faculty: "faculty@example.edu",
+    trainingDate: "Training date TBD",
+    trainingTime: "Training time TBD",
+    trainingZoomLink: "https://drexel.zoom.us/example",
+    spFirstName: "Alex",
+    spFullName: "Alex Standardized Patient",
+    spEmails: "sp-list-hidden-in-bcc@example.edu",
+    universityName: draft.university_name || "Drexel University",
+    programName: draft.program_name || "CFSP",
+    senderName: "CFSP Simulation Operations",
+    senderTitle: "Simulation Operations",
+    senderEmail: "sender@example.edu",
+    generalStaffSignature: "CFSP Simulation Operations\nsender@example.edu",
+  });
+
+  return (
+    <section id="email-templates" className="rounded-[22px] border border-[var(--cfsp-border)] bg-white p-4 shadow-sm">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <p className="cfsp-kicker">Communication Settings</p>
+          <h2 className="mt-1 text-xl font-black text-[var(--cfsp-text)]">Email Templates</h2>
+          <p className="mt-1 text-sm font-semibold leading-6 text-[var(--cfsp-text-muted)]">
+            Manage reusable CFSP plain-text templates with merge fields. SP recipient lists stay in Bcc when event drafts open.
+          </p>
+          <p className="mt-2 text-xs font-black uppercase tracking-[0.14em] text-[#466477]">
+            Source: {source === "database" ? "Saved database templates" : "Built-in defaults"}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            setSelectedId("new");
+            setDraft(blankTemplate);
+            setMessage("");
+            setError("");
+          }}
+          disabled={!canEdit || !canManage}
+          className="cfsp-btn cfsp-btn-secondary disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Add Template
+        </button>
+      </div>
+
+      {loading ? <p className="mt-4 text-sm font-bold text-[var(--cfsp-text-muted)]">Loading templates...</p> : null}
+      {message ? <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-bold text-emerald-700">{message}</div> : null}
+      {error ? <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-bold text-amber-800">{error}</div> : null}
+
+      <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(220px,0.75fr)_minmax(0,1.25fr)]">
+        <div className="grid gap-2 self-start">
+          {templates.map((template) => {
+            const key = template.id || template.name;
+            const selected = selectedId === key;
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => selectTemplate(template)}
+                className="rounded-xl border px-3 py-2 text-left transition"
+                style={{
+                  borderColor: selected ? "rgba(20,91,150,0.48)" : "var(--cfsp-border)",
+                  background: selected ? "linear-gradient(135deg, rgba(224,242,254,0.92), rgba(236,253,245,0.9))" : "#fff",
+                }}
+              >
+                <span className="block text-sm font-black text-[var(--cfsp-text)]">{template.name}</span>
+                <span className="mt-1 block text-[11px] font-bold uppercase tracking-[0.12em] text-[var(--cfsp-text-muted)]">
+                  {template.category || "uncategorized"} · {template.is_active === false ? "Inactive" : "Active"}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="grid gap-4">
+          <div className="grid gap-3 md:grid-cols-2">
+            <Field label="Template name" value={draft.name} onChange={(value) => update("name", value)} />
+            <Field label="Category / type" value={draft.category || ""} onChange={(value) => update("category", value)} />
+            <Field label="University ownership" value={draft.university_name || ""} onChange={(value) => update("university_name", value)} />
+            <Field label="Program ownership" value={draft.program_name || ""} onChange={(value) => update("program_name", value)} />
+            <Field label="Default To" value={draft.default_to || ""} onChange={(value) => update("default_to", value)} />
+            <Field label="Default Cc" value={draft.default_cc || ""} onChange={(value) => update("default_cc", value)} />
+            <Field label="Default Bcc" value={draft.default_bcc || ""} onChange={(value) => update("default_bcc", value)} />
+            <Field label="From label" value={draft.default_from_label || ""} onChange={(value) => update("default_from_label", value)} />
+          </div>
+          <Field label="Subject template" value={draft.subject_template} onChange={(value) => update("subject_template", value)} />
+          <TextAreaField label="Body template" value={draft.body_template} onChange={(value) => update("body_template", value)} />
+          <label className="flex items-center gap-3 rounded-xl border border-[var(--cfsp-border)] bg-white px-3 py-3 text-sm font-black text-[var(--cfsp-text)]">
+            <input type="checkbox" checked={draft.is_active !== false} onChange={(event) => update("is_active", event.target.checked)} />
+            Active template
+          </label>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={() => void saveTemplate()} disabled={saving || !canEdit || !canManage} className="cfsp-btn cfsp-btn-primary disabled:cursor-not-allowed disabled:opacity-50">
+              {saving ? "Saving..." : "Save Template"}
+            </button>
+            <button type="button" onClick={() => void saveTemplate(draft, true)} disabled={saving || !canEdit || !canManage} className="cfsp-btn cfsp-btn-secondary disabled:cursor-not-allowed disabled:opacity-50">
+              Duplicate
+            </button>
+            <button type="button" onClick={() => void saveTemplate({ ...draft, is_active: false })} disabled={saving || !canEdit || !canManage || draft.is_active === false} className="cfsp-btn cfsp-btn-secondary disabled:cursor-not-allowed disabled:opacity-50">
+              Deactivate
+            </button>
+          </div>
+          <div className="rounded-2xl border border-[var(--cfsp-border)] bg-slate-50 p-3">
+            <p className="cfsp-kicker">Preview with current event data</p>
+            <div className="mt-2 text-sm font-black text-[var(--cfsp-text)]">Subject: {preview.subject}</div>
+            <pre className="mt-2 whitespace-pre-wrap rounded-xl bg-white p-3 text-xs font-semibold leading-5 text-slate-700">{preview.body}</pre>
+          </div>
+        </div>
+      </div>
     </section>
   );
 }
@@ -305,6 +556,10 @@ function SettingsContent() {
           </section>
         ) : (
           <div className="grid gap-5 xl:grid-cols-2">
+            <div className="xl:col-span-2">
+              <EmailTemplatesManager canEdit={canEdit} eventName={eventEdit.name} />
+            </div>
+
             <Panel title="Core Event Details" detail="Edit the event record itself. These values should match what the command center shows.">
               <div className="grid gap-3 md:grid-cols-2">
                 <Field label="Event name / title" value={eventEdit.name} onChange={(value) => update("name", value)} />

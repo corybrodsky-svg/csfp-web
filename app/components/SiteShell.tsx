@@ -191,8 +191,7 @@ export default function SiteShell({ title, subtitle, children }: SiteShellProps)
     try {
       setSigningOut(true);
       await signOutUserAndRedirect();
-    } catch (error) {
-      console.error("Could not sign out", error);
+    } catch {
       setSigningOut(false);
     }
   }
