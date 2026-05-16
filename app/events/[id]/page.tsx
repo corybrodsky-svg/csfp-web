@@ -1580,6 +1580,109 @@ function normalizeEventAttendanceStatus(value: unknown): EventAttendanceFilter {
   return "expected";
 }
 
+type EventAttendanceAvatarRole = "sp" | "learner";
+
+function getEventAttendanceAvatarPalette(
+  status: EventAttendanceFilter,
+  role: EventAttendanceAvatarRole,
+  selected = false
+) {
+  const statusTone = getEventAttendanceStatusColors(status);
+  const roleGradient =
+    role === "sp"
+      ? "radial-gradient(circle at 35% 24%, rgba(244, 208, 255, 0.92), rgba(168, 85, 247, 0.58) 48%, rgba(30, 27, 75, 0.92) 100%)"
+      : "radial-gradient(circle at 35% 24%, rgba(153, 246, 228, 0.95), rgba(6, 182, 212, 0.56) 48%, rgba(6, 31, 45, 0.92) 100%)";
+  const ringColor = statusTone.ring;
+  const ringGlow = selected ? "0 0 26px" : "0 0 16px";
+  return {
+    ringColor,
+    foreground: statusTone.text,
+    background: roleGradient,
+    ringShadow: `${ringGlow} ${ringColor}99`,
+  };
+}
+
+function EventAttendanceHologramAvatar({
+  name,
+  role,
+  status,
+  selected = false,
+  compact = false,
+}: {
+  name: string;
+  role: EventAttendanceAvatarRole;
+  status: EventAttendanceFilter;
+  selected?: boolean;
+  compact?: boolean;
+}) {
+  const initials = getRoundOperationAvatarLabel(name, role === "sp" ? "sp" : "student");
+  const label = asText(name).trim() || (role === "sp" ? "SP" : "Learner");
+  const palette = getEventAttendanceAvatarPalette(status, role, selected);
+  const size = compact ? 30 : 36;
+
+  return (
+    <span
+      aria-hidden="true"
+      title={`${label} • ${getEventAttendanceStatusLabel(status)}`}
+      style={{
+        width: `${size}px`,
+        height: `${size}px`,
+        borderRadius: "999px",
+        display: "inline-grid",
+        placeItems: "center",
+        position: "relative",
+        isolation: "isolate",
+        overflow: "hidden",
+        background: palette.background,
+        border: `1px solid ${palette.ringColor}`,
+        boxShadow: `${palette.ringShadow}, inset 0 0 12px rgba(255,255,255,0.2)`,
+        transition: "transform 140ms ease, box-shadow 160ms ease",
+        animation: "cfspMatrixAvatarFloat 3.6s ease-in-out infinite",
+        flex: "0 0 auto",
+      }}
+    >
+      <span
+        aria-hidden="true"
+        style={{
+          position: "absolute",
+          top: compact ? "4px" : "5px",
+          width: compact ? "9px" : "10px",
+          height: compact ? "9px" : "10px",
+          borderRadius: "999px",
+          background: "rgba(248, 250, 252, 0.9)",
+          boxShadow: `0 0 10px ${palette.ringColor}66`,
+        }}
+      />
+      <span
+        aria-hidden="true"
+        style={{
+          position: "absolute",
+          bottom: compact ? "4px" : "5px",
+          width: compact ? "17px" : "19px",
+          height: compact ? "9px" : "10px",
+          borderRadius: "10px 10px 8px 8px",
+          background: "rgba(226, 250, 247, 0.38)",
+          boxShadow: `0 0 8px ${palette.ringColor}66`,
+        }}
+      />
+      <span
+        style={{
+          position: "relative",
+          zIndex: 2,
+          color: palette.foreground,
+          fontSize: compact ? "9px" : "10px",
+          fontWeight: 900,
+          letterSpacing: "0.02em",
+          transform: compact ? "translateY(4px)" : "translateY(5px)",
+          textShadow: "0 0 8px rgba(15, 23, 42, 0.45)",
+        }}
+      >
+        {initials}
+      </span>
+    </span>
+  );
+}
+
 function getRoomDisplayNumber(label?: string | null) {
   const match = asText(label).match(/\d+/);
   return match ? Number.parseInt(match[0], 10) : null;
@@ -10383,6 +10486,9 @@ const operationalEventStatusLabel = useMemo(() => {
   const eventAttendanceRoomActiveCount = eventAttendanceRoomCards.filter(
     (room) => Boolean(room.assignment || room.spName || room.learnerLabels.length)
   ).length;
+  const eventAttendanceHallSplitIndex = Math.ceil(eventAttendanceRoomCards.length / 2);
+  const eventAttendanceNorthRooms = eventAttendanceRoomCards.slice(0, eventAttendanceHallSplitIndex);
+  const eventAttendanceSouthRooms = eventAttendanceRoomCards.slice(eventAttendanceHallSplitIndex);
   const eventAttendanceLearnerExpectedCount = eventAttendanceLearnerPresenceTokens.length;
   const eventAttendanceLearnerArrivedCount = eventAttendanceLearnerPresenceTokens.filter((token) =>
     ["arrived", "in_room", "completed"].includes(token.status)
@@ -26503,19 +26609,21 @@ Cory`;
 
     <section
       style={{
-        borderRadius: "16px",
-        border: "1px solid rgba(126, 231, 219, 0.22)",
-        background: "linear-gradient(140deg, rgba(8, 25, 43, 0.64), rgba(6, 52, 45, 0.44))",
-        padding: "10px",
+        borderRadius: "18px",
+        border: "1px solid rgba(126, 231, 219, 0.28)",
+        background:
+          "radial-gradient(circle at 12% 0%, rgba(34, 211, 238, 0.14), transparent 34%), linear-gradient(140deg, rgba(6, 21, 35, 0.82), rgba(5, 39, 44, 0.78))",
+        boxShadow: "inset 0 1px 0 rgba(255,255,255,0.08), 0 16px 36px rgba(2, 6, 23, 0.2)",
+        padding: "11px",
         display: "grid",
-        gap: "8px",
+        gap: "10px",
       }}
     >
       <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
         <div>
           <div style={{ ...statLabel, color: "rgba(186, 230, 253, 0.88)" }}>Room Attendance Map</div>
           <div style={{ marginTop: "3px", color: "#e6fffb", fontSize: "13px", fontWeight: 900 }}>
-            Primary day-of room occupancy command view
+            Blueprint occupancy command map
           </div>
         </div>
         <span style={{ ...commandChipStyle, background: "rgba(15, 118, 110, 0.2)", color: "#d6fff8", border: "1px solid rgba(126, 231, 219, 0.24)" }}>
@@ -26523,62 +26631,205 @@ Cory`;
         </span>
       </div>
       {eventAttendanceRoomCards.length ? (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "8px" }}>
-          {eventAttendanceRoomCards.map((room) => {
-            const learnerTokens = eventAttendanceLearnerPresenceTokens.filter((token) => token.roomKey === room.key);
-            const spToken = eventAttendanceSpTokens.find((token) => token.assignment.id === room.assignment?.id);
-            const spColors = getEventAttendanceStatusColors(spToken?.status || "expected");
-            return (
-              <div key={`event-attendance-room-${room.key}`} style={{ borderRadius: "12px", border: "1px solid rgba(126, 231, 219, 0.2)", background: "rgba(15, 23, 42, 0.5)", padding: "8px", display: "grid", gap: "7px" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", alignItems: "flex-start" }}>
-                  <div>
-                    <div style={{ color: "#ecfeff", fontSize: "12px", fontWeight: 950 }}>{room.roomName}</div>
-                    <div style={{ marginTop: "2px", color: "rgba(226,250,247,0.62)", fontSize: "10px", fontWeight: 800 }}>{room.encounterLabel || "Case pending"}</div>
+        <div
+          style={{
+            position: "relative",
+            borderRadius: "14px",
+            border: "1px solid rgba(126, 231, 219, 0.2)",
+            background:
+              "linear-gradient(rgba(126, 231, 219, 0.045) 1px, transparent 1px), linear-gradient(90deg, rgba(126, 231, 219, 0.045) 1px, transparent 1px), rgba(2, 16, 28, 0.52)",
+            backgroundSize: "22px 22px, 22px 22px, auto",
+            padding: "10px",
+            overflow: "hidden",
+          }}
+        >
+          <div
+            aria-hidden="true"
+            style={{
+              position: "absolute",
+              inset: "12px 10px",
+              borderRadius: "12px",
+              border: "1px dashed rgba(34, 211, 238, 0.14)",
+              pointerEvents: "none",
+            }}
+          />
+          <div style={{ position: "relative", display: "grid", gap: "8px" }}>
+            {[
+              { key: "north", label: "North Hallway", rooms: eventAttendanceNorthRooms },
+              { key: "south", label: "South Hallway", rooms: eventAttendanceSouthRooms },
+            ]
+              .filter((wall) => wall.rooms.length)
+              .map((wall, wallIndex) => (
+                <div key={`event-attendance-wall-${wall.key}`} style={{ display: "grid", gap: "7px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", alignItems: "center" }}>
+                    <span
+                      style={{
+                        color: "rgba(186, 230, 253, 0.86)",
+                        fontSize: "10px",
+                        fontWeight: 900,
+                        letterSpacing: "0.09em",
+                        textTransform: "uppercase",
+                      }}
+                    >
+                      {wall.label}
+                    </span>
+                    <span style={{ height: "1px", flex: 1, background: "linear-gradient(90deg, rgba(34, 211, 238, 0.32), transparent)" }} />
                   </div>
-                  <span style={{ ...commandChipStyle, background: room.isCurrentRotationRoom ? "rgba(6, 182, 212, 0.2)" : "rgba(20, 184, 166, 0.14)", color: room.isCurrentRotationRoom ? "#cffafe" : "#ccfbf1", fontSize: "9px", padding: "3px 7px" }}>
-                    {room.isCurrentRotationRoom ? "Active" : room.statusLabel || "Standby"}
-                  </span>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(188px, 1fr))", gap: "8px" }}>
+                    {wall.rooms.map((room) => {
+                      const learnerTokens = eventAttendanceLearnerPresenceTokens.filter((token) => token.roomKey === room.key);
+                      const spToken = eventAttendanceSpTokens.find((token) => token.assignment.id === room.assignment?.id);
+                      const spStatus = normalizeEventAttendanceStatus(spToken?.status || "expected");
+                      const spSaving = spToken ? Boolean(attendanceSavingKeys[`sp:${spToken.assignment.id}`]) : false;
+                      return (
+                        <div
+                          key={`event-attendance-room-${room.key}`}
+                          style={{
+                            borderRadius: "12px",
+                            border: room.isCurrentRotationRoom
+                              ? "1px solid rgba(34, 211, 238, 0.5)"
+                              : "1px solid rgba(126, 231, 219, 0.22)",
+                            background: room.isCurrentRotationRoom
+                              ? "linear-gradient(135deg, rgba(8, 145, 178, 0.28), rgba(20, 184, 166, 0.16))"
+                              : "linear-gradient(135deg, rgba(15, 23, 42, 0.66), rgba(5, 33, 42, 0.52))",
+                            padding: "8px",
+                            display: "grid",
+                            gap: "7px",
+                            boxShadow: room.isCurrentRotationRoom ? "0 0 20px rgba(6, 182, 212, 0.16)" : "none",
+                          }}
+                        >
+                          <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", alignItems: "flex-start" }}>
+                            <div>
+                              <div style={{ color: "#ecfeff", fontSize: "12px", fontWeight: 950 }}>{room.roomName}</div>
+                              <div style={{ marginTop: "2px", color: "rgba(226,250,247,0.62)", fontSize: "10px", fontWeight: 800 }}>{room.encounterLabel || "Case pending"}</div>
+                            </div>
+                            <span
+                              style={{
+                                ...commandChipStyle,
+                                background: room.isCurrentRotationRoom ? "rgba(6, 182, 212, 0.2)" : "rgba(20, 184, 166, 0.14)",
+                                color: room.isCurrentRotationRoom ? "#cffafe" : "#ccfbf1",
+                                fontSize: "9px",
+                                padding: "3px 7px",
+                              }}
+                            >
+                              {room.isCurrentRotationRoom ? "Active" : room.statusLabel || "Standby"}
+                            </span>
+                          </div>
+                          <div style={{ display: "flex", gap: "7px", alignItems: "center", flexWrap: "wrap" }}>
+                            {spToken ? (
+                              <button
+                                type="button"
+                                title={
+                                  spStatus === "expected"
+                                    ? "Mark SP arrived"
+                                    : `SP status: ${getEventAttendanceStatusLabel(spStatus)}`
+                                }
+                                onClick={() => {
+                                  if (spStatus === "expected") {
+                                    void handleEventSpAttendanceAction(spToken.assignment, "arrived");
+                                    return;
+                                  }
+                                  setActiveEventAttendanceKey((current) => (current === spToken.key ? "" : spToken.key));
+                                }}
+                                disabled={spSaving}
+                                style={{
+                                  all: "unset",
+                                  cursor: spSaving ? "progress" : "pointer",
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: "6px",
+                                  opacity: spSaving ? 0.65 : 1,
+                                }}
+                              >
+                                <EventAttendanceHologramAvatar
+                                  name={room.spName || "SP TBD"}
+                                  role="sp"
+                                  status={spStatus}
+                                  selected={activeEventAttendanceKey === spToken.key}
+                                />
+                                <span style={{ color: "#ecfeff", fontSize: "10px", fontWeight: 900 }}>{room.spName || "SP TBD"}</span>
+                              </button>
+                            ) : (
+                              <>
+                                <EventAttendanceHologramAvatar name={room.spName || "SP TBD"} role="sp" status="expected" />
+                                <span style={{ color: "rgba(226,250,247,0.72)", fontSize: "10px", fontWeight: 800 }}>SP TBD</span>
+                              </>
+                            )}
+                          </div>
+                          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                            {learnerTokens.length ? learnerTokens.map((token) => {
+                              const tokenStatus = normalizeEventAttendanceStatus(token.status);
+                              const tokenSaving = Boolean(attendanceSavingKeys[`learner:${token.attendanceKey}`]);
+                              return (
+                                <button
+                                  key={`event-room-token-${token.attendanceKey}`}
+                                  type="button"
+                                  title={
+                                    tokenStatus === "expected"
+                                      ? "Mark learner arrived"
+                                      : `Learner status: ${getEventAttendanceStatusLabel(tokenStatus)}`
+                                  }
+                                  onClick={() => {
+                                    if (tokenStatus === "expected") {
+                                      void handleLiveLearnerAttendanceAction(token, "arrived");
+                                      return;
+                                    }
+                                    setActiveEventAttendanceKey((current) => current === token.key ? "" : token.key);
+                                  }}
+                                  disabled={tokenSaving}
+                                  style={{
+                                    border: "1px solid rgba(125, 211, 252, 0.22)",
+                                    background: "rgba(15, 23, 42, 0.5)",
+                                    color: "#d6fff8",
+                                    borderRadius: "999px",
+                                    padding: "2px 7px 2px 3px",
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: "6px",
+                                    cursor: tokenSaving ? "progress" : "pointer",
+                                    fontSize: "10px",
+                                    fontWeight: 850,
+                                    opacity: tokenSaving ? 0.6 : 1,
+                                    boxShadow: activeEventAttendanceKey === token.key ? "0 0 16px rgba(34, 211, 238, 0.25)" : "none",
+                                  }}
+                                >
+                                  <EventAttendanceHologramAvatar
+                                    name={token.learnerName}
+                                    role="learner"
+                                    status={tokenStatus}
+                                    selected={activeEventAttendanceKey === token.key}
+                                    compact
+                                  />
+                                  <span style={{ maxWidth: "110px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{token.learnerName}</span>
+                                </button>
+                              );
+                            }) : (
+                              <span style={{ color: "rgba(226, 250, 247, 0.68)", fontSize: "11px", fontWeight: 800 }}>No learner assigned</span>
+                            )}
+                          </div>
+                          <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", alignItems: "center" }}>
+                            <span style={{ color: "rgba(186,230,253,0.72)", fontSize: "10px", fontWeight: 800 }}>
+                              {learnerTokens.length} learner{learnerTokens.length === 1 ? "" : "s"} in room
+                            </span>
+                            <span style={{ color: "rgba(125, 211, 252, 0.8)", fontSize: "9px", fontWeight: 800, letterSpacing: "0.06em" }}>
+                              ROOM POD
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {wallIndex === 0 && eventAttendanceSouthRooms.length ? (
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                      <span style={{ color: "rgba(226,250,247,0.65)", fontSize: "9px", fontWeight: 850, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                        Main corridor
+                      </span>
+                      <span style={{ height: "1px", flex: 1, background: "linear-gradient(90deg, rgba(126, 231, 219, 0.24), rgba(34, 211, 238, 0.4), rgba(126, 231, 219, 0.24))" }} />
+                    </div>
+                  ) : null}
                 </div>
-                <div style={{ display: "flex", gap: "6px", alignItems: "center", flexWrap: "wrap" }}>
-                  <span style={{ borderRadius: "999px", boxShadow: `0 0 0 2px ${spColors.ring}, 0 0 14px ${spColors.ring}55` }}>
-                    <RoundOperationAvatar name={room.spName || "SP TBD"} role="sp" />
-                  </span>
-                  <span style={{ color: "#ecfeff", fontSize: "10px", fontWeight: 900 }}>{room.spName || "SP TBD"}</span>
-                </div>
-                <div style={{ display: "flex", gap: "5px", flexWrap: "wrap" }}>
-                  {learnerTokens.length ? learnerTokens.map((token) => {
-                    const colors = getEventAttendanceStatusColors(token.status);
-                    const tokenStatus = normalizeEventAttendanceStatus(token.status);
-                    const tokenSaving = Boolean(attendanceSavingKeys[`learner:${token.attendanceKey}`]);
-                    return (
-                      <button
-                        key={`event-room-token-${token.attendanceKey}`}
-                        type="button"
-                        title={tokenStatus === "expected" ? "Click to mark arrived" : "Open learner actions"}
-                        onClick={() => {
-                          if (tokenStatus === "expected") {
-                            void handleLiveLearnerAttendanceAction(token, "arrived");
-                            return;
-                          }
-                          setActiveEventAttendanceKey((current) => current === token.key ? "" : token.key);
-                        }}
-                        disabled={tokenSaving}
-                        style={{ border: `1px solid ${colors.ring}66`, background: colors.bg, color: colors.text, borderRadius: "999px", padding: "3px 7px", display: "inline-flex", alignItems: "center", gap: "5px", cursor: tokenSaving ? "progress" : "pointer", fontSize: "10px", fontWeight: 850, opacity: tokenSaving ? 0.65 : 1 }}
-                      >
-                        <RoundOperationAvatar name={token.learnerName} role="student" />
-                        <span style={{ maxWidth: "112px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{token.learnerName}</span>
-                      </button>
-                    );
-                  }) : (
-                    <span style={{ color: "rgba(226, 250, 247, 0.68)", fontSize: "11px", fontWeight: 800 }}>No learner assigned</span>
-                  )}
-                </div>
-                <div style={{ color: "rgba(186,230,253,0.72)", fontSize: "10px", fontWeight: 800 }}>
-                  {learnerTokens.length} learner{learnerTokens.length === 1 ? "" : "s"} in room
-                </div>
-              </div>
-            );
-          })}
+              ))}
+          </div>
         </div>
       ) : (
         <div style={{ color: "rgba(226, 250, 247, 0.68)", fontSize: "12px", fontWeight: 800 }}>No room schedule is available yet.</div>
@@ -26586,7 +26837,7 @@ Cory`;
     </section>
 
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "10px", alignItems: "start" }}>
-      <section style={{ borderRadius: "14px", border: "1px solid rgba(126, 231, 219, 0.18)", background: "rgba(15, 23, 42, 0.46)", padding: "10px", display: "grid", gap: "8px", minHeight: 0 }}>
+      <section style={{ borderRadius: "14px", border: "1px solid rgba(126, 231, 219, 0.2)", background: "linear-gradient(135deg, rgba(9, 22, 36, 0.72), rgba(7, 38, 40, 0.62))", padding: "10px", display: "grid", gap: "8px", minHeight: 0 }}>
         <div style={{ ...statLabel, color: "rgba(186, 230, 253, 0.88)" }}>SP Check-In</div>
         <div style={{ display: "grid", gap: "7px", maxHeight: "320px", overflowY: "auto", paddingRight: "2px" }}>
           {visibleEventAttendanceSpTokens.length ? (
@@ -26610,9 +26861,12 @@ Cory`;
                       }}
                       style={{ all: "unset", cursor: tokenSaving ? "progress" : "pointer", display: "flex", gap: "8px", alignItems: "center", minWidth: 0, opacity: tokenSaving ? 0.7 : 1 }}
                     >
-                      <span style={{ borderRadius: "999px", boxShadow: `0 0 0 2px ${colors.ring}, 0 0 16px ${colors.ring}66` }}>
-                        <RoundOperationAvatar name={token.name} role="sp" />
-                      </span>
+                      <EventAttendanceHologramAvatar
+                        name={token.name}
+                        role="sp"
+                        status={tokenStatus}
+                        selected={isActive}
+                      />
                       <span style={{ display: "grid", gap: "2px", minWidth: 0 }}>
                         <span style={{ color: "#ecfeff", fontSize: "12px", fontWeight: 950, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{token.name}</span>
                         <span style={{ color: "rgba(226, 250, 247, 0.68)", fontSize: "10px", fontWeight: 800 }}>
@@ -26631,7 +26885,7 @@ Cory`;
                     </button>
                   </div>
                   {isActive ? (
-                    <div style={{ display: "flex", gap: "5px", flexWrap: "wrap", borderTop: "1px solid rgba(226,250,247,0.14)", paddingTop: "6px" }}>
+                    <div style={{ display: "flex", gap: "5px", flexWrap: "wrap", borderTop: "1px solid rgba(226,250,247,0.14)", paddingTop: "6px", background: "rgba(2, 16, 28, 0.35)", borderRadius: "8px", paddingInline: "4px", paddingBottom: "4px" }}>
                       {[
                         { label: "Arrived", action: "arrived" as const },
                         { label: "Late", action: "late" as const },
@@ -26668,7 +26922,7 @@ Cory`;
         </div>
       </section>
 
-      <section style={{ borderRadius: "14px", border: "1px solid rgba(126, 231, 219, 0.18)", background: "rgba(15, 23, 42, 0.46)", padding: "10px", display: "grid", gap: "8px", minHeight: 0 }}>
+      <section style={{ borderRadius: "14px", border: "1px solid rgba(126, 231, 219, 0.2)", background: "linear-gradient(135deg, rgba(9, 22, 36, 0.72), rgba(7, 38, 40, 0.62))", padding: "10px", display: "grid", gap: "8px", minHeight: 0 }}>
         <div style={{ ...statLabel, color: "rgba(186, 230, 253, 0.88)" }}>Student / Learner Arrival Rail</div>
         <div style={{ display: "grid", gap: "7px", maxHeight: "320px", overflowY: "auto", paddingRight: "2px" }}>
           {visibleEventAttendanceLearnerTokens.length ? (
@@ -26692,9 +26946,12 @@ Cory`;
                       }}
                       style={{ all: "unset", cursor: tokenSaving ? "progress" : "pointer", display: "flex", gap: "8px", alignItems: "center", minWidth: 0, opacity: tokenSaving ? 0.7 : 1 }}
                     >
-                      <span style={{ borderRadius: "999px", boxShadow: `0 0 0 2px ${colors.ring}, 0 0 16px ${colors.ring}66` }}>
-                        <RoundOperationAvatar name={token.learnerName} role="student" />
-                      </span>
+                      <EventAttendanceHologramAvatar
+                        name={token.learnerName}
+                        role="learner"
+                        status={tokenStatus}
+                        selected={isActive}
+                      />
                       <span style={{ display: "grid", gap: "2px", minWidth: 0 }}>
                         <span style={{ color: "#ecfeff", fontSize: "12px", fontWeight: 950, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{token.learnerName}</span>
                         <span style={{ color: "rgba(226, 250, 247, 0.68)", fontSize: "10px", fontWeight: 800 }}>
@@ -26713,7 +26970,7 @@ Cory`;
                     </button>
                   </div>
                   {isActive ? (
-                    <div style={{ display: "flex", gap: "5px", flexWrap: "wrap", borderTop: "1px solid rgba(226,250,247,0.14)", paddingTop: "6px" }}>
+                    <div style={{ display: "flex", gap: "5px", flexWrap: "wrap", borderTop: "1px solid rgba(226,250,247,0.14)", paddingTop: "6px", background: "rgba(2, 16, 28, 0.35)", borderRadius: "8px", paddingInline: "4px", paddingBottom: "4px" }}>
                       {[
                         { label: "Arrived", action: "arrived" as const },
                         { label: "Late", action: "late" as const },
