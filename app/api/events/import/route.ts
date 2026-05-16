@@ -1096,6 +1096,21 @@ function upsertImportSection(existingNotes: string | null, parsed: ParsedSheet, 
   return withoutSection ? `${withoutSection}\n\n${section}` : section;
 }
 
+function buildMasterScheduleOperationalNotes(parsed: ParsedSheet, scheduleSetName: string, fileName: string) {
+  const lines = [
+    asText(scheduleSetName) ? `Schedule Set: ${asText(scheduleSetName)}` : "",
+    asText(parsed.eventLeadTeam) ? `Event Lead/Team: ${asText(parsed.eventLeadTeam)}` : "",
+    asText(parsed.staffLine) ? `Sim Staff: ${asText(parsed.staffLine)}` : "",
+    asText(parsed.courseFaculty) ? `Course Faculty: ${asText(parsed.courseFaculty)}` : "",
+    asText(parsed.location) ? `Location / Rooms: ${asText(parsed.location)}` : "",
+    asText(parsed.eventTime) ? `Session Time: ${asText(parsed.eventTime)}` : "",
+    asText(parsed.caseText) ? `Master Schedule Notes:\n${asText(parsed.caseText)}` : "",
+    asText(fileName) ? `Imported From: ${asText(fileName)}` : "",
+  ].filter(Boolean);
+
+  return lines.join("\n");
+}
+
 function buildScheduleSetImportNote(baseNotes: string, scheduleSetName: string, importMode: string, fileName: string) {
   const cleanScheduleSetName = asText(scheduleSetName) || "Imported Schedule Set";
   const cleanImportMode = asText(importMode) || "match_existing";
@@ -1461,8 +1476,9 @@ export async function POST(request: Request) {
 
           if (importMode === "new_schedule_set") {
             const primaryDate = getPrimaryDate(item.parsed);
+            const operationalNotes = buildMasterScheduleOperationalNotes(item.parsed, scheduleSetName, file.name);
             const importNotes = buildScheduleSetImportNote(
-              upsertImportSection("", item.parsed, file.name),
+              [operationalNotes, upsertImportSection("", item.parsed, file.name)].filter(Boolean).join("\n\n"),
               scheduleSetName,
               importMode,
               file.name
@@ -1521,8 +1537,9 @@ export async function POST(request: Request) {
           }
 
           const matchedEvent = item.match.event;
+          const operationalNotes = buildMasterScheduleOperationalNotes(item.parsed, scheduleSetName, file.name);
           const nextNotes = buildScheduleSetImportNote(
-            upsertImportSection(matchedEvent.notes, item.parsed, file.name),
+            [asText(matchedEvent.notes), operationalNotes, upsertImportSection("", item.parsed, file.name)].filter(Boolean).join("\n\n"),
             scheduleSetName,
             importMode,
             file.name
