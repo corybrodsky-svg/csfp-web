@@ -11214,6 +11214,115 @@ Cory`;
   const locationAccessPrimaryLabel = locationAccessIsVirtual
     ? trainingAccessUrl || virtualAccessRawUrl || "Zoom link pending"
     : physicalLocationValue || "Location pending";
+  const reviewSummaryRoomNames = useMemo(() => {
+    const scheduledNames = rotationRounds
+      .flatMap((round) => (roomSlotEntriesByRoundKey.get(round.key) || []).map((entry) => asText(entry.roomName)))
+      .filter(Boolean);
+    const selectedNames = selectedRoundScheduleRows.map((row) => asText(row.roomName)).filter(Boolean);
+    return Array.from(new Set(scheduledNames.length ? scheduledNames : selectedNames));
+  }, [roomSlotEntriesByRoundKey, rotationRounds, selectedRoundScheduleRows]);
+  const reviewSummaryGeneratedRoomSlotCount = useMemo(() => {
+    const completedSlotCount =
+      scheduleBuilderPreviewDraft?.resolvedRounds?.reduce((total, round) => total + round.roomSlots.length, 0) || 0;
+    if (completedSlotCount > 0) return completedSlotCount;
+
+    const generatedSlotCount = rotationRounds.reduce(
+      (total, round) => total + (roomSlotEntriesByRoundKey.get(round.key)?.length || effectiveRoomCount || 0),
+      0
+    );
+    if (generatedSlotCount > 0) return generatedSlotCount;
+
+    return activeRotationCount > 0 && effectiveRoomCount > 0 ? activeRotationCount * effectiveRoomCount : 0;
+  }, [activeRotationCount, effectiveRoomCount, roomSlotEntriesByRoundKey, rotationRounds, scheduleBuilderPreviewDraft?.resolvedRounds]);
+  const reviewSummaryPrebriefMinutes = Math.max(
+    parsePositiveInteger(scheduleBuilderPreviewDraft?.studentPrebriefMinutes, 0),
+    parsePositiveInteger(scheduleBuilderPreviewDraft?.spPrebriefMinutes, 0),
+    parsePositiveInteger(scheduleBuilderPreviewDraft?.facultyPrebriefMinutes, 0)
+  );
+  const reviewSummaryPrebriefRequired =
+    reviewSummaryPrebriefMinutes > 0 ||
+    Boolean(
+      scheduleBuilderPreviewDraft?.dayBlocks?.some((block) =>
+        /pre[\s-]?brief|orientation|briefing/i.test(`${block.type} ${block.label}`)
+      )
+    );
+  const reviewSummaryFinalRoundEmptySlots = useMemo(() => {
+    const finalRound = activeDateRotationRounds[activeDateRotationRounds.length - 1] || rotationRounds[rotationRounds.length - 1] || null;
+    if (!finalRound) return null;
+
+    const persistedRound = persistedResolvedRoundsByKey.get(finalRound.key);
+    if (persistedRound) {
+      return persistedRound.roomSlots.filter((slot) => normalizeTextArray(slot.learnerLabels).length === 0).length;
+    }
+
+    const finalRoundEntries = roomSlotEntriesByRoundKey.get(finalRound.key) || [];
+    if (!finalRoundEntries.length) return null;
+
+    const finalRoundIndex = Math.max(rotationRounds.findIndex((round) => round.key === finalRound.key), 0);
+    return finalRoundEntries.reduce((total, _entry, slotIndex) => {
+      const learnerLabels = getResolvedRoundLearnerLabels({
+        learnerRoster: scheduleBuilderLearnerNames,
+        roomCapacity: scheduleBuilderRoomCapacity,
+        roundIndex: finalRoundIndex,
+        slotIndex,
+        roomSlotCount: Math.max(finalRoundEntries.length, 1),
+        activeCaseCount: resolvedScheduleMatrixCaseCount,
+        isMultiCaseMode: resolvedScheduleMatrixCaseCount > 1,
+        isVirtualEvent: isScheduleMatrixVirtual,
+      });
+      return total + (learnerLabels.length ? 0 : 1);
+    }, 0);
+  }, [
+    activeDateRotationRounds,
+    isScheduleMatrixVirtual,
+    persistedResolvedRoundsByKey,
+    resolvedScheduleMatrixCaseCount,
+    roomSlotEntriesByRoundKey,
+    rotationRounds,
+    scheduleBuilderLearnerNames,
+    scheduleBuilderRoomCapacity,
+  ]);
+  const reviewSummaryCaseCount = Math.max(
+    resolvedScheduleMatrixCaseCount,
+    caseFileEntries.length,
+    parsePositiveInteger(trainingMetadata.case_count, 0),
+    1
+  );
+  const reviewSummaryRows = [
+    { label: "Event", value: asText(event?.name) || "Untitled Event" },
+    { label: "Type", value: eventIdentityChips.length ? eventIdentityChips.join(", ") : selectedModalityLabel || "Not set" },
+    { label: "Location", value: locationAccessPrimaryLabel || "Not set" },
+    { label: "Sim Lead", value: trainingMetadata.sim_contact || "Not set" },
+    { label: "Sim Staff", value: simStaffNames.length ? simStaffNames.join(", ") : trainingSimContact || "Not set" },
+    { label: "Course Faculty", value: trainingFacultyText || "Not set" },
+    { label: "Student Count", value: effectiveLearnerCount > 0 ? String(effectiveLearnerCount) : "Not set" },
+    { label: "Rooms", value: operationalRoomCount > 0 ? String(operationalRoomCount) : "Not set" },
+    {
+      label: "Rotations Needed",
+      value: scheduleBuilderAutoRoundCount > 0
+        ? String(scheduleBuilderAutoRoundCount)
+        : metadataRotationRoundsNeeded > 0
+          ? String(metadataRotationRoundsNeeded)
+          : activeRotationCount > 0
+            ? String(activeRotationCount)
+            : "TBD",
+    },
+    { label: "Generated Rotations", value: operationalRoundCount > 0 ? String(operationalRoundCount) : "TBD" },
+    { label: "Generated Room Slots", value: reviewSummaryGeneratedRoomSlotCount > 0 ? String(reviewSummaryGeneratedRoomSlotCount) : "TBD" },
+    { label: "Pre-briefing Required", value: reviewSummaryPrebriefRequired ? "Yes" : "No" },
+    {
+      label: "Empty Room Slots In Final Round",
+      value: reviewSummaryFinalRoundEmptySlots === null ? "TBD" : String(reviewSummaryFinalRoundEmptySlots),
+    },
+    { label: "SPs Needed", value: needed > 0 ? String(needed) : "No SPs required" },
+    { label: "SP Training", value: getTrainingRequirementLabel(trainingRequirementValue) },
+    { label: "Room Names", value: reviewSummaryRoomNames.length ? reviewSummaryRoomNames.join(", ") : "Not set" },
+    { label: "Number of Cases", value: String(reviewSummaryCaseCount) },
+    {
+      label: "Backups Required",
+      value: backupCount > 0 ? `Yes - ${backupCount} selected` : needed > 0 ? "Not set" : "No",
+    },
+  ];
   useEffect(() => {
     setVirtualAccessDraftUrl(virtualAccessRawUrl);
   }, [virtualAccessRawUrl]);
@@ -24060,7 +24169,7 @@ Cory`;
                         <div style={{ display: "grid", gap: "6px" }}>
                           <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>
                             {roundCompanionView === "overview"
-                              ? "Central Overview"
+                              ? "Review Summary"
                               : roundCompanionView === "coverage"
                               ? "Coverage"
                               : roundCompanionView === "learner"
@@ -24083,7 +24192,7 @@ Cory`;
                               : roundCompanionView === "sp"
                                 ? "SP-facing rooms, staffing, and attached support blocks for this rotation."
                                 : roundCompanionView === "overview"
-                                ? "At-a-glance command summary for the selected round."
+                                ? "Event setup, schedule, staffing, room, and training assumptions for the active operational plan."
                                 : roundCompanionView === "coverage"
                                 ? "Room-by-room SP coverage status for the selected round."
                                 : roundCompanionView === "learner"
@@ -24096,7 +24205,7 @@ Cory`;
 
                         <div style={{ display: "grid", gap: "6px" }}>
                           <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>
-                            {roundCompanionView === "announcements"
+                          {roundCompanionView === "announcements"
                               ? "Announcement Timeline"
                               : roundCompanionView === "student"
                                 ? "Learner Blocks"
@@ -24104,65 +24213,105 @@ Cory`;
                                   ? "SP Assignments"
                                   : roundCompanionView === "attendance"
                                     ? "Event Attendance Board"
+                                  : roundCompanionView === "overview"
+                                    ? "Event Review Summary"
                                   : "Round Operations"}
                           </div>
                           {roundCompanionView === "overview" ? (
-  <div
-    style={{
-      display: "grid",
-      gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-      gap: "10px",
-    }}
-  >
-    {[
-      {
-        label: "Learners",
-        value: effectiveLearnerCount || 0,
-      },
-      {
-        label: "Rooms",
-        value: selectedRoundRoomCount,
-      },
-      {
-        label: "Coverage",
-        value: `${selectedRoundAssignedLearnerCount}/${selectedRoundRoomCount}`,
-      },
-      {
-        label: "Support Alerts",
-        value: selectedRoundOperationsFlags.length,
-      },
-    ].map((item) => (
-      <div
-        key={item.label}
-        style={{
-          borderRadius: "14px",
-          border: commandCenterVisual.rowBorder,
-          background: commandCenterVisual.rowBackground,
-          padding: "14px",
-          display: "grid",
-          gap: "6px",
-        }}
-      >
-        <div
+  <div style={{ display: "grid", gap: "12px" }}>
+    <section
+      style={{
+        borderRadius: "18px",
+        border: commandCenterVisual.rowBorder,
+        background: isPlanningVisualMode
+          ? "linear-gradient(135deg, rgba(255,255,255,0.88), rgba(232,246,250,0.68))"
+          : "linear-gradient(135deg, rgba(15, 23, 42, 0.74), rgba(8, 47, 73, 0.42))",
+        padding: "13px 14px",
+        display: "grid",
+        gap: "10px",
+      }}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "start", flexWrap: "wrap" }}>
+        <div>
+          <div style={{ color: commandCenterVisual.headingColor, fontWeight: 950, fontSize: "16px" }}>
+            Event Review Summary
+          </div>
+          <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 750, lineHeight: 1.45 }}>
+            Structured setup snapshot pulled into Central Operations so the command board starts with the same review truth as Event Setup.
+          </div>
+        </div>
+        <span
           style={{
-            ...statLabel,
-            color: commandCenterVisual.mutedColor,
+            ...commandChipStyle,
+            background: scheduleCompleted ? commandCenterVisual.activeSoftBackground : commandCenterVisual.chipBackground,
+            color: scheduleCompleted ? commandCenterVisual.activeSoftText : commandCenterVisual.chipText,
+            border: commandCenterVisual.rowBorder,
           }}
         >
-          {item.label}
-        </div>
-
-        <div
-          style={{
-            color: commandCenterVisual.headingColor,
-            fontSize: "1.7rem",
-            fontWeight: 900,
-          }}
-        >
-          {item.value}
-        </div>
+          {scheduleStatusLabel}
+        </span>
       </div>
-    ))}
+
+      <div style={{ display: "flex", gap: "7px", flexWrap: "wrap" }}>
+        {[
+          { label: "Learners", value: operationalLearnerCountLabel },
+          { label: "Rooms", value: operationalRoomCount > 0 ? String(operationalRoomCount) : "TBD" },
+          { label: "Coverage", value: needed > 0 ? `${confirmedCount}/${needed}` : `${confirmedCount}` },
+          { label: "Support Alerts", value: String(selectedRoundOperationsFlags.length) },
+        ].map((item) => (
+          <span
+            key={`review-summary-chip-${item.label}`}
+            style={{
+              ...commandChipStyle,
+              border: commandCenterVisual.rowBorder,
+              background: commandCenterVisual.chipBackground,
+              color: commandCenterVisual.chipText,
+              padding: "6px 9px",
+            }}
+          >
+            {item.label}: {item.value}
+          </span>
+        ))}
+      </div>
+    </section>
+
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+        gap: "8px",
+      }}
+    >
+      {reviewSummaryRows.map((item) => (
+        <div
+          key={`review-summary-${item.label}`}
+          style={{
+            borderRadius: "13px",
+            border: commandCenterVisual.rowBorder,
+            background: commandCenterVisual.rowBackground,
+            padding: "10px 12px",
+            display: "grid",
+            gap: "4px",
+            minWidth: 0,
+          }}
+        >
+          <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>
+            {item.label}
+          </div>
+          <div
+            style={{
+              color: commandCenterVisual.textColor,
+              fontSize: "13px",
+              fontWeight: 850,
+              lineHeight: 1.35,
+              overflowWrap: "anywhere",
+            }}
+          >
+            {item.value}
+          </div>
+        </div>
+      ))}
+    </div>
   </div>
 ) : roundCompanionView === "coverage" ? (
   <div style={{ display: "grid", gap: "6px" }}>
