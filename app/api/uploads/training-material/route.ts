@@ -1,8 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
-import mammoth from "mammoth";
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import sanitizeHtml from "sanitize-html";
 import {
   AUTH_ACCESS_COOKIE,
   AUTH_REFRESH_COOKIE,
@@ -349,6 +347,8 @@ function getContentTypeFromPath(path: string, fallback: string) {
   if (lower.endsWith(".docx")) return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
   if (lower.endsWith(".xls")) return "application/vnd.ms-excel";
   if (lower.endsWith(".xlsx")) return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+  if (lower.endsWith(".ppt")) return "application/vnd.ms-powerpoint";
+  if (lower.endsWith(".pptx")) return "application/vnd.openxmlformats-officedocument.presentationml.presentation";
   if (lower.endsWith(".txt")) return "text/plain; charset=utf-8";
   if (lower.endsWith(".csv")) return "text/csv; charset=utf-8";
   if (lower.endsWith(".json")) return "application/json; charset=utf-8";
@@ -365,126 +365,8 @@ function getFileExtension(path: string, filename: string) {
   return match?.[1] || "";
 }
 
-function buildDocxPreviewHtml(args: {
-  title: string;
-  bodyHtml: string;
-  messages: string[];
-}) {
-  const safeTitle = sanitizeHtml(args.title || "DOCX Preview", { allowedTags: [], allowedAttributes: {} });
-  const safeBody = sanitizeHtml(args.bodyHtml, {
-    allowedTags: [
-      "a",
-      "b",
-      "blockquote",
-      "br",
-      "caption",
-      "code",
-      "em",
-      "h1",
-      "h2",
-      "h3",
-      "h4",
-      "h5",
-      "h6",
-      "i",
-      "li",
-      "ol",
-      "p",
-      "pre",
-      "s",
-      "span",
-      "strong",
-      "sub",
-      "sup",
-      "table",
-      "tbody",
-      "td",
-      "tfoot",
-      "th",
-      "thead",
-      "tr",
-      "u",
-      "ul",
-    ],
-    allowedAttributes: {
-      a: ["href", "name", "target", "rel"],
-      td: ["colspan", "rowspan"],
-      th: ["colspan", "rowspan"],
-    },
-    allowedSchemes: ["http", "https", "mailto", "tel"],
-    transformTags: {
-      a: sanitizeHtml.simpleTransform("a", {
-        target: "_blank",
-        rel: "noreferrer",
-      }),
-    },
-  });
-  const safeMessages = args.messages
-    .map((message) => sanitizeHtml(message, { allowedTags: [], allowedAttributes: {} }))
-    .filter(Boolean);
-
-  return `<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data: https:; base-uri 'none'; form-action 'none'" />
-    <title>${safeTitle}</title>
-    <style>
-      :root { color-scheme: light; }
-      body {
-        margin: 0;
-        background: #f8fbfd;
-        color: #102a43;
-        font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        line-height: 1.58;
-      }
-      .cfsp-docx-preview {
-        box-sizing: border-box;
-        max-width: 860px;
-        margin: 0 auto;
-        padding: 32px;
-        background: #ffffff;
-        min-height: 100vh;
-        box-shadow: 0 18px 44px rgba(21, 48, 72, 0.08);
-      }
-      h1, h2, h3, h4, h5, h6 { color: #0f2740; line-height: 1.2; margin: 1.2em 0 0.45em; }
-      p { margin: 0 0 0.9em; }
-      ul, ol { margin: 0 0 1em 1.35em; padding: 0; }
-      li { margin: 0.25em 0; }
-      table { border-collapse: collapse; width: 100%; margin: 1em 0; font-size: 0.95rem; }
-      th, td { border: 1px solid #d6e2ea; padding: 8px 10px; vertical-align: top; }
-      th { background: #eef7fa; color: #14324a; font-weight: 800; }
-      blockquote { margin: 1em 0; padding: 0.8em 1em; border-left: 4px solid #2cb8ad; background: #effafa; color: #26485e; }
-      code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-      pre { white-space: pre-wrap; background: #eef3f7; padding: 12px; border-radius: 8px; overflow: auto; }
-      a { color: #087f8c; font-weight: 700; }
-      .cfsp-docx-warning {
-        margin-top: 24px;
-        border: 1px solid #f3d38b;
-        background: #fff8e6;
-        color: #7a4b10;
-        border-radius: 12px;
-        padding: 12px 14px;
-        font-size: 0.88rem;
-        font-weight: 700;
-      }
-      @media (max-width: 700px) {
-        .cfsp-docx-preview { padding: 20px; }
-      }
-    </style>
-  </head>
-  <body>
-    <main class="cfsp-docx-preview">
-      ${safeBody || "<p>This DOCX file did not contain readable preview text.</p>"}
-      ${
-        safeMessages.length
-          ? `<section class="cfsp-docx-warning">Preview notes: ${safeMessages.join(" ")}</section>`
-          : ""
-      }
-    </main>
-  </body>
-</html>`;
+function isUnsupportedInlinePreviewExtension(extension: string) {
+  return ["csv", "doc", "docx", "xls", "xlsx", "ppt", "pptx"].includes(extension.toLowerCase());
 }
 
 export async function GET(request: Request) {
@@ -540,27 +422,20 @@ export async function GET(request: Request) {
     const arrayBuffer = await file.arrayBuffer();
     const contentType = getContentTypeFromPath(path, file.type || "application/octet-stream");
 
-    if (mode === "preview" && getFileExtension(path, filename) === "docx") {
-      const converted = await mammoth.convertToHtml({
-        buffer: Buffer.from(arrayBuffer),
-      });
-      const html = buildDocxPreviewHtml({
-        title: buildDownloadName(path, filename),
-        bodyHtml: converted.value,
-        messages: converted.messages.map((message) => message.message),
-      });
-      const response = new NextResponse(html, {
-        status: 200,
-        headers: {
-          "Content-Type": "text/html; charset=utf-8",
-          "Content-Disposition": `inline; filename="${buildDownloadName(path, filename).replace(/\.docx$/i, ".html")}"`,
-          "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; img-src data: https:; base-uri 'none'; form-action 'none'",
-          "Cache-Control": "private, no-store, max-age=0",
-          "X-Content-Type-Options": "nosniff",
-        },
-      });
-
-      return applyAuthCookies(response, viewer);
+    if (mode === "preview" && isUnsupportedInlinePreviewExtension(getFileExtension(path, filename))) {
+      return applyAuthCookies(
+        NextResponse.json(
+          { error: "Preview is not available for this file type. Download to view." },
+          {
+            status: 415,
+            headers: {
+              "Cache-Control": "private, no-store, max-age=0",
+              "X-Content-Type-Options": "nosniff",
+            },
+          }
+        ),
+        viewer
+      );
     }
 
     const dispositionType = mode === "download" ? "attachment" : "inline";

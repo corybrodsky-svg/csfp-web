@@ -1937,9 +1937,8 @@ function getMaterialPreviewKind(fileName: string, ...sources: string[]): Materia
   ).toLowerCase();
   if (extension === "pdf") return "pdf";
   if (["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp"].includes(extension)) return "image";
-  if (["txt", "csv", "log", "json"].includes(extension)) return "text";
-  if (extension === "docx") return "html";
-  if (["doc", "xls", "xlsx"].includes(extension)) return "unsupported";
+  if (["txt", "log", "json"].includes(extension)) return "text";
+  if (["csv", "doc", "docx", "xls", "xlsx", "ppt", "pptx"].includes(extension)) return "unsupported";
   return "iframe";
 }
 
@@ -13892,6 +13891,7 @@ Cory`;
       fileName,
     });
     const previewKind = getMaterialPreviewKind(assetUrls.fileName, safeUrl, storagePath, assetUrls.previewUrl);
+    const isUnsupportedPreview = previewKind === "unsupported";
     setMaterialPreviewLoading(previewKind !== "unsupported");
     setMaterialPreviewError("");
     setMaterialOpenInNewTabError("");
@@ -13901,7 +13901,7 @@ Cory`;
       title: args.title,
       previewUrl: assetUrls.previewUrl,
       downloadUrl: assetUrls.downloadUrl,
-      openInNewTabUrl: assetUrls.openInNewTabUrl,
+      openInNewTabUrl: isUnsupportedPreview ? assetUrls.downloadUrl : assetUrls.openInNewTabUrl,
       fileName: assetUrls.fileName,
       kind: previewKind,
     });
@@ -27046,9 +27046,6 @@ Cory`;
                                   ready: learnerRosterDocumentReady,
                                   actions: (
                                     <>
-                                      <button type="button" onClick={() => handleOpenEventScheduleRouteInNewTab("student", "schedule")} style={{ ...buttonStyle, padding: "4px 7px", fontSize: "10px" }}>
-                                        Open Student Schedule
-                                      </button>
                                       {canEditSchedule ? (
                                         <Link href={expandedScheduleBuilderHref} style={{ ...staffingSecondaryButtonStyle, padding: "4px 7px", fontSize: "10px", textDecoration: "none", display: "inline-flex", alignItems: "center" }}>
                                           Edit Roster / Schedule
@@ -27296,7 +27293,7 @@ Cory`;
                                           {scheduleCompleted || scheduleInProgress ? "Edit Schedule" : "Add Schedule"}
                                         </Link>
                                       ) : null}
-                                      {scheduleSummaryActions.map((action) =>
+                                      {scheduleSummaryActions.filter((action) => action.label === "Review Related Matches").map((action) =>
                                         action.href ? (
                                           <Link key={`central-file-schedule-action-${action.label}`} href={action.href} style={{ ...staffingSecondaryButtonStyle, padding: "4px 7px", fontSize: "10px", textDecoration: "none", display: "inline-flex", alignItems: "center" }}>
                                             {action.label}
@@ -28283,7 +28280,7 @@ Cory`;
                     const materialCaseEntries = material.kind === "case_file" ? caseFileEntries : [];
                     const materialHasFile = material.kind === "case_file"
                       ? materialCaseEntries.some((entry) => Boolean(entry.url || entry.storagePath))
-                      : Boolean(fileUrl);
+                      : Boolean(fileUrl || storagePath);
                     const moduleStatusClass = materialHasFile
                       ? "cfsp-file-cabinet-legacy-module-ready"
                       : "cfsp-file-cabinet-legacy-module-missing";
@@ -28294,7 +28291,7 @@ Cory`;
                           : materialCaseEntries.length
                             ? `${materialCaseEntries.length} case${materialCaseEntries.length === 1 ? "" : "s"} named · upload needed`
                           : "No cases uploaded"
-                        : fileName || getFilenameFromUrl(fileUrl) || "No document attached";
+                        : fileName || getFilenameFromUrl(fileUrl) || getFilenameFromUrl(storagePath) || "No document attached";
 
                     return (
                       <div
@@ -28410,13 +28407,13 @@ Cory`;
                                     fileName: displayName,
                                   })
                                 }
-                                disabled={!fileUrl}
+                                disabled={!fileUrl && !storagePath}
                                 className="cfsp-file-cabinet-legacy-button"
-                                style={{ padding: "8px 12px", opacity: fileUrl ? 1 : 0.55 }}
+                                style={{ padding: "8px 12px", opacity: fileUrl || storagePath ? 1 : 0.55 }}
                               >
                                 Preview
                               </button>
-                              {fileUrl ? (
+                              {fileUrl || storagePath ? (
                                 (() => {
                                   const assetUrls = buildTrainingMaterialAssetUrls({
                                     eventId: id,
@@ -28460,7 +28457,7 @@ Cory`;
                               ? uploadedCaseFileCount
                                 ? "Add Another Case"
                                 : "Upload Case"
-                              : fileUrl
+                              : fileUrl || storagePath
                                 ? "Replace"
                                 : "Add"}
                           </button>
@@ -32132,18 +32129,20 @@ Cory`;
                 </div>
               </div>
               <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                <button
-                  type="button"
-                  onClick={handleOpenMaterialInNewTab}
-                  style={{
-                    ...buttonStyle,
-                    display: "inline-flex",
-                    alignItems: "center",
-                    padding: "8px 12px",
-                  }}
-                >
-                  Open in New Tab
-                </button>
+                {materialPreview.kind !== "unsupported" ? (
+                  <button
+                    type="button"
+                    onClick={handleOpenMaterialInNewTab}
+                    style={{
+                      ...buttonStyle,
+                      display: "inline-flex",
+                      alignItems: "center",
+                      padding: "8px 12px",
+                    }}
+                  >
+                    Open in New Tab
+                  </button>
+                ) : null}
                 {materialPreview.downloadUrl ? (
                   <a
                     href={materialPreview.downloadUrl}
@@ -32216,11 +32215,9 @@ Cory`;
                     color: "#12314b",
                   }}
                 >
-                  <div style={{ fontSize: "18px", fontWeight: 900 }}>Preview unavailable for this file type</div>
+                  <div style={{ fontSize: "18px", fontWeight: 900 }}>Preview is not available for this file type.</div>
                   <div style={{ fontSize: "14px", fontWeight: 700, color: "#50667c", lineHeight: 1.6 }}>
-                    {getFileExtension(materialPreview.fileName) === "doc"
-                      ? "Please open or download this file."
-                      : "Please use Open in New Tab or Download for this file."}
+                    Download to view.
                   </div>
                 </div>
               ) : null}
