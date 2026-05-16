@@ -17584,7 +17584,7 @@ Cory`;
                       style={{
                         borderTop: "1px solid rgba(126, 231, 219, 0.14)",
                         paddingTop: "10px",
-                        display: "grid",
+                        display: "none",
                         gap: "6px",
                       }}
                     >
@@ -18007,7 +18007,7 @@ Cory`;
                         border: "1px solid rgba(126, 231, 219, 0.2)",
                         background: livePanelCardBackground,
                         padding: "10px 12px",
-                        display: "grid",
+                        display: "none",
                         gap: "4px",
                       }}
                     >
@@ -24541,74 +24541,142 @@ Cory`;
                       <div
                         style={{
                           display: "grid",
-                          gridTemplateColumns: "repeat(auto-fit, minmax(118px, 1fr))",
-                          gap: "7px",
-                          borderRadius: "16px",
-                          border: isPlanningVisualMode ? "1px solid rgba(20, 91, 150, 0.18)" : "1px solid rgba(126, 231, 219, 0.22)",
+                          gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))",
+                          gap: "8px",
+                          borderRadius: "18px",
+                          border: isPlanningVisualMode ? "1px solid rgba(20, 91, 150, 0.2)" : "1px solid rgba(126, 231, 219, 0.24)",
                           background: isPlanningVisualMode
                             ? "linear-gradient(135deg, rgba(255,255,255,0.78), rgba(232,246,250,0.5))"
                             : "linear-gradient(135deg, rgba(5,18,31,0.72), rgba(10,39,49,0.52))",
-                          padding: "7px",
+                          padding: "9px",
                         }}
                       >
                         {[
-                          { value: "overview", label: "Overview" },
-                          { value: "coverage", label: "Coverage" },
-                          { value: "learner", label: "Learner Flow" },
-                          { value: "live", label: "Live" },
-                          { value: "attendance", label: "Event Attendance" },
-                          { value: "announcements", label: "Announcements" },
-                          { value: "student", label: "Student Schedule" },
-                          { value: "sp", label: "SP Schedule" },
-                          { value: "operations", label: "Operations" },
-                        ].map((view) => (
-                          <button
-                            key={view.value}
-                            type="button"
-                            onClick={() => {
-                              setSelectedCommandTool("primary");
-                              setRoundCompanionView(view.value as RotationCompanionView);
-                              queueCommandContentScroll();
-                            }}
+                          {
+                            group: "Core Command",
+                            tools: [
+                              { kind: "view", value: "overview", label: "Overview", status: "Round snapshot" },
+                              { kind: "view", value: "operations", label: "Operations", status: "Room controls" },
+                            ],
+                          },
+                          {
+                            group: "Staffing & People",
+                            tools: [
+                              { kind: "primary", value: "spFinder", label: "SP Finder", status: `${confirmedCount} confirmed` },
+                              { kind: "tool", value: "staffing", label: "Staffing", status: staffingCoverageMet ? "Ready" : "Needs scan" },
+                              { kind: "view", value: "attendance", label: "Event Attendance", status: "Live check-in" },
+                              { kind: "view", value: "learner", label: "Learner Flow", status: `${selectedRoundAssignedLearnerCount} learners` },
+                            ],
+                          },
+                          {
+                            group: "Schedule & Rooms",
+                            tools: [
+                              { kind: "primary", value: "scheduleBuilder", label: "Schedule Builder", status: scheduleStatusLabel },
+                              { kind: "view", value: "coverage", label: "Coverage", status: staffingCoverageMet ? "Covered" : "Needs primary" },
+                              { kind: "view", value: "live", label: "Live", status: selectedRoundLiveTimingState.label },
+                            ],
+                          },
+                          {
+                            group: "Communications & Prep",
+                            tools: [
+                              { kind: "tool", value: "communication", label: "Communication", status: outreachProgressLabel },
+                              { kind: "view", value: "announcements", label: "Announcements", status: `${selectedRoundAnnouncementTimeline.length} cues` },
+                              { kind: "tool", value: "training", label: "Training", status: normalEventTrainingStatusLabel },
+                              { kind: "tool", value: "faculty", label: "Faculty", status: facultyPanelStatusLabel },
+                            ],
+                          },
+                          {
+                            group: "Files & Admin",
+                            tools: [
+                              { kind: "tool", value: "fileCabinet", label: "File Cabinet", status: commandFileCabinetSummaryLabel },
+                              { kind: "tool", value: "qa", label: "QA Board", status: workflowBoardStatusLabel },
+                              { kind: "advanced", value: "advanced", label: "Advanced Settings", status: "Settings" },
+                            ],
+                          },
+                        ].map((group) => (
+                          <section
+                            key={`command-grid-group-${group.group}`}
                             style={{
-                              ...buttonStyle,
-                              minHeight: "46px",
-                              padding: "9px 10px",
-                              borderRadius: "12px",
-                              display: "inline-flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              textAlign: "center",
-                              fontSize: "11px",
-                              fontWeight: 950,
-                              letterSpacing: "0.01em",
-                              background: roundCompanionView === view.value
-                                ? isPlanningVisualMode
-                                  ? "linear-gradient(135deg, rgba(209,250,229,0.68), rgba(232,244,255,0.88))"
-                                  : "linear-gradient(135deg, rgba(20,91,150,0.32), rgba(25,138,112,0.24))"
-                                : isPlanningVisualMode
-                                  ? "rgba(255,255,255,0.78)"
-                                  : "rgba(15,23,42,0.56)",
-                              color: roundCompanionView === view.value
-                                ? isPlanningVisualMode
-                                  ? "#145b96"
-                                  : "#d6f6f2"
-                                : commandCenterVisual.textColor,
-                              border:
-                                roundCompanionView === view.value
-                                  ? isPlanningVisualMode
-                                    ? "1px solid rgba(20, 91, 150, 0.28)"
-                                    : "1px solid rgba(126, 231, 219, 0.34)"
-                                  : isPlanningVisualMode
-                                    ? "1px solid rgba(128, 167, 182, 0.18)"
-                                    : "1px solid rgba(148, 163, 184, 0.16)",
-                              boxShadow: roundCompanionView === view.value && selectedCommandTool === "primary"
-                                ? isPlanningVisualMode ? "0 0 0 1px rgba(25, 138, 112, 0.08), 0 10px 22px rgba(25, 138, 112, 0.14)" : "0 0 22px rgba(126, 231, 219, 0.18)"
-                                : "none",
+                              borderRadius: "14px",
+                              border: isPlanningVisualMode ? "1px solid rgba(128, 167, 182, 0.16)" : "1px solid rgba(148, 163, 184, 0.14)",
+                              background: isPlanningVisualMode ? "rgba(255,255,255,0.58)" : "rgba(15,23,42,0.38)",
+                              padding: "8px",
+                              display: "grid",
+                              gap: "7px",
                             }}
                           >
-                            {view.label}
-                          </button>
+                            <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>{group.group}</div>
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "6px" }}>
+                              {group.tools.map((tool) => {
+                                const selected =
+                                  tool.kind === "view"
+                                    ? selectedCommandTool === "primary" && roundCompanionView === tool.value
+                                    : tool.kind === "primary"
+                                      ? primaryEventTool === tool.value
+                                      : tool.kind === "advanced"
+                                        ? false
+                                        : selectedCommandTool === tool.value;
+                                return (
+                                  <button
+                                    key={`command-grid-tool-${tool.kind}-${tool.value}`}
+                                    type="button"
+                                    onClick={() => {
+                                      if (tool.kind === "advanced") {
+                                        router.push(`/settings?eventId=${encodeURIComponent(id)}`);
+                                        return;
+                                      }
+                                      if (tool.kind === "primary") {
+                                        setPrimaryEventTool(tool.value as PrimaryEventTool);
+                                        queueCommandContentScroll();
+                                        return;
+                                      }
+                                      setPrimaryEventTool("commandCenter");
+                                      if (tool.kind === "view") {
+                                        setSelectedCommandTool("primary");
+                                        setRoundCompanionView(tool.value as RotationCompanionView);
+                                      } else {
+                                        setSelectedCommandTool(tool.value as SelectedCommandTool);
+                                      }
+                                      queueCommandContentScroll();
+                                    }}
+                                    aria-pressed={selected}
+                                    style={{
+                                      ...buttonStyle,
+                                      minHeight: "58px",
+                                      padding: "8px 9px",
+                                      borderRadius: "12px",
+                                      display: "grid",
+                                      gap: "3px",
+                                      alignContent: "center",
+                                      justifyItems: "center",
+                                      textAlign: "center",
+                                      background: selected
+                                        ? isPlanningVisualMode
+                                          ? "linear-gradient(135deg, rgba(209,250,229,0.72), rgba(232,244,255,0.94))"
+                                          : "linear-gradient(135deg, rgba(20,91,150,0.34), rgba(25,138,112,0.26))"
+                                        : isPlanningVisualMode
+                                          ? "linear-gradient(135deg, rgba(255,255,255,0.78), rgba(232,246,250,0.42))"
+                                          : "linear-gradient(135deg, rgba(15,23,42,0.58), rgba(8,31,47,0.42))",
+                                      color: selected
+                                        ? isPlanningVisualMode ? "#145b96" : "#d6f6f2"
+                                        : commandCenterVisual.textColor,
+                                      border: selected
+                                        ? isPlanningVisualMode ? "1px solid rgba(20, 91, 150, 0.32)" : "1px solid rgba(126, 231, 219, 0.38)"
+                                        : isPlanningVisualMode ? "1px solid rgba(128, 167, 182, 0.18)" : "1px solid rgba(148, 163, 184, 0.16)",
+                                      boxShadow: selected
+                                        ? isPlanningVisualMode ? "0 0 0 1px rgba(25, 138, 112, 0.08), 0 10px 22px rgba(25, 138, 112, 0.14)" : "0 0 22px rgba(126, 231, 219, 0.18)"
+                                        : "none",
+                                    }}
+                                  >
+                                    <span style={{ fontSize: "11px", fontWeight: 950, lineHeight: 1.12 }}>{tool.label}</span>
+                                    <span style={{ color: selected ? "inherit" : commandCenterVisual.mutedColor, fontSize: "9px", fontWeight: 800, lineHeight: 1.18 }}>
+                                      {tool.status}
+                                    </span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </section>
                         ))}
                       </div>
                       ) : null}
@@ -24624,7 +24692,7 @@ Cory`;
                           ? "linear-gradient(135deg, rgba(255,255,255,0.78), rgba(232, 246, 250, 0.58))"
                           : "linear-gradient(135deg, rgba(5, 18, 31, 0.66), rgba(10, 39, 49, 0.46))",
                         padding: "7px",
-                        display: "grid",
+                        display: "none",
                         gridTemplateColumns: "repeat(auto-fit, minmax(126px, 1fr))",
                         gap: "7px",
                         alignItems: "center",
