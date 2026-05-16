@@ -930,7 +930,8 @@ function GlobalEventFinder({
   useEffect(() => {
     if (typeof window === "undefined") return;
     const restoreTimer = window.setTimeout(() => {
-      setCollapsed(window.localStorage.getItem(GLOBAL_EVENT_FINDER_COLLAPSED_KEY) === "true");
+      setCollapsed(false);
+      window.localStorage.setItem(GLOBAL_EVENT_FINDER_COLLAPSED_KEY, "false");
     }, 0);
 
     return () => window.clearTimeout(restoreTimer);
@@ -1918,30 +1919,43 @@ export default function DashboardPage() {
                 ? "Start with your assigned events, confirmed work, and training access so you can prep quickly without digging through operations screens."
                 : isFaculty
                   ? "Start with events connected to your teaching or course support work, then switch to the broader event list when you need more planning context."
-                  : "Start with events connected to you, then switch to the full event list whenever you need a broader operational view."}
+                  : "A clean launchpad for finding events, opening core tools, and choosing which dashboard panels deserve your attention today."}
             </p>
 
-            <div className="mt-5 flex flex-wrap gap-2">
-              <Link href="/events" className="cfsp-btn cfsp-btn-secondary">
-                {isSp ? "Open My Event Portal" : "Open Events Board"}
-              </Link>
+            <div className="mt-5 rounded-[18px] border border-[rgba(20,91,150,0.13)] bg-[linear-gradient(135deg,rgba(255,255,255,0.86),rgba(232,246,250,0.58))] p-3 shadow-[0_14px_34px_rgba(20,91,150,0.08)]">
+              <div className="cfsp-label">Quick launch</div>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                {[
+                  { href: "/events", label: isSp ? "My Event Portal" : "Open Events Board", primary: true, show: true },
+                  { href: "/events/new", label: "Create New Event", primary: true, show: !isSp && isOperator },
+                  { href: "/events/upload", label: "Upload", primary: false, show: !isSp && isAdmin },
+                  { href: "/schedule-builder", label: "Schedule Builder", primary: false, show: !isSp && isOperator },
+                  { href: "/sps", label: "SP Database", primary: false, show: !isSp && isOperator },
+                  { href: "/simvitals", label: "SimVitals", primary: false, show: true },
+                  { href: "/settings", label: "Settings", primary: false, show: true },
+                  { href: "/staff", label: "Staff", primary: false, show: !isSp && isAdmin },
+                  { href: "/admin", label: "Admin", primary: false, show: !isSp && isOperator },
+                  { href: "/me", label: isSp ? "Update Account" : "Edit Profile", primary: false, show: true },
+                ].filter((action) => action.show).map((action) => (
+                  <Link
+                    key={action.href}
+                    href={action.href}
+                    className={`cfsp-btn ${action.primary ? "cfsp-btn-primary" : "cfsp-btn-secondary"} justify-center`}
+                  >
+                    {action.label}
+                  </Link>
+                ))}
+              </div>
               {!isSp ? (
-                <Link href="/events?view=archive" className="cfsp-btn cfsp-btn-secondary">
-                  View Archive
-                </Link>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Link href="/events?view=archive" className="text-sm font-bold no-underline hover:underline" style={{ color: "var(--cfsp-blue)" }}>
+                    Archive access
+                  </Link>
+                  <span className="text-sm font-semibold text-[var(--cfsp-text-muted)]">
+                    SimVitals and deeper panels are available below when you want them.
+                  </span>
+                </div>
               ) : null}
-              {!isSp && isOperator ? (
-                <Link href="/events/new" className="cfsp-btn cfsp-btn-primary">
-                  Create New Event
-                </Link>
-              ) : null}
-              <Link href="/me" className="cfsp-btn cfsp-btn-success">
-                {isSp ? "Update Account" : "Edit Profile"}
-              </Link>
-            </div>
-
-            <div className="mt-5">
-              <SimVitalsDashboardPreview />
             </div>
           </div>
 
@@ -2027,15 +2041,56 @@ export default function DashboardPage() {
               </div>
             )}
 
-            <RecentEventsPanel
-              recentEvents={recentEvents}
-              eventsById={eventsById}
-              onClear={handleClearRecentEvents}
-            />
+            <div className="cfsp-panel rounded-[14px] px-4 py-4">
+              <div className="cfsp-label">Dashboard panels</div>
+              <div className="mt-2 text-lg font-black text-[var(--cfsp-text)]">Choose what to show</div>
+              <p className="mt-2 text-sm leading-6 text-[var(--cfsp-text-muted)]">
+                Keep Home clean, then open the panels that matter for the moment.
+              </p>
+              <div className="mt-4 grid gap-2">
+                <details className="rounded-[12px] border border-[var(--cfsp-border)] bg-[var(--cfsp-surface)] px-3 py-2">
+                  <summary className="cursor-pointer text-sm font-black text-[var(--cfsp-text)]">Recent Events</summary>
+                  <div className="mt-3">
+                    <RecentEventsPanel
+                      recentEvents={recentEvents}
+                      eventsById={eventsById}
+                      onClear={handleClearRecentEvents}
+                    />
+                  </div>
+                </details>
+                <details className="rounded-[12px] border border-[var(--cfsp-border)] bg-[var(--cfsp-surface)] px-3 py-2">
+                  <summary className="cursor-pointer text-sm font-black text-[var(--cfsp-text)]">Latest SimVitals Signals</summary>
+                  <div className="mt-3">
+                    <SimVitalsDashboardPreview />
+                    <div className="mt-3">
+                      <Link href="/simvitals" className="cfsp-btn cfsp-btn-secondary">
+                        Open SimVitals
+                      </Link>
+                    </div>
+                  </div>
+                </details>
+                {!isSp && isOperator ? (
+                  <details className="rounded-[12px] border border-[var(--cfsp-border)] bg-[var(--cfsp-surface)] px-3 py-2">
+                    <summary className="cursor-pointer text-sm font-black text-[var(--cfsp-text)]">Admin Tools</summary>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Link href="/admin" className="cfsp-btn cfsp-btn-secondary">Admin</Link>
+                      <Link href="/staff" className="cfsp-btn cfsp-btn-secondary">Staff</Link>
+                      <Link href="/settings" className="cfsp-btn cfsp-btn-secondary">Settings</Link>
+                    </div>
+                  </details>
+                ) : null}
+              </div>
+            </div>
           </div>
         </section>
 
         <section className="relative z-10">
+          <div className="mb-3">
+            <div className="cfsp-kicker">Command search</div>
+            <h3 className="mt-1 text-[1.35rem] font-black text-[var(--cfsp-text)]">
+              Search events, SPs, schedules, materials...
+            </h3>
+          </div>
           <GlobalEventFinder
             items={allVisibleEvents}
             myEventIds={myEventIds}
@@ -2044,8 +2099,8 @@ export default function DashboardPage() {
           />
         </section>
 
-        <section
-          className="flex flex-wrap items-center gap-2 rounded-[14px] px-3 py-2"
+        <details
+          className="rounded-[14px] px-4 py-3"
           style={{
             border: "1px solid rgba(25, 138, 112, 0.14)",
             background: "linear-gradient(90deg, rgba(255,255,255,0.72), rgba(236,255,248,0.56), rgba(239,246,255,0.48))",
@@ -2053,6 +2108,10 @@ export default function DashboardPage() {
           }}
           aria-label="Dashboard telemetry summary"
         >
+          <summary className="cursor-pointer text-sm font-black text-[var(--cfsp-text)]">
+            Home stats and panel preferences
+          </summary>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
           {[
             { label: isSp ? "Assigned Events" : scope === "my" ? "My Events" : "All Events", value: selectedEvents.length },
             { label: isSp ? "Confirmed / Hired" : "Needs Attention", value: isSp ? spConfirmedEvents.length : needsAttention.length },
@@ -2072,9 +2131,14 @@ export default function DashboardPage() {
               <span className="text-base font-black text-[var(--cfsp-blue)]">{stat.value}</span>
             </div>
           ))}
-        </section>
+          </div>
+        </details>
 
-        <section className="cfsp-planning-calendar-panel rounded-[14px] px-5 py-4">
+        <details className="cfsp-panel rounded-[14px] px-5 py-4">
+          <summary className="cursor-pointer text-sm font-black text-[var(--cfsp-text)]">
+            Planning Calendar
+          </summary>
+        <section className="cfsp-planning-calendar-panel mt-4 rounded-[14px] px-5 py-4">
           <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
             <div>
               <div className="cfsp-kicker cfsp-planning-calendar-kicker">Planning Calendar</div>
@@ -2127,6 +2191,7 @@ export default function DashboardPage() {
             <div className="cfsp-planning-calendar-muted mt-3 text-sm font-semibold">{planningJumpMessage}</div>
           ) : null}
         </section>
+        </details>
 
         {error ? <div className="cfsp-alert cfsp-alert-error">{error}</div> : null}
 
@@ -2167,24 +2232,29 @@ export default function DashboardPage() {
         ) : null}
 
         {!error && !(scope === "my" && selectedEvents.length === 0) ? (
-          <div className="grid gap-5">
-            <WorkflowSection
-              sectionKey="ready"
-              title="Ready"
-              description="Events with full coverage already in place and ready to run."
-              items={ready}
-              visibleCount={sectionVisibleCounts.ready}
-              onLoadMore={handleLoadMore}
-              browseHref={scope === "my" ? "/events" : "/events?view=all"}
-              highlightedEventId={highlightedEventId}
-              registerEventRef={registerEventRef}
-              emptyMessage={
-                scope === "my"
-                  ? "No fully staffed matched events are ready yet."
-                  : "No fully staffed upcoming events are ready yet."
-              }
-            />
-          </div>
+          <details className="cfsp-panel rounded-[14px] px-5 py-4">
+            <summary className="cursor-pointer text-sm font-black text-[var(--cfsp-text)]">
+              Ready / upcoming event panels
+            </summary>
+            <div className="mt-4 grid gap-5">
+              <WorkflowSection
+                sectionKey="ready"
+                title="Ready"
+                description="Events with full coverage already in place and ready to run."
+                items={ready}
+                visibleCount={sectionVisibleCounts.ready}
+                onLoadMore={handleLoadMore}
+                browseHref={scope === "my" ? "/events" : "/events?view=all"}
+                highlightedEventId={highlightedEventId}
+                registerEventRef={registerEventRef}
+                emptyMessage={
+                  scope === "my"
+                    ? "No fully staffed matched events are ready yet."
+                    : "No fully staffed upcoming events are ready yet."
+                }
+              />
+            </div>
+          </details>
         ) : null}
       </div>
     </SiteShell>

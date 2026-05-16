@@ -221,20 +221,29 @@ export default function SiteShell({ title, subtitle, children }: SiteShellProps)
                   <div className="flex flex-wrap items-center gap-3">
                     <Link
                       href="/dashboard"
-                      className="flex items-center gap-3 rounded-[14px] px-3 py-2 text-inherit no-underline shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
+                      className="group flex items-center gap-4 rounded-[22px] px-4 py-3 text-inherit no-underline transition duration-200 hover:-translate-y-0.5"
                       style={{
-                        border: "1px solid var(--cfsp-header-border)",
-                        background: "var(--cfsp-header-bg)",
-                        boxShadow: "var(--cfsp-card-glow)",
+                        border: "1px solid rgba(20, 91, 150, 0.16)",
+                        background:
+                          "radial-gradient(circle at 18% 20%, rgba(126, 231, 219, 0.28), transparent 34%), linear-gradient(135deg, var(--cfsp-header-bg), rgba(255,255,255,0.82))",
+                        boxShadow: "0 14px 34px rgba(20, 91, 150, 0.12), inset 0 1px 0 rgba(255,255,255,0.72)",
                       }}
                     >
-                      <div className="cfsp-command-mark is-compact" aria-hidden="true">
+                      <div
+                        className="cfsp-command-mark is-compact transition duration-200 group-hover:scale-[1.03]"
+                        aria-hidden="true"
+                        style={{
+                          width: "58px",
+                          height: "58px",
+                          boxShadow: "0 0 24px rgba(25, 138, 112, 0.2)",
+                        }}
+                      >
                         {logoVisible ? (
                           <Image
                             src="/branding/cfsp-logo.svg"
                             alt="CFSP"
-                            width={40}
-                            height={40}
+                            width={52}
+                            height={52}
                             unoptimized
                             className="cfsp-command-mark-logo"
                             onError={() => setLogoVisible(false)}
@@ -260,30 +269,13 @@ export default function SiteShell({ title, subtitle, children }: SiteShellProps)
                         </svg>
                       </div>
                       <div className="min-w-0">
-                        <div className="text-base font-black leading-tight text-[var(--cfsp-text)]">CFSP</div>
-                        <div className="text-xs font-semibold text-[var(--cfsp-text-muted)]">Conflict-Free Simulation Performance</div>
-                        <div className="mt-1 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[0.58rem] font-black uppercase tracking-[0.12em]"
-                          style={{
-                            border: "1px solid var(--cfsp-shell-chip-border)",
-                            background: "var(--cfsp-shell-chip-bg)",
-                            color: "var(--cfsp-shell-chip-text)",
-                          }}
-                        >
-                          Simulation operations platform
+                        <div className="text-[1.35rem] font-black leading-tight text-[var(--cfsp-text)]">CFSP</div>
+                        <div className="text-sm font-bold text-[var(--cfsp-text-muted)]">Conflict-Free Simulation Performance</div>
+                        <div className="mt-1 text-[0.64rem] font-black uppercase tracking-[0.18em]" style={{ color: "var(--cfsp-green)" }}>
+                          Simulation operations
                         </div>
                       </div>
                     </Link>
-
-                    <div
-                      className="inline-flex items-center rounded-full px-3 py-1 text-xs font-black"
-                      style={{
-                        border: "1px solid var(--cfsp-shell-chip-border)",
-                        background: "var(--cfsp-shell-chip-bg)",
-                        color: "var(--cfsp-shell-chip-text)",
-                      }}
-                    >
-                      CFSP • Conflict-Free Simulation Performance
-                    </div>
                   </div>
 
                   <div className="mt-4 min-w-0">

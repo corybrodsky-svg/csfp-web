@@ -23729,73 +23729,6 @@ Cory`;
                           ))}
                         </div>
 
-                        <section
-                          style={{
-                            borderRadius: "16px",
-                            border: commandCenterVisual.rowBorder,
-                            background: isPlanningVisualMode ? "rgba(247, 253, 255, 0.74)" : "rgba(4, 15, 26, 0.48)",
-                            padding: "10px",
-                            display: "grid",
-                            gap: "8px",
-                          }}
-                        >
-                          <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
-                            <div>
-                              <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Live Command</div>
-                              <div style={{ marginTop: "3px", color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 750 }}>
-                                Communication, occupancy, alerts, arrival rail, and current flow inside the command board.
-                              </div>
-                            </div>
-                            <span style={{ ...commandChipStyle, background: commandCenterVisual.activeSoftBackground, color: commandCenterVisual.activeSoftText }}>
-                              {commandCenterMode === "live" ? "Live mode" : "Planning preview"}
-                            </span>
-                          </div>
-                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: "8px" }}>
-                            {[
-                              {
-                                label: "Communication",
-                                value: outreachProgressLabel,
-                                detail: staffingEmailWorkflowDetail || "No active communication blockers",
-                              },
-                              {
-                                label: "Lab Occupancy",
-                                value: `${selectedRoundScheduleRows.filter((row) => row.sp || row.learnerLabels.length).length}/${selectedRoundRoomCount} rooms active`,
-                                detail: `${Object.values(liveRoomStates).filter((roomState) => roomState.status && roomState.status !== "empty").length} live room override${Object.values(liveRoomStates).filter((roomState) => roomState.status && roomState.status !== "empty").length === 1 ? "" : "s"}`,
-                              },
-                              {
-                                label: "Live Alerts",
-                                value: `${liveSupportNeeds.length + selectedRoundOperationsFlags.length} signal${liveSupportNeeds.length + selectedRoundOperationsFlags.length === 1 ? "" : "s"}`,
-                                detail: liveSupportNeeds[0]?.label || selectedRoundOperationsFlags[0] || "No active operational alerts",
-                              },
-                              {
-                                label: "Live Flow",
-                                value: planningLivePreviewPrimaryBlock?.label || selectedLiveFlowBlock?.label || "No block",
-                                detail: planningLivePreviewPrimaryBlock
-                                  ? formatMinuteRange(planningLivePreviewPrimaryBlock.startMinutes, planningLivePreviewPrimaryBlock.endMinutes)
-                                  : selectedLiveFlowBlock
-                                    ? formatMinuteRange(selectedLiveFlowBlock.startMinutes, selectedLiveFlowBlock.endMinutes)
-                                    : "Build schedule to preview flow",
-                              },
-                            ].map((item) => (
-                              <div
-                                key={`central-live-telemetry-${item.label}`}
-                                style={{
-                                  borderRadius: "12px",
-                                  border: commandCenterVisual.rowBorder,
-                                  background: isPlanningVisualMode ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.05)",
-                                  padding: "9px",
-                                  display: "grid",
-                                  gap: "4px",
-                                }}
-                              >
-                                <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>{item.label}</div>
-                                <div style={{ color: commandCenterVisual.textColor, fontSize: "13px", fontWeight: 950 }}>{item.value}</div>
-                                <div style={{ color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 750, lineHeight: 1.35 }}>{item.detail}</div>
-                              </div>
-                            ))}
-                          </div>
-                        </section>
-
                         {false && tacticalRoomBoardOpen ? (
                         <section
                           style={{
@@ -24167,56 +24100,6 @@ Cory`;
                         ) : null}
 
                         <div style={{ display: "grid", gap: "6px" }}>
-                          <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>
-                            {roundCompanionView === "overview"
-                              ? "Review Summary"
-                              : roundCompanionView === "coverage"
-                              ? "Coverage"
-                              : roundCompanionView === "learner"
-                              ? "Learner Flow"
-                              : roundCompanionView === "attendance"
-                              ? "Event Attendance"
-                              : roundCompanionView === "announcements"
-                              ? "Announcements"
-                              : roundCompanionView === "student"
-                              ? "Student Schedule"
-                              : roundCompanionView === "sp"
-                                ? "SP Schedule"
-                                : "Operations"}
-                          </div>
-                          <div style={{ color: commandCenterVisual.mutedColor, fontSize: "13px", fontWeight: 700 }}>
-                            {roundCompanionView === "announcements"
-                              ? "Operational calling script for this rotation with timed prompts and follow-up blocks."
-                              : roundCompanionView === "student"
-                              ? "Learner-facing timing and follow-up blocks for this rotation."
-                              : roundCompanionView === "sp"
-                                ? "SP-facing rooms, staffing, and attached support blocks for this rotation."
-                                : roundCompanionView === "overview"
-                                ? "Event setup, schedule, staffing, room, and training assumptions for the active operational plan."
-                                : roundCompanionView === "coverage"
-                                ? "Room-by-room SP coverage status for the selected round."
-                                : roundCompanionView === "learner"
-                                ? "Learner movement and room flow for the selected round."
-                                : roundCompanionView === "attendance"
-                                ? "Event day arrival board for SP and learner check-in."
-                                : "Operational room, staffing, and schedule support details for this rotation."}
-                          </div>
-                        </div>
-
-                        <div style={{ display: "grid", gap: "6px" }}>
-                          <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>
-                          {roundCompanionView === "announcements"
-                              ? "Announcement Timeline"
-                              : roundCompanionView === "student"
-                                ? "Learner Blocks"
-                                : roundCompanionView === "sp"
-                                  ? "SP Assignments"
-                                  : roundCompanionView === "attendance"
-                                    ? "Event Attendance Board"
-                                  : roundCompanionView === "overview"
-                                    ? "Event Review Summary"
-                                  : "Round Operations"}
-                          </div>
                           {roundCompanionView === "overview" ? (
   <div style={{ display: "grid", gap: "12px" }}>
     <section
