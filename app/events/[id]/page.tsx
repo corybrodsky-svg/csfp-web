@@ -10147,6 +10147,105 @@ const operationalEventStatusLabel = useMemo(() => {
       selectedRoundOccupancyScheduledLearners,
     ]
   );
+  const eventAttendanceRoomCards = useMemo(() => {
+    const canonicalRooms = selectedRoundOccupancyRoomLearners.length
+      ? selectedRoundOccupancyRoomLearners
+      : selectedRoundScheduleRows.map((row, fallbackIndex) => ({
+          roomName: row.roomName,
+          learnerLabels: normalizeLearnerNames(row.learnerLabels).filter((learner) => isAssignedLearnerRoomLabel(learner)),
+          fallbackIndex,
+        }));
+
+    return canonicalRooms.map((room, roomIndex) => {
+      const matchedRoom =
+        interactiveLiveAttendanceBlueprintRooms.find((candidate) => compareRoomLabels(candidate.roomName, room.roomName) === 0) ||
+        interactiveLiveAttendanceBlueprintRooms[roomIndex] ||
+        null;
+      const fallbackRoomName =
+        asText(room.roomName) ||
+        asText(matchedRoom?.roomName) ||
+        getFallbackRoomLabel(roomIndex, roomNamingContext);
+      const baseLearners = room.learnerLabels || [];
+      const learnerLabels = Array.from(
+        new Set([
+          ...baseLearners.filter((learner) => {
+            const moveTarget = localOccupancyLearnerRoomMoves[`${selectedRoundOccupancyKey}|${learner}`];
+            return !moveTarget || compareRoomLabels(moveTarget, fallbackRoomName) === 0;
+          }),
+          ...selectedRoundOccupancyScheduledLearners.filter(
+            (learner) =>
+              !baseLearners.includes(learner) &&
+              compareRoomLabels(localOccupancyLearnerRoomMoves[`${selectedRoundOccupancyKey}|${learner}`], fallbackRoomName) === 0
+          ),
+        ])
+      );
+
+      return {
+        key: matchedRoom?.key || `event-attendance-room-${selectedRoundOccupancyKey}-${roomIndex}`,
+        roomName: fallbackRoomName,
+        encounterLabel: matchedRoom?.encounterLabel || "Case pending",
+        statusLabel: matchedRoom?.statusLabel || "Standby",
+        isCurrentRotationRoom: Boolean(matchedRoom?.isCurrentRotationRoom),
+        assignment: matchedRoom?.assignment || null,
+        sp: matchedRoom?.sp || null,
+        spName: matchedRoom?.spName || "",
+        learnerLabels,
+      };
+    });
+  }, [
+    interactiveLiveAttendanceBlueprintRooms,
+    localOccupancyLearnerRoomMoves,
+    roomNamingContext,
+    selectedRoundOccupancyKey,
+    selectedRoundOccupancyRoomLearners,
+    selectedRoundOccupancyScheduledLearners,
+    selectedRoundScheduleRows,
+  ]);
+  const eventAttendanceLearnerPresenceTokens = useMemo(
+    () =>
+      eventAttendanceRoomCards.flatMap((room, roomIndex) =>
+        room.learnerLabels.map((learnerName, learnerIndex) => {
+          const attendanceKey = getLearnerAttendanceKey(selectedRoundOccupancyKey || currentLiveReferenceRound?.key, room.roomName, learnerName);
+          const record = liveLearnerAttendanceRecords[attendanceKey] || null;
+          const initialSeed = learnerName.replace(/[^A-Za-z0-9]/g, "");
+          const initials = (initialSeed.slice(0, 2) || String(roomIndex + learnerIndex + 1)).toUpperCase();
+          const storedStatus = record?.status || "expected";
+          const displayStatus: LearnerAttendanceStatus =
+            storedStatus === "arrived" && room.isCurrentRotationRoom
+              ? "in_room"
+              : storedStatus;
+          const state =
+            displayStatus === "in_room" || displayStatus === "completed"
+              ? "roomed"
+              : displayStatus === "arrived"
+                ? "arrived"
+                : displayStatus === "late"
+                  ? "late"
+                  : displayStatus === "absent"
+                    ? "absent"
+                    : "queued";
+          return {
+            key: `${room.key}-event-learner-token-${learnerIndex}`,
+            attendanceKey,
+            roomKey: room.key,
+            roomName: room.roomName,
+            learnerName,
+            initials,
+            state,
+            status: displayStatus,
+            storedStatus,
+            updatedAt: record?.updatedAt || "",
+            isCurrentRoom: room.isCurrentRotationRoom,
+          };
+        })
+      ),
+    [
+      currentLiveReferenceRound?.key,
+      eventAttendanceRoomCards,
+      liveLearnerAttendanceRecords,
+      selectedRoundOccupancyKey,
+    ]
+  );
   const liveVisibleRoomCount = interactiveLiveAttendanceBlueprintRooms.length;
   const liveDisplayedPrimaryAssignmentIds = useMemo(
     () =>
@@ -10281,16 +10380,19 @@ const operationalEventStatusLabel = useMemo(() => {
   const eventAttendanceSpArrivedCount = eventAttendanceSpTokens.filter((token) =>
     ["arrived", "in_room", "completed"].includes(asText(token.status))
   ).length;
-  const eventAttendanceLearnerExpectedCount = liveLearnerPresenceTokens.length;
-  const eventAttendanceLearnerArrivedCount = liveLearnerPresenceTokens.filter((token) =>
+  const eventAttendanceRoomActiveCount = eventAttendanceRoomCards.filter(
+    (room) => Boolean(room.assignment || room.spName || room.learnerLabels.length)
+  ).length;
+  const eventAttendanceLearnerExpectedCount = eventAttendanceLearnerPresenceTokens.length;
+  const eventAttendanceLearnerArrivedCount = eventAttendanceLearnerPresenceTokens.filter((token) =>
     ["arrived", "in_room", "completed"].includes(token.status)
   ).length;
   const eventAttendanceMissingCount =
     eventAttendanceSpTokens.filter((token) => asText(token.status) === "missing").length +
-    liveLearnerPresenceTokens.filter((token) => token.status === "absent").length;
+    eventAttendanceLearnerPresenceTokens.filter((token) => token.status === "absent").length;
   const eventAttendanceLateCount =
     eventAttendanceSpTokens.filter((token) => asText(token.status) === "late").length +
-    liveLearnerPresenceTokens.filter((token) => token.status === "late").length;
+    eventAttendanceLearnerPresenceTokens.filter((token) => token.status === "late").length;
   const visibleEventAttendanceSpTokens = useMemo(
     () =>
       eventAttendanceSpTokens.filter((token) =>
@@ -10302,12 +10404,12 @@ const operationalEventStatusLabel = useMemo(() => {
   );
   const visibleEventAttendanceLearnerTokens = useMemo(
     () =>
-      liveLearnerPresenceTokens.filter((token) =>
+      eventAttendanceLearnerPresenceTokens.filter((token) =>
         eventAttendanceFilter === "all"
           ? true
           : normalizeEventAttendanceStatus(token.status) === eventAttendanceFilter
       ),
-    [eventAttendanceFilter, liveLearnerPresenceTokens]
+    [eventAttendanceFilter, eventAttendanceLearnerPresenceTokens]
   );
   const selectedRoundLiveTimingState = useMemo(() => {
     if (!selectedRotationRound) {
@@ -26322,7 +26424,7 @@ Cory`;
           `Students arrived ${eventAttendanceLearnerArrivedCount}/${eventAttendanceLearnerExpectedCount}`,
           `${eventAttendanceMissingCount} missing`,
           `${eventAttendanceLateCount} late`,
-          `Rooms active ${liveRoomActiveCount}/${liveVisibleRoomCount}`,
+          `Rooms active ${eventAttendanceRoomActiveCount}/${eventAttendanceRoomCards.length}`,
         ].map((chip) => (
           <span
             key={`event-attendance-chip-${chip}`}
@@ -26417,13 +26519,13 @@ Cory`;
           </div>
         </div>
         <span style={{ ...commandChipStyle, background: "rgba(15, 118, 110, 0.2)", color: "#d6fff8", border: "1px solid rgba(126, 231, 219, 0.24)" }}>
-          {interactiveLiveAttendanceBlueprintRooms.length} rooms visible
+          {eventAttendanceRoomCards.length} rooms visible
         </span>
       </div>
-      {interactiveLiveAttendanceBlueprintRooms.length ? (
+      {eventAttendanceRoomCards.length ? (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "8px" }}>
-          {interactiveLiveAttendanceBlueprintRooms.map((room) => {
-            const learnerTokens = liveLearnerPresenceTokens.filter((token) => compareRoomLabels(token.roomName, room.roomName) === 0);
+          {eventAttendanceRoomCards.map((room) => {
+            const learnerTokens = eventAttendanceLearnerPresenceTokens.filter((token) => token.roomKey === room.key);
             const spToken = eventAttendanceSpTokens.find((token) => token.assignment.id === room.assignment?.id);
             const spColors = getEventAttendanceStatusColors(spToken?.status || "expected");
             return (
@@ -26644,7 +26746,7 @@ Cory`;
             })
           ) : (
             <div style={{ color: "rgba(226, 250, 247, 0.68)", fontSize: "12px", fontWeight: 800 }}>
-              {liveLearnerPresenceTokens.length
+              {eventAttendanceLearnerPresenceTokens.length
                 ? "No learners match the current filter."
                 : "No learner roster found. Add or import learners from Schedule Builder."}
             </div>
