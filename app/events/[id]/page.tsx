@@ -200,7 +200,7 @@ type AssignmentFilterStatus = "all" | "invited" | "confirmed" | "backup" | "decl
 type SuggestedAssignmentFilter = "all" | "available" | "confirmed" | "needs_outreach" | "backup";
 type PollLocationFilter = "any" | "elkins_park" | "center_city" | "virtual";
 type CommandCenterMode = "planning" | "live";
-type RotationCompanionView = "overview" | "coverage" | "learner" | "live" | "announcements" | "student" | "sp" | "operations";
+type RotationCompanionView = "overview" | "coverage" | "learner" | "live" | "attendance" | "announcements" | "student" | "sp" | "operations";
 type CommandDockTool = "faculty" | "training" | "file-cabinet" | "staffing" | "communication" | "qa" | "advanced";
 type SelectedCommandTool = "primary" | "faculty" | "training" | "fileCabinet" | "staffing" | "communication" | "qa" | "advanced";
 type PrimaryEventTool = "commandCenter" | "spFinder" | "scheduleBuilder";
@@ -278,6 +278,7 @@ type LearnerAttendanceRecord = {
   updatedAt: string;
   roomName: string;
   roundKey: string;
+  note?: string;
 };
 
 type LearnerAttendanceMap = Record<string, LearnerAttendanceRecord>;
@@ -1508,6 +1509,36 @@ function RoundOperationAvatar({
       <span className="cfsp-hologram-avatar-text">{initials}</span>
     </span>
   );
+}
+
+function getEventAttendanceStatusLabel(value: unknown) {
+  const status = asText(value).toLowerCase();
+  if (status === "arrived") return "Arrived";
+  if (status === "late") return "Late";
+  if (status === "missing" || status === "absent") return "Missing";
+  if (status === "in_room") return "In Room";
+  if (status === "completed") return "Completed";
+  return "Expected";
+}
+
+function getEventAttendanceStatusColors(value: unknown) {
+  const status = asText(value).toLowerCase();
+  if (status === "arrived") {
+    return { ring: "#14b8a6", bg: "rgba(20, 184, 166, 0.18)", text: "#ccfbf1" };
+  }
+  if (status === "late") {
+    return { ring: "#f59e0b", bg: "rgba(245, 158, 11, 0.18)", text: "#fde68a" };
+  }
+  if (status === "missing" || status === "absent") {
+    return { ring: "#ef4444", bg: "rgba(239, 68, 68, 0.18)", text: "#fecaca" };
+  }
+  if (status === "in_room") {
+    return { ring: "#06b6d4", bg: "rgba(6, 182, 212, 0.18)", text: "#cffafe" };
+  }
+  if (status === "completed") {
+    return { ring: "#64748b", bg: "rgba(100, 116, 139, 0.18)", text: "#e2e8f0" };
+  }
+  return { ring: "#94a3b8", bg: "rgba(148, 163, 184, 0.14)", text: "#e2e8f0" };
 }
 
 function getRoomDisplayNumber(label?: string | null) {
@@ -2954,6 +2985,7 @@ function parseLearnerAttendanceMetadata(value: string | null | undefined) {
               updatedAt: asText(record.updatedAt),
               roomName: asText(record.roomName),
               roundKey: asText(record.roundKey),
+              note: asText(record.note) || undefined,
             } satisfies LearnerAttendanceRecord,
           ],
         ];
@@ -4745,6 +4777,7 @@ export default function EventDetailPage() {
   const [activeBlueprintRoomKey, setActiveBlueprintRoomKey] = useState("");
   const [collapsedBlueprintRoomKeys, setCollapsedBlueprintRoomKeys] = useState<Record<string, boolean>>({});
   const [activeLearnerAttendanceKey, setActiveLearnerAttendanceKey] = useState("");
+  const [activeEventAttendanceKey, setActiveEventAttendanceKey] = useState("");
   const [persistedLearnerAttendanceRecords, setPersistedLearnerAttendanceRecords] = useState<LearnerAttendanceMap>({});
   const [blueprintActionSavingKey, setBlueprintActionSavingKey] = useState("");
   const [blueprintRestoreAssignmentIdByRoom, setBlueprintRestoreAssignmentIdByRoom] = useState<Record<string, string>>({});
@@ -10186,6 +10219,37 @@ const operationalEventStatusLabel = useMemo(() => {
   const liveLearnerMissingCount = liveLearnerPresenceTokens.filter((token) =>
     token.status === "late" || token.status === "absent" || (token.isCurrentRoom && token.status === "expected")
   ).length;
+  const eventAttendanceSpTokens = useMemo(
+    () =>
+      sortedAssignments.map((assignment) => {
+        const sp = assignment.sp_id ? spsById.get(assignment.sp_id) : null;
+        const spName = getFullName(sp || emptySpRow) || "Assigned SP";
+        const room = interactiveLiveAttendanceBlueprintRooms.find((candidate) => candidate.assignment?.id === assignment.id);
+        const status = asText(assignment.event_attendance_status) || (assignment.event_checked_in_at ? "arrived" : "expected");
+        return {
+          key: `sp:${assignment.id}`,
+          assignment,
+          name: spName,
+          status,
+          roomName: room?.roomName || "",
+          note: asText(assignment.attendance_note),
+        };
+      }),
+    [interactiveLiveAttendanceBlueprintRooms, sortedAssignments, spsById]
+  );
+  const eventAttendanceSpArrivedCount = eventAttendanceSpTokens.filter((token) =>
+    ["arrived", "in_room", "completed"].includes(asText(token.status))
+  ).length;
+  const eventAttendanceLearnerExpectedCount = liveLearnerPresenceTokens.length;
+  const eventAttendanceLearnerArrivedCount = liveLearnerPresenceTokens.filter((token) =>
+    ["arrived", "in_room", "completed"].includes(token.status)
+  ).length;
+  const eventAttendanceMissingCount =
+    eventAttendanceSpTokens.filter((token) => asText(token.status) === "missing").length +
+    liveLearnerPresenceTokens.filter((token) => token.status === "absent").length;
+  const eventAttendanceLateCount =
+    eventAttendanceSpTokens.filter((token) => asText(token.status) === "late").length +
+    liveLearnerPresenceTokens.filter((token) => token.status === "late").length;
   const selectedRoundLiveTimingState = useMemo(() => {
     if (!selectedRotationRound) {
       return { status: "standby", label: "Standby", detail: "No selected round" };
@@ -13121,6 +13185,7 @@ Cory`;
             status?: string | null;
             checked_in_at?: string | null;
             updated_at?: string | null;
+            note?: string | null;
           }>;
         } | null;
         const nextRecords = Object.fromEntries(
@@ -13128,14 +13193,16 @@ Cory`;
             .map((record) => {
               const learnerName = asText(record.learner_name);
               if (!learnerName) return null;
+              const attendanceRecord: LearnerAttendanceRecord = {
+                status: normalizeLearnerAttendanceStatus(record.status),
+                updatedAt: asText(record.checked_in_at) || asText(record.updated_at),
+                roomName: asText(record.room),
+                roundKey: asText(record.round_id),
+                note: asText(record.note) || undefined,
+              };
               return [
                 getLearnerAttendanceKey(record.round_id, record.room, learnerName),
-                {
-                  status: normalizeLearnerAttendanceStatus(record.status),
-                  updatedAt: asText(record.checked_in_at) || asText(record.updated_at),
-                  roomName: asText(record.room),
-                  roundKey: asText(record.round_id),
-                } satisfies LearnerAttendanceRecord,
+                attendanceRecord,
               ] as const;
             })
             .filter((entry): entry is readonly [string, LearnerAttendanceRecord] => Boolean(entry))
@@ -15453,6 +15520,60 @@ Cory`;
     }
   }
 
+  async function handleEventSpAttendanceAction(
+    assignment: AssignmentRow,
+    action: "expected" | "arrived" | "late" | "missing" | "in_room" | "completed",
+    note?: string
+  ) {
+    const now = new Date().toISOString();
+    const nextCheckedInAt = action === "expected" || action === "missing" ? null : (assignment.event_checked_in_at || now);
+
+    setAttendanceSaving(true);
+    setBlueprintActionSavingKey(`${assignment.id}:${action}`);
+    setAttendanceError("");
+    setAttendanceSuccess("");
+
+    try {
+      const body = await saveAssignmentRequest("PATCH", {
+        assignment_id: assignment.id,
+        updates: {
+          event_checked_in_at: nextCheckedInAt,
+          event_attendance_status: action,
+          ...(note !== undefined ? { attendance_note: note } : {}),
+        },
+      });
+
+      if (body?.assignment) {
+        setAssignments((current) =>
+          current.map((item) => (item.id === assignment.id ? { ...item, ...body.assignment } : item))
+        );
+      } else {
+        await refreshData();
+      }
+
+      setAttendanceSuccess(`SP marked ${getEventAttendanceStatusLabel(action).toLowerCase()}.`);
+    } catch (error) {
+      setAttendanceError(error instanceof Error ? error.message : "Could not update event attendance.");
+    } finally {
+      setBlueprintActionSavingKey("");
+      setAttendanceSaving(false);
+    }
+  }
+
+  function handleEventSpAttendanceNote(assignment: AssignmentRow) {
+    const note = window.prompt("Attendance note", asText(assignment.attendance_note));
+    if (note === null) return;
+    const currentStatus = asText(assignment.event_attendance_status);
+    const safeStatus = ["expected", "arrived", "late", "missing", "in_room", "completed"].includes(currentStatus)
+      ? (currentStatus as "expected" | "arrived" | "late" | "missing" | "in_room" | "completed")
+      : "expected";
+    void handleEventSpAttendanceAction(
+      assignment,
+      safeStatus,
+      note
+    );
+  }
+
   async function handleLiveLearnerAttendanceAction(
     token: {
       attendanceKey: string;
@@ -15460,7 +15581,8 @@ Cory`;
       roomName: string;
       status: LearnerAttendanceStatus;
     },
-    action: LearnerAttendanceStatus | "clear"
+    action: LearnerAttendanceStatus | "clear",
+    note?: string
   ) {
     if (!id || !token.attendanceKey) return;
 
@@ -15474,6 +15596,13 @@ Cory`;
         updatedAt: now,
         roomName: token.roomName,
         roundKey: asText(currentLiveReferenceRound?.key) || asText(selectedRotationRound?.key),
+        note: note !== undefined ? note : nextRecords[token.attendanceKey]?.note,
+      };
+    }
+    if (note !== undefined && nextRecords[token.attendanceKey]) {
+      nextRecords[token.attendanceKey] = {
+        ...nextRecords[token.attendanceKey],
+        note,
       };
     }
 
@@ -15498,6 +15627,7 @@ Cory`;
           learner_name: token.learnerName,
           status: action === "clear" ? "expected" : action,
           checked_in_at: action === "clear" || action === "expected" ? null : now,
+          ...(note !== undefined ? { note } : {}),
         }),
       });
 
@@ -15541,6 +15671,17 @@ Cory`;
       setBlueprintActionSavingKey("");
       setAttendanceSaving(false);
     }
+  }
+
+  function handleEventLearnerAttendanceNote(token: {
+    attendanceKey: string;
+    learnerName: string;
+    roomName: string;
+    status: LearnerAttendanceStatus;
+  }) {
+    const note = window.prompt("Learner attendance note", asText(liveLearnerAttendanceRecords[token.attendanceKey]?.note));
+    if (note === null) return;
+    void handleLiveLearnerAttendanceAction(token, token.status || "expected", note);
   }
 
   async function handleBulkTrainingAttendance(action: "confirm_all" | "clear_all") {
@@ -24309,7 +24450,7 @@ Cory`;
                       <div
                         style={{
                           display: "grid",
-                          gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+                          gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
                           gap: "8px",
                           borderRadius: "16px",
                           border: isPlanningVisualMode ? "1px solid rgba(20, 91, 150, 0.22)" : "1px solid rgba(126, 231, 219, 0.24)",
@@ -24323,13 +24464,24 @@ Cory`;
                           { value: "commandCenter" as const, label: "Command Center", status: selectedCommandTool === "primary" ? "Operational board" : "Tool selected" },
                           { value: "spFinder" as const, label: "SP Finder", status: `${confirmedCount} confirmed` },
                           { value: "scheduleBuilder" as const, label: "Schedule Builder", status: scheduleStatusLabel },
+                          { value: "eventAttendance" as const, label: "Event Attendance", status: "Live check-in" },
                         ].map((tool) => {
-                          const selected = primaryEventTool === tool.value;
+                          const selected =
+                            tool.value === "eventAttendance"
+                              ? primaryEventTool === "commandCenter" && selectedCommandTool === "primary" && roundCompanionView === "attendance"
+                              : primaryEventTool === tool.value;
                           return (
                             <button
                               key={`primary-event-tool-${tool.value}`}
                               type="button"
                               onClick={() => {
+                                if (tool.value === "eventAttendance") {
+                                  setPrimaryEventTool("commandCenter");
+                                  setSelectedCommandTool("primary");
+                                  setRoundCompanionView("attendance");
+                                  queueCommandContentScroll();
+                                  return;
+                                }
                                 setPrimaryEventTool(tool.value);
                                 queueCommandContentScroll();
                                 if (tool.value === "commandCenter" && selectedCommandTool === "staffing") {
@@ -24339,8 +24491,9 @@ Cory`;
                               aria-pressed={selected}
                               style={{
                                 ...buttonStyle,
-                                padding: "10px 12px",
-                                borderRadius: "12px",
+                                minHeight: "64px",
+                                padding: "11px 12px",
+                                borderRadius: "14px",
                                 display: "grid",
                                 gap: "3px",
                                 minWidth: 0,
@@ -24403,6 +24556,7 @@ Cory`;
                           { value: "coverage", label: "Coverage" },
                           { value: "learner", label: "Learner Flow" },
                           { value: "live", label: "Live" },
+                          { value: "attendance", label: "Event Attendance" },
                           { value: "announcements", label: "Announcements" },
                           { value: "student", label: "Student Schedule" },
                           { value: "sp", label: "SP Schedule" },
@@ -25692,6 +25846,8 @@ Cory`;
                               ? "Coverage"
                               : roundCompanionView === "learner"
                               ? "Learner Flow"
+                              : roundCompanionView === "attendance"
+                              ? "Event Attendance"
                               : roundCompanionView === "announcements"
                               ? "Announcements"
                               : roundCompanionView === "student"
@@ -25713,6 +25869,8 @@ Cory`;
                                 ? "Room-by-room SP coverage status for the selected round."
                                 : roundCompanionView === "learner"
                                 ? "Learner movement and room flow for the selected round."
+                                : roundCompanionView === "attendance"
+                                ? "Event day arrival board for SP and learner check-in."
                                 : "Operational room, staffing, and schedule support details for this rotation."}
                           </div>
                         </div>
@@ -25725,6 +25883,8 @@ Cory`;
                                 ? "Learner Blocks"
                                 : roundCompanionView === "sp"
                                   ? "SP Assignments"
+                                  : roundCompanionView === "attendance"
+                                    ? "Event Attendance Board"
                                   : "Round Operations"}
                           </div>
                           {roundCompanionView === "overview" ? (
@@ -25951,6 +26111,227 @@ Cory`;
       </div>
     </section>
   </div>
+) : roundCompanionView === "attendance" ? (
+  <section
+    style={{
+      borderRadius: "20px",
+      border: "1px solid rgba(126, 231, 219, 0.28)",
+      background:
+        "radial-gradient(circle at 10% 8%, rgba(34, 211, 238, 0.18), transparent 30%), radial-gradient(circle at 92% 0%, rgba(25, 138, 112, 0.18), transparent 34%), linear-gradient(135deg, rgba(3, 13, 24, 0.98) 0%, rgba(6, 31, 45, 0.96) 48%, rgba(5, 51, 47, 0.9) 100%)",
+      boxShadow: "inset 0 1px 0 rgba(255,255,255,0.08), 0 18px 48px rgba(2, 6, 23, 0.22)",
+      padding: "14px",
+      display: "grid",
+      gap: "12px",
+      overflow: "hidden",
+    }}
+  >
+    <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "flex-start" }}>
+      <div>
+        <div style={{ ...statLabel, color: "rgba(186, 230, 253, 0.88)" }}>Event Day Attendance</div>
+        <div style={{ marginTop: "4px", color: "#e6fffb", fontSize: "20px", fontWeight: 950 }}>Event Attendance</div>
+        <div style={{ marginTop: "3px", color: "rgba(226, 250, 247, 0.72)", fontSize: "12px", fontWeight: 750 }}>
+          Interactive SP and learner arrival board for the selected round. Status changes save to event attendance records.
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+        {[
+          `SPs arrived ${eventAttendanceSpArrivedCount}/${eventAttendanceSpTokens.length}`,
+          `Students arrived ${eventAttendanceLearnerArrivedCount}/${eventAttendanceLearnerExpectedCount}`,
+          `${eventAttendanceMissingCount} missing`,
+          `${eventAttendanceLateCount} late`,
+          `Rooms active ${liveRoomActiveCount}/${liveVisibleRoomCount}`,
+        ].map((chip) => (
+          <span
+            key={`event-attendance-chip-${chip}`}
+            style={{
+              ...commandChipStyle,
+              background: chip.includes("missing") && !chip.startsWith("0") ? "rgba(248, 113, 113, 0.18)" : "rgba(15, 118, 110, 0.22)",
+              color: chip.includes("missing") && !chip.startsWith("0") ? "#fecaca" : "#d6fff8",
+              border: "1px solid rgba(126, 231, 219, 0.24)",
+            }}
+          >
+            {chip}
+          </span>
+        ))}
+      </div>
+    </div>
+
+    {attendanceError ? (
+      <div style={{ borderRadius: "12px", border: "1px solid rgba(248, 113, 113, 0.32)", background: "rgba(248, 113, 113, 0.12)", color: "#fecaca", padding: "9px 10px", fontSize: "12px", fontWeight: 850 }}>
+        {attendanceError}
+      </div>
+    ) : null}
+    {attendanceSuccess ? (
+      <div style={{ borderRadius: "12px", border: "1px solid rgba(126, 231, 219, 0.28)", background: "rgba(20, 184, 166, 0.12)", color: "#ccfbf1", padding: "9px 10px", fontSize: "12px", fontWeight: 850 }}>
+        {attendanceSuccess}
+      </div>
+    ) : null}
+
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))", gap: "10px" }}>
+      <div style={{ borderRadius: "16px", border: "1px solid rgba(126, 231, 219, 0.18)", background: "rgba(15, 23, 42, 0.46)", padding: "10px", display: "grid", gap: "8px" }}>
+        <div style={{ ...statLabel, color: "rgba(186, 230, 253, 0.88)" }}>SP Check-In</div>
+        {eventAttendanceSpTokens.length ? (
+          eventAttendanceSpTokens.map((token) => {
+            const colors = getEventAttendanceStatusColors(token.status);
+            const isActive = activeEventAttendanceKey === token.key;
+            return (
+              <div key={token.key} style={{ borderRadius: "14px", border: `1px solid ${colors.ring}55`, background: colors.bg, padding: "8px", display: "grid", gap: "7px" }}>
+                <button
+                  type="button"
+                  onClick={() => setActiveEventAttendanceKey((current) => current === token.key ? "" : token.key)}
+                  style={{ all: "unset", cursor: "pointer", display: "flex", gap: "8px", alignItems: "center" }}
+                >
+                  <span style={{ borderRadius: "999px", boxShadow: `0 0 0 2px ${colors.ring}, 0 0 18px ${colors.ring}66` }}>
+                    <RoundOperationAvatar name={token.name} role="sp" />
+                  </span>
+                  <span style={{ display: "grid", gap: "2px", minWidth: 0 }}>
+                    <span style={{ color: "#ecfeff", fontSize: "12px", fontWeight: 950, overflowWrap: "anywhere" }}>{token.name}</span>
+                    <span style={{ color: "rgba(226, 250, 247, 0.68)", fontSize: "10px", fontWeight: 800 }}>
+                      {token.roomName || "Room pending"} · {getEventAttendanceStatusLabel(token.status)}
+                    </span>
+                  </span>
+                </button>
+                {isActive ? (
+                  <div style={{ display: "flex", gap: "5px", flexWrap: "wrap", borderTop: "1px solid rgba(226,250,247,0.14)", paddingTop: "7px" }}>
+                    {[
+                      { label: "Mark Arrived", action: "arrived" as const },
+                      { label: "Mark Late", action: "late" as const },
+                      { label: "Mark Missing", action: "missing" as const },
+                      { label: "Mark In Room", action: "in_room" as const },
+                      { label: "Mark Completed", action: "completed" as const },
+                      { label: "Reset to Expected", action: "expected" as const },
+                    ].map((action) => (
+                      <button
+                        key={`${token.key}-${action.action}`}
+                        type="button"
+                        onClick={() => void handleEventSpAttendanceAction(token.assignment, action.action)}
+                        disabled={attendanceSaving}
+                        style={{ ...staffingSecondaryButtonStyle, padding: "5px 7px", fontSize: "9px", opacity: attendanceSaving ? 0.6 : 1 }}
+                      >
+                        {blueprintActionSavingKey === `${token.assignment.id}:${action.action}` ? "Saving..." : action.label}
+                      </button>
+                    ))}
+                    <button type="button" onClick={() => handleEventSpAttendanceNote(token.assignment)} disabled={attendanceSaving} style={{ ...staffingSecondaryButtonStyle, padding: "5px 7px", fontSize: "9px", opacity: attendanceSaving ? 0.6 : 1 }}>
+                      Add Note
+                    </button>
+                    {token.note ? <span style={{ color: "rgba(226,250,247,0.72)", fontSize: "10px", fontWeight: 750 }}>Note: {token.note}</span> : null}
+                  </div>
+                ) : null}
+              </div>
+            );
+          })
+        ) : (
+          <div style={{ color: "rgba(226, 250, 247, 0.68)", fontSize: "12px", fontWeight: 800 }}>No SPs assigned yet. Add SPs from SP Finder.</div>
+        )}
+      </div>
+
+      <div style={{ borderRadius: "16px", border: "1px solid rgba(126, 231, 219, 0.18)", background: "rgba(15, 23, 42, 0.46)", padding: "10px", display: "grid", gap: "8px" }}>
+        <div style={{ ...statLabel, color: "rgba(186, 230, 253, 0.88)" }}>Student / Learner Arrival Rail</div>
+        {liveLearnerPresenceTokens.length ? (
+          liveLearnerPresenceTokens.map((token) => {
+            const colors = getEventAttendanceStatusColors(token.status);
+            const isActive = activeEventAttendanceKey === token.key;
+            return (
+              <div key={`event-attendance-${token.key}`} style={{ borderRadius: "14px", border: `1px solid ${colors.ring}55`, background: colors.bg, padding: "8px", display: "grid", gap: "7px" }}>
+                <button
+                  type="button"
+                  onClick={() => setActiveEventAttendanceKey((current) => current === token.key ? "" : token.key)}
+                  style={{ all: "unset", cursor: "pointer", display: "flex", gap: "8px", alignItems: "center" }}
+                >
+                  <span style={{ borderRadius: "999px", boxShadow: `0 0 0 2px ${colors.ring}, 0 0 18px ${colors.ring}66` }}>
+                    <RoundOperationAvatar name={token.learnerName} role="student" />
+                  </span>
+                  <span style={{ display: "grid", gap: "2px", minWidth: 0 }}>
+                    <span style={{ color: "#ecfeff", fontSize: "12px", fontWeight: 950, overflowWrap: "anywhere" }}>{token.learnerName}</span>
+                    <span style={{ color: "rgba(226, 250, 247, 0.68)", fontSize: "10px", fontWeight: 800 }}>
+                      {token.roomName || "Room pending"} · {getEventAttendanceStatusLabel(token.status)}
+                    </span>
+                  </span>
+                </button>
+                {isActive ? (
+                  <div style={{ display: "flex", gap: "5px", flexWrap: "wrap", borderTop: "1px solid rgba(226,250,247,0.14)", paddingTop: "7px" }}>
+                    {[
+                      { label: "Mark Arrived", action: "arrived" as const },
+                      { label: "Mark Late", action: "late" as const },
+                      { label: "Mark Missing", action: "absent" as const },
+                      { label: "Mark In Room", action: "in_room" as const },
+                      { label: "Mark Completed", action: "completed" as const },
+                      { label: "Reset to Expected", action: "expected" as const },
+                    ].map((action) => (
+                      <button
+                        key={`${token.key}-${action.action}`}
+                        type="button"
+                        onClick={() => void handleLiveLearnerAttendanceAction(token, action.action)}
+                        disabled={attendanceSaving}
+                        style={{ ...staffingSecondaryButtonStyle, padding: "5px 7px", fontSize: "9px", opacity: attendanceSaving ? 0.6 : 1 }}
+                      >
+                        {blueprintActionSavingKey === `${token.attendanceKey}:${action.action}` ? "Saving..." : action.label}
+                      </button>
+                    ))}
+                    <button type="button" onClick={() => handleEventLearnerAttendanceNote(token)} disabled={attendanceSaving} style={{ ...staffingSecondaryButtonStyle, padding: "5px 7px", fontSize: "9px", opacity: attendanceSaving ? 0.6 : 1 }}>
+                      Add Note
+                    </button>
+                    {liveLearnerAttendanceRecords[token.attendanceKey]?.note ? (
+                      <span style={{ color: "rgba(226,250,247,0.72)", fontSize: "10px", fontWeight: 750 }}>Note: {liveLearnerAttendanceRecords[token.attendanceKey]?.note}</span>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            );
+          })
+        ) : (
+          <div style={{ color: "rgba(226, 250, 247, 0.68)", fontSize: "12px", fontWeight: 800 }}>No learner roster found. Add or import learners from Schedule Builder.</div>
+        )}
+      </div>
+    </div>
+
+    <div style={{ display: "grid", gap: "8px" }}>
+      <div style={{ ...statLabel, color: "rgba(186, 230, 253, 0.88)" }}>Room Attendance Map</div>
+      {interactiveLiveAttendanceBlueprintRooms.length ? (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: "8px" }}>
+          {interactiveLiveAttendanceBlueprintRooms.map((room) => {
+            const learnerTokens = liveLearnerPresenceTokens.filter((token) => compareRoomLabels(token.roomName, room.roomName) === 0);
+            const spToken = eventAttendanceSpTokens.find((token) => token.assignment.id === room.assignment?.id);
+            const spColors = getEventAttendanceStatusColors(spToken?.status || "expected");
+            return (
+              <div key={`event-attendance-room-${room.key}`} style={{ borderRadius: "14px", border: "1px solid rgba(126, 231, 219, 0.18)", background: "rgba(15, 23, 42, 0.42)", padding: "9px", display: "grid", gap: "7px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", alignItems: "flex-start" }}>
+                  <div>
+                    <div style={{ color: "#ecfeff", fontSize: "13px", fontWeight: 950 }}>{room.roomName}</div>
+                    <div style={{ marginTop: "2px", color: "rgba(226,250,247,0.62)", fontSize: "10px", fontWeight: 800 }}>{room.encounterLabel || "Case pending"}</div>
+                  </div>
+                  <span style={{ ...commandChipStyle, background: room.isCurrentRotationRoom ? "rgba(6, 182, 212, 0.18)" : "rgba(20, 184, 166, 0.14)", color: room.isCurrentRotationRoom ? "#cffafe" : "#ccfbf1" }}>
+                    {room.isCurrentRotationRoom ? "In Room" : room.statusLabel || "Standby"}
+                  </span>
+                </div>
+                <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
+                  <span style={{ borderRadius: "999px", boxShadow: `0 0 0 2px ${spColors.ring}, 0 0 14px ${spColors.ring}55` }}>
+                    <RoundOperationAvatar name={room.spName || "SP TBD"} role="sp" />
+                  </span>
+                  <span style={{ color: "#ecfeff", fontSize: "11px", fontWeight: 900 }}>{room.spName || "SP TBD"}</span>
+                </div>
+                <div style={{ display: "flex", gap: "5px", flexWrap: "wrap" }}>
+                  {learnerTokens.length ? learnerTokens.map((token) => {
+                    const colors = getEventAttendanceStatusColors(token.status);
+                    return (
+                      <button key={`event-room-token-${token.attendanceKey}`} type="button" onClick={() => setActiveEventAttendanceKey(token.key)} style={{ border: `1px solid ${colors.ring}55`, background: colors.bg, color: colors.text, borderRadius: "999px", padding: "4px 7px", display: "inline-flex", alignItems: "center", gap: "5px", cursor: "pointer", fontSize: "10px", fontWeight: 850 }}>
+                        <RoundOperationAvatar name={token.learnerName} role="student" />
+                        {token.learnerName}
+                      </button>
+                    );
+                  }) : (
+                    <span style={{ color: "rgba(226, 250, 247, 0.68)", fontSize: "11px", fontWeight: 800 }}>No learner assigned</span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div style={{ color: "rgba(226, 250, 247, 0.68)", fontSize: "12px", fontWeight: 800 }}>No room schedule is available yet.</div>
+      )}
+    </div>
+  </section>
 ) : roundCompanionView === "announcements" ? (
                             selectedRoundAnnouncementTimeline.length ? (
                               <div style={{ display: "grid", gap: "10px" }}>
