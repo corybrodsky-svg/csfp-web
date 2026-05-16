@@ -948,8 +948,8 @@ function waitMilliseconds(ms: number) {
 async function waitForSchedulePdfAssets(root: HTMLElement) {
   try {
     await document.fonts?.ready;
-  } catch (error) {
-    console.warn("[styled-pdf] Font readiness check failed; continuing with export render.", error);
+  } catch {
+    console.warn("[styled-pdf] Font readiness check failed; continuing with export render.");
   }
   const images = Array.from(root.querySelectorAll("img"));
   if (images.length) {
@@ -1138,8 +1138,8 @@ async function buildSchedulePdfPages(
   document.body.appendChild(exportRoot);
   try {
     await waitForSchedulePdfAssets(exportRoot);
-  } catch (error) {
-    console.warn("[styled-pdf] PDF section measurement layout wait failed; continuing with current DOM layout.", error);
+  } catch {
+    console.warn("[styled-pdf] PDF section measurement layout wait failed; continuing with current DOM layout.");
   }
 
   type PdfSectionCandidate = {
@@ -1414,7 +1414,7 @@ async function renderPdfCanvasWithRetry(
     } catch (error) {
       lastError = error;
       if (attemptIndex + 1 < canvasAttempts.length) {
-        console.warn(`[styled-pdf] ${pageLabel} html2canvas failed on ${attempt.name} attempt. Retrying.`, error);
+        console.warn(`[styled-pdf] ${pageLabel} html2canvas failed on ${attempt.name} attempt. Retrying.`);
         await waitAnimationFrames(2);
         continue;
       }
@@ -1539,8 +1539,8 @@ async function createStyledSchedulePdfBlob(context: StyledPdfRenderContext) {
   let pagesResult: PdfExportPages | null = null;
   try {
     pagesResult = await buildSchedulePdfPages(htmlSource, pageWidth, pageHeight, pdfSidePadding);
-  } catch (buildError) {
-    console.error("[styled-pdf] Sectioned PDF page build failed; attempting fallback export.", buildError);
+  } catch {
+    console.error("[styled-pdf] Sectioned PDF page build failed; attempting fallback export.");
   }
 
   if (!pagesResult) {
@@ -1599,7 +1599,7 @@ async function createStyledSchedulePdfBlob(context: StyledPdfRenderContext) {
     if (isCanvasTaintError(error)) {
       throw new Error("Direct PDF rendering blocked by browser CORS/canvas safety. Check image and asset access policies.");
     }
-    console.error("[styled-pdf] Section-based PDF render failed; attempting fallback export.", error);
+    console.error("[styled-pdf] Section-based PDF render failed; attempting fallback export.");
     return createFallbackStyledPdfBlob(htmlSource, scheduleDoc, pageWidthForRender, pageHeightForRender, pdfSidePadding, html2canvas);
   } finally {
     cleanup();
@@ -2479,13 +2479,6 @@ function calculateRoundTimingsWithBlocks(args: {
         stoppedByWindow: validation.stoppedByWindow,
         stoppedByRoundLimit: validation.stoppedByRoundLimit,
         reason: validation.reason,
-      });
-    } else {
-      window.console.info("Schedule generation summary", {
-        computedRounds: validation.generatedRounds,
-        generatedMinutes: validation.generatedMinutes,
-        computedEndMinutes: validation.computedEndMinutes,
-        expectedRounds: validation.expectedRounds,
       });
     }
   }
@@ -3832,6 +3825,11 @@ function buildSchedulePreviewData(args: {
             .room-row-grid { display: grid; gap: 8px; }
             .schedule-grid-shell { overflow-x: auto; border: 1px solid #dce6ee; border-radius: 14px; background: #f8fbfd; }
             .schedule-grid-table { width: 100%; border-collapse: collapse; min-width: 880px; }
+            .round-grid-group, .round-grid-row, .wide-row, .schedule-room-cell, .schedule-room-card {
+              break-inside: avoid;
+              page-break-inside: avoid;
+              -webkit-column-break-inside: avoid;
+            }
             .schedule-grid-table th { text-align: left; padding: 12px; border-bottom: 1px solid #dce6ee; color: #5e7388; font-size: 12px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; background: #f8fbfd; }
             .schedule-grid-table td { padding: 12px; border-bottom: 1px solid #eef3f7; vertical-align: top; background: #ffffff; }
             .round-index { font-size: 13px; font-weight: 900; color: #14304f; white-space: nowrap; }
@@ -3851,7 +3849,22 @@ function buildSchedulePreviewData(args: {
               body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
               .preview-shell { gap: 12px; }
               .schedule-grid-shell { border: none; }
-              .round-section, .rhythm-row, .event-meta-card, .schedule-room-card, .wide-band { break-inside: avoid; page-break-inside: avoid; }
+              .round-section,
+              .rhythm-row,
+              .event-meta-card,
+              .round-grid-group,
+              .round-grid-row,
+              .wide-row,
+              .schedule-room-cell,
+              .schedule-room-card,
+              .wide-band {
+                break-inside: avoid;
+                page-break-inside: avoid;
+                -webkit-column-break-inside: avoid;
+              }
+              .schedule-grid-table thead { display: table-header-group; }
+              .schedule-grid-table tbody { break-inside: avoid; page-break-inside: avoid; }
+              .schedule-grid-table tr { break-inside: avoid; page-break-inside: avoid; }
               .schedule-grid-shell { overflow: visible; max-width: none; }
             }
           </style>
@@ -4471,6 +4484,57 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     () => parseScheduleBuilderDays(selectedEventMetadata.schedule_builder_days),
     [selectedEventMetadata.schedule_builder_days]
   );
+  const scheduleBuilderEventId = props.fixedEventId || selectedEventId || "";
+  const scheduleBuilderDayOptions = useMemo(() => {
+    const days = new Set<number>([Math.max(1, scheduleDay)]);
+    scheduleBuilderDaySnapshots.forEach((_snapshot, day) => {
+      if (Number.isFinite(day) && day > 0) days.add(Math.floor(day));
+    });
+    return Array.from(days).sort((a, b) => a - b);
+  }, [scheduleBuilderDaySnapshots, scheduleDay]);
+  const buildScheduleBuilderDayHref = useCallback(
+    (nextDay: number) => {
+      const safeDay = Math.max(1, Math.floor(nextDay));
+      if (!scheduleBuilderEventId) return "";
+
+      if (typeof window !== "undefined") {
+        const nextUrl = new URL(window.location.href);
+        nextUrl.pathname = `/events/${encodeURIComponent(scheduleBuilderEventId)}/schedule-builder`;
+        nextUrl.searchParams.set("day", String(safeDay));
+        nextUrl.searchParams.set("scheduleDay", String(safeDay));
+        nextUrl.searchParams.set("view", scheduleViewMode);
+        nextUrl.searchParams.set("preview", previewKind);
+        nextUrl.searchParams.delete("previewMode");
+        nextUrl.searchParams.delete("downloadMode");
+        return `${nextUrl.pathname}${nextUrl.search}`;
+      }
+
+      const params = new URLSearchParams();
+      params.set("day", String(safeDay));
+      params.set("scheduleDay", String(safeDay));
+      params.set("view", scheduleViewMode);
+      params.set("preview", previewKind);
+      return `/events/${encodeURIComponent(scheduleBuilderEventId)}/schedule-builder?${params.toString()}`;
+    },
+    [previewKind, scheduleBuilderEventId, scheduleViewMode]
+  );
+  const navigateToScheduleBuilderDay = useCallback(
+    (nextDay: number) => {
+      const href = buildScheduleBuilderDayHref(nextDay);
+      if (!href) return;
+      router.push(href);
+    },
+    [buildScheduleBuilderDayHref, router]
+  );
+  const saveDraftForScheduleDay = useCallback(
+    (nextDay: number, draft: ScheduleBuilderDraft) => {
+      if (typeof window === "undefined") return;
+      const dayStorageKey = getStorageKey(scheduleBuilderEventId, nextDay, nextDay <= 1);
+      if (!dayStorageKey) return;
+      window.localStorage.setItem(dayStorageKey, JSON.stringify(draft));
+    },
+    [scheduleBuilderEventId]
+  );
 
   const persistScheduleWorkflowMetadata = useCallback(
     async (partial: Record<string, string>) => {
@@ -4591,21 +4655,6 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     if (nextTimeSource.sessionLengthMinutes !== "0") {
       setSessionLengthMinutes(nextTimeSource.sessionLengthMinutes);
     }
-    console.info(
-      `Schedule source: ${
-        nextTimeSource.source === "saved_draft"
-          ? "draft"
-          : nextTimeSource.source === "default"
-            ? "fallback"
-            : nextTimeSource.source
-      }`,
-      {
-        startTime: nextTimeSource.startTime,
-        endTime: nextTimeSource.endTime,
-        sessionLengthMinutes: nextTimeSource.sessionLengthMinutes,
-        blockedFallback: Boolean(serverDraft || completedSnapshot),
-      }
-    );
     }, [
       applyDraft,
       selectedEvent,
@@ -5181,6 +5230,37 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     selectedEvent?.id,
     showCopyMessage,
     storageKey,
+  ]);
+  const handleAddScheduleDay = useCallback(async () => {
+    if (!scheduleBuilderEventId) return;
+    const nextDay = Math.max(scheduleDay, ...scheduleBuilderDayOptions) + 1;
+    const now = new Date().toISOString();
+    const nextDraft: ScheduleBuilderDraft = {
+      ...draftSnapshot,
+      selectedEventId: scheduleBuilderEventId,
+      savedAt: now,
+    };
+
+    try {
+      if (autosaveTimeoutRef.current) {
+        window.clearTimeout(autosaveTimeoutRef.current);
+        autosaveTimeoutRef.current = null;
+      }
+      await handleSaveScheduleChanges();
+      saveDraftForScheduleDay(nextDay, nextDraft);
+      navigateToScheduleBuilderDay(nextDay);
+    } catch {
+      showCopyMessage("Could not create the next schedule day.", "error", 3200);
+    }
+  }, [
+    draftSnapshot,
+    handleSaveScheduleChanges,
+    navigateToScheduleBuilderDay,
+    saveDraftForScheduleDay,
+    scheduleBuilderDayOptions,
+    scheduleBuilderEventId,
+    scheduleDay,
+    showCopyMessage,
   ]);
   const handleSaveBuilderCase = useCallback(
     async (caseIndex: number, partial: Partial<ScheduleCaseDefinition>) => {
@@ -5941,18 +6021,22 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       downloadBlob(pdfBlob, selectedPreviewStyledPdfFileName);
       showCopyMessage(`${schedulePreview.title} styled PDF downloaded.`, "success", 2600);
     } catch (error) {
+      const printOpened = openSchedulePrintFlow();
       showCopyMessage(
-        error instanceof Error
-          ? error.message
-          : "Could not download styled PDF. Raw text and printable HTML remain available in Export.",
-        "error",
-        3600
+        printOpened
+          ? "Direct PDF download was blocked, so a print window opened. Use Save as PDF from the print dialog."
+          : error instanceof Error
+            ? error.message
+            : "Could not download styled PDF. Use Print Schedule or Export Printable HTML from Actions.",
+        printOpened ? "success" : "error",
+        printOpened ? 5200 : 3600
       );
     } finally {
       setStyledPdfExporting(false);
     }
   }, [
     compactSchedulePrintHtml,
+    openSchedulePrintFlow,
     selectedPreviewStyledPdfFileName,
     previewKind,
     schedulePreview.title,
@@ -6060,8 +6144,9 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         }}
       >
         {[
+          { label: "Open Schedule Preview", onClick: () => setShowSchedulePreview(true) },
           { label: "Print Schedule", onClick: handleRenderedSchedulePrint },
-          { label: styledPdfExporting ? "Preparing PDF..." : "Download PDF", onClick: () => void handleStyledPdfDownload(), disabled: styledPdfExporting },
+          { label: styledPdfExporting ? "Preparing PDF..." : "Download PDF / Save PDF", onClick: () => void handleStyledPdfDownload(), disabled: styledPdfExporting },
           { label: "Copy/share link", onClick: () => void handleShareOrCopyLink() },
         ].map((action) => (
           <button
@@ -6090,6 +6175,51 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
             {action.label}
           </button>
         ))}
+        {!props.previewOnly ? (
+          <div
+            style={{
+              borderTop: isDark ? "1px solid rgba(120, 180, 255, 0.14)" : "1px solid #e6edf3",
+              marginTop: 4,
+              paddingTop: 7,
+              display: "grid",
+              gap: 4,
+            }}
+          >
+            <div style={{ color: isDark ? "rgba(220, 239, 255, 0.62)" : "#6b7d8f", fontSize: 11, fontWeight: 900, padding: "3px 10px", textTransform: "uppercase" }}>
+              Builder
+            </div>
+            {[
+              { label: "Rebuild Schedule Math", onClick: handleRebuildScheduleMath, disabled: false },
+              { label: scheduleCompletionSaving ? "Marking Complete..." : "Mark Schedule Complete", onClick: () => void handleCompleteSchedule(), disabled: scheduleCompletionSaving },
+            ].map((action) => (
+              <button
+                key={action.label}
+                type="button"
+                onClick={(event) => {
+                  if (action.disabled) return;
+                  action.onClick();
+                  event.currentTarget.closest("details")?.removeAttribute("open");
+                }}
+                disabled={action.disabled}
+                style={{
+                  border: "none",
+                  borderRadius: 9,
+                  background: isDark ? "rgba(255,255,255,0.04)" : "#f8fbfd",
+                  color: isDark ? "rgba(240, 248, 255, 0.92)" : "#14304f",
+                  cursor: action.disabled ? "not-allowed" : "pointer",
+                  fontSize: 13,
+                  fontWeight: 800,
+                  opacity: action.disabled ? 0.62 : 1,
+                  padding: "9px 10px",
+                  textAlign: "left",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {action.label}
+              </button>
+            ))}
+          </div>
+        ) : null}
         <div
           style={{
             borderTop: isDark ? "1px solid rgba(120, 180, 255, 0.14)" : "1px solid #e6edf3",
@@ -6194,7 +6324,6 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       });
       setSaveState("saved");
       setLastSavedAt(now);
-      console.info("Schedule source: completed_snapshot");
       showCopyMessage("Schedule marked complete.");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not mark schedule complete.";
@@ -6282,23 +6411,28 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       if (uploadMode === "add") {
         const knownDays = Array.from(scheduleBuilderDaySnapshots.keys()).filter((day) => Number.isFinite(day));
         const nextDay = Math.max(scheduleDay, 1, ...knownDays) + 1;
+        const savedAt = new Date().toISOString();
+        const nextDraft: ScheduleBuilderDraft = {
+          ...draftSnapshot,
+          selectedEventId: scheduleBuilderEventId,
+          learnerFileName: file.name,
+          originalUploadedLearners: names,
+          uploadedLearners: names,
+          roundCount: String(Math.max(1, Math.ceil(names.length / Math.max(slotsPerRound, 1)))),
+          manualRoundOverride: false,
+          savedAt,
+        };
 
         lockedScheduleSourceRef.current = null;
         hydratedTimePrefillKeyRef.current = "";
         skipNextAutosaveRef.current = true;
-        setSelectedBuilderRound(null);
-        setLearnerFileName(file.name);
-        setOriginalUploadedLearners(names);
-        setUploadedLearners(names);
-        setRoundCount(String(Math.max(1, Math.ceil(names.length / Math.max(slotsPerRound, 1)))));
-        setManualRoundOverride(false);
-        setSaveState("unsaved");
-        setScheduleMathEpoch((current) => current + 1);
+        saveDraftForScheduleDay(nextDay, nextDraft);
         showCopyMessage(
-          `Added ${file.name} as schedule/day ${nextDay}. Current schedule was preserved. Save changes to archive it.`,
+          `Added ${file.name} as schedule/day ${nextDay}. Opening that day now; save it when the setup looks right.`,
           "success",
           5600
         );
+        navigateToScheduleBuilderDay(nextDay);
         return;
       }
 
@@ -6426,8 +6560,18 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
             .round-section,
             .rhythm-row,
             .event-meta-card,
+            .round-grid-group,
+            .round-grid-row,
+            .wide-row,
+            .schedule-room-cell,
             .schedule-room-card,
             .wide-band {
+              break-inside: avoid;
+              page-break-inside: avoid;
+            }
+            .schedule-grid-table thead { display: table-header-group; }
+            .schedule-grid-table tbody,
+            .schedule-grid-table tr {
               break-inside: avoid;
               page-break-inside: avoid;
             }
@@ -6594,6 +6738,26 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
               </span>
               <span className="cfsp-chip">{scheduleWorkflowBadgeLabel}</span>
             </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.08em] text-[#5e7388]">
+                Schedule Day
+                <select
+                  value={scheduleDay}
+                  onChange={(event) => navigateToScheduleBuilderDay(Number.parseInt(event.target.value, 10) || 1)}
+                  className="cfsp-input h-9 min-w-[120px] rounded-[10px] px-3 text-sm normal-case tracking-normal"
+                  aria-label="Schedule day"
+                >
+                  {scheduleBuilderDayOptions.map((day) => (
+                    <option key={`schedule-day-option-${day}`} value={day}>
+                      Day {day}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button type="button" onClick={() => void handleAddScheduleDay()} className="cfsp-btn cfsp-btn-secondary">
+                Add Day
+              </button>
+            </div>
           </div>
           <div className="grid gap-3">
             <div className="flex flex-wrap gap-2">
@@ -6625,23 +6789,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                 ) : null}
                 {saveButtonLabel}
               </button>
-                {renderScheduleActionsMenu(false)}
-              <button
-                type="button"
-                onClick={handleRebuildScheduleMath}
-                className="cfsp-btn cfsp-btn-secondary"
-              >
-                Rebuild Schedule Math
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleCompleteSchedule()}
-                disabled={scheduleCompletionSaving}
-                className="cfsp-btn"
-                style={{ opacity: scheduleCompletionSaving ? 0.65 : 1 }}
-              >
-                {scheduleCompletionSaving ? "Marking Complete..." : "Mark Schedule Complete"}
-              </button>
+              {renderScheduleActionsMenu(false)}
             </div>
             {learnerRoster.length > 1 ? (
               <div className="flex flex-wrap gap-2">

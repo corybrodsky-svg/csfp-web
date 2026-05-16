@@ -4680,7 +4680,6 @@ export default function EventDetailPage() {
   const [rotationCommandSurfaceOpen, setRotationCommandSurfaceOpen] = useState(true);
   const [tacticalRoomBoardOpen, setTacticalRoomBoardOpen] = useState(false);
   const [liveRoomStates, setLiveRoomStates] = useState<Record<string, LiveRoomLocalState>>({});
-  const [localOccupancyLearnerArrivals, setLocalOccupancyLearnerArrivals] = useState<Record<string, boolean>>({});
   const [localOccupancySpCheckIns, setLocalOccupancySpCheckIns] = useState<Record<string, boolean>>({});
   const [localOccupancyLearnerRoomMoves, setLocalOccupancyLearnerRoomMoves] = useState<Record<string, string>>({});
   const [localOccupancySpRoomMoves, setLocalOccupancySpRoomMoves] = useState<Record<string, string>>({});
@@ -4747,6 +4746,7 @@ export default function EventDetailPage() {
   const [activeBlueprintRoomKey, setActiveBlueprintRoomKey] = useState("");
   const [collapsedBlueprintRoomKeys, setCollapsedBlueprintRoomKeys] = useState<Record<string, boolean>>({});
   const [activeLearnerAttendanceKey, setActiveLearnerAttendanceKey] = useState("");
+  const [persistedLearnerAttendanceRecords, setPersistedLearnerAttendanceRecords] = useState<LearnerAttendanceMap>({});
   const [blueprintActionSavingKey, setBlueprintActionSavingKey] = useState("");
   const [blueprintRestoreAssignmentIdByRoom, setBlueprintRestoreAssignmentIdByRoom] = useState<Record<string, string>>({});
   const [roundOperationsDraftAdjustments, setRoundOperationsDraftAdjustments] = useState<ParsedScheduleRoomAdjustments | null>(null);
@@ -5782,7 +5782,7 @@ export default function EventDetailPage() {
     const scheduleStatus = asText(trainingMetadata.schedule_status).toLowerCase();
     const hasDraftTiming = Boolean(scheduleBuilderPreviewDraft?.startTime);
     const completedCandidate =
-      scheduleStatus === "complete" && hasDraftTiming
+      scheduleStatus === "complete"
         ? scheduleBuilderDraftRoundCount || metadataBasedRotationCount
         : 0;
     const draftCandidate =
@@ -5889,12 +5889,6 @@ export default function EventDetailPage() {
           rooms: round.roomSlots.map((slot) => asText(slot.roomName)).filter(Boolean),
         }));
 
-        // Do not let a stale completed schedule snapshot hide real backend/session rounds.
-        // If imported/event sessions contain more operational rounds, they win.
-        if (allRotationRounds.length > completedSnapshotRounds.length) {
-          return allRotationRounds;
-        }
-
         return completedSnapshotRounds;
       }
       if (scheduleBuilderPreviewDraft?.startTime) {
@@ -5905,21 +5899,10 @@ export default function EventDetailPage() {
           resolvedRotationDraftEndText,
           importedYearHint
         );
-        if (snapshotRounds.length) {
-          if (allRotationRounds.length > snapshotRounds.length) {
-            return allRotationRounds;
-          }
-          return snapshotRounds;
-        }
+        if (snapshotRounds.length) return snapshotRounds;
       }
 
       const cappedRounds = capRotationRounds(allRotationRounds, activeRotationCount);
-
-      // Operations must not hide real backend/session rounds just because the
-      // learner-capacity planner thinks fewer rounds are needed.
-      if (allRotationRounds.length > cappedRounds.length) {
-        return allRotationRounds;
-      }
 
       return cappedRounds;
     },
@@ -6068,16 +6051,17 @@ export default function EventDetailPage() {
   const roomSlotEntriesByRoundKey = useMemo(() => {
     const next = new Map<string, RoomDisplayEntry[]>();
     rotationRounds.forEach((round) => {
+      const persistedRoundSlotCount = persistedResolvedRoundsByKey.get(round.key)?.roomSlots.length || 0;
       next.set(
         round.key,
         buildFullRoomSlotsForRound(round, {
-          metadataRoomCount: effectiveRoomCount,
+          metadataRoomCount: persistedRoundSlotCount || effectiveRoomCount,
           roomContext: roomNamingContext,
         })
       );
     });
     return next;
-  }, [effectiveRoomCount, roomNamingContext, rotationRounds]);
+  }, [effectiveRoomCount, persistedResolvedRoundsByKey, roomNamingContext, rotationRounds]);
   const hiddenExtraBackendRounds =
     activeRotationCount > 0 && allRotationRounds.length > rotationRounds.length
       ? allRotationRounds.length - rotationRounds.length
@@ -6241,6 +6225,20 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     : getDateDeltaDays(primaryEventDate) === 0
       ? "ready"
       : "scheduled";
+const eventIsActuallyHappening = useMemo(() => {
+  if (!eventCountdownTarget?.start) return false;
+  const nowMs = countdownNowMs ?? Date.now();
+  const startMs = eventCountdownTarget.start.getTime();
+  const endMs = eventCountdownTarget.end?.getTime() ?? startMs;
+  return nowMs >= startMs && nowMs <= endMs;
+}, [countdownNowMs, eventCountdownTarget]);
+const operationalEventStatusLabel = useMemo(() => {
+  const normalized = eventStatusLabel.toLowerCase();
+  if (!normalized.includes("progress")) return eventStatusLabel;
+  if (eventIsActuallyHappening) return eventStatusLabel;
+  if (primaryEventDate && getDateDeltaDays(primaryEventDate) < 0) return "Complete";
+  return "Scheduled";
+}, [eventIsActuallyHappening, eventStatusLabel, primaryEventDate]);
   const liveEventAnchorDateIso = useMemo(() => {
     if (!rotationRounds.length) return "";
     const todayIso = new Date().toISOString().slice(0, 10);
@@ -6740,12 +6738,18 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       const liveKey = `${currentLiveBlock.key}|${resolvedRoomName}`;
       const localState = liveRoomStates[liveKey] || {};
       const assignmentStatus = assignment ? getAssignmentStatus(assignment) : null;
+      const persistedAttendanceStatus = asText(assignment?.event_attendance_status).toLowerCase();
+      const assignmentEventArrived =
+        persistedAttendanceStatus === "arrived" ||
+        persistedAttendanceStatus === "in_room" ||
+        persistedAttendanceStatus === "completed" ||
+        Boolean(assignment?.event_checked_in_at);
       const missingSp =
         Boolean(assignment) &&
+        !assignmentEventArrived &&
         assignment?.training_attended !== true &&
         assignmentStatus !== "declined" &&
         assignmentStatus !== "no_show";
-      const persistedAttendanceStatus = asText(assignment?.event_attendance_status).toLowerCase();
       const defaultStatus: LiveRoomStatusValue = !assignment
         ? "empty"
         : persistedAttendanceStatus === "arrived" || persistedAttendanceStatus === "in_room"
@@ -6826,7 +6830,6 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     setRoundOperationsSaveState("saved");
     setRoundOperationsLastSavedAt("");
     setRoundOperationsSaveError("");
-    setLocalOccupancyLearnerArrivals({});
     setLocalOccupancySpCheckIns({});
     setLocalOccupancyLearnerRoomMoves({});
     setLocalOccupancySpRoomMoves({});
@@ -7085,7 +7088,10 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
   const hasFaculty = hasNotesLine(event?.notes, /^(Course Faculty|Faculty)\s*:/im);
   const hasTrainingScheduled = hasNotesLine(event?.notes, /^Training Date\s*:/im);
   const hasZoomReady = hasNotesLine(event?.notes, /^(Zoom|SimIQ)\s*:/im) || /zoom|simiq|online|virtual/i.test(asText(event?.notes));
-  const hasRoomsBuilt = sessions.some((session) => Boolean(asText(session.room) || asText(session.location)));
+  const hasRoomsBuilt =
+    sessions.some((session) => Boolean(asText(session.room) || asText(session.location))) ||
+    scheduleBuilderDraftRoomCount > 0 ||
+    Boolean(scheduleBuilderPreviewDraft?.resolvedRounds?.some((round) => round.roomSlots.length > 0));
   const scheduleWorkflowStatus = asText(trainingMetadata.schedule_status).toLowerCase();
   const rotationScheduleBuilt = ["built", "saved", "complete"].includes(
     asText(trainingMetadata.rotation_schedule_status).toLowerCase()
@@ -8317,12 +8323,12 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       !shouldSuppressStaleNeedsSpStatus
         ? {
             key: "event-status",
-            label: eventStatusLabel,
+            label: operationalEventStatusLabel,
             showInHeader: true,
             showInSummary: true,
             style: {
               ...assignmentStatusStyles[
-                eventStatusLabel.toLowerCase() === "confirmed" ? "confirmed" : "invited"
+                operationalEventStatusLabel.toLowerCase() === "confirmed" ? "confirmed" : "invited"
               ],
               borderRadius: "999px",
               padding: "6px 10px",
@@ -8487,8 +8493,11 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     setRoundOperationsLastSavedAt(trainingMetadata.schedule_last_saved_at || trainingMetadata.schedule_updated_at || "");
   }, [trainingMetadata.schedule_room_adjustments, trainingMetadata.schedule_last_saved_at, trainingMetadata.schedule_updated_at]);
   const liveLearnerAttendanceRecords = useMemo(
-    () => parseLearnerAttendanceMetadata(trainingMetadata.live_learner_attendance),
-    [trainingMetadata.live_learner_attendance]
+    () => ({
+      ...parseLearnerAttendanceMetadata(trainingMetadata.live_learner_attendance),
+      ...persistedLearnerAttendanceRecords,
+    }),
+    [persistedLearnerAttendanceRecords, trainingMetadata.live_learner_attendance]
   );
   const liveBoardAdjustment = liveRoomAdjustments[LIVE_ROOM_BOARD_ADJUSTMENT_KEY] || {};
   const liveExtraRoomCount = Math.max(0, liveBoardAdjustment.extraRoomCount || 0);
@@ -8614,11 +8623,10 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     if (!selectedRotationRound) return [] as RoomDisplayEntry[];
 
     const mappedSlots = roomSlotEntriesByRoundKey.get(selectedRotationRound.key) || [];
+    const persistedRoundSlotCount = persistedResolvedRoundsByKey.get(selectedRotationRound.key)?.roomSlots.length || 0;
     const operationalRoomCount = Math.max(
       mappedSlots.length,
-      effectiveRoomCount,
-      needed,
-      confirmedAssignments.length
+      persistedRoundSlotCount ? 0 : effectiveRoomCount
     );
 
     const expandedSlots = buildFullRoomSlotsForRound(selectedRotationRound, {
@@ -8635,9 +8643,8 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       roomName: mappedSlots[index]?.roomName || slot.roomName,
     }));
   }, [
-    confirmedAssignments.length,
     effectiveRoomCount,
-    needed,
+    persistedResolvedRoundsByKey,
     roomNamingContext,
     roomSlotEntriesByRoundKey,
     selectedRotationRound,
@@ -8820,6 +8827,14 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     if (remaining <= 0) return 0;
     return Math.min(roomCapacity, remaining);
   }, [activeSelectedRotationRoundGlobalIndex, effectiveLearnerCount, selectedRotationRound, selectedRoundRoomCount, selectedRoundScheduleRows]);
+  const operationalRoundCount = rotationRounds.length || activeRotationCount || scheduleBuilderDraftRoundCount || 0;
+  const operationalRoomCount = selectedRoundRoomCount || effectiveRoomCount || scheduleBuilderDraftRoomCount || 0;
+  const operationalLearnerCountLabel =
+    selectedRoundLearnerCount !== null
+      ? String(selectedRoundLearnerCount)
+      : effectiveLearnerCount > 0
+        ? String(effectiveLearnerCount)
+        : "TBD";
   const selectedRoundEmptySlots = useMemo(() => {
     if (!selectedRotationRound) return null;
     if (selectedRoundLearnerCount === null) return null;
@@ -8851,6 +8866,9 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
   ].filter(Boolean);
   const selectedRoundAssignedLearnerCount = selectedRoundScheduleRows.reduce((total, row) => total + row.learnerLabels.length, 0);
   const selectedRoundExpectedLearnerCount = selectedRoundLearnerCount ?? 0;
+  const selectedRoundPrimaryCoveredCount = selectedRoundScheduleRows.filter(
+    (row) => row.assignment && getAssignmentStatus(row.assignment) === "confirmed"
+  ).length;
   const selectedRoundRoomNameCounts = selectedRoundScheduleRows.reduce<Map<string, number>>((map, row) => {
     const roomName = asText(row.roomName).trim().toLowerCase();
     if (!roomName || isRoomPlaceholderLabel(row.roomName)) {
@@ -9834,10 +9852,16 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
             : null;
         const standbySp = standbyAssignment?.sp_id ? spsById.get(standbyAssignment.sp_id) || null : null;
         const assignmentStatus = assignment ? getAssignmentStatus(assignment) : null;
+        const persistedAttendanceStatus = asText(assignment?.event_attendance_status).toLowerCase();
         const liveAttendanceMetadata = assignment ? parseLiveAttendanceMetadata(assignment.notes) : emptyLiveAttendanceMetadata();
         const manualStatus = asText(liveAttendanceMetadata.status).toLowerCase();
         const manualUpdatedAt = asText(liveAttendanceMetadata.updatedAt);
-        const checkedIn = assignment?.training_attended === true;
+        const checkedIn =
+          persistedAttendanceStatus === "arrived" ||
+          persistedAttendanceStatus === "in_room" ||
+          persistedAttendanceStatus === "completed" ||
+          Boolean(assignment?.event_checked_in_at) ||
+          assignment?.training_attended === true;
         const autoNoShow =
           manualStatus !== "cleared" &&
           manualStatus !== "late" &&
@@ -9853,11 +9877,11 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
               simulatedLiveMinutes > firstLiveRotationStartMinutes));
         const noShow =
           !checkedIn &&
-          (manualStatus === "no_show" || assignmentStatus === "no_show" || autoNoShow);
+          (persistedAttendanceStatus === "missing" || manualStatus === "no_show" || assignmentStatus === "no_show" || autoNoShow);
         const late =
           !checkedIn &&
           !noShow &&
-          (manualStatus === "late" || autoLate);
+          (persistedAttendanceStatus === "late" || manualStatus === "late" || autoLate);
         const status = checkedIn
           ? "checked_in"
           : noShow
@@ -9877,7 +9901,7 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
           initials: sp ? getInitials(getFullName(sp)) : String(index + 1),
           checkedAt:
             checkedIn
-              ? boardRow?.checkedAt || (assignment ? formatAttendanceTimestamp(assignment.training_checked_in_at) : "")
+              ? boardRow?.checkedAt || (assignment ? formatAttendanceTimestamp(assignment.event_checked_in_at || assignment.training_checked_in_at) : "")
               : manualUpdatedAt
                 ? formatAttendanceTimestamp(manualUpdatedAt)
                 : "",
@@ -10114,9 +10138,7 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
               const isCurrentRoom = currentLiveBlock?.tone === "rotation" && room.isCurrentRotationRoom;
               const nextRoom =
                 nextLiveBlock && nextLiveBlock.rooms.some((label) => compareRoomLabels(label, room.roomName) === 0);
-              const localArrivalKey = `${selectedRoundOccupancyKey}|${learnerName}`;
-              const localArrival = localOccupancyLearnerArrivals[localArrivalKey];
-              const storedStatus = localArrival === true ? "arrived" : localArrival === false ? "expected" : record?.status || "expected";
+              const storedStatus = record?.status || "expected";
               const displayStatus: LearnerAttendanceStatus =
                 storedStatus === "arrived" && isCurrentRoom
                   ? "in_room"
@@ -10155,9 +10177,7 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
       currentLiveReferenceRound?.key,
       interactiveLiveAttendanceBlueprintRooms,
       liveLearnerAttendanceRecords,
-      localOccupancyLearnerArrivals,
       nextLiveBlock,
-      selectedRoundOccupancyKey,
     ]
   );
   const liveLearnerArrivedCount = liveLearnerPresenceTokens.filter((token) =>
@@ -10668,6 +10688,29 @@ const eventDateTone: OperationalDateTone = !primaryEventDate
     }
   }
 
+  const pollEmailTemplateContext = {
+    eventName: event?.name || "CFSP Event",
+    eventDate: eventDateLabel || "Event date TBD",
+    eventDates: sessionSummaryLabel || eventDateLabel || "Event dates TBD",
+    eventTime: summaryTimeLabel || "Event time TBD",
+    eventLocation: pollLocationSummary || trainingLocationModality || event?.location || "Location / access TBD",
+    caseName: trainingMetadata.case_name || trainingRoleNeedLabel || "Case / role TBD",
+    simStaff: trainingSimContact || "Simulation Operations",
+    faculty: facultyEmails.join(", "),
+    trainingDate: formatEventDateText(normalEventTrainingDateText, importedYearHint) || normalEventTrainingDateText || "Training date TBD",
+    trainingTime: normalEventTrainingTimeText || "Training time TBD",
+    trainingZoomLink: trainingMetadata.zoom_url || normalEventTrainingLink || "Training access TBD",
+    spFirstName: "",
+    spFullName: "",
+    spEmails: (pollSelectedEmails.length ? pollSelectedEmails : pollSelectedSpEmailsFromMetadata).join(","),
+    pollLink: eventPollLink || "Poll link TBD",
+    universityName: "Drexel University",
+    programName: "CFSP",
+    senderName: me?.fullName || me?.scheduleName || "CFSP Simulation Operations",
+    senderTitle: "Simulation Operations",
+    senderEmail: me?.email || "",
+    generalStaffSignature: [me?.fullName || me?.scheduleName || "CFSP Simulation Operations", me?.email || ""].filter(Boolean).join("\n"),
+  };
   const pollEmailSubject = `${event?.name || "Event"}: CFSP Availability Poll`;
   const pollEmailBody = `SPs,
 
@@ -10695,13 +10738,20 @@ Submitting availability does not guarantee assignment. We will follow up once st
 
 Thank you,
 Cory`;
+  const pollEmailTemplate = findEmailTemplate(emailTemplates, "hiring", "SP Availability Poll");
+  const pollEmailDraft = pollEmailTemplate
+    ? renderEmailTemplate(pollEmailTemplate, pollEmailTemplateContext)
+    : {
+        subject: normalizeEmailPlainText(pollEmailSubject),
+        body: normalizeEmailPlainText(pollEmailBody),
+      };
 
   const pollMailtoHref = buildMailtoHref({
     to: me?.email || "",
     cc: facultyEmails,
     bcc: pollSelectedEmails.length ? pollSelectedEmails : pollSelectedSpEmailsFromMetadata,
-    subject: pollEmailSubject,
-    body: pollEmailBody,
+    subject: pollEmailDraft.subject || pollEmailSubject,
+    body: pollEmailDraft.body || pollEmailBody,
   });
 
   async function handleDraftPollingEmail() {
@@ -12441,10 +12491,36 @@ Cory`;
     facultyEmailText && `Faculty Email: ${facultyEmailText}`,
     facultyPhoneText && `Faculty Phone: ${facultyPhoneText}`,
   ].filter(Boolean);
-  const generalStaffSignature = [
+  const defaultGeneralStaffSignature = [
     me?.fullName || me?.scheduleName || "CFSP Simulation Operations",
     me?.email || "",
   ].filter(Boolean).join("\n");
+  const generalStaffSignatureTemplate = findEmailTemplate(emailTemplates, "signature", "General Staff Signature");
+  const generalStaffSignature = generalStaffSignatureTemplate
+    ? renderEmailTemplate(generalStaffSignatureTemplate, {
+        eventName: event?.name || "CFSP Event",
+        eventDate: eventDateLabel || sessionSummaryLabel || "Event date TBD",
+        eventDates: sessionSummaryLabel || eventDateLabel || "Event dates TBD",
+        eventTime: summaryTimeLabel || "Event time TBD",
+        eventLocation: locationAccessPrimaryLabel || event?.location || trainingLocationModality || "Location / access TBD",
+        caseName: trainingMetadata.case_name || trainingRoleNeedLabel || "Case / role TBD",
+        simStaff: trainingSimContact || "Simulation Operations",
+        faculty: facultyEmailText || trainingFacultyText || "Faculty contact TBD",
+        trainingDate: formatEventDateText(normalEventTrainingDateText, importedYearHint) || normalEventTrainingDateText || "Training date TBD",
+        trainingTime: normalEventTrainingTimeText || "Training time TBD",
+        trainingZoomLink: trainingMetadata.zoom_url || normalEventTrainingLink || trainingAccessUrl || "Training access TBD",
+        spFirstName: "",
+        spFullName: "",
+        spEmails: "",
+        pollLink: eventPollLink || "Poll link TBD",
+        universityName: "Drexel University",
+        programName: "CFSP",
+        senderName: me?.fullName || me?.scheduleName || "CFSP Simulation Operations",
+        senderTitle: "Simulation Operations",
+        senderEmail: me?.email || "",
+        generalStaffSignature: defaultGeneralStaffSignature,
+      }).body || defaultGeneralStaffSignature
+    : defaultGeneralStaffSignature;
   const emailTemplateContext = {
     eventName: event?.name || "CFSP Event",
     eventDate: eventDateLabel || sessionSummaryLabel || "Date TBD",
@@ -12691,6 +12767,66 @@ Cory`;
     subject: payrollEmailDraft.subject,
     body: payrollEmailDraft.body,
   });
+  const availabilityPollClosedEmailDraft = renderCommandEmailDraft(
+    "poll",
+    "Availability Poll Closed",
+    `Availability Poll Closed: ${event?.name || "CFSP Event"}`,
+    [
+      "Hello,",
+      "",
+      `The availability poll for ${event?.name || "this CFSP event"} is now closed.`,
+      "",
+      "CFSP will review responses and send confirmation details to selected SPs.",
+      "",
+      generalStaffSignature,
+    ].join("\n")
+  );
+  const availabilityPollClosedBccEmails = Array.from(
+    new Set([
+      ...(pollSelectedEmails.length ? pollSelectedEmails : pollSelectedSpEmailsFromMetadata),
+      ...hiringPollBccEmails,
+    ].map((email) => normalizeEmail(email)).filter(Boolean))
+  );
+  const availabilityPollClosedMailtoHref = buildMailtoHref({
+    to: me?.email || "",
+    cc: communicationCcEmails,
+    bcc: availabilityPollClosedBccEmails,
+    subject: availabilityPollClosedEmailDraft.subject,
+    body: availabilityPollClosedEmailDraft.body,
+  });
+  const cancellationEmailBccEmails = useMemo(() => {
+    const cancellationEmails = sortedAssignments
+      .map((assignment) => {
+        const status = getAssignmentStatus(assignment);
+        if (status !== "declined" && status !== "no_show") return null;
+        const spId = assignment.sp_id ? String(assignment.sp_id) : "";
+        const sp = spId ? spsById.get(spId) : undefined;
+        return sp ? getEmail(sp) : null;
+      })
+      .filter((email): email is string => Boolean(email));
+    return Array.from(new Set(cancellationEmails.map((email) => normalizeEmail(email)).filter(Boolean)));
+  }, [spsById, sortedAssignments]);
+  const cancellationEmailDraft = renderCommandEmailDraft(
+    "cancellation",
+    "SP Cancellation",
+    `Cancellation Notice: ${event?.name || "CFSP Event"} - ${eventDateLabel || "Event date TBD"}`,
+    [
+      "Hello,",
+      "",
+      `CFSP is writing to cancel or release your assignment for ${event?.name || "this CFSP event"} on ${eventDateLabel || "the scheduled event date"}.`,
+      "",
+      "Thank you for your flexibility.",
+      "",
+      generalStaffSignature,
+    ].join("\n")
+  );
+  const cancellationMailtoHref = buildMailtoHref({
+    to: me?.email || "",
+    cc: communicationCcEmails,
+    bcc: cancellationEmailBccEmails,
+    subject: cancellationEmailDraft.subject,
+    body: cancellationEmailDraft.body,
+  });
   const hiringPollCardStatus = hiringEmailNeeded
     ? hiringEmailSentProof
       ? "Sent"
@@ -12754,6 +12890,25 @@ Cory`;
       },
     },
     {
+      key: "availability-poll-closed",
+      title: "Availability Poll Closed Email",
+      description: "Notify polled SPs that availability collection is closed.",
+      status: availabilityPollClosedBccEmails.length ? "Ready to draft" : "Needs info",
+      statusDetail: availabilityPollClosedBccEmails.length
+        ? "Draft poll-closed notice to selected/polled SPs."
+        : "Create/select poll recipients before drafting the closed notice.",
+      ready: Boolean(availabilityPollClosedBccEmails.length),
+      href: availabilityPollClosedMailtoHref,
+      onClick: async () => {
+        if (!availabilityPollClosedBccEmails.length) {
+          setEventSaveError("Create or select poll SP recipients before drafting the poll-closed email.");
+          return;
+        }
+        setEventSaveError("");
+        window.location.href = availabilityPollClosedMailtoHref;
+      },
+    },
+    {
       key: "hire-confirmation",
       title: "Hire Confirmation Email",
       description: "Draft confirmation for selected SPs with finalized event details.",
@@ -12813,6 +12968,25 @@ Cory`;
       },
     },
     {
+      key: "sp-cancellation",
+      title: "SP Cancellation Email",
+      description: "Draft release/cancellation notice for declined or no-show assignment rows.",
+      status: cancellationEmailBccEmails.length ? "Ready to draft" : "Needs info",
+      statusDetail: cancellationEmailBccEmails.length
+        ? "Draft cancellation/release notice to affected SPs."
+        : "No declined/no-show SP recipients are available.",
+      ready: Boolean(cancellationEmailBccEmails.length),
+      href: cancellationMailtoHref,
+      onClick: async () => {
+        if (!cancellationEmailBccEmails.length) {
+          setEventSaveError("Mark an SP as declined/no-show or add an affected recipient before drafting cancellation.");
+          return;
+        }
+        setEventSaveError("");
+        window.location.href = cancellationMailtoHref;
+      },
+    },
+    {
       key: "payroll-wrapup",
       title: "Post-Event Payroll / Wrap-Up Email",
       description: "Draft payroll timing and hours guidance for assigned/confirmed SPs.",
@@ -12868,8 +13042,8 @@ Cory`;
   ];
   const mailtoHref = buildMailtoHref({
     bcc: hiringEmailBccEmails.length ? hiringEmailBccEmails : bccEmails,
-    subject: emailSubject,
-    body: emailBody,
+    subject: hiringPollEmailDraft.subject || emailSubject,
+    body: hiringPollEmailDraft.body || emailBody,
   });
 
   function clearActionFeedbackTimers() {
@@ -12935,6 +13109,43 @@ Cory`;
     setAccessDenied(result.accessDenied);
     setNotFound(result.notFound);
     setSelectedSpId("");
+    try {
+      const attendanceResponse = await fetch(`/api/events/${encodeURIComponent(id)}/learner-attendance`, {
+        cache: "no-store",
+      });
+      if (attendanceResponse.ok) {
+        const attendanceBody = (await attendanceResponse.json().catch(() => null)) as {
+          records?: Array<{
+            round_id?: string | null;
+            room?: string | null;
+            learner_name?: string | null;
+            status?: string | null;
+            checked_in_at?: string | null;
+            updated_at?: string | null;
+          }>;
+        } | null;
+        const nextRecords = Object.fromEntries(
+          (attendanceBody?.records || [])
+            .map((record) => {
+              const learnerName = asText(record.learner_name);
+              if (!learnerName) return null;
+              return [
+                getLearnerAttendanceKey(record.round_id, record.room, learnerName),
+                {
+                  status: normalizeLearnerAttendanceStatus(record.status),
+                  updatedAt: asText(record.checked_in_at) || asText(record.updated_at),
+                  roomName: asText(record.room),
+                  roundKey: asText(record.round_id),
+                } satisfies LearnerAttendanceRecord,
+              ] as const;
+            })
+            .filter((entry): entry is readonly [string, LearnerAttendanceRecord] => Boolean(entry))
+        );
+        setPersistedLearnerAttendanceRecords(nextRecords);
+      }
+    } catch {
+      setPersistedLearnerAttendanceRecords({});
+    }
     return result;
   }
 
@@ -15230,7 +15441,7 @@ Cory`;
           : action === "late"
             ? "SP marked late."
             : action === "no_show"
-              ? "SP marked no-show."
+              ? "SP marked missing."
               : "Live attendance status cleared."
       );
       setActiveBlueprintRoomKey("");
@@ -15278,6 +15489,22 @@ Cory`;
     setAttendanceSuccess("");
 
     try {
+      const attendanceResponse = await fetch(`/api/events/${encodeURIComponent(id)}/learner-attendance`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          round_id: asText(currentLiveReferenceRound?.key) || asText(selectedRotationRound?.key),
+          room: token.roomName,
+          learner_name: token.learnerName,
+          status: action === "clear" ? "expected" : action,
+          checked_in_at: action === "clear" || action === "expected" ? null : now,
+        }),
+      });
+
+      if (!attendanceResponse.ok) {
+        throw new Error(await parseApiError(attendanceResponse));
+      }
+
       const response = await fetch(`/api/events/${encodeURIComponent(id)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -15292,18 +15519,7 @@ Cory`;
         throw new Error(await parseApiError(response));
       }
 
-      await fetch(`/api/events/${encodeURIComponent(id)}/learner-attendance`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          round_id: asText(currentLiveReferenceRound?.key) || asText(selectedRotationRound?.key),
-          room: token.roomName,
-          learner_name: token.learnerName,
-          status: action === "clear" ? "expected" : action,
-          checked_in_at: action === "clear" || action === "expected" ? null : now,
-        }),
-      }).catch(() => null);
-
+      setPersistedLearnerAttendanceRecords(nextRecords);
       setEventEditor((current) => ({ ...current, notes: nextNotes }));
       setEvent((current) => (current ? { ...current, notes: nextNotes } : current));
       setAttendanceSuccess(
@@ -16951,7 +17167,7 @@ Cory`;
                                                     { action: "in_room" as const, label: "Move to Room" },
                                                     { action: "completed" as const, label: "Mark Complete" },
                                                     { action: "late" as const, label: "Late" },
-                                                    { action: "absent" as const, label: "No-show" },
+                                                    { action: "absent" as const, label: "Missing" },
                                                     { action: "clear" as const, label: "Clear" },
                                                   ].map((button) => (
                                                     <button
@@ -17096,7 +17312,7 @@ Cory`;
                                           opacity: !room.assignment || attendanceSaving || trainingAttendanceFieldsMissing ? 0.55 : 1,
                                         }}
                                       >
-                                        {blueprintActionSavingKey === `${room.key}:no_show` ? "Saving..." : "Mark No-show"}
+                                        {blueprintActionSavingKey === `${room.key}:no_show` ? "Saving..." : "Mark Missing"}
                                       </button>
                                       <button
                                         type="button"
@@ -17325,7 +17541,7 @@ Cory`;
                                   {[
                                     { action: "arrived" as const, label: "Check In" },
                                     { action: "late" as const, label: "Late" },
-                                    { action: "absent" as const, label: "No-show" },
+                                    { action: "absent" as const, label: "Missing" },
                                     { action: "in_room" as const, label: "Move to Room" },
                                     { action: "completed" as const, label: "Complete" },
                                     { action: "clear" as const, label: "Reset" },
@@ -22168,9 +22384,9 @@ Cory`;
               }}
             >
               {[
-                { label: "Learners", value: selectedRoundLearnerCount !== null ? String(selectedRoundLearnerCount) : effectiveLearnerCount > 0 ? String(effectiveLearnerCount) : "TBD" },
-                { label: "Rooms", value: effectiveRoomCount || selectedRoundRoomCount || "TBD" },
-                { label: "Rounds", value: activeRotationCount || 0 },
+                { label: "Learners", value: operationalLearnerCountLabel },
+                { label: "Rooms", value: operationalRoomCount || "TBD" },
+                { label: "Rounds", value: operationalRoundCount },
                 { label: "Coverage", value: needed > 0 ? `${confirmedCount}/${needed}` : `${confirmedCount}` },
                 { label: "Readiness", value: operationalReadinessItems.primary },
               ].map((metric) => (
@@ -22326,9 +22542,9 @@ Cory`;
                       }}
                     >
                       {[
-                        { label: "Learners", value: selectedRoundLearnerCount !== null ? String(selectedRoundLearnerCount) : effectiveLearnerCount > 0 ? String(effectiveLearnerCount) : "TBD", detail: effectiveLearnerCount > 0 ? `Roster: ${effectiveLearnerCount}` : "Current roster source" },
-                        { label: "Rooms", value: effectiveRoomCount || "TBD", detail: "Operational room surface" },
-                          { label: "Rounds", value: activeRotationCount || 0, detail: scheduleRoundCountResolution.label },
+                        { label: "Learners", value: operationalLearnerCountLabel, detail: effectiveLearnerCount > 0 ? `Roster: ${effectiveLearnerCount}` : "Current roster source" },
+                        { label: "Rooms", value: operationalRoomCount || "TBD", detail: "Selected schedule round" },
+                          { label: "Rounds", value: operationalRoundCount, detail: scheduleRoundCountResolution.label },
                         {
                           label: "Coverage",
                           value: needed > 0 ? `${confirmedCount}/${needed}` : `${confirmedCount}`,
@@ -22716,7 +22932,7 @@ Cory`;
                       ),
                     },
                     { label: "Unassigned", value: String(learnerPlannerUnassignedCount || 0) },
-                    { label: "Rooms/Rounds", value: `${effectiveRoomCount || 0} rooms • ${activeRotationCount || 0} rounds` },
+                    { label: "Rooms/Rounds", value: `${operationalRoomCount || 0} rooms • ${operationalRoundCount || 0} rounds` },
                   ].map((metric) => (
                     <div
                       key={`learner-flow-${metric.label}`}
@@ -22881,8 +23097,8 @@ Cory`;
 	                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(145px, 1fr))", gap: "9px" }}>
 	                        {[
 	                          { label: "Event time", value: summaryTimeLabel || "Time TBD", detail: eventDateMarkerValue || "Date TBD" },
-	                          { label: "Rounds", value: String(activeRotationCount || 0), detail: planningLivePreviewNextBlock ? `Next: ${planningLivePreviewNextBlock.label}` : "No next block" },
-	                          { label: "Rooms", value: String(effectiveRoomCount || selectedRoundRoomCount || 0), detail: hasRoomsBuilt ? "Room surface ready" : "Room plan pending" },
+	                          { label: "Rounds", value: String(operationalRoundCount || 0), detail: planningLivePreviewNextBlock ? `Next: ${planningLivePreviewNextBlock.label}` : "No next block" },
+	                          { label: "Rooms", value: String(operationalRoomCount || 0), detail: hasRoomsBuilt ? "Room surface ready" : "Room plan pending" },
 	                          { label: "Learners", value: String(selectedRoundAssignedLearnerCount || effectiveLearnerCount || learnerPlannerRosterCount || 0), detail: effectiveLearnerCount > 0 ? `Roster: ${effectiveLearnerCount}` : learnerAssignmentsIncomplete ? "Assignment review needed" : "Learner flow ready" },
 	                          { label: "SP coverage", value: needed > 0 ? `${confirmedCount}/${needed}` : `${confirmedCount}`, detail: shortageCount > 0 ? "Staffing gap" : "Coverage stable" },
 	                          { label: "Materials", value: materialsStatusLabel, detail: eventMaterialName || (hasUploadedEventMaterial ? "Packet loaded" : "No event packet uploaded") },
@@ -24504,8 +24720,8 @@ Cory`;
                         </div>
                         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "8px" }}>
                           {[
-                            { label: "Rounds", value: activeRotationCount || 0 },
-                            { label: "Rooms", value: effectiveRoomCount || selectedRoundRoomCount || 0 },
+                            { label: "Rounds", value: operationalRoundCount || 0 },
+                            { label: "Rooms", value: operationalRoomCount || 0 },
                             { label: "Learners", value: selectedRoundAssignedLearnerCount || effectiveLearnerCount || learnerPlannerRosterCount || 0 },
                             { label: "Next block", value: planningLivePreviewPrimaryBlock?.label || "No block" },
                           ].map((item) => (
@@ -24559,7 +24775,7 @@ Cory`;
                                 : "Time TBD",
                               `${selectedRoundRoomCount} room${selectedRoundRoomCount === 1 ? "" : "s"}`,
                               `${selectedRoundAssignedLearnerCount} learner${selectedRoundAssignedLearnerCount === 1 ? "" : "s"}`,
-                              `${selectedRoundScheduleRows.filter((row) => row.sp).length} SP covered`,
+                              `${selectedRoundPrimaryCoveredCount} primary SP covered`,
                             ].map((chip) => (
                               <span key={`central-schedule-preview-chip-${chip}`} style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText }}>
                                 {chip}
@@ -24927,13 +25143,12 @@ Cory`;
                                             {learnerNames.length ? (
                                               <div style={{ display: "grid", gap: "6px" }}>
                                                 {learnerNames.map((learnerName) => {
-                                                  const learnerArrivalKey = `${selectedRoundOccupancyKey}|${learnerName}`;
-                                                  const learnerArrived = localOccupancyLearnerArrivals[learnerArrivalKey] === true;
                                                   const learnerToken = liveLearnerPresenceTokens.find(
                                                     (token) =>
                                                       token.learnerName === learnerName &&
                                                       compareRoomLabels(token.roomName, room.roomName) === 0
                                                   );
+                                                  const learnerArrived = learnerToken ? ["arrived", "in_room", "completed"].includes(learnerToken.status) : false;
                                                   return (
                                                     <div
                                                       key={`${room.key}-learner-control-${learnerName}`}
@@ -24954,10 +25169,7 @@ Cory`;
                                                               void handleLiveLearnerAttendanceAction(learnerToken, learnerArrived ? "expected" : "arrived");
                                                               return;
                                                             }
-                                                            setLocalOccupancyLearnerArrivals((current) => ({
-                                                              ...current,
-                                                              [learnerArrivalKey]: !learnerArrived,
-                                                            }));
+                                                            setAttendanceError("Learner attendance can only be changed after the learner is linked to a resolved schedule slot.");
                                                           }}
                                                           disabled={attendanceSaving}
                                                           style={{ ...staffingSecondaryButtonStyle, padding: "4px 7px", fontSize: "9px", opacity: attendanceSaving ? 0.6 : 1 }}
@@ -25002,12 +25214,7 @@ Cory`;
                                   </span>
                                   <button
                                     type="button"
-                                    onClick={() =>
-                                      setLocalOccupancyLearnerArrivals((current) => ({
-                                        ...current,
-                                        [`${selectedRoundOccupancyKey}|${token.learnerName}`]: token.status !== "arrived" && token.status !== "in_room",
-                                      }))
-                                    }
+                                    onClick={() => void handleLiveLearnerAttendanceAction(token, token.status === "arrived" || token.status === "in_room" ? "expected" : "arrived")}
                                     style={{ ...staffingSecondaryButtonStyle, padding: "4px 7px", fontSize: "9px" }}
                                   >
                                     {token.status === "arrived" || token.status === "in_room" ? "Expected" : "Arrived"}
@@ -25082,12 +25289,7 @@ Cory`;
                                   </span>
                                   <button
                                     type="button"
-                                    onClick={() =>
-                                      setLocalOccupancyLearnerArrivals((current) => ({
-                                        ...current,
-                                        [`${selectedRoundOccupancyKey}|${token.learnerName}`]: token.status !== "arrived" && token.status !== "in_room",
-                                      }))
-                                    }
+                                    onClick={() => void handleLiveLearnerAttendanceAction(token, token.status === "arrived" || token.status === "in_room" ? "expected" : "arrived")}
                                     style={{ ...staffingSecondaryButtonStyle, padding: "4px 7px", fontSize: "9px" }}
                                   >
                                     {token.status === "arrived" || token.status === "in_room" ? "Expected" : "Arrived"}
@@ -25585,7 +25787,9 @@ Cory`;
   </div>
 ) : roundCompanionView === "coverage" ? (
   <div style={{ display: "grid", gap: "6px" }}>
-    {selectedRoundScheduleRows.map((row, index) => (
+    {selectedRoundScheduleRows.map((row, index) => {
+      const isPrimaryCovered = row.assignment && getAssignmentStatus(row.assignment) === "confirmed";
+      return (
       <div
         key={`${row.key}-coverage`}
         style={{
@@ -25613,25 +25817,26 @@ Cory`;
               fontWeight: 700,
             }}
           >
-            {row.sp ? getFullName(row.sp) : "No SP Assigned"}
+            {row.sp ? `${getFullName(row.sp)}${isPrimaryCovered ? "" : " (backup / not primary)"}` : "No SP Assigned"}
           </div>
         </div>
 
         <span
           style={{
             ...commandChipStyle,
-            background: row.sp
+            background: isPrimaryCovered
               ? commandCenterVisual.activeSoftBackground
               : "rgba(248, 113, 113, 0.14)",
-            color: row.sp
+            color: isPrimaryCovered
               ? commandCenterVisual.activeSoftText
               : "#dc2626",
           }}
         >
-          {row.sp ? "Covered" : "Needs Coverage"}
+          {isPrimaryCovered ? "Primary Covered" : "Needs Primary"}
         </span>
       </div>
-    ))}
+      );
+    })}
   </div>
 ) : roundCompanionView === "learner" ? (
   <div style={{ display: "grid", gap: "6px" }}>

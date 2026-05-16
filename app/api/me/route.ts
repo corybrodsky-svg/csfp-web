@@ -107,12 +107,6 @@ function jsonNoStore(body: unknown, init?: ResponseInit) {
   return response;
 }
 
-function getSafeErrorLabel(error: unknown) {
-  if (error instanceof Error) return error.message || error.name || "error";
-  if (typeof error === "string") return error;
-  return "error";
-}
-
 async function resolveSession() {
   const supabase = createSupabaseServerClient();
 
@@ -505,7 +499,7 @@ export async function GET() {
   try {
     return await handleGetOrSave("GET");
   } catch (error) {
-    console.error("[auth] /api/me GET failed", getSafeErrorLabel(error));
+    console.error("[auth] /api/me GET failed");
 
     return jsonNoStore(
       {
@@ -521,7 +515,7 @@ export async function POST(request: Request) {
   try {
     return await handleGetOrSave("POST", request);
   } catch (error) {
-    console.error("[auth] /api/me POST failed", getSafeErrorLabel(error));
+    console.error("[auth] /api/me POST failed");
 
     return jsonNoStore(
       {
@@ -537,7 +531,7 @@ export async function PATCH(request: Request) {
   try {
     return await handleGetOrSave("PATCH", request);
   } catch (error) {
-    console.error("[auth] /api/me PATCH failed", getSafeErrorLabel(error));
+    console.error("[auth] /api/me PATCH failed");
 
     return jsonNoStore(
       {

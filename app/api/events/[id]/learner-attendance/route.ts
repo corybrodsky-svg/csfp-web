@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
+import { createClient } from "@supabase/supabase-js";
 import { AUTH_ACCESS_COOKIE, AUTH_REFRESH_COOKIE, clearAuthCookies, setAuthCookies } from "../../../../lib/authCookies";
 import { getProfileForUser } from "../../../../lib/profileServer";
-import { createSupabaseServerClient } from "../../../../lib/supabaseServerClient";
+import { createSupabaseServerClient, supabaseKey, supabaseUrl } from "../../../../lib/supabaseServerClient";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -77,6 +78,14 @@ function canManageAttendance(role: string) {
   return role === "super_admin" || role === "admin" || role === "sim_op";
 }
 
+function createViewerScopedClient(accessToken: string) {
+  if (!supabaseUrl || !supabaseKey) throw new Error("Missing Supabase configuration.");
+  return createClient(supabaseUrl, supabaseKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+    global: { headers: { Authorization: `Bearer ${accessToken}` } },
+  });
+}
+
 export async function GET(
   _request: Request,
   context: { params: Promise<{ id?: string | string[] }> }
@@ -88,7 +97,7 @@ export async function GET(
   const eventId = getRouteId(params);
   if (!eventId) return applySessionCookies(NextResponse.json({ error: "Missing event id." }, { status: 400 }), viewer);
 
-  const supabase = createSupabaseServerClient();
+  const supabase = createViewerScopedClient(viewer.accessToken);
   const { data, error } = await supabase
     .from("event_learner_attendance")
     .select("id,event_id,session_id,round_id,room,learner_name,learner_email,status,checked_in_at,note,created_at,updated_at")
@@ -136,7 +145,7 @@ export async function POST(
     updated_at: new Date().toISOString(),
   };
 
-  const supabase = createSupabaseServerClient();
+  const supabase = createViewerScopedClient(viewer.accessToken);
   const { data: existing } = await supabase
     .from("event_learner_attendance")
     .select("id")

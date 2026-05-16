@@ -526,10 +526,7 @@ export async function GET(request: Request) {
 
     const downloadResult = await storageClient.storage.from(STORAGE_BUCKET).download(path);
     if (downloadResult.error || !downloadResult.data) {
-      console.warn("[materials] storage download failed", {
-        mode,
-        error: downloadResult.error?.message || "No storage object returned",
-      });
+      console.warn("[materials] storage download failed", { mode });
       return applyAuthCookies(
         NextResponse.json(
           { error: downloadResult.error?.message || "Could not load training material." },
@@ -579,9 +576,7 @@ export async function GET(request: Request) {
 
     return applyAuthCookies(response, viewer);
   } catch (error) {
-    console.error("[materials] request failed", {
-      error: getErrorMessage(error),
-    });
+    console.error("[materials] request failed");
     return NextResponse.json(
       { error: `Supabase request failed: ${getErrorMessage(error)}` },
       { status: 500 }
@@ -684,9 +679,7 @@ export async function POST(request: Request) {
     if (replacePath && replacePath !== storagePath) {
       const cleanupResult = await storageClient.storage.from(STORAGE_BUCKET).remove([replacePath]);
       if (cleanupResult.error) {
-        console.warn("[materials] replaced file cleanup failed", {
-          error: cleanupResult.error.message,
-        });
+        console.warn("[materials] replaced file cleanup failed");
       }
     }
 

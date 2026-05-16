@@ -10,6 +10,8 @@ import {
   renderEmailTemplate,
   type EmailTemplateRecord,
 } from "../lib/emailTemplates";
+import { formatHumanDate } from "../lib/eventDateUtils";
+import { parseEventMetadata } from "../lib/eventMetadata";
 
 type EventEditState = {
   name: string;
@@ -33,6 +35,12 @@ type EventRow = {
   date_text?: string | null;
   dateText?: string | null;
   notes?: string | null;
+};
+
+type EventSessionRow = {
+  session_date?: string | null;
+  start_time?: string | null;
+  end_time?: string | null;
 };
 
 type MeResponse = {
@@ -79,6 +87,76 @@ function hydrateEvent(event: EventRow): EventEditState {
     spNeeded: text(event.sp_needed ?? event.spNeeded),
     dateText: text(event.date_text ?? event.dateText),
     notes: text(event.notes),
+  };
+}
+
+function formatSettingsDate(value: string) {
+  return formatHumanDate(value) || text(value) || "Event date TBD";
+}
+
+function formatSettingsTime(value: string) {
+  const raw = text(value);
+  if (!raw) return "";
+  const match = raw.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+  if (!match) return raw;
+  const hour = Number(match[1]);
+  const minute = match[2];
+  if (!Number.isFinite(hour)) return raw;
+  const suffix = hour >= 12 ? "PM" : "AM";
+  const displayHour = hour % 12 || 12;
+  return `${displayHour}:${minute} ${suffix}`;
+}
+
+function buildTemplatePreviewContext(event: EventEditState, sessions: EventSessionRow[] = []) {
+  const metadata = parseEventMetadata(event.notes).training;
+  const sortedSessions = [...sessions].sort((a, b) =>
+    `${text(a.session_date)} ${text(a.start_time)}`.localeCompare(`${text(b.session_date)} ${text(b.start_time)}`)
+  );
+  const firstSession = sortedSessions[0] || null;
+  const lastSession = sortedSessions[sortedSessions.length - 1] || null;
+  const eventDate = formatSettingsDate(event.dateText);
+  const eventTime =
+    text(metadata.imported_event_times) ||
+    [formatSettingsTime(metadata.event_start_time), formatSettingsTime(metadata.event_end_time)].filter(Boolean).join(" - ") ||
+    [formatSettingsTime(firstSession?.start_time || ""), formatSettingsTime(lastSession?.end_time || "")].filter(Boolean).join(" - ") ||
+    "Event time TBD";
+  const isVirtualAccess =
+    /\b(vir|virtual|zoom|telehealth|remote)\b/i.test(`${event.name} ${event.location} ${metadata.training_zoom_required}`);
+  const locationAccess =
+    (isVirtualAccess ? text(metadata.zoom_url) || text(metadata.training_zoom_link) : "") ||
+    text(event.location) ||
+    text(metadata.zoom_url) ||
+    text(metadata.training_zoom_link) ||
+    "Location / access TBD";
+  const faculty = text(metadata.faculty_email) || text(metadata.faculty_names) || "Faculty contact TBD";
+  const senderName = text(metadata.sim_contact) || "CFSP Simulation Operations";
+  const senderEmail = "sender@example.edu";
+
+  return {
+    eventName: event.name || "NURS Simulation Event",
+    eventDate,
+    eventDates: eventDate,
+    eventTime,
+    eventLocation: locationAccess,
+    caseName: text(metadata.case_name) || "Case / Role TBD",
+    simStaff: text(metadata.sim_contact) || "Simulation Operations",
+    faculty,
+    trainingDate: formatSettingsDate(metadata.training_date || metadata.imported_training_date || metadata.preferred_training_date),
+    trainingTime:
+      [formatSettingsTime(metadata.training_start_time), formatSettingsTime(metadata.training_end_time)].filter(Boolean).join(" - ") ||
+      text(metadata.imported_training_time) ||
+      text(metadata.preferred_training_time) ||
+      "Training time TBD",
+    trainingZoomLink: text(metadata.training_zoom_link) || text(metadata.zoom_url) || "Training access TBD",
+    spFirstName: "Alex",
+    spFullName: "Alex Standardized Patient",
+    spEmails: "sp-list-hidden-in-bcc@example.edu",
+    universityName: "Drexel University",
+    programName: text(metadata.faculty_program) || "CFSP",
+    senderName,
+    senderTitle: "Simulation Operations",
+    senderEmail,
+    generalStaffSignature: `${senderName}\n${senderEmail}`,
   };
 }
 
@@ -157,7 +235,7 @@ const blankTemplate: EmailTemplateRecord = {
   is_active: true,
 };
 
-function EmailTemplatesManager({ canEdit, eventName }: { canEdit: boolean; eventName: string }) {
+function EmailTemplatesManager({ canEdit, event, sessions }: { canEdit: boolean; event: EventEditState; sessions: EventSessionRow[] }) {
   const [templates, setTemplates] = useState<EmailTemplateRecord[]>(DEFAULT_CFSP_EMAIL_TEMPLATES);
   const [selectedId, setSelectedId] = useState("");
   const [draft, setDraft] = useState<EmailTemplateRecord>(blankTemplate);
@@ -262,27 +340,11 @@ function EmailTemplatesManager({ canEdit, eventName }: { canEdit: boolean; event
     }
   }
 
+  const previewContext = buildTemplatePreviewContext(event, sessions);
   const preview = renderEmailTemplate(draft, {
-    eventName: eventName || "NURS Simulation Event",
-    eventDate: "May 16, 2026",
-    eventDates: "May 16, 2026",
-    eventTime: "8:00 AM - 12:00 PM",
-    eventLocation: "CICSP 8W04 or Zoom",
-    caseName: "Case / Role TBD",
-    simStaff: "Simulation Operations",
-    faculty: "faculty@example.edu",
-    trainingDate: "Training date TBD",
-    trainingTime: "Training time TBD",
-    trainingZoomLink: "https://drexel.zoom.us/example",
-    spFirstName: "Alex",
-    spFullName: "Alex Standardized Patient",
-    spEmails: "sp-list-hidden-in-bcc@example.edu",
-    universityName: draft.university_name || "Drexel University",
-    programName: draft.program_name || "CFSP",
-    senderName: "CFSP Simulation Operations",
-    senderTitle: "Simulation Operations",
-    senderEmail: "sender@example.edu",
-    generalStaffSignature: "CFSP Simulation Operations\nsender@example.edu",
+    ...previewContext,
+    universityName: draft.university_name || previewContext.universityName,
+    programName: draft.program_name || previewContext.programName,
   });
 
   return (
@@ -387,6 +449,7 @@ function SettingsContent() {
   const eventHref = useMemo(() => (eventId ? `/events/${encodeURIComponent(eventId)}` : "/events"), [eventId]);
 
   const [eventEdit, setEventEdit] = useState<EventEditState>(initialEvent);
+  const [eventSessions, setEventSessions] = useState<EventSessionRow[]>([]);
   const [loading, setLoading] = useState(Boolean(eventId));
   const [saving, setSaving] = useState(false);
   const [savedMessage, setSavedMessage] = useState("");
@@ -435,6 +498,7 @@ function SettingsContent() {
           setRoleLabel(role || "unknown");
           setCanEdit(allowed);
           setEventEdit(hydrateEvent(event));
+          setEventSessions(Array.isArray((eventPayload as { sessions?: unknown }).sessions) ? ((eventPayload as { sessions?: EventSessionRow[] }).sessions || []) : []);
           if (!allowed) {
             setErrorMessage("This event is read-only for your current role. Admin or sim-op access is required.");
           }
@@ -557,7 +621,7 @@ function SettingsContent() {
         ) : (
           <div className="grid gap-5 xl:grid-cols-2">
             <div className="xl:col-span-2">
-              <EmailTemplatesManager canEdit={canEdit} eventName={eventEdit.name} />
+              <EmailTemplatesManager canEdit={canEdit} event={eventEdit} sessions={eventSessions} />
             </div>
 
             <Panel title="Core Event Details" detail="Edit the event record itself. These values should match what the command center shows.">

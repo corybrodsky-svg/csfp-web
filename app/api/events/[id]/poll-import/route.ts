@@ -902,14 +902,6 @@ export async function POST(request: Request, context: { params: Promise<{ id?: s
       return applyAuthCookies(NextResponse.json({ error: "Upload a CSV, XLSX, or XLS poll results file." }, { status: 400 }), viewer);
     }
 
-    console.info("CFSP poll import upload start", {
-      eventId,
-      fileName: file.name,
-      fileSize: file.size,
-      fileType: file.type,
-      viewerRole: viewer.role,
-    });
-
     const supabaseServer = createSupabaseServerClient();
     const [{ data: event, error: eventError }, { data: sps, error: spsError }, { data: assignments, error: assignmentsError }] =
       await Promise.all([
@@ -927,23 +919,8 @@ export async function POST(request: Request, context: { params: Promise<{ id?: s
     if (assignmentsError) throw new Error(assignmentsError.message || "Could not load event assignments.");
 
     const parsedFile = await parsePollFile(file);
-    console.info("CFSP poll import parsed rows", {
-      eventId,
-      sheetName: parsedFile.sheetName,
-      parsedRows: parsedFile.rows.length,
-    });
 
     const detected = detectPollImportHeaders(parsedFile.rows);
-    console.info("CFSP poll import detected columns", {
-      eventId,
-      detectedHeaders: detected.detectedHeaders,
-      matchedNameHeader: detected.matchedNameHeader,
-      matchedEmailHeader: detected.matchedEmailHeader,
-      matchedSpIdHeader: detected.matchedSpIdHeader,
-      matchedTrainingResponseHeader: detected.matchedTrainingResponseHeader,
-      matchedEventResponseHeader: detected.matchedEventResponseHeader,
-      matchedResponseHeaders: detected.matchedResponseHeaders,
-    });
 
     const { parsedResponses, failedRows } = parseRowsToResponses({
       rows: parsedFile.rows,
@@ -1002,15 +979,7 @@ export async function POST(request: Request, context: { params: Promise<{ id?: s
     const { error: updateEventError } = await supabaseServer.from("events").update({ notes: nextNotes }).eq("id", eventId);
     if (updateEventError) throw new Error(updateEventError.message || "Could not save imported poll results.");
 
-    console.info("CFSP poll import DB writes", {
-      eventId,
-      importedResponses: parsedResponses.length,
-      eventMetadataUpdated: true,
-      assignmentNotesUpdated: noteUpdates.length,
-    });
-
     const summary = summarizeResponses(parsedResponses, failedRows, noteUpdates.length);
-    console.info("CFSP poll import final response", { eventId, summary });
 
     return applyAuthCookies(
       NextResponse.json({
@@ -1024,7 +993,7 @@ export async function POST(request: Request, context: { params: Promise<{ id?: s
       viewer
     );
   } catch (error) {
-    console.error("CFSP poll import failed", { error: getErrorMessage(error) });
+    console.error("[poll-import] failed");
     return applyAuthCookies(
       NextResponse.json(
         { error: getErrorMessage(error) || "Could not import poll results." },

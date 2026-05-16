@@ -20,6 +20,30 @@ export type EmailTemplateRecord = {
 
 export type EmailTemplateContext = Record<string, string | number | boolean | null | undefined>;
 
+const FRIENDLY_MERGE_PLACEHOLDERS: Record<string, string> = {
+  eventName: "Event name TBD",
+  eventDate: "Event date TBD",
+  eventDates: "Event dates TBD",
+  eventTime: "Event time TBD",
+  eventLocation: "Location / access TBD",
+  caseName: "Case / role TBD",
+  simStaff: "Simulation staff TBD",
+  faculty: "Faculty contact TBD",
+  trainingDate: "Training date TBD",
+  trainingTime: "Training time TBD",
+  trainingZoomLink: "Training access TBD",
+  spFirstName: "SP",
+  spFullName: "Standardized Patient",
+  senderName: "CFSP Simulation Operations",
+  senderEmail: "Sender email TBD",
+  senderTitle: "Simulation Operations",
+  universityName: "University TBD",
+  programName: "Program TBD",
+  pollLink: "Poll link TBD",
+  spEmails: "",
+  generalStaffSignature: "CFSP Simulation Operations",
+};
+
 export const CFSP_EMAIL_TEMPLATE_CATEGORIES = [
   "hiring",
   "confirmation",
@@ -316,21 +340,29 @@ export function normalizeEmailPlainText(value: unknown) {
     .trim();
 }
 
-export function renderEmailTemplateText(template: string, context: EmailTemplateContext) {
+export function renderEmailTemplateText(
+  template: string,
+  context: EmailTemplateContext,
+  options?: { missingMode?: "friendly" | "blank" }
+) {
+  const missingMode = options?.missingMode || "friendly";
   return normalizeEmailPlainText(template).replace(/\{\{\s*([A-Za-z0-9_]+)\s*\}\}/g, (_match, key: string) => {
     const value = context[key];
-    return value === null || value === undefined ? "" : String(value);
+    const renderedValue = value === null || value === undefined ? "" : String(value).trim();
+    if (renderedValue) return renderedValue;
+    if (missingMode === "blank") return "";
+    return FRIENDLY_MERGE_PLACEHOLDERS[key] || `${key} TBD`;
   });
 }
 
 export function renderEmailTemplate(template: EmailTemplateRecord, context: EmailTemplateContext) {
   return {
-    subject: renderEmailTemplateText(template.subject_template, context),
-    body: renderEmailTemplateText(template.body_template, context),
-    to: renderEmailTemplateText(template.default_to || "", context),
-    cc: renderEmailTemplateText(template.default_cc || "", context),
-    bcc: renderEmailTemplateText(template.default_bcc || "", context),
-    fromLabel: renderEmailTemplateText(template.default_from_label || "", context),
+    subject: renderEmailTemplateText(template.subject_template, context, { missingMode: "friendly" }),
+    body: renderEmailTemplateText(template.body_template, context, { missingMode: "friendly" }),
+    to: renderEmailTemplateText(template.default_to || "", context, { missingMode: "blank" }),
+    cc: renderEmailTemplateText(template.default_cc || "", context, { missingMode: "blank" }),
+    bcc: renderEmailTemplateText(template.default_bcc || "", context, { missingMode: "blank" }),
+    fromLabel: renderEmailTemplateText(template.default_from_label || "", context, { missingMode: "friendly" }),
   };
 }
 

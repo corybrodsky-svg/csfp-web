@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
+import { createClient } from "@supabase/supabase-js";
 import {
   AUTH_ACCESS_COOKIE,
   AUTH_REFRESH_COOKIE,
@@ -7,7 +8,7 @@ import {
   setAuthCookies,
 } from "../../../lib/authCookies";
 import { getImportedYearHint, normalizeLooseDateToIso } from "../../../lib/eventDateUtils";
-import { createSupabaseServerClient } from "../../../lib/supabaseServerClient";
+import { createSupabaseServerClient, supabaseKey, supabaseUrl } from "../../../lib/supabaseServerClient";
 import { getProfileForUser } from "../../../lib/profileServer";
 import { resolveSpAccountLink } from "../../../lib/spAccountLinking";
 import { parseTrainingEventMetadata } from "../../../lib/trainingEventNotes";
@@ -24,6 +25,14 @@ function getRouteId(params: { id?: string | string[] }) {
   const raw = params.id;
   if (Array.isArray(raw)) return raw[0] || "";
   return typeof raw === "string" ? raw : "";
+}
+
+function createViewerScopedClient(accessToken: string) {
+  if (!supabaseUrl || !supabaseKey) throw new Error("Missing Supabase configuration.");
+  return createClient(supabaseUrl, supabaseKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+    global: { headers: { Authorization: `Bearer ${accessToken}` } },
+  });
 }
 
 function asText(value: unknown) {
@@ -1184,7 +1193,7 @@ export async function POST(
       );
     }
 
-    const supabaseServer = createSupabaseServerClient();
+    const supabaseServer = createViewerScopedClient(viewer.accessToken);
     const params = await context.params;
     const eventId = getRouteId(params);
     const body = await request.json();
@@ -1285,7 +1294,7 @@ export async function PATCH(
       );
     }
 
-    const supabaseServer = createSupabaseServerClient();
+    const supabaseServer = createViewerScopedClient(viewer.accessToken);
     const params = await context.params;
     const eventId = getRouteId(params);
     const body = await request.json();

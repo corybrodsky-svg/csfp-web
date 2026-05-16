@@ -16,12 +16,6 @@ function jsonNoStore(body: unknown, init?: ResponseInit) {
   return response;
 }
 
-function getSafeErrorLabel(error: unknown) {
-  if (error instanceof Error) return error.message || error.name || "error";
-  if (typeof error === "string") return error;
-  return "error";
-}
-
 export async function GET() {
   return jsonNoStore({
     ok: true,
@@ -77,7 +71,7 @@ export async function POST(request: NextRequest) {
 
     return response;
   } catch (error) {
-    console.error("[auth] /api/auth/session failed", getSafeErrorLabel(error));
+    console.error("[auth] /api/auth/session failed");
 
     return jsonNoStore(
       {

@@ -184,7 +184,7 @@ async function main() {
   console.log("\nBackfill complete.");
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : error);
+main().catch(() => {
+  console.error("Backfill failed.");
   process.exit(1);
 });
