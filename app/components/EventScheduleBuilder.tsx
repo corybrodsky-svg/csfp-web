@@ -1860,7 +1860,9 @@ async function createStyledSchedulePdfBlob(context: StyledPdfRenderContext) {
       const targetWidth = Math.max(1, Math.floor(contentWidth * renderScale));
       const targetHeight = Math.max(1, Math.floor(baseScaledHeight * renderScale));
       const xOffset = pdfSidePadding + Math.floor((contentWidth - targetWidth) / 2);
-      const yOffset = pdfSidePadding + Math.floor((contentHeight - targetHeight) / 2);
+      const yOffset = isStudentInstructions
+        ? pdfSidePadding
+        : pdfSidePadding + Math.floor((contentHeight - targetHeight) / 2);
       if (renderScale < 1) {
         console.warn(
           `[styled-pdf] Page ${pageIndex + 1} exceeded printable area and was scaled to ${Math.round(renderScale * 100)}%.`
