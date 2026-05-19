@@ -21722,15 +21722,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               <div style={{ color: "#102d44", fontSize: "20px", fontWeight: 950, lineHeight: 1.08 }}>
                 {event?.name || "Untitled Event"}
               </div>
-              <div style={{ color: "#496678", fontSize: "11px", fontWeight: 800, lineHeight: 1.4, overflowWrap: "anywhere" }}>
-                {[sessionSummaryLabel || eventDateLabel, summaryTimeLabel, commandCenterHudAccessLabel].filter(Boolean).join("  |  ")}
-              </div>
               <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                {eventDateCountdownLabel ? (
-                  <span style={{ ...commandChipStyle, background: "rgba(20, 184, 166, 0.14)", border: "1px solid rgba(25, 138, 112, 0.24)", color: "#0f766e" }}>
-                    {eventDateCountdownLabel}
-                  </span>
-                ) : null}
                 {relatedEventDateOptions.length > 1 ? (
                   <label style={{ display: "inline-grid", gap: "4px", minWidth: "200px" }}>
                     <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Event Date</span>
@@ -23789,7 +23781,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     alignItems: "center",
                   }}
                 >
-                  <div>
+                  <div style={{ minWidth: 0, display: "grid", gap: "4px", flex: "0 1 190px" }}>
                     <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>
                       Command Surface
                     </div>
@@ -23800,7 +23792,59 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       {commandSurfaceViewLabel}
                     </div>
                   </div>
-                  <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                  <div
+                    style={{
+                      flex: "1 1 420px",
+                      minWidth: 0,
+                      display: "grid",
+                      gap: "6px",
+                      alignContent: "center",
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        gap: "6px",
+                        flexWrap: "wrap",
+                        alignItems: "center",
+                      }}
+                    >
+                      {[
+                        sessionSummaryLabel || eventDateLabel,
+                        summaryTimeLabel,
+                        commandCenterHudAccessLabel,
+                      ]
+                        .filter(Boolean)
+                        .map((item) => (
+                          <span
+                            key={`command-surface-context-${item}`}
+                            style={{
+                              ...commandChipStyle,
+                              background: "rgba(255, 255, 255, 0.82)",
+                              color: commandCenterVisual.textColor,
+                              border: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.18)" : commandChipStyle.border,
+                              maxWidth: "100%",
+                            }}
+                          >
+                            {item}
+                          </span>
+                        ))}
+                    </div>
+                    {eventDateCountdownLabel ? (
+                      <div
+                        style={{
+                          color: commandCenterVisual.mutedColor,
+                          fontWeight: 800,
+                          fontSize: "10.5px",
+                          lineHeight: 1.35,
+                          overflowWrap: "anywhere",
+                        }}
+                      >
+                        {eventDateCountdownLabel}
+                      </div>
+                    ) : null}
+                  </div>
+                  <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end", alignItems: "center", flex: "0 1 auto" }}>
                     <button
                       type="button"
                       onClick={() => handleRotationCommandSurfaceOpenChange()}
