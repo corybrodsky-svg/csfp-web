@@ -11,6 +11,11 @@ import { parseEventMetadata, upsertEventMetadata } from "../lib/eventMetadata";
 import { normalizeDisplayText, normalizeLearnerName, normalizeLearnerNames } from "../lib/learnerNames";
 import { getRoomDisplayLabel, getRoomTypeLabel } from "../lib/roomNaming";
 import { buildRoundAnnouncementItems } from "../lib/roundAnnouncements";
+import {
+  getStudentInstructionsConfigFromMetadata,
+  splitInstructionLines,
+  type StudentInstructionsConfig,
+} from "../lib/studentInstructionsConfig";
 
 type EventRow = {
   id: string;
@@ -50,6 +55,7 @@ type EventScheduleBuilderProps = {
   previewFamily?: SchedulePreviewFamily | null;
   previewOnly?: boolean;
   autoDownload?: boolean;
+  autoDownloadMode?: "schedule" | "student-instructions";
   initialScheduleDay?: number | null;
 };
 
@@ -907,18 +913,27 @@ type StudentInstructionsExportContext = {
   programLabel?: string;
   dateLabel?: string;
   zoomLink?: string;
+  instructionsConfig?: StudentInstructionsConfig;
   encounterMinutes?: number | null;
   feedbackMinutes?: number | null;
   firstEncounterStartMinutes?: number | null;
-  studentScheduleRows?: StudentInstructionsScheduleRow[];
+  studentScheduleRounds?: ScheduledRound[];
+  roomColumns?: PreviewRoomColumn[];
+  roomContext?: Parameters<typeof getRoomDisplayLabel>[2];
 };
 
-type StudentInstructionsScheduleRow = {
+type StudentInstructionsScheduleCell = {
   key: string;
-  roundLabel: string;
-  timeLabel: string;
   roomLabel: string;
-  studentLabel: string;
+  studentLabels: string[];
+};
+
+type StudentInstructionsScheduleBlock = {
+  key: string;
+  title: string;
+  detail: string;
+  chunkLabel: string;
+  cells: StudentInstructionsScheduleCell[];
 };
 
 type PdfExportPageManifest = {
@@ -1406,8 +1421,7 @@ async function buildStudentInstructionsPdfPages(
     .cfsp-pdf-page,
     .cfsp-pdf-header,
     .cfsp-pdf-section,
-    .student-schedule-table,
-    .student-schedule-table tr {
+    .vir-schedule-block {
       break-inside: avoid;
       page-break-inside: avoid;
       -webkit-column-break-inside: avoid;
@@ -2261,26 +2275,96 @@ function formatStudentInstructionsMinutes(minutes?: number | null) {
   return `${rounded} minute${rounded === 1 ? "" : "s"}`;
 }
 
+function buildVirStyleStudentScheduleBlocks(args: {
+  rounds: ScheduledRound[];
+  roomColumns?: PreviewRoomColumn[];
+  roomContext?: Parameters<typeof getRoomDisplayLabel>[2];
+  roomChunkSize?: number;
+}) {
+  const { rounds, roomColumns = [], roomContext = {}, roomChunkSize = 8 } = args;
+  const safeChunkSize = Math.max(4, Math.min(8, Math.floor(roomChunkSize) || 8));
+  const blocks: StudentInstructionsScheduleBlock[] = [];
+
+  rounds.forEach((round) => {
+    const encounterBlock = round.subBlocks.find((subBlock) => /^encounter$/i.test(asText(subBlock.label)));
+    const start = encounterBlock?.start ?? round.start;
+    const end = encounterBlock?.end ?? round.end;
+    const startLabel = toDisplayTime(start);
+    const timeLabel = formatRange(start, end);
+    const title = startLabel ? `${startLabel} Encounter` : `Round ${round.round}`;
+    const detail = `Round ${round.round}${timeLabel ? ` • ${timeLabel}` : ""}`;
+    const roomCount = Math.max(round.roomSlots.length, roomColumns.length);
+
+    for (let chunkStart = 0; chunkStart < roomCount; chunkStart += safeChunkSize) {
+      const chunkEnd = Math.min(chunkStart + safeChunkSize, roomCount);
+      const cells: StudentInstructionsScheduleCell[] = [];
+
+      for (let roomIndex = chunkStart; roomIndex < chunkEnd; roomIndex += 1) {
+        const slot = round.roomSlots[roomIndex];
+        const roomColumn = roomColumns[roomIndex];
+        const roomLabel = slot
+          ? formatRoomName(slot.roomName, slot.roomType, roomIndex + 1, roomContext)
+          : normalizeDisplayText(roomColumn?.displayRoomName) || `Breakout Room ${roomIndex + 1}`;
+        cells.push({
+          key: `round-${round.round}-room-${roomIndex}`,
+          roomLabel,
+          studentLabels: normalizeLearnerNames(slot?.learnerLabels || []),
+        });
+      }
+
+      blocks.push({
+        key: `round-${round.round}-rooms-${chunkStart}-${chunkEnd}`,
+        title,
+        detail,
+        chunkLabel: roomCount > safeChunkSize ? `Rooms ${chunkStart + 1}-${chunkEnd}` : "",
+        cells,
+      });
+    }
+  });
+
+  return blocks;
+}
+
 function buildStudentInstructionsExportHtml(context: StudentInstructionsExportContext) {
   const {
     event,
+    instructionsConfig,
     encounterMinutes,
     feedbackMinutes,
     firstEncounterStartMinutes,
-    studentScheduleRows = [],
+    studentScheduleRounds = [],
+    roomColumns = [],
+    roomContext,
   } = context;
-  const programLabel = normalizeDisplayText(context.programLabel) || normalizeDisplayText(event?.name) || "PROGRAM";
+  const programLabel =
+    normalizeDisplayText(instructionsConfig?.title) ||
+    normalizeDisplayText(context.programLabel) ||
+    normalizeDisplayText(event?.name) ||
+    "PROGRAM";
   const dateLabel = normalizeDisplayText(context.dateLabel);
-  const zoomLink = normalizeDisplayText(context.zoomLink) || "Provided separately.";
-  const encounterLabel = formatStudentInstructionsMinutes(encounterMinutes);
-  const feedbackLabel = formatStudentInstructionsMinutes(feedbackMinutes);
+  const zoomLink = normalizeDisplayText(instructionsConfig?.zoomLink) || normalizeDisplayText(context.zoomLink) || "Provided separately.";
+  const encounterLabel = normalizeDisplayText(instructionsConfig?.encounterTimeDetail) || formatStudentInstructionsMinutes(encounterMinutes);
+  const feedbackLabel = normalizeDisplayText(instructionsConfig?.feedbackTimeDetail) || formatStudentInstructionsMinutes(feedbackMinutes);
+  const joinOffsetMinutes =
+    typeof instructionsConfig?.joinOffsetMinutes === "number" && Number.isFinite(instructionsConfig.joinOffsetMinutes)
+      ? Math.max(0, Math.floor(instructionsConfig.joinOffsetMinutes))
+      : 15;
   const hasFirstEncounterStart =
     typeof firstEncounterStartMinutes === "number" && Number.isFinite(firstEncounterStartMinutes);
   const firstEncounterLabel = hasFirstEncounterStart ? toDisplayTime(firstEncounterStartMinutes) : "";
-  const joinTimeLabel = hasFirstEncounterStart ? toDisplayTime(firstEncounterStartMinutes - 15) : "";
+  const joinTimeLabel = hasFirstEncounterStart ? toDisplayTime(firstEncounterStartMinutes - joinOffsetMinutes) : "";
+  const baseJoinInstructions =
+    normalizeDisplayText(instructionsConfig?.joinInstructions) ||
+    `Students join Zoom ${joinOffsetMinutes} minutes before their first scheduled encounter.`;
   const joinInstruction = hasFirstEncounterStart
-    ? `Students join Zoom 15 minutes before their first scheduled encounter. For this schedule, the first encounter begins at ${firstEncounterLabel}; please join by ${joinTimeLabel}.`
-    : "Students join Zoom 15 minutes before their first scheduled encounter.";
+    ? `${baseJoinInstructions} For this schedule, the first encounter begins at ${firstEncounterLabel}; please join by ${joinTimeLabel}.`
+    : baseJoinInstructions;
+  const waitingRoomNote = normalizeDisplayText(instructionsConfig?.waitingRoomNote);
+  const timeZoneNote = normalizeDisplayText(instructionsConfig?.timeZoneNote);
+  const netiquetteLines = splitInstructionLines(instructionsConfig?.netiquetteInstructions || "");
+  const prebriefLines = splitInstructionLines(instructionsConfig?.prebriefInstructions || "");
+  const scenarioReminderLines = splitInstructionLines(instructionsConfig?.scenarioReminders || "");
+  const footerNote = normalizeDisplayText(instructionsConfig?.footerNote);
   const timingRows: Array<[string, string]> = [
     ["Encounter Time:", encounterLabel],
     ["Feedback Time:", feedbackLabel],
@@ -2292,43 +2376,48 @@ function buildStudentInstructionsExportHtml(context: StudentInstructionsExportCo
   const zoomValueHtml = zoomIsLink
     ? `<a href="${escapeHtml(zoomLink)}">${escapeHtml(zoomLink)}</a>`
     : escapeHtml(zoomLink);
-  const scheduleChunks: StudentInstructionsScheduleRow[][] = [];
-  const scheduleRowsPerSection = 18;
-  for (let index = 0; index < studentScheduleRows.length; index += scheduleRowsPerSection) {
-    scheduleChunks.push(studentScheduleRows.slice(index, index + scheduleRowsPerSection));
-  }
-  const renderScheduleTable = (rows: StudentInstructionsScheduleRow[], sectionIndex: number) => `
-    <section class="student-packet-page-section instructions-section student-schedule-section${sectionIndex === 0 ? " student-schedule-section-first" : ""}" data-packet-section="${sectionIndex === 0 ? "student-schedule-start" : "student-schedule-continued"}">
+  const scheduleBlocks = buildVirStyleStudentScheduleBlocks({
+    rounds: studentScheduleRounds,
+    roomColumns,
+    roomContext,
+    roomChunkSize: 8,
+  });
+  const renderScheduleIntro = () => `
+    <section class="student-packet-page-section instructions-section student-schedule-section student-schedule-section-first" data-packet-section="student-schedule-start">
       <div class="student-schedule-heading">
         <div>
-          <h3>Student Schedule${sectionIndex > 0 ? " (continued)" : ""}</h3>
-          <p>Please follow the schedule below for your assigned encounter time and breakout room.</p>
+          <h3>Student Schedule</h3>
+          <p>Find your encounter time and assigned breakout room below.</p>
         </div>
       </div>
-      <table class="student-schedule-table">
-        <thead>
-          <tr>
-            <th>Round</th>
-            <th>Time</th>
-            <th>Breakout Room / Room</th>
-            <th>Student</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${rows
+    </section>
+  `;
+  const renderScheduleBlock = (block: StudentInstructionsScheduleBlock) => `
+    <section class="student-packet-page-section student-schedule-section student-schedule-block-section" data-packet-section="student-schedule-continued">
+      <div class="vir-schedule-block">
+        <div class="vir-encounter-title">
+          <span>${escapeHtml(block.title)}</span>
+          <small>${escapeHtml(block.detail)}${block.chunkLabel ? ` • ${escapeHtml(block.chunkLabel)}` : ""}</small>
+        </div>
+        <div class="vir-room-grid" style="grid-template-columns: repeat(${Math.max(block.cells.length, 1)}, minmax(0, 1fr));">
+          ${block.cells
+            .map((cell) => `<div class="vir-room-header">${escapeHtml(cell.roomLabel)}</div>`)
+            .join("")}
+          ${block.cells
             .map(
-              (row) => `
-                <tr>
-                  <td class="student-schedule-round">${escapeHtml(row.roundLabel)}</td>
-                  <td class="student-schedule-time">${escapeHtml(row.timeLabel)}</td>
-                  <td class="student-schedule-room">${escapeHtml(row.roomLabel)}</td>
-                  <td class="student-schedule-student">${escapeHtml(row.studentLabel)}</td>
-                </tr>
+              (cell) => `
+                <div class="vir-student-cell${cell.studentLabels.length ? "" : " vir-student-cell-empty"}">
+                  ${
+                    cell.studentLabels.length
+                      ? cell.studentLabels.map((student) => `<div class="vir-student-name">${escapeHtml(student)}</div>`).join("")
+                      : `<div class="vir-no-student">No student assigned</div>`
+                  }
+                </div>
               `
             )
             .join("")}
-        </tbody>
-      </table>
+        </div>
+      </div>
     </section>
   `;
 
@@ -2473,54 +2562,90 @@ function buildStudentInstructionsExportHtml(context: StudentInstructionsExportCo
             break-before: page;
             page-break-before: always;
           }
-          .student-schedule-table {
+          .student-schedule-block-section {
+            padding: 0;
+            border: none;
+            background: transparent;
+            display: block;
+          }
+          .vir-schedule-block {
             width: 100%;
-            border-collapse: collapse;
-            background: #ffffff;
-            border: 1px solid #d7e1ea;
+            border: 1px solid #aebccb;
             border-radius: 8px;
             overflow: hidden;
-            table-layout: fixed;
-          }
-          .student-schedule-table thead { display: table-header-group; }
-          .student-schedule-table th,
-          .student-schedule-table td {
-            padding: 8px 10px;
-            border-bottom: 1px solid #e7eef4;
-            text-align: left;
-            vertical-align: top;
-            font-size: 12px;
-            line-height: 1.35;
-            overflow-wrap: anywhere;
-            word-break: normal;
-          }
-          .student-schedule-table th {
-            background: #f2f6fa;
-            color: #60768b;
-            font-size: 10px;
-            font-weight: 900;
-            letter-spacing: 0.06em;
-            text-transform: uppercase;
-          }
-          .student-schedule-table tr {
+            background: #ffffff;
             break-inside: avoid;
             page-break-inside: avoid;
           }
-          .student-schedule-table tr:last-child td { border-bottom: none; }
-          .student-schedule-round {
-            width: 14%;
-            color: #14304f;
-            font-weight: 900;
-            white-space: nowrap;
+          .vir-encounter-title {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 8px 11px;
+            background: #132b45;
+            color: #ffffff;
           }
-          .student-schedule-time {
-            width: 22%;
-            color: #46627d;
-            font-weight: 900;
-            white-space: nowrap;
+          .vir-encounter-title span {
+            font-size: 14px;
+            line-height: 1.15;
+            font-weight: 950;
           }
-          .student-schedule-room { width: 28%; color: #29445f; font-weight: 850; }
-          .student-schedule-student { width: 36%; color: #14304f; font-weight: 900; }
+          .vir-encounter-title small {
+            color: #dbe7f2;
+            font-size: 10.5px;
+            line-height: 1.2;
+            font-weight: 850;
+            text-align: right;
+          }
+          .vir-room-grid {
+            display: grid;
+            width: 100%;
+            background: #dfe7f0;
+            border-top: 1px solid #aebccb;
+          }
+          .vir-room-header {
+            min-height: 34px;
+            padding: 7px 7px;
+            border-right: 1px solid #c3cfda;
+            border-bottom: 1px solid #aebccb;
+            background: #e8eef5;
+            color: #24445f;
+            font-size: 10px;
+            line-height: 1.15;
+            font-weight: 950;
+            text-align: center;
+            overflow-wrap: anywhere;
+          }
+          .vir-room-header:last-of-type { border-right: none; }
+          .vir-student-cell {
+            min-height: 54px;
+            padding: 7px 6px;
+            border-right: 1px solid #d5e0e8;
+            background: #f8fffb;
+            color: #12324d;
+            text-align: center;
+            display: grid;
+            align-content: center;
+            gap: 3px;
+          }
+          .vir-student-cell:nth-last-child(1) { border-right: none; }
+          .vir-student-cell-empty {
+            background: #fbf3e6;
+            color: #8a6741;
+          }
+          .vir-student-name {
+            font-size: 10.8px;
+            line-height: 1.18;
+            font-weight: 950;
+            overflow-wrap: anywhere;
+          }
+          .vir-no-student {
+            font-size: 9.5px;
+            line-height: 1.15;
+            font-weight: 800;
+            opacity: 0.78;
+          }
           .student-schedule-empty {
             color: #60768b;
             font-size: 12.5px;
@@ -2542,8 +2667,7 @@ function buildStudentInstructionsExportHtml(context: StudentInstructionsExportCo
             .instructions-section,
             .timing-item,
             .student-packet-page-section,
-            .student-schedule-table,
-            .student-schedule-table tr {
+            .vir-schedule-block {
               break-inside: avoid;
               page-break-inside: avoid;
             }
@@ -2566,27 +2690,36 @@ function buildStudentInstructionsExportHtml(context: StudentInstructionsExportCo
               <h3>Before Your Encounter</h3>
               <p>${escapeHtml(joinInstruction)}</p>
               <p>Zoom link: ${zoomValueHtml}</p>
-              <p>Students are held in the waiting room before staff admit them. All times are Eastern Standard Time.</p>
+              ${waitingRoomNote ? `<p>${escapeHtml(waitingRoomNote)}</p>` : ""}
+              ${timeZoneNote ? `<p>${escapeHtml(timeZoneNote)}</p>` : ""}
             </section>
 
             <section class="student-packet-page-section instructions-section">
               <h3>Professional Video and Netiquette</h3>
               <ul class="instructions-list">
-                <li>Join from a quiet, private location with a stable internet connection.</li>
-                <li>Use a professional screen name, keep your camera on when possible, and frame your face clearly.</li>
-                <li>Mute your microphone when you are not speaking, and avoid side conversations or multitasking.</li>
-                <li>Protect confidentiality. Do not record, photograph, or share simulation content.</li>
+                ${netiquetteLines.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}
               </ul>
             </section>
 
             <section class="student-packet-page-section instructions-section">
               <h3>Pre-Brief</h3>
               <ul class="instructions-list">
-                <li>Staff review simulation flow and case information in the main room.</li>
-                <li>Students are assigned to breakout rooms.</li>
-                <li>Students introduce themselves to the patient at the start of the encounter.</li>
+                ${prebriefLines.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}
               </ul>
             </section>
+
+            ${
+              scenarioReminderLines.length
+                ? `
+                  <section class="student-packet-page-section instructions-section">
+                    <h3>Scenario-Specific Reminders</h3>
+                    <ul class="instructions-list">
+                      ${scenarioReminderLines.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}
+                    </ul>
+                  </section>
+                `
+                : ""
+            }
 
             <section class="student-packet-page-section instructions-section">
               <h3>Session Timing</h3>
@@ -2618,14 +2751,14 @@ function buildStudentInstructionsExportHtml(context: StudentInstructionsExportCo
             </section>
 
             ${
-              scheduleChunks.length
-                ? scheduleChunks.map((rows, index) => renderScheduleTable(rows, index)).join("")
+              scheduleBlocks.length
+                ? `${renderScheduleIntro()}${scheduleBlocks.map((block) => renderScheduleBlock(block)).join("")}`
                 : `
                   <section class="student-packet-page-section instructions-section student-schedule-section student-schedule-section-first" data-packet-section="student-schedule-start">
                     <div class="student-schedule-heading">
                       <div>
                         <h3>Student Schedule</h3>
-                        <p>Please follow the schedule below for your assigned encounter time and breakout room.</p>
+                        <p>Find your encounter time and assigned breakout room below.</p>
                       </div>
                     </div>
                     <div class="student-schedule-empty">No student schedule has been generated yet.</div>
@@ -2634,7 +2767,7 @@ function buildStudentInstructionsExportHtml(context: StudentInstructionsExportCo
             }
 
             <footer class="student-instructions-footer">
-              This document is intended for students and includes only learner-facing simulation instructions.
+              ${escapeHtml(footerNote)}
             </footer>
           </article>
         </main>
@@ -2755,15 +2888,16 @@ function getZoomLinkFromBuilderEvent(event: EventRow | null) {
 
 function getStudentInstructionsZoomLinkFromBuilderEvent(event: EventRow | null) {
   const resolvedLink = getZoomLinkFromBuilderEvent(event);
-  const sourceText = [event?.location, event?.notes].map((value) => asText(value)).join("\n");
+  const sourceText = [resolvedLink, event?.name, event?.location, event?.notes].map((value) => asText(value)).join("\n");
   const correctedMeetingIdPattern = /\b83108006111\b/;
   const staleDrexelZoomPattern = /https?:\/\/drexel\.zoom\.us\/j\/\d+/i;
+  const looksLikePa565Vir = /\bpa\s*565\b/i.test(sourceText) && /\bvir\b/i.test(sourceText);
 
-  if (correctedMeetingIdPattern.test(resolvedLink) || correctedMeetingIdPattern.test(sourceText)) {
+  if (correctedMeetingIdPattern.test(sourceText)) {
     return CORRECTED_STUDENT_INSTRUCTIONS_ZOOM_URL;
   }
 
-  if (staleDrexelZoomPattern.test(resolvedLink) || staleDrexelZoomPattern.test(sourceText)) {
+  if (looksLikePa565Vir && staleDrexelZoomPattern.test(sourceText)) {
     return CORRECTED_STUDENT_INSTRUCTIONS_ZOOM_URL;
   }
 
@@ -2998,27 +3132,6 @@ function formatRoomName(
 ) {
   const resolvedHint = roomType === "exam" ? "exam" : "flex";
   return getRoomDisplayLabel(roomName, roomNumber, roomContext, resolvedHint);
-}
-
-function buildStudentInstructionsScheduleRows(
-  rounds: ScheduledRound[],
-  roomContext: Parameters<typeof getRoomDisplayLabel>[2]
-) {
-  return rounds.flatMap((round) => {
-    const encounterBlock = round.subBlocks.find((subBlock) => /^encounter$/i.test(asText(subBlock.label)));
-    const timeLabel = encounterBlock ? formatRange(encounterBlock.start, encounterBlock.end) : formatRange(round.start, round.end);
-    return round.roomSlots.flatMap((slot, slotIndex) => {
-      const roomLabel = formatRoomName(slot.roomName, slot.roomType, slotIndex + 1, roomContext);
-      const learners = slot.learnerLabels.length ? slot.learnerLabels : ["No student assigned"];
-      return learners.map((studentLabel, learnerIndex) => ({
-        key: `round-${round.round}-room-${slotIndex}-learner-${learnerIndex}`,
-        roundLabel: `Round ${round.round}`,
-        timeLabel,
-        roomLabel,
-        studentLabel,
-      }));
-    });
-  });
 }
 
 type ScheduleTimingVisibility = "all" | DayBlockVisibility;
@@ -5263,6 +5376,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     () => parseEventMetadata(selectedEvent?.notes).training,
     [selectedEvent?.notes]
   );
+  const savedStudentInstructionsConfig = useMemo(
+    () => getStudentInstructionsConfigFromMetadata(selectedEventMetadata),
+    [selectedEventMetadata]
+  );
   const showCopyMessage = useCallback((message: string, tone: "success" | "error" = "success", timeoutMs = 2400) => {
     setCopyMessageTone(tone);
     setCopyMessage(message);
@@ -6735,10 +6852,6 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     }
     return parseNumber(feedbackMinutes, parseNumber(DEFAULT_SCHEDULE_BUILDER_DRAFT.feedbackMinutes, 10));
   }, [feedbackMinutes, scheduledRounds]);
-  const studentInstructionsScheduleRows = useMemo(
-    () => buildStudentInstructionsScheduleRows(studentPreviewRounds, roomNamingContext),
-    [roomNamingContext, studentPreviewRounds]
-  );
   const studentInstructionsPrintHtml = useMemo(
     () =>
       buildStudentInstructionsExportHtml({
@@ -6746,18 +6859,24 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         programLabel: normalizeDisplayText(selectedEvent?.name) || "PROGRAM",
         dateLabel: selectedScheduleDateLabel,
         zoomLink: getStudentInstructionsZoomLinkFromBuilderEvent(selectedEvent),
+        instructionsConfig: savedStudentInstructionsConfig,
         encounterMinutes: firstStudentEncounterDurationMinutes,
         feedbackMinutes: firstFeedbackDurationMinutes,
         firstEncounterStartMinutes: firstStudentEncounterStartMinutes,
-        studentScheduleRows: studentInstructionsScheduleRows,
+        studentScheduleRounds: studentPreviewRounds,
+        roomColumns,
+        roomContext: roomNamingContext,
       }),
     [
       firstFeedbackDurationMinutes,
       firstStudentEncounterStartMinutes,
       firstStudentEncounterDurationMinutes,
+      roomColumns,
+      roomNamingContext,
       selectedEvent,
       selectedScheduleDateLabel,
-      studentInstructionsScheduleRows,
+      savedStudentInstructionsConfig,
+      studentPreviewRounds,
     ]
   );
   const studentInstructionsPdfFileName = useMemo(() => {
@@ -6956,13 +7075,25 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   ]);
 
   useEffect(() => {
-    if (loading || !props.previewOnly || !props.autoDownload || autoDownloadTriggeredRef.current || !compactSchedulePrintHtml) return;
+    if (loading || !props.previewOnly || !props.autoDownload || autoDownloadTriggeredRef.current) return;
     autoDownloadTriggeredRef.current = true;
+    const shouldDownloadStudentInstructions = props.autoDownloadMode === "student-instructions";
     const timeout = window.setTimeout(() => {
-      void handleStyledPdfDownload();
+      if (shouldDownloadStudentInstructions) {
+        void handleStudentInstructionsPdfDownload();
+      } else {
+        void handleStyledPdfDownload();
+      }
     }, 350);
     return () => window.clearTimeout(timeout);
-  }, [compactSchedulePrintHtml, handleStyledPdfDownload, loading, props.autoDownload, props.previewOnly]);
+  }, [
+    handleStyledPdfDownload,
+    handleStudentInstructionsPdfDownload,
+    loading,
+    props.autoDownload,
+    props.autoDownloadMode,
+    props.previewOnly,
+  ]);
 
   function handleRenderedSchedulePrint() {
     const printed = openSchedulePrintFlow();
