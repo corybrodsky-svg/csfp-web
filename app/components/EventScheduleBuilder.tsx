@@ -1418,14 +1418,6 @@ async function buildStudentInstructionsPdfPages(
   const styleNode = document.createElement("style");
   styleNode.textContent = `
     ${printableStyles}
-    .cfsp-pdf-page,
-    .cfsp-pdf-header,
-    .cfsp-pdf-section,
-    .vir-schedule-block {
-      break-inside: avoid;
-      page-break-inside: avoid;
-      -webkit-column-break-inside: avoid;
-    }
     .cfsp-pdf-page {
       position: relative;
       width: ${contentWidth}px;
@@ -1438,13 +1430,27 @@ async function buildStudentInstructionsPdfPages(
       overflow: visible;
       display: grid;
       gap: 12px;
+      break-inside: avoid;
+      page-break-inside: avoid;
+      -webkit-column-break-inside: avoid;
     }
     .cfsp-pdf-section,
-    .cfsp-pdf-header,
     .cfsp-pdf-footer {
       display: block;
       width: 100%;
       max-width: 100%;
+      break-inside: avoid;
+      page-break-inside: avoid;
+      -webkit-column-break-inside: avoid;
+    }
+    .cfsp-pdf-header {
+      display: grid;
+      width: 100%;
+      max-width: 100%;
+      gap: 6px;
+      break-inside: avoid;
+      page-break-inside: avoid;
+      -webkit-column-break-inside: avoid;
     }
   `;
   exportRoot.appendChild(styleNode);
@@ -2445,15 +2451,14 @@ function buildStudentInstructionsExportHtml(context: StudentInstructionsExportCo
           }
           .student-instructions-document {
             display: grid;
-            gap: 16px;
-            padding: 34px 40px;
+            gap: 14px;
+            padding: 18px 40px 30px;
             background: #ffffff;
           }
           .student-instructions-header {
             display: grid;
-            gap: 8px;
-            border-bottom: 2px solid #17304f;
-            padding-bottom: 14px;
+            gap: 6px;
+            padding-bottom: 0;
           }
           .student-instructions-header h1 {
             margin: 0;
@@ -2476,10 +2481,13 @@ function buildStudentInstructionsExportHtml(context: StudentInstructionsExportCo
             min-height: 18px;
           }
           .student-instructions-subtitle {
-            margin: 0;
+            display: block;
+            margin: 8px 0 0 0;
+            padding-bottom: 7px;
+            border-bottom: 2px solid #17304f;
             color: #17304f;
             font-size: 18px;
-            line-height: 1.25;
+            line-height: 1.2;
             font-weight: 900;
           }
           .instructions-section {
@@ -2663,7 +2671,6 @@ function buildStudentInstructionsExportHtml(context: StudentInstructionsExportCo
           @page { size: A4 portrait; margin: 0.35in; }
           @media print {
             html, body { background: #ffffff !important; }
-            .student-instructions-document { padding: 0; gap: 12px; }
             .instructions-section,
             .timing-item,
             .student-packet-page-section,
