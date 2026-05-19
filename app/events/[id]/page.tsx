@@ -11792,21 +11792,34 @@ Cory`;
       : []),
   ];
   const scheduleSummaryActions = scheduleWorkflowActions;
+  const commandCenterHudAccessLabel =
+    asText(resolvedStudentInstructionsConfig.zoomLink) || locationAccessPrimaryLabel || "Access TBD";
+  const commandCenterHudLearnerValue =
+    effectiveLearnerCount > 0 ? String(effectiveLearnerCount) : operationalLearnerCountLabel;
+  const commandCenterHudLearnerDetail =
+    selectedRoundLearnerCount !== null ? `Active round: ${selectedRoundLearnerCount}` : "Roster learners";
+  const commandCenterHudRoundCount = Math.max(
+    operationalRoundCount || 0,
+    scheduleRoundCountResolution.rounds || 0,
+    activeRotationCount || 0,
+    scheduleBuilderDraftRoundCount || 0
+  );
   const commandCenterScoreboardMetrics = [
-    { label: "Learners", value: operationalLearnerCountLabel, detail: effectiveLearnerCount > 0 ? `Roster: ${effectiveLearnerCount}` : "Current roster source" },
+    { label: "Learners", value: commandCenterHudLearnerValue, detail: commandCenterHudLearnerDetail },
     { label: "Rooms", value: operationalRoomCount > 0 ? String(operationalRoomCount) : "TBD", detail: hasRoomsBuilt ? "Room surface ready" : "Room plan pending" },
-    { label: "Rounds", value: operationalRoundCount > 0 ? String(operationalRoundCount) : "TBD", detail: scheduleRoundCountResolution.label },
+    { label: "Rounds", value: commandCenterHudRoundCount > 0 ? String(commandCenterHudRoundCount) : "TBD", detail: scheduleRoundCountResolution.label },
     { label: "Coverage", value: needed > 0 ? `${confirmedCount}/${needed}` : `${confirmedCount}`, detail: needed > 0 ? "Primary confirmed SPs" : "Confirmed SPs" },
     { label: "Readiness", value: operationalReadinessItems.primary, detail: eventRiskLevel.detail },
+    { label: "Training", value: normalEventTrainingStatusLabel.replace(/^Training\s+/i, ""), detail: normalEventTrainingDateText || "Training workflow" },
   ];
-  const commandCenterScoreboardStatusChips = [
+  const commandCenterScoreboardStatusChips = Array.from(new Set([
     operationalEventStatusLabel,
     ...summaryOperationalIdentityBadges.map((badge) => badge.label),
     scheduleStatusLabel,
     normalEventTrainingStatusLabel,
     materialsStatusLabel,
     eventRecordingEnabled || recordingGuideUrl ? eventRecordingStatus.label : "",
-  ].filter(Boolean);
+  ].filter(Boolean)));
   const commandCenterScoreboardActions: Array<{
     key: string;
     label: string;
@@ -21493,30 +21506,30 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 
         <section
           style={{
-            marginTop: "12px",
-            border: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.2)" : "1px solid rgba(126, 231, 219, 0.22)",
-            borderRadius: "20px",
-            padding: "12px",
-            background: isPlanningVisualMode
-              ? "linear-gradient(180deg, rgba(255,255,255,0.99) 0%, rgba(237, 248, 251, 0.97) 100%)"
-              : "linear-gradient(180deg, rgba(11, 23, 37, 0.98) 0%, rgba(10, 19, 31, 0.95) 100%)",
-            boxShadow: isPlanningVisualMode ? "0 12px 28px rgba(42, 112, 140, 0.08)" : "0 14px 28px rgba(2, 6, 23, 0.24)",
+            marginTop: "10px",
+            border: "1px solid rgba(34, 211, 238, 0.26)",
+            borderRadius: "14px",
+            padding: "10px",
+            background:
+              "linear-gradient(rgba(34, 211, 238, 0.055) 1px, transparent 1px), linear-gradient(90deg, rgba(34, 211, 238, 0.045) 1px, transparent 1px), linear-gradient(135deg, rgba(5, 18, 31, 0.98) 0%, rgba(7, 35, 51, 0.97) 46%, rgba(6, 50, 48, 0.94) 100%)",
+            backgroundSize: "22px 22px, 22px 22px, auto",
+            boxShadow: "0 18px 42px rgba(2, 6, 23, 0.32), inset 0 1px 0 rgba(255,255,255,0.08)",
             display: "grid",
-            gap: "10px",
+            gap: "8px",
           }}
         >
-          <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "flex-start" }}>
-            <div style={{ minWidth: 0, display: "grid", gap: "6px", flex: "1 1 420px" }}>
-              <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Command Center Scoreboard</div>
-              <div style={{ color: commandCenterVisual.headingColor, fontSize: "24px", fontWeight: 950, lineHeight: 1.08 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "flex-start" }}>
+            <div style={{ minWidth: 0, display: "grid", gap: "4px", flex: "1 1 430px" }}>
+              <div style={{ color: "#67e8f9", fontSize: "10px", fontWeight: 950, letterSpacing: "0.14em", textTransform: "uppercase" }}>Command Center HUD</div>
+              <div style={{ color: "#f8fafc", fontSize: "20px", fontWeight: 950, lineHeight: 1.08 }}>
                 {event?.name || "Untitled Event"}
               </div>
-              <div style={{ color: commandCenterVisual.mutedColor, fontSize: "13px", fontWeight: 800, lineHeight: 1.45 }}>
-                {[sessionSummaryLabel || eventDateLabel, summaryTimeLabel, locationAccessPrimaryLabel].filter(Boolean).join(" · ")}
+              <div style={{ color: "#b7d7e8", fontSize: "11px", fontWeight: 800, lineHeight: 1.4, overflowWrap: "anywhere" }}>
+                {[sessionSummaryLabel || eventDateLabel, summaryTimeLabel, commandCenterHudAccessLabel].filter(Boolean).join("  |  ")}
               </div>
               <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                 {eventDateCountdownLabel ? (
-                  <span style={{ ...commandChipStyle, background: commandCenterVisual.activeSoftBackground, color: commandCenterVisual.activeSoftText }}>
+                  <span style={{ ...commandChipStyle, background: "rgba(20, 184, 166, 0.16)", border: "1px solid rgba(45, 212, 191, 0.34)", color: "#99f6e4" }}>
                     {eventDateCountdownLabel}
                   </span>
                 ) : null}
@@ -21563,20 +21576,18 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               </div>
             </div>
 
-            <div style={{ display: "grid", gap: "8px", justifyItems: "end", flex: "0 1 420px" }}>
+            <div style={{ display: "grid", gap: "7px", justifyItems: "end", flex: "0 1 440px" }}>
               {canRunLiveEventMode ? (
                 <div
                   style={{
                     display: "inline-flex",
                     gap: "6px",
                     flexWrap: "wrap",
-                    padding: "6px",
-                    borderRadius: "14px",
-                    border: "1px solid var(--cfsp-command-button-border)",
-                    background: isPlanningVisualMode
-                      ? "linear-gradient(135deg, rgba(255,255,255,0.84), rgba(232,255,249,0.7))"
-                      : "linear-gradient(135deg, rgba(14, 34, 50, 0.82), rgba(11, 53, 55, 0.72))",
-                    boxShadow: "var(--cfsp-command-button-shadow)",
+                    padding: "4px",
+                    borderRadius: "12px",
+                    border: "1px solid rgba(34, 211, 238, 0.24)",
+                    background: "rgba(3, 14, 25, 0.72)",
+                    boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06)",
                   }}
                 >
                   <button
@@ -21584,17 +21595,12 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     onClick={() => void handleCommandCenterModeChange("planning")}
                     style={{
                       ...buttonStyle,
-                      padding: "8px 12px",
-                      borderRadius: "10px",
-                      background: commandCenterMode === "planning" ? "var(--cfsp-command-button-active-bg)" : "transparent",
-                      color: commandCenterMode === "planning" ? "var(--cfsp-command-button-active-text)" : commandCenterVisual.mutedColor,
-                      border:
-                        commandCenterMode === "planning"
-                          ? "1px solid var(--cfsp-command-button-active-border)"
-                          : isPlanningVisualMode
-                            ? "1px solid rgba(25, 138, 112, 0.16)"
-                            : "1px solid rgba(148, 163, 184, 0.2)",
-                      boxShadow: commandCenterMode === "planning" ? "var(--cfsp-command-button-active-shadow)" : "none",
+                      padding: "7px 10px",
+                      borderRadius: "9px",
+                      background: commandCenterMode === "planning" ? "linear-gradient(135deg, #0891b2, #0f766e)" : "transparent",
+                      color: commandCenterMode === "planning" ? "#ffffff" : "#9bd6e6",
+                      border: commandCenterMode === "planning" ? "1px solid rgba(103, 232, 249, 0.38)" : "1px solid rgba(148, 163, 184, 0.18)",
+                      boxShadow: commandCenterMode === "planning" ? "0 0 18px rgba(34, 211, 238, 0.16)" : "none",
                     }}
                   >
                     Planning Mode
@@ -21604,17 +21610,12 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     onClick={() => void handleCommandCenterModeChange("live")}
                     style={{
                       ...buttonStyle,
-                      padding: "8px 12px",
-                      borderRadius: "10px",
-                      background: commandCenterMode === "live" ? "var(--cfsp-command-button-active-bg)" : "transparent",
-                      color: commandCenterMode === "live" ? "var(--cfsp-command-button-active-text)" : commandCenterVisual.mutedColor,
-                      border:
-                        commandCenterMode === "live"
-                          ? "1px solid var(--cfsp-command-button-active-border)"
-                          : isPlanningVisualMode
-                            ? "1px solid rgba(25, 138, 112, 0.16)"
-                            : "1px solid rgba(148, 163, 184, 0.2)",
-                      boxShadow: commandCenterMode === "live" ? "var(--cfsp-command-button-active-shadow)" : "none",
+                      padding: "7px 10px",
+                      borderRadius: "9px",
+                      background: commandCenterMode === "live" ? "linear-gradient(135deg, #16a34a, #0f766e)" : "transparent",
+                      color: commandCenterMode === "live" ? "#ffffff" : "#9bd6e6",
+                      border: commandCenterMode === "live" ? "1px solid rgba(134, 239, 172, 0.38)" : "1px solid rgba(148, 163, 184, 0.18)",
+                      boxShadow: commandCenterMode === "live" ? "0 0 18px rgba(34, 197, 94, 0.16)" : "none",
                     }}
                   >
                     Live Event Mode
@@ -21630,22 +21631,21 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       ...commandChipStyle,
                       background:
                         chip === normalEventTrainingStatusLabel && normalEventTrainingComplete
-                          ? planningSuccessBackground
+                          ? "rgba(20, 184, 166, 0.16)"
                           : chip === operationalReadinessItems.primary && operationalReadinessItems.primary === "Ready"
-                            ? planningSuccessBackground
-                            : commandCenterVisual.chipBackground,
+                            ? "rgba(20, 184, 166, 0.16)"
+                            : "rgba(15, 23, 42, 0.58)",
                       color:
                         chip === normalEventTrainingStatusLabel && normalEventTrainingComplete
-                          ? planningSuccessText
+                          ? "#99f6e4"
                           : chip === operationalReadinessItems.primary && operationalReadinessItems.primary === "Ready"
-                            ? planningSuccessText
-                            : commandCenterVisual.chipText,
+                            ? "#99f6e4"
+                            : "#cbd5e1",
                       border:
                         chip === normalEventTrainingStatusLabel && normalEventTrainingComplete
-                          ? planningSuccessBorder
-                          : isPlanningVisualMode
-                            ? "1px solid rgba(99, 181, 217, 0.18)"
-                            : commandChipStyle.border,
+                          ? "1px solid rgba(45, 212, 191, 0.34)"
+                          : "1px solid rgba(125, 211, 252, 0.18)",
+                      boxShadow: "inset 0 1px 0 rgba(255,255,255,0.05)",
                     }}
                   >
                     {chip}
@@ -21658,28 +21658,28 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))",
-              gap: "8px",
+              gridTemplateColumns: "repeat(auto-fit, minmax(104px, 1fr))",
+              gap: "6px",
             }}
           >
             {commandCenterScoreboardMetrics.map((metric) => (
               <div
                 key={`scoreboard-metric-${metric.label}`}
                 style={{
-                  borderRadius: "14px",
-                  border: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.16)" : "1px solid rgba(126, 231, 219, 0.16)",
-                  background: isPlanningVisualMode ? "rgba(255,255,255,0.76)" : "rgba(15, 23, 42, 0.42)",
-                  padding: "9px 10px",
+                  borderRadius: "8px",
+                  border: "1px solid rgba(34, 211, 238, 0.18)",
+                  background: "linear-gradient(180deg, rgba(15, 23, 42, 0.72), rgba(8, 27, 41, 0.62))",
+                  padding: "7px 8px",
                   display: "grid",
-                  gap: "4px",
-                  minHeight: "62px",
+                  gap: "3px",
+                  minHeight: "52px",
                 }}
               >
-                <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>{metric.label}</div>
-                <div style={{ color: commandCenterVisual.headingColor, fontSize: "18px", fontWeight: 950, lineHeight: 1.08 }}>
+                <div style={{ color: "#67e8f9", fontSize: "9px", fontWeight: 950, letterSpacing: "0.1em", textTransform: "uppercase" }}>{metric.label}</div>
+                <div style={{ color: "#f8fafc", fontSize: "16px", fontWeight: 950, lineHeight: 1.08, overflowWrap: "anywhere" }}>
                   {metric.value}
                 </div>
-                <div style={{ color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 750, lineHeight: 1.35 }}>
+                <div style={{ color: "#8fb8c9", fontSize: "9.5px", fontWeight: 750, lineHeight: 1.25, overflowWrap: "anywhere" }}>
                   {metric.detail}
                 </div>
               </div>
@@ -21692,7 +21692,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 <Link
                   key={action.key}
                   href={action.href}
-                  style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "8px 12px" }}
+                  style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "7px 10px", background: "rgba(8, 145, 178, 0.22)", border: "1px solid rgba(34, 211, 238, 0.28)", color: "#e0f7ff" }}
                 >
                   {action.label}
                 </Link>
@@ -21702,7 +21702,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   type="button"
                   onClick={action.onClick}
                   disabled={Boolean(action.disabled)}
-                  style={{ ...buttonStyle, padding: "8px 12px", opacity: action.disabled ? 0.65 : 1 }}
+                  style={{ ...buttonStyle, padding: "7px 10px", opacity: action.disabled ? 0.65 : 1, background: "rgba(8, 145, 178, 0.22)", border: "1px solid rgba(34, 211, 238, 0.28)", color: "#e0f7ff" }}
                 >
                   {action.label}
                 </button>
@@ -21716,7 +21716,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         <div
           style={{
             marginTop: "10px",
-            display: "none",
+            display: "grid",
             gap: "6px",
             gridTemplateColumns: "minmax(0, 1fr)",
             alignItems: "start",
@@ -21729,6 +21729,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               padding: "14px",
               background: commandCenterVisual.shellBackground,
               boxShadow: commandCenterVisual.shellShadow,
+              display: "none",
             }}
           >
             <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Operational Summary</div>
@@ -23581,7 +23582,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     className="cfsp-button-tactical"
                     style={{
                       ...buttonStyle,
-                      display: "inline-flex",
+                      display: "none",
                       padding: "7px 10px",
                       background: rotationCommandSurfaceOpen
                         ? isPlanningVisualMode
@@ -23608,8 +23609,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     {rotationCommandSurfaceOpen ? "Collapse Central Command" : "Open Central Command"}
                   </button>
                 </div>
-                {rotationCommandSurfaceOpen ? (
-                  <>
+                <>
                 <div
                   className="cfsp-file-cabinet-rail"
                   style={{
@@ -23648,9 +23648,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       type="button"
                       onClick={() => handleRotationCommandSurfaceOpenChange()}
                       className="cfsp-button-tactical"
-                      style={{
+                    style={{
                         ...staffingSecondaryButtonStyle,
-                        display: "inline-flex",
+                        display: "none",
                         padding: "7px 10px",
                         background: isPlanningVisualMode
                           ? "rgba(255,255,255,0.88)"
@@ -27417,8 +27417,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     )}
                   </aside>
                 </div>
-                  </>
-                ) : null}
+                </>
               </div>
             ) : (
               <div style={{ marginTop: "10px", color: "var(--cfsp-text-muted)", fontWeight: 700 }}>
