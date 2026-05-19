@@ -40,6 +40,13 @@ import {
   upsertEventMetadata,
 } from "../../lib/eventMetadata";
 import {
+  DEFAULT_STUDENT_INSTRUCTIONS_CONFIG,
+  getStudentInstructionsConfigFromMetadata,
+  normalizeStudentInstructionsConfig,
+  serializeStudentInstructionsConfig,
+  type StudentInstructionsConfig,
+} from "../../lib/studentInstructionsConfig";
+import {
   DEFAULT_CFSP_EMAIL_TEMPLATES,
   findEmailTemplate,
   normalizeEmailPlainText,
@@ -1194,6 +1201,35 @@ const textareaStyle: React.CSSProperties = {
 function asText(value: unknown) {
   if (value === null || value === undefined) return "";
   return String(value).trim();
+}
+
+const CORRECTED_PA565_VIR_ZOOM_URL = "https://drexel.zoom.us/j/83108006111";
+
+function getStudentInstructionsZoomFallback(
+  event: EventDetailRow | null,
+  metadata: Partial<TrainingEventMetadata> | null | undefined
+) {
+  const metadataLink = asText(metadata?.zoom_url) || asText(metadata?.training_zoom_link);
+  const sourceText = [metadataLink, event?.name, event?.location, event?.notes].map((value) => asText(value)).join("\n");
+  const looksLikePa565Vir = /\bpa\s*565\b/i.test(sourceText) && /\bvir\b/i.test(sourceText);
+  const hasCorrectedMeetingId = /\b83108006111\b/.test(sourceText);
+  const hasDrexelZoomLink = /https?:\/\/drexel\.zoom\.us\/j\/\d+/i.test(sourceText);
+  if (hasCorrectedMeetingId || (looksLikePa565Vir && hasDrexelZoomLink)) {
+    return CORRECTED_PA565_VIR_ZOOM_URL;
+  }
+  const noteLink = sourceText.match(/https?:\/\/[^\s<>"']*(?:zoom|simiq)[^\s<>"']*/i)?.[0]?.replace(/[).,;]+$/, "");
+  return metadataLink || noteLink || "";
+}
+
+function buildDefaultStudentInstructionsDraft(
+  event: EventDetailRow | null,
+  metadata: Partial<TrainingEventMetadata> | null | undefined
+) {
+  return normalizeStudentInstructionsConfig({
+    ...DEFAULT_STUDENT_INSTRUCTIONS_CONFIG,
+    title: asText(event?.name),
+    zoomLink: getStudentInstructionsZoomFallback(event, metadata),
+  });
 }
 
 function isEditableKeyboardTarget(target: EventTarget | null) {
@@ -2728,6 +2764,14 @@ function formatOperationalDate(date: Date | null, fallback?: string | null) {
     month: "long",
     day: "numeric",
     year: "numeric",
+  });
+}
+
+function formatOperationalShortDate(date: Date | null, fallback?: string | null) {
+  if (!date) return asText(fallback) || "Date TBD";
+  return date.toLocaleDateString([], {
+    month: "short",
+    day: "numeric",
   });
 }
 
@@ -5811,6 +5855,43 @@ export default function EventDetailPage() {
     () => mergeEventFamilyTrainingMetadata(parsedEventMetadata.training, relatedTrainingOperationalEvents),
     [parsedEventMetadata.training, relatedTrainingOperationalEvents]
   );
+  const savedStudentInstructionsConfig = useMemo(
+    () => getStudentInstructionsConfigFromMetadata(trainingMetadata),
+    [trainingMetadata]
+  );
+  const defaultStudentInstructionsConfig = useMemo(
+    () => buildDefaultStudentInstructionsDraft(event, trainingMetadata),
+    [event, trainingMetadata]
+  );
+  const resolvedStudentInstructionsConfig = useMemo(
+    () =>
+      normalizeStudentInstructionsConfig({
+        ...defaultStudentInstructionsConfig,
+        ...savedStudentInstructionsConfig,
+        title: asText(savedStudentInstructionsConfig.title) || defaultStudentInstructionsConfig.title,
+        zoomLink: asText(savedStudentInstructionsConfig.zoomLink) || defaultStudentInstructionsConfig.zoomLink,
+      }),
+    [defaultStudentInstructionsConfig, savedStudentInstructionsConfig]
+  );
+  const [studentInstructionsDraft, setStudentInstructionsDraft] = useState<StudentInstructionsConfig>(
+    resolvedStudentInstructionsConfig
+  );
+  const [studentInstructionsSavedMessage, setStudentInstructionsSavedMessage] = useState("");
+  useEffect(() => {
+    setStudentInstructionsDraft(resolvedStudentInstructionsConfig);
+    setStudentInstructionsSavedMessage("");
+  }, [resolvedStudentInstructionsConfig]);
+  const studentInstructionsDirty =
+    JSON.stringify(normalizeStudentInstructionsConfig(studentInstructionsDraft)) !==
+    JSON.stringify(normalizeStudentInstructionsConfig(resolvedStudentInstructionsConfig));
+  const studentInstructionsNeedsZoom = !asText(studentInstructionsDraft.zoomLink);
+  const studentInstructionsStatusLabel = studentInstructionsDirty
+    ? "Unsaved changes"
+    : studentInstructionsSavedMessage
+      ? "Saved"
+      : studentInstructionsNeedsZoom
+        ? "Needs Zoom link"
+        : "Ready to generate";
   const explicitEventTypes = parsedEventMetadata.eventTypes;
   const explicitEventTypeSet = useMemo(() => new Set(explicitEventTypes), [explicitEventTypes]);
   const activeEventTypes = (explicitEventTypes.length
@@ -8167,6 +8248,25 @@ const operationalEventStatusLabel = useMemo(() => {
   const eventDateHasPassed = primaryEventDate ? getDateDeltaDays(primaryEventDate) < 0 : false;
   const normalEventTrainingDateDeltaDays = normalEventTrainingDate ? getDateDeltaDays(normalEventTrainingDate) : null;
   const normalEventTrainingDateHasPassed = normalEventTrainingDateDeltaDays !== null && normalEventTrainingDateDeltaDays < 0;
+  const trainingExplicitIncompleteSignal = !trainingNotRequired && (() => {
+    const explicitMissingWithoutDate =
+      trainingSchedulingValue === "not_scheduled" &&
+      !normalEventTrainingDateText &&
+      (trainingRequiredExplicit || facultyLedTraining || internalTraining);
+    const explicitFollowupText = [
+      trainingMetadata.training_attendance_status,
+      trainingMetadata.training_notes,
+      trainingMetadata.training_scheduling_status,
+    ]
+      .map(asText)
+      .join(" ")
+      .toLowerCase();
+    const explicitFollowupFlag =
+      /\b(missing|incomplete|not complete|not completed|reschedule|rescheduled|cancelled|canceled|no show|absent)\b/.test(
+        explicitFollowupText
+      );
+    return explicitMissingWithoutDate || explicitFollowupFlag;
+  })();
   const normalEventTrainingHasInfo = Boolean(
     normalEventTrainingDateText ||
       normalEventTrainingTimeText ||
@@ -8180,8 +8280,11 @@ const operationalEventStatusLabel = useMemo(() => {
   const trainingHasEnded =
     trainingWindowEnded ||
     (normalEventTrainingDateHasPassed && countdownNowMs !== null && !normalEventTrainingCountdownTarget);
+  const trainingCompleteByCalendar = normalEventTrainingDateHasPassed && !trainingExplicitIncompleteSignal;
   const normalEventTrainingComplete = !trainingNotRequired && (
-    trainingCompleteMarkedManually || (trainingAttendanceReady && (trainingHasEnded || normalEventTrainingDateHasPassed))
+    trainingCompleteMarkedManually ||
+    trainingCompleteByCalendar ||
+    (trainingAttendanceReady && (trainingHasEnded || normalEventTrainingDateHasPassed))
   );
   const normalEventTrainingLifecyclePhase: TrainingLifecyclePhase = useMemo(() => {
     if (trainingNotRequired) return "not_required";
@@ -8254,25 +8357,36 @@ const operationalEventStatusLabel = useMemo(() => {
     normalEventTrainingLifecyclePhase === "event_live" ||
     normalEventTrainingLifecyclePhase === "post_event" ||
     Boolean(normalEventTrainingHasInfo && normalEventTrainingAccessReady && (selectedStaffingCount > 0 || trainingRequiredExplicit));
+  const trainingStatusDateLabel = normalEventTrainingDate
+    ? formatOperationalShortDate(normalEventTrainingDate, normalEventTrainingDateText)
+    : "";
   const normalEventTrainingStatusLabel = trainingNotRequired
     ? "Training not required"
     : normalEventTrainingLifecyclePhase === "training_live"
       ? (trainingAttendanceReady ? "Training live" : "Training in progress")
-      : normalEventTrainingLifecyclePhase === "pre_training"
-        ? trainingWindowStarted
-          ? "Training in progress"
-          : trainingZoomRequired && !normalEventTrainingLink
-            ? "Training logistics incomplete"
-            : normalEventTrainingHasInfo && normalEventTrainingAccessReady
-              ? "Training scheduled"
-              : facultyLedTraining
-                ? "Awaiting faculty scheduling"
-                : internalTraining
-                  ? "Internal training pending"
-                  : trainingRequiredExplicit
-                    ? "Training ownership TBD"
-                    : "Training planning TBD"
-        : "Training completed";
+      : normalEventTrainingComplete
+        ? trainingStatusDateLabel
+          ? `Training Completed ${trainingStatusDateLabel}`
+          : "Training Complete"
+        : normalEventTrainingDateDeltaDays === 0
+          ? "Training Today"
+          : normalEventTrainingDateDeltaDays !== null && normalEventTrainingDateDeltaDays > 0
+            ? trainingStatusDateLabel
+              ? `Training Scheduled ${trainingStatusDateLabel}`
+              : "Training Scheduled"
+            : trainingExplicitIncompleteSignal
+              ? normalEventTrainingDateHasPassed
+                ? "Training Needs Follow-up"
+                : "Training Not Scheduled"
+              : trainingZoomRequired && !normalEventTrainingLink
+                ? "Training logistics incomplete"
+                : normalEventTrainingHasInfo && normalEventTrainingAccessReady
+                  ? trainingStatusDateLabel
+                    ? `Training Scheduled ${trainingStatusDateLabel}`
+                    : "Training Scheduled"
+                  : trainingRequiredExplicit || facultyLedTraining || internalTraining
+                    ? "Training Needed"
+                    : "Training planning TBD";
   const trainingModalityLabel = trainingNotRequired
     ? "Training not required"
     : isTrainingVirtual
@@ -8324,11 +8438,7 @@ const operationalEventStatusLabel = useMemo(() => {
         };
   const eventSummaryTrainingValue = trainingNotRequired
     ? "No training required"
-    : normalEventTrainingLifecyclePhase !== "pre_training" && normalEventTrainingLifecyclePhase !== "training_live"
-      ? "Training completed"
-      : normalEventTrainingDate
-        ? normalEventTrainingTimelineLabel
-        : normalEventTrainingStatusLabel;
+    : normalEventTrainingStatusLabel;
   const eventSummaryTrainingSubvalue = trainingNotRequired
     ? "No SP training workflow required"
     : normalEventTrainingDate
@@ -11685,6 +11795,79 @@ Cory`;
       : []),
   ];
   const scheduleSummaryActions = scheduleWorkflowActions;
+  const commandCenterScoreboardMetrics = [
+    { label: "Learners", value: operationalLearnerCountLabel, detail: effectiveLearnerCount > 0 ? `Roster: ${effectiveLearnerCount}` : "Current roster source" },
+    { label: "Rooms", value: operationalRoomCount > 0 ? String(operationalRoomCount) : "TBD", detail: hasRoomsBuilt ? "Room surface ready" : "Room plan pending" },
+    { label: "Rounds", value: operationalRoundCount > 0 ? String(operationalRoundCount) : "TBD", detail: scheduleRoundCountResolution.label },
+    { label: "Coverage", value: needed > 0 ? `${confirmedCount}/${needed}` : `${confirmedCount}`, detail: needed > 0 ? "Primary confirmed SPs" : "Confirmed SPs" },
+    { label: "Readiness", value: operationalReadinessItems.primary, detail: eventRiskLevel.detail },
+  ];
+  const commandCenterScoreboardStatusChips = [
+    operationalEventStatusLabel,
+    ...summaryOperationalIdentityBadges.map((badge) => badge.label),
+    scheduleStatusLabel,
+    normalEventTrainingStatusLabel,
+    materialsStatusLabel,
+    eventRecordingEnabled || recordingGuideUrl ? eventRecordingStatus.label : "",
+  ].filter(Boolean);
+  const commandCenterScoreboardActions: Array<{
+    key: string;
+    label: string;
+    href?: string;
+    onClick?: () => void;
+    disabled?: boolean;
+  }> = [
+    {
+      key: "open-schedule",
+      label: "Open Schedule",
+      onClick: () => handleOpenEventScheduleRouteInNewTab("operations", "schedule"),
+    },
+    ...(canEditSchedule
+      ? [
+          {
+            key: "edit-schedule",
+            label: "Edit Schedule",
+            href: expandedScheduleBuilderHref,
+          },
+        ]
+      : []),
+    {
+      key: "student-instructions",
+      label: "Student Instructions",
+      onClick: () => {
+        setPrimaryEventTool("commandCenter");
+        setSelectedCommandTool("communication");
+        queueCommandContentScroll();
+      },
+    },
+    ...(canManageTrainingAttendance
+      ? [
+          {
+            key: "related-matches",
+            label: "Related Matches",
+            onClick: () => setShowRelatedMatchesModal(true),
+          },
+        ]
+      : []),
+  ];
+  const commandSurfaceViewLabel =
+    roundCompanionView === "overview"
+      ? "Overview"
+      : roundCompanionView === "coverage"
+        ? "Coverage"
+        : roundCompanionView === "learner"
+          ? "Learner Flow"
+          : roundCompanionView === "live"
+            ? "Live"
+            : roundCompanionView === "announcements"
+              ? "Announcements"
+              : roundCompanionView === "student"
+                ? "Student Schedule"
+                : roundCompanionView === "sp"
+                  ? "SP Schedule"
+                  : roundCompanionView === "attendance"
+                    ? "Attendance"
+                    : "Operations";
   type PlanningWindowRow = {
     key: string;
     label: string;
@@ -13845,6 +14028,29 @@ Cory`;
     return persistTrainingNotes(nextNotes, successMessage);
   }
 
+  async function handleSaveStudentInstructionsConfig() {
+    const nextConfig = normalizeStudentInstructionsConfig({
+      ...studentInstructionsDraft,
+      updatedAt: new Date().toISOString(),
+    });
+    await persistTrainingMetadataFields(
+      { student_instructions_config: serializeStudentInstructionsConfig(nextConfig) },
+      "Student instructions saved."
+    );
+    setStudentInstructionsDraft(nextConfig);
+    setStudentInstructionsSavedMessage("Saved");
+  }
+
+  function handleResetStudentInstructionsTemplate() {
+    setStudentInstructionsDraft(defaultStudentInstructionsConfig);
+    setStudentInstructionsSavedMessage("");
+  }
+
+  function updateStudentInstructionsDraft(partial: Partial<StudentInstructionsConfig>) {
+    setStudentInstructionsDraft((current) => normalizeStudentInstructionsConfig({ ...current, ...partial }));
+    setStudentInstructionsSavedMessage("");
+  }
+
   async function persistScheduleRoomAdjustmentMetadata(
     nextAdjustments: ParsedScheduleRoomAdjustments,
     successMessage: string,
@@ -14062,7 +14268,7 @@ Cory`;
   function buildEventSchedulePreviewHref(
     kind: EventSchedulePreviewKind,
     previewFamily?: "ticket" | "schedule",
-    options?: { download?: boolean }
+    options?: { download?: boolean; downloadMode?: "schedule" | "studentInstructions" }
   ) {
     const params = new URLSearchParams();
     params.set("source", "event-preview");
@@ -14075,7 +14281,12 @@ Cory`;
     if (previewFamily) {
       params.set("previewFamily", previewFamily);
     }
-    if (options?.download) {
+    if (options?.downloadMode === "studentInstructions") {
+      params.set("downloadMode", "studentInstructions");
+      params.set("preview", "student");
+      params.set("view", "student");
+      params.set("previewFamily", "schedule");
+    } else if (options?.download) {
       params.set("downloadMode", "1");
     }
 
@@ -14090,6 +14301,230 @@ Cory`;
   function handleOpenEventScheduleRouteInNewTab(kind: EventSchedulePreviewKind, previewFamily?: "ticket" | "schedule") {
     const href = buildEventSchedulePreviewHref(kind, previewFamily);
     window.open(href, "_blank", "noopener,noreferrer");
+  }
+
+  function handleGenerateStudentInstructionsPdf() {
+    const href = buildEventSchedulePreviewHref("student", "schedule", { downloadMode: "studentInstructions" });
+    window.open(href, "_blank", "noopener,noreferrer");
+  }
+
+  function renderStudentInstructionsEditor(variant: "central" | "dock" = "dock") {
+    const isCentral = variant === "central";
+    const statusIsReady = !studentInstructionsDirty && !studentInstructionsNeedsZoom;
+    const statusBackground = studentInstructionsDirty
+      ? "rgba(245, 158, 11, 0.14)"
+      : studentInstructionsNeedsZoom
+        ? "rgba(248, 113, 113, 0.12)"
+        : "rgba(16, 185, 129, 0.14)";
+    const statusColor = studentInstructionsDirty
+      ? "var(--cfsp-warning)"
+      : studentInstructionsNeedsZoom
+        ? "var(--cfsp-danger)"
+        : "var(--cfsp-success)";
+    const editorBorder = isCentral ? commandCenterVisual.rowBorder : "1px solid var(--cfsp-border)";
+    const editorBackground = isCentral
+      ? isPlanningVisualMode ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.05)"
+      : "var(--cfsp-surface-muted)";
+    const compactInputStyle = { ...inputStyle, width: "100%", boxSizing: "border-box" as const, fontSize: isCentral ? "11px" : "12px", padding: isCentral ? "7px 8px" : "8px 10px" };
+    const compactTextareaStyle = { ...textareaStyle, width: "100%", boxSizing: "border-box" as const, fontSize: isCentral ? "11px" : "12px", minHeight: isCentral ? "72px" : "88px" };
+    const labelColor = isCentral ? commandCenterVisual.mutedColor : "var(--cfsp-text-muted)";
+    const textColor = isCentral ? commandCenterVisual.textColor : "var(--cfsp-text)";
+
+    return (
+      <section
+        style={{
+          borderRadius: "14px",
+          border: editorBorder,
+          background: editorBackground,
+          padding: isCentral ? "10px" : "12px",
+          display: "grid",
+          gap: isCentral ? "9px" : "12px",
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "flex-start" }}>
+          <div>
+            <div style={{ color: textColor, fontSize: isCentral ? "13px" : "15px", fontWeight: 950 }}>Student Instructions</div>
+            <div style={{ marginTop: "3px", color: labelColor, fontSize: isCentral ? "10px" : "12px", fontWeight: 750, lineHeight: 1.4 }}>
+              Edit the handout content saved for this event, then generate the student PDF packet with the attached student schedule.
+            </div>
+          </div>
+          <span
+            style={{
+              ...commandChipStyle,
+              background: statusBackground,
+              border: `1px solid ${statusIsReady ? "rgba(16,185,129,0.34)" : studentInstructionsDirty ? "rgba(245,158,11,0.34)" : "rgba(248,113,113,0.34)"}`,
+              color: statusColor,
+            }}
+          >
+            {studentInstructionsStatusLabel}
+          </span>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "8px" }}>
+          <label style={{ display: "grid", gap: "5px" }}>
+            <span style={{ ...statLabel, color: labelColor }}>Title / Header</span>
+            <input
+              value={studentInstructionsDraft.title}
+              onChange={(changeEvent) => updateStudentInstructionsDraft({ title: changeEvent.target.value })}
+              disabled={saving}
+              placeholder={event?.name || "PROGRAM"}
+              style={compactInputStyle}
+            />
+          </label>
+          <label style={{ display: "grid", gap: "5px" }}>
+            <span style={{ ...statLabel, color: labelColor }}>Zoom Link / Location</span>
+            <input
+              value={studentInstructionsDraft.zoomLink}
+              onChange={(changeEvent) => updateStudentInstructionsDraft({ zoomLink: changeEvent.target.value })}
+              disabled={saving}
+              placeholder="https://drexel.zoom.us/j/83108006111"
+              style={compactInputStyle}
+            />
+          </label>
+          <label style={{ display: "grid", gap: "5px" }}>
+            <span style={{ ...statLabel, color: labelColor }}>Join Offset</span>
+            <input
+              type="number"
+              min={0}
+              max={240}
+              value={studentInstructionsDraft.joinOffsetMinutes}
+              onChange={(changeEvent) => updateStudentInstructionsDraft({ joinOffsetMinutes: Number(changeEvent.target.value) })}
+              disabled={saving}
+              style={compactInputStyle}
+            />
+          </label>
+          <label style={{ display: "grid", gap: "5px" }}>
+            <span style={{ ...statLabel, color: labelColor }}>Time Zone Note</span>
+            <input
+              value={studentInstructionsDraft.timeZoneNote}
+              onChange={(changeEvent) => updateStudentInstructionsDraft({ timeZoneNote: changeEvent.target.value })}
+              disabled={saving}
+              style={compactInputStyle}
+            />
+          </label>
+          <label style={{ display: "grid", gap: "5px" }}>
+            <span style={{ ...statLabel, color: labelColor }}>Encounter Time Detail</span>
+            <input
+              value={studentInstructionsDraft.encounterTimeDetail}
+              onChange={(changeEvent) => updateStudentInstructionsDraft({ encounterTimeDetail: changeEvent.target.value })}
+              disabled={saving}
+              placeholder="Uses generated schedule duration when blank"
+              style={compactInputStyle}
+            />
+          </label>
+          <label style={{ display: "grid", gap: "5px" }}>
+            <span style={{ ...statLabel, color: labelColor }}>Feedback Time Detail</span>
+            <input
+              value={studentInstructionsDraft.feedbackTimeDetail}
+              onChange={(changeEvent) => updateStudentInstructionsDraft({ feedbackTimeDetail: changeEvent.target.value })}
+              disabled={saving}
+              placeholder="Uses generated schedule duration when blank"
+              style={compactInputStyle}
+            />
+          </label>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "8px" }}>
+          <label style={{ display: "grid", gap: "5px" }}>
+            <span style={{ ...statLabel, color: labelColor }}>Join Instructions</span>
+            <textarea
+              value={studentInstructionsDraft.joinInstructions}
+              onChange={(changeEvent) => updateStudentInstructionsDraft({ joinInstructions: changeEvent.target.value })}
+              disabled={saving}
+              rows={3}
+              style={compactTextareaStyle}
+            />
+          </label>
+          <label style={{ display: "grid", gap: "5px" }}>
+            <span style={{ ...statLabel, color: labelColor }}>Waiting Room Note</span>
+            <textarea
+              value={studentInstructionsDraft.waitingRoomNote}
+              onChange={(changeEvent) => updateStudentInstructionsDraft({ waitingRoomNote: changeEvent.target.value })}
+              disabled={saving}
+              rows={3}
+              style={compactTextareaStyle}
+            />
+          </label>
+          <label style={{ display: "grid", gap: "5px" }}>
+            <span style={{ ...statLabel, color: labelColor }}>Professional Video / Netiquette</span>
+            <textarea
+              value={studentInstructionsDraft.netiquetteInstructions}
+              onChange={(changeEvent) => updateStudentInstructionsDraft({ netiquetteInstructions: changeEvent.target.value })}
+              disabled={saving}
+              rows={4}
+              style={compactTextareaStyle}
+            />
+          </label>
+          <label style={{ display: "grid", gap: "5px" }}>
+            <span style={{ ...statLabel, color: labelColor }}>Pre-Brief Instructions</span>
+            <textarea
+              value={studentInstructionsDraft.prebriefInstructions}
+              onChange={(changeEvent) => updateStudentInstructionsDraft({ prebriefInstructions: changeEvent.target.value })}
+              disabled={saving}
+              rows={4}
+              style={compactTextareaStyle}
+            />
+          </label>
+          <label style={{ display: "grid", gap: "5px" }}>
+            <span style={{ ...statLabel, color: labelColor }}>Scenario-Specific Reminders</span>
+            <textarea
+              value={studentInstructionsDraft.scenarioReminders}
+              onChange={(changeEvent) => updateStudentInstructionsDraft({ scenarioReminders: changeEvent.target.value })}
+              disabled={saving}
+              rows={3}
+              placeholder="Optional"
+              style={compactTextareaStyle}
+            />
+          </label>
+          <label style={{ display: "grid", gap: "5px" }}>
+            <span style={{ ...statLabel, color: labelColor }}>Footer / Disclaimer</span>
+            <textarea
+              value={studentInstructionsDraft.footerNote}
+              onChange={(changeEvent) => updateStudentInstructionsDraft({ footerNote: changeEvent.target.value })}
+              disabled={saving}
+              rows={3}
+              style={compactTextareaStyle}
+            />
+          </label>
+        </div>
+
+        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
+          <button
+            type="button"
+            onClick={() => void handleSaveStudentInstructionsConfig()}
+            disabled={saving || !studentInstructionsDirty}
+            style={{ ...buttonStyle, padding: isCentral ? "7px 10px" : "8px 11px", opacity: saving || !studentInstructionsDirty ? 0.65 : 1 }}
+          >
+            {saving ? "Saving..." : "Save Instructions"}
+          </button>
+          <button
+            type="button"
+            onClick={handleGenerateStudentInstructionsPdf}
+            disabled={studentInstructionsDirty}
+            style={{ ...staffingSecondaryButtonStyle, padding: isCentral ? "7px 10px" : "8px 11px", opacity: studentInstructionsDirty ? 0.65 : 1 }}
+          >
+            Generate Student Instructions PDF
+          </button>
+          <button
+            type="button"
+            onClick={handleResetStudentInstructionsTemplate}
+            disabled={saving}
+            style={{ ...staffingSecondaryButtonStyle, padding: isCentral ? "7px 10px" : "8px 11px", opacity: saving ? 0.65 : 1 }}
+          >
+            Reset to Default Template
+          </button>
+          {studentInstructionsSavedMessage ? (
+            <span style={{ color: "var(--cfsp-success)", fontSize: isCentral ? "10px" : "12px", fontWeight: 850 }}>
+              {studentInstructionsSavedMessage}
+            </span>
+          ) : studentInstructionsDirty ? (
+            <span style={{ color: labelColor, fontSize: isCentral ? "10px" : "12px", fontWeight: 750 }}>
+              Save before generating so the PDF uses these edits.
+            </span>
+          ) : null}
+        </div>
+      </section>
+    );
   }
 
   async function saveFacultyContactFields(
@@ -21059,99 +21494,225 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           </div>
         ) : null}
 
-        {canRunLiveEventMode ? (
-          <section
-            style={{
-              marginTop: "12px",
-              border: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.2)" : "1px solid rgba(126, 231, 219, 0.22)",
-              borderRadius: "18px",
-              padding: "8px 10px",
-              background: isPlanningVisualMode
-                ? "linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(237, 248, 251, 0.96) 100%)"
-                : "linear-gradient(180deg, rgba(11, 23, 37, 0.96) 0%, rgba(10, 19, 31, 0.94) 100%)",
-              boxShadow: isPlanningVisualMode ? "0 12px 28px rgba(42, 112, 140, 0.08)" : "none",
-              display: "grid",
-              gap: "6px",
-            }}
-          >
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                gap: "6px",
-                flexWrap: "wrap",
-                alignItems: "center",
-              }}
-            >
-              <div>
-                <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Command Center Mode</div>
-                <div style={{ marginTop: "4px", color: commandCenterVisual.headingColor, fontSize: "18px", fontWeight: 900 }}>
-                  {commandCenterMode === "live" ? "Live Event Mode" : "Planning Mode"}
-                </div>
-                <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "13px", fontWeight: 700 }}>
-                  Switch between planning workflows and a real-time operations board.
-                </div>
+        <section
+          style={{
+            marginTop: "12px",
+            border: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.2)" : "1px solid rgba(126, 231, 219, 0.22)",
+            borderRadius: "20px",
+            padding: "12px",
+            background: isPlanningVisualMode
+              ? "linear-gradient(180deg, rgba(255,255,255,0.99) 0%, rgba(237, 248, 251, 0.97) 100%)"
+              : "linear-gradient(180deg, rgba(11, 23, 37, 0.98) 0%, rgba(10, 19, 31, 0.95) 100%)",
+            boxShadow: isPlanningVisualMode ? "0 12px 28px rgba(42, 112, 140, 0.08)" : "0 14px 28px rgba(2, 6, 23, 0.24)",
+            display: "grid",
+            gap: "10px",
+          }}
+        >
+          <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "flex-start" }}>
+            <div style={{ minWidth: 0, display: "grid", gap: "6px", flex: "1 1 420px" }}>
+              <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Command Center Scoreboard</div>
+              <div style={{ color: commandCenterVisual.headingColor, fontSize: "24px", fontWeight: 950, lineHeight: 1.08 }}>
+                {event?.name || "Untitled Event"}
               </div>
-              <div
-                style={{
-                  display: "inline-flex",
-                  gap: "6px",
-                  flexWrap: "wrap",
-                  padding: "6px",
-                  borderRadius: "14px",
-                  border: "1px solid var(--cfsp-command-button-border)",
-                  background: isPlanningVisualMode
-                    ? "linear-gradient(135deg, rgba(255,255,255,0.84), rgba(232,255,249,0.7))"
-                    : "linear-gradient(135deg, rgba(14, 34, 50, 0.82), rgba(11, 53, 55, 0.72))",
-                  boxShadow: "var(--cfsp-command-button-shadow)",
-                }}
-              >
-                <button
-                  type="button"
-                  onClick={() => void handleCommandCenterModeChange("planning")}
-                  style={{
-                    ...buttonStyle,
-                    padding: "8px 12px",
-                    borderRadius: "10px",
-                    background:
-                      commandCenterMode === "planning" ? "var(--cfsp-command-button-active-bg)" : "transparent",
-                    color: commandCenterMode === "planning" ? "var(--cfsp-command-button-active-text)" : commandCenterVisual.mutedColor,
-                    border:
-                      commandCenterMode === "planning"
-                        ? "1px solid var(--cfsp-command-button-active-border)"
-                        : isPlanningVisualMode
-                          ? "1px solid rgba(25, 138, 112, 0.16)"
-                          : "1px solid rgba(148, 163, 184, 0.2)",
-                    boxShadow: commandCenterMode === "planning" ? "var(--cfsp-command-button-active-shadow)" : "none",
-                  }}
-                >
-                  Planning Mode
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void handleCommandCenterModeChange("live")}
-                  style={{
-                    ...buttonStyle,
-                    padding: "8px 12px",
-                    borderRadius: "10px",
-                    background:
-                      commandCenterMode === "live" ? "var(--cfsp-command-button-active-bg)" : "transparent",
-                    color: commandCenterMode === "live" ? "var(--cfsp-command-button-active-text)" : commandCenterVisual.mutedColor,
-                    border:
-                      commandCenterMode === "live"
-                        ? "1px solid var(--cfsp-command-button-active-border)"
-                        : isPlanningVisualMode
-                          ? "1px solid rgba(25, 138, 112, 0.16)"
-                          : "1px solid rgba(148, 163, 184, 0.2)",
-                    boxShadow: commandCenterMode === "live" ? "var(--cfsp-command-button-active-shadow)" : "none",
-                  }}
-                >
-                  Live Event Mode
-                </button>
+              <div style={{ color: commandCenterVisual.mutedColor, fontSize: "13px", fontWeight: 800, lineHeight: 1.45 }}>
+                {[sessionSummaryLabel || eventDateLabel, summaryTimeLabel, locationAccessPrimaryLabel].filter(Boolean).join(" · ")}
+              </div>
+              <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                {eventDateCountdownLabel ? (
+                  <span style={{ ...commandChipStyle, background: commandCenterVisual.activeSoftBackground, color: commandCenterVisual.activeSoftText }}>
+                    {eventDateCountdownLabel}
+                  </span>
+                ) : null}
+                {relatedEventDateOptions.length > 1 ? (
+                  <label style={{ display: "inline-grid", gap: "4px", minWidth: "200px" }}>
+                    <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Event Date</span>
+                    <select
+                      value={id}
+                      onChange={(event) => handleRelatedEventDateSwitch(event.target.value)}
+                      style={{ ...selectStyle, minWidth: 0, fontSize: "11px", padding: "7px 8px" }}
+                    >
+                      {relatedEventDateOptions.map((dateOption) => (
+                        <option key={`scoreboard-event-date-${dateOption.id}`} value={dateOption.id}>
+                          {`${formatHumanDate(dateOption.dateText, importedYearHint) || "Date TBD"} - ${dateOption.statusLabel}`}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : null}
+                {eventDateOptions.length > 1 ? (
+                  <label style={{ display: "inline-grid", gap: "4px", minWidth: "220px" }}>
+                    <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Displayed Schedule Date</span>
+                    <select
+                      value={selectedEventDateContext}
+                      onChange={(event) => {
+                        const nextDate = event.target.value;
+                        setSelectedEventDateContext(nextDate);
+                        const firstRoundForDate = rotationRounds.find((round) => asText(round.session_date) === nextDate);
+                        if (firstRoundForDate) {
+                          setSelectedRotationRoundKey(firstRoundForDate.key);
+                          setHasTouchedRoundCompanion(true);
+                        }
+                      }}
+                      style={{ ...selectStyle, minWidth: 0, fontSize: "11px", padding: "7px 8px" }}
+                    >
+                      {eventDateOptions.map((dateOption) => (
+                        <option key={`scoreboard-schedule-date-${dateOption}`} value={dateOption}>
+                          {formatHumanDate(dateOption, importedYearHint)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : null}
               </div>
             </div>
-          </section>
-        ) : null}
+
+            <div style={{ display: "grid", gap: "8px", justifyItems: "end", flex: "0 1 420px" }}>
+              {canRunLiveEventMode ? (
+                <div
+                  style={{
+                    display: "inline-flex",
+                    gap: "6px",
+                    flexWrap: "wrap",
+                    padding: "6px",
+                    borderRadius: "14px",
+                    border: "1px solid var(--cfsp-command-button-border)",
+                    background: isPlanningVisualMode
+                      ? "linear-gradient(135deg, rgba(255,255,255,0.84), rgba(232,255,249,0.7))"
+                      : "linear-gradient(135deg, rgba(14, 34, 50, 0.82), rgba(11, 53, 55, 0.72))",
+                    boxShadow: "var(--cfsp-command-button-shadow)",
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => void handleCommandCenterModeChange("planning")}
+                    style={{
+                      ...buttonStyle,
+                      padding: "8px 12px",
+                      borderRadius: "10px",
+                      background: commandCenterMode === "planning" ? "var(--cfsp-command-button-active-bg)" : "transparent",
+                      color: commandCenterMode === "planning" ? "var(--cfsp-command-button-active-text)" : commandCenterVisual.mutedColor,
+                      border:
+                        commandCenterMode === "planning"
+                          ? "1px solid var(--cfsp-command-button-active-border)"
+                          : isPlanningVisualMode
+                            ? "1px solid rgba(25, 138, 112, 0.16)"
+                            : "1px solid rgba(148, 163, 184, 0.2)",
+                      boxShadow: commandCenterMode === "planning" ? "var(--cfsp-command-button-active-shadow)" : "none",
+                    }}
+                  >
+                    Planning Mode
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleCommandCenterModeChange("live")}
+                    style={{
+                      ...buttonStyle,
+                      padding: "8px 12px",
+                      borderRadius: "10px",
+                      background: commandCenterMode === "live" ? "var(--cfsp-command-button-active-bg)" : "transparent",
+                      color: commandCenterMode === "live" ? "var(--cfsp-command-button-active-text)" : commandCenterVisual.mutedColor,
+                      border:
+                        commandCenterMode === "live"
+                          ? "1px solid var(--cfsp-command-button-active-border)"
+                          : isPlanningVisualMode
+                            ? "1px solid rgba(25, 138, 112, 0.16)"
+                            : "1px solid rgba(148, 163, 184, 0.2)",
+                      boxShadow: commandCenterMode === "live" ? "var(--cfsp-command-button-active-shadow)" : "none",
+                    }}
+                  >
+                    Live Event Mode
+                  </button>
+                </div>
+              ) : null}
+
+              <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                {commandCenterScoreboardStatusChips.map((chip) => (
+                  <span
+                    key={`scoreboard-chip-${chip}`}
+                    style={{
+                      ...commandChipStyle,
+                      background:
+                        chip === normalEventTrainingStatusLabel && normalEventTrainingComplete
+                          ? planningSuccessBackground
+                          : chip === operationalReadinessItems.primary && operationalReadinessItems.primary === "Ready"
+                            ? planningSuccessBackground
+                            : commandCenterVisual.chipBackground,
+                      color:
+                        chip === normalEventTrainingStatusLabel && normalEventTrainingComplete
+                          ? planningSuccessText
+                          : chip === operationalReadinessItems.primary && operationalReadinessItems.primary === "Ready"
+                            ? planningSuccessText
+                            : commandCenterVisual.chipText,
+                      border:
+                        chip === normalEventTrainingStatusLabel && normalEventTrainingComplete
+                          ? planningSuccessBorder
+                          : isPlanningVisualMode
+                            ? "1px solid rgba(99, 181, 217, 0.18)"
+                            : commandChipStyle.border,
+                    }}
+                  >
+                    {chip}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))",
+              gap: "8px",
+            }}
+          >
+            {commandCenterScoreboardMetrics.map((metric) => (
+              <div
+                key={`scoreboard-metric-${metric.label}`}
+                style={{
+                  borderRadius: "14px",
+                  border: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.16)" : "1px solid rgba(126, 231, 219, 0.16)",
+                  background: isPlanningVisualMode ? "rgba(255,255,255,0.76)" : "rgba(15, 23, 42, 0.42)",
+                  padding: "9px 10px",
+                  display: "grid",
+                  gap: "4px",
+                  minHeight: "62px",
+                }}
+              >
+                <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>{metric.label}</div>
+                <div style={{ color: commandCenterVisual.headingColor, fontSize: "18px", fontWeight: 950, lineHeight: 1.08 }}>
+                  {metric.value}
+                </div>
+                <div style={{ color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 750, lineHeight: 1.35 }}>
+                  {metric.detail}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
+            {commandCenterScoreboardActions.map((action) =>
+              action.href ? (
+                <Link
+                  key={action.key}
+                  href={action.href}
+                  style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "8px 12px" }}
+                >
+                  {action.label}
+                </Link>
+              ) : (
+                <button
+                  key={action.key}
+                  type="button"
+                  onClick={action.onClick}
+                  disabled={Boolean(action.disabled)}
+                  style={{ ...buttonStyle, padding: "8px 12px", opacity: action.disabled ? 0.65 : 1 }}
+                >
+                  {action.label}
+                </button>
+              )
+            )}
+          </div>
+        </section>
 
         {liveCommandCenterPanel}
 
@@ -21337,7 +21898,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         <div
           style={{
             marginTop: "10px",
-            display: commandCenterMode === "planning" ? "grid" : "none",
+            display: "none",
             gap: "6px",
             gridTemplateColumns: "minmax(0, 1fr)",
             alignItems: "start",
@@ -23076,13 +23637,13 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 >
                   <div>
                     <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>
-                      Central Command
+                      Command Surface
                     </div>
                     <div style={{ marginTop: "4px", color: commandCenterVisual.headingColor, fontWeight: 900, fontSize: "14px" }}>
-                      {event?.name || "Untitled Event"}
+                      {selectedRotationRound ? `Round ${activeSelectedRotationRoundIndex + 1}` : "Select a round"}
                     </div>
                     <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontWeight: 700, fontSize: "11px" }}>
-                      {[sessionSummaryLabel, summaryTimeLabel].filter(Boolean).join(" · ")}
+                      {commandSurfaceViewLabel}
                     </div>
                   </div>
                   <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
@@ -23105,21 +23666,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       {selectedRotationRound ? `Selected Round ${activeSelectedRotationRoundIndex + 1}` : "No round selected"}
                     </span>
                     <span style={{ ...commandChipStyle, background: commandCenterVisual.activeSoftBackground, color: commandCenterVisual.activeSoftText, border: isPlanningVisualMode ? "1px solid rgba(25, 138, 112, 0.2)" : commandChipStyle.border }}>
-                      {roundCompanionView === "overview"
-                        ? "Overview"
-                        : roundCompanionView === "coverage"
-                        ? "Coverage"
-                        : roundCompanionView === "learner"
-                        ? "Learner Flow"
-                        : roundCompanionView === "live"
-                        ? "Live"
-                        : roundCompanionView === "announcements"
-                        ? "Announcements"
-                        : roundCompanionView === "student"
-                        ? "Student Schedule"
-                        : roundCompanionView === "sp"
-                          ? "SP Schedule"
-                          : "Operations"}
+                      {commandSurfaceViewLabel}
                     </span>
                   </div>
                 </div>
@@ -26728,6 +27275,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 750 }}>
                               Email draft buttons use CFSP templates when saved templates are available; Apple Mail drafts are plain text. Template source: {emailTemplateSource === "database" ? "saved templates" : "built-in defaults"}.
                             </div>
+                            {renderStudentInstructionsEditor("central")}
                             <Link
                               href={`/settings?eventId=${encodeURIComponent(id)}#email-templates`}
                               style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px", justifySelf: "start", textDecoration: "none" }}
@@ -27884,6 +28432,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     Draft event emails for hiring, confirmation, training prep, post-training follow-up, and payroll wrap-up.
                   </p>
                 </div>
+              </div>
+              <div style={{ marginTop: "12px" }}>
+                {renderStudentInstructionsEditor("dock")}
               </div>
               <div
                 style={{

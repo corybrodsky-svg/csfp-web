@@ -61,7 +61,9 @@ export default function EventScopedScheduleBuilderPage() {
   const initialScheduleDay = getInitialScheduleDay(searchParams.get("day") || searchParams.get("scheduleDay"));
   const previewFamily = getPreviewFamily(searchParams.get("previewFamily"));
   const previewOnly = searchParams.get("previewMode") === "1";
-  const autoDownload = searchParams.get("downloadMode") === "1";
+  const downloadMode = searchParams.get("downloadMode");
+  const autoDownload = downloadMode === "1" || downloadMode === "studentInstructions";
+  const autoDownloadMode = downloadMode === "studentInstructions" ? "student-instructions" : "schedule";
 
   if (previewOnly) {
     return (
@@ -77,6 +79,7 @@ export default function EventScopedScheduleBuilderPage() {
         previewFamily={previewFamily}
         previewOnly
         autoDownload={autoDownload}
+        autoDownloadMode={autoDownloadMode}
       />
     );
   }

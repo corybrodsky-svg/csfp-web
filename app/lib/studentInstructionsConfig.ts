@@ -1,5 +1,3 @@
-import type { TrainingEventMetadata } from "./trainingEventNotes";
-
 export type StudentInstructionsConfig = {
   title: string;
   zoomLink: string;
@@ -94,9 +92,13 @@ export function parseStudentInstructionsConfig(raw: string | null | undefined): 
 }
 
 export function getStudentInstructionsConfigFromMetadata(
-  metadata: Pick<TrainingEventMetadata, "student_instructions_config"> | null | undefined
+  metadata?: { student_instructions_config?: unknown } | null
 ) {
-  return parseStudentInstructionsConfig(metadata?.student_instructions_config);
+  return parseStudentInstructionsConfig(
+    typeof metadata?.student_instructions_config === "string"
+      ? metadata.student_instructions_config
+      : null
+  );
 }
 
 export function serializeStudentInstructionsConfig(config: Partial<StudentInstructionsConfig>) {
