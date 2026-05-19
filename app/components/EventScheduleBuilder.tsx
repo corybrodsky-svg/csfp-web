@@ -2290,7 +2290,7 @@ function buildVirStyleStudentScheduleBlocks(args: {
   roomChunkSize?: number;
 }) {
   const { rounds, roomColumns = [], roomContext = {}, roomChunkSize = 6 } = args;
-  const safeChunkSize = Math.max(4, Math.min(8, Math.floor(roomChunkSize) || 8));
+  const safeChunkSize = Math.max(4, Math.min(6, Math.floor(roomChunkSize) || 6));
   const blocks: StudentInstructionsScheduleBlock[] = [];
 
   rounds.forEach((round) => {
@@ -2404,7 +2404,7 @@ function buildStudentInstructionsExportHtml(context: StudentInstructionsExportCo
     rounds: studentScheduleRounds,
     roomColumns,
     roomContext,
-    roomChunkSize: 8,
+    roomChunkSize: 6,
   });
   const renderScheduleIntro = () => `
     <section class="student-packet-page-section instructions-section student-schedule-section student-schedule-section-first" data-packet-section="student-schedule-start">
@@ -2754,10 +2754,13 @@ color: #17304f;
           .vir-room-grid {
             display: grid;
             width: 100%;
+            max-width: 100%;
             background: #dfe7f0;
             border-top: 1px solid #aebccb;
+            overflow: visible;
           }
           .vir-room-header {
+            min-width: 0;
             min-height: 34px;
             padding: 7px 7px;
             border-right: 1px solid #c3cfda;
@@ -2768,10 +2771,14 @@ color: #17304f;
             line-height: 1.15;
             font-weight: 950;
             text-align: center;
+            white-space: normal;
+            overflow: visible;
+            text-overflow: unset;
             overflow-wrap: anywhere;
           }
           .vir-room-header:last-of-type { border-right: none; }
           .vir-student-cell {
+            min-width: 0;
             min-height: 54px;
             padding: 7px 6px;
             border-right: 1px solid #d5e0e8;
@@ -2781,6 +2788,10 @@ color: #17304f;
             display: grid;
             align-content: center;
             gap: 3px;
+            white-space: normal;
+            overflow: visible;
+            text-overflow: unset;
+            overflow-wrap: anywhere;
           }
           .vir-student-cell:nth-last-child(1) { border-right: none; }
           .vir-student-cell-empty {
@@ -2791,6 +2802,9 @@ color: #17304f;
             font-size: 10.8px;
             line-height: 1.18;
             font-weight: 950;
+            white-space: normal;
+            overflow: visible;
+            text-overflow: unset;
             overflow-wrap: anywhere;
           }
           .vir-no-student {
