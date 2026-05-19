@@ -7170,10 +7170,7 @@ const operationalEventStatusLabel = useMemo(() => {
     };
   }, [materialPreview]);
   useEffect(() => {
-    if (typeof window === "undefined" || !id) return;
-
-    const savedState = window.localStorage.getItem(getRotationCommandSurfaceStorageKey(id));
-    setRotationCommandSurfaceOpen(savedState === "open" || savedState === null);
+    setRotationCommandSurfaceOpen(true);
   }, [id]);
   useEffect(() => {
     if (typeof window === "undefined" || !id) return;
@@ -23546,7 +23543,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 
             </div>
 
-	            {(sessions.length || rotationRounds.length) ? (
+	            {(sessions.length || rotationRounds.length || operationalRoundCount > 0) ? (
                 <div id="round-operations" style={{ marginTop: "10px" }}>
                 <div
                   style={{
@@ -23584,7 +23581,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     className="cfsp-button-tactical"
                     style={{
                       ...buttonStyle,
-                      display: "none",
+                      display: "inline-flex",
                       padding: "7px 10px",
                       background: rotationCommandSurfaceOpen
                         ? isPlanningVisualMode
@@ -23653,7 +23650,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       className="cfsp-button-tactical"
                       style={{
                         ...staffingSecondaryButtonStyle,
-                        display: "none",
+                        display: "inline-flex",
                         padding: "7px 10px",
                         background: isPlanningVisualMode
                           ? "rgba(255,255,255,0.88)"
