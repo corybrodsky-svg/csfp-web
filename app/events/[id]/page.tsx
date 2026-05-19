@@ -11962,6 +11962,7 @@ Cory`;
         ]
       : []),
   ];
+  const showLegacyEventSummaryPanels = false;
   const commandSurfaceViewLabel =
     roundCompanionView === "overview"
       ? "Overview"
@@ -18739,7 +18740,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     <div style={{ marginTop: "4px", fontWeight: 700, fontSize: "13px" }}>{staffingHealthLabel}</div>
                   </div>
                   <div style={staffingMetricCardStyle}>
-                    <div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Operational Summary</div>
+                    <div style={{ ...statLabel, color: staffingWorkspacePalette.textMuted }}>Staffing Pulse</div>
                     <div style={{ marginTop: "4px", color: coverageRiskTone === "green" ? planningSuccessText : staffingWorkspacePalette.textStrong, fontWeight: 800, fontSize: "13px" }}>
                       {coverageRiskTone === "green" ? staffingHealthLabel : `Short by ${Math.max(needed - confirmedCount, 0)} primary`}
                     </div>
@@ -21818,7 +21819,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         <div
           style={{
             marginTop: "10px",
-            display: "grid",
+            display: showLegacyEventSummaryPanels ? "grid" : "none",
             gap: "6px",
             gridTemplateColumns: "minmax(0, 1fr)",
             alignItems: "start",
@@ -21834,7 +21835,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               display: "none",
             }}
           >
-            <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Operational Summary</div>
+            <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Legacy Summary</div>
             <div
               style={{
                 marginTop: "8px",
@@ -21898,7 +21899,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   }}
                 >
                   <div style={{ minWidth: 0, display: "grid", gap: "7px" }}>
-                    <div style={{ ...statLabel, color: eventStatusWindowStyles.accent }}>Compact Event Header</div>
+                    <div style={{ ...statLabel, color: eventStatusWindowStyles.accent }}>Legacy Event Header</div>
                     <div style={{ color: commandCenterVisual.headingColor, fontSize: "18px", fontWeight: 950, lineHeight: 1.15 }}>
                       {event?.name || "Untitled Event"}
                     </div>
@@ -22011,9 +22012,10 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               padding: "14px",
               background: commandCenterVisual.shellBackground,
               boxShadow: commandCenterVisual.shellShadow,
+              display: showLegacyEventSummaryPanels ? "block" : "none",
             }}
           >
-            <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Operational Summary</div>
+            <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Legacy Summary</div>
             <div
               style={{
                 marginTop: "8px",
@@ -22077,7 +22079,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   }}
                 >
                   <div style={{ minWidth: 0, display: "grid", gap: "7px" }}>
-                    <div style={{ ...statLabel, color: eventStatusWindowStyles.accent }}>Compact Event Header</div>
+                    <div style={{ ...statLabel, color: eventStatusWindowStyles.accent }}>Legacy Event Header</div>
                     <div style={{ color: commandCenterVisual.headingColor, fontSize: "18px", fontWeight: 950, lineHeight: 1.15 }}>
                       {event?.name || "Untitled Event"}
                     </div>
@@ -22827,7 +22829,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 
 	              <details>
                 <summary style={{ cursor: "pointer", color: commandCenterVisual.textColor, fontWeight: 800 }}>
-                  Show full event details
+                  Legacy event details
                 </summary>
                 <div style={{ marginTop: "10px", display: "grid", gap: "6px" }}>
                   {[
@@ -23646,7 +23648,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 
             </div>
 
-	            {(sessions.length || rotationRounds.length || operationalRoundCount > 0) ? (
+		            {(sessions.length || rotationRounds.length || operationalRoundCount > 0) ? (
                 <div id="round-operations" style={{ marginTop: "10px" }}>
                 <div
                   style={{
