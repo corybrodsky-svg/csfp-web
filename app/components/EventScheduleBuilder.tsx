@@ -2289,7 +2289,7 @@ function buildVirStyleStudentScheduleBlocks(args: {
   roomContext?: Parameters<typeof getRoomDisplayLabel>[2];
   roomChunkSize?: number;
 }) {
-  const { rounds, roomColumns = [], roomContext = {}, roomChunkSize = 8 } = args;
+  const { rounds, roomColumns = [], roomContext = {}, roomChunkSize = 6 } = args;
   const safeChunkSize = Math.max(4, Math.min(8, Math.floor(roomChunkSize) || 8));
   const blocks: StudentInstructionsScheduleBlock[] = [];
 
@@ -2669,6 +2669,44 @@ color: #17304f;
             font-weight: 700;
             line-height: 1.35;
           }
+
+          /* Student Instructions schedule: prevent clipped learner names */
+          .student-schedule-grid,
+          .student-instructions-schedule-grid,
+          .student-schedule-encounter-grid,
+          .vir-student-schedule-grid {
+            width: 100% !important;
+            max-width: 100% !important;
+            table-layout: fixed !important;
+            overflow: visible !important;
+          }
+          .student-schedule-grid th,
+          .student-schedule-grid td,
+          .student-instructions-schedule-grid th,
+          .student-instructions-schedule-grid td,
+          .student-schedule-encounter-grid th,
+          .student-schedule-encounter-grid td,
+          .vir-student-schedule-grid th,
+          .vir-student-schedule-grid td {
+            white-space: normal !important;
+            overflow: visible !important;
+            text-overflow: unset !important;
+            overflow-wrap: anywhere !important;
+            word-break: normal !important;
+            line-height: 1.18 !important;
+          }
+          .student-schedule-student,
+          .student-name-cell,
+          .student-schedule-learner,
+          .vir-student-name {
+            white-space: normal !important;
+            overflow: visible !important;
+            text-overflow: unset !important;
+            overflow-wrap: anywhere !important;
+            word-break: normal !important;
+            min-height: 30px !important;
+          }
+
           .student-schedule-section {
             break-inside: avoid;
             page-break-inside: avoid;
