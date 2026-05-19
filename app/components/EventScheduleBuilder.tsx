@@ -2657,21 +2657,31 @@ color: #17304f;
           .announcement-flow-panel {
             display: grid;
             gap: 8px;
+            width: 100%;
+            max-width: 100%;
+            overflow: visible;
           }
           .announcement-flow-grid {
             display: grid;
-            grid-template-columns: repeat(5, minmax(0, 1fr));
-            gap: 6px;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 6px 7px;
+            width: 100%;
+            max-width: 100%;
+            overflow: visible;
           }
           .announcement-flow-item {
+            min-width: 0;
             border: 1px solid #d7e1ea;
             border-radius: 8px;
-            padding: 7px 8px;
+            padding: 6px 7px;
             background: linear-gradient(180deg, #ffffff 0%, #f7fbff 100%);
-            min-height: 48px;
+            min-height: 44px;
             display: grid;
             gap: 3px;
             align-content: start;
+            overflow: visible;
+            white-space: normal;
+            overflow-wrap: break-word;
           }
           .announcement-flow-offset {
             color: #12617f;
@@ -2679,12 +2689,16 @@ color: #17304f;
             font-weight: 900;
             letter-spacing: 0.05em;
             text-transform: uppercase;
+            white-space: normal;
+            overflow-wrap: break-word;
           }
           .announcement-flow-text {
             color: #14304f;
             font-size: 10.8px;
             font-weight: 800;
             line-height: 1.22;
+            white-space: normal;
+            overflow-wrap: break-word;
           }
           .student-schedule-heading {
             display: flex;
