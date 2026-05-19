@@ -6073,16 +6073,13 @@ export default function EventDetailPage() {
   const scheduleRoundCountResolution = useMemo(() => {
     const scheduleStatus = asText(trainingMetadata.schedule_status).toLowerCase();
     const hasDraftTiming = Boolean(scheduleBuilderPreviewDraft?.startTime);
-    const requiredCapacityCandidate = scheduleBuilderDraftManualRoundOverride
-      ? 0
-      : Math.max(scheduleBuilderAutoRoundCount, metadataRotationRoundsNeeded);
     const completedCandidate =
       scheduleStatus === "complete"
-        ? Math.max(scheduleBuilderDraftRoundCount, metadataBasedRotationCount, requiredCapacityCandidate)
+        ? scheduleBuilderDraftRoundCount || metadataBasedRotationCount
         : 0;
     const draftCandidate =
       !completedCandidate && hasDraftTiming
-        ? Math.max(scheduleBuilderDraftRoundCount, requiredCapacityCandidate)
+        ? scheduleBuilderDraftRoundCount
         : 0;
     const generatedCandidate = allRotationRounds.length;
     const fallbackCandidate = fallbackRotationCountSource.rounds;
@@ -6124,25 +6121,19 @@ export default function EventDetailPage() {
     if (completedCandidate > 0) {
       resolved = completedCandidate;
       source = "completed_snapshot";
-      sourceLabel =
-        requiredCapacityCandidate > scheduleBuilderDraftRoundCount
-          ? fallbackRotationCountSource.label
-          : "Completed schedule snapshot";
+      sourceLabel = "Completed schedule snapshot";
     } else if (draftCandidate > 0) {
       resolved = draftCandidate;
       source = "saved_draft";
-      sourceLabel =
-        requiredCapacityCandidate > scheduleBuilderDraftRoundCount
-          ? fallbackRotationCountSource.label
-          : "Saved in-progress builder draft";
-    } else if (fallbackCandidate > 0) {
-      resolved = fallbackCandidate;
-      source = "fallback";
-      sourceLabel = fallbackRotationCountSource.label;
+      sourceLabel = "Saved in-progress builder draft";
     } else if (generatedCandidate > 0) {
       resolved = generatedCandidate;
       source = "generated";
       sourceLabel = "Generated schedule state";
+    } else if (fallbackCandidate > 0) {
+      resolved = fallbackCandidate;
+      source = "fallback";
+      sourceLabel = fallbackRotationCountSource.label;
     }
 
     const nonZeroValues = Array.from(new Set(candidates.map((candidate) => candidate.rounds).filter((value) => value > 0)));
@@ -6161,11 +6152,8 @@ export default function EventDetailPage() {
     allRotationRounds.length,
     fallbackRotationCountSource,
     metadataBasedRotationCount,
-    metadataRotationRoundsNeeded,
-    scheduleBuilderDraftManualRoundOverride,
     scheduleBuilderDraftRoundCount,
     scheduleBuilderPreviewDraft,
-    scheduleBuilderAutoRoundCount,
     trainingMetadata.schedule_status,
   ]);
   const activeRotationCount = useMemo(
@@ -6193,31 +6181,6 @@ export default function EventDetailPage() {
           rooms: round.roomSlots.map((slot) => asText(slot.roomName)).filter(Boolean),
         }));
 
-        if (activeRotationCount > completedSnapshotRounds.length) {
-          const expandedSnapshotRounds = buildRotationRoundsFromScheduleDraft(
-            scheduleBuilderPreviewDraft,
-            activeRotationCount,
-            event?.date_text || sessions[0]?.session_date,
-            null,
-            importedYearHint
-          );
-          if (expandedSnapshotRounds.length > completedSnapshotRounds.length) {
-            return expandedSnapshotRounds.map((round, index) => {
-              const completedRound = completedSnapshotRounds[index];
-              return completedRound
-                ? {
-                    ...round,
-                    key: completedRound.key,
-                    session_date: completedRound.session_date || round.session_date,
-                    start_time: completedRound.start_time || round.start_time,
-                    end_time: completedRound.end_time || round.end_time,
-                    rooms: completedRound.rooms.length ? completedRound.rooms : round.rooms,
-                  }
-                : round;
-            });
-          }
-        }
-
         return completedSnapshotRounds;
       }
       if (scheduleBuilderPreviewDraft?.startTime) {
@@ -6225,7 +6188,7 @@ export default function EventDetailPage() {
           scheduleBuilderPreviewDraft,
           activeRotationCount,
           event?.date_text || sessions[0]?.session_date,
-          activeRotationCount > scheduleBuilderDraftRoundCount ? null : resolvedRotationDraftEndText,
+          resolvedRotationDraftEndText,
           importedYearHint
         );
         if (snapshotRounds.length) return snapshotRounds;
@@ -6241,7 +6204,6 @@ export default function EventDetailPage() {
       event?.date_text,
       importedYearHint,
       scheduleBuilderPreviewDraft,
-      scheduleBuilderDraftRoundCount,
       sessions,
       resolvedRotationDraftEndText,
     ]
@@ -21545,28 +21507,29 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         <section
           style={{
             marginTop: "10px",
-            border: "1px solid rgba(20, 91, 150, 0.18)",
-            borderRadius: "16px",
-            padding: "12px",
+            border: "1px solid rgba(34, 211, 238, 0.26)",
+            borderRadius: "14px",
+            padding: "10px",
             background:
-              "radial-gradient(circle at 8% 0%, rgba(126, 231, 219, 0.13), transparent 30%), linear-gradient(135deg, rgba(255,255,255,0.99) 0%, rgba(239, 249, 252, 0.96) 58%, rgba(245, 249, 255, 0.98) 100%)",
-            boxShadow: "0 12px 28px rgba(42, 112, 140, 0.09), inset 0 1px 0 rgba(255,255,255,0.84)",
+              "linear-gradient(rgba(34, 211, 238, 0.055) 1px, transparent 1px), linear-gradient(90deg, rgba(34, 211, 238, 0.045) 1px, transparent 1px), linear-gradient(135deg, rgba(5, 18, 31, 0.98) 0%, rgba(7, 35, 51, 0.97) 46%, rgba(6, 50, 48, 0.94) 100%)",
+            backgroundSize: "22px 22px, 22px 22px, auto",
+            boxShadow: "0 18px 42px rgba(2, 6, 23, 0.32), inset 0 1px 0 rgba(255,255,255,0.08)",
             display: "grid",
             gap: "8px",
           }}
         >
           <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "flex-start" }}>
             <div style={{ minWidth: 0, display: "grid", gap: "4px", flex: "1 1 430px" }}>
-              <div style={{ color: "#145b96", fontSize: "10px", fontWeight: 950, letterSpacing: "0.14em", textTransform: "uppercase" }}>Command Center Header</div>
-              <div style={{ color: "#102d44", fontSize: "20px", fontWeight: 950, lineHeight: 1.08 }}>
+              <div style={{ color: "#67e8f9", fontSize: "10px", fontWeight: 950, letterSpacing: "0.14em", textTransform: "uppercase" }}>Command Center HUD</div>
+              <div style={{ color: "#f8fafc", fontSize: "20px", fontWeight: 950, lineHeight: 1.08 }}>
                 {event?.name || "Untitled Event"}
               </div>
-              <div style={{ color: "#496678", fontSize: "11px", fontWeight: 800, lineHeight: 1.4, overflowWrap: "anywhere" }}>
+              <div style={{ color: "#b7d7e8", fontSize: "11px", fontWeight: 800, lineHeight: 1.4, overflowWrap: "anywhere" }}>
                 {[sessionSummaryLabel || eventDateLabel, summaryTimeLabel, commandCenterHudAccessLabel].filter(Boolean).join("  |  ")}
               </div>
               <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                 {eventDateCountdownLabel ? (
-                  <span style={{ ...commandChipStyle, background: "rgba(209, 250, 229, 0.72)", border: "1px solid rgba(25, 138, 112, 0.2)", color: "#0f766e" }}>
+                  <span style={{ ...commandChipStyle, background: "rgba(20, 184, 166, 0.16)", border: "1px solid rgba(45, 212, 191, 0.34)", color: "#99f6e4" }}>
                     {eventDateCountdownLabel}
                   </span>
                 ) : null}
@@ -21622,9 +21585,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     flexWrap: "wrap",
                     padding: "4px",
                     borderRadius: "12px",
-                    border: "1px solid rgba(20, 91, 150, 0.16)",
-                    background: "rgba(232, 244, 255, 0.9)",
-                    boxShadow: "inset 0 1px 0 rgba(255,255,255,0.76)",
+                    border: "1px solid rgba(34, 211, 238, 0.24)",
+                    background: "rgba(3, 14, 25, 0.72)",
+                    boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06)",
                   }}
                 >
                   <button
@@ -21634,10 +21597,10 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       ...buttonStyle,
                       padding: "7px 10px",
                       borderRadius: "9px",
-                      background: commandCenterMode === "planning" ? "linear-gradient(135deg, #145b96, #198a70)" : "rgba(255,255,255,0.72)",
-                      color: commandCenterMode === "planning" ? "#ffffff" : "#145b96",
-                      border: commandCenterMode === "planning" ? "1px solid rgba(20, 91, 150, 0.26)" : "1px solid rgba(20, 91, 150, 0.14)",
-                      boxShadow: commandCenterMode === "planning" ? "0 8px 18px rgba(20, 91, 150, 0.16)" : "none",
+                      background: commandCenterMode === "planning" ? "linear-gradient(135deg, #0891b2, #0f766e)" : "transparent",
+                      color: commandCenterMode === "planning" ? "#ffffff" : "#9bd6e6",
+                      border: commandCenterMode === "planning" ? "1px solid rgba(103, 232, 249, 0.38)" : "1px solid rgba(148, 163, 184, 0.18)",
+                      boxShadow: commandCenterMode === "planning" ? "0 0 18px rgba(34, 211, 238, 0.16)" : "none",
                     }}
                   >
                     Planning Mode
@@ -21649,10 +21612,10 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       ...buttonStyle,
                       padding: "7px 10px",
                       borderRadius: "9px",
-                      background: commandCenterMode === "live" ? "linear-gradient(135deg, #0f766e, #145b96)" : "rgba(255,255,255,0.72)",
-                      color: commandCenterMode === "live" ? "#ffffff" : "#145b96",
-                      border: commandCenterMode === "live" ? "1px solid rgba(25, 138, 112, 0.26)" : "1px solid rgba(20, 91, 150, 0.14)",
-                      boxShadow: commandCenterMode === "live" ? "0 8px 18px rgba(25, 138, 112, 0.16)" : "none",
+                      background: commandCenterMode === "live" ? "linear-gradient(135deg, #16a34a, #0f766e)" : "transparent",
+                      color: commandCenterMode === "live" ? "#ffffff" : "#9bd6e6",
+                      border: commandCenterMode === "live" ? "1px solid rgba(134, 239, 172, 0.38)" : "1px solid rgba(148, 163, 184, 0.18)",
+                      boxShadow: commandCenterMode === "live" ? "0 0 18px rgba(34, 197, 94, 0.16)" : "none",
                     }}
                   >
                     Live Event Mode
@@ -21668,21 +21631,21 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       ...commandChipStyle,
                       background:
                         chip === normalEventTrainingStatusLabel && normalEventTrainingComplete
-                          ? "rgba(209, 250, 229, 0.72)"
+                          ? "rgba(20, 184, 166, 0.16)"
                           : chip === operationalReadinessItems.primary && operationalReadinessItems.primary === "Ready"
-                            ? "rgba(209, 250, 229, 0.72)"
-                            : "rgba(232, 244, 255, 0.78)",
+                            ? "rgba(20, 184, 166, 0.16)"
+                            : "rgba(15, 23, 42, 0.58)",
                       color:
                         chip === normalEventTrainingStatusLabel && normalEventTrainingComplete
-                          ? "#0f766e"
+                          ? "#99f6e4"
                           : chip === operationalReadinessItems.primary && operationalReadinessItems.primary === "Ready"
-                            ? "#0f766e"
-                            : "#145b96",
+                            ? "#99f6e4"
+                            : "#cbd5e1",
                       border:
                         chip === normalEventTrainingStatusLabel && normalEventTrainingComplete
-                          ? "1px solid rgba(25, 138, 112, 0.2)"
-                          : "1px solid rgba(20, 91, 150, 0.14)",
-                      boxShadow: "inset 0 1px 0 rgba(255,255,255,0.72)",
+                          ? "1px solid rgba(45, 212, 191, 0.34)"
+                          : "1px solid rgba(125, 211, 252, 0.18)",
+                      boxShadow: "inset 0 1px 0 rgba(255,255,255,0.05)",
                     }}
                   >
                     {chip}
@@ -21704,19 +21667,19 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 key={`scoreboard-metric-${metric.label}`}
                 style={{
                   borderRadius: "8px",
-                  border: "1px solid rgba(20, 91, 150, 0.14)",
-                  background: "rgba(255,255,255,0.76)",
+                  border: "1px solid rgba(34, 211, 238, 0.18)",
+                  background: "linear-gradient(180deg, rgba(15, 23, 42, 0.72), rgba(8, 27, 41, 0.62))",
                   padding: "7px 8px",
                   display: "grid",
                   gap: "3px",
                   minHeight: "52px",
                 }}
               >
-                <div style={{ color: "#57768a", fontSize: "9px", fontWeight: 950, letterSpacing: "0.1em", textTransform: "uppercase" }}>{metric.label}</div>
-                <div style={{ color: "#102d44", fontSize: "16px", fontWeight: 950, lineHeight: 1.08, overflowWrap: "anywhere" }}>
+                <div style={{ color: "#67e8f9", fontSize: "9px", fontWeight: 950, letterSpacing: "0.1em", textTransform: "uppercase" }}>{metric.label}</div>
+                <div style={{ color: "#f8fafc", fontSize: "16px", fontWeight: 950, lineHeight: 1.08, overflowWrap: "anywhere" }}>
                   {metric.value}
                 </div>
-                <div style={{ color: "#496678", fontSize: "9.5px", fontWeight: 750, lineHeight: 1.25, overflowWrap: "anywhere" }}>
+                <div style={{ color: "#8fb8c9", fontSize: "9.5px", fontWeight: 750, lineHeight: 1.25, overflowWrap: "anywhere" }}>
                   {metric.detail}
                 </div>
               </div>
@@ -21729,7 +21692,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 <Link
                   key={action.key}
                   href={action.href}
-                  style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "7px 10px" }}
+                  style={{ ...buttonStyle, textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "7px 10px", background: "rgba(8, 145, 178, 0.22)", border: "1px solid rgba(34, 211, 238, 0.28)", color: "#e0f7ff" }}
                 >
                   {action.label}
                 </Link>
@@ -21739,7 +21702,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   type="button"
                   onClick={action.onClick}
                   disabled={Boolean(action.disabled)}
-                  style={{ ...buttonStyle, padding: "7px 10px", opacity: action.disabled ? 0.65 : 1 }}
+                  style={{ ...buttonStyle, padding: "7px 10px", opacity: action.disabled ? 0.65 : 1, background: "rgba(8, 145, 178, 0.22)", border: "1px solid rgba(34, 211, 238, 0.28)", color: "#e0f7ff" }}
                 >
                   {action.label}
                 </button>
@@ -21946,7 +21909,6 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               padding: "14px",
               background: commandCenterVisual.shellBackground,
               boxShadow: commandCenterVisual.shellShadow,
-              display: "none",
             }}
           >
             <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Operational Summary</div>
