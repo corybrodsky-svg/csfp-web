@@ -1400,7 +1400,7 @@ async function buildStudentInstructionsPdfPages(
     throw new Error("Could not find printable student instruction sections.");
   }
 
-  const contentWidth = Math.max(560, Math.floor(pageWidth - sidePadding * 2));
+  const contentWidth = Math.max(1, Math.floor(pageWidth - sidePadding * 2));
   const contentHeight = Math.max(1, Math.floor(pageHeight - sidePadding * 2));
   const exportRoot = document.createElement("div");
   exportRoot.className = "cfsp-pdf-export-root cfsp-student-instructions-pdf-root";
@@ -1429,25 +1429,60 @@ async function buildStudentInstructionsPdfPages(
       background: #fff;
       overflow: visible;
       display: grid;
-      gap: 12px;
+      gap: 9px;
       break-inside: avoid;
       page-break-inside: avoid;
       -webkit-column-break-inside: avoid;
     }
+    .cfsp-pdf-measure-root.student-instructions-document,
+    .cfsp-pdf-page.student-instructions-front-page {
+      box-sizing: border-box !important;
+      padding: 0 !important;
+      margin: 0 !important;
+      width: ${contentWidth}px !important;
+      max-width: ${contentWidth}px !important;
+      min-width: ${contentWidth}px !important;
+      overflow: visible !important;
+      white-space: normal !important;
+      overflow-wrap: break-word !important;
+      word-break: normal !important;
+      text-overflow: unset !important;
+    }
     .cfsp-pdf-section,
     .cfsp-pdf-footer {
       display: block;
+      box-sizing: border-box;
       width: 100%;
       max-width: 100%;
+      min-width: 0;
+      overflow: visible !important;
+      white-space: normal !important;
+      overflow-wrap: break-word !important;
+      word-break: normal !important;
+      text-overflow: unset !important;
       break-inside: avoid;
       page-break-inside: avoid;
       -webkit-column-break-inside: avoid;
+    }
+    .cfsp-pdf-section *,
+    .cfsp-pdf-section p,
+    .cfsp-pdf-section li,
+    .cfsp-pdf-section a,
+    .cfsp-pdf-footer,
+    .cfsp-pdf-header {
+      max-width: 100% !important;
+      min-width: 0 !important;
+      overflow: visible !important;
+      white-space: normal !important;
+      overflow-wrap: break-word !important;
+      word-break: normal !important;
+      text-overflow: unset !important;
     }
     .cfsp-pdf-header {
       display: grid;
       width: 100%;
       max-width: 100%;
-      gap: 6px;
+      gap: 4px;
       break-inside: avoid;
       page-break-inside: avoid;
       -webkit-column-break-inside: avoid;
@@ -1464,12 +1499,13 @@ async function buildStudentInstructionsPdfPages(
   measureRoot.style.maxWidth = `${contentWidth}px`;
   measureRoot.style.margin = "0";
   measureRoot.style.padding = "0";
+  measureRoot.style.setProperty("padding", "0", "important");
   measureRoot.style.background = "#fff";
   measureRoot.style.visibility = "visible";
   measureRoot.style.opacity = "1";
   measureRoot.style.pointerEvents = "none";
   measureRoot.style.display = "grid";
-  measureRoot.style.gap = "12px";
+  measureRoot.style.gap = "9px";
   exportRoot.appendChild(measureRoot);
   document.body.appendChild(exportRoot);
 
@@ -1479,9 +1515,13 @@ async function buildStudentInstructionsPdfPages(
     console.warn("[styled-pdf] Student instructions layout wait failed; continuing with current DOM layout.");
   }
 
-  const createPage = () => {
+  let currentPageKind: "front" | "schedule" = "front";
+
+  const createPage = (kind: "front" | "schedule") => {
     const page = document.createElement("div");
-    page.className = "cfsp-pdf-page student-instructions-document";
+    page.className = `cfsp-pdf-page student-instructions-document ${
+      kind === "front" ? "student-instructions-front-page" : "student-instructions-schedule-page"
+    }`;
     page.style.width = `${contentWidth}px`;
     page.style.maxWidth = `${contentWidth}px`;
     page.style.minWidth = `${contentWidth}px`;
@@ -1492,8 +1532,11 @@ async function buildStudentInstructionsPdfPages(
     page.style.top = "0";
     page.style.margin = "0";
     page.style.padding = "0";
+    if (kind === "front") {
+      page.style.setProperty("padding", "0", "important");
+    }
     page.style.display = "grid";
-    page.style.gap = "12px";
+    page.style.gap = "9px";
     return page;
   };
 
@@ -1501,7 +1544,7 @@ async function buildStudentInstructionsPdfPages(
     const sectionClone = section.cloneNode(true) as HTMLElement;
     ensurePdfExportNodeVisible(sectionClone, contentWidth);
     sectionClone.style.display = "grid";
-    sectionClone.style.gap = "9px";
+    sectionClone.style.gap = "7px";
     sectionClone.classList.add("cfsp-pdf-section");
     sectionClone.dataset.sectionIndex = String(index);
     measureRoot.appendChild(sectionClone);
@@ -1532,10 +1575,10 @@ async function buildStudentInstructionsPdfPages(
   measureRoot.remove();
 
   const pages: PdfExportPageManifest[] = [];
-  let currentPage = createPage();
+  let currentPage = createPage(currentPageKind);
   let currentHeight = 0;
   let currentSectionCount = 0;
-  const pageContentSpacing = 12;
+  const pageContentSpacing = 9;
 
   const pushCurrentPage = () => {
     if (!currentPage.childElementCount) return;
@@ -1546,7 +1589,7 @@ async function buildStudentInstructionsPdfPages(
         (sectionNode) => Number((sectionNode as HTMLElement).dataset.sectionIndex || "-1")
       ),
     });
-    currentPage = createPage();
+    currentPage = createPage(currentPageKind);
     currentHeight = 0;
     currentSectionCount = 0;
   };
@@ -1560,8 +1603,12 @@ async function buildStudentInstructionsPdfPages(
 
   measuredSections.forEach((section) => {
     const startsStudentSchedule = section.node.dataset.packetSection === "student-schedule-start";
+    if (startsStudentSchedule) {
+      currentPageKind = "schedule";
+    }
     if (startsStudentSchedule && currentSectionCount > 0) {
       pushCurrentPage();
+      currentPage = createPage(currentPageKind);
     }
     const spacing = currentSectionCount > 0 || currentHeight > 0 ? pageContentSpacing : 0;
     const needsNewPage = currentSectionCount > 0 && currentHeight + spacing + section.height > contentHeight;
@@ -1589,7 +1636,7 @@ async function buildStudentInstructionsPdfPages(
   pushCurrentPage();
 
   if (!pages.length) {
-    const fallbackPage = createPage();
+    const fallbackPage = createPage("front");
     const fallbackText = document.createElement("div");
     fallbackText.textContent = "No student instructions content available for export.";
     fallbackText.style.padding = "16px";
@@ -1808,7 +1855,9 @@ async function createStyledSchedulePdfBlob(context: StyledPdfRenderContext) {
   const pageWidth = scheduleDoc.internal.pageSize.getWidth();
   const pageHeight = scheduleDoc.internal.pageSize.getHeight();
   const pdfSidePadding = 8;
-  const contentWidth = Math.max(560, Math.floor(pageWidth - pdfSidePadding * 2));
+  const contentWidth = isStudentInstructions
+    ? Math.max(1, Math.floor(pageWidth - pdfSidePadding * 2))
+    : Math.max(560, Math.floor(pageWidth - pdfSidePadding * 2));
   const contentHeight = Math.max(1, Math.floor(pageHeight - pdfSidePadding * 2));
   let pagesResult: PdfExportPages | null = null;
   if (isStudentInstructions) {
@@ -2545,11 +2594,15 @@ color: #17304f;
 
           .student-instructions-document {
             display: grid !important;
-            gap: 12px !important;
-            padding: 0 40px 28px !important;
+            gap: 9px !important;
+            padding: 0 34px 22px !important;
             margin: 0 !important;
             background: #ffffff !important;
             align-content: start !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            min-width: 0 !important;
+            overflow: visible !important;
           }
           .student-instructions-header {
             display: grid !important;
@@ -2573,8 +2626,8 @@ color: #17304f;
           .student-instructions-subtitle {
             position: relative !important;
             display: block !important;
-            margin: 4px 0 8px 0 !important;
-            padding: 0 0 8px 0 !important;
+            margin: 3px 0 5px 0 !important;
+            padding: 0 0 6px 0 !important;
             border: 0 !important;
             border-bottom: 0 !important;
             text-decoration: none !important;
@@ -2588,7 +2641,7 @@ color: #17304f;
             display: block !important;
             width: 100% !important;
             height: 2px !important;
-            margin-top: 7px !important;
+            margin-top: 5px !important;
             background: #17304f !important;
           }
           .student-instructions-subtitle *,
@@ -2599,11 +2652,18 @@ color: #17304f;
 
           .instructions-section {
             display: grid;
-            gap: 9px;
+            gap: 7px;
             border: 1px solid #d7e1ea;
             border-radius: 8px;
-            padding: 13px 15px;
+            padding: 10px 12px;
             background: #fbfdff;
+            width: 100%;
+            max-width: 100%;
+            min-width: 0;
+            overflow: visible;
+            white-space: normal;
+            overflow-wrap: break-word;
+            word-break: normal;
             break-inside: avoid;
             page-break-inside: avoid;
           }
@@ -2618,27 +2678,46 @@ color: #17304f;
             margin: 0;
             color: #29445f;
             font-size: 12.5px;
-            line-height: 1.45;
+            line-height: 1.38;
+            max-width: 100%;
+            min-width: 0;
+            overflow: visible;
+            white-space: normal;
+            overflow-wrap: break-word;
+            word-break: normal;
           }
           .instructions-list {
             margin: 0;
             padding-left: 19px;
             color: #29445f;
             font-size: 12.5px;
-            line-height: 1.42;
+            line-height: 1.34;
+            max-width: 100%;
+            min-width: 0;
+            overflow: visible;
+            white-space: normal;
+            overflow-wrap: break-word;
+            word-break: normal;
           }
-          .instructions-list li { margin: 3px 0; }
+          .instructions-list li {
+            margin: 2px 0;
+            max-width: 100%;
+            overflow: visible;
+            white-space: normal;
+            overflow-wrap: break-word;
+            word-break: normal;
+          }
           .timing-grid {
             display: grid;
             grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: 10px;
+            gap: 8px;
           }
           .timing-item {
             border: 1px solid #d7e1ea;
             border-radius: 8px;
-            padding: 10px 12px;
+            padding: 8px 10px;
             background: #ffffff;
-            min-height: 56px;
+            min-height: 50px;
           }
           .timing-label {
             color: #60768b;
@@ -2673,9 +2752,9 @@ color: #17304f;
             min-width: 0;
             border: 1px solid #d7e1ea;
             border-radius: 8px;
-            padding: 6px 7px;
+            padding: 5px 7px;
             background: linear-gradient(180deg, #ffffff 0%, #f7fbff 100%);
-            min-height: 44px;
+            min-height: 40px;
             display: grid;
             gap: 3px;
             align-content: start;
@@ -2696,7 +2775,7 @@ color: #17304f;
             color: #14304f;
             font-size: 10.8px;
             font-weight: 800;
-            line-height: 1.22;
+            line-height: 1.18;
             white-space: normal;
             overflow-wrap: break-word;
           }
