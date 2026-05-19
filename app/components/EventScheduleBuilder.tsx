@@ -7037,27 +7037,15 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const selectedPreviewHtmlFileName = `${selectedPreviewBaseFileName}-printable.html`;
   const selectedPreviewStyledPdfFileName = previewKind === "student" ? "student-schedule.pdf" : "admin-schedule.pdf";
   const selectedScheduleDateLabel = useMemo(() => {
-    const firstStudentScheduleDate = studentPreviewRounds
-      .map((round) => asText((round as { session_date?: string | null }).session_date))
-      .find(Boolean);
-    const daySnapshot = scheduleBuilderDaySnapshots.get(scheduleDay) as Partial<PersistedScheduleBuilderSnapshot> | undefined;
-    const daySnapshotDate = asText(daySnapshot?.eventDate);
     const dateSource =
-      firstStudentScheduleDate ||
-      daySnapshotDate ||
-      asText(selectedEventMetadata.event_session_date) ||
       asText(selectedEvent?.earliest_session_date) ||
       asText(selectedEvent?.date_text);
     if (!dateSource) return "";
     return formatHumanDate(dateSource, getImportedYearHint(selectedEvent?.notes)) || dateSource;
   }, [
-    scheduleBuilderDaySnapshots,
-    scheduleDay,
     selectedEvent?.date_text,
     selectedEvent?.earliest_session_date,
     selectedEvent?.notes,
-    selectedEventMetadata.event_session_date,
-    studentPreviewRounds,
   ]);
   const firstStudentEncounterStartMinutes = useMemo(() => {
     for (const round of studentPreviewRounds) {
