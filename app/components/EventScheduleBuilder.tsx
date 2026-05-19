@@ -936,6 +936,13 @@ type StudentInstructionsScheduleBlock = {
   cells: StudentInstructionsScheduleCell[];
 };
 
+type StudentInstructionsTimingCue = {
+  key: string;
+  offsetMinutes: number;
+  label: string;
+  message: string;
+};
+
 type PdfExportPageManifest = {
   page: HTMLElement;
   roundCount: number;
@@ -2406,8 +2413,93 @@ function buildStudentInstructionsExportHtml(context: StudentInstructionsExportCo
     roomContext,
     roomChunkSize: 8,
   });
+  const getEncounterStartMinutesForRound = (round: ScheduledRound | null | undefined) => {
+    if (!round) return null;
+    const encounterBlock = (round.subBlocks || []).find((subBlock) => /^encounter$/i.test(asText(subBlock.label)));
+    if (encounterBlock && Number.isFinite(encounterBlock.start)) return encounterBlock.start;
+    return Number.isFinite(round.start) ? round.start : null;
+  };
+  const formatRelativeOffsetLabel = (offsetMinutes: number) => {
+    const rounded = Math.round(offsetMinutes);
+    if (rounded > 0) return `+${rounded} min`;
+    return `${rounded} min`;
+  };
+  const cueMessageByBadgeLabel = (badgeLabel: string) => {
+    const normalized = badgeLabel.toLowerCase();
+    if (normalized.includes("prepare")) return "SPs prepare";
+    if (normalized.includes("start")) return "Encounter begins";
+    if (normalized.includes("warning")) return "5 minutes remaining";
+    if (normalized.includes("feedback")) return "Begin feedback";
+    if (normalized.includes("return") || normalized.includes("transition")) return "Return / transition";
+    return "";
+  };
+  const buildStudentScheduleTimingCues = () => {
+    const firstRound = studentScheduleRounds[0] || null;
+    const nextRound = studentScheduleRounds[1] || null;
+    const encounterStartMinutes = getEncounterStartMinutesForRound(firstRound);
+    if (!firstRound || encounterStartMinutes === null) {
+      return [
+        { key: "prepare", offsetMinutes: -1, label: "-1 min", message: "SPs prepare" },
+        { key: "start", offsetMinutes: 0, label: "0 min", message: "Encounter begins" },
+        { key: "warning", offsetMinutes: 15, label: "+15 min", message: "5 minutes remaining" },
+        { key: "feedback", offsetMinutes: 20, label: "+20 min", message: "Begin feedback" },
+        { key: "return", offsetMinutes: 25, label: "+25 min", message: "Return / transition" },
+      ] satisfies StudentInstructionsTimingCue[];
+    }
+    const announcementItems = buildRoundAnnouncementItems(firstRound, nextRound, {
+      formatTime: () => "",
+    });
+    const pickCue = (predicate: (item: ReturnType<typeof buildRoundAnnouncementItems>[number]) => boolean) =>
+      announcementItems.find(predicate) || null;
+    const selected = [
+      pickCue((item) => /prepare/i.test(item.badgeLabel)),
+      pickCue((item) => /^start$/i.test(item.badgeLabel)),
+      pickCue((item) => /warning/i.test(item.badgeLabel)),
+      pickCue((item) => /feedback/i.test(item.badgeLabel)),
+      pickCue((item) => /return|transition/i.test(item.badgeLabel)),
+    ].filter((item): item is NonNullable<typeof item> => Boolean(item));
+    if (!selected.length) {
+      return [
+        { key: "prepare", offsetMinutes: -1, label: "-1 min", message: "SPs prepare" },
+        { key: "start", offsetMinutes: 0, label: "0 min", message: "Encounter begins" },
+        { key: "warning", offsetMinutes: 15, label: "+15 min", message: "5 minutes remaining" },
+        { key: "feedback", offsetMinutes: 20, label: "+20 min", message: "Begin feedback" },
+        { key: "return", offsetMinutes: 25, label: "+25 min", message: "Return / transition" },
+      ] satisfies StudentInstructionsTimingCue[];
+    }
+    return selected
+      .map((item) => {
+        const offsetMinutes = item.timeMinutes - encounterStartMinutes;
+        return {
+          key: item.key,
+          offsetMinutes,
+          label: formatRelativeOffsetLabel(offsetMinutes),
+          message: cueMessageByBadgeLabel(item.badgeLabel) || item.message,
+        } satisfies StudentInstructionsTimingCue;
+      })
+      .sort((a, b) => a.offsetMinutes - b.offsetMinutes);
+  };
+  const scheduleTimingCues = buildStudentScheduleTimingCues();
   const renderScheduleIntro = () => `
     <section class="student-packet-page-section instructions-section student-schedule-section student-schedule-section-first" data-packet-section="student-schedule-start">
+      ${
+        scheduleTimingCues.length
+          ? `
+            <div class="student-schedule-cue-strip" aria-label="Encounter timing cues">
+              ${scheduleTimingCues
+                .map(
+                  (cue) => `
+                    <div class="student-schedule-cue">
+                      <span class="student-schedule-cue-offset">${escapeHtml(cue.label)}</span>
+                      <span class="student-schedule-cue-text">${escapeHtml(cue.message)}</span>
+                    </div>
+                  `
+                )
+                .join("")}
+            </div>
+          `
+          : ""
+      }
       <div class="student-schedule-heading">
         <div>
           <h3>Student Schedule</h3>
@@ -2668,6 +2760,35 @@ color: #17304f;
             font-size: 12px;
             font-weight: 700;
             line-height: 1.35;
+          }
+          .student-schedule-cue-strip {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 6px;
+            margin-bottom: 8px;
+          }
+          .student-schedule-cue {
+            border: 1px solid #d6e0eb;
+            border-radius: 8px;
+            background: #f6fafe;
+            padding: 6px 7px;
+            display: grid;
+            gap: 2px;
+            min-height: 42px;
+          }
+          .student-schedule-cue-offset {
+            color: #145b96;
+            font-size: 10px;
+            font-weight: 950;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            line-height: 1.15;
+          }
+          .student-schedule-cue-text {
+            color: #29445f;
+            font-size: 10.5px;
+            font-weight: 800;
+            line-height: 1.25;
           }
           .student-schedule-section {
             break-inside: avoid;
