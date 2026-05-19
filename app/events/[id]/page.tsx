@@ -5071,6 +5071,7 @@ export default function EventDetailPage() {
   const [showRecordingGuideEditor, setShowRecordingGuideEditor] = useState(false);
   const [caseFileUploadTarget, setCaseFileUploadTarget] = useState<CaseFileUploadTarget>({ mode: "replace", index: 0 });
   const [contactPanelSaving, setContactPanelSaving] = useState(false);
+  const [facultyPacketPreparing, setFacultyPacketPreparing] = useState(false);
   const [contactPanelSavedAt, setContactPanelSavedAt] = useState("");
   const [contactPanelExpanded, setContactPanelExpanded] = useState(false);
   const [expandedCommandDockTool, setExpandedCommandDockTool] = useState<CommandDockTool | "">("");
@@ -15787,6 +15788,58 @@ Cory`;
       showSuccessMessage("Faculty training availability request draft opened.");
     } catch (error) {
       setEventSaveError(error instanceof Error ? error.message : "Could not draft faculty training availability request.");
+    }
+  }
+
+  async function handleSendFacultySchedulePacket() {
+    if (!facultyEmailText) {
+      setEventSaveError("Add faculty email before sending packet.");
+      return;
+    }
+
+    setFacultyPacketPreparing(true);
+    setEventSaveError("");
+
+    const eventName = asText(event?.name) || "CFSP Event";
+    const eventDate = sessionSummaryLabel || eventDateLabel || "the scheduled event date";
+    const senderName =
+      me?.fullName ||
+      me?.scheduleName ||
+      trainingSimContact ||
+      me?.email ||
+      "CFSP Simulation Operations";
+
+    const facultyPacketMailtoHref = buildMailtoHref({
+      to: facultyEmailText,
+      cc: me?.email ? [me.email] : [],
+      bcc: [],
+      subject: `${eventName} Student Instructions and Schedule Packet`,
+      body: [
+        "Hello,",
+        "",
+        `Please find the student instructions and schedule packet for ${eventName} on ${eventDate}.`,
+        "",
+        "This packet includes:",
+        "- Student instructions",
+        "- Zoom/access information, if applicable",
+        "- Student encounter schedule / breakout room assignments",
+        "",
+        "Please attach the Student Instructions PDF generated from the Student Instructions action before sending.",
+        "",
+        "Please review and let us know if any changes are needed.",
+        "",
+        "Thank you,",
+        senderName,
+      ].join("\n"),
+    });
+
+    try {
+      window.location.href = facultyPacketMailtoHref;
+      showSuccessMessage("Faculty email draft ready");
+    } catch (error) {
+      setEventSaveError(error instanceof Error ? error.message : "Could not open faculty email draft.");
+    } finally {
+      setFacultyPacketPreparing(false);
     }
   }
 
@@ -26736,6 +26789,14 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 style={{ ...buttonStyle, padding: "7px 10px", opacity: contactPanelSaving ? 0.65 : 1 }}
                               >
                                 {contactPanelSaving ? "Saving..." : "Save Faculty Info"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void handleSendFacultySchedulePacket()}
+                                disabled={facultyPacketPreparing}
+                                style={{ ...buttonStyle, padding: "7px 10px", opacity: facultyPacketPreparing ? 0.65 : 1 }}
+                              >
+                                {facultyPacketPreparing ? "Preparing Faculty Packet..." : "Send Faculty Schedule Packet"}
                               </button>
                               <Link href={`/settings?eventId=${encodeURIComponent(id)}`} style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px", textDecoration: "none", display: "inline-flex", alignItems: "center" }}>
                                 Open Settings
