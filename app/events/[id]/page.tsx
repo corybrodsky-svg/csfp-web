@@ -243,6 +243,7 @@ type RoundRoomRow = {
   sp: SPRow | null;
   backupSpName: string;
   caseLabel: string;
+  roleId: string;
   roleLabel: string;
   notes: string;
   stationLabel: string;
@@ -252,6 +253,15 @@ type RoundRoomBoardRow = RoundRoomRow & {
   isAutoMapped: boolean;
   isExplicitMapped: boolean;
   mappingState: string;
+};
+type EventAttendanceCanonicalRoom = {
+  roomName: string;
+  learnerLabels: string[];
+  assignment: AssignmentRow | null;
+  sp: SPRow | null;
+  spName: string;
+  encounterLabel: string;
+  fallbackIndex: number;
 };
 type AssignSpOptions = {
   status?: AssignmentStatus;
@@ -331,6 +341,7 @@ type ScheduleBuilderPreviewResolvedRoomSlot = {
   assignedSpName: string;
   backupSpName: string;
   caseLabel: string;
+  roleId: string;
   roleLabel: string;
   notes: string;
 };
@@ -382,6 +393,7 @@ type ScheduleRoomAdjustmentSlot = {
   spName?: string;
   backupSpName?: string;
   caseLabel?: string;
+  roleId?: string;
   roleLabel?: string;
   notes?: string;
 };
@@ -538,6 +550,10 @@ type TrainingImportResult = {
 };
 
 type TrainingMaterialKind = "case_file" | "doorsign" | "supplemental_doc" | "staffing_doc";
+type CaseRoleEntry = {
+  id: string;
+  name: string;
+};
 type CaseFileEntry = {
   id: string;
   name: string;
@@ -551,6 +567,8 @@ type CaseFileEntry = {
   notes?: string;
   roomAssignment?: string;
   status?: "active" | "inactive";
+  hasRoles?: boolean;
+  roles?: CaseRoleEntry[];
 };
 type CaseFileUploadTarget = {
   mode: "add" | "replace";
@@ -2266,14 +2284,31 @@ function getMaterialPreviewLoadError(response?: Response | null) {
   return "Could not load preview. Please download the file.";
 }
 
+function normalizeCaseRoleEntries(value: unknown, caseId: string) {
+  if (!Array.isArray(value)) return [] as CaseRoleEntry[];
+  return value
+    .map((role, index) => {
+      const record = role && typeof role === "object" ? (role as Record<string, unknown>) : {};
+      const name = normalizeDisplayText(record.name ?? role);
+      if (!name) return null;
+      return {
+        id: normalizeDisplayText(record.id) || `${caseId || "case"}-role-${index + 1}`,
+        name,
+      };
+    })
+    .filter((role): role is CaseRoleEntry => Boolean(role));
+}
+
 function normalizeCaseFileEntry(value: Partial<CaseFileEntry>, fallbackIndex: number): CaseFileEntry | null {
   const url = asText(value.url);
   const storagePath = asText(value.storagePath);
   const name = asText(value.name) || getFilenameFromUrl(url) || (storagePath ? getFilenameFromUrl(storagePath) : "");
   if (!url && !storagePath && !name) return null;
+  const id = asText(value.id) || `${storagePath || url || name || "case"}-${fallbackIndex}`;
+  const roles = normalizeCaseRoleEntries(value.roles, id);
 
   return {
-    id: asText(value.id) || `${storagePath || url || name || "case"}-${fallbackIndex}`,
+    id,
     name: name || `Case ${fallbackIndex + 1}`,
     url,
     storagePath,
@@ -2285,6 +2320,8 @@ function normalizeCaseFileEntry(value: Partial<CaseFileEntry>, fallbackIndex: nu
     notes: asText(value.notes),
     roomAssignment: asText(value.roomAssignment),
     status: value.status === "inactive" ? "inactive" : "active",
+    hasRoles: Boolean(value.hasRoles || roles.length),
+    roles,
   };
 }
 
@@ -2324,6 +2361,10 @@ function parseCaseFileEntries(value: string | null | undefined) {
               (entry as Partial<CaseFileEntry>)?.roomAssignment ||
               (entry as { room_assignment?: string })?.room_assignment,
             status: (entry as Partial<CaseFileEntry>)?.status,
+            hasRoles:
+              (entry as Partial<CaseFileEntry>)?.hasRoles ||
+              (entry as { has_roles?: boolean })?.has_roles,
+            roles: (entry as Partial<CaseFileEntry>)?.roles,
           },
           index
         )
@@ -2349,6 +2390,8 @@ function serializeCaseFileEntries(entries: CaseFileEntry[]) {
       notes: asText(entry.notes),
       roomAssignment: asText(entry.roomAssignment),
       status: entry.status === "inactive" ? "inactive" : "active",
+      hasRoles: Boolean(entry.hasRoles),
+      roles: normalizeCaseRoleEntries(entry.roles, entry.id),
     }))
   );
 }
@@ -2377,6 +2420,25 @@ function patchCaseFileEntry(entries: CaseFileEntry[], index: number, partial: Pa
       ? normalizeCaseFileEntry({ ...entry, ...partial }, entryIndex) || entry
       : entry
   );
+}
+
+function findCaseFileEntryForLabel(entries: CaseFileEntry[], label: unknown) {
+  const normalizedLabel = normalizeDisplayText(label).toLowerCase();
+  if (!normalizedLabel) return null;
+  return (
+    entries.find((entry) => normalizeDisplayText(entry.name).toLowerCase() === normalizedLabel) ||
+    entries.find((entry) => normalizeDisplayText(entry.id).toLowerCase() === normalizedLabel) ||
+    null
+  );
+}
+
+function resolveCaseRoleLabel(caseEntry: CaseFileEntry | null, roleId?: string | null, fallbackLabel?: string | null) {
+  const normalizedRoleId = normalizeDisplayText(roleId);
+  if (caseEntry && normalizedRoleId) {
+    const role = (caseEntry.roles || []).find((item) => item.id === normalizedRoleId);
+    if (role?.name) return role.name;
+  }
+  return normalizeDisplayText(fallbackLabel);
 }
 
 function getAvailabilitySpId(row: AvailabilityRow) {
@@ -3911,6 +3973,7 @@ function parseScheduleRoomAdjustments(value: unknown) {
           spName?: unknown;
           backupSpName?: unknown;
           caseLabel?: unknown;
+          roleId?: unknown;
           roleLabel?: unknown;
           notes?: unknown;
         }>;
@@ -3930,9 +3993,10 @@ function parseScheduleRoomAdjustments(value: unknown) {
           const spName = normalizeDisplayText(slotEntry?.spName);
           const backupSpName = normalizeDisplayText(slotEntry?.backupSpName);
           const caseLabel = normalizeDisplayText(slotEntry?.caseLabel);
+          const roleId = normalizeDisplayText(slotEntry?.roleId);
           const roleLabel = normalizeDisplayText(slotEntry?.roleLabel);
           const notes = normalizeDisplayText(slotEntry?.notes);
-          if (!learnerLabels.length && !manualOverride && !roomName && !spName && !backupSpName && !caseLabel && !roleLabel && !notes) return null;
+          if (!learnerLabels.length && !manualOverride && !roomName && !spName && !backupSpName && !caseLabel && !roleId && !roleLabel && !notes) return null;
           return {
             slotIndex,
             learnerLabels,
@@ -3941,6 +4005,7 @@ function parseScheduleRoomAdjustments(value: unknown) {
             ...(spName ? { spName } : {}),
             ...(backupSpName ? { backupSpName } : {}),
             ...(caseLabel ? { caseLabel } : {}),
+            ...(roleId ? { roleId } : {}),
             ...(roleLabel ? { roleLabel } : {}),
             ...(notes ? { notes } : {}),
           } satisfies ScheduleRoomAdjustmentSlot;
@@ -3973,6 +4038,7 @@ function serializeScheduleRoomAdjustments(value: ParsedScheduleRoomAdjustments) 
             ...(normalizeDisplayText(slot.spName) ? { spName: normalizeDisplayText(slot.spName) } : {}),
             ...(normalizeDisplayText(slot.backupSpName) ? { backupSpName: normalizeDisplayText(slot.backupSpName) } : {}),
             ...(normalizeDisplayText(slot.caseLabel) ? { caseLabel: normalizeDisplayText(slot.caseLabel) } : {}),
+            ...(normalizeDisplayText(slot.roleId) ? { roleId: normalizeDisplayText(slot.roleId) } : {}),
             ...(normalizeDisplayText(slot.roleLabel) ? { roleLabel: normalizeDisplayText(slot.roleLabel) } : {}),
             ...(normalizeDisplayText(slot.notes) ? { notes: normalizeDisplayText(slot.notes) } : {}),
           })),
@@ -3985,6 +4051,7 @@ function serializeScheduleRoomAdjustments(value: ParsedScheduleRoomAdjustments) 
           normalizeDisplayText(slot.spName) ||
           normalizeDisplayText(slot.backupSpName) ||
           normalizeDisplayText(slot.caseLabel) ||
+          normalizeDisplayText(slot.roleId) ||
           normalizeDisplayText(slot.roleLabel) ||
           normalizeDisplayText(slot.notes)
         )
@@ -4025,6 +4092,7 @@ function upsertScheduleRoomAdjustmentSlot(
     asText(merged.spName) ||
     asText(merged.backupSpName) ||
     asText(merged.caseLabel) ||
+    asText(merged.roleId) ||
     asText(merged.roleLabel) ||
     asText(merged.notes)
   ) {
@@ -4141,6 +4209,7 @@ function parseScheduleBuilderPreviewDraft(value: string | null) {
                       assignedSpName: asText(slotRecord.assignedSpName),
                       backupSpName: asText(slotRecord.backupSpName),
                       caseLabel: asText(slotRecord.caseLabel),
+                      roleId: asText(slotRecord.roleId),
                       roleLabel: asText(slotRecord.roleLabel),
                       notes: asText(slotRecord.notes),
                     } satisfies ScheduleBuilderPreviewResolvedRoomSlot;
@@ -7706,6 +7775,45 @@ const operationalEventStatusLabel = useMemo(() => {
     getFilenameFromUrl(eventMaterialUrl) ||
     "Event Material";
   const eventMaterialStoragePath = asText(trainingMetadata.staffing_doc_storage_path);
+  const caseFileUrl = asText(trainingMetadata.case_file_url);
+  const caseFileStoragePath = asText(trainingMetadata.case_file_storage_path);
+  const caseFileDisplayName =
+    asText(trainingMetadata.case_name) ||
+    asText(trainingMetadata.case_file_name) ||
+    getFilenameFromUrl(caseFileUrl) ||
+    "";
+  const legacyCaseFileEntry = useMemo(
+    () =>
+      normalizeCaseFileEntry(
+        {
+          id: "primary-case-file",
+          name: caseFileDisplayName,
+          url: caseFileUrl,
+          storagePath: caseFileStoragePath,
+          uploadedAt: trainingMetadata.case_file_uploaded_at,
+          uploadedBy: trainingMetadata.case_file_uploaded_by,
+        },
+        0
+      ),
+    [
+      caseFileDisplayName,
+      caseFileStoragePath,
+      caseFileUrl,
+      trainingMetadata.case_file_uploaded_at,
+      trainingMetadata.case_file_uploaded_by,
+    ]
+  );
+  const caseFileEntries = useMemo(
+    () =>
+      mergeLegacyCaseFileEntry(
+        parseCaseFileEntries(trainingMetadata.case_manager_cases || trainingMetadata.case_files),
+        legacyCaseFileEntry
+      ),
+    [legacyCaseFileEntry, trainingMetadata.case_files, trainingMetadata.case_manager_cases]
+  );
+  const primaryCaseFileEntry = caseFileEntries[0] || legacyCaseFileEntry;
+  const caseFileCount = caseFileEntries.length;
+  const uploadedCaseFileCount = caseFileEntries.filter((entry) => Boolean(entry.url || entry.storagePath)).length;
   const eventMaterialBusy = trainingMaterialSaving.staffing_doc;
   const materialsReadinessRaw = getFirstNoteValue(eventEditor.notes || event?.notes, [
     "Materials Readiness",
@@ -9095,6 +9203,14 @@ const operationalEventStatusLabel = useMemo(() => {
                 ? normalizeLearnerNames(persistedSlot.learnerLabels)
                 : generatedLearnerLabels;
         const resolvedRoomName = asText(slotOverride?.roomName) || displayRoomName;
+        const resolvedCaseLabel = asText(slotOverride?.caseLabel) || asText(persistedSlot?.caseLabel) || selectedRoundCaseLabel;
+        const resolvedCaseEntry = findCaseFileEntryForLabel(caseFileEntries, resolvedCaseLabel);
+        const resolvedRoleId = asText(slotOverride?.roleId);
+        const resolvedRoleLabel = resolveCaseRoleLabel(
+          resolvedCaseEntry,
+          resolvedRoleId,
+          asText(slotOverride?.roleLabel) || asText(persistedSlot?.roleLabel)
+        );
         const flags = [
           rawRoomName ? "" : "Missing room",
           assignment && !sp ? "Missing SP profile" : "",
@@ -9111,8 +9227,9 @@ const operationalEventStatusLabel = useMemo(() => {
           assignment,
           sp,
           backupSpName: asText(slotOverride?.backupSpName) || asText(persistedSlot?.backupSpName),
-          caseLabel: asText(slotOverride?.caseLabel) || asText(persistedSlot?.caseLabel) || selectedRoundCaseLabel,
-          roleLabel: asText(slotOverride?.roleLabel) || asText(persistedSlot?.roleLabel),
+          caseLabel: resolvedCaseLabel,
+          roleId: resolvedRoleId,
+          roleLabel: resolvedRoleLabel,
           notes: asText(slotOverride?.notes) || asText(persistedSlot?.notes),
           stationLabel: selectedRoundStationLabel,
           flags,
@@ -9129,6 +9246,7 @@ const operationalEventStatusLabel = useMemo(() => {
     scheduleBuilderLearnerNames,
     scheduleBuilderRoomCapacity,
     activeScheduleRoomAdjustments,
+    caseFileEntries,
     roomNamingContext,
     selectedRotationRound,
     selectedRoundRoomSlotEntries,
@@ -9521,6 +9639,7 @@ const operationalEventStatusLabel = useMemo(() => {
           sp,
           backupSpName: existingRow?.backupSpName || "",
           caseLabel: existingRow?.caseLabel || selectedRoundCaseLabel,
+          roleId: existingRow?.roleId || "",
           roleLabel: existingRow?.roleLabel || "",
           notes: existingRow?.notes || "",
           stationLabel: existingRow?.stationLabel || selectedRoundStationLabel,
@@ -10057,19 +10176,22 @@ const operationalEventStatusLabel = useMemo(() => {
           currentLiveRoomBoardRows[index] ||
           null;
         const roomNumber = getRoomDisplayNumber(roomName);
-        const scheduleRow =
-          currentLiveReferenceScheduleRows.find((row) => {
-            const rowNumber = getRoomDisplayNumber(row.roomName);
-            return roomNumber !== null && rowNumber === roomNumber;
-          }) ||
-          currentLiveReferenceScheduleRows.find(
-            (row) => asText(row.roomName).toLowerCase() === asText(roomName).toLowerCase()
-          ) ||
+        const selectedScheduleRow =
           selectedRoundScheduleRows.find((row) => {
             const rowNumber = getRoomDisplayNumber(row.roomName);
             return roomNumber !== null && rowNumber === roomNumber;
           }) ||
           selectedRoundScheduleRows.find(
+            (row) => asText(row.roomName).toLowerCase() === asText(roomName).toLowerCase()
+          ) ||
+          null;
+        const scheduleRow =
+          selectedScheduleRow ||
+          currentLiveReferenceScheduleRows.find((row) => {
+            const rowNumber = getRoomDisplayNumber(row.roomName);
+            return roomNumber !== null && rowNumber === roomNumber;
+          }) ||
+          currentLiveReferenceScheduleRows.find(
             (row) => asText(row.roomName).toLowerCase() === asText(roomName).toLowerCase()
           ) ||
           null;
@@ -10085,16 +10207,18 @@ const operationalEventStatusLabel = useMemo(() => {
           asText(adjustment.restoredAssignmentId)
             ? confirmedAssignments.find((item) => item.id === adjustment.restoredAssignmentId) || null
             : null;
-        const plannedAssignment = canonicalAssignment || boardRow?.assignment || projection?.assignment || null;
+        const plannedAssignment = canonicalAssignment || selectedScheduleRow?.assignment || boardRow?.assignment || projection?.assignment || null;
         const plannedAssignmentOverrideRoom = plannedAssignment?.id
           ? liveRestoredAssignmentRoomById.get(plannedAssignment.id)
           : "";
         const assignment =
           restoredAssignment ||
           (plannedAssignmentOverrideRoom && plannedAssignmentOverrideRoom !== adjustmentKey ? null : plannedAssignment);
-        const sp = assignment
-          ? (assignment.sp_id ? spsById.get(assignment.sp_id) || null : null)
-          : null;
+        const sp = selectedScheduleRow?.assignment?.id === assignment?.id && selectedScheduleRow?.sp
+          ? selectedScheduleRow.sp
+          : assignment
+            ? (assignment.sp_id ? spsById.get(assignment.sp_id) || null : null)
+            : null;
         const assignmentSource = restoredAssignment
           ? "restored"
           : assignment
@@ -10183,7 +10307,7 @@ const operationalEventStatusLabel = useMemo(() => {
             : isAssignedLearnerRoomLabel(boardRow?.learnerLabel)
               ? asText(boardRow?.learnerLabel)
               : getLearnerRoomAssignmentLabel([]),
-          encounterLabel: boardRow?.encounterLabel || "Case not assigned",
+          encounterLabel: [selectedScheduleRow?.stationLabel, selectedScheduleRow?.caseLabel].filter(Boolean).join(" · ") || boardRow?.encounterLabel || "Case not assigned",
           standbyAssignment,
           standbySp,
           standbySpName: standbySp ? getFullName(standbySp) : "",
@@ -10328,16 +10452,29 @@ const operationalEventStatusLabel = useMemo(() => {
     ]
   );
   const eventAttendanceRoomCards = useMemo(() => {
-    const canonicalRooms = selectedRoundOccupancyRoomLearners.length
-      ? selectedRoundOccupancyRoomLearners
-      : selectedRoundScheduleRows.map((row, fallbackIndex) => ({
+    const canonicalRooms: EventAttendanceCanonicalRoom[] = selectedRoundScheduleRows.length
+      ? selectedRoundScheduleRows.map((row, fallbackIndex) => ({
           roomName: row.roomName,
           learnerLabels: normalizeLearnerNames(row.learnerLabels).filter((learner) => isAssignedLearnerRoomLabel(learner)),
+          assignment: row.assignment,
+          sp: row.sp,
+          spName: row.sp ? getFullName(row.sp) : "",
+          encounterLabel: [row.stationLabel, row.caseLabel].filter(Boolean).join(" · ") || "Case pending",
           fallbackIndex,
+        }))
+      : selectedRoundOccupancyRoomLearners.map((room) => ({
+          ...room,
+          assignment: null,
+          sp: null,
+          spName: "",
+          encounterLabel: "Case pending",
         }));
 
     return canonicalRooms.map((room, roomIndex) => {
       const matchedRoom =
+        (room.assignment
+          ? interactiveLiveAttendanceBlueprintRooms.find((candidate) => candidate.assignment?.id === room.assignment?.id)
+          : null) ||
         interactiveLiveAttendanceBlueprintRooms.find((candidate) => compareRoomLabels(candidate.roomName, room.roomName) === 0) ||
         interactiveLiveAttendanceBlueprintRooms[roomIndex] ||
         null;
@@ -10363,12 +10500,12 @@ const operationalEventStatusLabel = useMemo(() => {
       return {
         key: matchedRoom?.key || `event-attendance-room-${selectedRoundOccupancyKey}-${roomIndex}`,
         roomName: fallbackRoomName,
-        encounterLabel: matchedRoom?.encounterLabel || "Case pending",
+        encounterLabel: room.encounterLabel || matchedRoom?.encounterLabel || "Case pending",
         statusLabel: matchedRoom?.statusLabel || "Standby",
         isCurrentRotationRoom: Boolean(matchedRoom?.isCurrentRotationRoom),
-        assignment: matchedRoom?.assignment || null,
-        sp: matchedRoom?.sp || null,
-        spName: matchedRoom?.spName || "",
+        assignment: room.assignment || matchedRoom?.assignment || null,
+        sp: room.sp || matchedRoom?.sp || null,
+        spName: room.spName || matchedRoom?.spName || "",
         learnerLabels,
       };
     });
@@ -10502,7 +10639,9 @@ const operationalEventStatusLabel = useMemo(() => {
       sortedAssignments.map((assignment) => {
         const sp = assignment.sp_id ? spsById.get(assignment.sp_id) : null;
         const spName = getFullName(sp || emptySpRow) || "Assigned SP";
-        const room = interactiveLiveAttendanceBlueprintRooms.find((candidate) => candidate.assignment?.id === assignment.id);
+        const room =
+          eventAttendanceRoomCards.find((candidate) => candidate.assignment?.id === assignment.id) ||
+          interactiveLiveAttendanceBlueprintRooms.find((candidate) => candidate.assignment?.id === assignment.id);
         const status = asText(assignment.event_attendance_status) || (assignment.event_checked_in_at ? "arrived" : "expected");
         return {
           key: `sp:${assignment.id}`,
@@ -10513,7 +10652,7 @@ const operationalEventStatusLabel = useMemo(() => {
           note: asText(assignment.attendance_note),
         };
       }),
-    [interactiveLiveAttendanceBlueprintRooms, sortedAssignments, spsById]
+    [eventAttendanceRoomCards, interactiveLiveAttendanceBlueprintRooms, sortedAssignments, spsById]
   );
   const eventAttendanceSpArrivedCount = eventAttendanceSpTokens.filter((token) =>
     ["arrived", "in_room", "completed"].includes(asText(token.status))
@@ -11261,45 +11400,6 @@ Cory`;
         fileName: eventMaterialName,
       }).downloadUrl
     : "";
-  const caseFileUrl = asText(trainingMetadata.case_file_url);
-  const caseFileStoragePath = asText(trainingMetadata.case_file_storage_path);
-  const caseFileDisplayName =
-    asText(trainingMetadata.case_name) ||
-    asText(trainingMetadata.case_file_name) ||
-    getFilenameFromUrl(caseFileUrl) ||
-    "";
-  const legacyCaseFileEntry = useMemo(
-    () =>
-      normalizeCaseFileEntry(
-        {
-          id: "primary-case-file",
-          name: caseFileDisplayName,
-          url: caseFileUrl,
-          storagePath: caseFileStoragePath,
-          uploadedAt: trainingMetadata.case_file_uploaded_at,
-          uploadedBy: trainingMetadata.case_file_uploaded_by,
-        },
-        0
-      ),
-    [
-      caseFileDisplayName,
-      caseFileStoragePath,
-      caseFileUrl,
-      trainingMetadata.case_file_uploaded_at,
-      trainingMetadata.case_file_uploaded_by,
-    ]
-  );
-  const caseFileEntries = useMemo(
-    () =>
-      mergeLegacyCaseFileEntry(
-        parseCaseFileEntries(trainingMetadata.case_manager_cases || trainingMetadata.case_files),
-        legacyCaseFileEntry
-      ),
-    [legacyCaseFileEntry, trainingMetadata.case_files, trainingMetadata.case_manager_cases]
-  );
-  const primaryCaseFileEntry = caseFileEntries[0] || legacyCaseFileEntry;
-  const caseFileCount = caseFileEntries.length;
-  const uploadedCaseFileCount = caseFileEntries.filter((entry) => Boolean(entry.url || entry.storagePath)).length;
   const recordingGuideUrl = normalizeExternalHref(
     trainingMetadata.recording_url || trainingMetadata.training_recording_url
   );
@@ -14272,6 +14372,7 @@ Cory`;
             backupSpName: asText(slotAdjustment.backupSpName) || "",
             learnerLabels: Array.isArray(slotAdjustment.learnerLabels) ? slotAdjustment.learnerLabels : [],
             caseLabel: asText(slotAdjustment.caseLabel),
+            roleId: asText(slotAdjustment.roleId),
             roleLabel: asText(slotAdjustment.roleLabel),
             notes: asText(slotAdjustment.notes),
           };
@@ -14341,6 +14442,7 @@ Cory`;
         spName: sourceRow.sp ? getFullName(sourceRow.sp) : "",
         backupSpName: sourceRow.backupSpName,
         caseLabel: sourceRow.caseLabel,
+        roleId: sourceRow.roleId,
         roleLabel: sourceRow.roleLabel,
         notes: sourceRow.notes,
       }
@@ -14354,6 +14456,7 @@ Cory`;
         spName: targetRow.sp ? getFullName(targetRow.sp) : "",
         backupSpName: targetRow.backupSpName,
         caseLabel: targetRow.caseLabel,
+        roleId: targetRow.roleId,
         roleLabel: targetRow.roleLabel,
         notes: targetRow.notes,
       }
@@ -15204,6 +15307,20 @@ Cory`;
     } finally {
       setTrainingMaterialSavingState("case_file", false);
     }
+  }
+
+  async function handleSaveCaseRoles(index: number, partial: { hasRoles?: boolean; roles?: CaseRoleEntry[] }, message = "Case roles saved.") {
+    const caseEntry = caseFileEntries[index];
+    if (!caseEntry) return;
+    const roles = partial.roles !== undefined ? normalizeCaseRoleEntries(partial.roles, caseEntry.id) : caseEntry.roles || [];
+    await handleSaveCaseManagerEntry(
+      index,
+      {
+        hasRoles: partial.hasRoles !== undefined ? partial.hasRoles : Boolean(roles.length || caseEntry.hasRoles),
+        roles,
+      },
+      message
+    );
   }
 
   async function handleEnsureCaseCount(nextCountValue: string) {
@@ -23429,6 +23546,73 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                             Remove
                                           </button>
                                         </div>
+                                        <div style={{ display: "grid", gap: "5px", borderTop: commandFileCabinetVisual.rowBorder, paddingTop: "6px" }}>
+                                          <label style={{ display: "flex", gap: "7px", alignItems: "center", color: commandFileCabinetVisual.moduleTextColor, fontSize: "10px", fontWeight: 850 }}>
+                                            <input
+                                              type="checkbox"
+                                              checked={Boolean(caseEntry.hasRoles)}
+                                              onChange={(event) => void handleSaveCaseRoles(caseIndex, { hasRoles: event.target.checked }, "Case role setting saved.")}
+                                              disabled={trainingMaterialSaving.case_file}
+                                            />
+                                            Does this case have roles?
+                                          </label>
+                                          {caseEntry.hasRoles ? (
+                                            <div style={{ display: "grid", gap: "5px" }}>
+                                              {(caseEntry.roles || []).map((role, roleIndex) => (
+                                                <div key={`${caseEntry.id}-role-${role.id}`} style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", gap: "5px" }}>
+                                                  <input
+                                                    defaultValue={role.name}
+                                                    onBlur={(event) => {
+                                                      const nextRoles = (caseEntry.roles || []).map((item) =>
+                                                        item.id === role.id ? { ...item, name: event.target.value } : item
+                                                      );
+                                                      void handleSaveCaseRoles(caseIndex, { roles: nextRoles }, "Case role saved.");
+                                                    }}
+                                                    disabled={trainingMaterialSaving.case_file}
+                                                    placeholder={`Role ${roleIndex + 1}`}
+                                                    style={{ ...inputStyle, width: "100%", boxSizing: "border-box", fontSize: "10.5px", padding: "5px 7px" }}
+                                                  />
+                                                  <button
+                                                    type="button"
+                                                    onClick={() =>
+                                                      void handleSaveCaseRoles(
+                                                        caseIndex,
+                                                        { roles: (caseEntry.roles || []).filter((item) => item.id !== role.id) },
+                                                        "Case role removed."
+                                                      )
+                                                    }
+                                                    disabled={trainingMaterialSaving.case_file}
+                                                    className="cfsp-button-tactical"
+                                                    style={{ ...dangerButtonStyle, padding: "5px 7px", fontSize: "10px" }}
+                                                  >
+                                                    Remove
+                                                  </button>
+                                                </div>
+                                              ))}
+                                              <button
+                                                type="button"
+                                                onClick={() =>
+                                                  void handleSaveCaseRoles(
+                                                    caseIndex,
+                                                    {
+                                                      hasRoles: true,
+                                                      roles: [
+                                                        ...(caseEntry.roles || []),
+                                                        { id: `${caseEntry.id}-role-${Date.now()}`, name: `Role ${(caseEntry.roles || []).length + 1}` },
+                                                      ],
+                                                    },
+                                                    "Case role added."
+                                                  )
+                                                }
+                                                disabled={trainingMaterialSaving.case_file}
+                                                className="cfsp-button-tactical"
+                                                style={{ ...buttonStyle, padding: "5px 8px", fontSize: "10px" }}
+                                              >
+                                                Add Role
+                                              </button>
+                                            </div>
+                                          ) : null}
+                                        </div>
                                       </div>
                                     );
                                   })}
@@ -26576,7 +26760,29 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                     ))}
                                   </div>
                                 ) : null}
-                                {selectedRoundScheduleRows.map((row, index) => (
+                                {selectedRoundScheduleRows.map((row, index) => {
+                                  const rowCaseEntry = findCaseFileEntryForLabel(caseFileEntries, row.caseLabel);
+                                  const rowCaseAssets = rowCaseEntry
+                                    ? buildTrainingMaterialAssetUrls({
+                                        eventId: id,
+                                        rawUrl: rowCaseEntry.url,
+                                        storagePath: rowCaseEntry.storagePath,
+                                        fileName: rowCaseEntry.name || row.caseLabel || "case-file",
+                                      })
+                                    : null;
+                                  const rowHasCaseFile = Boolean(rowCaseEntry && (rowCaseEntry.url || rowCaseEntry.storagePath));
+                                  const rowCaseRoles = rowCaseEntry?.hasRoles ? (rowCaseEntry.roles || []).filter((role) => role.name) : [];
+                                  const rowRoleMatchesCase = row.roleId ? rowCaseRoles.some((role) => role.id === row.roleId) : false;
+                                  const rowRoleMatchesName = row.roleLabel
+                                    ? rowCaseRoles.some((role) => role.name.toLowerCase() === row.roleLabel.toLowerCase())
+                                    : false;
+                                  const rowRoleSelectValue = row.roleId && rowRoleMatchesCase
+                                    ? `role:${row.roleId}`
+                                    : row.roleLabel
+                                      ? `custom:${row.roleLabel}`
+                                      : "";
+
+                                  return (
                                   <div key={`${row.key}-ops`} style={{ borderRadius: "12px", border: commandCenterVisual.rowBorder, background: commandCenterVisual.rowBackground, padding: "8px 10px", display: "grid", gap: "6px" }}>
                                     <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
                                       <div>
@@ -26650,6 +26856,53 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                         {row.notes}
                                       </div>
                                     ) : null}
+                                    <div style={{ borderRadius: "10px", border: commandCenterVisual.rowBorder, background: commandCenterVisual.chipBackground, padding: "7px 9px", display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                                      <div style={{ minWidth: 0 }}>
+                                        <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Case file</div>
+                                        <div style={{ color: commandCenterVisual.textColor, fontWeight: 900, fontSize: "12px", overflowWrap: "break-word" }}>
+                                          {row.caseLabel || "Case TBD"}
+                                        </div>
+                                        {!rowHasCaseFile ? (
+                                          <div style={{ marginTop: "2px", color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 800 }}>
+                                            No case file uploaded
+                                          </div>
+                                        ) : null}
+                                      </div>
+                                      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
+                                        {rowHasCaseFile ? (
+                                          <>
+                                            <button
+                                              type="button"
+                                              onClick={() => openCaseFilePreview(rowCaseEntry)}
+                                              style={{ ...staffingSecondaryButtonStyle, padding: "5px 8px", fontSize: "10px" }}
+                                            >
+                                              Preview Case
+                                            </button>
+                                            {rowCaseAssets?.downloadUrl ? (
+                                              <a
+                                                href={rowCaseAssets.downloadUrl}
+                                                download={rowCaseAssets.fileName}
+                                                style={{ ...staffingSecondaryButtonStyle, padding: "5px 8px", fontSize: "10px", textDecoration: "none", display: "inline-flex", alignItems: "center" }}
+                                              >
+                                                Download Case
+                                              </a>
+                                            ) : null}
+                                          </>
+                                        ) : (
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setSelectedCommandTool("fileCabinet");
+                                              setCommandFileCabinetExpanded(true);
+                                              queueCommandContentScroll();
+                                            }}
+                                            style={{ ...staffingSecondaryButtonStyle, padding: "5px 8px", fontSize: "10px" }}
+                                          >
+                                            Open File Cabinet
+                                          </button>
+                                        )}
+                                      </div>
+                                    </div>
                                     <div
                                       style={{
                                         display: "grid",
@@ -26735,7 +26988,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                         <select
                                           value={row.caseLabel}
                                           onChange={(event) =>
-                                            void handleRoundRoomAdjustment(row.slotIndex, { caseLabel: event.target.value })
+                                            void handleRoundRoomAdjustment(row.slotIndex, { caseLabel: event.target.value, roleId: "", roleLabel: "" })
                                           }
                                           disabled={saving}
                                           style={{ ...selectStyle, width: "100%", maxWidth: "none", fontSize: "11px", padding: "6px 7px" }}
@@ -26757,7 +27010,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                         <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Manual case title</span>
                                         <input
                                           value={row.caseLabel}
-                                          onChange={(event) => void handleRoundRoomAdjustment(row.slotIndex, { caseLabel: event.target.value })}
+                                          onChange={(event) => void handleRoundRoomAdjustment(row.slotIndex, { caseLabel: event.target.value, roleId: "", roleLabel: "" })}
                                           disabled={saving}
                                           placeholder="Type case title"
                                           style={{ ...inputStyle, width: "100%", boxSizing: "border-box", fontSize: "11px", padding: "6px 7px" }}
@@ -26765,13 +27018,59 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                       </label>
                                       <label style={{ display: "grid", gap: "4px" }}>
                                         <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Role / portrayal</span>
-                                        <input
-                                          value={row.roleLabel}
-                                          onChange={(event) => void handleRoundRoomAdjustment(row.slotIndex, { roleLabel: event.target.value })}
-                                          disabled={saving}
-                                          placeholder="Nurse, patient, family..."
-                                          style={{ ...inputStyle, width: "100%", boxSizing: "border-box", fontSize: "11px", padding: "6px 7px" }}
-                                        />
+                                        {rowCaseRoles.length ? (
+                                          <>
+                                            <select
+                                              value={rowRoleSelectValue}
+                                              onChange={(event) => {
+                                                const selectedValue = event.target.value;
+                                                if (selectedValue.startsWith("role:")) {
+                                                  const selectedRoleId = selectedValue.slice("role:".length);
+                                                  const selectedRole = rowCaseRoles.find((role) => role.id === selectedRoleId);
+                                                  void handleRoundRoomAdjustment(row.slotIndex, { roleId: selectedRoleId, roleLabel: selectedRole?.name || "" });
+                                                  return;
+                                                }
+                                                if (selectedValue === "__custom") {
+                                                  void handleRoundRoomAdjustment(row.slotIndex, { roleId: "", roleLabel: row.roleLabel || "" });
+                                                  return;
+                                                }
+                                                void handleRoundRoomAdjustment(row.slotIndex, { roleId: "", roleLabel: "" });
+                                              }}
+                                              disabled={saving}
+                                              style={{ ...selectStyle, width: "100%", maxWidth: "none", fontSize: "11px", padding: "6px 7px" }}
+                                            >
+                                              <option value="">Role TBD</option>
+                                              {rowCaseRoles.map((role) => (
+                                                <option key={`${row.key}-role-option-${role.id}`} value={`role:${role.id}`}>
+                                                  {role.name}
+                                                </option>
+                                              ))}
+                                              {row.roleLabel && (!rowRoleMatchesCase || !rowRoleMatchesName) ? (
+                                                <option value={`custom:${row.roleLabel}`}>
+                                                  {row.roleId && !rowRoleMatchesCase ? `Role removed: ${row.roleLabel}` : `Custom: ${row.roleLabel}`}
+                                                </option>
+                                              ) : null}
+                                              <option value="__custom">Other / custom</option>
+                                            </select>
+                                            {!row.roleId ? (
+                                              <input
+                                                value={row.roleLabel}
+                                                onChange={(event) => void handleRoundRoomAdjustment(row.slotIndex, { roleId: "", roleLabel: event.target.value })}
+                                                disabled={saving}
+                                                placeholder="Custom role / portrayal"
+                                                style={{ ...inputStyle, width: "100%", boxSizing: "border-box", fontSize: "11px", padding: "6px 7px" }}
+                                              />
+                                            ) : null}
+                                          </>
+                                        ) : (
+                                          <input
+                                            value={row.roleLabel}
+                                            onChange={(event) => void handleRoundRoomAdjustment(row.slotIndex, { roleId: "", roleLabel: event.target.value })}
+                                            disabled={saving}
+                                            placeholder="Nurse, patient, family..."
+                                            style={{ ...inputStyle, width: "100%", boxSizing: "border-box", fontSize: "11px", padding: "6px 7px" }}
+                                          />
+                                        )}
                                       </label>
                                       <label style={{ display: "grid", gap: "4px" }}>
                                         <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Move paired assignment</span>
@@ -26809,7 +27108,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                       </label>
                                     </div>
                                   </div>
-                                ))}
+                                  );
+                                })}
                                 {visibleSelectedRoundScheduleBlocks.length ? (
                                   <div style={{ display: "grid", gap: "6px" }}>
                                     {visibleSelectedRoundScheduleBlocks.map((block) => (
@@ -30610,6 +30910,71 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                     <option value="inactive">Inactive</option>
                                   </select>
                                 </label>
+                                <div style={{ display: "grid", gap: "6px", gridColumn: "1 / -1", border: "1px solid rgba(99, 181, 217, 0.14)", borderRadius: "10px", padding: "8px", background: "rgba(255,255,255,0.62)" }}>
+                                  <label style={{ display: "flex", gap: "8px", alignItems: "center", color: "var(--cfsp-text)", fontSize: "11px", fontWeight: 850 }}>
+                                    <input
+                                      type="checkbox"
+                                      checked={Boolean(caseEntry.hasRoles)}
+                                      onChange={(event) => void handleSaveCaseRoles(caseIndex, { hasRoles: event.target.checked }, "Case role setting saved.")}
+                                      disabled={trainingMaterialSaving.case_file}
+                                    />
+                                    Does this case have roles?
+                                  </label>
+                                  {caseEntry.hasRoles ? (
+                                    <div style={{ display: "grid", gap: "6px" }}>
+                                      {(caseEntry.roles || []).map((role, roleIndex) => (
+                                        <div key={`admin-case-role-${caseEntry.id}-${role.id}`} style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", gap: "6px" }}>
+                                          <input
+                                            defaultValue={role.name}
+                                            onBlur={(event) => {
+                                              const nextRoles = (caseEntry.roles || []).map((item) =>
+                                                item.id === role.id ? { ...item, name: event.target.value } : item
+                                              );
+                                              void handleSaveCaseRoles(caseIndex, { roles: nextRoles }, "Case role saved.");
+                                            }}
+                                            disabled={trainingMaterialSaving.case_file}
+                                            placeholder={`Role ${roleIndex + 1}`}
+                                            style={{ ...inputStyle, width: "100%", boxSizing: "border-box", padding: "7px 9px", fontSize: "11px" }}
+                                          />
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              void handleSaveCaseRoles(
+                                                caseIndex,
+                                                { roles: (caseEntry.roles || []).filter((item) => item.id !== role.id) },
+                                                "Case role removed."
+                                              )
+                                            }
+                                            disabled={trainingMaterialSaving.case_file}
+                                            style={{ ...dangerButtonStyle, padding: "7px 10px", fontSize: "11px" }}
+                                          >
+                                            Remove
+                                          </button>
+                                        </div>
+                                      ))}
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          void handleSaveCaseRoles(
+                                            caseIndex,
+                                            {
+                                              hasRoles: true,
+                                              roles: [
+                                                ...(caseEntry.roles || []),
+                                                { id: `${caseEntry.id}-role-${Date.now()}`, name: `Role ${(caseEntry.roles || []).length + 1}` },
+                                              ],
+                                            },
+                                            "Case role added."
+                                          )
+                                        }
+                                        disabled={trainingMaterialSaving.case_file}
+                                        style={{ ...buttonStyle, padding: "7px 10px", justifySelf: "start" }}
+                                      >
+                                        Add Role
+                                      </button>
+                                    </div>
+                                  ) : null}
+                                </div>
                                 <label style={{ display: "grid", gap: "4px", gridColumn: "1 / -1" }}>
                                   <span style={{ ...statLabel, fontSize: "11px" }}>Case notes/details</span>
                                   <textarea

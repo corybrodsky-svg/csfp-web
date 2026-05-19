@@ -2332,6 +2332,18 @@ function formatStudentInstructionsMinutes(minutes?: number | null) {
   return `${rounded} minute${rounded === 1 ? "" : "s"}`;
 }
 
+function getStudentInstructionsJoinOffsetMinutes(config?: StudentInstructionsConfig) {
+  const rawConfig = (config || {}) as Record<string, unknown>;
+  const rawOffset =
+    rawConfig.joinOffsetMinutes ??
+    rawConfig.joinOffset ??
+    rawConfig.joinLeadMinutes ??
+    rawConfig.joinBeforeMinutes;
+  const parsed = typeof rawOffset === "number" ? rawOffset : Number(normalizeDisplayText(rawOffset));
+  if (!Number.isFinite(parsed) || parsed < 0) return 15;
+  return Math.max(0, Math.floor(parsed));
+}
+
 function buildVirStyleStudentScheduleBlocks(args: {
   rounds: ScheduledRound[];
   roomColumns?: PreviewRoomColumn[];
@@ -2418,14 +2430,14 @@ function buildStudentInstructionsExportHtml(context: StudentInstructionsExportCo
   const zoomLink = normalizeDisplayText(instructionsConfig?.zoomLink) || normalizeDisplayText(context.zoomLink) || "Provided separately.";
   const encounterLabel = normalizeDisplayText(instructionsConfig?.encounterTimeDetail) || formatStudentInstructionsMinutes(encounterMinutes);
   const feedbackLabel = normalizeDisplayText(instructionsConfig?.feedbackTimeDetail) || formatStudentInstructionsMinutes(feedbackMinutes);
-  const joinOffsetMinutes =
-    typeof instructionsConfig?.joinOffsetMinutes === "number" && Number.isFinite(instructionsConfig.joinOffsetMinutes)
-      ? Math.max(0, Math.floor(instructionsConfig.joinOffsetMinutes))
-      : 15;
+  const joinOffsetMinutes = getStudentInstructionsJoinOffsetMinutes(instructionsConfig);
   const hasFirstEncounterStart =
     typeof firstEncounterStartMinutes === "number" && Number.isFinite(firstEncounterStartMinutes);
-  const firstEncounterLabel = hasFirstEncounterStart ? toDisplayTime(firstEncounterStartMinutes) : "";
-  const joinTimeLabel = hasFirstEncounterStart ? toDisplayTime(firstEncounterStartMinutes - joinOffsetMinutes) : "";
+  const firstEncounterStartMinuteValue = hasFirstEncounterStart ? Math.floor(firstEncounterStartMinutes) : null;
+  const joinByMinuteValue =
+    firstEncounterStartMinuteValue === null ? null : firstEncounterStartMinuteValue - joinOffsetMinutes;
+  const firstEncounterLabel = firstEncounterStartMinuteValue === null ? "" : toDisplayTime(firstEncounterStartMinuteValue);
+  const joinTimeLabel = joinByMinuteValue === null ? "" : toDisplayTime(joinByMinuteValue);
   const baseJoinInstructions =
     normalizeDisplayText(instructionsConfig?.joinInstructions) ||
     `Students join Zoom ${joinOffsetMinutes} minutes before their first scheduled encounter.`;
