@@ -2449,10 +2449,44 @@ function buildStudentInstructionsExportHtml(context: StudentInstructionsExportCo
             margin: 0;
             background: #ffffff;
           }
+
+          /* Force Student Instructions packet to start at the top of page 1 */
+          html,
+          body {
+            margin: 0 !important;
+            padding: 0 !important;
+          }
+          .cfsp-pdf-page,
+          .cfsp-pdf-page-content,
+          .cfsp-pdf-section,
+          .cfsp-pdf-header,
+          .student-instructions-document {
+            justify-content: flex-start !important;
+            align-content: flex-start !important;
+            align-items: stretch !important;
+            vertical-align: top !important;
+          }
+          .cfsp-pdf-page {
+            padding-top: 0 !important;
+          }
+          .cfsp-pdf-page-content {
+            padding-top: 0 !important;
+            margin-top: 0 !important;
+          }
+          .student-instructions-document {
+            margin-top: 0 !important;
+            padding-top: 0 !important;
+            transform: none !important;
+          }
+          .student-instructions-header {
+            margin-top: 0 !important;
+            padding-top: 0 !important;
+          }
+
           .student-instructions-document {
             display: grid;
             gap: 14px;
-            padding: 18px 40px 30px;
+            padding: 0 40px 30px;
             background: #ffffff;
           }
           .student-instructions-header {
@@ -2494,7 +2528,7 @@ color: #17304f;
           .student-instructions-document {
             display: grid !important;
             gap: 12px !important;
-            padding: 8px 40px 28px !important;
+            padding: 0 40px 28px !important;
             margin: 0 !important;
             background: #ffffff !important;
             align-content: start !important;
