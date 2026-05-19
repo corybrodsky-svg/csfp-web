@@ -2654,6 +2654,38 @@ color: #17304f;
             font-weight: 900;
             line-height: 1.25;
           }
+          .announcement-flow-panel {
+            display: grid;
+            gap: 10px;
+          }
+          .announcement-flow-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 8px;
+          }
+          .announcement-flow-item {
+            border: 1px solid #d7e1ea;
+            border-radius: 8px;
+            padding: 9px 10px;
+            background: linear-gradient(180deg, #ffffff 0%, #f7fbff 100%);
+            min-height: 56px;
+            display: grid;
+            gap: 4px;
+            align-content: start;
+          }
+          .announcement-flow-offset {
+            color: #12617f;
+            font-size: 10.5px;
+            font-weight: 900;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+          }
+          .announcement-flow-text {
+            color: #14304f;
+            font-size: 12.5px;
+            font-weight: 800;
+            line-height: 1.3;
+          }
           .student-schedule-heading {
             display: flex;
             justify-content: space-between;
@@ -2913,6 +2945,32 @@ color: #17304f;
                       </div>
                     `
                 }
+              </div>
+            </section>
+
+            <section class="student-packet-page-section instructions-section announcement-flow-panel">
+              <h3>Announcement Flow</h3>
+              <div class="announcement-flow-grid">
+                <div class="announcement-flow-item">
+                  <div class="announcement-flow-offset">-1 min</div>
+                  <div class="announcement-flow-text">SPs prepare.</div>
+                </div>
+                <div class="announcement-flow-item">
+                  <div class="announcement-flow-offset">0 min</div>
+                  <div class="announcement-flow-text">Begin Encounter.</div>
+                </div>
+                <div class="announcement-flow-item">
+                  <div class="announcement-flow-offset">+15 min</div>
+                  <div class="announcement-flow-text">5 minutes remaining.</div>
+                </div>
+                <div class="announcement-flow-item">
+                  <div class="announcement-flow-offset">+20 min</div>
+                  <div class="announcement-flow-text">Please Begin Feedback.</div>
+                </div>
+                <div class="announcement-flow-item">
+                  <div class="announcement-flow-offset">+25 min</div>
+                  <div class="announcement-flow-text">Your Encounter is Over. Please Leave the Meeting.</div>
+                </div>
               </div>
             </section>
 
