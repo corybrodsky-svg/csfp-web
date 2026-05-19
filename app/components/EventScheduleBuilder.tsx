@@ -7068,21 +7068,42 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     }
     return parseNumber(feedbackMinutes, parseNumber(DEFAULT_SCHEDULE_BUILDER_DRAFT.feedbackMinutes, 10));
   }, [feedbackMinutes, scheduledRounds]);
+  const studentInstructionsEventName = normalizeDisplayText(selectedEvent?.name);
+  const studentInstructionsResolvedZoomLink =
+    normalizeDisplayText(savedStudentInstructionsConfig?.zoomLink) ||
+    normalizeDisplayText(getStudentInstructionsZoomLinkFromBuilderEvent(selectedEvent));
+  const studentInstructionsContextError = useMemo(() => {
+    if (!selectedEvent?.id) {
+      return "Open this from an event before generating Student Instructions.";
+    }
+    if (!studentInstructionsEventName) {
+      return "This event is missing a title for Student Instructions.";
+    }
+    if (!selectedScheduleDateLabel) {
+      return "This event is missing a student schedule date for Student Instructions.";
+    }
+    if (!studentInstructionsResolvedZoomLink) {
+      return "Add a Zoom link in Student Instructions or event details before generating the packet.";
+    }
+    return "";
+  }, [selectedEvent?.id, selectedScheduleDateLabel, studentInstructionsEventName, studentInstructionsResolvedZoomLink]);
   const studentInstructionsPrintHtml = useMemo(
     () =>
-      buildStudentInstructionsExportHtml({
-        event: selectedEvent,
-        programLabel: normalizeDisplayText(selectedEvent?.name) || "PROGRAM",
-        dateLabel: selectedScheduleDateLabel,
-        zoomLink: getStudentInstructionsZoomLinkFromBuilderEvent(selectedEvent),
-        instructionsConfig: savedStudentInstructionsConfig,
-        encounterMinutes: firstStudentEncounterDurationMinutes,
-        feedbackMinutes: firstFeedbackDurationMinutes,
-        firstEncounterStartMinutes: firstStudentEncounterStartMinutes,
-        studentScheduleRounds: studentPreviewRounds,
-        roomColumns,
-        roomContext: roomNamingContext,
-      }),
+      studentInstructionsContextError
+        ? ""
+        : buildStudentInstructionsExportHtml({
+            event: selectedEvent,
+            programLabel: studentInstructionsEventName,
+            dateLabel: selectedScheduleDateLabel,
+            zoomLink: studentInstructionsResolvedZoomLink,
+            instructionsConfig: savedStudentInstructionsConfig,
+            encounterMinutes: firstStudentEncounterDurationMinutes,
+            feedbackMinutes: firstFeedbackDurationMinutes,
+            firstEncounterStartMinutes: firstStudentEncounterStartMinutes,
+            studentScheduleRounds: studentPreviewRounds,
+            roomColumns,
+            roomContext: roomNamingContext,
+          }),
     [
       firstFeedbackDurationMinutes,
       firstStudentEncounterStartMinutes,
@@ -7092,6 +7113,9 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       selectedEvent,
       selectedScheduleDateLabel,
       savedStudentInstructionsConfig,
+      studentInstructionsContextError,
+      studentInstructionsEventName,
+      studentInstructionsResolvedZoomLink,
       studentPreviewRounds,
     ]
   );
@@ -7205,6 +7229,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
 
   const openStudentInstructionsPrintFlow = useCallback((): boolean => {
     if (typeof window === "undefined") return false;
+    if (studentInstructionsContextError || !studentInstructionsPrintHtml) return false;
 
     const popup = window.open("", "_blank", "noopener,noreferrer");
     if (!popup) {
@@ -7218,7 +7243,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       popup.print();
     };
     return true;
-  }, [studentInstructionsPrintHtml]);
+  }, [studentInstructionsContextError, studentInstructionsPrintHtml]);
 
   const handleStyledPdfDownload = useCallback(async () => {
     if (styledPdfExporting) return;
@@ -7258,6 +7283,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
 
   const handleStudentInstructionsPdfDownload = useCallback(async () => {
     if (studentInstructionsPdfExporting) return;
+    if (studentInstructionsContextError || !studentInstructionsPrintHtml) {
+      showCopyMessage(studentInstructionsContextError || "Open this from an event before generating Student Instructions.", "error", 3600);
+      return;
+    }
 
     setStudentInstructionsPdfExporting(true);
     showCopyMessage("Preparing Student Instructions PDF...", "success", 2200);
@@ -7285,6 +7314,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   }, [
     openStudentInstructionsPrintFlow,
     showCopyMessage,
+    studentInstructionsContextError,
     studentInstructionsPdfExporting,
     studentInstructionsPdfFileName,
     studentInstructionsPrintHtml,
@@ -7293,6 +7323,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   useEffect(() => {
     if (loading || !props.previewOnly || !props.autoDownload || autoDownloadTriggeredRef.current) return;
     if (!resolvedSelectedEventId || !selectedEvent) return;
+    if (studentInstructionsContextError && props.autoDownloadMode === "student-instructions") return;
     autoDownloadTriggeredRef.current = true;
     const shouldDownloadStudentInstructions = props.autoDownloadMode === "student-instructions";
     const timeout = window.setTimeout(() => {
@@ -7312,7 +7343,15 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     resolvedSelectedEventId,
     props.previewOnly,
     selectedEvent,
+    studentInstructionsContextError,
   ]);
+
+  useEffect(() => {
+    if (loading || !props.previewOnly || !props.autoDownload) return;
+    if (props.autoDownloadMode !== "student-instructions") return;
+    if (!studentInstructionsContextError) return;
+    showCopyMessage(studentInstructionsContextError, "error", 4200);
+  }, [loading, props.autoDownload, props.autoDownloadMode, props.previewOnly, showCopyMessage, studentInstructionsContextError]);
 
   function handleRenderedSchedulePrint() {
     const printed = openSchedulePrintFlow();
