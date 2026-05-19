@@ -2656,35 +2656,35 @@ color: #17304f;
           }
           .announcement-flow-panel {
             display: grid;
-            gap: 10px;
+            gap: 8px;
           }
           .announcement-flow-grid {
             display: grid;
-            grid-template-columns: repeat(3, minmax(0, 1fr));
-            gap: 8px;
+            grid-template-columns: repeat(5, minmax(0, 1fr));
+            gap: 6px;
           }
           .announcement-flow-item {
             border: 1px solid #d7e1ea;
             border-radius: 8px;
-            padding: 9px 10px;
+            padding: 7px 8px;
             background: linear-gradient(180deg, #ffffff 0%, #f7fbff 100%);
-            min-height: 56px;
+            min-height: 48px;
             display: grid;
-            gap: 4px;
+            gap: 3px;
             align-content: start;
           }
           .announcement-flow-offset {
             color: #12617f;
-            font-size: 10.5px;
+            font-size: 9.5px;
             font-weight: 900;
-            letter-spacing: 0.06em;
+            letter-spacing: 0.05em;
             text-transform: uppercase;
           }
           .announcement-flow-text {
             color: #14304f;
-            font-size: 12.5px;
+            font-size: 10.8px;
             font-weight: 800;
-            line-height: 1.3;
+            line-height: 1.22;
           }
           .student-schedule-heading {
             display: flex;
@@ -7037,13 +7037,15 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const selectedPreviewHtmlFileName = `${selectedPreviewBaseFileName}-printable.html`;
   const selectedPreviewStyledPdfFileName = previewKind === "student" ? "student-schedule.pdf" : "admin-schedule.pdf";
   const selectedScheduleDateLabel = useMemo(() => {
+    const firstStudentScheduleDate = studentPreviewRounds
+      .map((round) => asText((round as { session_date?: string | null }).session_date))
+      .find(Boolean);
     const daySnapshot = scheduleBuilderDaySnapshots.get(scheduleDay) as Partial<PersistedScheduleBuilderSnapshot> | undefined;
     const daySnapshotDate = asText(daySnapshot?.eventDate);
     const dateSource =
+      firstStudentScheduleDate ||
       daySnapshotDate ||
       asText(selectedEventMetadata.event_session_date) ||
-      asText(selectedEventMetadata.preferred_training_date) ||
-      asText(selectedEventMetadata.training_date) ||
       asText(selectedEvent?.earliest_session_date) ||
       asText(selectedEvent?.date_text);
     if (!dateSource) return "";
@@ -7055,8 +7057,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     selectedEvent?.earliest_session_date,
     selectedEvent?.notes,
     selectedEventMetadata.event_session_date,
-    selectedEventMetadata.preferred_training_date,
-    selectedEventMetadata.training_date,
+    studentPreviewRounds,
   ]);
   const firstStudentEncounterStartMinutes = useMemo(() => {
     for (const round of studentPreviewRounds) {
