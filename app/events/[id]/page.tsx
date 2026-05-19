@@ -21896,7 +21896,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         <div
           style={{
             marginTop: "10px",
-            display: "none",
+            display: "grid",
             gap: "6px",
             gridTemplateColumns: "minmax(0, 1fr)",
             alignItems: "start",
