@@ -2333,6 +2333,19 @@ function buildVirStyleStudentScheduleBlocks(args: {
   return blocks;
 }
 
+function normalizeStudentInstructionsProgramLabel(value: unknown) {
+  return normalizeDisplayText(value)
+    .replace(/\s+Standardized Patient\s*\(SP\)\s*Simulation Cases\s*$/i, "")
+    .trim();
+}
+
+function isGenericStudentInstructionsProgramLabel(value: string) {
+  const normalized = normalizeStudentInstructionsProgramLabel(value)
+    .replace(/[^a-z0-9]+/gi, "")
+    .toUpperCase();
+  return normalized === "PROGRAM";
+}
+
 function buildStudentInstructionsExportHtml(context: StudentInstructionsExportContext) {
   const {
     event,
@@ -2344,10 +2357,13 @@ function buildStudentInstructionsExportHtml(context: StudentInstructionsExportCo
     roomColumns = [],
     roomContext,
   } = context;
+  const eventProgramLabel = [context.programLabel, event?.name]
+    .map(normalizeStudentInstructionsProgramLabel)
+    .find((label) => label && !isGenericStudentInstructionsProgramLabel(label));
+  const savedProgramLabel = normalizeStudentInstructionsProgramLabel(instructionsConfig?.title);
   const programLabel =
-    normalizeDisplayText(instructionsConfig?.title) ||
-    normalizeDisplayText(context.programLabel) ||
-    normalizeDisplayText(event?.name) ||
+    eventProgramLabel ||
+    (!isGenericStudentInstructionsProgramLabel(savedProgramLabel) ? savedProgramLabel : "") ||
     "PROGRAM";
   const dateLabel = normalizeDisplayText(context.dateLabel);
   const zoomLink = normalizeDisplayText(instructionsConfig?.zoomLink) || normalizeDisplayText(context.zoomLink) || "Provided separately.";
