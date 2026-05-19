@@ -1,8 +1,5 @@
 "use client";
 
-import CommandChestPortal from "../../components/CommandChestPortal";
-
-import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
 import Image from "next/image";
 import Link from "next/link";
@@ -4858,6 +4855,39 @@ function parseTrainingImportWorkbook(file: File) {
       eventTimesDetected,
     };
   });
+}
+
+
+function getCapacityRequiredRoundCount(learnerCount: number | null | undefined, seatsPerRound: number | null | undefined) {
+  const learners = typeof learnerCount === "number" && Number.isFinite(learnerCount) ? learnerCount : 0;
+  const seats = typeof seatsPerRound === "number" && Number.isFinite(seatsPerRound) ? seatsPerRound : 0;
+  if (learners <= 0 || seats <= 0) return 0;
+  return Math.ceil(learners / seats);
+}
+
+function getOperationalRoundCountFromSources(options: {
+  rosterLearnerCount?: number | null;
+  activeLearnerCount?: number | null;
+  roomCount?: number | null;
+  savedRoundCount?: number | null;
+  generatedRoundCount?: number | null;
+  visibleRoundCount?: number | null;
+  manualRoundOverride?: boolean | null;
+}) {
+  const capacityRoundCount = getCapacityRequiredRoundCount(
+    options.rosterLearnerCount || options.activeLearnerCount || 0,
+    options.roomCount || 0
+  );
+
+  const saved = typeof options.savedRoundCount === "number" && Number.isFinite(options.savedRoundCount) ? options.savedRoundCount : 0;
+  const generated = typeof options.generatedRoundCount === "number" && Number.isFinite(options.generatedRoundCount) ? options.generatedRoundCount : 0;
+  const visible = typeof options.visibleRoundCount === "number" && Number.isFinite(options.visibleRoundCount) ? options.visibleRoundCount : 0;
+
+  // Manual override can intentionally shorten/limit rounds.
+  // Otherwise capacity math must win over stale draft/generated values.
+  if (options.manualRoundOverride && saved > 0) return saved;
+
+  return Math.max(capacityRoundCount, saved, generated, visible, 0);
 }
 
 export default function EventDetailPage() {
@@ -32408,311 +32438,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           letter-spacing: 0.08em;
         }
 
-
-        .cfsp-floating-command-chest {
-          position: fixed !important;
-          right: 28px !important;
-          top: 128px !important;
-          z-index: 9999 !important;
-          width: auto;
-          font-family: inherit;
-        }
-
-        .cfsp-chest-summary {
-          list-style: none;
-          cursor: pointer;
-          width: 74px;
-          min-height: 66px;
-          justify-content: center;
-          border-radius: 24px;
-          border: 1px solid rgba(126, 87, 194, 0.35);
-          background:
-            radial-gradient(circle at 20% 0%, rgba(168, 85, 247, 0.22), transparent 34%),
-            radial-gradient(circle at 80% 20%, rgba(34, 197, 94, 0.2), transparent 30%),
-            linear-gradient(135deg, rgba(255,255,255,0.94), rgba(236,253,245,0.92));
-          box-shadow:
-            0 18px 40px rgba(15, 23, 42, 0.18),
-            0 0 24px rgba(168, 85, 247, 0.16),
-            inset 0 1px 0 rgba(255,255,255,0.8);
-          padding: 14px;
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          transition: transform 180ms ease, box-shadow 180ms ease;
-        }
-
-        .cfsp-chest-summary:hover {
-          transform: translateY(-2px);
-          box-shadow:
-            0 22px 48px rgba(15, 23, 42, 0.22),
-            0 0 32px rgba(234, 179, 8, 0.2),
-            0 0 28px rgba(34, 197, 94, 0.18);
-        }
-
-        .cfsp-chest-box {
-          width: 58px;
-          height: 44px;
-          border-radius: 14px 14px 10px 10px;
-          position: relative;
-          flex: 0 0 auto;
-          background:
-            linear-gradient(180deg, rgba(126, 34, 206, 0.95), rgba(22, 101, 52, 0.9));
-          border: 1px solid rgba(234, 179, 8, 0.75);
-          box-shadow:
-            0 0 16px rgba(168, 85, 247, 0.5),
-            inset 0 8px 14px rgba(255,255,255,0.18);
-          overflow: hidden;
-        }
-
-        .cfsp-chest-box::before {
-          content: "";
-          position: absolute;
-          left: 5px;
-          right: 5px;
-          top: 7px;
-          height: 13px;
-          border-radius: 10px 10px 4px 4px;
-          background: linear-gradient(90deg, rgba(34,197,94,0.85), rgba(234,179,8,0.9), rgba(168,85,247,0.85));
-          animation: cfspChestGlow 4s ease-in-out infinite;
-        }
-
-        .cfsp-chest-box::after {
-          content: "";
-          position: absolute;
-          left: 25px;
-          top: 23px;
-          width: 9px;
-          height: 9px;
-          border-radius: 999px;
-          background: rgba(250, 204, 21, 0.95);
-          box-shadow: 0 0 14px rgba(250, 204, 21, 0.8);
-        }
-
-        .cfsp-floating-command-chest[open] .cfsp-chest-summary {
-          width: min(390px, calc(100vw - 32px));
-          justify-content: flex-start;
-        }
-
-        .cfsp-floating-command-chest:not([open]) .cfsp-chest-title {
-          display: none;
-        }
-
-        .cfsp-floating-command-chest[open] .cfsp-chest-box::before {
-          transform: translateY(-6px) rotateX(18deg);
-        }
-
-        .cfsp-chest-title {
-          display: grid;
-          gap: 2px;
-          min-width: 0;
-        }
-
-        .cfsp-chest-title strong {
-          color: var(--cfsp-text);
-          font-size: 0.92rem;
-          font-weight: 950;
-          letter-spacing: -0.01em;
-        }
-
-        .cfsp-chest-title span {
-          color: var(--cfsp-text-muted);
-          font-size: 0.74rem;
-          font-weight: 800;
-        }
-
-        .cfsp-chest-drawer {
-          margin-top: 10px;
-          border-radius: 22px;
-          border: 1px solid rgba(126, 87, 194, 0.28);
-          background: var(--cfsp-surface);
-          box-shadow: 0 22px 48px rgba(15, 23, 42, 0.22);
-          padding: 14px;
-          display: grid;
-          gap: 10px;
-        }
-
-        .cfsp-chest-grid {
-          display: grid;
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap: 8px;
-        }
-
-        .cfsp-chest-link {\n          appearance: none;\n          cursor: pointer;\n          text-align: left;
-          border-radius: 14px;
-          border: 1px solid var(--cfsp-border);
-          background: linear-gradient(135deg, var(--cfsp-surface-muted), var(--cfsp-surface));
-          padding: 10px;
-          color: var(--cfsp-text);
-          text-decoration: none;
-          font-size: 0.75rem;
-          font-weight: 900;
-          transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
-        }
-
-        .cfsp-chest-link:hover {
-          transform: translateY(-1px);
-          border-color: rgba(234, 179, 8, 0.55);
-          box-shadow: 0 0 18px rgba(168, 85, 247, 0.14);
-        }
-
-        .cfsp-chest-new {
-          border-radius: 999px;
-          padding: 5px 9px;
-          width: fit-content;
-          font-size: 0.68rem;
-          font-weight: 950;
-          color: #14532d;
-          background: linear-gradient(90deg, rgba(187,247,208,0.95), rgba(254,240,138,0.95));
-          border: 1px solid rgba(34,197,94,0.35);
-          animation: cfspChestGlow 3s ease-in-out infinite;
-        }
-
-        @keyframes cfspChestGlow {
-          0%, 100% { filter: hue-rotate(0deg); opacity: 0.88; }
-          50% { filter: hue-rotate(28deg); opacity: 1; }
-        }
-
-        [data-theme="dark"] .cfsp-chest-summary,
-        .dark .cfsp-chest-summary {
-          background:
-            radial-gradient(circle at 20% 0%, rgba(168, 85, 247, 0.34), transparent 36%),
-            radial-gradient(circle at 82% 12%, rgba(34, 197, 94, 0.26), transparent 34%),
-            linear-gradient(135deg, rgba(15,23,42,0.96), rgba(30,27,75,0.94));
-        }
       `}</style>
-
-      {typeof document !== "undefined"
-        ? createPortal(
-            (
-              <details id="cfsp-floating-command-chest" className="cfsp-floating-command-chest">
-                      <summary className="cfsp-chest-summary">
-                        <div className="cfsp-chest-box" aria-hidden="true" />
-                        <div className="cfsp-chest-title">
-                          <strong>Simulation Command File Cabinet</strong>
-                          <span>Open chest for files, training, materials, and packets</span>
-                        </div>
-                      </summary>
-              
-                      <div className="cfsp-chest-drawer">
-                        <div className="cfsp-chest-new">New content detected when files update</div>
-                        <div className="cfsp-chest-grid">
-                          <button
-                            type="button"
-                            className="cfsp-chest-link"
-                            onClick={() => {
-                              document
-                                .getElementById("simulation-command-file-cabinet")
-                                ?.scrollIntoView({ behavior: "smooth", block: "start" });
-                            }}
-                          >
-                            Materials Cabinet
-                          </button>
-
-                          <button
-                            type="button"
-                            className="cfsp-chest-link"
-                            onClick={() => {
-                              const target =
-                                document.getElementById("training-center") ||
-                                Array.from(document.querySelectorAll("h1, h2, h3, section, div")).find((node) => {
-                                  const text = (node.textContent || "").toLowerCase();
-                                  return text.includes("training attendance") || text.includes("training center") || text.includes("training files");
-                                });
-
-                              if (target instanceof HTMLElement) {
-                                target.scrollIntoView({ behavior: "smooth", block: "start" });
-                              }
-                            }}
-                          >
-                            Training Files
-                          </button>
-
-                          <button
-                            type="button"
-                            className="cfsp-chest-link"
-                            onClick={() => {
-                              const target =
-                                document.getElementById("communication-center") ||
-                                Array.from(document.querySelectorAll("h1, h2, h3, section, div")).find((node) => {
-                                  const text = (node.textContent || "").toLowerCase();
-                                  return text.includes("draft event emails") || text.includes("sp hiring poll email") || text.includes("communication");
-                                });
-
-                              if (target instanceof HTMLElement) {
-                                target.scrollIntoView({ behavior: "smooth", block: "start" });
-                              }
-                            }}
-                          >
-                            Communication
-                          </button>
-
-                          <button
-                            type="button"
-                            className="cfsp-chest-link"
-                            onClick={() => {
-                              document
-                                .getElementById("coverage-actions")
-                                ?.scrollIntoView({ behavior: "smooth", block: "start" });
-                            }}
-                          >
-                            Staffing
-                          </button>
-
-                          <button
-                            type="button"
-                            className="cfsp-chest-link"
-                            onClick={() => {
-                              const cabinet = document.getElementById("simulation-command-file-cabinet");
-                              cabinet?.scrollIntoView({ behavior: "smooth", block: "start" });
-
-                              window.setTimeout(() => {
-                                const scheduleLink = document.querySelector("[data-cfsp-schedule-file-link]") as HTMLElement | null;
-                                scheduleLink?.focus();
-                              }, 350);
-                            }}
-                          >
-                            Schedule File
-                          </button>
-
-                          <button
-                            type="button"
-                            className="cfsp-chest-link"
-                            onClick={() => {
-                              const target =
-                                document.getElementById("recording-status") ||
-                                Array.from(document.querySelectorAll("h1, h2, h3, section, div")).find((node) =>
-                                  (node.textContent || "").toLowerCase().includes("recording")
-                                );
-
-                              if (target instanceof HTMLElement) {
-                                target.scrollIntoView({ behavior: "smooth", block: "start" });
-                              }
-                            }}
-                          >
-                            Recording
-                          </button>
-                        </div>
-                      
-        <section className="mt-10 border-t border-slate-200 pt-4 opacity-70 hover:opacity-100 transition-opacity">
-          <div className="flex justify-end">
-            <button
-              type="button"
-              onClick={handleDeleteEvent}
-              className="rounded-lg border border-red-200 bg-white px-3 py-2 text-xs font-bold text-red-600 shadow-sm hover:bg-red-50 hover:border-red-300"
-            >
-              Delete Event
-            </button>
-          </div>
-        </section>
-
-</div>
-                    </details>
-            ),
-            document.body
-          )
-        : null}
-
-      <CommandChestPortal eventId={id} scheduleCompleted={scheduleCompleted} />
- </SiteShell>
+	 </SiteShell>
   );
 }
