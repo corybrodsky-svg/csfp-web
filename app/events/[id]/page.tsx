@@ -4949,7 +4949,7 @@ export default function EventDetailPage() {
   const [emailTemplateSource, setEmailTemplateSource] = useState<"defaults" | "database">("defaults");
   const [assignmentFilter, setAssignmentFilter] = useState<AssignmentFilterStatus>("all");
   const [suggestedAssignmentFilter, setSuggestedAssignmentFilter] = useState<SuggestedAssignmentFilter>("all");
-  const [commandCenterMode, setCommandCenterMode] = useState<CommandCenterMode>("planning");
+  const commandCenterMode = "planning" as CommandCenterMode;
   const [commandFileCabinetExpanded, setCommandFileCabinetExpanded] = useState(false);
   const [expandedCommandFileCabinetModules, setExpandedCommandFileCabinetModules] = useState<Record<string, boolean>>({});
   const [virtualAccessEditorOpen, setVirtualAccessEditorOpen] = useState(false);
@@ -7503,125 +7503,6 @@ const operationalEventStatusLabel = useMemo(() => {
     hasCompletedScheduleSnapshot;
   const scheduleInProgress =
     !scheduleCompleted && (scheduleWorkflowStatus === "in_progress" || hasSavedScheduleDraft || hasRoomsBuilt);
-
-  // CFSP communication completion checkboxes v14
-  useEffect(() => {
-    if (typeof document === "undefined" || !id) return;
-
-    const emailItems = [
-      { key: "sp_hiring_poll", label: "SP Hiring Poll Email" },
-      { key: "hire_confirmation", label: "Hire Confirmation Email" },
-      { key: "prep_for_training", label: "Prep for Training Email" },
-      { key: "post_training_pre_event", label: "Post-Training / Pre-Event Email" },
-      { key: "post_event_payroll", label: "Post-Event Payroll / Wrap-Up Email" },
-      { key: "faculty_training_date", label: "Faculty Training Date Email" },
-    ];
-
-    const storageKey = `cfsp:communication-complete:${id}`;
-
-    const readState = () => {
-      try {
-        const parsed = JSON.parse(window.localStorage.getItem(storageKey) || "{}");
-        return parsed && typeof parsed === "object" ? parsed as Record<string, boolean> : {};
-      } catch {
-        return {};
-      }
-    };
-
-    const writeState = (next: Record<string, boolean>) => {
-      window.localStorage.setItem(storageKey, JSON.stringify(next));
-    };
-
-    const normalize = (value: string) =>
-      value.toLowerCase().replace(/\s+/g, " ").trim();
-
-    const findEmailCard = (label: string) => {
-      const wanted = normalize(label);
-
-      const candidates = Array.from(document.querySelectorAll("div, article, section"))
-        .filter((node): node is HTMLElement => node instanceof HTMLElement)
-        .filter((node) => {
-          const text = normalize(node.textContent || "");
-          return (
-            text.includes(wanted) &&
-            text.includes("draft") &&
-            !node.closest("[data-cfsp-email-complete-control='true']")
-          );
-        })
-        .sort((a, b) => (a.textContent || "").length - (b.textContent || "").length);
-
-      return candidates[0] || null;
-    };
-
-    const applyCompletionVisual = (card: HTMLElement, complete: boolean) => {
-      card.setAttribute("data-cfsp-email-complete-card", complete ? "true" : "false");
-
-      const badge = card.querySelector("[data-cfsp-email-complete-badge='true']") as HTMLElement | null;
-      if (badge) {
-        badge.textContent = complete ? "Complete" : "Not complete";
-      }
-    };
-
-    const installCheckboxes = () => {
-      const state = readState();
-      let installed = 0;
-
-      for (const item of emailItems) {
-        const card = findEmailCard(item.label);
-        if (!card) continue;
-
-        card.setAttribute("data-cfsp-email-card-key", item.key);
-
-        if (card.querySelector(`[data-cfsp-email-complete-key="${item.key}"]`)) {
-          applyCompletionVisual(card, Boolean(state[item.key]));
-          continue;
-        }
-
-        const row = document.createElement("label");
-        row.setAttribute("data-cfsp-email-complete-control", "true");
-        row.setAttribute("data-cfsp-email-complete-key", item.key);
-        row.className = "cfsp-email-complete-check";
-
-        const checkbox = document.createElement("input");
-        checkbox.type = "checkbox";
-        checkbox.checked = Boolean(state[item.key]);
-
-        const text = document.createElement("span");
-        text.textContent = "Mark email complete";
-
-        const badge = document.createElement("strong");
-        badge.setAttribute("data-cfsp-email-complete-badge", "true");
-        badge.textContent = checkbox.checked ? "Complete" : "Not complete";
-
-        row.appendChild(checkbox);
-        row.appendChild(text);
-        row.appendChild(badge);
-
-        checkbox.addEventListener("change", () => {
-          const next = readState();
-          next[item.key] = checkbox.checked;
-          writeState(next);
-          applyCompletionVisual(card, checkbox.checked);
-        });
-
-        card.insertBefore(row, card.firstChild);
-        applyCompletionVisual(card, checkbox.checked);
-        installed += 1;
-      }
-
-      return installed;
-    };
-
-    installCheckboxes();
-
-    const interval = window.setInterval(installCheckboxes, 500);
-    const timeout = window.setTimeout(() => window.clearInterval(interval), 8000);
-
-    return () => {
-      window.clearInterval(interval);
-      window.clearTimeout(timeout);
-    };
-  }, [id]);
 
   // CFSP schedule file inside cabinet v13
   useEffect(() => {
@@ -13655,6 +13536,55 @@ Cory`;
       },
     },
   ];
+  const communicationCommandChecklistItems = [
+    {
+      id: "comm_hiring_email_sent",
+      label: "Hiring Email Sent",
+      detail: hiringEmailSentProof ? "Hiring communication proof is logged." : "Confirm hiring or availability outreach has been sent.",
+    },
+    {
+      id: "comm_training_invite_sent",
+      label: "Training Invite Sent",
+      detail: normalEventTrainingDateText ? "Training date is available for the invite." : "Confirm training access and timing have been sent.",
+    },
+    {
+      id: "comm_reminder_email_sent",
+      label: "Reminder Email Sent",
+      detail: "Confirm the pre-event reminder has been sent to participants.",
+    },
+    {
+      id: "comm_zoom_recording_sent",
+      label: "Zoom Recording Sent",
+      detail: recordingGuideUrl || hasEventRecordingUrl ? "Recording link is available." : "Confirm recording guidance or link has been sent if needed.",
+    },
+    {
+      id: "comm_materials_sent",
+      label: "Materials Sent",
+      detail: hasAnyMaterialEvidence ? "Materials are available in the event record." : "Confirm case/materials packet distribution.",
+    },
+    {
+      id: "comm_faculty_contacted",
+      label: "Faculty Contacted",
+      detail: facultyReadinessComplete ? "Faculty/contact details are present." : "Confirm faculty or lead contact has been reached.",
+    },
+    {
+      id: "comm_sp_confirmations_complete",
+      label: "SP Confirmations Complete",
+      detail: confirmationEmailSentProof ? "Confirmation email proof is logged." : "Confirm selected SPs have received final confirmation.",
+    },
+    {
+      id: "comm_attendance_follow_up_complete",
+      label: "Attendance Follow-Up Complete",
+      detail: "Confirm any post-attendance follow-up has been completed.",
+    },
+  ];
+  const completedCommunicationCommandChecks = communicationCommandChecklistItems.filter((item) => workflowChecks[item.id]).length;
+  const communicationCommandChecklistStatus =
+    completedCommunicationCommandChecks === communicationCommandChecklistItems.length
+      ? "Communications Ready"
+      : completedCommunicationCommandChecks > 0
+        ? "In Progress"
+        : "Needs Action";
   const mailtoHref = buildMailtoHref({
     bcc: hiringEmailBccEmails.length ? hiringEmailBccEmails : bccEmails,
     subject: hiringPollEmailDraft.subject || emailSubject,
@@ -14332,25 +14262,6 @@ Cory`;
       activeScheduleRoomAdjustments,
       delta > 0 ? "Room added." : "Room removed.",
       { nextRoomCount }
-    );
-  }
-
-  async function handleCommandCenterModeChange(nextMode: CommandCenterMode) {
-    setCommandCenterMode(nextMode);
-    if (nextMode === commandCenterMode) return;
-
-    const now = new Date().toISOString();
-    await persistTrainingMetadataFields(
-      nextMode === "live"
-        ? {
-            live_mode_started_at: trainingMetadata.live_mode_started_at || now,
-            live_flow_status: "active",
-          }
-        : {
-            live_mode_ended_at: now,
-            live_flow_status: "planning",
-          },
-      nextMode === "live" ? "Live mode started." : "Returned to planning mode."
     );
   }
 
@@ -21750,54 +21661,6 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
             </div>
 
             <div style={{ display: "grid", gap: "7px", justifyItems: "end", flex: "0 1 440px" }}>
-              {canRunLiveEventMode ? (
-                <div
-                  style={{
-                    display: "inline-flex",
-                    gap: "6px",
-                    flexWrap: "wrap",
-                    padding: "4px",
-                    borderRadius: "12px",
-                    border: "1px solid rgba(20, 91, 150, 0.18)",
-                    background: "rgba(255, 255, 255, 0.76)",
-                    boxShadow: "inset 0 1px 0 rgba(255,255,255,0.78), 0 8px 18px rgba(20,91,150,0.08)",
-                  }}
-                >
-                  <button
-                    type="button"
-                    className="cfsp-command-hud-action"
-                    onClick={() => void handleCommandCenterModeChange("planning")}
-                    style={{
-                      ...buttonStyle,
-                      padding: "7px 10px",
-                      borderRadius: "9px",
-                      background: commandCenterMode === "planning" ? "linear-gradient(135deg, #145b96, #0f766e)" : "rgba(255,255,255,0.72)",
-                      color: commandCenterMode === "planning" ? "#ffffff" : "#145b96",
-                      border: commandCenterMode === "planning" ? "1px solid rgba(20, 91, 150, 0.32)" : "1px solid rgba(20, 91, 150, 0.14)",
-                      boxShadow: commandCenterMode === "planning" ? "0 10px 20px rgba(20, 91, 150, 0.18)" : "none",
-                    }}
-                  >
-                    Planning Mode
-                  </button>
-                  <button
-                    type="button"
-                    className="cfsp-command-hud-action"
-                    onClick={() => void handleCommandCenterModeChange("live")}
-                    style={{
-                      ...buttonStyle,
-                      padding: "7px 10px",
-                      borderRadius: "9px",
-                      background: commandCenterMode === "live" ? "linear-gradient(135deg, #16a34a, #0f766e)" : "rgba(255,255,255,0.72)",
-                      color: commandCenterMode === "live" ? "#ffffff" : "#145b96",
-                      border: commandCenterMode === "live" ? "1px solid rgba(25, 138, 112, 0.3)" : "1px solid rgba(20, 91, 150, 0.14)",
-                      boxShadow: commandCenterMode === "live" ? "0 10px 20px rgba(25, 138, 112, 0.18)" : "none",
-                    }}
-                  >
-                    Live Event Mode
-                  </button>
-                </div>
-              ) : null}
-
               <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
                 {commandCenterScoreboardStatusChips.map((chip) => (
                   <span
@@ -22088,14 +21951,14 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               padding: "14px",
               background: commandCenterVisual.shellBackground,
               boxShadow: commandCenterVisual.shellShadow,
-              display: showLegacyEventSummaryPanels ? "block" : "none",
+              display: "contents",
             }}
           >
-            <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Legacy Summary</div>
+            <div style={{ ...statLabel, color: commandCenterVisual.labelColor, display: showLegacyEventSummaryPanels ? "block" : "none" }}>Legacy Summary</div>
             <div
               style={{
                 marginTop: "8px",
-                display: "grid",
+                display: showLegacyEventSummaryPanels ? "grid" : "none",
                 gridTemplateColumns: "repeat(auto-fit, minmax(112px, 1fr))",
                 gap: "6px",
               }}
@@ -22126,7 +21989,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 </div>
               ))}
             </div>
-            <div style={{ marginTop: "10px", display: "grid", gap: "6px" }}>
+            <div style={{ marginTop: "10px", display: showLegacyEventSummaryPanels ? "grid" : "none", gap: "6px" }}>
               <section
                 style={{
                   borderRadius: "20px",
@@ -27459,6 +27322,101 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                               Email draft buttons use CFSP templates when saved templates are available; Apple Mail drafts are plain text. Template source: {emailTemplateSource === "database" ? "saved templates" : "built-in defaults"}.
                             </div>
                             {renderStudentInstructionsEditor("central")}
+                            <section
+                              style={{
+                                borderRadius: "16px",
+                                border:
+                                  communicationCommandChecklistStatus === "Communications Ready"
+                                    ? planningSuccessBorder
+                                    : "1px solid rgba(20, 91, 150, 0.18)",
+                                background:
+                                  communicationCommandChecklistStatus === "Communications Ready"
+                                    ? planningSuccessCardBackground
+                                    : isPlanningVisualMode
+                                      ? "linear-gradient(135deg, rgba(255,255,255,0.88), rgba(232,246,250,0.62))"
+                                      : "linear-gradient(135deg, rgba(15,23,42,0.58), rgba(8,31,47,0.42))",
+                                padding: "10px",
+                                display: "grid",
+                                gap: "9px",
+                              }}
+                            >
+                              <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "flex-start" }}>
+                                <div>
+                                  <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Communications Command</div>
+                                  <div style={{ marginTop: "3px", color: commandCenterVisual.headingColor, fontSize: "15px", fontWeight: 950 }}>
+                                    Operational readiness checklist
+                                  </div>
+                                  <div style={{ marginTop: "3px", color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 750 }}>
+                                    Tracks the event communication tasks that used to live in the separate live-mode board.
+                                  </div>
+                                </div>
+                                <span
+                                  style={{
+                                    ...commandChipStyle,
+                                    background:
+                                      communicationCommandChecklistStatus === "Communications Ready"
+                                        ? commandCenterVisual.activeSoftBackground
+                                        : commandCenterVisual.chipBackground,
+                                    color:
+                                      communicationCommandChecklistStatus === "Communications Ready"
+                                        ? commandCenterVisual.activeSoftText
+                                        : commandCenterVisual.chipText,
+                                    border:
+                                      communicationCommandChecklistStatus === "Communications Ready"
+                                        ? planningSuccessBorder
+                                        : commandCenterVisual.rowBorder,
+                                  }}
+                                >
+                                  {communicationCommandChecklistStatus} · {completedCommunicationCommandChecks}/{communicationCommandChecklistItems.length}
+                                </span>
+                              </div>
+                              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "7px" }}>
+                                {communicationCommandChecklistItems.map((item) => {
+                                  const checked = Boolean(workflowChecks[item.id]);
+                                  return (
+                                    <label
+                                      key={`central-communication-command-${item.id}`}
+                                      style={{
+                                        borderRadius: "13px",
+                                        border: checked ? planningSuccessBorder : commandCenterVisual.rowBorder,
+                                        background: checked
+                                          ? commandCenterVisual.activeSoftBackground
+                                          : isPlanningVisualMode
+                                            ? "rgba(255,255,255,0.76)"
+                                            : "rgba(255,255,255,0.06)",
+                                        padding: "9px 10px",
+                                        display: "grid",
+                                        gridTemplateColumns: "auto minmax(0, 1fr)",
+                                        gap: "8px",
+                                        alignItems: "start",
+                                        cursor: "pointer",
+                                        boxShadow: checked ? "0 8px 18px rgba(25, 138, 112, 0.1)" : "none",
+                                      }}
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={checked}
+                                        onChange={() => void handleToggleWorkflowCheck(item.id, checked)}
+                                        style={{
+                                          width: "16px",
+                                          height: "16px",
+                                          marginTop: "1px",
+                                          accentColor: "#0f766e",
+                                        }}
+                                      />
+                                      <span style={{ display: "grid", gap: "3px" }}>
+                                        <span style={{ color: checked ? commandCenterVisual.activeSoftText : commandCenterVisual.textColor, fontSize: "12px", fontWeight: 950 }}>
+                                          {item.label}
+                                        </span>
+                                        <span style={{ color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 750, lineHeight: 1.35 }}>
+                                          {item.detail}
+                                        </span>
+                                      </span>
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                            </section>
                             <Link
                               href={`/settings?eventId=${encodeURIComponent(id)}#email-templates`}
                               style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px", justifySelf: "start", textDecoration: "none" }}
@@ -29044,7 +29002,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   <div>
                     <div style={statLabel}>Operational Metadata Controls</div>
                     <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 700 }}>
-                      These controls feed the Planning Mode operational windows and keep admin edits tied to the same metadata source.
+                      These controls feed the Command Station operational windows and keep admin edits tied to the same metadata source.
                     </div>
                   </div>
 
