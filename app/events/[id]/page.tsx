@@ -27402,7 +27402,72 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 750 }}>
                               Email draft buttons use CFSP templates when saved templates are available; Apple Mail drafts are plain text. Template source: {emailTemplateSource === "database" ? "saved templates" : "built-in defaults"}.
                             </div>
-                            {renderStudentInstructionsEditor("central")}
+                            <section
+                              style={{
+                                borderRadius: "16px",
+                                border: commandCenterVisual.rowBorder,
+                                background: isPlanningVisualMode
+                                  ? "linear-gradient(135deg, rgba(255,255,255,0.88), rgba(232,246,250,0.62))"
+                                  : "linear-gradient(135deg, rgba(15,23,42,0.58), rgba(8,31,47,0.42))",
+                                padding: "10px",
+                                display: "grid",
+                                gap: "8px",
+                              }}
+                            >
+                              <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "flex-start" }}>
+                                <div>
+                                  <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Student Instructions Packet</div>
+                                  <div style={{ marginTop: "3px", color: commandCenterVisual.headingColor, fontSize: "15px", fontWeight: 950 }}>
+                                    {studentInstructionsStatusLabel}
+                                  </div>
+                                  <div style={{ marginTop: "3px", color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 750, lineHeight: 1.4 }}>
+                                    Generate the packet here, then edit reusable handout content in Event Settings.
+                                  </div>
+                                </div>
+                                <span
+                                  style={{
+                                    ...commandChipStyle,
+                                    background: studentInstructionsNeedsZoom
+                                      ? "rgba(248, 113, 113, 0.12)"
+                                      : studentInstructionsDirty
+                                        ? "rgba(245, 158, 11, 0.14)"
+                                        : commandCenterVisual.activeSoftBackground,
+                                    color: studentInstructionsNeedsZoom
+                                      ? "var(--cfsp-danger)"
+                                      : studentInstructionsDirty
+                                        ? "var(--cfsp-warning)"
+                                        : commandCenterVisual.activeSoftText,
+                                  }}
+                                >
+                                  {studentInstructionsStatusLabel}
+                                </span>
+                              </div>
+                              <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
+                                <button
+                                  type="button"
+                                  onClick={handleGenerateStudentInstructionsPdf}
+                                  disabled={studentInstructionsDirty}
+                                  style={{ ...buttonStyle, padding: "7px 10px", opacity: studentInstructionsDirty ? 0.65 : 1 }}
+                                >
+                                  Generate Student Instructions PDF
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedCommandTool("advanced");
+                                    queueCommandContentScroll();
+                                  }}
+                                  style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px" }}
+                                >
+                                  Edit in Event Settings
+                                </button>
+                                {studentInstructionsDirty ? (
+                                  <span style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 750 }}>
+                                    Save template changes in Event Settings before generating.
+                                  </span>
+                                ) : null}
+                              </div>
+                            </section>
                             <section
                               style={{
                                 borderRadius: "16px",
@@ -27558,6 +27623,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 750 }}>
                               Advanced event fields remain connected to the same event save logic from inside the workstation.
                             </div>
+                            {renderStudentInstructionsEditor("central")}
                             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: "8px" }}>
                               <label style={{ display: "grid", gap: "5px" }}>
                                 <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Name</span>
