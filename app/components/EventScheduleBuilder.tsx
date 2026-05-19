@@ -2484,12 +2484,67 @@ function buildStudentInstructionsExportHtml(context: StudentInstructionsExportCo
             display: block;
             margin: 8px 0 0 0;
             padding-bottom: 7px;
-            border-bottom: 2px solid #17304f;
-            color: #17304f;
+            border-bottom: 0;
+color: #17304f;
             font-size: 18px;
             line-height: 1.2;
             font-weight: 900;
           }
+
+          .student-instructions-document {
+            display: grid !important;
+            gap: 12px !important;
+            padding: 8px 40px 28px !important;
+            margin: 0 !important;
+            background: #ffffff !important;
+            align-content: start !important;
+          }
+          .student-instructions-header {
+            display: grid !important;
+            gap: 4px !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            border: 0 !important;
+            border-bottom: 0 !important;
+            align-content: start !important;
+          }
+          .student-instructions-header h1 {
+            margin: 0 !important;
+            padding: 0 !important;
+            line-height: 1.08 !important;
+          }
+          .student-instructions-date {
+            margin: 0 !important;
+            padding: 0 !important;
+            line-height: 1.15 !important;
+          }
+          .student-instructions-subtitle {
+            position: relative !important;
+            display: block !important;
+            margin: 4px 0 8px 0 !important;
+            padding: 0 0 8px 0 !important;
+            border: 0 !important;
+            border-bottom: 0 !important;
+            text-decoration: none !important;
+            color: #17304f !important;
+            font-size: 18px !important;
+            line-height: 1.2 !important;
+            font-weight: 900 !important;
+          }
+          .student-instructions-subtitle::after {
+            content: "" !important;
+            display: block !important;
+            width: 100% !important;
+            height: 2px !important;
+            margin-top: 7px !important;
+            background: #17304f !important;
+          }
+          .student-instructions-subtitle *,
+          .student-instructions-subtitle span {
+            text-decoration: none !important;
+            border: 0 !important;
+          }
+
           .instructions-section {
             display: grid;
             gap: 9px;
