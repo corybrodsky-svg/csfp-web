@@ -10,6 +10,7 @@ import { formatHumanDate, getImportedYearHint } from "../lib/eventDateUtils";
 import { parseEventMetadata, upsertEventMetadata } from "../lib/eventMetadata";
 import { normalizeDisplayText, normalizeLearnerName, normalizeLearnerNames } from "../lib/learnerNames";
 import { getRoomDisplayLabel, getRoomTypeLabel } from "../lib/roomNaming";
+import { buildRoundAnnouncementItems, type RoundAnnouncementItem } from "../lib/roundAnnouncements";
 
 type EventRow = {
   id: string;
@@ -896,10 +897,21 @@ function toCsv(rows: unknown[][]) {
 
 type StyledPdfRenderContext = {
   html: string;
-  printView: "student" | "operations";
+  printView: "student" | "operations" | "student-instructions";
 };
 
 type CompactSchedulePrintKind = "student" | "operations";
+
+type StudentInstructionsExportContext = {
+  event: EventRow | null;
+  programLabel?: string;
+  dateLabel?: string;
+  zoomLink?: string;
+  encounterMinutes?: number | null;
+  feedbackMinutes?: number | null;
+  firstEncounterStartMinutes?: number | null;
+  announcementItems?: RoundAnnouncementItem[];
+};
 
 type PdfExportPageManifest = {
   page: HTMLElement;
@@ -1513,7 +1525,7 @@ async function createFallbackStyledPdfBlob(
 }
 
 async function createStyledSchedulePdfBlob(context: StyledPdfRenderContext) {
-  const { html } = context;
+  const { html, printView } = context;
   const { jsPDF } = await import("jspdf");
   const html2canvasModule = await import("html2canvas");
   const html2canvas = (
@@ -1525,8 +1537,9 @@ async function createStyledSchedulePdfBlob(context: StyledPdfRenderContext) {
     throw new Error("PDF export is not available in this environment.");
   }
 
+  const isStudentInstructions = printView === "student-instructions";
   const scheduleDoc = new jsPDF({
-    orientation: "landscape",
+    orientation: isStudentInstructions ? "portrait" : "landscape",
     unit: "px",
     format: "a4",
     hotfixes: ["px_scaling"],
@@ -1537,10 +1550,12 @@ async function createStyledSchedulePdfBlob(context: StyledPdfRenderContext) {
   const contentWidth = Math.max(560, Math.floor(pageWidth - pdfSidePadding * 2));
   const contentHeight = Math.max(1, Math.floor(pageHeight - pdfSidePadding * 2));
   let pagesResult: PdfExportPages | null = null;
-  try {
-    pagesResult = await buildSchedulePdfPages(htmlSource, pageWidth, pageHeight, pdfSidePadding);
-  } catch {
-    console.error("[styled-pdf] Sectioned PDF page build failed; attempting fallback export.");
+  if (!isStudentInstructions) {
+    try {
+      pagesResult = await buildSchedulePdfPages(htmlSource, pageWidth, pageHeight, pdfSidePadding);
+    } catch {
+      console.error("[styled-pdf] Sectioned PDF page build failed; attempting fallback export.");
+    }
   }
 
   if (!pagesResult) {
@@ -1993,6 +2008,364 @@ function buildCompactScheduleExportHtml(previewHtml: string, printView: CompactS
   `;
 }
 
+function formatStudentInstructionsMinutes(minutes?: number | null) {
+  if (typeof minutes !== "number" || !Number.isFinite(minutes) || minutes <= 0) return "";
+  const rounded = Math.floor(minutes);
+  return `${rounded} minute${rounded === 1 ? "" : "s"}`;
+}
+
+function buildStudentInstructionsExportHtml(context: StudentInstructionsExportContext) {
+  const {
+    event,
+    encounterMinutes,
+    feedbackMinutes,
+    firstEncounterStartMinutes,
+    announcementItems,
+  } = context;
+  const programLabel = normalizeDisplayText(context.programLabel) || normalizeDisplayText(event?.name) || "PROGRAM";
+  const dateLabel = normalizeDisplayText(context.dateLabel);
+  const zoomLink = normalizeDisplayText(context.zoomLink) || "Provided separately.";
+  const encounterLabel = formatStudentInstructionsMinutes(encounterMinutes);
+  const feedbackLabel = formatStudentInstructionsMinutes(feedbackMinutes);
+  const hasFirstEncounterStart =
+    typeof firstEncounterStartMinutes === "number" && Number.isFinite(firstEncounterStartMinutes);
+  const firstEncounterLabel = hasFirstEncounterStart ? toDisplayTime(firstEncounterStartMinutes) : "";
+  const joinTimeLabel = hasFirstEncounterStart ? toDisplayTime(firstEncounterStartMinutes - 15) : "";
+  const joinInstruction = hasFirstEncounterStart
+    ? `Students join Zoom 15 minutes before their first scheduled encounter. For this schedule, the first encounter begins at ${firstEncounterLabel}; please join by ${joinTimeLabel}.`
+    : "Students join Zoom 15 minutes before their first scheduled encounter.";
+  const announcementRows: Array<Pick<RoundAnnouncementItem, "timeLabel" | "badgeLabel" | "message" | "detail">> =
+    announcementItems?.length
+      ? announcementItems
+      : [
+          { timeLabel: "-10 min", badgeLabel: "Arrival", message: "Students join Zoom and enter waiting room." },
+          { timeLabel: "Encounter Start", badgeLabel: "Start", message: "Encounter begins." },
+          { timeLabel: "-1 min", badgeLabel: "Prepare", message: "\"SPs Please Prepare\"" },
+          { timeLabel: "0 min", badgeLabel: "Rooms", message: "Students are sent to Breakout Rooms." },
+          { timeLabel: "+5 min", badgeLabel: "5-Min Warning", message: "\"Students, you have 5 minutes remaining.\"" },
+          { timeLabel: "+10 min", badgeLabel: "Feedback", message: "\"Begin Feedback\"" },
+          { timeLabel: "+15 min", badgeLabel: "Return", message: "\"Students, return to Main Room\"" },
+        ];
+  const timingRows: Array<[string, string]> = [
+    ["Encounter Time:", encounterLabel],
+    ["Feedback Time:", feedbackLabel],
+  ];
+  if (firstEncounterLabel) {
+    timingRows.push(["First scheduled encounter:", firstEncounterLabel]);
+  }
+  const zoomIsLink = /^https?:\/\//i.test(zoomLink);
+  const zoomValueHtml = zoomIsLink
+    ? `<a href="${escapeHtml(zoomLink)}">${escapeHtml(zoomLink)}</a>`
+    : escapeHtml(zoomLink);
+
+  return `
+    <!doctype html>
+    <html>
+      <head>
+        <meta charSet="UTF-8" />
+        <title>Student Instructions Document</title>
+        <style>
+          :root { color-scheme: light; }
+          html, body { margin: 0; width: 100%; background: #ffffff; }
+          body {
+            font-family: Arial, Helvetica, sans-serif;
+            color: #172f49;
+            print-color-adjust: exact;
+            -webkit-print-color-adjust: exact;
+          }
+          *, *::before, *::after { box-sizing: border-box; }
+          .cfsp-schedule-export {
+            width: 100%;
+            max-width: 100%;
+            margin: 0;
+            background: #ffffff;
+          }
+          .student-instructions-document {
+            display: grid;
+            gap: 16px;
+            padding: 34px 40px;
+            background: #ffffff;
+          }
+          .student-instructions-header {
+            display: grid;
+            gap: 8px;
+            border-bottom: 2px solid #17304f;
+            padding-bottom: 14px;
+          }
+          .student-instructions-header h1 {
+            margin: 0;
+            color: #102a43;
+            font-size: 25px;
+            line-height: 1.15;
+            font-weight: 900;
+          }
+          .student-instructions-date {
+            display: flex;
+            gap: 8px;
+            align-items: baseline;
+            color: #17304f;
+            font-size: 14px;
+            font-weight: 800;
+          }
+          .student-instructions-date span:last-child {
+            min-width: 180px;
+            border-bottom: 1px solid #aab8c5;
+            min-height: 18px;
+          }
+          .student-instructions-subtitle {
+            margin: 0;
+            color: #17304f;
+            font-size: 18px;
+            line-height: 1.25;
+            font-weight: 900;
+          }
+          .instructions-section {
+            display: grid;
+            gap: 9px;
+            border: 1px solid #d7e1ea;
+            border-radius: 8px;
+            padding: 13px 15px;
+            background: #fbfdff;
+            break-inside: avoid;
+            page-break-inside: avoid;
+          }
+          .instructions-section h3 {
+            margin: 0;
+            color: #14304f;
+            font-size: 15px;
+            line-height: 1.2;
+            font-weight: 900;
+          }
+          .instructions-section p {
+            margin: 0;
+            color: #29445f;
+            font-size: 12.5px;
+            line-height: 1.45;
+          }
+          .instructions-list {
+            margin: 0;
+            padding-left: 19px;
+            color: #29445f;
+            font-size: 12.5px;
+            line-height: 1.42;
+          }
+          .instructions-list li { margin: 3px 0; }
+          .timing-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+          }
+          .timing-item {
+            border: 1px solid #d7e1ea;
+            border-radius: 8px;
+            padding: 10px 12px;
+            background: #ffffff;
+            min-height: 56px;
+          }
+          .timing-label {
+            color: #60768b;
+            font-size: 10.5px;
+            font-weight: 900;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+          }
+          .timing-value {
+            margin-top: 5px;
+            color: #14304f;
+            font-size: 14px;
+            font-weight: 900;
+            line-height: 1.25;
+          }
+          .announcement-heading {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            align-items: baseline;
+            border-bottom: 1px solid #d7e1ea;
+            padding-bottom: 8px;
+          }
+          .announcement-note {
+            color: #60768b;
+            font-size: 11px;
+            font-weight: 800;
+            text-transform: lowercase;
+          }
+          .announcement-table {
+            width: 100%;
+            border-collapse: collapse;
+            background: #ffffff;
+            border: 1px solid #d7e1ea;
+            border-radius: 8px;
+            overflow: hidden;
+          }
+          .announcement-table th,
+          .announcement-table td {
+            padding: 8px 10px;
+            border-bottom: 1px solid #e7eef4;
+            text-align: left;
+            vertical-align: top;
+            font-size: 12px;
+            line-height: 1.35;
+          }
+          .announcement-table th {
+            background: #f2f6fa;
+            color: #60768b;
+            font-size: 10px;
+            font-weight: 900;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+          }
+          .announcement-table tr:last-child td { border-bottom: none; }
+          .announcement-time {
+            width: 150px;
+            color: #14304f;
+            font-weight: 900;
+            white-space: nowrap;
+          }
+          .announcement-phase {
+            width: 140px;
+            color: #46627d;
+            font-weight: 900;
+            white-space: nowrap;
+          }
+          .announcement-detail {
+            display: block;
+            margin-top: 3px;
+            color: #60768b;
+            font-size: 10.5px;
+            font-weight: 700;
+          }
+          .student-instructions-footer {
+            color: #60768b;
+            font-size: 10.5px;
+            line-height: 1.4;
+            border-top: 1px solid #d7e1ea;
+            padding-top: 8px;
+          }
+          a { color: #0f5f9f; text-decoration: none; overflow-wrap: anywhere; }
+          @page { size: A4 portrait; margin: 0.35in; }
+          @media print {
+            html, body { background: #ffffff !important; }
+            .student-instructions-document { padding: 0; gap: 12px; }
+            .instructions-section,
+            .timing-item,
+            .announcement-table,
+            .announcement-table tr {
+              break-inside: avoid;
+              page-break-inside: avoid;
+            }
+          }
+        </style>
+      </head>
+      <body>
+        <main class="cfsp-schedule-export student-instructions-export">
+          <article class="compact-print-shell student-instructions-document">
+            <header class="student-instructions-header">
+              <h1>${escapeHtml(programLabel)} Standardized Patient (SP) Simulation Cases</h1>
+              <div class="student-instructions-date">
+                <span>DATE:</span>
+                <span>${dateLabel ? escapeHtml(dateLabel) : "&nbsp;"}</span>
+              </div>
+              <h2 class="student-instructions-subtitle">Student Instructions:</h2>
+            </header>
+
+            <section class="instructions-section">
+              <h3>Before Your Encounter</h3>
+              <p>${escapeHtml(joinInstruction)}</p>
+              <p>Zoom link: ${zoomValueHtml}</p>
+              <p>Students are held in the waiting room before staff admit them. All times are Eastern Standard Time.</p>
+            </section>
+
+            <section class="instructions-section">
+              <h3>Professional Video and Netiquette</h3>
+              <ul class="instructions-list">
+                <li>Join from a quiet, private location with a stable internet connection.</li>
+                <li>Use a professional screen name, keep your camera on when possible, and frame your face clearly.</li>
+                <li>Mute your microphone when you are not speaking, and avoid side conversations or multitasking.</li>
+                <li>Protect confidentiality. Do not record, photograph, or share simulation content.</li>
+              </ul>
+            </section>
+
+            <section class="instructions-section">
+              <h3>Pre-Brief</h3>
+              <ul class="instructions-list">
+                <li>Staff review simulation flow and case information in the main room.</li>
+                <li>Students are assigned to breakout rooms.</li>
+                <li>Students introduce themselves to the patient at the start of the encounter.</li>
+              </ul>
+            </section>
+
+            <section class="instructions-section">
+              <h3>Session Timing</h3>
+              <div class="timing-grid">
+                ${
+                  timingRows.length
+                    ? timingRows
+                        .map(
+                          ([label, value]) => `
+                            <div class="timing-item">
+                              <div class="timing-label">${escapeHtml(label)}</div>
+                              <div class="timing-value">${escapeHtml(value)}</div>
+                            </div>
+                          `
+                        )
+                        .join("")
+                    : `
+                      <div class="timing-item">
+                        <div class="timing-label">Encounter Time:</div>
+                        <div class="timing-value">&nbsp;</div>
+                      </div>
+                      <div class="timing-item">
+                        <div class="timing-label">Feedback Time:</div>
+                        <div class="timing-value">&nbsp;</div>
+                      </div>
+                    `
+                }
+              </div>
+            </section>
+
+            <section class="instructions-section">
+              <div class="announcement-heading">
+                <h3>Announcement Schedule</h3>
+                <div class="announcement-note">times are approximate</div>
+              </div>
+              <table class="announcement-table">
+                <thead>
+                  <tr>
+                    <th>Timing</th>
+                    <th>Phase</th>
+                    <th>Announcement</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${announcementRows
+                    .map(
+                      (row) => `
+                        <tr>
+                          <td class="announcement-time">${escapeHtml(row.timeLabel)}</td>
+                          <td class="announcement-phase">${escapeHtml(row.badgeLabel)}</td>
+                          <td>
+                            ${escapeHtml(row.message)}
+                            ${row.detail ? `<span class="announcement-detail">${escapeHtml(row.detail)}</span>` : ""}
+                          </td>
+                        </tr>
+                      `
+                    )
+                    .join("")}
+                </tbody>
+              </table>
+            </section>
+
+            <footer class="student-instructions-footer">
+              This document is intended for students and includes only learner-facing simulation instructions.
+            </footer>
+          </article>
+        </main>
+      </body>
+    </html>
+  `;
+}
+
 function formatEventDate(event: EventRow) {
   const dateSource = event.earliest_session_date || event.date_text;
   if (!dateSource) return "Date TBD";
@@ -2086,6 +2459,19 @@ function getScheduleNoteValue(notes: string | null | undefined, labels: string[]
     if (match?.[1]) return normalizeDisplayText(match[1]);
   }
   return "";
+}
+
+function getZoomLinkFromBuilderEvent(event: EventRow | null) {
+  const metadata = parseEventMetadata(event?.notes).training;
+  const explicitLink =
+    asText(metadata.zoom_url) ||
+    asText(metadata.training_zoom_link) ||
+    getScheduleNoteValue(event?.notes, ["Virtual Access", "Virtual Access / Zoom", "Zoom", "Zoom Link", "SimIQ", "Virtual Link"]);
+  if (explicitLink) return explicitLink;
+
+  const sourceText = [event?.location, event?.notes].map((value) => asText(value)).join("\n");
+  const linkMatch = sourceText.match(/https?:\/\/[^\s<>"']*(?:zoom|simiq)[^\s<>"']*/i);
+  return linkMatch?.[0]?.replace(/[).,;]+$/, "") || "";
 }
 
 function getLocationAccessFromBuilderEvent(event: EventRow | null) {
@@ -3245,6 +3631,12 @@ function buildSchedulePreviewData(args: {
   const previewScheduleGridRows = isStudentPreview
     ? scheduleGridRows.filter((entry) => entry.kind !== "wide")
     : scheduleGridRows;
+  const announcementRoundItems = previewRounds.flatMap((round, index) =>
+    buildRoundAnnouncementItems(round, previewRounds[index + 1] || null, { formatTime: toDisplayTime }).map((item) => ({
+      ...item,
+      roundNumber: round.round,
+    }))
+  );
 
   const lines: string[] = [];
 
@@ -3341,11 +3733,13 @@ function buildSchedulePreviewData(args: {
   } else if (kind === "announcements") {
     lines.push("ANNOUNCEMENT SCHEDULE");
     lines.push("---------------------");
-    if (!meaningfulPreviewTimeline.length) {
+    if (!announcementRoundItems.length) {
       lines.push("No announcement schedule has been generated yet.");
     } else {
-      meaningfulPreviewTimeline.forEach((block) => {
-        lines.push(`${formatRange(block.start, block.end)}  ${block.label}${block.detail ? ` (${block.detail})` : ""}`);
+      announcementRoundItems.forEach((item) => {
+        lines.push(
+          `Round ${item.roundNumber}: ${item.timeLabel}  ${item.badgeLabel} - ${item.message}${item.detail ? ` (${item.detail})` : ""}`
+        );
       });
     }
   } else {
@@ -3649,6 +4043,63 @@ function buildSchedulePreviewData(args: {
       </div>
     `;
   };
+  const renderAnnouncementSchedule = () => {
+    if (!announcementRoundItems.length) {
+      return `<div class="empty-state">No announcement schedule has been generated yet.</div>`;
+    }
+
+    const groupedItems = new Map<number, typeof announcementRoundItems>();
+    announcementRoundItems.forEach((item) => {
+      const current = groupedItems.get(item.roundNumber) || [];
+      current.push(item);
+      groupedItems.set(item.roundNumber, current);
+    });
+
+    return `
+      <div class="announcement-list">
+        ${Array.from(groupedItems.entries())
+          .map(
+            ([roundNumber, items]) => `
+              <section class="announcement-round">
+                <div class="round-header">
+                  <div>
+                    <div class="round-kicker">Round ${roundNumber}</div>
+                    <h2>Announcement Schedule</h2>
+                  </div>
+                  <div class="rhythm-row-summary">Times are approximate</div>
+                </div>
+                <table class="announcement-table">
+                  <thead>
+                    <tr>
+                      <th>Time</th>
+                      <th>Phase</th>
+                      <th>Announcement</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${items
+                      .map(
+                        (item) => `
+                          <tr>
+                            <td class="announcement-time-cell">${escapeHtml(item.timeLabel)}</td>
+                            <td><span class="announcement-phase-chip">${escapeHtml(item.badgeLabel)}</span></td>
+                            <td>
+                              <div class="announcement-message">${escapeHtml(item.message)}</div>
+                              ${item.detail ? `<div class="announcement-detail">${escapeHtml(item.detail)}</div>` : ""}
+                            </td>
+                          </tr>
+                        `
+                      )
+                      .join("")}
+                  </tbody>
+                </table>
+              </section>
+            `
+          )
+          .join("")}
+      </div>
+    `;
+  };
 
   const previewBody =
     kind === "announcements"
@@ -3665,10 +4116,10 @@ function buildSchedulePreviewData(args: {
             <div class="round-header">
                 <div>
                   <div class="round-kicker">Announcement flow</div>
-                  <h2>Day Rhythm</h2>
+                  <h2>Round Cues</h2>
                 </div>
               </div>
-            ${renderTimelineRail(timeline)}
+            ${renderAnnouncementSchedule()}
           </section>
         </div>
       `
@@ -3741,7 +4192,18 @@ function buildSchedulePreviewData(args: {
           </div>
         `;
   const csvRows =
-    kind === "timeline" || kind === "announcements"
+    kind === "announcements"
+      ? [
+          ["Round", "Time", "Phase", "Announcement", "Detail"],
+          ...announcementRoundItems.map((item) => [
+            `Round ${item.roundNumber}`,
+            item.timeLabel,
+            item.badgeLabel,
+            item.message,
+            item.detail || "",
+          ]),
+        ]
+      : kind === "timeline"
       ? [
           ["Start", "End", "Activity", "Duration", "Detail"],
           ...meaningfulPreviewTimeline.map((block) => [
@@ -3837,6 +4299,16 @@ function buildSchedulePreviewData(args: {
             .round-time-summary { margin-top: 6px; font-size: 12px; line-height: 1.45; color: #5e7388; }
             .schedule-room-cell { background: #fdfefe; min-width: 180px; }
             .schedule-room-card { border: 1px solid #dce6ee; border-radius: 12px; background: #f8fbfd; padding: 10px; display: grid; gap: 8px; }
+            .announcement-list { display: grid; gap: 14px; }
+            .announcement-round { display: grid; gap: 10px; break-inside: avoid; page-break-inside: avoid; }
+            .announcement-table { width: 100%; border-collapse: collapse; border: 1px solid #dce6ee; border-radius: 12px; overflow: hidden; background: #ffffff; }
+            .announcement-table th { text-align: left; padding: 10px 12px; border-bottom: 1px solid #dce6ee; color: #5e7388; font-size: 11px; font-weight: 900; letter-spacing: 0.06em; text-transform: uppercase; background: #f8fbfd; }
+            .announcement-table td { padding: 10px 12px; border-bottom: 1px solid #eef3f7; vertical-align: top; color: #14304f; font-size: 13px; line-height: 1.4; background: #ffffff; }
+            .announcement-table tr:last-child td { border-bottom: none; }
+            .announcement-time-cell { width: 120px; white-space: nowrap; font-weight: 900; }
+            .announcement-phase-chip { display: inline-flex; border: 1px solid #cfe1ef; border-radius: 999px; padding: 4px 8px; background: #f2f7fb; color: #35526f; font-size: 11px; font-weight: 900; white-space: nowrap; }
+            .announcement-message { font-weight: 800; }
+            .announcement-detail { margin-top: 3px; color: #5e7388; font-size: 11px; font-weight: 700; }
             .wide-row td { background: #f8fbfd; }
             .wide-band { border: 1px solid #f1d1a7; border-radius: 14px; background: #fff6e8; color: #a86411; padding: 12px 14px; display: grid; gap: 6px; }
             .wide-band-title { font-size: 15px; font-weight: 900; }
@@ -4155,6 +4627,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const [previewKind, setPreviewKind] = useState<SchedulePreviewKind>(props.initialPreviewKind || "timeline");
   const schedulePreviewFrameRef = useRef<HTMLIFrameElement | null>(null);
   const [styledPdfExporting, setStyledPdfExporting] = useState(false);
+  const [studentInstructionsPdfExporting, setStudentInstructionsPdfExporting] = useState(false);
   const [showExpandedFlowDetails, setShowExpandedFlowDetails] = useState(false);
   const [activeFlowDetailKey, setActiveFlowDetailKey] = useState("");
   const [me, setMe] = useState<BuilderMeResponse | null>(null);
@@ -5904,6 +6377,63 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const selectedPreviewCsvFileName = `${selectedPreviewBaseFileName}.csv`;
   const selectedPreviewHtmlFileName = `${selectedPreviewBaseFileName}-printable.html`;
   const selectedPreviewStyledPdfFileName = previewKind === "student" ? "student-schedule.pdf" : "admin-schedule.pdf";
+  const selectedScheduleDateLabel = useMemo(() => {
+    const daySnapshot = scheduleBuilderDaySnapshots.get(scheduleDay) as Partial<PersistedScheduleBuilderSnapshot> | undefined;
+    const daySnapshotDate = asText(daySnapshot?.eventDate);
+    const dateSource =
+      daySnapshotDate ||
+      asText(selectedEventMetadata.event_session_date) ||
+      asText(selectedEventMetadata.training_date) ||
+      asText(selectedEvent?.earliest_session_date) ||
+      asText(selectedEvent?.date_text);
+    if (!dateSource) return "";
+    return formatHumanDate(dateSource, getImportedYearHint(selectedEvent?.notes)) || dateSource;
+  }, [
+    scheduleBuilderDaySnapshots,
+    scheduleDay,
+    selectedEvent?.date_text,
+    selectedEvent?.earliest_session_date,
+    selectedEvent?.notes,
+    selectedEventMetadata.event_session_date,
+    selectedEventMetadata.training_date,
+  ]);
+  const firstStudentEncounterStartMinutes = useMemo(() => {
+    for (const round of studentPreviewRounds) {
+      const encounterBlock = round.subBlocks.find((subBlock) => /^encounter$/i.test(asText(subBlock.label)));
+      if (encounterBlock) return encounterBlock.start;
+    }
+    return studentPreviewRounds[0]?.start ?? generated.rounds[0]?.start ?? null;
+  }, [generated.rounds, studentPreviewRounds]);
+  const studentInstructionsAnnouncementItems = useMemo(() => {
+    const firstRound = scheduledRounds[0] || null;
+    if (!firstRound) return [] as RoundAnnouncementItem[];
+    return buildRoundAnnouncementItems(firstRound, scheduledRounds[1] || null, { formatTime: toDisplayTime });
+  }, [scheduledRounds]);
+  const studentInstructionsPrintHtml = useMemo(
+    () =>
+      buildStudentInstructionsExportHtml({
+        event: selectedEvent,
+        programLabel: normalizeDisplayText(selectedEvent?.name) || "PROGRAM",
+        dateLabel: selectedScheduleDateLabel,
+        zoomLink: getZoomLinkFromBuilderEvent(selectedEvent),
+        encounterMinutes: parsedEncounter,
+        feedbackMinutes: parseNumber(feedbackMinutes, parseNumber(DEFAULT_SCHEDULE_BUILDER_DRAFT.feedbackMinutes, 10)),
+        firstEncounterStartMinutes: firstStudentEncounterStartMinutes,
+        announcementItems: studentInstructionsAnnouncementItems,
+      }),
+    [
+      feedbackMinutes,
+      firstStudentEncounterStartMinutes,
+      parsedEncounter,
+      selectedEvent,
+      selectedScheduleDateLabel,
+      studentInstructionsAnnouncementItems,
+    ]
+  );
+  const studentInstructionsPdfFileName = useMemo(() => {
+    const eventBaseName = getSafeFileName(normalizeDisplayText(selectedEvent?.name));
+    return eventBaseName ? `${eventBaseName}-student-instructions.pdf` : "student-instructions.pdf";
+  }, [selectedEvent?.name]);
   const autoDownloadTriggeredRef = useRef(false);
   const previewDocumentParts = useMemo(
     () => getPreviewDocumentParts(schedulePreview.html),
@@ -6008,6 +6538,23 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     return true;
   }, [compactSchedulePrintHtml]);
 
+  const openStudentInstructionsPrintFlow = useCallback((): boolean => {
+    if (typeof window === "undefined") return false;
+
+    const popup = window.open("", "_blank", "noopener,noreferrer");
+    if (!popup) {
+      return false;
+    }
+    popup.document.open();
+    popup.document.write(studentInstructionsPrintHtml);
+    popup.document.close();
+    popup.onload = () => {
+      popup.focus();
+      popup.print();
+    };
+    return true;
+  }, [studentInstructionsPrintHtml]);
+
   const handleStyledPdfDownload = useCallback(async () => {
     if (styledPdfExporting) return;
 
@@ -6042,6 +6589,40 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     schedulePreview.title,
     showCopyMessage,
     styledPdfExporting,
+  ]);
+
+  const handleStudentInstructionsPdfDownload = useCallback(async () => {
+    if (studentInstructionsPdfExporting) return;
+
+    setStudentInstructionsPdfExporting(true);
+    showCopyMessage("Preparing Student Instructions PDF...", "success", 2200);
+    try {
+      const pdfBlob = await createStyledSchedulePdfBlob({
+        html: studentInstructionsPrintHtml,
+        printView: "student-instructions",
+      });
+      downloadBlob(pdfBlob, studentInstructionsPdfFileName);
+      showCopyMessage("Student Instructions PDF downloaded.", "success", 2600);
+    } catch (error) {
+      const printOpened = openStudentInstructionsPrintFlow();
+      showCopyMessage(
+        printOpened
+          ? "Direct Student Instructions PDF download was blocked, so a print window opened. Use Save as PDF from the print dialog."
+          : error instanceof Error
+            ? error.message
+            : "Could not download Student Instructions PDF. Use the print window and Save as PDF.",
+        printOpened ? "success" : "error",
+        printOpened ? 5200 : 3600
+      );
+    } finally {
+      setStudentInstructionsPdfExporting(false);
+    }
+  }, [
+    openStudentInstructionsPrintFlow,
+    showCopyMessage,
+    studentInstructionsPdfExporting,
+    studentInstructionsPdfFileName,
+    studentInstructionsPrintHtml,
   ]);
 
   useEffect(() => {
@@ -6147,6 +6728,11 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
           { label: "Open Schedule Preview", onClick: () => setShowSchedulePreview(true) },
           { label: "Print Schedule", onClick: handleRenderedSchedulePrint },
           { label: styledPdfExporting ? "Preparing PDF..." : "Download PDF / Save PDF", onClick: () => void handleStyledPdfDownload(), disabled: styledPdfExporting },
+          {
+            label: studentInstructionsPdfExporting ? "Preparing Instructions PDF..." : "Download Student Instructions PDF",
+            onClick: () => void handleStudentInstructionsPdfDownload(),
+            disabled: studentInstructionsPdfExporting,
+          },
           { label: "Copy/share link", onClick: () => void handleShareOrCopyLink() },
         ].map((action) => (
           <button

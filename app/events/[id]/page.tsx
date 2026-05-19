@@ -30,6 +30,7 @@ import {
   normalizeEndMinutesForRange,
   parseTimeToMinutes,
 } from "../../lib/timeFormat";
+import { buildRoundAnnouncementItems } from "../../lib/roundAnnouncements";
 import {
   editableEventTypeLabels,
   type EditableEventType,
@@ -204,6 +205,11 @@ type RotationCompanionView = "overview" | "coverage" | "learner" | "live" | "att
 type CommandDockTool = "faculty" | "training" | "file-cabinet" | "staffing" | "communication" | "qa" | "advanced";
 type SelectedCommandTool = "primary" | "faculty" | "training" | "fileCabinet" | "staffing" | "communication" | "qa" | "advanced";
 type PrimaryEventTool = "commandCenter" | "spFinder" | "scheduleBuilder";
+type CommandDockPanelSection = "primary" | "secondary";
+type CommandDockPanelState = {
+  primaryTools: boolean;
+  secondaryTools: boolean;
+};
 type LiveRoomStatusValue = "ready" | "in_session" | "delayed" | "empty" | "sp_missing" | "complete";
 type RoomDisplayEntry = {
   roomName: string;
@@ -3647,6 +3653,10 @@ function getTacticalRoomBoardStorageKey(eventId?: string) {
   return `cfsp:tactical-room-board:${eventId || "global"}`;
 }
 
+function getEventCommandDockPanelStorageKey(eventId?: string) {
+  return `cfsp:event-command-dock-panels:${eventId || "global"}`;
+}
+
 function parsePositiveInteger(value: unknown, fallback = 0) {
   const parsed = Number(asText(value));
   if (!Number.isFinite(parsed)) return fallback;
@@ -4838,6 +4848,10 @@ export default function EventDetailPage() {
   const [hasTouchedRoundCompanion, setHasTouchedRoundCompanion] = useState(false);
   const [rotationCommandSurfaceOpen, setRotationCommandSurfaceOpen] = useState(true);
   const [tacticalRoomBoardOpen, setTacticalRoomBoardOpen] = useState(false);
+  const [commandDockPanelState, setCommandDockPanelState] = useState<CommandDockPanelState>({
+    primaryTools: true,
+    secondaryTools: true,
+  });
   const [liveRoomStates, setLiveRoomStates] = useState<Record<string, LiveRoomLocalState>>({});
   const [localOccupancySpCheckIns, setLocalOccupancySpCheckIns] = useState<Record<string, boolean>>({});
   const [localOccupancyLearnerRoomMoves, setLocalOccupancyLearnerRoomMoves] = useState<Record<string, string>>({});
@@ -7035,8 +7049,24 @@ const operationalEventStatusLabel = useMemo(() => {
   useEffect(() => {
     if (typeof window === "undefined" || !id) return;
 
-    window.localStorage.setItem(getRotationCommandSurfaceStorageKey(id), "open");
-    setRotationCommandSurfaceOpen(true);
+    const savedState = window.localStorage.getItem(getRotationCommandSurfaceStorageKey(id));
+    setRotationCommandSurfaceOpen(savedState === "open" || savedState === null);
+  }, [id]);
+  useEffect(() => {
+    if (typeof window === "undefined" || !id) return;
+
+    const savedState = window.localStorage.getItem(getEventCommandDockPanelStorageKey(id));
+    if (!savedState) return;
+
+    try {
+      const parsed = JSON.parse(savedState) as Partial<CommandDockPanelState>;
+      setCommandDockPanelState({
+        primaryTools: typeof parsed.primaryTools === "boolean" ? parsed.primaryTools : true,
+        secondaryTools: typeof parsed.secondaryTools === "boolean" ? parsed.secondaryTools : true,
+      });
+    } catch {
+      // keep default panel visibility when localStorage payload is invalid.
+    }
   }, [id]);
   useEffect(() => {
     if (typeof window === "undefined" || !id) return;
@@ -9407,10 +9437,6 @@ const operationalEventStatusLabel = useMemo(() => {
     selectedRoundScheduleRows,
     selectedRoundTacticalBoardRows,
   ]);
-  const feedbackMinutesFromMetadata = useMemo(
-    () => parseIntegerNoteValue(eventEditor.notes || event?.notes, "Feedback / Break Length"),
-    [event?.notes, eventEditor.notes]
-  );
   const selectedRoundAnnouncementTimeline = useMemo(() => {
     if (!selectedRotationRound) {
       return [] as Array<{
@@ -9427,8 +9453,8 @@ const operationalEventStatusLabel = useMemo(() => {
       getSameDateRotationRounds(selectedRotationRound, rotationRounds)
     );
     const startMinutes = selectedRoundTiming?.startMinutes ?? null;
-    const encounterEndMinutes = selectedRoundTiming?.endMinutes ?? null;
-    if (startMinutes === null || encounterEndMinutes === null || encounterEndMinutes <= startMinutes) {
+    const endMinutes = selectedRoundTiming?.endMinutes ?? null;
+    if (startMinutes === null || endMinutes === null || endMinutes <= startMinutes) {
       return [] as Array<{
         key: string;
         timeLabel: string;
@@ -9438,118 +9464,50 @@ const operationalEventStatusLabel = useMemo(() => {
       }>;
     }
 
-    const nextRound = rotationRounds[activeSelectedRotationRoundIndex + 1] || null;
+    const nextRound = activeDateRotationRounds[activeSelectedRotationRoundIndex + 1] || null;
     const nextRoundTiming = nextRound
       ? getNormalizedRotationRoundTiming(nextRound, getSameDateRotationRounds(nextRound, rotationRounds))
       : null;
     const nextRoundStartMinutes = nextRoundTiming?.startMinutes ?? null;
-    const safeFeedbackMinutes = Math.max(feedbackMinutesFromMetadata, 0);
-    const feedbackEndMinutes =
-      safeFeedbackMinutes > 0
-        ? nextRoundStartMinutes !== null
-          ? Math.min(encounterEndMinutes + safeFeedbackMinutes, nextRoundStartMinutes)
-          : encounterEndMinutes + safeFeedbackMinutes
-        : encounterEndMinutes;
+    const roundFlowBlocks = liveFlowBlocks
+      .filter((block) => block.key.startsWith(`${selectedRotationRound.key}-`))
+      .map((block) => ({
+        label: block.label,
+        start: block.startMinutes,
+        end: block.endMinutes,
+      }));
 
-    const timeline: Array<{
-      key: string;
-      timeLabel: string;
-      phaseLabel: string;
-      announcement: string;
-      detail?: string;
-    }> = [
+    return buildRoundAnnouncementItems(
       {
-        key: `${selectedRotationRound.key}-prepare`,
-        timeLabel: formatMinutesAsClockLabel(Math.max(startMinutes - 1, 0)),
-        phaseLabel: "Prepare",
-        announcement: "SPs, please prepare.",
-        detail: "1 minute before encounter start",
+        key: selectedRotationRound.key,
+        round: activeSelectedRotationRoundIndex + 1,
+        start: startMinutes,
+        end: endMinutes,
+        subBlocks: roundFlowBlocks,
       },
-      {
-        key: `${selectedRotationRound.key}-start`,
-        timeLabel: formatMinutesAsClockLabel(startMinutes),
-        phaseLabel: "Start",
-        announcement: "You may now begin your encounter.",
-      },
-    ];
-
-    if (encounterEndMinutes - startMinutes >= 5) {
-      timeline.push({
-        key: `${selectedRotationRound.key}-warning`,
-        timeLabel: formatMinutesAsClockLabel(encounterEndMinutes - 5),
-        phaseLabel: "5-Min Warning",
-        announcement: "You have 5 minutes remaining in your encounter.",
-      });
-    }
-
-    timeline.push({
-      key: `${selectedRotationRound.key}-feedback-start`,
-      timeLabel: formatMinutesAsClockLabel(encounterEndMinutes),
-      phaseLabel: "Feedback",
-      announcement: "Encounter has ended. SPs, please begin feedback.",
-      detail: safeFeedbackMinutes > 0 ? `${safeFeedbackMinutes} minute feedback window` : undefined,
-    });
-
-    if (safeFeedbackMinutes > 0 && feedbackEndMinutes > encounterEndMinutes) {
-      timeline.push({
-        key: `${selectedRotationRound.key}-session-end`,
-        timeLabel: formatMinutesAsClockLabel(feedbackEndMinutes),
-        phaseLabel: "Session End",
-        announcement: "Your session has ended. Please leave the simulation.",
-      });
-    }
-
-    let cursorMinutes = feedbackEndMinutes;
-    visibleSelectedRoundDayBlocks.forEach((block, index) => {
-      const blockMinutes = Math.max(parseDurationMinutes(block.detail), 0);
-      const blockStart = cursorMinutes;
-      const blockEnd = blockMinutes > 0 ? cursorMinutes + blockMinutes : cursorMinutes;
-      const normalizedLabel = asText(block.label).toLowerCase();
-      const phaseLabel = normalizedLabel.includes("checklist")
-        ? "Checklist"
-        : normalizedLabel.includes("soap")
-          ? "SOAP Notes"
-          : normalizedLabel.includes("feedback")
-            ? "Feedback"
-            : normalizedLabel.includes("debrief")
-              ? "Debrief"
-              : normalizedLabel.includes("break") || normalizedLabel.includes("lunch") || normalizedLabel.includes("transition")
-                ? "Break/Transition"
-                : block.label || "Day Block";
-      timeline.push({
-        key: `${selectedRotationRound.key}-block-${index}`,
-        timeLabel:
-          blockEnd > blockStart ? formatMinuteRange(blockStart, blockEnd) : formatMinutesAsClockLabel(blockStart),
-        phaseLabel,
-        announcement: block.label,
-        detail: block.detail,
-      });
-      cursorMinutes = blockEnd;
-    });
-
-    if (nextRoundStartMinutes !== null && nextRoundStartMinutes > cursorMinutes) {
-      timeline.push({
-        key: `${selectedRotationRound.key}-transition`,
-        timeLabel: formatMinuteRange(cursorMinutes, nextRoundStartMinutes),
-        phaseLabel: "Break/Transition",
-        announcement: "Turnaround / transition time.",
-      });
-      timeline.push({
-        key: `${selectedRotationRound.key}-next-prepare`,
-        timeLabel: formatMinutesAsClockLabel(Math.max(nextRoundStartMinutes - 1, 0)),
-        phaseLabel: "Prepare",
-        announcement: "SPs, please prepare.",
-        detail: `Preparing for Round ${activeSelectedRotationRoundIndex + 2}`,
-      });
-    }
-
-    return timeline;
+      nextRoundStartMinutes !== null
+        ? {
+            key: nextRound?.key,
+            round: activeSelectedRotationRoundIndex + 2,
+            start: nextRoundStartMinutes,
+            end: nextRoundTiming?.endMinutes ?? nextRoundStartMinutes,
+            subBlocks: [],
+          }
+        : null,
+      { formatTime: formatMinutesAsClockLabel }
+    ).map((item) => ({
+      key: item.key,
+      timeLabel: item.timeLabel,
+      phaseLabel: item.badgeLabel,
+      announcement: item.message,
+      detail: item.detail,
+    }));
   }, [
+    activeDateRotationRounds,
     activeSelectedRotationRoundIndex,
-    feedbackMinutesFromMetadata,
+    liveFlowBlocks,
     rotationRounds,
     selectedRotationRound,
-    visibleSelectedRoundDayBlocks,
   ]);
   const selectedRoundAnnouncementExportRows = useMemo(
     () =>
@@ -15430,12 +15388,31 @@ Cory`;
     );
   }
 
-  function handleRotationCommandSurfaceOpenChange() {
-    setRotationCommandSurfaceOpen(true);
+function handleRotationCommandSurfaceOpenChange(nextOpen?: boolean) {
+  const resolvedOpen = typeof nextOpen === "boolean" ? nextOpen : !rotationCommandSurfaceOpen;
+  setRotationCommandSurfaceOpen(resolvedOpen);
     if (typeof window !== "undefined") {
-      window.localStorage.setItem(getRotationCommandSurfaceStorageKey(id), "open");
+      if (id) {
+        window.localStorage.setItem(
+          getRotationCommandSurfaceStorageKey(id),
+          resolvedOpen ? "open" : "closed"
+        );
+      }
     }
   }
+
+function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, nextOpen: boolean) {
+  setCommandDockPanelState((current) => {
+    const next = {
+      ...current,
+      ...(section === "primary" ? { primaryTools: nextOpen } : { secondaryTools: nextOpen }),
+    };
+    if (typeof window !== "undefined" && id) {
+      window.localStorage.setItem(getEventCommandDockPanelStorageKey(id), JSON.stringify(next));
+    }
+    return next;
+  });
+}
 
   function handleTacticalRoomBoardOpenChange(nextOpen: boolean) {
     setTacticalRoomBoardOpen(nextOpen);
@@ -21126,7 +21103,186 @@ Cory`;
         <div
           style={{
             marginTop: "10px",
-            display: "grid",
+            display: "none",
+            gap: "6px",
+            gridTemplateColumns: "minmax(0, 1fr)",
+            alignItems: "start",
+          }}
+        >
+          <div
+            style={{
+              border: commandCenterVisual.shellBorder,
+              borderRadius: "18px",
+              padding: "14px",
+              background: commandCenterVisual.shellBackground,
+              boxShadow: commandCenterVisual.shellShadow,
+            }}
+          >
+            <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Operational Summary</div>
+            <div
+              style={{
+                marginTop: "8px",
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(112px, 1fr))",
+                gap: "6px",
+              }}
+            >
+              {[
+                { label: "Learners", value: operationalLearnerCountLabel },
+                { label: "Rooms", value: operationalRoomCount || "TBD" },
+                { label: "Rounds", value: operationalRoundCount },
+                { label: "Coverage", value: needed > 0 ? `${confirmedCount}/${needed}` : `${confirmedCount}` },
+                { label: "Readiness", value: operationalReadinessItems.primary },
+              ].map((metric) => (
+                <div
+                  key={`compact-operational-summary-${metric.label}`}
+                  style={{
+                    borderRadius: "12px",
+                    border: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.16)" : "1px solid rgba(126, 231, 219, 0.16)",
+                    background: isPlanningVisualMode ? "rgba(255,255,255,0.72)" : "rgba(15, 23, 42, 0.42)",
+                    padding: "7px 9px",
+                    display: "grid",
+                    gap: "3px",
+                    minHeight: "52px",
+                  }}
+                >
+                  <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>{metric.label}</div>
+                  <div style={{ color: commandCenterVisual.headingColor, fontSize: "15px", fontWeight: 950, lineHeight: 1.1 }}>
+                    {metric.value}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div style={{ marginTop: "10px", display: "grid", gap: "6px" }}>
+              <section
+                style={{
+                  borderRadius: "20px",
+                  border: eventStatusWindowStyles.border,
+                  background: eventStatusWindowStyles.background,
+                  boxShadow: eventStatusWindowStyles.glow,
+                  padding: "16px",
+                  display: "grid",
+                  gap: "14px",
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => togglePlanningWindow("event-status")}
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    gap: "14px",
+                    flexWrap: "wrap",
+                    alignItems: "flex-start",
+                    background: "transparent",
+                    border: "none",
+                    padding: 0,
+                    textAlign: "left",
+                    cursor: "pointer",
+                  }}
+                >
+                  <div style={{ minWidth: 0, display: "grid", gap: "7px" }}>
+                    <div style={{ ...statLabel, color: eventStatusWindowStyles.accent }}>Compact Event Header</div>
+                    <div style={{ color: commandCenterVisual.headingColor, fontSize: "18px", fontWeight: 950, lineHeight: 1.15 }}>
+                      {event?.name || "Untitled Event"}
+                    </div>
+                    <div style={{ color: commandCenterVisual.mutedColor, fontSize: "13px", fontWeight: 800 }}>
+                      {[sessionSummaryLabel, summaryTimeLabel, `Location / Access: ${locationAccessPrimaryLabel}`].filter(Boolean).join(" · ")}
+                    </div>
+                    {relatedEventDateOptions.length > 1 ? (
+                      <label style={{ display: "inline-grid", gap: "4px", maxWidth: "240px" }}>
+                        <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Event Date</span>
+                        <select
+                          value={id}
+                          onChange={(event) => handleRelatedEventDateSwitch(event.target.value)}
+                          style={{ ...selectStyle, minWidth: 0, fontSize: "11px", padding: "7px 8px" }}
+                        >
+                          {relatedEventDateOptions.map((dateOption) => (
+                            <option key={`event-date-instance-${dateOption.id}`} value={dateOption.id}>
+                              {`${formatHumanDate(dateOption.dateText, importedYearHint) || "Date TBD"} - ${dateOption.statusLabel}`}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    ) : (
+                      <div style={{ display: "grid", gap: "4px" }}>
+                        <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Event Date</span>
+                        <div style={{ color: commandCenterVisual.textColor, fontSize: "12px", fontWeight: 900 }}>
+                          {formatHumanDate(event?.date_text, importedYearHint) || event?.date_text || "Date TBD"}
+                        </div>
+                      </div>
+                    )}
+                    {eventDateOptions.length > 1 ? (
+                      <label style={{ display: "inline-grid", gap: "4px", maxWidth: "240px" }}>
+                        <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Displayed Schedule Date</span>
+                        <select
+                          value={selectedEventDateContext}
+                          onChange={(event) => {
+                            const nextDate = event.target.value;
+                            setSelectedEventDateContext(nextDate);
+                            const firstRoundForDate = rotationRounds.find((round) => asText(round.session_date) === nextDate);
+                            if (firstRoundForDate) {
+                              setSelectedRotationRoundKey(firstRoundForDate.key);
+                              setHasTouchedRoundCompanion(true);
+                            }
+                          }}
+                          style={{ ...selectStyle, minWidth: 0, fontSize: "11px", padding: "7px 8px" }}
+                        >
+                          {eventDateOptions.map((dateOption) => (
+                            <option key={`event-date-context-${dateOption}`} value={dateOption}>
+                              {formatHumanDate(dateOption, importedYearHint)}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    ) : null}
+                  </div>
+                  <div style={{ display: "grid", gap: "6px", justifyItems: "end" }}>
+                    <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                      <span
+                        style={{
+                          ...commandChipStyle,
+                          background:
+                            operationalReadinessItems.primary === "Ready"
+                              ? planningSuccessBackground
+                              : eventRiskLevel.tone === "red"
+                                ? "rgba(248, 113, 113, 0.14)"
+                                : "rgba(219, 234, 254, 0.34)",
+                          border:
+                            operationalReadinessItems.primary === "Ready"
+                              ? planningSuccessBorder
+                              : eventRiskLevel.tone === "red"
+                                ? "1px solid rgba(239, 68, 68, 0.24)"
+                                : "1px solid rgba(37, 99, 235, 0.20)",
+                          color:
+                            operationalReadinessItems.primary === "Ready"
+                              ? planningSuccessText
+                              : eventRiskLevel.tone === "red"
+                                ? "#dc2626"
+                                : isPlanningVisualMode ? "#1e40af" : "#dbeafe",
+                        }}
+                      >
+                        {operationalReadinessItems.primary}
+                      </span>
+                      <span style={{ ...commandChipStyle, background: eventStatusWindowStyles.chipBg, color: eventStatusWindowStyles.chipColor }}>{eventRiskLevel.label}</span>
+                      <span style={{ ...commandChipStyle, background: eventStatusWindowStyles.chipBg, color: eventStatusWindowStyles.chipColor }}>{scheduleStatusLabel}</span>
+                      <span style={{ ...commandChipStyle, background: "rgba(15, 23, 42, 0.08)", color: commandCenterVisual.textColor }}>
+                        {planningWindowExpanded["event-status"] ? "Collapse" : "Expand"}
+                      </span>
+                    </div>
+                    <div style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 850, textAlign: "right", maxWidth: "420px", lineHeight: 1.45 }}>
+                      {eventRiskLevel.detail} · {needed > 0 ? `${confirmedCount}/${needed} confirmed` : `${confirmedCount} confirmed`}
+                    </div>
+                  </div>
+                </button>
+              </section>
+            </div>
+          </div>
+        </div>
+        <div
+          style={{
+            marginTop: "10px",
+            display: "none",
             gap: "6px",
             gridTemplateColumns: "minmax(0, 1fr)",
             alignItems: "start",
@@ -21408,7 +21564,7 @@ Cory`;
 
               <div
                 style={{
-                  display: "grid",
+                  display: "none",
                   gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
                   gap: "6px",
                   alignItems: "start",
