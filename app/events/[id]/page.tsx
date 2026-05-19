@@ -21585,19 +21585,19 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               .cfsp-command-hud-action,
               .cfsp-command-tool-card {
                 transition:
-                  transform 160ms ease,
-                  box-shadow 160ms ease,
-                  border-color 160ms ease,
-                  background 160ms ease,
-                  filter 160ms ease;
+                  transform 180ms ease,
+                  box-shadow 180ms ease,
+                  border-color 180ms ease,
+                  background 180ms ease,
+                  filter 180ms ease;
               }
               .cfsp-command-hud-action:hover,
               .cfsp-command-tool-card:hover,
               .cfsp-button-tactical:hover {
                 transform: translateY(-2px);
-                filter: saturate(1.04);
-                border-color: rgba(20, 91, 150, 0.34) !important;
-                box-shadow: 0 14px 28px rgba(20, 91, 150, 0.16), 0 0 0 1px rgba(45, 212, 191, 0.08) !important;
+                filter: saturate(1.05);
+                border-color: rgba(20, 91, 150, 0.38) !important;
+                box-shadow: 0 16px 30px rgba(20, 91, 150, 0.17), 0 0 0 1px rgba(45, 212, 191, 0.1), 0 0 18px rgba(167, 139, 250, 0.08) !important;
               }
               .cfsp-command-hud-action:focus-visible,
               .cfsp-command-tool-card:focus-visible,
@@ -21608,24 +21608,65 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               .cfsp-command-tool-card {
                 position: relative;
                 overflow: hidden;
+                cursor: pointer;
+              }
+              .cfsp-command-tool-card::after {
+                content: "";
+                position: absolute;
+                top: 11px;
+                right: 11px;
+                width: 8px;
+                height: 8px;
+                border-radius: 999px;
+                background: rgba(20, 91, 150, 0.14);
+                box-shadow: inset 0 0 0 1px rgba(20, 91, 150, 0.08);
+                transition:
+                  background 180ms ease,
+                  box-shadow 180ms ease,
+                  transform 180ms ease;
               }
               .cfsp-command-tool-card.is-selected::before {
                 content: "";
                 position: absolute;
                 inset: 0 auto 0 0;
-                width: 4px;
+                width: 5px;
                 border-radius: 999px;
-                background: linear-gradient(180deg, #145b96, #0f766e);
-                box-shadow: 0 0 16px rgba(20, 91, 150, 0.28);
+                background: linear-gradient(180deg, #145b96, #0f766e 62%, #7c3aed 100%);
+                box-shadow: 0 0 18px rgba(20, 91, 150, 0.3);
+              }
+              .cfsp-command-tool-card.is-selected::after {
+                background: linear-gradient(135deg, #14b8a6, #7c3aed);
+                box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.12), 0 0 14px rgba(124, 58, 237, 0.18);
+                transform: scale(1.08);
+              }
+              .cfsp-command-tool-card .cfsp-command-tool-title {
+                display: block;
+                font-weight: 950;
+                letter-spacing: 0;
+                transition: color 180ms ease, transform 180ms ease;
+              }
+              .cfsp-command-tool-card .cfsp-command-tool-status {
+                display: block;
+                transition: color 180ms ease;
+              }
+              .cfsp-command-tool-card:hover .cfsp-command-tool-title,
+              .cfsp-command-tool-card:focus-visible .cfsp-command-tool-title {
+                transform: translateY(-1px);
+              }
+              .cfsp-command-tool-card.is-selected .cfsp-command-tool-title {
+                color: #0f4f85;
+              }
+              .cfsp-command-tool-card.is-selected .cfsp-command-tool-status {
+                color: #12617f !important;
               }
               .cfsp-command-tool-group {
                 transition:
-                  border-color 160ms ease,
-                  box-shadow 160ms ease,
-                  transform 160ms ease;
+                  border-color 180ms ease,
+                  box-shadow 180ms ease,
+                  transform 180ms ease;
               }
               .cfsp-command-tool-group:hover {
-                border-color: rgba(20, 91, 150, 0.24) !important;
+                border-color: rgba(20, 91, 150, 0.28) !important;
                 box-shadow: 0 12px 26px rgba(20, 91, 150, 0.08);
               }
             `}</style>
@@ -23948,13 +23989,13 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         style={{
                           display: "grid",
                           gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
-                          gap: "8px",
-                          borderRadius: "16px",
+                          gap: "10px",
+                          borderRadius: "18px",
                           border: isPlanningVisualMode ? "1px solid rgba(20, 91, 150, 0.22)" : "1px solid rgba(126, 231, 219, 0.24)",
                           background: isPlanningVisualMode
-                            ? "linear-gradient(135deg, rgba(255,255,255,0.82), rgba(224, 247, 250, 0.52))"
+                            ? "linear-gradient(135deg, rgba(255,255,255,0.9), rgba(224, 247, 250, 0.62), rgba(240, 253, 250, 0.74))"
                             : "linear-gradient(135deg, rgba(5, 18, 31, 0.76), rgba(10, 39, 49, 0.62))",
-                          padding: "7px",
+                          padding: "9px",
                         }}
                       >
                         {[
@@ -23989,31 +24030,41 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                               aria-pressed={selected}
                               style={{
                                 ...buttonStyle,
-                                minHeight: "68px",
-                                padding: "11px 12px",
-                                borderRadius: "15px",
+                                minHeight: "84px",
+                                padding: "14px 14px",
+                                borderRadius: "16px",
                                 display: "grid",
-                                gap: "3px",
+                                gap: "6px",
                                 alignContent: "center",
                                 justifyItems: "center",
                                 minWidth: 0,
                                 textAlign: "center",
                                 background: selected
-                                  ? isPlanningVisualMode ? "linear-gradient(135deg, rgba(232,244,255,0.98), rgba(209,250,229,0.84))" : "linear-gradient(135deg, rgba(20, 91, 150, 0.32), rgba(25, 138, 112, 0.24))"
-                                  : isPlanningVisualMode ? "linear-gradient(135deg, rgba(255,255,255,0.92), rgba(239,249,252,0.74))" : "rgba(15, 23, 42, 0.58)",
+                                  ? isPlanningVisualMode
+                                    ? "linear-gradient(135deg, rgba(235,246,255,1) 0%, rgba(214,250,233,0.94) 62%, rgba(245,240,255,0.84) 100%)"
+                                    : "linear-gradient(135deg, rgba(20, 91, 150, 0.32), rgba(25, 138, 112, 0.24))"
+                                  : isPlanningVisualMode
+                                    ? "linear-gradient(135deg, rgba(255,255,255,0.96) 0%, rgba(239,249,252,0.84) 62%, rgba(244,243,255,0.72) 100%)"
+                                    : "rgba(15, 23, 42, 0.58)",
                                 color: selected
                                   ? isPlanningVisualMode ? "#145b96" : "#d6f6f2"
                                   : commandCenterVisual.textColor,
                                 border: selected
-                                  ? isPlanningVisualMode ? "1px solid rgba(20, 91, 150, 0.26)" : "1px solid rgba(126, 231, 219, 0.34)"
+                                  ? isPlanningVisualMode ? "1px solid rgba(20, 91, 150, 0.3)" : "1px solid rgba(126, 231, 219, 0.34)"
                                   : isPlanningVisualMode ? "1px solid rgba(20, 91, 150, 0.16)" : "1px solid rgba(148, 163, 184, 0.16)",
                                 boxShadow: selected
-                                  ? isPlanningVisualMode ? "0 0 0 1px rgba(25, 138, 112, 0.08), 0 10px 22px rgba(25, 138, 112, 0.14)" : "0 0 22px rgba(126, 231, 219, 0.18)"
-                                  : isPlanningVisualMode ? "0 8px 16px rgba(20, 65, 95, 0.07), inset 0 1px 0 rgba(255,255,255,0.78)" : "none",
+                                  ? isPlanningVisualMode
+                                    ? "0 0 0 1px rgba(25, 138, 112, 0.1), 0 14px 28px rgba(25, 138, 112, 0.15), 0 0 18px rgba(124, 58, 237, 0.08)"
+                                    : "0 0 22px rgba(126, 231, 219, 0.18)"
+                                  : isPlanningVisualMode
+                                    ? "0 10px 18px rgba(20, 65, 95, 0.08), inset 0 1px 0 rgba(255,255,255,0.78)"
+                                    : "none",
                               }}
                             >
-                              <span style={{ fontSize: "13px", fontWeight: 950 }}>{tool.label}</span>
-                              <span style={{ color: selected ? "inherit" : commandCenterVisual.mutedColor, fontSize: "9px", fontWeight: 800 }}>
+                              <span className="cfsp-command-tool-title" style={{ fontSize: "14px", lineHeight: 1.12 }}>
+                                {tool.label}
+                              </span>
+                              <span className="cfsp-command-tool-status" style={{ color: selected ? "inherit" : commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 850, lineHeight: 1.22 }}>
                                 {tool.status}
                               </span>
                             </button>
@@ -24042,13 +24093,13 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         style={{
                           display: "grid",
                           gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))",
-                          gap: "8px",
-                          borderRadius: "18px",
+                          gap: "10px",
+                          borderRadius: "20px",
                           border: isPlanningVisualMode ? "1px solid rgba(20, 91, 150, 0.2)" : "1px solid rgba(126, 231, 219, 0.24)",
                           background: isPlanningVisualMode
-                            ? "linear-gradient(135deg, rgba(255,255,255,0.78), rgba(232,246,250,0.5))"
+                            ? "linear-gradient(135deg, rgba(255,255,255,0.86), rgba(232,246,250,0.62), rgba(244,243,255,0.42))"
                             : "linear-gradient(135deg, rgba(5,18,31,0.72), rgba(10,39,49,0.52))",
-                          padding: "9px",
+                          padding: "11px",
                         }}
                       >
                         {[
@@ -24098,17 +24149,17 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             key={`command-grid-group-${group.group}`}
                             className="cfsp-command-tool-group"
                             style={{
-                              borderRadius: "16px",
+                              borderRadius: "18px",
                               border: isPlanningVisualMode ? "1px solid rgba(20, 91, 150, 0.16)" : "1px solid rgba(148, 163, 184, 0.14)",
-                              background: isPlanningVisualMode ? "linear-gradient(180deg, rgba(255,255,255,0.76), rgba(239,249,252,0.58))" : "rgba(15,23,42,0.38)",
-                              padding: "9px",
+                              background: isPlanningVisualMode ? "linear-gradient(180deg, rgba(255,255,255,0.84), rgba(239,249,252,0.66), rgba(244,243,255,0.32))" : "rgba(15,23,42,0.38)",
+                              padding: "11px",
                               display: "grid",
-                              gap: "8px",
-                              boxShadow: isPlanningVisualMode ? "inset 0 1px 0 rgba(255,255,255,0.74)" : undefined,
+                              gap: "10px",
+                              boxShadow: isPlanningVisualMode ? "inset 0 1px 0 rgba(255,255,255,0.78), 0 8px 18px rgba(20, 65, 95, 0.05)" : undefined,
                             }}
                           >
                             <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>{group.group}</div>
-                            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "7px" }}>
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "9px" }}>
                               {group.tools.map((tool) => {
                                 const selected =
                                   tool.kind === "view"
@@ -24145,34 +24196,40 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                     aria-pressed={selected}
                                     style={{
                                       ...buttonStyle,
-                                      minHeight: "62px",
-                                      padding: "9px 10px",
-                                      borderRadius: "13px",
+                                      minHeight: "78px",
+                                      padding: "12px 12px",
+                                      borderRadius: "15px",
                                       display: "grid",
-                                      gap: "3px",
+                                      gap: "6px",
                                       alignContent: "center",
                                       justifyItems: "center",
                                       textAlign: "center",
                                       background: selected
                                         ? isPlanningVisualMode
-                                          ? "linear-gradient(135deg, rgba(209,250,229,0.72), rgba(232,244,255,0.94))"
+                                          ? "linear-gradient(135deg, rgba(214,250,233,0.86) 0%, rgba(232,244,255,0.98) 58%, rgba(245,240,255,0.78) 100%)"
                                           : "linear-gradient(135deg, rgba(20,91,150,0.34), rgba(25,138,112,0.26))"
                                         : isPlanningVisualMode
-                                          ? "linear-gradient(135deg, rgba(255,255,255,0.88), rgba(232,246,250,0.56))"
+                                          ? "linear-gradient(135deg, rgba(255,255,255,0.94) 0%, rgba(232,246,250,0.7) 62%, rgba(244,243,255,0.5) 100%)"
                                           : "linear-gradient(135deg, rgba(15,23,42,0.58), rgba(8,31,47,0.42))",
                                       color: selected
                                         ? isPlanningVisualMode ? "#145b96" : "#d6f6f2"
                                         : commandCenterVisual.textColor,
                                       border: selected
-                                        ? isPlanningVisualMode ? "1px solid rgba(20, 91, 150, 0.32)" : "1px solid rgba(126, 231, 219, 0.38)"
+                                        ? isPlanningVisualMode ? "1px solid rgba(20, 91, 150, 0.34)" : "1px solid rgba(126, 231, 219, 0.38)"
                                         : isPlanningVisualMode ? "1px solid rgba(20, 91, 150, 0.15)" : "1px solid rgba(148, 163, 184, 0.16)",
                                       boxShadow: selected
-                                        ? isPlanningVisualMode ? "0 0 0 1px rgba(25, 138, 112, 0.08), 0 10px 22px rgba(25, 138, 112, 0.14)" : "0 0 22px rgba(126, 231, 219, 0.18)"
-                                        : isPlanningVisualMode ? "0 7px 14px rgba(20, 65, 95, 0.06), inset 0 1px 0 rgba(255,255,255,0.76)" : "none",
+                                        ? isPlanningVisualMode
+                                          ? "0 0 0 1px rgba(25, 138, 112, 0.1), 0 14px 24px rgba(25, 138, 112, 0.14), 0 0 16px rgba(124, 58, 237, 0.08)"
+                                          : "0 0 22px rgba(126, 231, 219, 0.18)"
+                                        : isPlanningVisualMode
+                                          ? "0 9px 16px rgba(20, 65, 95, 0.07), inset 0 1px 0 rgba(255,255,255,0.78)"
+                                          : "none",
                                     }}
                                   >
-                                    <span style={{ fontSize: "11px", fontWeight: 950, lineHeight: 1.12 }}>{tool.label}</span>
-                                    <span style={{ color: selected ? "inherit" : commandCenterVisual.mutedColor, fontSize: "9px", fontWeight: 800, lineHeight: 1.18 }}>
+                                    <span className="cfsp-command-tool-title" style={{ fontSize: "12px", lineHeight: 1.15 }}>
+                                      {tool.label}
+                                    </span>
+                                    <span className="cfsp-command-tool-status" style={{ color: selected ? "inherit" : commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 825, lineHeight: 1.22 }}>
                                       {tool.status}
                                     </span>
                                   </button>
