@@ -1539,6 +1539,10 @@ async function buildStudentInstructionsPdfPages(
   }
 
   measuredSections.forEach((section) => {
+    const startsStudentSchedule = section.node.dataset.packetSection === "student-schedule-start";
+    if (startsStudentSchedule && currentSectionCount > 0) {
+      pushCurrentPage();
+    }
     const spacing = currentSectionCount > 0 || currentHeight > 0 ? pageContentSpacing : 0;
     const needsNewPage = currentSectionCount > 0 && currentHeight + spacing + section.height > contentHeight;
     if (needsNewPage) {
@@ -2294,7 +2298,7 @@ function buildStudentInstructionsExportHtml(context: StudentInstructionsExportCo
     scheduleChunks.push(studentScheduleRows.slice(index, index + scheduleRowsPerSection));
   }
   const renderScheduleTable = (rows: StudentInstructionsScheduleRow[], sectionIndex: number) => `
-    <section class="student-packet-page-section instructions-section student-schedule-section">
+    <section class="student-packet-page-section instructions-section student-schedule-section${sectionIndex === 0 ? " student-schedule-section-first" : ""}" data-packet-section="${sectionIndex === 0 ? "student-schedule-start" : "student-schedule-continued"}">
       <div class="student-schedule-heading">
         <div>
           <h3>Student Schedule${sectionIndex > 0 ? " (continued)" : ""}</h3>
@@ -2465,6 +2469,10 @@ function buildStudentInstructionsExportHtml(context: StudentInstructionsExportCo
             break-inside: avoid;
             page-break-inside: avoid;
           }
+          .student-schedule-section-first {
+            break-before: page;
+            page-break-before: always;
+          }
           .student-schedule-table {
             width: 100%;
             border-collapse: collapse;
@@ -2613,7 +2621,7 @@ function buildStudentInstructionsExportHtml(context: StudentInstructionsExportCo
               scheduleChunks.length
                 ? scheduleChunks.map((rows, index) => renderScheduleTable(rows, index)).join("")
                 : `
-                  <section class="student-packet-page-section instructions-section student-schedule-section">
+                  <section class="student-packet-page-section instructions-section student-schedule-section student-schedule-section-first" data-packet-section="student-schedule-start">
                     <div class="student-schedule-heading">
                       <div>
                         <h3>Student Schedule</h3>
