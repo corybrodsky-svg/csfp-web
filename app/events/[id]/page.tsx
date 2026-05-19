@@ -2702,14 +2702,28 @@ function isMeaningfulDateText(value: unknown) {
 
 function resolveDateFromRelatedTrainingEvent(node: RelatedOperationalEventNode | null | undefined) {
   if (!node) return "";
-  const directDate = asText(node.trainingMetadata?.training_date || node.date_text);
+  const directDate = asText(
+    node.trainingMetadata?.preferred_training_date ||
+      node.trainingMetadata?.training_date ||
+      node.trainingMetadata?.imported_training_date ||
+      node.date_text
+  );
   return isMeaningfulDateText(directDate) ? directDate : "";
+}
+
+function resolvePrimaryTrainingDateText(metadata: TrainingEventMetadata) {
+  const prioritizedDates = [
+    asText(metadata.preferred_training_date),
+    asText(metadata.training_date),
+    asText(metadata.imported_training_date),
+  ];
+  return prioritizedDates.find((dateText) => isMeaningfulDateText(dateText)) || "";
 }
 
 function resolveTrainingDateText(args: {
   primaryTrainingMetadata: TrainingEventMetadata;
   relatedTrainingOperationalEvents: RelatedOperationalEventNode[];
-  eventNotes: string | null | undefined;
+  noteDateText?: string | null | undefined;
   fallbackDateSources?: string[];
 }) {
   const exactMatchDateNode = args.relatedTrainingOperationalEvents.find(
@@ -2720,21 +2734,23 @@ function resolveTrainingDateText(args: {
   );
 
   const exactMatchDateText = resolveDateFromRelatedTrainingEvent(exactMatchDateNode);
-  const embeddedPrimaryDate = asText(args.primaryTrainingMetadata.training_date);
-  const manualPreferredDate =
-    asText(args.primaryTrainingMetadata.preferred_training_date) ||
-    asText(args.primaryTrainingMetadata.imported_training_date);
+  const primaryDateText = resolvePrimaryTrainingDateText(args.primaryTrainingMetadata);
+  const noteDateText = asText(args.noteDateText);
+  const fallbackDateText =
+    args.fallbackDateSources?.find((source) => isMeaningfulDateText(source)) || "";
 
   return (
     (
-      isMeaningfulDateText(embeddedPrimaryDate)
-        ? embeddedPrimaryDate
+      isMeaningfulDateText(primaryDateText)
+        ? primaryDateText
         : isMeaningfulDateText(exactMatchDateText)
           ? exactMatchDateText
-          : isMeaningfulDateText(manualPreferredDate)
-            ? manualPreferredDate
+          : isMeaningfulDateText(noteDateText)
+            ? noteDateText
+            : isMeaningfulDateText(fallbackDateText)
+              ? fallbackDateText
             : ""
-    ) || args.fallbackDateSources?.find((source) => isMeaningfulDateText(source)) || ""
+    ) || ""
   );
 }
 
@@ -8130,13 +8146,17 @@ const operationalEventStatusLabel = useMemo(() => {
     resolveTrainingDateText({
       primaryTrainingMetadata,
       relatedTrainingOperationalEvents,
-      eventNotes: getFirstNoteValue(event?.notes, [
+      noteDateText: getFirstNoteValue(event?.notes, [
         "Preferred Training Date",
         "Training Date",
         "SP Training Date",
         "Training Date/Time",
       ]),
-      fallbackDateSources: [asText(trainingMetadata.training_date), asText(trainingMetadata.preferred_training_date)],
+      fallbackDateSources: [
+        asText(trainingMetadata.preferred_training_date),
+        asText(trainingMetadata.training_date),
+        asText(trainingMetadata.imported_training_date),
+      ],
     }) || "";
   const preferredTrainingTimeWindowText =
     asText(trainingMetadata.training_start_time) || asText(trainingMetadata.training_end_time) || asText(trainingMetadata.preferred_training_time) || asText(trainingMetadata.preferred_training_end_time)
@@ -13762,9 +13782,9 @@ Cory`;
         event_session_date: trimmedSessionDate,
         event_start_time: startTime || "",
         event_end_time: endTime || "",
-        training_date: trainingMetadata.training_date || trainingMetadata.preferred_training_date,
-        training_start_time: trainingMetadata.training_start_time || trainingMetadata.preferred_training_time,
-        training_end_time: trainingMetadata.training_end_time || trainingMetadata.preferred_training_end_time,
+        training_date: trainingMetadata.preferred_training_date || trainingMetadata.training_date,
+        training_start_time: trainingMetadata.preferred_training_time || trainingMetadata.training_start_time,
+        training_end_time: trainingMetadata.preferred_training_end_time || trainingMetadata.training_end_time,
       },
       eventTypes: activeEventTypes,
     });
@@ -14005,13 +14025,13 @@ Cory`;
   ): Partial<TrainingEventMetadata> {
     const next = { ...partial };
 
-    if (next.preferred_training_date && !next.training_date) {
+    if (next.preferred_training_date) {
       next.training_date = next.preferred_training_date;
     }
-    if (next.preferred_training_time && !next.training_start_time) {
+    if (next.preferred_training_time) {
       next.training_start_time = next.preferred_training_time;
     }
-    if (next.preferred_training_end_time && !next.training_end_time) {
+    if (next.preferred_training_end_time) {
       next.training_end_time = next.preferred_training_end_time;
     }
     if (next.zoom_url && !next.training_zoom_link) {
