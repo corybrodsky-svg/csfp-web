@@ -936,13 +936,6 @@ type StudentInstructionsScheduleBlock = {
   cells: StudentInstructionsScheduleCell[];
 };
 
-type StudentInstructionsTimingCue = {
-  key: string;
-  offsetMinutes: number;
-  label: string;
-  message: string;
-};
-
 type PdfExportPageManifest = {
   page: HTMLElement;
   roundCount: number;
@@ -1504,22 +1497,11 @@ async function buildStudentInstructionsPdfPages(
     return page;
   };
 
-  const stripWhitespaceTextNodes = (node: HTMLElement) => {
-    const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
-    const removableNodes: Text[] = [];
-    while (walker.nextNode()) {
-      const textNode = walker.currentNode as Text;
-      if (!textNode.textContent?.trim()) {
-        removableNodes.push(textNode);
-      }
-    }
-    removableNodes.forEach((textNode) => textNode.parentNode?.removeChild(textNode));
-  };
-
   const measuredSections = sourceSections.map((section, index) => {
     const sectionClone = section.cloneNode(true) as HTMLElement;
-    stripWhitespaceTextNodes(sectionClone);
     ensurePdfExportNodeVisible(sectionClone, contentWidth);
+    sectionClone.style.display = "grid";
+    sectionClone.style.gap = "9px";
     sectionClone.classList.add("cfsp-pdf-section");
     sectionClone.dataset.sectionIndex = String(index);
     measureRoot.appendChild(sectionClone);
@@ -2307,8 +2289,8 @@ function buildVirStyleStudentScheduleBlocks(args: {
   roomContext?: Parameters<typeof getRoomDisplayLabel>[2];
   roomChunkSize?: number;
 }) {
-  const { rounds, roomColumns = [], roomContext = {}, roomChunkSize = 6 } = args;
-  const safeChunkSize = Math.max(4, Math.min(7, Math.floor(roomChunkSize) || 6));
+  const { rounds, roomColumns = [], roomContext = {}, roomChunkSize = 8 } = args;
+  const safeChunkSize = Math.max(4, Math.min(8, Math.floor(roomChunkSize) || 8));
   const blocks: StudentInstructionsScheduleBlock[] = [];
 
   rounds.forEach((round) => {
@@ -2422,95 +2404,10 @@ function buildStudentInstructionsExportHtml(context: StudentInstructionsExportCo
     rounds: studentScheduleRounds,
     roomColumns,
     roomContext,
-    roomChunkSize: 6,
+    roomChunkSize: 8,
   });
-  const getEncounterStartMinutesForRound = (round: ScheduledRound | null | undefined) => {
-    if (!round) return null;
-    const encounterBlock = (round.subBlocks || []).find((subBlock) => /^encounter$/i.test(asText(subBlock.label)));
-    if (encounterBlock && Number.isFinite(encounterBlock.start)) return encounterBlock.start;
-    return Number.isFinite(round.start) ? round.start : null;
-  };
-  const formatRelativeOffsetLabel = (offsetMinutes: number) => {
-    const rounded = Math.round(offsetMinutes);
-    if (rounded > 0) return `+${rounded} min`;
-    return `${rounded} min`;
-  };
-  const cueMessageByBadgeLabel = (badgeLabel: string) => {
-    const normalized = badgeLabel.toLowerCase();
-    if (normalized.includes("prepare")) return "SPs prepare";
-    if (normalized.includes("start")) return "Encounter begins";
-    if (normalized.includes("warning")) return "5 minutes remaining";
-    if (normalized.includes("feedback")) return "Begin feedback";
-    if (normalized.includes("return") || normalized.includes("transition")) return "Return / transition";
-    return "";
-  };
-  const buildStudentScheduleTimingCues = () => {
-    const firstRound = studentScheduleRounds[0] || null;
-    const nextRound = studentScheduleRounds[1] || null;
-    const encounterStartMinutes = getEncounterStartMinutesForRound(firstRound);
-    if (!firstRound || encounterStartMinutes === null) {
-      return [
-        { key: "prepare", offsetMinutes: -1, label: "-1 min", message: "SPs prepare" },
-        { key: "start", offsetMinutes: 0, label: "0 min", message: "Encounter begins" },
-        { key: "warning", offsetMinutes: 15, label: "+15 min", message: "5 minutes remaining" },
-        { key: "feedback", offsetMinutes: 20, label: "+20 min", message: "Begin feedback" },
-        { key: "return", offsetMinutes: 25, label: "+25 min", message: "Return / transition" },
-      ] satisfies StudentInstructionsTimingCue[];
-    }
-    const announcementItems = buildRoundAnnouncementItems(firstRound, nextRound, {
-      formatTime: () => "",
-    });
-    const pickCue = (predicate: (item: ReturnType<typeof buildRoundAnnouncementItems>[number]) => boolean) =>
-      announcementItems.find(predicate) || null;
-    const selected = [
-      pickCue((item) => /prepare/i.test(item.badgeLabel)),
-      pickCue((item) => /^start$/i.test(item.badgeLabel)),
-      pickCue((item) => /warning/i.test(item.badgeLabel)),
-      pickCue((item) => /feedback/i.test(item.badgeLabel)),
-      pickCue((item) => /return|transition/i.test(item.badgeLabel)),
-    ].filter((item): item is NonNullable<typeof item> => Boolean(item));
-    if (!selected.length) {
-      return [
-        { key: "prepare", offsetMinutes: -1, label: "-1 min", message: "SPs prepare" },
-        { key: "start", offsetMinutes: 0, label: "0 min", message: "Encounter begins" },
-        { key: "warning", offsetMinutes: 15, label: "+15 min", message: "5 minutes remaining" },
-        { key: "feedback", offsetMinutes: 20, label: "+20 min", message: "Begin feedback" },
-        { key: "return", offsetMinutes: 25, label: "+25 min", message: "Return / transition" },
-      ] satisfies StudentInstructionsTimingCue[];
-    }
-    return selected
-      .map((item) => {
-        const offsetMinutes = item.timeMinutes - encounterStartMinutes;
-        return {
-          key: item.key,
-          offsetMinutes,
-          label: formatRelativeOffsetLabel(offsetMinutes),
-          message: cueMessageByBadgeLabel(item.badgeLabel) || item.message,
-        } satisfies StudentInstructionsTimingCue;
-      })
-      .sort((a, b) => a.offsetMinutes - b.offsetMinutes);
-  };
-  const scheduleTimingCues = buildStudentScheduleTimingCues();
   const renderScheduleIntro = () => `
     <section class="student-packet-page-section instructions-section student-schedule-section student-schedule-section-first" data-packet-section="student-schedule-start">
-      ${
-        scheduleTimingCues.length
-          ? `
-            <div class="student-schedule-cue-strip" aria-label="Encounter timing cues">
-              ${scheduleTimingCues
-                .map(
-                  (cue) => `
-                    <div class="student-schedule-cue">
-                      <span class="student-schedule-cue-offset">${escapeHtml(cue.label)}</span>
-                      <span class="student-schedule-cue-text">${escapeHtml(cue.message)}</span>
-                    </div>
-                  `
-                )
-                .join("")}
-            </div>
-          `
-          : ""
-      }
       <div class="student-schedule-heading">
         <div>
           <h3>Student Schedule</h3>
@@ -2772,44 +2669,13 @@ color: #17304f;
             font-weight: 700;
             line-height: 1.35;
           }
-          .student-schedule-cue-strip {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-            gap: 6px;
-            margin-bottom: 8px;
-          }
-          .student-schedule-cue {
-            border: 1px solid #d6e0eb;
-            border-radius: 8px;
-            background: #f6fafe;
-            padding: 6px 7px;
-            display: grid;
-            gap: 2px;
-            min-height: 42px;
-          }
-          .student-schedule-cue-offset {
-            color: #145b96;
-            font-size: 10px;
-            font-weight: 950;
-            letter-spacing: 0.05em;
-            text-transform: uppercase;
-            line-height: 1.15;
-          }
-          .student-schedule-cue-text {
-            color: #29445f;
-            font-size: 10.5px;
-            font-weight: 800;
-            line-height: 1.25;
-          }
           .student-schedule-section {
             break-inside: avoid;
             page-break-inside: avoid;
           }
           .student-schedule-section-first {
-            break-before: auto;
-            page-break-before: auto;
-            margin-top: 0;
-            padding-top: 0;
+            break-before: page;
+            page-break-before: always;
           }
           .student-schedule-block-section {
             padding: 0;
@@ -2819,10 +2685,9 @@ color: #17304f;
           }
           .vir-schedule-block {
             width: 100%;
-            max-width: 100%;
             border: 1px solid #aebccb;
             border-radius: 8px;
-            overflow: visible;
+            overflow: hidden;
             background: #ffffff;
             break-inside: avoid;
             page-break-inside: avoid;
@@ -2851,13 +2716,11 @@ color: #17304f;
           .vir-room-grid {
             display: grid;
             width: 100%;
-            max-width: 100%;
             background: #dfe7f0;
             border-top: 1px solid #aebccb;
           }
           .vir-room-header {
             min-height: 34px;
-            min-width: 0;
             padding: 7px 7px;
             border-right: 1px solid #c3cfda;
             border-bottom: 1px solid #aebccb;
@@ -2867,15 +2730,11 @@ color: #17304f;
             line-height: 1.15;
             font-weight: 950;
             text-align: center;
-            white-space: normal;
-            word-break: normal;
             overflow-wrap: anywhere;
-            overflow: visible;
           }
           .vir-room-header:last-of-type { border-right: none; }
           .vir-student-cell {
-            min-height: 64px;
-            min-width: 0;
+            min-height: 54px;
             padding: 7px 6px;
             border-right: 1px solid #d5e0e8;
             background: #f8fffb;
@@ -2884,7 +2743,6 @@ color: #17304f;
             display: grid;
             align-content: center;
             gap: 3px;
-            overflow: visible;
           }
           .vir-student-cell:nth-last-child(1) { border-right: none; }
           .vir-student-cell-empty {
@@ -2893,14 +2751,9 @@ color: #17304f;
           }
           .vir-student-name {
             font-size: 10.8px;
-            line-height: 1.28;
+            line-height: 1.18;
             font-weight: 950;
-            white-space: normal;
-            word-break: normal;
             overflow-wrap: anywhere;
-            overflow: visible;
-            text-overflow: unset;
-            max-width: 100%;
           }
           .vir-no-student {
             font-size: 9.5px;
