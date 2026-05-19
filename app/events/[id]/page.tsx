@@ -70,6 +70,9 @@ type EventDetailRow = {
   name: string | null;
   status: string | null;
   date_text: string | null;
+  earliest_session_date?: string | null;
+  earliest_session_start?: string | null;
+  latest_session_end?: string | null;
   sp_needed: number | null;
   visibility: string | null;
   location: string | null;
@@ -11412,8 +11415,118 @@ Cory`;
     parsePositiveInteger(trainingMetadata.case_count, 0),
     1
   );
+  const reviewEventTimingSummary = useMemo(() => {
+    const toDateLabel = (dateText: string) => formatSessionDate(dateText, importedYearHint) || dateText;
+    const toTimeLabel = (start?: string | null, end?: string | null) =>
+      formatTimeWindowLabel(start, end) || "Not set";
+    const summarizeRows = (
+      rows: Array<{ session_date?: string | null; start_time?: string | null; end_time?: string | null }>
+    ) => {
+      const grouped = new Map<string, { dateLabel: string; start: string; end: string }>();
+
+      rows.forEach((row) => {
+        const rawDate = asText(row.session_date);
+        const key = rawDate || "date-tbd";
+        const existing = grouped.get(key);
+        const start = asText(row.start_time);
+        const end = asText(row.end_time);
+
+        if (!existing) {
+          grouped.set(key, {
+            dateLabel: rawDate ? toDateLabel(rawDate) : "Not set",
+            start,
+            end,
+          });
+          return;
+        }
+
+        const startMinutes = start ? parseTimeToMinutes(start) : null;
+        const endMinutes = end ? parseTimeToMinutes(end) : null;
+        const existingStartMinutes = existing.start ? parseTimeToMinutes(existing.start) : null;
+        const existingEndMinutes = existing.end ? parseTimeToMinutes(existing.end) : null;
+
+        if (
+          start &&
+          (!existing.start ||
+            typeof existingStartMinutes !== "number" ||
+            (typeof startMinutes === "number" && startMinutes < existingStartMinutes))
+        ) {
+          existing.start = start;
+        }
+        if (
+          end &&
+          (!existing.end ||
+            typeof existingEndMinutes !== "number" ||
+            (typeof endMinutes === "number" && endMinutes > existingEndMinutes))
+        ) {
+          existing.end = end;
+        }
+      });
+
+      const entries = Array.from(grouped.values());
+      const dateLabel = entries.length
+        ? entries.map((entry) => entry.dateLabel).join("; ")
+        : "Not set";
+      const timeLabel = entries.length === 1
+        ? toTimeLabel(entries[0].start, entries[0].end)
+        : entries.length > 1
+          ? entries.map((entry) => `${entry.dateLabel}: ${toTimeLabel(entry.start, entry.end)}`).join("; ")
+          : "Not set";
+
+      return { dateLabel, timeLabel };
+    };
+
+    if (sessions.length) return summarizeRows(sessions);
+    if (rotationRounds.length) return summarizeRows(rotationRounds);
+
+    const fallbackDate = asText(event?.earliest_session_date) || asText(event?.date_text);
+    const fallbackStart = asText(event?.earliest_session_start);
+    const fallbackEnd = asText(event?.latest_session_end);
+
+    return {
+      dateLabel: fallbackDate ? (formatEventDateText(fallbackDate, importedYearHint) || fallbackDate) : "Not set",
+      timeLabel: toTimeLabel(fallbackStart, fallbackEnd),
+    };
+  }, [
+    event?.date_text,
+    event?.earliest_session_date,
+    event?.earliest_session_start,
+    event?.latest_session_end,
+    importedYearHint,
+    rotationRounds,
+    sessions,
+  ]);
+  const reviewTrainingDateLabel = useMemo(() => {
+    const trainingDateText =
+      asText(trainingMetadata.preferred_training_date) ||
+      asText(trainingMetadata.training_date);
+    return trainingDateText ? (formatEventDateText(trainingDateText, importedYearHint) || trainingDateText) : "Not set";
+  }, [importedYearHint, trainingMetadata.preferred_training_date, trainingMetadata.training_date]);
+  const reviewTrainingTimeLabel = useMemo(() => {
+    const trainingRecord = trainingMetadata as Record<string, unknown>;
+    const preferredStart =
+      asText(trainingRecord.preferred_training_start_time) ||
+      asText(trainingMetadata.preferred_training_time);
+    const preferredEnd = asText(trainingMetadata.preferred_training_end_time);
+    const currentStart = asText(trainingMetadata.training_start_time);
+    const currentEnd = asText(trainingMetadata.training_end_time);
+    const timeLabel = preferredStart || preferredEnd
+      ? formatTimeWindowLabel(preferredStart, preferredEnd)
+      : formatTimeWindowLabel(currentStart, currentEnd);
+    return timeLabel || "Not set";
+  }, [trainingMetadata]);
+  const reviewTrainingStatusLabel = normalEventTrainingComplete
+    ? "Training Completed"
+    : normalEventTrainingDate || normalEventTrainingHasInfo || trainingMarkedScheduled
+      ? "Training Scheduled"
+      : "Training Needed";
   const reviewSummaryRows = [
     { label: "Event", value: asText(event?.name) || "Untitled Event" },
+    { label: "EVENT DATE", value: reviewEventTimingSummary.dateLabel },
+    { label: "EVENT TIME", value: reviewEventTimingSummary.timeLabel },
+    { label: "TRAINING DATE", value: reviewTrainingDateLabel },
+    { label: "TRAINING TIME", value: reviewTrainingTimeLabel },
+    { label: "TRAINING STATUS", value: reviewTrainingStatusLabel },
     { label: "Type", value: eventIdentityChips.length ? eventIdentityChips.join(", ") : selectedModalityLabel || "Not set" },
     { label: "Location", value: locationAccessPrimaryLabel || "Not set" },
     { label: "Sim Lead", value: trainingMetadata.sim_contact || "Not set" },
