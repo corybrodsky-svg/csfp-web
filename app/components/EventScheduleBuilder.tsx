@@ -10,7 +10,7 @@ import { formatHumanDate, getImportedYearHint } from "../lib/eventDateUtils";
 import { parseEventMetadata, upsertEventMetadata } from "../lib/eventMetadata";
 import { normalizeDisplayText, normalizeLearnerName, normalizeLearnerNames } from "../lib/learnerNames";
 import { getRoomDisplayLabel, getRoomTypeLabel } from "../lib/roomNaming";
-import { buildRoundAnnouncementItems, type RoundAnnouncementItem } from "../lib/roundAnnouncements";
+import { buildRoundAnnouncementItems } from "../lib/roundAnnouncements";
 
 type EventRow = {
   id: string;
@@ -910,7 +910,15 @@ type StudentInstructionsExportContext = {
   encounterMinutes?: number | null;
   feedbackMinutes?: number | null;
   firstEncounterStartMinutes?: number | null;
-  announcementItems?: RoundAnnouncementItem[];
+  studentScheduleRows?: StudentInstructionsScheduleRow[];
+};
+
+type StudentInstructionsScheduleRow = {
+  key: string;
+  roundLabel: string;
+  timeLabel: string;
+  roomLabel: string;
+  studentLabel: string;
 };
 
 type PdfExportPageManifest = {
@@ -1349,6 +1357,235 @@ async function buildSchedulePdfPages(
   };
 }
 
+async function buildStudentInstructionsPdfPages(
+  html: string,
+  pageWidth: number,
+  pageHeight: number,
+  sidePadding: number
+): Promise<PdfExportPages> {
+  if (!html) {
+    throw new Error("Could not find printable student instructions to render.");
+  }
+
+  const parsed = new DOMParser().parseFromString(html, "text/html");
+  const printRoot = parsed.querySelector(".cfsp-schedule-export");
+  const compactShell = parsed.querySelector(".compact-print-shell");
+  if (!printRoot || !compactShell) {
+    throw new Error("Could not find printable student instructions to render.");
+  }
+
+  const printableStyles = Array.from(parsed.querySelectorAll("style"))
+    .map((style) => style.textContent || "")
+    .filter(Boolean)
+    .join("\n");
+  const header = compactShell.querySelector(".student-instructions-header") as HTMLElement | null;
+  const footer = compactShell.querySelector(".student-instructions-footer") as HTMLElement | null;
+  const sourceSections = Array.from(compactShell.querySelectorAll(".student-packet-page-section")) as HTMLElement[];
+  if (!sourceSections.length) {
+    throw new Error("Could not find printable student instruction sections.");
+  }
+
+  const contentWidth = Math.max(560, Math.floor(pageWidth - sidePadding * 2));
+  const contentHeight = Math.max(1, Math.floor(pageHeight - sidePadding * 2));
+  const exportRoot = document.createElement("div");
+  exportRoot.className = "cfsp-pdf-export-root cfsp-student-instructions-pdf-root";
+  exportRoot.style.position = "fixed";
+  exportRoot.style.left = "-100000px";
+  exportRoot.style.top = "0";
+  exportRoot.style.width = `${pageWidth}px`;
+  exportRoot.style.background = "#fff";
+  exportRoot.style.opacity = "1";
+  exportRoot.style.pointerEvents = "none";
+  exportRoot.style.visibility = "visible";
+  exportRoot.style.overflow = "visible";
+  exportRoot.style.color = "#14304f";
+
+  const styleNode = document.createElement("style");
+  styleNode.textContent = `
+    ${printableStyles}
+    .cfsp-pdf-page,
+    .cfsp-pdf-header,
+    .cfsp-pdf-section,
+    .student-schedule-table,
+    .student-schedule-table tr {
+      break-inside: avoid;
+      page-break-inside: avoid;
+      -webkit-column-break-inside: avoid;
+    }
+    .cfsp-pdf-page {
+      position: relative;
+      width: ${contentWidth}px;
+      max-width: ${contentWidth}px;
+      min-width: ${contentWidth}px;
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      background: #fff;
+      overflow: visible;
+      display: grid;
+      gap: 12px;
+    }
+    .cfsp-pdf-section,
+    .cfsp-pdf-header,
+    .cfsp-pdf-footer {
+      display: block;
+      width: 100%;
+      max-width: 100%;
+    }
+  `;
+  exportRoot.appendChild(styleNode);
+
+  const measureRoot = document.createElement("div");
+  measureRoot.className = "cfsp-pdf-measure-root student-instructions-document";
+  measureRoot.style.position = "relative";
+  measureRoot.style.left = "0";
+  measureRoot.style.top = "0";
+  measureRoot.style.width = `${contentWidth}px`;
+  measureRoot.style.maxWidth = `${contentWidth}px`;
+  measureRoot.style.margin = "0";
+  measureRoot.style.padding = "0";
+  measureRoot.style.background = "#fff";
+  measureRoot.style.visibility = "visible";
+  measureRoot.style.opacity = "1";
+  measureRoot.style.pointerEvents = "none";
+  measureRoot.style.display = "grid";
+  measureRoot.style.gap = "12px";
+  exportRoot.appendChild(measureRoot);
+  document.body.appendChild(exportRoot);
+
+  try {
+    await waitForSchedulePdfAssets(exportRoot);
+  } catch {
+    console.warn("[styled-pdf] Student instructions layout wait failed; continuing with current DOM layout.");
+  }
+
+  const createPage = () => {
+    const page = document.createElement("div");
+    page.className = "cfsp-pdf-page student-instructions-document";
+    page.style.width = `${contentWidth}px`;
+    page.style.maxWidth = `${contentWidth}px`;
+    page.style.minWidth = `${contentWidth}px`;
+    page.style.background = "#fff";
+    page.style.boxSizing = "border-box";
+    page.style.position = "relative";
+    page.style.left = "0";
+    page.style.top = "0";
+    page.style.margin = "0";
+    page.style.padding = "0";
+    page.style.display = "grid";
+    page.style.gap = "12px";
+    return page;
+  };
+
+  const measuredSections = sourceSections.map((section, index) => {
+    const sectionClone = section.cloneNode(true) as HTMLElement;
+    ensurePdfExportNodeVisible(sectionClone, contentWidth);
+    sectionClone.style.display = "grid";
+    sectionClone.style.gap = "9px";
+    sectionClone.classList.add("cfsp-pdf-section");
+    sectionClone.dataset.sectionIndex = String(index);
+    measureRoot.appendChild(sectionClone);
+    const height = Math.max(1, getRenderHeight(sectionClone));
+    measureRoot.removeChild(sectionClone);
+    return { node: sectionClone, height, index };
+  });
+
+  const headerClone = header ? (header.cloneNode(true) as HTMLElement) : null;
+  let headerHeight = 0;
+  if (headerClone) {
+    ensurePdfExportNodeVisible(headerClone, contentWidth);
+    headerClone.classList.add("cfsp-pdf-header");
+    measureRoot.appendChild(headerClone);
+    headerHeight = Math.max(1, getRenderHeight(headerClone));
+    measureRoot.removeChild(headerClone);
+  }
+
+  const footerClone = footer ? (footer.cloneNode(true) as HTMLElement) : null;
+  let footerHeight = 0;
+  if (footerClone) {
+    ensurePdfExportNodeVisible(footerClone, contentWidth);
+    footerClone.classList.add("cfsp-pdf-footer");
+    measureRoot.appendChild(footerClone);
+    footerHeight = Math.max(1, getRenderHeight(footerClone));
+    measureRoot.removeChild(footerClone);
+  }
+  measureRoot.remove();
+
+  const pages: PdfExportPageManifest[] = [];
+  let currentPage = createPage();
+  let currentHeight = 0;
+  let currentSectionCount = 0;
+  const pageContentSpacing = 12;
+
+  const pushCurrentPage = () => {
+    if (!currentPage.childElementCount) return;
+    pages.push({
+      page: currentPage,
+      roundCount: currentPage.querySelectorAll(".cfsp-pdf-section").length,
+      sourceIndexes: Array.from(currentPage.querySelectorAll(".cfsp-pdf-section")).map(
+        (sectionNode) => Number((sectionNode as HTMLElement).dataset.sectionIndex || "-1")
+      ),
+    });
+    currentPage = createPage();
+    currentHeight = 0;
+    currentSectionCount = 0;
+  };
+
+  if (headerClone) {
+    const headerInstance = headerClone.cloneNode(true) as HTMLElement;
+    ensurePdfExportNodeVisible(headerInstance, contentWidth);
+    currentPage.appendChild(headerInstance);
+    currentHeight += headerHeight;
+  }
+
+  measuredSections.forEach((section) => {
+    const spacing = currentSectionCount > 0 || currentHeight > 0 ? pageContentSpacing : 0;
+    const needsNewPage = currentSectionCount > 0 && currentHeight + spacing + section.height > contentHeight;
+    if (needsNewPage) {
+      pushCurrentPage();
+    }
+    if (currentSectionCount > 0 || currentHeight > 0) currentHeight += pageContentSpacing;
+    currentPage.appendChild(section.node);
+    currentHeight += section.height;
+    currentSectionCount += 1;
+  });
+
+  if (footerClone) {
+    const footerNeedsNewPage = currentSectionCount > 0 && currentHeight + pageContentSpacing + footerHeight > contentHeight;
+    if (footerNeedsNewPage) {
+      pushCurrentPage();
+    }
+    if (currentSectionCount > 0 || currentHeight > 0) currentHeight += pageContentSpacing;
+    const footerInstance = footerClone.cloneNode(true) as HTMLElement;
+    ensurePdfExportNodeVisible(footerInstance, contentWidth);
+    currentPage.appendChild(footerInstance);
+    currentHeight += footerHeight;
+  }
+
+  pushCurrentPage();
+
+  if (!pages.length) {
+    const fallbackPage = createPage();
+    const fallbackText = document.createElement("div");
+    fallbackText.textContent = "No student instructions content available for export.";
+    fallbackText.style.padding = "16px";
+    fallbackPage.appendChild(fallbackText);
+    pages.push({ page: fallbackPage, roundCount: 0, sourceIndexes: [] });
+  }
+
+  pages.forEach((pageEntry, index) => {
+    exportRoot.appendChild(pageEntry.page);
+    pageEntry.page.dataset.pageIndex = String(index);
+  });
+
+  return {
+    pages,
+    contentWidth,
+    contentHeight,
+    root: exportRoot,
+  };
+}
+
 function isRenderedCanvasBlank(canvas: HTMLCanvasElement) {
   if (!canvas.width || !canvas.height) return true;
   const context = canvas.getContext("2d");
@@ -1550,7 +1787,13 @@ async function createStyledSchedulePdfBlob(context: StyledPdfRenderContext) {
   const contentWidth = Math.max(560, Math.floor(pageWidth - pdfSidePadding * 2));
   const contentHeight = Math.max(1, Math.floor(pageHeight - pdfSidePadding * 2));
   let pagesResult: PdfExportPages | null = null;
-  if (!isStudentInstructions) {
+  if (isStudentInstructions) {
+    try {
+      pagesResult = await buildStudentInstructionsPdfPages(htmlSource, pageWidth, pageHeight, pdfSidePadding);
+    } catch {
+      console.error("[styled-pdf] Student instructions PDF page build failed; attempting fallback export.");
+    }
+  } else {
     try {
       pagesResult = await buildSchedulePdfPages(htmlSource, pageWidth, pageHeight, pdfSidePadding);
     } catch {
@@ -2020,7 +2263,7 @@ function buildStudentInstructionsExportHtml(context: StudentInstructionsExportCo
     encounterMinutes,
     feedbackMinutes,
     firstEncounterStartMinutes,
-    announcementItems,
+    studentScheduleRows = [],
   } = context;
   const programLabel = normalizeDisplayText(context.programLabel) || normalizeDisplayText(event?.name) || "PROGRAM";
   const dateLabel = normalizeDisplayText(context.dateLabel);
@@ -2034,18 +2277,6 @@ function buildStudentInstructionsExportHtml(context: StudentInstructionsExportCo
   const joinInstruction = hasFirstEncounterStart
     ? `Students join Zoom 15 minutes before their first scheduled encounter. For this schedule, the first encounter begins at ${firstEncounterLabel}; please join by ${joinTimeLabel}.`
     : "Students join Zoom 15 minutes before their first scheduled encounter.";
-  const announcementRows: Array<Pick<RoundAnnouncementItem, "timeLabel" | "badgeLabel" | "message" | "detail">> =
-    announcementItems?.length
-      ? announcementItems
-      : [
-          { timeLabel: "-10 min", badgeLabel: "Arrival", message: "Students join Zoom and enter waiting room." },
-          { timeLabel: "Encounter Start", badgeLabel: "Start", message: "Encounter begins." },
-          { timeLabel: "-1 min", badgeLabel: "Prepare", message: "\"SPs Please Prepare\"" },
-          { timeLabel: "0 min", badgeLabel: "Rooms", message: "Students are sent to Breakout Rooms." },
-          { timeLabel: "+5 min", badgeLabel: "5-Min Warning", message: "\"Students, you have 5 minutes remaining.\"" },
-          { timeLabel: "+10 min", badgeLabel: "Feedback", message: "\"Begin Feedback\"" },
-          { timeLabel: "+15 min", badgeLabel: "Return", message: "\"Students, return to Main Room\"" },
-        ];
   const timingRows: Array<[string, string]> = [
     ["Encounter Time:", encounterLabel],
     ["Feedback Time:", feedbackLabel],
@@ -2057,6 +2288,45 @@ function buildStudentInstructionsExportHtml(context: StudentInstructionsExportCo
   const zoomValueHtml = zoomIsLink
     ? `<a href="${escapeHtml(zoomLink)}">${escapeHtml(zoomLink)}</a>`
     : escapeHtml(zoomLink);
+  const scheduleChunks: StudentInstructionsScheduleRow[][] = [];
+  const scheduleRowsPerSection = 18;
+  for (let index = 0; index < studentScheduleRows.length; index += scheduleRowsPerSection) {
+    scheduleChunks.push(studentScheduleRows.slice(index, index + scheduleRowsPerSection));
+  }
+  const renderScheduleTable = (rows: StudentInstructionsScheduleRow[], sectionIndex: number) => `
+    <section class="student-packet-page-section instructions-section student-schedule-section">
+      <div class="student-schedule-heading">
+        <div>
+          <h3>Student Schedule${sectionIndex > 0 ? " (continued)" : ""}</h3>
+          <p>Please follow the schedule below for your assigned encounter time and breakout room.</p>
+        </div>
+      </div>
+      <table class="student-schedule-table">
+        <thead>
+          <tr>
+            <th>Round</th>
+            <th>Time</th>
+            <th>Breakout Room / Room</th>
+            <th>Student</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows
+            .map(
+              (row) => `
+                <tr>
+                  <td class="student-schedule-round">${escapeHtml(row.roundLabel)}</td>
+                  <td class="student-schedule-time">${escapeHtml(row.timeLabel)}</td>
+                  <td class="student-schedule-room">${escapeHtml(row.roomLabel)}</td>
+                  <td class="student-schedule-student">${escapeHtml(row.studentLabel)}</td>
+                </tr>
+              `
+            )
+            .join("")}
+        </tbody>
+      </table>
+    </section>
+  `;
 
   return `
     <!doctype html>
@@ -2176,7 +2446,7 @@ function buildStudentInstructionsExportHtml(context: StudentInstructionsExportCo
             font-weight: 900;
             line-height: 1.25;
           }
-          .announcement-heading {
+          .student-schedule-heading {
             display: flex;
             justify-content: space-between;
             gap: 12px;
@@ -2184,30 +2454,39 @@ function buildStudentInstructionsExportHtml(context: StudentInstructionsExportCo
             border-bottom: 1px solid #d7e1ea;
             padding-bottom: 8px;
           }
-          .announcement-note {
+          .student-schedule-heading p {
+            margin: 4px 0 0 0;
             color: #60768b;
-            font-size: 11px;
-            font-weight: 800;
-            text-transform: lowercase;
+            font-size: 12px;
+            font-weight: 700;
+            line-height: 1.35;
           }
-          .announcement-table {
+          .student-schedule-section {
+            break-inside: avoid;
+            page-break-inside: avoid;
+          }
+          .student-schedule-table {
             width: 100%;
             border-collapse: collapse;
             background: #ffffff;
             border: 1px solid #d7e1ea;
             border-radius: 8px;
             overflow: hidden;
+            table-layout: fixed;
           }
-          .announcement-table th,
-          .announcement-table td {
+          .student-schedule-table thead { display: table-header-group; }
+          .student-schedule-table th,
+          .student-schedule-table td {
             padding: 8px 10px;
             border-bottom: 1px solid #e7eef4;
             text-align: left;
             vertical-align: top;
             font-size: 12px;
             line-height: 1.35;
+            overflow-wrap: anywhere;
+            word-break: normal;
           }
-          .announcement-table th {
+          .student-schedule-table th {
             background: #f2f6fa;
             color: #60768b;
             font-size: 10px;
@@ -2215,25 +2494,30 @@ function buildStudentInstructionsExportHtml(context: StudentInstructionsExportCo
             letter-spacing: 0.06em;
             text-transform: uppercase;
           }
-          .announcement-table tr:last-child td { border-bottom: none; }
-          .announcement-time {
-            width: 150px;
+          .student-schedule-table tr {
+            break-inside: avoid;
+            page-break-inside: avoid;
+          }
+          .student-schedule-table tr:last-child td { border-bottom: none; }
+          .student-schedule-round {
+            width: 14%;
             color: #14304f;
             font-weight: 900;
             white-space: nowrap;
           }
-          .announcement-phase {
-            width: 140px;
+          .student-schedule-time {
+            width: 22%;
             color: #46627d;
             font-weight: 900;
             white-space: nowrap;
           }
-          .announcement-detail {
-            display: block;
-            margin-top: 3px;
+          .student-schedule-room { width: 28%; color: #29445f; font-weight: 850; }
+          .student-schedule-student { width: 36%; color: #14304f; font-weight: 900; }
+          .student-schedule-empty {
             color: #60768b;
-            font-size: 10.5px;
+            font-size: 12.5px;
             font-weight: 700;
+            line-height: 1.45;
           }
           .student-instructions-footer {
             color: #60768b;
@@ -2249,8 +2533,9 @@ function buildStudentInstructionsExportHtml(context: StudentInstructionsExportCo
             .student-instructions-document { padding: 0; gap: 12px; }
             .instructions-section,
             .timing-item,
-            .announcement-table,
-            .announcement-table tr {
+            .student-packet-page-section,
+            .student-schedule-table,
+            .student-schedule-table tr {
               break-inside: avoid;
               page-break-inside: avoid;
             }
@@ -2269,14 +2554,14 @@ function buildStudentInstructionsExportHtml(context: StudentInstructionsExportCo
               <h2 class="student-instructions-subtitle">Student Instructions:</h2>
             </header>
 
-            <section class="instructions-section">
+            <section class="student-packet-page-section instructions-section">
               <h3>Before Your Encounter</h3>
               <p>${escapeHtml(joinInstruction)}</p>
               <p>Zoom link: ${zoomValueHtml}</p>
               <p>Students are held in the waiting room before staff admit them. All times are Eastern Standard Time.</p>
             </section>
 
-            <section class="instructions-section">
+            <section class="student-packet-page-section instructions-section">
               <h3>Professional Video and Netiquette</h3>
               <ul class="instructions-list">
                 <li>Join from a quiet, private location with a stable internet connection.</li>
@@ -2286,7 +2571,7 @@ function buildStudentInstructionsExportHtml(context: StudentInstructionsExportCo
               </ul>
             </section>
 
-            <section class="instructions-section">
+            <section class="student-packet-page-section instructions-section">
               <h3>Pre-Brief</h3>
               <ul class="instructions-list">
                 <li>Staff review simulation flow and case information in the main room.</li>
@@ -2295,7 +2580,7 @@ function buildStudentInstructionsExportHtml(context: StudentInstructionsExportCo
               </ul>
             </section>
 
-            <section class="instructions-section">
+            <section class="student-packet-page-section instructions-section">
               <h3>Session Timing</h3>
               <div class="timing-grid">
                 ${
@@ -2324,37 +2609,21 @@ function buildStudentInstructionsExportHtml(context: StudentInstructionsExportCo
               </div>
             </section>
 
-            <section class="instructions-section">
-              <div class="announcement-heading">
-                <h3>Announcement Schedule</h3>
-                <div class="announcement-note">times are approximate</div>
-              </div>
-              <table class="announcement-table">
-                <thead>
-                  <tr>
-                    <th>Timing</th>
-                    <th>Phase</th>
-                    <th>Announcement</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${announcementRows
-                    .map(
-                      (row) => `
-                        <tr>
-                          <td class="announcement-time">${escapeHtml(row.timeLabel)}</td>
-                          <td class="announcement-phase">${escapeHtml(row.badgeLabel)}</td>
-                          <td>
-                            ${escapeHtml(row.message)}
-                            ${row.detail ? `<span class="announcement-detail">${escapeHtml(row.detail)}</span>` : ""}
-                          </td>
-                        </tr>
-                      `
-                    )
-                    .join("")}
-                </tbody>
-              </table>
-            </section>
+            ${
+              scheduleChunks.length
+                ? scheduleChunks.map((rows, index) => renderScheduleTable(rows, index)).join("")
+                : `
+                  <section class="student-packet-page-section instructions-section student-schedule-section">
+                    <div class="student-schedule-heading">
+                      <div>
+                        <h3>Student Schedule</h3>
+                        <p>Please follow the schedule below for your assigned encounter time and breakout room.</p>
+                      </div>
+                    </div>
+                    <div class="student-schedule-empty">No student schedule has been generated yet.</div>
+                  </section>
+                `
+            }
 
             <footer class="student-instructions-footer">
               This document is intended for students and includes only learner-facing simulation instructions.
@@ -2461,6 +2730,8 @@ function getScheduleNoteValue(notes: string | null | undefined, labels: string[]
   return "";
 }
 
+const CORRECTED_STUDENT_INSTRUCTIONS_ZOOM_URL = "https://drexel.zoom.us/j/83108006111";
+
 function getZoomLinkFromBuilderEvent(event: EventRow | null) {
   const metadata = parseEventMetadata(event?.notes).training;
   const explicitLink =
@@ -2472,6 +2743,23 @@ function getZoomLinkFromBuilderEvent(event: EventRow | null) {
   const sourceText = [event?.location, event?.notes].map((value) => asText(value)).join("\n");
   const linkMatch = sourceText.match(/https?:\/\/[^\s<>"']*(?:zoom|simiq)[^\s<>"']*/i);
   return linkMatch?.[0]?.replace(/[).,;]+$/, "") || "";
+}
+
+function getStudentInstructionsZoomLinkFromBuilderEvent(event: EventRow | null) {
+  const resolvedLink = getZoomLinkFromBuilderEvent(event);
+  const sourceText = [event?.location, event?.notes].map((value) => asText(value)).join("\n");
+  const correctedMeetingIdPattern = /\b83108006111\b/;
+  const staleDrexelZoomPattern = /https?:\/\/drexel\.zoom\.us\/j\/\d+/i;
+
+  if (correctedMeetingIdPattern.test(resolvedLink) || correctedMeetingIdPattern.test(sourceText)) {
+    return CORRECTED_STUDENT_INSTRUCTIONS_ZOOM_URL;
+  }
+
+  if (staleDrexelZoomPattern.test(resolvedLink) || staleDrexelZoomPattern.test(sourceText)) {
+    return CORRECTED_STUDENT_INSTRUCTIONS_ZOOM_URL;
+  }
+
+  return resolvedLink;
 }
 
 function getLocationAccessFromBuilderEvent(event: EventRow | null) {
@@ -2702,6 +2990,27 @@ function formatRoomName(
 ) {
   const resolvedHint = roomType === "exam" ? "exam" : "flex";
   return getRoomDisplayLabel(roomName, roomNumber, roomContext, resolvedHint);
+}
+
+function buildStudentInstructionsScheduleRows(
+  rounds: ScheduledRound[],
+  roomContext: Parameters<typeof getRoomDisplayLabel>[2]
+) {
+  return rounds.flatMap((round) => {
+    const encounterBlock = round.subBlocks.find((subBlock) => /^encounter$/i.test(asText(subBlock.label)));
+    const timeLabel = encounterBlock ? formatRange(encounterBlock.start, encounterBlock.end) : formatRange(round.start, round.end);
+    return round.roomSlots.flatMap((slot, slotIndex) => {
+      const roomLabel = formatRoomName(slot.roomName, slot.roomType, slotIndex + 1, roomContext);
+      const learners = slot.learnerLabels.length ? slot.learnerLabels : ["No student assigned"];
+      return learners.map((studentLabel, learnerIndex) => ({
+        key: `round-${round.round}-room-${slotIndex}-learner-${learnerIndex}`,
+        roundLabel: `Round ${round.round}`,
+        timeLabel,
+        roomLabel,
+        studentLabel,
+      }));
+    });
+  });
 }
 
 type ScheduleTimingVisibility = "all" | DayBlockVisibility;
@@ -6404,30 +6713,43 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     }
     return studentPreviewRounds[0]?.start ?? generated.rounds[0]?.start ?? null;
   }, [generated.rounds, studentPreviewRounds]);
-  const studentInstructionsAnnouncementItems = useMemo(() => {
-    const firstRound = scheduledRounds[0] || null;
-    if (!firstRound) return [] as RoundAnnouncementItem[];
-    return buildRoundAnnouncementItems(firstRound, scheduledRounds[1] || null, { formatTime: toDisplayTime });
-  }, [scheduledRounds]);
+  const firstStudentEncounterDurationMinutes = useMemo(() => {
+    for (const round of studentPreviewRounds) {
+      const encounterBlock = round.subBlocks.find((subBlock) => /^encounter$/i.test(asText(subBlock.label)));
+      if (encounterBlock) return Math.max(encounterBlock.end - encounterBlock.start, 0);
+    }
+    return parsedEncounter;
+  }, [parsedEncounter, studentPreviewRounds]);
+  const firstFeedbackDurationMinutes = useMemo(() => {
+    for (const round of scheduledRounds) {
+      const feedbackBlock = round.subBlocks.find((subBlock) => /^feedback$/i.test(asText(subBlock.label)));
+      if (feedbackBlock) return Math.max(feedbackBlock.end - feedbackBlock.start, 0);
+    }
+    return parseNumber(feedbackMinutes, parseNumber(DEFAULT_SCHEDULE_BUILDER_DRAFT.feedbackMinutes, 10));
+  }, [feedbackMinutes, scheduledRounds]);
+  const studentInstructionsScheduleRows = useMemo(
+    () => buildStudentInstructionsScheduleRows(studentPreviewRounds, roomNamingContext),
+    [roomNamingContext, studentPreviewRounds]
+  );
   const studentInstructionsPrintHtml = useMemo(
     () =>
       buildStudentInstructionsExportHtml({
         event: selectedEvent,
         programLabel: normalizeDisplayText(selectedEvent?.name) || "PROGRAM",
         dateLabel: selectedScheduleDateLabel,
-        zoomLink: getZoomLinkFromBuilderEvent(selectedEvent),
-        encounterMinutes: parsedEncounter,
-        feedbackMinutes: parseNumber(feedbackMinutes, parseNumber(DEFAULT_SCHEDULE_BUILDER_DRAFT.feedbackMinutes, 10)),
+        zoomLink: getStudentInstructionsZoomLinkFromBuilderEvent(selectedEvent),
+        encounterMinutes: firstStudentEncounterDurationMinutes,
+        feedbackMinutes: firstFeedbackDurationMinutes,
         firstEncounterStartMinutes: firstStudentEncounterStartMinutes,
-        announcementItems: studentInstructionsAnnouncementItems,
+        studentScheduleRows: studentInstructionsScheduleRows,
       }),
     [
-      feedbackMinutes,
+      firstFeedbackDurationMinutes,
       firstStudentEncounterStartMinutes,
-      parsedEncounter,
+      firstStudentEncounterDurationMinutes,
       selectedEvent,
       selectedScheduleDateLabel,
-      studentInstructionsAnnouncementItems,
+      studentInstructionsScheduleRows,
     ]
   );
   const studentInstructionsPdfFileName = useMemo(() => {

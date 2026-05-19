@@ -1556,10 +1556,15 @@ function getEventAttendanceStatusLabel(value: unknown) {
   return "Expected";
 }
 
+function isEventAttendancePresentStatus(value: unknown) {
+  const status = normalizeEventAttendanceStatus(value);
+  return status === "arrived" || status === "in_room" || status === "completed";
+}
+
 function getEventAttendanceStatusColors(value: unknown) {
   const status = asText(value).toLowerCase();
   if (status === "arrived") {
-    return { ring: "#198a70", bg: "rgba(25, 138, 112, 0.14)", text: "#d8f5ed" };
+    return { ring: "#34d399", bg: "rgba(16, 185, 129, 0.26)", text: "#ecfdf5" };
   }
   if (status === "late") {
     return { ring: "#d97706", bg: "rgba(217, 119, 6, 0.13)", text: "#fff1c2" };
@@ -1568,10 +1573,10 @@ function getEventAttendanceStatusColors(value: unknown) {
     return { ring: "#dc2626", bg: "rgba(220, 38, 38, 0.13)", text: "#fee2e2" };
   }
   if (status === "in_room") {
-    return { ring: "#145b96", bg: "rgba(20, 91, 150, 0.13)", text: "#d9ebff" };
+    return { ring: "#2dd4bf", bg: "rgba(20, 184, 166, 0.28)", text: "#f0fdfa" };
   }
   if (status === "completed") {
-    return { ring: "#64748b", bg: "rgba(100, 116, 139, 0.12)", text: "#f1f5f9" };
+    return { ring: "#86efac", bg: "rgba(34, 197, 94, 0.24)", text: "#f7fee7" };
   }
   return { ring: "#8aa3b8", bg: "rgba(232, 244, 255, 0.12)", text: "#eef8ff" };
 }
@@ -1594,27 +1599,36 @@ function getEventAttendanceAvatarPalette(
   selected = false
 ) {
   const statusTone = getEventAttendanceStatusColors(status);
-  const roleAura = role === "sp" ? "rgba(124, 58, 237, 0.24)" : "rgba(20, 91, 150, 0.26)";
+  const present = isEventAttendancePresentStatus(status);
+  const roleAura = present
+    ? role === "sp"
+      ? "rgba(167, 139, 250, 0.34)"
+      : "rgba(45, 212, 191, 0.34)"
+    : role === "sp"
+      ? "rgba(124, 58, 237, 0.24)"
+      : "rgba(20, 91, 150, 0.26)";
   const statusWash =
     status === "expected"
       ? "rgba(99, 181, 217, 0.18)"
       : status === "arrived"
-        ? "rgba(25, 138, 112, 0.34)"
+        ? "rgba(16, 185, 129, 0.68)"
         : status === "late"
           ? "rgba(217, 119, 6, 0.28)"
           : status === "missing"
             ? "rgba(220, 38, 38, 0.28)"
             : status === "in_room"
-              ? "rgba(20, 91, 150, 0.34)"
-              : "rgba(100, 116, 139, 0.24)";
+              ? "rgba(20, 184, 166, 0.68)"
+              : "rgba(34, 197, 94, 0.52)";
   const ringColor = statusTone.ring;
-  const ringGlow = selected ? "0 0 30px" : "0 0 18px";
+  const ringGlow = present ? (selected ? "0 0 38px" : "0 0 26px") : selected ? "0 0 30px" : "0 0 18px";
   return {
     ringColor,
     foreground: statusTone.text,
-    background: `radial-gradient(circle at 50% 18%, rgba(255, 255, 255, 0.96), ${statusWash} 40%, rgba(13, 42, 59, 0.9) 100%)`,
+    background: present
+      ? `radial-gradient(circle at 50% 16%, rgba(255, 255, 255, 0.98), ${statusWash} 36%, rgba(6, 78, 59, 0.96) 100%)`
+      : `radial-gradient(circle at 50% 18%, rgba(255, 255, 255, 0.96), ${statusWash} 40%, rgba(13, 42, 59, 0.9) 100%)`,
     roleAura,
-    ringShadow: `${ringGlow} ${ringColor}99`,
+    ringShadow: `${ringGlow} ${ringColor}${present ? "cc" : "99"}`,
   };
 }
 
@@ -1634,6 +1648,7 @@ function EventAttendanceHologramAvatar({
   const initials = getRoundOperationAvatarLabel(name, role === "sp" ? "sp" : "student");
   const label = asText(name).trim() || (role === "sp" ? "SP" : "Learner");
   const palette = getEventAttendanceAvatarPalette(status, role, selected);
+  const present = isEventAttendancePresentStatus(status);
   const width = compact ? 34 : 42;
   const height = compact ? 42 : 50;
 
@@ -1651,8 +1666,10 @@ function EventAttendanceHologramAvatar({
         isolation: "isolate",
         overflow: "hidden",
         background: palette.background,
-        border: `1px solid ${palette.ringColor}`,
-        boxShadow: `${palette.ringShadow}, inset 0 0 16px rgba(255,255,255,0.22), 0 0 0 1px ${palette.roleAura}`,
+        border: present ? `2px solid ${palette.ringColor}` : `1px solid ${palette.ringColor}`,
+        boxShadow: present
+          ? `${palette.ringShadow}, inset 0 0 18px rgba(236,253,245,0.38), 0 0 0 2px rgba(187,247,208,0.32), 0 0 0 4px ${palette.roleAura}`
+          : `${palette.ringShadow}, inset 0 0 16px rgba(255,255,255,0.22), 0 0 0 1px ${palette.roleAura}`,
         transition: "transform 140ms ease, box-shadow 160ms ease",
         animation: "cfspMatrixAvatarFloat 3.6s ease-in-out infinite",
         flex: "0 0 auto",
@@ -1701,13 +1718,38 @@ function EventAttendanceHologramAvatar({
           position: "absolute",
           bottom: compact ? "5px" : "6px",
           width: compact ? "28px" : "34px",
-          height: "2px",
+          height: present ? "3px" : "2px",
           borderRadius: "999px",
           background: palette.ringColor,
-          opacity: selected ? 0.9 : 0.62,
-          boxShadow: `0 0 10px ${palette.ringColor}`,
+          opacity: present ? 1 : selected ? 0.9 : 0.62,
+          boxShadow: present ? `0 0 18px ${palette.ringColor}` : `0 0 10px ${palette.ringColor}`,
         }}
       />
+      {present ? (
+        <span
+          aria-hidden="true"
+          style={{
+            position: "absolute",
+            top: compact ? "1px" : "2px",
+            right: compact ? "1px" : "2px",
+            zIndex: 3,
+            width: compact ? "15px" : "17px",
+            height: compact ? "15px" : "17px",
+            borderRadius: "999px",
+            display: "grid",
+            placeItems: "center",
+            background: "linear-gradient(135deg, #dcfce7, #34d399)",
+            border: "1px solid rgba(236, 253, 245, 0.96)",
+            color: "#052e16",
+            fontSize: compact ? "10px" : "11px",
+            fontWeight: 950,
+            lineHeight: 1,
+            boxShadow: "0 0 14px rgba(52, 211, 153, 0.82), 0 2px 8px rgba(2, 6, 23, 0.32)",
+          }}
+        >
+          ✓
+        </span>
+      ) : null}
       <span
         style={{
           position: "relative",
@@ -24750,6 +24792,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       const learnerTokens = eventAttendanceLearnerPresenceTokens.filter((token) => token.roomKey === room.key);
                       const spToken = eventAttendanceSpTokens.find((token) => token.assignment.id === room.assignment?.id);
                       const spStatus = normalizeEventAttendanceStatus(spToken?.status || "expected");
+                      const spPresent = isEventAttendancePresentStatus(spStatus);
                       const spSaving = spToken ? Boolean(attendanceSavingKeys[`sp:${spToken.assignment.id}`]) : false;
                       return (
                         <div
@@ -24809,6 +24852,15 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                   alignItems: "center",
                                   gap: "6px",
                                   opacity: spSaving ? 0.65 : 1,
+                                  borderRadius: "999px",
+                                  padding: spPresent ? "3px 8px 3px 4px" : "0",
+                                  border: spPresent ? "1px solid rgba(52, 211, 153, 0.74)" : "1px solid transparent",
+                                  background: spPresent
+                                    ? "linear-gradient(135deg, rgba(6, 95, 70, 0.86), rgba(20, 184, 166, 0.34))"
+                                    : "transparent",
+                                  boxShadow: spPresent
+                                    ? "0 0 22px rgba(52, 211, 153, 0.34), inset 0 0 0 1px rgba(236, 253, 245, 0.12)"
+                                    : "none",
                                 }}
                               >
                                 <EventAttendanceHologramAvatar
@@ -24817,7 +24869,12 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                   status={spStatus}
                                   selected={activeEventAttendanceKey === spToken.key}
                                 />
-                                <span style={{ color: "#ecfeff", fontSize: "10px", fontWeight: 900 }}>{room.spName || "SP TBD"}</span>
+                                <span style={{ display: "grid", gap: "1px", minWidth: 0 }}>
+                                  <span style={{ color: spPresent ? "#ecfdf5" : "#ecfeff", fontSize: "10px", fontWeight: 950, textShadow: spPresent ? "0 0 10px rgba(52, 211, 153, 0.45)" : "none" }}>{room.spName || "SP TBD"}</span>
+                                  {spPresent ? (
+                                    <span style={{ color: "#bbf7d0", fontSize: "8px", fontWeight: 950, letterSpacing: "0.06em", textTransform: "uppercase" }}>✓ Present</span>
+                                  ) : null}
+                                </span>
                               </button>
                             ) : (
                               <>
@@ -24829,6 +24886,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                             {learnerTokens.length ? learnerTokens.map((token) => {
                               const tokenStatus = normalizeEventAttendanceStatus(token.status);
+                              const tokenPresent = isEventAttendancePresentStatus(tokenStatus);
                               const tokenSaving = Boolean(attendanceSavingKeys[`learner:${token.attendanceKey}`]);
                               return (
                                 <button
@@ -24848,9 +24906,11 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                   }}
                                   disabled={tokenSaving}
                                   style={{
-                                    border: "1px solid rgba(125, 211, 252, 0.22)",
-                                    background: "rgba(15, 23, 42, 0.5)",
-                                    color: "#d6fff8",
+                                    border: tokenPresent ? "1px solid rgba(52, 211, 153, 0.78)" : "1px solid rgba(125, 211, 252, 0.22)",
+                                    background: tokenPresent
+                                      ? "linear-gradient(135deg, rgba(6, 95, 70, 0.9), rgba(20, 184, 166, 0.3))"
+                                      : "rgba(15, 23, 42, 0.5)",
+                                    color: tokenPresent ? "#ecfdf5" : "#d6fff8",
                                     borderRadius: "999px",
                                     padding: "2px 7px 2px 3px",
                                     display: "inline-flex",
@@ -24858,9 +24918,11 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                     gap: "6px",
                                     cursor: tokenSaving ? "progress" : "pointer",
                                     fontSize: "10px",
-                                    fontWeight: 850,
+                                    fontWeight: tokenPresent ? 950 : 850,
                                     opacity: tokenSaving ? 0.6 : 1,
-                                    boxShadow: activeEventAttendanceKey === token.key ? "0 0 16px rgba(34, 211, 238, 0.25)" : "none",
+                                    boxShadow: tokenPresent
+                                      ? "0 0 20px rgba(52, 211, 153, 0.34), inset 0 0 0 1px rgba(236, 253, 245, 0.1)"
+                                      : activeEventAttendanceKey === token.key ? "0 0 16px rgba(34, 211, 238, 0.25)" : "none",
                                   }}
                                 >
                                   <EventAttendanceHologramAvatar
@@ -24870,7 +24932,12 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                     selected={activeEventAttendanceKey === token.key}
                                     compact
                                   />
-                                  <span style={{ maxWidth: "110px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{token.learnerName}</span>
+                                  <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", minWidth: 0 }}>
+                                    <span style={{ maxWidth: tokenPresent ? "92px" : "110px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{token.learnerName}</span>
+                                    {tokenPresent ? (
+                                      <span style={{ color: "#bbf7d0", fontSize: "8px", fontWeight: 950, letterSpacing: "0.04em", textTransform: "uppercase", whiteSpace: "nowrap" }}>✓ Present</span>
+                                    ) : null}
+                                  </span>
                                 </button>
                               );
                             }) : (
@@ -24915,9 +24982,25 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               const colors = getEventAttendanceStatusColors(token.status);
               const isActive = activeEventAttendanceKey === token.key;
               const tokenStatus = normalizeEventAttendanceStatus(token.status);
+              const tokenPresent = isEventAttendancePresentStatus(tokenStatus);
               const tokenSaving = Boolean(attendanceSavingKeys[`sp:${token.assignment.id}`]);
               return (
-                <div key={token.key} style={{ borderRadius: "11px", border: `1px solid ${colors.ring}55`, background: colors.bg, padding: "6px", display: "grid", gap: "6px" }}>
+                <div
+                  key={token.key}
+                  style={{
+                    borderRadius: "11px",
+                    border: tokenPresent ? `1px solid ${colors.ring}` : `1px solid ${colors.ring}55`,
+                    background: tokenPresent
+                      ? "linear-gradient(135deg, rgba(6, 95, 70, 0.82), rgba(20, 184, 166, 0.22))"
+                      : colors.bg,
+                    padding: "6px",
+                    display: "grid",
+                    gap: "6px",
+                    boxShadow: tokenPresent
+                      ? `0 0 22px ${colors.ring}55, inset 0 0 0 1px rgba(236, 253, 245, 0.12)`
+                      : "none",
+                  }}
+                >
                   <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", alignItems: "center" }}>
                     <button
                       type="button"
@@ -24938,9 +25021,10 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         selected={isActive}
                       />
                       <span style={{ display: "grid", gap: "2px", minWidth: 0 }}>
-                        <span style={{ color: commandCenterVisual.textColor, fontSize: "12px", fontWeight: 950, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{token.name}</span>
-                        <span style={{ color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 800 }}>
+                        <span style={{ color: tokenPresent ? "#ecfdf5" : commandCenterVisual.textColor, fontSize: "12px", fontWeight: 950, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{token.name}</span>
+                        <span style={{ color: tokenPresent ? "#bbf7d0" : commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: tokenPresent ? 950 : 800 }}>
                           {token.roomName || "Room pending"} · {getEventAttendanceStatusLabel(token.status)}
+                          {tokenPresent ? " ✓" : ""}
                         </span>
                       </span>
                     </button>
@@ -25000,9 +25084,25 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               const colors = getEventAttendanceStatusColors(token.status);
               const isActive = activeEventAttendanceKey === token.key;
               const tokenStatus = normalizeEventAttendanceStatus(token.status);
+              const tokenPresent = isEventAttendancePresentStatus(tokenStatus);
               const tokenSaving = Boolean(attendanceSavingKeys[`learner:${token.attendanceKey}`]);
               return (
-                <div key={`event-attendance-${token.key}`} style={{ borderRadius: "11px", border: `1px solid ${colors.ring}55`, background: colors.bg, padding: "6px", display: "grid", gap: "6px" }}>
+                <div
+                  key={`event-attendance-${token.key}`}
+                  style={{
+                    borderRadius: "11px",
+                    border: tokenPresent ? `1px solid ${colors.ring}` : `1px solid ${colors.ring}55`,
+                    background: tokenPresent
+                      ? "linear-gradient(135deg, rgba(6, 95, 70, 0.82), rgba(20, 184, 166, 0.22))"
+                      : colors.bg,
+                    padding: "6px",
+                    display: "grid",
+                    gap: "6px",
+                    boxShadow: tokenPresent
+                      ? `0 0 22px ${colors.ring}55, inset 0 0 0 1px rgba(236, 253, 245, 0.12)`
+                      : "none",
+                  }}
+                >
                   <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", alignItems: "center" }}>
                     <button
                       type="button"
@@ -25023,9 +25123,10 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         selected={isActive}
                       />
                       <span style={{ display: "grid", gap: "2px", minWidth: 0 }}>
-                        <span style={{ color: commandCenterVisual.textColor, fontSize: "12px", fontWeight: 950, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{token.learnerName}</span>
-                        <span style={{ color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 800 }}>
+                        <span style={{ color: tokenPresent ? "#ecfdf5" : commandCenterVisual.textColor, fontSize: "12px", fontWeight: 950, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{token.learnerName}</span>
+                        <span style={{ color: tokenPresent ? "#bbf7d0" : commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: tokenPresent ? 950 : 800 }}>
                           {token.roomName || "Room pending"} · {getEventAttendanceStatusLabel(token.status)}
+                          {tokenPresent ? " ✓" : ""}
                         </span>
                       </span>
                     </button>
