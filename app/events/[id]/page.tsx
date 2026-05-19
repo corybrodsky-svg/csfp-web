@@ -1597,21 +1597,21 @@ function isEventAttendancePresentStatus(value: unknown) {
 function getEventAttendanceStatusColors(value: unknown) {
   const status = asText(value).toLowerCase();
   if (status === "arrived") {
-    return { ring: "#34d399", bg: "rgba(16, 185, 129, 0.26)", text: "#ecfdf5" };
+    return { ring: "#059669", bg: "rgba(16, 185, 129, 0.16)", text: "#064e3b" };
   }
   if (status === "late") {
-    return { ring: "#d97706", bg: "rgba(217, 119, 6, 0.13)", text: "#fff1c2" };
+    return { ring: "#b45309", bg: "rgba(245, 158, 11, 0.16)", text: "#7c2d12" };
   }
   if (status === "missing" || status === "absent") {
-    return { ring: "#dc2626", bg: "rgba(220, 38, 38, 0.13)", text: "#fee2e2" };
+    return { ring: "#dc2626", bg: "rgba(248, 113, 113, 0.16)", text: "#7f1d1d" };
   }
   if (status === "in_room") {
-    return { ring: "#2dd4bf", bg: "rgba(20, 184, 166, 0.28)", text: "#f0fdfa" };
+    return { ring: "#0f766e", bg: "rgba(20, 184, 166, 0.16)", text: "#134e4a" };
   }
   if (status === "completed") {
-    return { ring: "#86efac", bg: "rgba(34, 197, 94, 0.24)", text: "#f7fee7" };
+    return { ring: "#16a34a", bg: "rgba(34, 197, 94, 0.16)", text: "#14532d" };
   }
-  return { ring: "#8aa3b8", bg: "rgba(232, 244, 255, 0.12)", text: "#eef8ff" };
+  return { ring: "#7aa3c2", bg: "rgba(232, 244, 255, 0.82)", text: "#12324d" };
 }
 
 function normalizeEventAttendanceStatus(value: unknown): EventAttendanceFilter {
@@ -1635,31 +1635,31 @@ function getEventAttendanceAvatarPalette(
   const present = isEventAttendancePresentStatus(status);
   const roleAura = present
     ? role === "sp"
-      ? "rgba(167, 139, 250, 0.34)"
-      : "rgba(45, 212, 191, 0.34)"
+      ? "rgba(59, 130, 246, 0.2)"
+      : "rgba(16, 185, 129, 0.24)"
     : role === "sp"
-      ? "rgba(124, 58, 237, 0.24)"
-      : "rgba(20, 91, 150, 0.26)";
+      ? "rgba(96, 165, 250, 0.2)"
+      : "rgba(20, 91, 150, 0.22)";
   const statusWash =
     status === "expected"
-      ? "rgba(99, 181, 217, 0.18)"
+      ? "rgba(191, 219, 254, 0.64)"
       : status === "arrived"
-        ? "rgba(16, 185, 129, 0.68)"
+        ? "rgba(16, 185, 129, 0.42)"
         : status === "late"
-          ? "rgba(217, 119, 6, 0.28)"
+          ? "rgba(245, 158, 11, 0.32)"
           : status === "missing"
-            ? "rgba(220, 38, 38, 0.28)"
+            ? "rgba(248, 113, 113, 0.34)"
             : status === "in_room"
-              ? "rgba(20, 184, 166, 0.68)"
-              : "rgba(34, 197, 94, 0.52)";
+              ? "rgba(20, 184, 166, 0.42)"
+              : "rgba(34, 197, 94, 0.36)";
   const ringColor = statusTone.ring;
-  const ringGlow = present ? (selected ? "0 0 38px" : "0 0 26px") : selected ? "0 0 30px" : "0 0 18px";
+  const ringGlow = present ? (selected ? "0 0 20px" : "0 0 14px") : selected ? "0 0 14px" : "0 0 8px";
   return {
     ringColor,
     foreground: statusTone.text,
     background: present
-      ? `radial-gradient(circle at 50% 16%, rgba(255, 255, 255, 0.98), ${statusWash} 36%, rgba(6, 78, 59, 0.96) 100%)`
-      : `radial-gradient(circle at 50% 18%, rgba(255, 255, 255, 0.96), ${statusWash} 40%, rgba(13, 42, 59, 0.9) 100%)`,
+      ? `radial-gradient(circle at 50% 16%, rgba(255, 255, 255, 0.99), ${statusWash} 40%, rgba(226, 252, 244, 0.98) 100%)`
+      : `radial-gradient(circle at 50% 18%, rgba(255, 255, 255, 0.98), ${statusWash} 44%, rgba(240, 249, 255, 0.95) 100%)`,
     roleAura,
     ringShadow: `${ringGlow} ${ringColor}${present ? "cc" : "99"}`,
   };
@@ -1701,8 +1701,8 @@ function EventAttendanceHologramAvatar({
         background: palette.background,
         border: present ? `2px solid ${palette.ringColor}` : `1px solid ${palette.ringColor}`,
         boxShadow: present
-          ? `${palette.ringShadow}, inset 0 0 18px rgba(236,253,245,0.38), 0 0 0 2px rgba(187,247,208,0.32), 0 0 0 4px ${palette.roleAura}`
-          : `${palette.ringShadow}, inset 0 0 16px rgba(255,255,255,0.22), 0 0 0 1px ${palette.roleAura}`,
+          ? `${palette.ringShadow}, inset 0 0 14px rgba(236,253,245,0.42), 0 0 0 1px rgba(187,247,208,0.4), 0 0 0 3px ${palette.roleAura}`
+          : `${palette.ringShadow}, inset 0 0 10px rgba(255,255,255,0.5), 0 0 0 1px ${palette.roleAura}`,
         transition: "transform 140ms ease, box-shadow 160ms ease",
         animation: "cfspMatrixAvatarFloat 3.6s ease-in-out infinite",
         flex: "0 0 auto",
@@ -1715,9 +1715,9 @@ function EventAttendanceHologramAvatar({
           inset: "4px",
           borderRadius: "15px",
           background:
-            "linear-gradient(180deg, rgba(255,255,255,0.16), transparent 38%), repeating-linear-gradient(180deg, rgba(126,231,219,0.18) 0 1px, transparent 1px 5px)",
-          opacity: 0.72,
-          mixBlendMode: "screen",
+            "linear-gradient(180deg, rgba(255,255,255,0.4), transparent 40%), repeating-linear-gradient(180deg, rgba(20, 91, 150, 0.09) 0 1px, transparent 1px 5px)",
+          opacity: 0.7,
+          mixBlendMode: "normal",
         }}
       />
       <span
@@ -1792,7 +1792,7 @@ function EventAttendanceHologramAvatar({
           fontWeight: 900,
           letterSpacing: "0",
           transform: compact ? "translateY(8px)" : "translateY(10px)",
-          textShadow: "0 0 8px rgba(15, 23, 42, 0.45)",
+          textShadow: "0 1px 2px rgba(255, 255, 255, 0.45)",
         }}
       >
         {initials}
@@ -25170,10 +25170,10 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
   <section
     style={{
       borderRadius: "20px",
-      border: "1px solid rgba(126, 231, 219, 0.28)",
+      border: "1px solid rgba(99, 181, 217, 0.24)",
       background:
-        "radial-gradient(circle at 10% 8%, rgba(34, 211, 238, 0.18), transparent 30%), radial-gradient(circle at 92% 0%, rgba(25, 138, 112, 0.18), transparent 34%), linear-gradient(135deg, rgba(3, 13, 24, 0.98) 0%, rgba(6, 31, 45, 0.96) 48%, rgba(5, 51, 47, 0.9) 100%)",
-      boxShadow: "inset 0 1px 0 rgba(255,255,255,0.08), 0 18px 48px rgba(2, 6, 23, 0.22)",
+        "radial-gradient(circle at 10% 8%, rgba(125, 211, 252, 0.2), transparent 34%), radial-gradient(circle at 92% 0%, rgba(45, 212, 191, 0.16), transparent 34%), linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(240, 249, 255, 0.96) 52%, rgba(236, 253, 245, 0.94) 100%)",
+      boxShadow: "inset 0 1px 0 rgba(255,255,255,0.86), 0 18px 44px rgba(20, 65, 95, 0.12)",
       padding: "14px",
       display: "grid",
       gap: "12px",
@@ -25186,8 +25186,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     <section
       style={{
         borderRadius: "16px",
-        border: "1px solid rgba(126, 231, 219, 0.2)",
-        background: "linear-gradient(135deg, rgba(8, 25, 43, 0.68), rgba(5, 45, 47, 0.48))",
+        border: "1px solid rgba(99, 181, 217, 0.2)",
+        background: "linear-gradient(135deg, rgba(255,255,255,0.96), rgba(232, 246, 250, 0.82))",
         padding: "11px",
         display: "grid",
         gap: "10px",
@@ -25195,17 +25195,17 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     >
       <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "flex-start" }}>
         <div>
-          <div style={{ ...statLabel, color: "rgba(186, 230, 253, 0.84)" }}>Event Day Attendance</div>
-          <div style={{ marginTop: "4px", color: "#e6fffb", fontSize: "20px", fontWeight: 950 }}>Event Attendance</div>
+          <div style={{ ...statLabel, color: "#12617f" }}>Event Day Attendance</div>
+          <div style={{ marginTop: "4px", color: "#102d44", fontSize: "20px", fontWeight: 950 }}>Event Attendance</div>
           <div style={{ marginTop: "3px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 750 }}>
             Selected-round check-in board for SPs, learners, and room occupancy.
           </div>
         </div>
         <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
-          <span style={{ ...commandChipStyle, background: "rgba(6, 182, 212, 0.16)", color: "#cffafe", border: "1px solid rgba(34, 211, 238, 0.24)" }}>
+          <span style={{ ...commandChipStyle, background: "rgba(191, 219, 254, 0.52)", color: "#1e40af", border: "1px solid rgba(20, 91, 150, 0.24)" }}>
             {selectedRotationRound ? `Round ${activeSelectedRotationRoundIndex + 1}` : "Round TBD"}
           </span>
-          <span style={{ ...commandChipStyle, background: "rgba(15, 118, 110, 0.18)", color: "#d6fff8", border: "1px solid rgba(126, 231, 219, 0.22)" }}>
+          <span style={{ ...commandChipStyle, background: "rgba(209, 250, 229, 0.6)", color: "#065f46", border: "1px solid rgba(25, 138, 112, 0.24)" }}>
             {eventAttendanceRoomCards.length} rooms
           </span>
         </div>
@@ -25228,18 +25228,18 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   ? "1px solid rgba(248, 113, 113, 0.28)"
                   : metric.tone === "warning"
                     ? "1px solid rgba(245, 158, 11, 0.26)"
-                    : "1px solid rgba(126, 231, 219, 0.16)",
+                    : "1px solid rgba(99, 181, 217, 0.18)",
               background:
                 metric.tone === "alert"
-                  ? "rgba(248, 113, 113, 0.12)"
+                  ? "rgba(254, 226, 226, 0.82)"
                   : metric.tone === "warning"
-                    ? "rgba(245, 158, 11, 0.12)"
-                    : "rgba(15, 23, 42, 0.36)",
+                    ? "rgba(254, 243, 199, 0.8)"
+                    : "rgba(255, 255, 255, 0.86)",
               padding: "7px 8px",
             }}
           >
-            <div style={{ color: "rgba(226, 250, 247, 0.58)", fontSize: "9px", fontWeight: 850, textTransform: "uppercase", letterSpacing: "0.06em" }}>{metric.label}</div>
-            <div style={{ marginTop: "3px", color: "#ecfeff", fontSize: "15px", fontWeight: 950 }}>{metric.value}</div>
+            <div style={{ color: "#5b7a91", fontSize: "9px", fontWeight: 850, textTransform: "uppercase", letterSpacing: "0.06em" }}>{metric.label}</div>
+            <div style={{ marginTop: "3px", color: "#102d44", fontSize: "15px", fontWeight: 950 }}>{metric.value}</div>
           </div>
         ))}
       </div>
@@ -25266,16 +25266,16 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   padding: "5px 8px",
                   fontSize: "10px",
                   borderRadius: "999px",
-                  background: selected ? "rgba(20, 184, 166, 0.26)" : "rgba(15, 23, 42, 0.32)",
-                  color: selected ? "#d6fff8" : "rgba(226, 250, 247, 0.74)",
-                  border: selected ? "1px solid rgba(126, 231, 219, 0.34)" : "1px solid rgba(126, 231, 219, 0.12)",
+                  background: selected ? "rgba(16, 185, 129, 0.2)" : "rgba(255, 255, 255, 0.82)",
+                  color: selected ? "#065f46" : "#3b556b",
+                  border: selected ? "1px solid rgba(25, 138, 112, 0.34)" : "1px solid rgba(99, 181, 217, 0.18)",
                 }}
               >
                 {filterOption.label}
               </button>
             );
           })}
-          <span style={{ color: "rgba(226, 250, 247, 0.58)", fontSize: "10px", fontWeight: 800 }}>
+          <span style={{ color: "#5b7a91", fontSize: "10px", fontWeight: 800 }}>
             {visibleEventAttendanceSpTokens.length} SPs · {visibleEventAttendanceLearnerTokens.length} learners
           </span>
         </div>
@@ -25299,9 +25299,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         <div
           style={{
             borderRadius: "10px",
-            border: attendanceError ? "1px solid rgba(248, 113, 113, 0.26)" : "1px solid rgba(126, 231, 219, 0.24)",
-            background: attendanceError ? "rgba(248, 113, 113, 0.1)" : "rgba(20, 184, 166, 0.1)",
-            color: attendanceError ? "#fecaca" : "#ccfbf1",
+            border: attendanceError ? "1px solid rgba(248, 113, 113, 0.26)" : "1px solid rgba(25, 138, 112, 0.22)",
+            background: attendanceError ? "rgba(254, 226, 226, 0.88)" : "rgba(236, 253, 245, 0.92)",
+            color: attendanceError ? "#7f1d1d" : "#065f46",
             padding: "8px 9px",
             fontSize: "12px",
             fontWeight: 850,
@@ -25315,10 +25315,10 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     <section
       style={{
         borderRadius: "18px",
-        border: "1px solid rgba(126, 231, 219, 0.28)",
+        border: "1px solid rgba(99, 181, 217, 0.24)",
         background:
-          "radial-gradient(circle at 12% 0%, rgba(34, 211, 238, 0.14), transparent 34%), linear-gradient(140deg, rgba(6, 21, 35, 0.82), rgba(5, 39, 44, 0.78))",
-        boxShadow: "inset 0 1px 0 rgba(255,255,255,0.08), 0 16px 36px rgba(2, 6, 23, 0.2)",
+          "radial-gradient(circle at 12% 0%, rgba(125, 211, 252, 0.14), transparent 34%), linear-gradient(140deg, rgba(255, 255, 255, 0.95), rgba(236, 253, 245, 0.84))",
+        boxShadow: "inset 0 1px 0 rgba(255,255,255,0.9), 0 14px 30px rgba(20, 65, 95, 0.1)",
         padding: "11px",
         display: "grid",
         gap: "10px",
@@ -25327,11 +25327,11 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
         <div>
           <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Room Attendance Map</div>
-          <div style={{ marginTop: "3px", color: "#e6fffb", fontSize: "13px", fontWeight: 900 }}>
+          <div style={{ marginTop: "3px", color: "#102d44", fontSize: "13px", fontWeight: 900 }}>
             Blueprint occupancy command map
           </div>
         </div>
-        <span style={{ ...commandChipStyle, background: "rgba(15, 118, 110, 0.2)", color: "#d6fff8", border: "1px solid rgba(126, 231, 219, 0.24)" }}>
+        <span style={{ ...commandChipStyle, background: "rgba(209, 250, 229, 0.6)", color: "#065f46", border: "1px solid rgba(25, 138, 112, 0.24)" }}>
           {eventAttendanceRoomCards.length} rooms visible
         </span>
       </div>
@@ -25340,9 +25340,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           style={{
             position: "relative",
             borderRadius: "14px",
-            border: "1px solid rgba(126, 231, 219, 0.2)",
+            border: "1px solid rgba(99, 181, 217, 0.2)",
             background:
-              "linear-gradient(rgba(126, 231, 219, 0.045) 1px, transparent 1px), linear-gradient(90deg, rgba(126, 231, 219, 0.045) 1px, transparent 1px), rgba(2, 16, 28, 0.52)",
+              "linear-gradient(rgba(99, 181, 217, 0.08) 1px, transparent 1px), linear-gradient(90deg, rgba(99, 181, 217, 0.08) 1px, transparent 1px), linear-gradient(140deg, rgba(250, 253, 255, 0.95), rgba(240, 249, 255, 0.88))",
             backgroundSize: "22px 22px, 22px 22px, auto",
             padding: "10px",
             overflow: "hidden",
@@ -25354,7 +25354,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               position: "absolute",
               inset: "12px 10px",
               borderRadius: "12px",
-              border: "1px dashed rgba(34, 211, 238, 0.14)",
+              border: "1px dashed rgba(99, 181, 217, 0.26)",
               pointerEvents: "none",
             }}
           />
@@ -25369,7 +25369,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", alignItems: "center" }}>
                     <span
                       style={{
-                        color: "rgba(186, 230, 253, 0.86)",
+                        color: "#3f6c89",
                         fontSize: "10px",
                         fontWeight: 900,
                         letterSpacing: "0.09em",
@@ -25378,7 +25378,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     >
                       {wall.label}
                     </span>
-                    <span style={{ height: "1px", flex: 1, background: "linear-gradient(90deg, rgba(34, 211, 238, 0.32), transparent)" }} />
+                    <span style={{ height: "1px", flex: 1, background: "linear-gradient(90deg, rgba(59, 130, 246, 0.24), transparent)" }} />
                   </div>
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(188px, 1fr))", gap: "8px" }}>
                     {wall.rooms.map((room) => {
@@ -25393,27 +25393,27 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           style={{
                             borderRadius: "12px",
                             border: room.isCurrentRotationRoom
-                              ? "1px solid rgba(34, 211, 238, 0.5)"
-                              : "1px solid rgba(126, 231, 219, 0.22)",
+                              ? "1px solid rgba(20, 91, 150, 0.36)"
+                              : "1px solid rgba(99, 181, 217, 0.2)",
                             background: room.isCurrentRotationRoom
-                              ? "linear-gradient(135deg, rgba(8, 145, 178, 0.28), rgba(20, 184, 166, 0.16))"
-                              : "linear-gradient(135deg, rgba(15, 23, 42, 0.66), rgba(5, 33, 42, 0.52))",
+                              ? "linear-gradient(135deg, rgba(219, 234, 254, 0.94), rgba(209, 250, 229, 0.86))"
+                              : "linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(240, 249, 255, 0.86))",
                             padding: "8px",
                             display: "grid",
                             gap: "7px",
-                            boxShadow: room.isCurrentRotationRoom ? "0 0 20px rgba(6, 182, 212, 0.16)" : "none",
+                            boxShadow: room.isCurrentRotationRoom ? "0 8px 22px rgba(20, 91, 150, 0.12)" : "0 4px 12px rgba(20, 91, 150, 0.06)",
                           }}
                         >
                           <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", alignItems: "flex-start" }}>
                             <div>
                               <div style={{ color: commandCenterVisual.textColor, fontSize: "12px", fontWeight: 950 }}>{room.roomName}</div>
-                              <div style={{ marginTop: "2px", color: "rgba(226,250,247,0.62)", fontSize: "10px", fontWeight: 800 }}>{room.encounterLabel || "Case pending"}</div>
+                              <div style={{ marginTop: "2px", color: "#5b7a91", fontSize: "10px", fontWeight: 800 }}>{room.encounterLabel || "Case pending"}</div>
                             </div>
                             <span
                               style={{
                                 ...commandChipStyle,
-                                background: room.isCurrentRotationRoom ? "rgba(6, 182, 212, 0.2)" : "rgba(20, 184, 166, 0.14)",
-                                color: room.isCurrentRotationRoom ? "#cffafe" : "#ccfbf1",
+                                background: room.isCurrentRotationRoom ? "rgba(191, 219, 254, 0.72)" : "rgba(236, 253, 245, 0.82)",
+                                color: room.isCurrentRotationRoom ? "#1e3a8a" : "#065f46",
                                 fontSize: "9px",
                                 padding: "3px 7px",
                               }}
@@ -25447,12 +25447,12 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                   opacity: spSaving ? 0.65 : 1,
                                   borderRadius: "999px",
                                   padding: spPresent ? "3px 8px 3px 4px" : "0",
-                                  border: spPresent ? "1px solid rgba(52, 211, 153, 0.74)" : "1px solid transparent",
+                                  border: spPresent ? "1px solid rgba(25, 138, 112, 0.5)" : "1px solid transparent",
                                   background: spPresent
-                                    ? "linear-gradient(135deg, rgba(6, 95, 70, 0.86), rgba(20, 184, 166, 0.34))"
+                                    ? "linear-gradient(135deg, rgba(209, 250, 229, 0.9), rgba(167, 243, 208, 0.82))"
                                     : "transparent",
                                   boxShadow: spPresent
-                                    ? "0 0 22px rgba(52, 211, 153, 0.34), inset 0 0 0 1px rgba(236, 253, 245, 0.12)"
+                                    ? "0 0 14px rgba(16, 185, 129, 0.28), inset 0 0 0 1px rgba(255, 255, 255, 0.8)"
                                     : "none",
                                 }}
                               >
@@ -25463,9 +25463,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                   selected={activeEventAttendanceKey === spToken.key}
                                 />
                                 <span style={{ display: "grid", gap: "1px", minWidth: 0 }}>
-                                  <span style={{ color: spPresent ? "#ecfdf5" : "#ecfeff", fontSize: "10px", fontWeight: 950, textShadow: spPresent ? "0 0 10px rgba(52, 211, 153, 0.45)" : "none" }}>{room.spName || "SP TBD"}</span>
+                                  <span style={{ color: spPresent ? "#065f46" : "#102d44", fontSize: "10px", fontWeight: 950 }}>{room.spName || "SP TBD"}</span>
                                   {spPresent ? (
-                                    <span style={{ color: "#bbf7d0", fontSize: "8px", fontWeight: 950, letterSpacing: "0.06em", textTransform: "uppercase" }}>✓ Present</span>
+                                    <span style={{ color: "#047857", fontSize: "8px", fontWeight: 950, letterSpacing: "0.06em", textTransform: "uppercase" }}>✓ Present</span>
                                   ) : null}
                                 </span>
                               </button>
@@ -25501,9 +25501,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                   style={{
                                     border: tokenPresent ? "1px solid rgba(52, 211, 153, 0.78)" : "1px solid rgba(125, 211, 252, 0.22)",
                                     background: tokenPresent
-                                      ? "linear-gradient(135deg, rgba(6, 95, 70, 0.9), rgba(20, 184, 166, 0.3))"
-                                      : "rgba(15, 23, 42, 0.5)",
-                                    color: tokenPresent ? "#ecfdf5" : "#d6fff8",
+                                      ? "linear-gradient(135deg, rgba(209, 250, 229, 0.92), rgba(167, 243, 208, 0.84))"
+                                      : "rgba(255, 255, 255, 0.92)",
+                                    color: tokenPresent ? "#065f46" : "#12324d",
                                     borderRadius: "999px",
                                     padding: "2px 7px 2px 3px",
                                     display: "inline-flex",
@@ -25514,8 +25514,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                     fontWeight: tokenPresent ? 950 : 850,
                                     opacity: tokenSaving ? 0.6 : 1,
                                     boxShadow: tokenPresent
-                                      ? "0 0 20px rgba(52, 211, 153, 0.34), inset 0 0 0 1px rgba(236, 253, 245, 0.1)"
-                                      : activeEventAttendanceKey === token.key ? "0 0 16px rgba(34, 211, 238, 0.25)" : "none",
+                                      ? "0 0 14px rgba(16, 185, 129, 0.28), inset 0 0 0 1px rgba(255, 255, 255, 0.75)"
+                                      : activeEventAttendanceKey === token.key ? "0 0 12px rgba(59, 130, 246, 0.22)" : "none",
                                   }}
                                 >
                                   <EventAttendanceHologramAvatar
@@ -25528,20 +25528,20 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                   <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", minWidth: 0 }}>
                                     <span style={{ maxWidth: tokenPresent ? "92px" : "110px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{token.learnerName}</span>
                                     {tokenPresent ? (
-                                      <span style={{ color: "#bbf7d0", fontSize: "8px", fontWeight: 950, letterSpacing: "0.04em", textTransform: "uppercase", whiteSpace: "nowrap" }}>✓ Present</span>
+                                      <span style={{ color: "#047857", fontSize: "8px", fontWeight: 950, letterSpacing: "0.04em", textTransform: "uppercase", whiteSpace: "nowrap" }}>✓ Present</span>
                                     ) : null}
                                   </span>
                                 </button>
                               );
                             }) : (
-                              <span style={{ color: "rgba(226, 250, 247, 0.68)", fontSize: "11px", fontWeight: 800 }}>No learner assigned</span>
+                              <span style={{ color: "#5b7a91", fontSize: "11px", fontWeight: 800 }}>No learner assigned</span>
                             )}
                           </div>
                           <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", alignItems: "center" }}>
-                            <span style={{ color: "rgba(186,230,253,0.72)", fontSize: "10px", fontWeight: 800 }}>
+                            <span style={{ color: "#5b7a91", fontSize: "10px", fontWeight: 800 }}>
                               {learnerTokens.length} learner{learnerTokens.length === 1 ? "" : "s"} in room
                             </span>
-                            <span style={{ color: "rgba(125, 211, 252, 0.8)", fontSize: "9px", fontWeight: 800, letterSpacing: "0.06em" }}>
+                            <span style={{ color: "#3b82f6", fontSize: "9px", fontWeight: 800, letterSpacing: "0.06em" }}>
                               ROOM POD
                             </span>
                           </div>
@@ -25551,10 +25551,10 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   </div>
                   {wallIndex === 0 && eventAttendanceSouthRooms.length ? (
                     <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                      <span style={{ color: "rgba(226,250,247,0.65)", fontSize: "9px", fontWeight: 850, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                      <span style={{ color: "#5b7a91", fontSize: "9px", fontWeight: 850, letterSpacing: "0.08em", textTransform: "uppercase" }}>
                         Main corridor
                       </span>
-                      <span style={{ height: "1px", flex: 1, background: "linear-gradient(90deg, rgba(126, 231, 219, 0.24), rgba(34, 211, 238, 0.4), rgba(126, 231, 219, 0.24))" }} />
+                      <span style={{ height: "1px", flex: 1, background: "linear-gradient(90deg, rgba(99, 181, 217, 0.24), rgba(59, 130, 246, 0.28), rgba(99, 181, 217, 0.24))" }} />
                     </div>
                   ) : null}
                 </div>
@@ -25567,7 +25567,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     </section>
 
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "10px", alignItems: "start" }}>
-      <section style={{ borderRadius: "14px", border: "1px solid rgba(126, 231, 219, 0.2)", background: "linear-gradient(rgba(20, 91, 150, 0.035) 1px, transparent 1px), linear-gradient(90deg, rgba(25, 138, 112, 0.04) 1px, transparent 1px), radial-gradient(circle at 12% 8%, rgba(232, 244, 255, 0.16), transparent 34%), linear-gradient(135deg, rgba(247, 253, 255, 0.18), rgba(20, 91, 150, 0.16), rgba(25, 138, 112, 0.12))", backgroundSize: "24px 24px, 24px 24px, auto, auto", padding: "10px", display: "grid", gap: "8px", minHeight: 0 }}>
+      <section style={{ borderRadius: "14px", border: "1px solid rgba(99, 181, 217, 0.2)", background: "linear-gradient(rgba(99, 181, 217, 0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(99, 181, 217, 0.05) 1px, transparent 1px), radial-gradient(circle at 12% 8%, rgba(232, 244, 255, 0.46), transparent 34%), linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(240, 249, 255, 0.9), rgba(236, 253, 245, 0.84))", backgroundSize: "24px 24px, 24px 24px, auto, auto", padding: "10px", display: "grid", gap: "8px", minHeight: 0 }}>
         <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>SP Check-In</div>
         <div style={{ display: "grid", gap: "7px", maxHeight: "320px", overflowY: "auto", paddingRight: "2px" }}>
           {visibleEventAttendanceSpTokens.length ? (
@@ -25584,13 +25584,13 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     borderRadius: "11px",
                     border: tokenPresent ? `1px solid ${colors.ring}` : `1px solid ${colors.ring}55`,
                     background: tokenPresent
-                      ? "linear-gradient(135deg, rgba(6, 95, 70, 0.82), rgba(20, 184, 166, 0.22))"
+                      ? "linear-gradient(135deg, rgba(209, 250, 229, 0.92), rgba(167, 243, 208, 0.84))"
                       : colors.bg,
                     padding: "6px",
                     display: "grid",
                     gap: "6px",
                     boxShadow: tokenPresent
-                      ? `0 0 22px ${colors.ring}55, inset 0 0 0 1px rgba(236, 253, 245, 0.12)`
+                      ? `0 0 14px ${colors.ring}44, inset 0 0 0 1px rgba(255, 255, 255, 0.78)`
                       : "none",
                   }}
                 >
@@ -25614,8 +25614,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         selected={isActive}
                       />
                       <span style={{ display: "grid", gap: "2px", minWidth: 0 }}>
-                        <span style={{ color: tokenPresent ? "#ecfdf5" : commandCenterVisual.textColor, fontSize: "12px", fontWeight: 950, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{token.name}</span>
-                        <span style={{ color: tokenPresent ? "#bbf7d0" : commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: tokenPresent ? 950 : 800 }}>
+                        <span style={{ color: tokenPresent ? "#065f46" : commandCenterVisual.textColor, fontSize: "12px", fontWeight: 950, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{token.name}</span>
+                        <span style={{ color: tokenPresent ? "#047857" : commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: tokenPresent ? 950 : 800 }}>
                           {token.roomName || "Room pending"} · {getEventAttendanceStatusLabel(token.status)}
                           {tokenPresent ? " ✓" : ""}
                         </span>
@@ -25632,7 +25632,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     </button>
                   </div>
                   {isActive ? (
-                    <div style={{ display: "flex", gap: "5px", flexWrap: "wrap", borderTop: "1px solid rgba(20, 91, 150, 0.16)", paddingTop: "6px", background: "rgba(255, 255, 255, 0.18)", borderRadius: "8px", paddingInline: "4px", paddingBottom: "4px" }}>
+                    <div style={{ display: "flex", gap: "5px", flexWrap: "wrap", borderTop: "1px solid rgba(20, 91, 150, 0.16)", paddingTop: "6px", background: "rgba(255, 255, 255, 0.84)", borderRadius: "8px", paddingInline: "4px", paddingBottom: "4px" }}>
                       {[
                         { label: "Arrived", action: "arrived" as const },
                         { label: "Late", action: "late" as const },
@@ -25669,7 +25669,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         </div>
       </section>
 
-      <section style={{ borderRadius: "14px", border: "1px solid rgba(126, 231, 219, 0.2)", background: "linear-gradient(rgba(20, 91, 150, 0.035) 1px, transparent 1px), linear-gradient(90deg, rgba(25, 138, 112, 0.04) 1px, transparent 1px), radial-gradient(circle at 12% 8%, rgba(232, 244, 255, 0.16), transparent 34%), linear-gradient(135deg, rgba(247, 253, 255, 0.18), rgba(20, 91, 150, 0.16), rgba(25, 138, 112, 0.12))", backgroundSize: "24px 24px, 24px 24px, auto, auto", padding: "10px", display: "grid", gap: "8px", minHeight: 0 }}>
+      <section style={{ borderRadius: "14px", border: "1px solid rgba(99, 181, 217, 0.2)", background: "linear-gradient(rgba(99, 181, 217, 0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(99, 181, 217, 0.05) 1px, transparent 1px), radial-gradient(circle at 12% 8%, rgba(232, 244, 255, 0.46), transparent 34%), linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(240, 249, 255, 0.9), rgba(236, 253, 245, 0.84))", backgroundSize: "24px 24px, 24px 24px, auto, auto", padding: "10px", display: "grid", gap: "8px", minHeight: 0 }}>
         <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Student / Learner Arrival Rail</div>
         <div style={{ display: "grid", gap: "7px", maxHeight: "320px", overflowY: "auto", paddingRight: "2px" }}>
           {visibleEventAttendanceLearnerTokens.length ? (
@@ -25686,13 +25686,13 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     borderRadius: "11px",
                     border: tokenPresent ? `1px solid ${colors.ring}` : `1px solid ${colors.ring}55`,
                     background: tokenPresent
-                      ? "linear-gradient(135deg, rgba(6, 95, 70, 0.82), rgba(20, 184, 166, 0.22))"
+                      ? "linear-gradient(135deg, rgba(209, 250, 229, 0.92), rgba(167, 243, 208, 0.84))"
                       : colors.bg,
                     padding: "6px",
                     display: "grid",
                     gap: "6px",
                     boxShadow: tokenPresent
-                      ? `0 0 22px ${colors.ring}55, inset 0 0 0 1px rgba(236, 253, 245, 0.12)`
+                      ? `0 0 14px ${colors.ring}44, inset 0 0 0 1px rgba(255, 255, 255, 0.78)`
                       : "none",
                   }}
                 >
@@ -25716,8 +25716,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         selected={isActive}
                       />
                       <span style={{ display: "grid", gap: "2px", minWidth: 0 }}>
-                        <span style={{ color: tokenPresent ? "#ecfdf5" : commandCenterVisual.textColor, fontSize: "12px", fontWeight: 950, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{token.learnerName}</span>
-                        <span style={{ color: tokenPresent ? "#bbf7d0" : commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: tokenPresent ? 950 : 800 }}>
+                        <span style={{ color: tokenPresent ? "#065f46" : commandCenterVisual.textColor, fontSize: "12px", fontWeight: 950, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{token.learnerName}</span>
+                        <span style={{ color: tokenPresent ? "#047857" : commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: tokenPresent ? 950 : 800 }}>
                           {token.roomName || "Room pending"} · {getEventAttendanceStatusLabel(token.status)}
                           {tokenPresent ? " ✓" : ""}
                         </span>
@@ -25734,7 +25734,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     </button>
                   </div>
                   {isActive ? (
-                    <div style={{ display: "flex", gap: "5px", flexWrap: "wrap", borderTop: "1px solid rgba(20, 91, 150, 0.16)", paddingTop: "6px", background: "rgba(255, 255, 255, 0.18)", borderRadius: "8px", paddingInline: "4px", paddingBottom: "4px" }}>
+                    <div style={{ display: "flex", gap: "5px", flexWrap: "wrap", borderTop: "1px solid rgba(20, 91, 150, 0.16)", paddingTop: "6px", background: "rgba(255, 255, 255, 0.84)", borderRadius: "8px", paddingInline: "4px", paddingBottom: "4px" }}>
                       {[
                         { label: "Arrived", action: "arrived" as const },
                         { label: "Late", action: "late" as const },
