@@ -2441,6 +2441,21 @@ function resolveCaseRoleLabel(caseEntry: CaseFileEntry | null, roleId?: string |
   return normalizeDisplayText(fallbackLabel);
 }
 
+function findAssignmentBySpDisplayName(
+  assignments: AssignmentRow[],
+  spsById: Map<string, SPRow>,
+  spName: string
+) {
+  const normalizedSpName = asText(spName).toLowerCase();
+  if (!normalizedSpName) return null;
+  return (
+    assignments.find((candidate) => {
+      const candidateSp = candidate.sp_id ? spsById.get(candidate.sp_id) : null;
+      return asText(getFullName(candidateSp || emptySpRow)).toLowerCase() === normalizedSpName;
+    }) || null
+  );
+}
+
 function getAvailabilitySpId(row: AvailabilityRow) {
   return asText(row.sp_id);
 }
@@ -9051,6 +9066,14 @@ const operationalEventStatusLabel = useMemo(() => {
     if (!selectedRotationRound) return [] as EventSessionRow[];
     return sessions.filter((session) => getRotationRoundKeyFromSession(session) === selectedRotationRound.key);
   }, [selectedRotationRound, sessions]);
+  const selectedResolvedRound = useMemo(
+    () => (selectedRotationRound ? persistedResolvedRoundsByKey.get(selectedRotationRound.key) || null : null),
+    [persistedResolvedRoundsByKey, selectedRotationRound]
+  );
+  const selectedResolvedRoomSlots = useMemo(
+    () => selectedResolvedRound?.roomSlots || [],
+    [selectedResolvedRound]
+  );
   const selectedRoundRoomSlotEntries = useMemo(() => {
     if (!selectedRotationRound) return [] as RoomDisplayEntry[];
 
@@ -9081,7 +9104,7 @@ const operationalEventStatusLabel = useMemo(() => {
     roomSlotEntriesByRoundKey,
     selectedRotationRound,
   ]);
-  const selectedRoundRoomCount = selectedRoundRoomSlotEntries.length;
+  const selectedRoundRoomCount = selectedResolvedRoomSlots.length || selectedRoundRoomSlotEntries.length;
   const selectedRoundCaseLabel = useMemo(
     () =>
       getFirstNoteValue(eventEditor.notes || event?.notes, ["Case", "Case Name", "Station Case"]) ||
@@ -9100,8 +9123,8 @@ const operationalEventStatusLabel = useMemo(() => {
     if (!selectedRotationRound) {
       return [] as Array<RoundRoomRow>;
     }
-    const persistedRound = persistedResolvedRoundsByKey.get(selectedRotationRound.key) || null;
-    const persistedRoomSlots = persistedRound?.roomSlots || [];
+    const persistedRoomSlots = selectedResolvedRoomSlots;
+    const usingResolvedSnapshot = persistedRoomSlots.length > 0;
 
     const sessionByRoomNumber = new Map<number, EventSessionRow>();
     const sessionByRoomName = new Map<string, EventSessionRow>();
@@ -9113,7 +9136,7 @@ const operationalEventStatusLabel = useMemo(() => {
       }
       if (roomName) sessionByRoomName.set(roomName.toLowerCase(), session);
     });
-    const displayRows = selectedRoundRoomSlotEntries.length
+    const fallbackDisplayRows = selectedRoundRoomSlotEntries.length
       ? selectedRoundRoomSlotEntries.map((entry, slotIndex) => {
           const roomNumber = getRoomDisplayNumber(entry.roomName);
           const matchedSession =
@@ -9153,64 +9176,92 @@ const operationalEventStatusLabel = useMemo(() => {
             slotIndex: 0,
           },
         ];
-      const roundAdjustments = activeScheduleRoomAdjustments.get(activeSelectedRotationRoundGlobalIndex + 1) || [];
-      return displayRows.map(({ session, sourceIndex, slotIndex }, index) => {
-        const slotOverride = roundAdjustments.find((slot: ScheduleRoomAdjustmentSlot) => slot.slotIndex === slotIndex) || null;
-        const persistedSlot = persistedRoomSlots[slotIndex] || null;
-        const rawRoomName =
-          asText(persistedSlot?.roomName) ||
-          asText(session.room) ||
-          asText(selectedRoundRoomSlotEntries[slotIndex]?.roomName) ||
-          "";
-        const displayRoomName = rawRoomName || getFallbackRoomLabel(slotIndex, roomNamingContext);
-        const canonicalSpName = getCanonicalNurs421RoomSpName(event?.id, slotIndex);
-        const overrideSpName = canonicalSpName || asText(slotOverride?.spName);
-        const persistedSpName = canonicalSpName || asText(persistedSlot?.assignedSpName);
-        const assignmentFromOverride = overrideSpName
-          ? [...confirmedAssignments, ...backupAssignments].find((candidate) => {
-              const candidateSp = candidate.sp_id ? spsById.get(candidate.sp_id) : null;
-              return asText(getFullName(candidateSp || emptySpRow)).toLowerCase() === overrideSpName.toLowerCase();
-            }) || null
+    const displayRows = usingResolvedSnapshot
+      ? persistedRoomSlots.map((slot, slotIndex) => {
+          const roomName = asText(slot.roomName);
+          const roomNumber = getRoomDisplayNumber(roomName);
+          const matchedSession =
+            (roomNumber !== null ? sessionByRoomNumber.get(roomNumber) : null) ||
+            sessionByRoomName.get(roomName.toLowerCase()) ||
+            sessionByRoomName.get(asText(selectedRoundRoomSlotEntries[slotIndex]?.roomName).toLowerCase()) ||
+            null;
+          return {
+            session:
+              matchedSession ||
+              ({
+                id: `${selectedRotationRound.key}-resolved-room-${slotIndex}`,
+                event_id: event?.id || null,
+                session_date: selectedRotationRound.session_date,
+                start_time: selectedRotationRound.start_time,
+                end_time: selectedRotationRound.end_time,
+                location: event?.location || null,
+                room: roomName,
+                created_at: null,
+              } satisfies EventSessionRow),
+            sourceIndex: selectedRoundRoomSlotEntries[slotIndex]?.sourceIndex ?? slotIndex,
+            slotIndex,
+          };
+        })
+      : fallbackDisplayRows;
+    const roundAdjustments = activeScheduleRoomAdjustments.get(activeSelectedRotationRoundGlobalIndex + 1) || [];
+    const availableAssignments = [...confirmedAssignments, ...backupAssignments];
+
+    return displayRows.map(({ session, sourceIndex, slotIndex }, index) => {
+      const slotOverride = roundAdjustments.find((slot: ScheduleRoomAdjustmentSlot) => slot.slotIndex === slotIndex) || null;
+      const persistedSlot = persistedRoomSlots[slotIndex] || null;
+      const rawRoomName =
+        asText(persistedSlot?.roomName) ||
+        asText(session.room) ||
+        asText(selectedRoundRoomSlotEntries[slotIndex]?.roomName) ||
+        "";
+      const displayRoomName = rawRoomName || getFallbackRoomLabel(slotIndex, roomNamingContext);
+      const fallbackSpName = usingResolvedSnapshot ? "" : getCanonicalNurs421RoomSpName(event?.id, slotIndex);
+      const overrideSpName = asText(slotOverride?.spName);
+      const persistedSpName = asText(persistedSlot?.assignedSpName);
+      const assignmentFromOverride = overrideSpName
+        ? findAssignmentBySpDisplayName(availableAssignments, spsById, overrideSpName)
+        : null;
+      const assignmentFromPersistedSnapshot =
+        !assignmentFromOverride && persistedSpName
+          ? findAssignmentBySpDisplayName(availableAssignments, spsById, persistedSpName)
           : null;
-        const assignmentFromPersistedSnapshot =
-          !assignmentFromOverride && persistedSpName
-            ? [...confirmedAssignments, ...backupAssignments].find((candidate) => {
-                const candidateSp = candidate.sp_id ? spsById.get(candidate.sp_id) : null;
-                return asText(getFullName(candidateSp || emptySpRow)).toLowerCase() === persistedSpName.toLowerCase();
-              }) || null
-            : null;
-        const assignment =
-          assignmentFromOverride ||
-          assignmentFromPersistedSnapshot ||
-          (sourceIndex >= 0 ? confirmedAssignments[sourceIndex] || null : null);
-        const sp = assignment?.sp_id ? spsById.get(assignment.sp_id) || null : null;
-        const generatedLearnerLabels = getResolvedRoundLearnerLabels({
-          learnerRoster: scheduleBuilderLearnerNames,
-          roomCapacity: scheduleBuilderRoomCapacity,
-          roundIndex: activeSelectedRotationRoundGlobalIndex,
-          slotIndex,
-          roomSlotCount: Math.max(displayRows.length, 1),
-          activeCaseCount: resolvedScheduleMatrixCaseCount,
-          isMultiCaseMode: resolvedScheduleMatrixCaseCount > 1,
-          isVirtualEvent: isScheduleMatrixVirtual,
-        });
-        const learnerLabels =
-          slotOverride?.manualOverride
-            ? normalizeLearnerNames(slotOverride.learnerLabels)
-            : slotOverride?.learnerLabels?.length
-              ? normalizeLearnerNames(slotOverride.learnerLabels)
-              : persistedSlot
-                ? normalizeLearnerNames(persistedSlot.learnerLabels)
-                : generatedLearnerLabels;
-        const resolvedRoomName = asText(slotOverride?.roomName) || displayRoomName;
-        const resolvedCaseLabel = asText(slotOverride?.caseLabel) || asText(persistedSlot?.caseLabel) || selectedRoundCaseLabel;
-        const resolvedCaseEntry = findCaseFileEntryForLabel(caseFileEntries, resolvedCaseLabel);
-        const resolvedRoleId = asText(slotOverride?.roleId);
-        const resolvedRoleLabel = resolveCaseRoleLabel(
-          resolvedCaseEntry,
-          resolvedRoleId,
-          asText(slotOverride?.roleLabel) || asText(persistedSlot?.roleLabel)
-        );
+      const assignmentFromFallback =
+        !usingResolvedSnapshot && !assignmentFromOverride && !assignmentFromPersistedSnapshot && sourceIndex >= 0
+          ? confirmedAssignments[sourceIndex] || null
+          : null;
+      const assignment =
+        assignmentFromOverride ||
+        assignmentFromPersistedSnapshot ||
+        assignmentFromFallback ||
+        (fallbackSpName ? findAssignmentBySpDisplayName(availableAssignments, spsById, fallbackSpName) : null);
+      const sp = assignment?.sp_id ? spsById.get(assignment.sp_id) || null : null;
+      const generatedLearnerLabels = usingResolvedSnapshot
+        ? []
+        : getResolvedRoundLearnerLabels({
+            learnerRoster: scheduleBuilderLearnerNames,
+            roomCapacity: scheduleBuilderRoomCapacity,
+            roundIndex: activeSelectedRotationRoundGlobalIndex,
+            slotIndex,
+            roomSlotCount: Math.max(displayRows.length, 1),
+            activeCaseCount: resolvedScheduleMatrixCaseCount,
+            isMultiCaseMode: resolvedScheduleMatrixCaseCount > 1,
+            isVirtualEvent: isScheduleMatrixVirtual,
+          });
+      const learnerLabels =
+        slotOverride?.manualOverride
+          ? normalizeLearnerNames(slotOverride.learnerLabels)
+          : persistedSlot
+            ? normalizeLearnerNames(persistedSlot.learnerLabels)
+            : generatedLearnerLabels;
+      const resolvedRoomName = asText(slotOverride?.roomName) || displayRoomName;
+      const resolvedCaseLabel = asText(slotOverride?.caseLabel) || asText(persistedSlot?.caseLabel) || selectedRoundCaseLabel;
+      const resolvedCaseEntry = findCaseFileEntryForLabel(caseFileEntries, resolvedCaseLabel);
+      const resolvedRoleId = asText(slotOverride?.roleId) || asText(persistedSlot?.roleId);
+      const resolvedRoleLabel = resolveCaseRoleLabel(
+        resolvedCaseEntry,
+        resolvedRoleId,
+        asText(slotOverride?.roleLabel) || asText(persistedSlot?.roleLabel)
+      );
         const flags = [
           rawRoomName ? "" : "Missing room",
           assignment && !sp ? "Missing SP profile" : "",
@@ -9234,20 +9285,20 @@ const operationalEventStatusLabel = useMemo(() => {
           stationLabel: selectedRoundStationLabel,
           flags,
         } satisfies RoundRoomRow;
-      });
+    });
   }, [
     activeSelectedRotationRoundGlobalIndex,
     event?.id,
     event?.location,
     effectiveLearnerCount,
     isScheduleMatrixVirtual,
-    persistedResolvedRoundsByKey,
     resolvedScheduleMatrixCaseCount,
     scheduleBuilderLearnerNames,
     scheduleBuilderRoomCapacity,
     activeScheduleRoomAdjustments,
     caseFileEntries,
     roomNamingContext,
+    selectedResolvedRoomSlots,
     selectedRotationRound,
     selectedRoundRoomSlotEntries,
     selectedRoundCaseLabel,
@@ -9539,25 +9590,35 @@ const operationalEventStatusLabel = useMemo(() => {
   const selectedRoundOperationsScheduleReady =
     selectedRoundScheduleRows.length > 0 ||
     visibleSelectedRoundScheduleBlocks.length > 0;
+  const selectedRoundPlanRoomEntries = useMemo(
+    () =>
+      selectedRoundScheduleRows.length
+        ? selectedRoundScheduleRows.map((row) => ({
+            roomName: row.roomName,
+            sourceIndex: row.slotIndex,
+          }))
+        : selectedRoundRoomSlotEntries,
+    [selectedRoundRoomSlotEntries, selectedRoundScheduleRows]
+  );
   const selectedRoundExplicitSlotAssignments = useMemo(() => {
-    if (!selectedRoundRoomSlotEntries.length || !selectedRotationRound) {
+    if (!selectedRoundPlanRoomEntries.length || !selectedRotationRound) {
       return [] as Array<AssignmentRow | null>;
     }
 
-    return selectedRoundRoomSlotEntries.map((_entry, index) => {
+    return selectedRoundPlanRoomEntries.map((_entry, index) => {
       const scheduledRow = selectedRoundScheduleRows[index];
       return scheduledRow?.assignment || null;
     });
-  }, [selectedRoundRoomSlotEntries, selectedRoundScheduleRows, selectedRotationRound]);
+  }, [selectedRoundPlanRoomEntries, selectedRoundScheduleRows, selectedRotationRound]);
   const selectedRoundRoomAssignmentPlan = useMemo(
     () =>
       buildRoomSlotAssignmentPlan(
-        selectedRoundRoomSlotEntries,
+        selectedRoundPlanRoomEntries,
         selectedRoundExplicitSlotAssignments,
         confirmedAssignments,
         roomNamingContext
       ),
-    [confirmedAssignments, roomNamingContext, selectedRoundExplicitSlotAssignments, selectedRoundRoomSlotEntries]
+    [confirmedAssignments, roomNamingContext, selectedRoundExplicitSlotAssignments, selectedRoundPlanRoomEntries]
   );
   const selectedRoundCoverageTarget = Math.max(selectedRoundRoomCount, needed);
   const selectedRoundCoverageShortage = Math.max(selectedRoundCoverageTarget - confirmedAssignments.length, 0);
@@ -14364,17 +14425,29 @@ Cory`;
           const existingSlot = adjustedRoomSlots[slotIndex] || {
             roomName: getFallbackRoomLabel(slotIndex, roomNamingContext),
           };
+          const hasLearnerOverride = Boolean(slotAdjustment.manualOverride);
+          const hasRoomNameOverride = Object.prototype.hasOwnProperty.call(slotAdjustment, "roomName");
+          const hasSpNameOverride = Object.prototype.hasOwnProperty.call(slotAdjustment, "spName");
+          const hasBackupSpOverride = Object.prototype.hasOwnProperty.call(slotAdjustment, "backupSpName");
+          const hasCaseLabelOverride = Object.prototype.hasOwnProperty.call(slotAdjustment, "caseLabel");
+          const hasRoleIdOverride = Object.prototype.hasOwnProperty.call(slotAdjustment, "roleId");
+          const hasRoleLabelOverride = Object.prototype.hasOwnProperty.call(slotAdjustment, "roleLabel");
+          const hasNotesOverride = Object.prototype.hasOwnProperty.call(slotAdjustment, "notes");
 
           adjustedRoomSlots[slotIndex] = {
             ...existingSlot,
-            roomName: asText(existingSlot.roomName) || getFallbackRoomLabel(slotIndex, roomNamingContext),
-            assignedSpName: asText(slotAdjustment.spName) || "",
-            backupSpName: asText(slotAdjustment.backupSpName) || "",
-            learnerLabels: Array.isArray(slotAdjustment.learnerLabels) ? slotAdjustment.learnerLabels : [],
-            caseLabel: asText(slotAdjustment.caseLabel),
-            roleId: asText(slotAdjustment.roleId),
-            roleLabel: asText(slotAdjustment.roleLabel),
-            notes: asText(slotAdjustment.notes),
+            roomName: hasRoomNameOverride
+              ? asText(slotAdjustment.roomName) || getFallbackRoomLabel(slotIndex, roomNamingContext)
+              : asText(existingSlot.roomName) || getFallbackRoomLabel(slotIndex, roomNamingContext),
+            assignedSpName: hasSpNameOverride ? asText(slotAdjustment.spName) : asText(existingSlot.assignedSpName),
+            backupSpName: hasBackupSpOverride ? asText(slotAdjustment.backupSpName) : asText(existingSlot.backupSpName),
+            learnerLabels: hasLearnerOverride
+              ? normalizeLearnerNames(slotAdjustment.learnerLabels || [])
+              : normalizeTextArray(existingSlot.learnerLabels),
+            caseLabel: hasCaseLabelOverride ? asText(slotAdjustment.caseLabel) : asText(existingSlot.caseLabel),
+            roleId: hasRoleIdOverride ? asText(slotAdjustment.roleId) : asText(existingSlot.roleId),
+            roleLabel: hasRoleLabelOverride ? asText(slotAdjustment.roleLabel) : asText(existingSlot.roleLabel),
+            notes: hasNotesOverride ? asText(slotAdjustment.notes) : asText(existingSlot.notes),
           };
         });
 
