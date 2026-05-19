@@ -9448,6 +9448,14 @@ const operationalEventStatusLabel = useMemo(() => {
       }>;
     }
 
+    const fallbackEmptyTimeline = [] as Array<{
+      key: string;
+      timeLabel: string;
+      phaseLabel: string;
+      announcement: string;
+      detail?: string;
+    }>;
+
     const selectedRoundTiming = getNormalizedRotationRoundTiming(
       selectedRotationRound,
       getSameDateRotationRounds(selectedRotationRound, rotationRounds)
@@ -9464,44 +9472,49 @@ const operationalEventStatusLabel = useMemo(() => {
       }>;
     }
 
-    const nextRound = activeDateRotationRounds[activeSelectedRotationRoundIndex + 1] || null;
-    const nextRoundTiming = nextRound
-      ? getNormalizedRotationRoundTiming(nextRound, getSameDateRotationRounds(nextRound, rotationRounds))
-      : null;
-    const nextRoundStartMinutes = nextRoundTiming?.startMinutes ?? null;
-    const roundFlowBlocks = liveFlowBlocks
-      .filter((block) => block.key.startsWith(`${selectedRotationRound.key}-`))
-      .map((block) => ({
-        label: block.label,
-        start: block.startMinutes,
-        end: block.endMinutes,
-      }));
+    try {
+      const nextRound = activeDateRotationRounds[activeSelectedRotationRoundIndex + 1] || null;
+      const nextRoundTiming = nextRound
+        ? getNormalizedRotationRoundTiming(nextRound, getSameDateRotationRounds(nextRound, rotationRounds))
+        : null;
+      const nextRoundStartMinutes = nextRoundTiming?.startMinutes ?? null;
+      const selectedRoundKeyPrefix = `${asText(selectedRotationRound.key)}-`;
+      const roundFlowBlocks = (Array.isArray(liveFlowBlocks) ? liveFlowBlocks : [])
+        .filter((block) => asText(block?.key).startsWith(selectedRoundKeyPrefix))
+        .map((block) => ({
+          label: asText(block?.label),
+          start: block?.startMinutes,
+          end: block?.endMinutes,
+        }));
 
-    return buildRoundAnnouncementItems(
-      {
-        key: selectedRotationRound.key,
-        round: activeSelectedRotationRoundIndex + 1,
-        start: startMinutes,
-        end: endMinutes,
-        subBlocks: roundFlowBlocks,
-      },
-      nextRoundStartMinutes !== null
-        ? {
-            key: nextRound?.key,
-            round: activeSelectedRotationRoundIndex + 2,
-            start: nextRoundStartMinutes,
-            end: nextRoundTiming?.endMinutes ?? nextRoundStartMinutes,
-            subBlocks: [],
-          }
-        : null,
-      { formatTime: formatMinutesAsClockLabel }
-    ).map((item) => ({
-      key: item.key,
-      timeLabel: item.timeLabel,
-      phaseLabel: item.badgeLabel,
-      announcement: item.message,
-      detail: item.detail,
-    }));
+      return buildRoundAnnouncementItems(
+        {
+          key: selectedRotationRound.key,
+          round: activeSelectedRotationRoundIndex + 1,
+          start: startMinutes,
+          end: endMinutes,
+          subBlocks: roundFlowBlocks,
+        },
+        nextRoundStartMinutes !== null
+          ? {
+              key: nextRound?.key,
+              round: activeSelectedRotationRoundIndex + 2,
+              start: nextRoundStartMinutes,
+              end: nextRoundTiming?.endMinutes ?? nextRoundStartMinutes,
+              subBlocks: [],
+            }
+          : null,
+        { formatTime: formatMinutesAsClockLabel }
+      ).map((item) => ({
+        key: item.key,
+        timeLabel: item.timeLabel,
+        phaseLabel: item.badgeLabel,
+        announcement: item.message,
+        detail: item.detail,
+      }));
+    } catch {
+      return fallbackEmptyTimeline;
+    }
   }, [
     activeDateRotationRounds,
     activeSelectedRotationRoundIndex,
@@ -21282,7 +21295,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         <div
           style={{
             marginTop: "10px",
-            display: "none",
+            display: commandCenterMode === "planning" ? "grid" : "none",
             gap: "6px",
             gridTemplateColumns: "minmax(0, 1fr)",
             alignItems: "start",
