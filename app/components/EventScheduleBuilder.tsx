@@ -1504,11 +1504,22 @@ async function buildStudentInstructionsPdfPages(
     return page;
   };
 
+  const stripWhitespaceTextNodes = (node: HTMLElement) => {
+    const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+    const removableNodes: Text[] = [];
+    while (walker.nextNode()) {
+      const textNode = walker.currentNode as Text;
+      if (!textNode.textContent?.trim()) {
+        removableNodes.push(textNode);
+      }
+    }
+    removableNodes.forEach((textNode) => textNode.parentNode?.removeChild(textNode));
+  };
+
   const measuredSections = sourceSections.map((section, index) => {
     const sectionClone = section.cloneNode(true) as HTMLElement;
+    stripWhitespaceTextNodes(sectionClone);
     ensurePdfExportNodeVisible(sectionClone, contentWidth);
-    sectionClone.style.display = "grid";
-    sectionClone.style.gap = "9px";
     sectionClone.classList.add("cfsp-pdf-section");
     sectionClone.dataset.sectionIndex = String(index);
     measureRoot.appendChild(sectionClone);
@@ -2296,8 +2307,8 @@ function buildVirStyleStudentScheduleBlocks(args: {
   roomContext?: Parameters<typeof getRoomDisplayLabel>[2];
   roomChunkSize?: number;
 }) {
-  const { rounds, roomColumns = [], roomContext = {}, roomChunkSize = 8 } = args;
-  const safeChunkSize = Math.max(4, Math.min(8, Math.floor(roomChunkSize) || 8));
+  const { rounds, roomColumns = [], roomContext = {}, roomChunkSize = 6 } = args;
+  const safeChunkSize = Math.max(4, Math.min(7, Math.floor(roomChunkSize) || 6));
   const blocks: StudentInstructionsScheduleBlock[] = [];
 
   rounds.forEach((round) => {
@@ -2411,7 +2422,7 @@ function buildStudentInstructionsExportHtml(context: StudentInstructionsExportCo
     rounds: studentScheduleRounds,
     roomColumns,
     roomContext,
-    roomChunkSize: 8,
+    roomChunkSize: 6,
   });
   const getEncounterStartMinutesForRound = (round: ScheduledRound | null | undefined) => {
     if (!round) return null;
@@ -2795,8 +2806,10 @@ color: #17304f;
             page-break-inside: avoid;
           }
           .student-schedule-section-first {
-            break-before: page;
-            page-break-before: always;
+            break-before: auto;
+            page-break-before: auto;
+            margin-top: 0;
+            padding-top: 0;
           }
           .student-schedule-block-section {
             padding: 0;
@@ -2806,9 +2819,10 @@ color: #17304f;
           }
           .vir-schedule-block {
             width: 100%;
+            max-width: 100%;
             border: 1px solid #aebccb;
             border-radius: 8px;
-            overflow: hidden;
+            overflow: visible;
             background: #ffffff;
             break-inside: avoid;
             page-break-inside: avoid;
@@ -2837,11 +2851,13 @@ color: #17304f;
           .vir-room-grid {
             display: grid;
             width: 100%;
+            max-width: 100%;
             background: #dfe7f0;
             border-top: 1px solid #aebccb;
           }
           .vir-room-header {
             min-height: 34px;
+            min-width: 0;
             padding: 7px 7px;
             border-right: 1px solid #c3cfda;
             border-bottom: 1px solid #aebccb;
@@ -2851,11 +2867,15 @@ color: #17304f;
             line-height: 1.15;
             font-weight: 950;
             text-align: center;
+            white-space: normal;
+            word-break: normal;
             overflow-wrap: anywhere;
+            overflow: visible;
           }
           .vir-room-header:last-of-type { border-right: none; }
           .vir-student-cell {
-            min-height: 54px;
+            min-height: 64px;
+            min-width: 0;
             padding: 7px 6px;
             border-right: 1px solid #d5e0e8;
             background: #f8fffb;
@@ -2864,6 +2884,7 @@ color: #17304f;
             display: grid;
             align-content: center;
             gap: 3px;
+            overflow: visible;
           }
           .vir-student-cell:nth-last-child(1) { border-right: none; }
           .vir-student-cell-empty {
@@ -2872,9 +2893,14 @@ color: #17304f;
           }
           .vir-student-name {
             font-size: 10.8px;
-            line-height: 1.18;
+            line-height: 1.28;
             font-weight: 950;
+            white-space: normal;
+            word-break: normal;
             overflow-wrap: anywhere;
+            overflow: visible;
+            text-overflow: unset;
+            max-width: 100%;
           }
           .vir-no-student {
             font-size: 9.5px;
