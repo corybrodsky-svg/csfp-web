@@ -4,8 +4,11 @@ export type SchedulePreviewRoomSlot = {
   assignedSpName?: string;
   backupSpName?: string;
   caseLabel?: string;
+  roleId?: string;
   roleLabel?: string;
   notes?: string;
+  stationStatus?: "active" | "backup" | "inactive";
+  isBackupStation?: boolean;
   roomType?: "exam" | "flex";
   capacity?: number;
 };

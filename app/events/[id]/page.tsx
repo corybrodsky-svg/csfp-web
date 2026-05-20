@@ -280,8 +280,10 @@ type ResolvedScheduleTruthStation = {
   start: string;
   end: string;
   roomSlotIndex: number;
+  sourceIndex: number;
   roomName: string;
   roomLabel: string;
+  location: string;
   learnerLabels: string[];
   primarySpName: string;
   backupSpName: string;
@@ -4527,6 +4529,7 @@ function parseScheduleRoomAdjustments(value: unknown) {
       if (!roundNumber) return;
       const slots = (roundEntry.slots || [])
         .map((slotEntry) => {
+          const slotRecord = slotEntry && typeof slotEntry === "object" ? (slotEntry as Record<string, unknown>) : {};
           const slotIndex = Number(slotEntry?.slotIndex);
           if (!Number.isFinite(slotIndex) || slotIndex < 0) return null;
           const learnerLabels = normalizeLearnerNames(slotEntry?.learnerLabels || []);
@@ -4541,21 +4544,34 @@ function parseScheduleRoomAdjustments(value: unknown) {
           const roleId = normalizeDisplayText(slotEntry?.roleId);
           const roleLabel = normalizeDisplayText(slotEntry?.roleLabel);
           const notes = normalizeDisplayText(slotEntry?.notes);
-          if (!learnerLabels.length && !manualOverride && !source && !stationStatus && !isBackupStation && !roomName && !spName && !backupSpName && !caseLabel && !roleId && !roleLabel && !notes) return null;
+          const hasExplicitField = [
+            "learnerLabels",
+            "source",
+            "stationStatus",
+            "isBackupStation",
+            "roomName",
+            "spName",
+            "backupSpName",
+            "caseLabel",
+            "roleId",
+            "roleLabel",
+            "notes",
+          ].some((field) => Object.prototype.hasOwnProperty.call(slotRecord, field));
+          if (!learnerLabels.length && !manualOverride && !hasExplicitField) return null;
           return {
             slotIndex,
             learnerLabels,
             ...(manualOverride ? { manualOverride: true } : {}),
-            ...(source ? { source } : {}),
-            ...(stationStatus ? { stationStatus } : {}),
-            ...(isBackupStation ? { isBackupStation: true } : {}),
-            ...(roomName ? { roomName } : {}),
-            ...(spName ? { spName } : {}),
-            ...(backupSpName ? { backupSpName } : {}),
-            ...(caseLabel ? { caseLabel } : {}),
-            ...(roleId ? { roleId } : {}),
-            ...(roleLabel ? { roleLabel } : {}),
-            ...(notes ? { notes } : {}),
+            ...(Object.prototype.hasOwnProperty.call(slotRecord, "source") ? { source } : {}),
+            ...(Object.prototype.hasOwnProperty.call(slotRecord, "stationStatus") ? { stationStatus: stationStatus || undefined } : {}),
+            ...(Object.prototype.hasOwnProperty.call(slotRecord, "isBackupStation") ? { isBackupStation } : {}),
+            ...(Object.prototype.hasOwnProperty.call(slotRecord, "roomName") ? { roomName } : {}),
+            ...(Object.prototype.hasOwnProperty.call(slotRecord, "spName") ? { spName } : {}),
+            ...(Object.prototype.hasOwnProperty.call(slotRecord, "backupSpName") ? { backupSpName } : {}),
+            ...(Object.prototype.hasOwnProperty.call(slotRecord, "caseLabel") ? { caseLabel } : {}),
+            ...(Object.prototype.hasOwnProperty.call(slotRecord, "roleId") ? { roleId } : {}),
+            ...(Object.prototype.hasOwnProperty.call(slotRecord, "roleLabel") ? { roleLabel } : {}),
+            ...(Object.prototype.hasOwnProperty.call(slotRecord, "notes") ? { notes } : {}),
           } satisfies ScheduleRoomAdjustmentSlot;
         })
         .filter(Boolean) as ScheduleRoomAdjustmentSlot[];
@@ -4582,32 +4598,32 @@ function serializeScheduleRoomAdjustments(value: ParsedScheduleRoomAdjustments) 
             slotIndex: slot.slotIndex,
             learnerLabels: normalizeLearnerNames(slot.learnerLabels || []),
             ...(slot.manualOverride ? { manualOverride: true } : {}),
-            ...(normalizeDisplayText(slot.source) ? { source: normalizeDisplayText(slot.source) } : {}),
-            ...(normalizeScheduleStationStatus(slot.stationStatus) ? { stationStatus: normalizeScheduleStationStatus(slot.stationStatus) } : {}),
-            ...(slot.isBackupStation ? { isBackupStation: true } : {}),
-            ...(normalizeDisplayText(slot.roomName) ? { roomName: normalizeDisplayText(slot.roomName) } : {}),
-            ...(normalizeDisplayText(slot.spName) ? { spName: normalizeDisplayText(slot.spName) } : {}),
-            ...(normalizeDisplayText(slot.backupSpName) ? { backupSpName: normalizeDisplayText(slot.backupSpName) } : {}),
-            ...(normalizeDisplayText(slot.caseLabel) ? { caseLabel: normalizeDisplayText(slot.caseLabel) } : {}),
-            ...(normalizeDisplayText(slot.roleId) ? { roleId: normalizeDisplayText(slot.roleId) } : {}),
-            ...(normalizeDisplayText(slot.roleLabel) ? { roleLabel: normalizeDisplayText(slot.roleLabel) } : {}),
-            ...(normalizeDisplayText(slot.notes) ? { notes: normalizeDisplayText(slot.notes) } : {}),
+            ...(hasScheduleRoomAdjustmentField(slot, "source") ? { source: normalizeDisplayText(slot.source) } : {}),
+            ...(hasScheduleRoomAdjustmentField(slot, "stationStatus") ? { stationStatus: normalizeScheduleStationStatus(slot.stationStatus) || undefined } : {}),
+            ...(hasScheduleRoomAdjustmentField(slot, "isBackupStation") ? { isBackupStation: Boolean(slot.isBackupStation) } : {}),
+            ...(hasScheduleRoomAdjustmentField(slot, "roomName") ? { roomName: normalizeDisplayText(slot.roomName) } : {}),
+            ...(hasScheduleRoomAdjustmentField(slot, "spName") ? { spName: normalizeDisplayText(slot.spName) } : {}),
+            ...(hasScheduleRoomAdjustmentField(slot, "backupSpName") ? { backupSpName: normalizeDisplayText(slot.backupSpName) } : {}),
+            ...(hasScheduleRoomAdjustmentField(slot, "caseLabel") ? { caseLabel: normalizeDisplayText(slot.caseLabel) } : {}),
+            ...(hasScheduleRoomAdjustmentField(slot, "roleId") ? { roleId: normalizeDisplayText(slot.roleId) } : {}),
+            ...(hasScheduleRoomAdjustmentField(slot, "roleLabel") ? { roleLabel: normalizeDisplayText(slot.roleLabel) } : {}),
+            ...(hasScheduleRoomAdjustmentField(slot, "notes") ? { notes: normalizeDisplayText(slot.notes) } : {}),
           })),
       }))
       .filter((entry) =>
         entry.slots.some((slot) =>
           slot.learnerLabels.length ||
           slot.manualOverride ||
-          normalizeDisplayText(slot.source) ||
-          normalizeScheduleStationStatus(slot.stationStatus) ||
-          slot.isBackupStation ||
-          normalizeDisplayText(slot.roomName) ||
-          normalizeDisplayText(slot.spName) ||
-          normalizeDisplayText(slot.backupSpName) ||
-          normalizeDisplayText(slot.caseLabel) ||
-          normalizeDisplayText(slot.roleId) ||
-          normalizeDisplayText(slot.roleLabel) ||
-          normalizeDisplayText(slot.notes)
+          hasScheduleRoomAdjustmentField(slot, "source") ||
+          hasScheduleRoomAdjustmentField(slot, "stationStatus") ||
+          hasScheduleRoomAdjustmentField(slot, "isBackupStation") ||
+          hasScheduleRoomAdjustmentField(slot, "roomName") ||
+          hasScheduleRoomAdjustmentField(slot, "spName") ||
+          hasScheduleRoomAdjustmentField(slot, "backupSpName") ||
+          hasScheduleRoomAdjustmentField(slot, "caseLabel") ||
+          hasScheduleRoomAdjustmentField(slot, "roleId") ||
+          hasScheduleRoomAdjustmentField(slot, "roleLabel") ||
+          hasScheduleRoomAdjustmentField(slot, "notes")
         )
       ),
   });
@@ -4626,10 +4642,6 @@ function hasScheduleRoomAdjustmentField(
   field: keyof ScheduleRoomAdjustmentSlot
 ) {
   return Boolean(slot) && Object.prototype.hasOwnProperty.call(slot, field);
-}
-
-function isScheduleBackupStation(slot?: Partial<ScheduleRoomAdjustmentSlot> | null) {
-  return Boolean(slot?.isBackupStation || normalizeScheduleStationStatus(slot?.stationStatus) === "backup");
 }
 
 function upsertScheduleRoomAdjustmentSlot(
@@ -4751,6 +4763,217 @@ function getResolvedRoundLearnerLabels(args: {
     .filter(Boolean);
 }
 
+function buildSelectedRoundOperationalRooms(args: {
+  selectedRotationRound: RotationRound | null;
+  selectedResolvedRound: ScheduleBuilderPreviewResolvedRound | null;
+  selectedResolvedRoundNumber: number;
+  selectedRoundRoomSlotEntries: RoomDisplayEntry[];
+  selectedRoundSessions: EventSessionRow[];
+  activeScheduleRoomAdjustments: ParsedScheduleRoomAdjustments;
+  selectedRoundCaseLabel: string;
+  selectedRoundStationLabel: string;
+  backupAssignmentNameSet: Set<string>;
+  roomNamingContext: RoomNamingContext;
+  eventId?: string | null;
+  eventLocation?: string | null;
+  confirmedAssignments: AssignmentRow[];
+  spsById: Map<string, SPRow>;
+  scheduleBuilderLearnerNames: string[];
+  scheduleBuilderRoomCapacity: number;
+  resolvedScheduleMatrixCaseCount: number;
+  isScheduleMatrixVirtual: boolean;
+}) {
+  const {
+    selectedRotationRound,
+    selectedResolvedRound,
+    selectedResolvedRoundNumber,
+    selectedRoundRoomSlotEntries,
+    selectedRoundSessions,
+    activeScheduleRoomAdjustments,
+    selectedRoundCaseLabel,
+    selectedRoundStationLabel,
+    backupAssignmentNameSet,
+    roomNamingContext,
+    eventId,
+    eventLocation,
+    confirmedAssignments,
+    spsById,
+    scheduleBuilderLearnerNames,
+    scheduleBuilderRoomCapacity,
+    resolvedScheduleMatrixCaseCount,
+    isScheduleMatrixVirtual,
+  } = args;
+
+  if (!selectedRotationRound) {
+    return null as ResolvedScheduleTruthStation[] | null;
+  }
+
+  const roundAdjustments = activeScheduleRoomAdjustments.get(selectedResolvedRoundNumber) || [];
+  const savedRoomSlots = Array.isArray(selectedResolvedRound?.roomSlots) ? selectedResolvedRound.roomSlots : [];
+  const usingSavedRoomSlots = savedRoomSlots.length > 0;
+  const roundKey = asText(selectedRotationRound.key);
+  const roundNumber = selectedResolvedRoundNumber;
+  const start = asText(selectedResolvedRound?.startTime) || asText(selectedRotationRound.start_time);
+  const end = asText(selectedResolvedRound?.endTime) || asText(selectedRotationRound.end_time);
+
+  const sessionByRoomNumber = new Map<number, EventSessionRow>();
+  const sessionByRoomName = new Map<string, EventSessionRow>();
+  selectedRoundSessions.forEach((session) => {
+    const roomName = asText(session.room);
+    const roomNumber = getRoomDisplayNumber(roomName);
+    if (roomNumber !== null && !sessionByRoomNumber.has(roomNumber)) {
+      sessionByRoomNumber.set(roomNumber, session);
+    }
+    if (roomName) sessionByRoomName.set(roomName.toLowerCase(), session);
+  });
+
+  const fallbackEntries = selectedRoundRoomSlotEntries.length
+    ? selectedRoundRoomSlotEntries
+    : [{ roomName: getFallbackRoomLabel(0, roomNamingContext), sourceIndex: 0 }];
+  const slotCount = Math.max(savedRoomSlots.length, fallbackEntries.length, 1);
+  const sourceSlots: Array<{
+    slot: ScheduleBuilderPreviewResolvedRoomSlot;
+    sourceIndex: number;
+    location: string;
+  }> = usingSavedRoomSlots
+    ? savedRoomSlots.map((slot, slotIndex) => {
+        const sourceEntry = fallbackEntries[slotIndex] || null;
+        const roomName = asText(slot.roomName) || asText(sourceEntry?.roomName) || getFallbackRoomLabel(slotIndex, roomNamingContext);
+        const roomNumber = getRoomDisplayNumber(roomName);
+        const matchedSession =
+          (roomNumber !== null ? sessionByRoomNumber.get(roomNumber) : null) ||
+          sessionByRoomName.get(roomName.toLowerCase()) ||
+          sessionByRoomName.get(asText(sourceEntry?.roomName).toLowerCase()) ||
+          null;
+        return {
+          slot,
+          sourceIndex: sourceEntry?.sourceIndex ?? slotIndex,
+          location: asText(matchedSession?.location) || asText(eventLocation),
+        };
+      })
+    : fallbackEntries.map((entry, slotIndex) => {
+        const roomNumber = getRoomDisplayNumber(entry.roomName);
+        const matchedSession =
+          (roomNumber !== null ? sessionByRoomNumber.get(roomNumber) : null) ||
+          sessionByRoomName.get(asText(entry.roomName).toLowerCase()) ||
+          null;
+        const fallbackAssignment = entry.sourceIndex >= 0 ? confirmedAssignments[entry.sourceIndex] || null : null;
+        const fallbackSp = fallbackAssignment?.sp_id ? spsById.get(fallbackAssignment.sp_id) || null : null;
+        const canonicalSpName = getCanonicalNurs421RoomSpName(eventId, slotIndex);
+        return {
+          slot: {
+            roomName: asText(matchedSession?.room) || asText(entry.roomName) || getFallbackRoomLabel(slotIndex, roomNamingContext),
+            learnerLabels: getResolvedRoundLearnerLabels({
+              learnerRoster: scheduleBuilderLearnerNames,
+              roomCapacity: scheduleBuilderRoomCapacity,
+              roundIndex: Math.max(roundNumber - 1, 0),
+              slotIndex,
+              roomSlotCount: slotCount,
+              activeCaseCount: resolvedScheduleMatrixCaseCount,
+              isMultiCaseMode: resolvedScheduleMatrixCaseCount > 1,
+              isVirtualEvent: isScheduleMatrixVirtual,
+            }),
+            assignedSpName: canonicalSpName || (fallbackSp ? getFullName(fallbackSp) : ""),
+            backupSpName: "",
+            caseLabel: "",
+            roleId: "",
+            roleLabel: "",
+            notes: "",
+          } satisfies ScheduleBuilderPreviewResolvedRoomSlot,
+          sourceIndex: entry.sourceIndex,
+          location: asText(matchedSession?.location) || asText(eventLocation),
+        };
+      });
+
+  // IMPORTANT REGRESSION GUARD:
+  // Room Operations is the operational source for room/station assignment and live attendance state.
+  // Setup mode, Live Attendance mode, Admin Schedule, and export views must render from the same merged room truth.
+  // Do not allow Operations, Attendance, and Admin Schedule to rebuild from separate stale/generated data paths.
+  return sourceSlots.map(({ slot, sourceIndex, location }, slotIndex) => {
+    const slotOverride =
+      roundAdjustments.find((adjustment: ScheduleRoomAdjustmentSlot) => adjustment.slotIndex === slotIndex) || null;
+    const hasLearnerLabelsOverride = hasScheduleRoomAdjustmentField(slotOverride, "learnerLabels");
+    const hasRoomNameOverride = hasScheduleRoomAdjustmentField(slotOverride, "roomName");
+    const hasSpNameOverride = hasScheduleRoomAdjustmentField(slotOverride, "spName");
+    const hasBackupSpOverride = hasScheduleRoomAdjustmentField(slotOverride, "backupSpName");
+    const hasCaseLabelOverride = hasScheduleRoomAdjustmentField(slotOverride, "caseLabel");
+    const hasRoleIdOverride = hasScheduleRoomAdjustmentField(slotOverride, "roleId");
+    const hasRoleLabelOverride = hasScheduleRoomAdjustmentField(slotOverride, "roleLabel");
+    const hasNotesOverride = hasScheduleRoomAdjustmentField(slotOverride, "notes");
+    const hasStationStatusOverride = hasScheduleRoomAdjustmentField(slotOverride, "stationStatus");
+    const hasBackupStationOverride = hasScheduleRoomAdjustmentField(slotOverride, "isBackupStation");
+
+    const learnerLabels = hasLearnerLabelsOverride
+      ? normalizeLearnerNames(slotOverride?.learnerLabels || [])
+      : normalizeLearnerNames(Array.isArray(slot?.learnerLabels) ? slot.learnerLabels : []);
+    const roomName =
+      (hasRoomNameOverride ? asText(slotOverride?.roomName) : asText(slot?.roomName)) ||
+      getFallbackRoomLabel(slotIndex, roomNamingContext);
+    const primarySpName = hasSpNameOverride
+      ? asText(slotOverride?.spName)
+      : asText(slot?.assignedSpName);
+    const backupSpName = hasBackupSpOverride
+      ? asText(slotOverride?.backupSpName)
+      : asText(slot?.backupSpName);
+    const caseLabel =
+      (hasCaseLabelOverride ? asText(slotOverride?.caseLabel) : asText(slot?.caseLabel)) ||
+      asText(selectedRoundCaseLabel);
+    const roleId = hasRoleIdOverride
+      ? asText(slotOverride?.roleId)
+      : asText(slot?.roleId);
+    const roleLabel = hasRoleLabelOverride
+      ? asText(slotOverride?.roleLabel)
+      : asText(slot?.roleLabel);
+    const notes = hasNotesOverride ? asText(slotOverride?.notes) : asText(slot?.notes);
+    const stationLabel = asText(selectedRoundStationLabel);
+    const encounterLabel = [stationLabel, caseLabel].filter(Boolean).join(" · ") || "Case pending";
+    const savedStationStatus = normalizeScheduleStationStatus(slot?.stationStatus);
+    const manualStationStatus = hasStationStatusOverride
+      ? normalizeScheduleStationStatus(slotOverride?.stationStatus)
+      : savedStationStatus;
+    const primarySpIsBackup = Boolean(primarySpName && backupAssignmentNameSet.has(normalizeDisplayText(primarySpName).toLowerCase()));
+    const explicitBackupStation = hasBackupStationOverride
+      ? Boolean(slotOverride?.isBackupStation)
+      : Boolean(slot?.isBackupStation || savedStationStatus === "backup");
+    const inferredBackupStation = Boolean(backupSpName || explicitBackupStation || primarySpIsBackup);
+    const stationStatus: ScheduleStationStatus =
+      manualStationStatus === "inactive"
+        ? "inactive"
+        : manualStationStatus === "backup"
+          ? "backup"
+          : manualStationStatus === "active"
+            ? "active"
+            : inferredBackupStation
+              ? "backup"
+              : "active";
+
+    return {
+      key: `${roundKey}-selected-room-truth-${slotIndex}`,
+      roundKey,
+      roundNumber,
+      start,
+      end,
+      roomSlotIndex: slotIndex,
+      sourceIndex,
+      roomName,
+      roomLabel: roomName,
+      location,
+      learnerLabels,
+      primarySpName,
+      backupSpName,
+      caseLabel,
+      roleId,
+      roleLabel,
+      notes,
+      stationLabel,
+      encounterLabel,
+      stationStatus,
+      isActiveStation: stationStatus === "active",
+      isBackupStation: stationStatus === "backup",
+    } satisfies ResolvedScheduleTruthStation;
+  });
+}
+
 function normalizeScheduleBuilderDayBlocks(value: unknown) {
   if (!Array.isArray(value)) return [] as ScheduleBuilderPreviewDayBlock[];
 
@@ -4803,6 +5026,8 @@ function parseScheduleBuilderPreviewDraft(value: string | null) {
                       roleId: asText(slotRecord.roleId),
                       roleLabel: asText(slotRecord.roleLabel),
                       notes: asText(slotRecord.notes),
+                      stationStatus: normalizeScheduleStationStatus(slotRecord.stationStatus) || undefined,
+                      isBackupStation: parseBooleanValue(slotRecord.isBackupStation, false),
                     } satisfies ScheduleBuilderPreviewResolvedRoomSlot;
                   })
                   .filter(
@@ -4814,7 +5039,9 @@ function parseScheduleBuilderPreviewDraft(value: string | null) {
                           slot.backupSpName ||
                           slot.caseLabel ||
                           slot.roleLabel ||
-                          slot.notes
+                          slot.notes ||
+                          slot.stationStatus ||
+                          slot.isBackupStation
                       )
                   )
               : [];
@@ -9732,111 +9959,49 @@ const operationalEventStatusLabel = useMemo(() => {
     });
     return names;
   }, [backupAssignments, spsById]);
-  const selectedRoundResolvedScheduleTruth = useMemo(() => {
-    if (!selectedRotationRound || !selectedResolvedRound) {
-      return null as ResolvedScheduleTruthStation[] | null;
-    }
-
-    const roundAdjustments = activeScheduleRoomAdjustments.get(selectedResolvedRoundNumber) || [];
-    const roomSlots = Array.isArray(selectedResolvedRound.roomSlots) ? selectedResolvedRound.roomSlots : [];
-    const roundKey = asText(selectedRotationRound.key);
-    const roundNumber = selectedResolvedRoundNumber;
-    const start = asText(selectedResolvedRound.startTime) || asText(selectedRotationRound.start_time);
-    const end = asText(selectedResolvedRound.endTime) || asText(selectedRotationRound.end_time);
-
-    return roomSlots.map((slot, slotIndex) => {
-      const slotOverride =
-        roundAdjustments.find((adjustment: ScheduleRoomAdjustmentSlot) => adjustment.slotIndex === slotIndex) || null;
-      const hasLearnerLabelsOverride = hasScheduleRoomAdjustmentField(slotOverride, "learnerLabels");
-      const hasRoomNameOverride = hasScheduleRoomAdjustmentField(slotOverride, "roomName");
-      const hasSpNameOverride = hasScheduleRoomAdjustmentField(slotOverride, "spName");
-      const hasBackupSpOverride = hasScheduleRoomAdjustmentField(slotOverride, "backupSpName");
-      const hasCaseLabelOverride = hasScheduleRoomAdjustmentField(slotOverride, "caseLabel");
-      const hasRoleIdOverride = hasScheduleRoomAdjustmentField(slotOverride, "roleId");
-      const hasRoleLabelOverride = hasScheduleRoomAdjustmentField(slotOverride, "roleLabel");
-      const hasNotesOverride = hasScheduleRoomAdjustmentField(slotOverride, "notes");
-      const hasStationStatusOverride = hasScheduleRoomAdjustmentField(slotOverride, "stationStatus");
-
-      const learnerLabels = hasLearnerLabelsOverride
-        ? normalizeLearnerNames(slotOverride?.learnerLabels || [])
-        : normalizeLearnerNames(Array.isArray(slot?.learnerLabels) ? slot.learnerLabels : []);
-      const roomName =
-        (hasRoomNameOverride ? asText(slotOverride?.roomName) : asText(slot?.roomName)) ||
-        getFallbackRoomLabel(slotIndex, roomNamingContext);
-      const primarySpName = hasSpNameOverride
-        ? asText(slotOverride?.spName)
-        : asText(slot?.assignedSpName);
-      const backupSpName = hasBackupSpOverride
-        ? asText(slotOverride?.backupSpName)
-        : asText(slot?.backupSpName);
-      const caseLabel = hasCaseLabelOverride
-        ? asText(slotOverride?.caseLabel)
-        : asText(slot?.caseLabel);
-      const roleId = hasRoleIdOverride
-        ? asText(slotOverride?.roleId)
-        : asText(slot?.roleId);
-      const roleLabel = hasRoleLabelOverride
-        ? asText(slotOverride?.roleLabel)
-        : asText(slot?.roleLabel);
-      const notes = hasNotesOverride ? asText(slotOverride?.notes) : asText(slot?.notes);
-      const stationLabel = asText(selectedRoundStationLabel);
-      const encounterLabel = [stationLabel, caseLabel].filter(Boolean).join(" · ") || "Case pending";
-      const manualStationStatus = hasStationStatusOverride
-        ? normalizeScheduleStationStatus(slotOverride?.stationStatus)
-        : "";
-      const primarySpIsBackup = Boolean(primarySpName && backupAssignmentNameSet.has(normalizeDisplayText(primarySpName).toLowerCase()));
-      const hasLearnerEncounter = learnerLabels.length > 0;
-      const hasCaseOrRole = Boolean(caseLabel || roleId || roleLabel);
-      const hasActivePrimarySp = Boolean(primarySpName && !primarySpIsBackup);
-      const explicitBackupStation = isScheduleBackupStation(slotOverride);
-      const inferredBackupStation = Boolean(
-        backupSpName ||
-        explicitBackupStation ||
-        primarySpIsBackup
-      );
-      const stationStatus: ScheduleStationStatus =
-        manualStationStatus === "inactive"
-          ? "inactive"
-          : manualStationStatus === "active"
-            ? "active"
-            : inferredBackupStation
-              ? "backup"
-              : hasLearnerEncounter || hasCaseOrRole || hasActivePrimarySp
-                ? "active"
-                : "inactive";
-
-      return {
-        key: `${selectedRotationRound.key}-resolved-station-${slotIndex}`,
-        roundKey,
-        roundNumber,
-        start,
-        end,
-        roomSlotIndex: slotIndex,
-        roomName,
-        roomLabel: roomName,
-        learnerLabels,
-        primarySpName,
-        backupSpName,
-        caseLabel,
-        roleId,
-        roleLabel,
-        notes,
-        stationLabel,
-        encounterLabel,
-        stationStatus,
-        isActiveStation: stationStatus === "active",
-        isBackupStation: stationStatus === "backup",
-      } satisfies ResolvedScheduleTruthStation;
-    });
-  }, [
-    activeScheduleRoomAdjustments,
-    backupAssignmentNameSet,
-    roomNamingContext,
-    selectedResolvedRound,
-    selectedResolvedRoundNumber,
-    selectedRotationRound,
-    selectedRoundStationLabel,
-  ]);
+  const selectedRoundResolvedScheduleTruth = useMemo(
+    () =>
+      buildSelectedRoundOperationalRooms({
+        selectedRotationRound,
+        selectedResolvedRound,
+        selectedResolvedRoundNumber,
+        selectedRoundRoomSlotEntries,
+        selectedRoundSessions,
+        activeScheduleRoomAdjustments,
+        selectedRoundCaseLabel,
+        selectedRoundStationLabel,
+        backupAssignmentNameSet,
+        roomNamingContext,
+        eventId: event?.id,
+        eventLocation: event?.location,
+        confirmedAssignments,
+        spsById,
+        scheduleBuilderLearnerNames,
+        scheduleBuilderRoomCapacity,
+        resolvedScheduleMatrixCaseCount,
+        isScheduleMatrixVirtual,
+      }),
+    [
+      activeScheduleRoomAdjustments,
+      backupAssignmentNameSet,
+      confirmedAssignments,
+      event?.id,
+      event?.location,
+      isScheduleMatrixVirtual,
+      resolvedScheduleMatrixCaseCount,
+      roomNamingContext,
+      scheduleBuilderLearnerNames,
+      scheduleBuilderRoomCapacity,
+      selectedResolvedRound,
+      selectedResolvedRoundNumber,
+      selectedRotationRound,
+      selectedRoundCaseLabel,
+      selectedRoundRoomSlotEntries,
+      selectedRoundSessions,
+      selectedRoundStationLabel,
+      spsById,
+    ]
+  );
   const selectedRoundActiveScheduleTruth = useMemo(
     () => selectedRoundResolvedScheduleTruth?.filter((station) => station.stationStatus === "active") || null,
     [selectedRoundResolvedScheduleTruth]
@@ -9849,207 +10014,47 @@ const operationalEventStatusLabel = useMemo(() => {
     selectedRoundActiveScheduleTruth !== null ? selectedRoundActiveScheduleTruth.length : selectedRoundRoomCount;
   const selectedRoundBackupStationCount = selectedRoundBackupScheduleTruth?.length || 0;
   const selectedRoundScheduleRows = useMemo(() => {
-    if (!selectedRotationRound) {
+    if (!selectedRoundResolvedScheduleTruth?.length) {
       return [] as Array<RoundRoomRow>;
     }
-    const persistedRoomSlots = selectedResolvedRoomSlots;
-    const usingResolvedSnapshot = persistedRoomSlots.length > 0;
-
-    const sessionByRoomNumber = new Map<number, EventSessionRow>();
-    const sessionByRoomName = new Map<string, EventSessionRow>();
-    selectedRoundSessions.forEach((session) => {
-      const roomName = asText(session.room);
-      const roomNumber = getRoomDisplayNumber(roomName);
-      if (roomNumber !== null && !sessionByRoomNumber.has(roomNumber)) {
-        sessionByRoomNumber.set(roomNumber, session);
-      }
-      if (roomName) sessionByRoomName.set(roomName.toLowerCase(), session);
-    });
-    const fallbackDisplayRows = selectedRoundRoomSlotEntries.length
-      ? selectedRoundRoomSlotEntries.map((entry, slotIndex) => {
-          const roomNumber = getRoomDisplayNumber(entry.roomName);
-          const matchedSession =
-            (roomNumber !== null ? sessionByRoomNumber.get(roomNumber) : null) ||
-            sessionByRoomName.get(asText(entry.roomName).toLowerCase()) ||
-            null;
-          return {
-            session:
-              matchedSession ||
-              ({
-                id: `${selectedRotationRound.key}-room-${slotIndex}`,
-                event_id: event?.id || null,
-                session_date: selectedRotationRound.session_date,
-                start_time: selectedRotationRound.start_time,
-                end_time: selectedRotationRound.end_time,
-                location: event?.location || null,
-                room: entry.roomName,
-                created_at: null,
-              } satisfies EventSessionRow),
-            sourceIndex: entry.sourceIndex,
-            slotIndex,
-          };
-        })
-      : [
-          {
-            session: {
-              id: `${selectedRotationRound.key}-slot`,
-              event_id: event?.id || null,
-              session_date: selectedRotationRound.session_date,
-              start_time: selectedRotationRound.start_time,
-              end_time: selectedRotationRound.end_time,
-              location: event?.location || null,
-              room: "",
-              created_at: null,
-            } satisfies EventSessionRow,
-            sourceIndex: 0,
-            slotIndex: 0,
-          },
-        ];
-    const displayRows = usingResolvedSnapshot
-      ? persistedRoomSlots.map((slot, slotIndex) => {
-          const roomName = asText(slot.roomName);
-          const roomNumber = getRoomDisplayNumber(roomName);
-          const matchedSession =
-            (roomNumber !== null ? sessionByRoomNumber.get(roomNumber) : null) ||
-            sessionByRoomName.get(roomName.toLowerCase()) ||
-            sessionByRoomName.get(asText(selectedRoundRoomSlotEntries[slotIndex]?.roomName).toLowerCase()) ||
-            null;
-          return {
-            session:
-              matchedSession ||
-              ({
-                id: `${selectedRotationRound.key}-resolved-room-${slotIndex}`,
-                event_id: event?.id || null,
-                session_date: selectedRotationRound.session_date,
-                start_time: selectedRotationRound.start_time,
-                end_time: selectedRotationRound.end_time,
-                location: event?.location || null,
-                room: roomName,
-                created_at: null,
-              } satisfies EventSessionRow),
-            sourceIndex: selectedRoundRoomSlotEntries[slotIndex]?.sourceIndex ?? slotIndex,
-            slotIndex,
-          };
-        })
-      : fallbackDisplayRows;
-    const roundAdjustments = activeScheduleRoomAdjustments.get(selectedResolvedRoundNumber) || [];
     const availableAssignments = [...confirmedAssignments, ...backupAssignments];
 
-    return displayRows.map(({ session, sourceIndex, slotIndex }, index) => {
-      const slotOverride = roundAdjustments.find((slot: ScheduleRoomAdjustmentSlot) => slot.slotIndex === slotIndex) || null;
-      const hasLearnerLabelsOverride = hasScheduleRoomAdjustmentField(slotOverride, "learnerLabels");
-      const hasRoomNameOverride = hasScheduleRoomAdjustmentField(slotOverride, "roomName");
-      const hasSpNameOverride = hasScheduleRoomAdjustmentField(slotOverride, "spName");
-      const hasCaseLabelOverride = hasScheduleRoomAdjustmentField(slotOverride, "caseLabel");
-      const hasRoleIdOverride = hasScheduleRoomAdjustmentField(slotOverride, "roleId");
-      const hasRoleLabelOverride = hasScheduleRoomAdjustmentField(slotOverride, "roleLabel");
-      const hasNotesOverride = hasScheduleRoomAdjustmentField(slotOverride, "notes");
-      const persistedSlot = persistedRoomSlots[slotIndex] || null;
-      const stationTruth = selectedRoundResolvedScheduleTruth?.find((station) => station.roomSlotIndex === slotIndex) || null;
-      const isBackupStation = stationTruth?.stationStatus === "backup";
-      const rawRoomName =
-        asText(persistedSlot?.roomName) ||
-        asText(session.room) ||
-        asText(selectedRoundRoomSlotEntries[slotIndex]?.roomName) ||
-        "";
-      const displayRoomName = rawRoomName || getFallbackRoomLabel(slotIndex, roomNamingContext);
-      const fallbackSpName = usingResolvedSnapshot ? "" : getCanonicalNurs421RoomSpName(event?.id, slotIndex);
-      const overrideSpName = hasSpNameOverride ? asText(slotOverride?.spName) : "";
-      const persistedSpName = asText(persistedSlot?.assignedSpName);
-      const assignmentFromOverride = overrideSpName
-        ? findAssignmentBySpDisplayName(availableAssignments, spsById, overrideSpName)
+    return selectedRoundResolvedScheduleTruth
+      .filter((station) => station.stationStatus !== "inactive")
+      .map((station) => {
+      const assignment = station.primarySpName
+        ? findAssignmentBySpDisplayName(availableAssignments, spsById, station.primarySpName)
         : null;
-      const assignmentFromPersistedSnapshot =
-        !assignmentFromOverride && persistedSpName
-          ? findAssignmentBySpDisplayName(availableAssignments, spsById, persistedSpName)
-          : null;
-      const assignmentFromFallback =
-        !usingResolvedSnapshot && !assignmentFromOverride && !assignmentFromPersistedSnapshot && sourceIndex >= 0
-          ? confirmedAssignments[sourceIndex] || null
-          : null;
-      const assignment =
-        assignmentFromOverride ||
-        assignmentFromPersistedSnapshot ||
-        assignmentFromFallback ||
-        (fallbackSpName ? findAssignmentBySpDisplayName(availableAssignments, spsById, fallbackSpName) : null);
       const sp = assignment?.sp_id ? spsById.get(assignment.sp_id) || null : null;
-      const generatedLearnerLabels = usingResolvedSnapshot
-        ? []
-        : getResolvedRoundLearnerLabels({
-            learnerRoster: scheduleBuilderLearnerNames,
-            roomCapacity: scheduleBuilderRoomCapacity,
-            roundIndex: Math.max(selectedResolvedRoundNumber - 1, 0),
-            slotIndex,
-            roomSlotCount: Math.max(displayRows.length, 1),
-            activeCaseCount: resolvedScheduleMatrixCaseCount,
-            isMultiCaseMode: resolvedScheduleMatrixCaseCount > 1,
-            isVirtualEvent: isScheduleMatrixVirtual,
-          });
-      const learnerLabels =
-        hasLearnerLabelsOverride
-          ? normalizeLearnerNames(slotOverride.learnerLabels)
-          : persistedSlot
-            ? normalizeLearnerNames(persistedSlot.learnerLabels)
-            : generatedLearnerLabels;
-      const resolvedRoomName = (hasRoomNameOverride ? asText(slotOverride?.roomName) : "") || displayRoomName;
-      const resolvedCaseLabel =
-        (hasCaseLabelOverride ? asText(slotOverride?.caseLabel) : asText(persistedSlot?.caseLabel)) || selectedRoundCaseLabel;
-      const resolvedCaseEntry = findCaseFileEntryForLabel(caseFileEntries, resolvedCaseLabel);
-      const resolvedRoleId = hasRoleIdOverride
-        ? asText(slotOverride?.roleId)
-        : asText(persistedSlot?.roleId);
-      const resolvedRoleLabel = resolveCaseRoleLabel(
-        resolvedCaseEntry,
-        resolvedRoleId,
-        hasRoleLabelOverride
-          ? asText(slotOverride?.roleLabel)
-          : asText(persistedSlot?.roleLabel)
-      );
-        const flags = [
-          rawRoomName ? "" : "Missing room",
-          assignment && !sp ? "Missing SP profile" : "",
-          staffingRelevant && !assignment && !isBackupStation ? "Missing SP" : "",
-          effectiveLearnerCount > 0 && !learnerLabels.length && !isBackupStation ? "No learner assigned" : "",
-        ].filter(Boolean);
+      const learnerLabels = normalizeLearnerNames(station.learnerLabels);
+      const flags = [
+        station.roomName ? "" : "Missing room",
+        assignment && !sp ? "Missing SP profile" : "",
+        staffingRelevant && !assignment && station.stationStatus === "active" ? "Missing SP" : "",
+        effectiveLearnerCount > 0 && !learnerLabels.length && station.stationStatus === "active" ? "No learner assigned" : "",
+      ].filter(Boolean);
 
-        return {
-          key: `${selectedRotationRound.key}-${session.id || slotIndex}-${index}`,
-          slotIndex,
-          roomName: resolvedRoomName,
-          location: asText(session.location) || asText(event?.location),
-          learnerLabels,
-          assignment,
-          sp,
-          backupSpName: hasScheduleRoomAdjustmentField(slotOverride, "backupSpName")
-            ? asText(slotOverride?.backupSpName)
-            : asText(persistedSlot?.backupSpName),
-          caseLabel: resolvedCaseLabel,
-          roleId: resolvedRoleId,
-          roleLabel: resolvedRoleLabel,
-          notes: hasNotesOverride ? asText(slotOverride?.notes) : asText(persistedSlot?.notes),
-          stationLabel: selectedRoundStationLabel,
-          flags,
-        } satisfies RoundRoomRow;
+      return {
+        key: `${station.key}-schedule`,
+        slotIndex: station.roomSlotIndex,
+        roomName: station.roomName,
+        location: station.location || asText(event?.location),
+        learnerLabels,
+        assignment,
+        sp,
+        backupSpName: station.backupSpName,
+        caseLabel: station.caseLabel,
+        roleId: station.roleId,
+        roleLabel: station.roleLabel,
+        notes: station.notes,
+        stationLabel: station.stationLabel,
+        flags,
+      } satisfies RoundRoomRow;
     });
   }, [
-    event?.id,
     event?.location,
     effectiveLearnerCount,
-    isScheduleMatrixVirtual,
-    resolvedScheduleMatrixCaseCount,
-    scheduleBuilderLearnerNames,
-    scheduleBuilderRoomCapacity,
-    activeScheduleRoomAdjustments,
-    caseFileEntries,
-    roomNamingContext,
-    selectedResolvedRoomSlots,
-    selectedResolvedRoundNumber,
-    selectedRotationRound,
-    selectedRoundRoomSlotEntries,
-    selectedRoundCaseLabel,
     selectedRoundResolvedScheduleTruth,
-    selectedRoundSessions,
-    selectedRoundStationLabel,
     backupAssignments,
     confirmedAssignments,
     spsById,
@@ -10057,49 +10062,24 @@ const operationalEventStatusLabel = useMemo(() => {
   ]);
   const selectedRoundOperationsRows = useMemo(() => {
     if (!selectedRoundResolvedScheduleTruth?.length) {
-    return selectedRoundScheduleRows.map((row) => ({
-      ...row,
-      primarySpName: row.sp ? getFullName(row.sp) : "",
-        stationStatus: "active" as const,
-        isActiveStation: true,
-        isBackupStation: false,
-      })) as OperationsRoomCardRow[];
+      return [] as OperationsRoomCardRow[];
     }
 
-    const roundAdjustments = activeScheduleRoomAdjustments.get(selectedResolvedRoundNumber) || [];
     const availableAssignments = [...confirmedAssignments, ...backupAssignments];
     const scheduleRowsBySlotIndex = new Map(selectedRoundScheduleRows.map((row) => [row.slotIndex, row]));
 
-    return selectedRoundResolvedScheduleTruth.filter((station) => station.stationStatus !== "inactive").map((station) => {
-      const slotOverride =
-        roundAdjustments.find((slot: ScheduleRoomAdjustmentSlot) => slot.slotIndex === station.roomSlotIndex) || null;
+    return selectedRoundResolvedScheduleTruth.map((station) => {
       const existingRow = scheduleRowsBySlotIndex.get(station.roomSlotIndex) || null;
-      const hasSpNameOverride = hasScheduleRoomAdjustmentField(slotOverride, "spName");
-      const hasLearnerLabelsOverride = hasScheduleRoomAdjustmentField(slotOverride, "learnerLabels");
-      const hasBackupSpOverride = hasScheduleRoomAdjustmentField(slotOverride, "backupSpName");
-      const hasCaseLabelOverride = hasScheduleRoomAdjustmentField(slotOverride, "caseLabel");
-      const hasRoleIdOverride = hasScheduleRoomAdjustmentField(slotOverride, "roleId");
-      const hasRoleLabelOverride = hasScheduleRoomAdjustmentField(slotOverride, "roleLabel");
-      const hasNotesOverride = hasScheduleRoomAdjustmentField(slotOverride, "notes");
-
-      const primarySpName = hasSpNameOverride
-        ? asText(slotOverride?.spName)
-        : asText(station.primarySpName);
-      const learnerLabels = hasLearnerLabelsOverride
-        ? normalizeLearnerNames(slotOverride.learnerLabels || [])
-        : normalizeLearnerNames(station.learnerLabels);
+      const primarySpName = asText(station.primarySpName);
+      const learnerLabels = normalizeLearnerNames(station.learnerLabels);
       const roomName = station.roomName;
-      const caseLabel = hasCaseLabelOverride
-        ? asText(slotOverride?.caseLabel)
-        : asText(station.caseLabel);
+      const caseLabel = asText(station.caseLabel);
       const effectiveCaseEntry = findCaseFileEntryForLabel(caseFileEntries, caseLabel);
-      const roleId = hasRoleIdOverride
-        ? asText(slotOverride?.roleId)
-        : asText(station.roleId);
+      const roleId = asText(station.roleId);
       const roleLabel = resolveCaseRoleLabel(
         effectiveCaseEntry,
         roleId,
-        hasRoleLabelOverride ? asText(slotOverride?.roleLabel) : asText(station.roleLabel)
+        asText(station.roleLabel)
       );
       const assignment = primarySpName
         ? findAssignmentBySpDisplayName(availableAssignments, spsById, primarySpName)
@@ -10110,36 +10090,32 @@ const operationalEventStatusLabel = useMemo(() => {
         key: `${station.key}-ops`,
         slotIndex: station.roomSlotIndex,
         roomName,
-        location: existingRow?.location || asText(event?.location),
+        location: station.location || existingRow?.location || asText(event?.location),
         learnerLabels,
         assignment,
         sp,
         primarySpName,
-        backupSpName: hasBackupSpOverride
-          ? asText(slotOverride?.backupSpName)
-          : asText(station.backupSpName),
+        backupSpName: asText(station.backupSpName),
         caseLabel,
         roleId,
         roleLabel,
-        notes: hasNotesOverride ? asText(slotOverride?.notes) : asText(station.notes),
+        notes: asText(station.notes),
         stationLabel: asText(station.stationLabel),
         stationStatus: station.stationStatus,
         isActiveStation: station.stationStatus === "active",
         isBackupStation: station.stationStatus === "backup",
-        flags: station.stationStatus === "backup"
+        flags: station.stationStatus !== "active"
           ? (existingRow?.flags || []).filter((flag) => !["Missing SP", "No learner assigned"].includes(asText(flag)))
           : existingRow?.flags || [],
       } satisfies OperationsRoomCardRow;
     });
   }, [
-    activeScheduleRoomAdjustments,
     backupAssignments,
     caseFileEntries,
     confirmedAssignments,
     event?.location,
     selectedRoundResolvedScheduleTruth,
     selectedRoundScheduleRows,
-    selectedResolvedRoundNumber,
     spsById,
   ]);
   const getOperationsRoomPrimarySpName = (row: OperationsRoomCardRow | RoundRoomRow) =>
@@ -11317,30 +11293,25 @@ const operationalEventStatusLabel = useMemo(() => {
     return [...liveBlueprintBaseRooms, ...extraRooms];
   }, [liveBlueprintBaseHighestRoomNumber, liveBlueprintBaseRooms, liveExtraRoomCount, roomNamingContext]);
   const selectedRoundResolvedAttendanceRooms = useMemo(() => {
-    if (!selectedRoundResolvedScheduleTruth?.length) {
+    if (!selectedRoundOperationsRows.length) {
       return null as EventAttendanceCanonicalRoom[] | null;
     }
 
-    return selectedRoundResolvedScheduleTruth.filter((station) => station.stationStatus !== "inactive").map((station, fallbackIndex) => {
-      const assignment = station.primarySpName
-        ? findAssignmentBySpDisplayName(sortedAssignments, spsById, station.primarySpName)
-        : null;
-      const sp = assignment?.sp_id ? spsById.get(assignment.sp_id) || null : null;
-
+    return selectedRoundOperationsRows.filter((row) => row.stationStatus !== "inactive").map((row, fallbackIndex) => {
       return {
-        roomName: asText(station.roomName),
-        learnerLabels: normalizeLearnerNames(station.learnerLabels).filter((learner) => isAssignedLearnerRoomLabel(learner)),
-        assignment,
-        sp,
-        spName: asText(station.primarySpName),
-        encounterLabel: asText(station.encounterLabel) || "Case pending",
+        roomName: asText(row.roomName),
+        learnerLabels: normalizeLearnerNames(row.learnerLabels).filter((learner) => isAssignedLearnerRoomLabel(learner)),
+        assignment: row.assignment,
+        sp: row.sp,
+        spName: getOperationsRoomPrimarySpName(row),
+        encounterLabel: [row.stationLabel, row.caseLabel].filter(Boolean).join(" · ") || "Case pending",
         fallbackIndex,
-        stationStatus: station.stationStatus,
-        isActiveStation: station.stationStatus === "active",
-        isBackupStation: station.stationStatus === "backup",
+        stationStatus: row.stationStatus,
+        isActiveStation: row.stationStatus === "active",
+        isBackupStation: row.stationStatus === "backup",
       } satisfies EventAttendanceCanonicalRoom;
     });
-  }, [selectedRoundResolvedScheduleTruth, sortedAssignments, spsById]);
+  }, [selectedRoundOperationsRows]);
   const selectedRoundOccupancyKey = asText(selectedRotationRound?.key || currentLiveReferenceRound?.key || "");
   const selectedRoundOccupancyRoomLearners = useMemo(
     () =>
@@ -13109,6 +13080,7 @@ Cory`;
       : []),
   ];
   const showLegacyEventSummaryPanels = false;
+  const isRoomOperationsView = roundCompanionView === "operations" || roundCompanionView === "attendance";
   const commandSurfaceViewLabel =
     roundCompanionView === "overview"
       ? "Overview"
@@ -13124,8 +13096,8 @@ Cory`;
                 ? "Student Schedule"
                 : roundCompanionView === "sp"
                   ? "SP Schedule"
-                  : roundCompanionView === "attendance"
-                    ? "Attendance"
+                  : isRoomOperationsView
+                    ? "Room Operations"
                     : "Operations";
   type PlanningWindowRow = {
     key: string;
@@ -18987,6 +18959,38 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     fontWeight: 700,
     fontSize: "13px",
   };
+  const roomOperationsModeTabs = (
+    <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
+      {[
+        { value: "operations" as const, label: "Setup" },
+        { value: "attendance" as const, label: "Live Attendance" },
+      ].map((tab) => {
+        const selected = roundCompanionView === tab.value;
+        return (
+          <button
+            key={`room-operations-mode-${tab.value}`}
+            type="button"
+            onClick={() => {
+              setPrimaryEventTool("commandCenter");
+              setSelectedCommandTool("primary");
+              setRoundCompanionView(tab.value);
+              queueCommandContentScroll();
+            }}
+            style={{
+              ...(selected ? buttonStyle : staffingSecondaryButtonStyle),
+              padding: "6px 10px",
+              borderRadius: "999px",
+              fontSize: "11px",
+              opacity: selected ? 1 : 0.9,
+            }}
+            aria-pressed={selected}
+          >
+            {tab.label}
+          </button>
+        );
+      })}
+    </div>
+  );
   const trainingDateMarkerToneStyle = getOperationalDateToneStyles(trainingDateTone, isPlanningVisualMode);
   const metadataInspectorPanel =
     viewerRole !== "sp" ? (
@@ -25694,14 +25698,14 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           },
                           {
                             value: "eventAttendance" as const,
-                            identity: "eventAttendance" as const,
-                            label: "Event Attendance",
-                            status: "Live check-in",
+                            identity: "operations" as const,
+                            label: "Room Operations",
+                            status: "Setup + Live",
                           },
                         ].map((tool) => {
                           const selected =
                             tool.value === "eventAttendance"
-                              ? primaryEventTool === "commandCenter" && selectedCommandTool === "primary" && roundCompanionView === "attendance"
+                              ? primaryEventTool === "commandCenter" && selectedCommandTool === "primary" && isRoomOperationsView
                               : primaryEventTool === tool.value;
                             return (
                             <button
@@ -25714,7 +25718,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 if (tool.value === "eventAttendance") {
                                   setPrimaryEventTool("commandCenter");
                                   setSelectedCommandTool("primary");
-                                  setRoundCompanionView("attendance");
+                                  setRoundCompanionView("operations");
                                   queueCommandContentScroll();
                                   return;
                                 }
@@ -25809,8 +25813,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 kind: "view",
                                 value: "operations",
                                 identity: "operations" as const,
-                                label: "Operations",
-                                status: "Room controls",
+                                label: "Room Operations",
+                                status: "Setup + Live",
                               },
                             ],
                           },
@@ -25830,13 +25834,6 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 identity: "staffing" as const,
                                 label: "Staffing",
                                 status: staffingCoverageMet ? "Ready" : "Needs scan",
-                              },
-                              {
-                                kind: "view",
-                                value: "attendance",
-                                identity: "eventAttendance" as const,
-                                label: "Event Attendance",
-                                status: "Live check-in",
                               },
                               {
                                 kind: "view",
@@ -25959,7 +25956,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                               {group.tools.map((tool) => {
                                 const selected =
                                   tool.kind === "view"
-                                    ? selectedCommandTool === "primary" && roundCompanionView === tool.value
+                                    ? selectedCommandTool === "primary" && (tool.value === "operations" ? isRoomOperationsView : roundCompanionView === tool.value)
                                     : tool.kind === "primary"
                                       ? primaryEventTool === tool.value
                                       : tool.kind === "advanced"
@@ -27138,11 +27135,12 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       gap: "12px",
       overflow: "hidden",
       scrollMarginTop: "170px",
-      position: "relative",
-      zIndex: 1,
-    }}
-  >
-    <section
+	      position: "relative",
+	      zIndex: 1,
+	    }}
+	  >
+	    {roomOperationsModeTabs}
+	    <section
       style={{
         borderRadius: "16px",
         border: "1px solid rgba(99, 181, 217, 0.2)",
@@ -27153,9 +27151,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       }}
     >
       <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "flex-start" }}>
-        <div>
-          <div style={{ ...statLabel, color: "#12617f" }}>Event Day Attendance</div>
-          <div style={{ marginTop: "4px", color: "#102d44", fontSize: "20px", fontWeight: 950 }}>Event Attendance</div>
+	        <div>
+	          <div style={{ ...statLabel, color: "#12617f" }}>Room Operations</div>
+	          <div style={{ marginTop: "4px", color: "#102d44", fontSize: "20px", fontWeight: 950 }}>Live Attendance</div>
           <div style={{ marginTop: "3px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 750 }}>
             Selected-round check-in board for SPs, learners, and room occupancy.
           </div>
@@ -28027,10 +28025,11 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 No SP schedule has been built for this round yet.
                               </div>
                             )
-                          ) : (
-                            selectedRoundOperationsScheduleReady ? (
-                              <div style={{ display: "grid", gap: "6px" }}>
-                                <section
+	                          ) : (
+	                            selectedRoundOperationsScheduleReady ? (
+	                              <div style={{ display: "grid", gap: "6px" }}>
+	                                {roomOperationsModeTabs}
+	                                <section
                                   style={{
                                     borderRadius: "16px",
                                     border: isPlanningVisualMode ? "1px solid rgba(20, 91, 150, 0.22)" : "1px solid rgba(126, 231, 219, 0.24)",
@@ -28043,10 +28042,10 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                   }}
                                 >
                                   <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
-                                    <div>
-                                      <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Operations View</div>
-                                      <div style={{ marginTop: "4px", color: commandCenterVisual.headingColor, fontWeight: 950, fontSize: "17px" }}>
-                                        Round {activeSelectedRotationRoundIndex + 1} execution flow
+	                                    <div>
+	                                      <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Room Operations</div>
+	                                      <div style={{ marginTop: "4px", color: commandCenterVisual.headingColor, fontWeight: 950, fontSize: "17px" }}>
+	                                        Round {activeSelectedRotationRoundIndex + 1} setup / assignments
                                       </div>
                                     </div>
                                     <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
@@ -28064,9 +28063,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                       </span>
                                     </div>
                                   </div>
-                                  <div style={{ color: commandCenterVisual.mutedColor, fontSize: "13px", fontWeight: 750, lineHeight: 1.45 }}>
-                                    Focused staff view for rooms, SPs, learners, timing blocks, transitions, and operational reminders.
-                                  </div>
+	                                  <div style={{ color: commandCenterVisual.mutedColor, fontSize: "13px", fontWeight: 750, lineHeight: 1.45 }}>
+	                                    Shared room truth for station status, room assignments, SPs, learners, cases, roles, and notes.
+	                                  </div>
                                 </section>
                                 <section
                                   style={{
@@ -28109,15 +28108,15 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                           color: "#fff",
                                           opacity: roundOperationsSaveState === "saving" || saving ? 0.72 : 1,
                                         }}
-                                      >
-                                        {roundOperationsSaveState === "saving"
-                                          ? "Saving..."
-                                          : roundOperationsSaveState === "error"
-                                            ? "Save Failed"
-                                            : roundOperationsSaveState === "saved"
-                                              ? `Saved ✓${roundOperationsLastSavedAt ? ` at ${new Date(roundOperationsLastSavedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}`
-                                              : "Save Round Changes"}
-                                      </button>
+	                                      >
+	                                        {roundOperationsSaveState === "saving"
+	                                          ? "Saving..."
+	                                          : roundOperationsSaveState === "error"
+	                                            ? "Save Failed"
+	                                            : roundOperationsSaveState === "saved"
+	                                              ? `Saved ✓${roundOperationsLastSavedAt ? ` at ${new Date(roundOperationsLastSavedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}`
+	                                              : "Unsaved changes"}
+	                                      </button>
                                       <button
                                         type="button"
                                         onClick={() => void handleRoundRoomCountChange(1)}
@@ -28136,10 +28135,10 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                       </button>
                                     </div>
                                   </div>
-                                  {roundOperationsSaveState === "unsaved" ? (
-                                    <div style={{ color: isPlanningVisualMode ? "#92400e" : "#f3bb67", fontSize: "11px", fontWeight: 850 }}>
-                                      Unsaved round changes. Use Save Round Changes to update Schedule Builder, Viewer, Live Mode, and exports.
-                                    </div>
+	                                  {roundOperationsSaveState === "unsaved" ? (
+	                                    <div style={{ color: isPlanningVisualMode ? "#92400e" : "#f3bb67", fontSize: "11px", fontWeight: 850 }}>
+	                                      Unsaved changes. Save to update Schedule Builder, Live Attendance, Admin Schedule, and exports.
+	                                    </div>
                                   ) : roundOperationsSaveState === "error" && roundOperationsSaveError ? (
                                     <div style={{ color: staffingWorkspacePalette.dangerText, fontSize: "11px", fontWeight: 850 }}>
                                       {roundOperationsSaveError}
@@ -28252,18 +28251,18 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                   </div>
                                 </section>
                                 <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                                  {selectedRoundOperationsRows.length ? selectedRoundOperationsRows.map((row) => (
-                                    <span
-                                      key={`${row.key}-room-chip`}
-                                      style={{
-                                        ...commandChipStyle,
-                                        background: row.isBackupStation ? "rgba(253, 230, 138, 0.68)" : commandCenterVisual.chipBackground,
-                                        color: row.isBackupStation ? "#7c2d12" : commandCenterVisual.chipText,
-                                        border: row.isBackupStation ? "1px solid rgba(217, 119, 6, 0.24)" : commandCenterVisual.rowBorder,
-                                      }}
-                                    >
-                                      {row.roomName}{row.isBackupStation ? " · standby" : ""}
-                                    </span>
+	                                  {selectedRoundOperationsRows.length ? selectedRoundOperationsRows.map((row) => (
+	                                    <span
+	                                      key={`${row.key}-room-chip`}
+	                                      style={{
+	                                        ...commandChipStyle,
+	                                        background: row.stationStatus === "inactive" ? "rgba(226, 232, 240, 0.72)" : row.isBackupStation ? "rgba(253, 230, 138, 0.68)" : commandCenterVisual.chipBackground,
+	                                        color: row.stationStatus === "inactive" ? "#475569" : row.isBackupStation ? "#7c2d12" : commandCenterVisual.chipText,
+	                                        border: row.stationStatus === "inactive" ? "1px solid rgba(148, 163, 184, 0.26)" : row.isBackupStation ? "1px solid rgba(217, 119, 6, 0.24)" : commandCenterVisual.rowBorder,
+	                                      }}
+	                                    >
+	                                      {row.roomName}{row.stationStatus === "inactive" ? " · inactive" : row.isBackupStation ? " · standby" : ""}
+	                                    </span>
                                   )) : (
                                     <span style={{ ...commandChipStyle, background: isPlanningVisualMode ? "rgba(226, 236, 244, 0.92)" : "rgba(226, 232, 240, 0.16)", color: commandCenterVisual.mutedColor, border: commandCenterVisual.rowBorder }}>
                                       Rooms TBD
@@ -28295,21 +28294,25 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                   const rowRoleMatchesName = row.roleLabel
                                     ? rowCaseRoles.some((role) => role.name.toLowerCase() === row.roleLabel.toLowerCase())
                                     : false;
-                                  const rowRoleSelectValue = row.roleId && rowRoleMatchesCase
-                                    ? `role:${row.roleId}`
-                                    : row.roleLabel
-                                      ? `custom:${row.roleLabel}`
-                                      : "";
+	                                  const rowRoleSelectValue = row.roleId && rowRoleMatchesCase
+	                                    ? `role:${row.roleId}`
+	                                    : row.roleLabel
+	                                      ? `custom:${row.roleLabel}`
+	                                      : "";
+	                                  const rowIsInactive = row.stationStatus === "inactive";
+	                                  const rowStatusLabel = rowIsInactive ? "Inactive / Empty" : row.isBackupStation ? "Backup / Standby" : "Active Station";
 
-                                  return (
+	                                  return (
                                   <div
                                     key={`${row.key}-ops`}
                                     style={{
                                       borderRadius: "12px",
-                                      border: row.isBackupStation ? "1px solid rgba(217, 119, 6, 0.26)" : commandCenterVisual.rowBorder,
-                                      background: row.isBackupStation
-                                        ? (isPlanningVisualMode ? "linear-gradient(135deg, rgba(255, 251, 235, 0.94), rgba(250, 245, 255, 0.82))" : "rgba(120, 53, 15, 0.18)")
-                                        : commandCenterVisual.rowBackground,
+	                                      border: rowIsInactive ? "1px solid rgba(148, 163, 184, 0.24)" : row.isBackupStation ? "1px solid rgba(217, 119, 6, 0.26)" : commandCenterVisual.rowBorder,
+	                                      background: rowIsInactive
+	                                        ? (isPlanningVisualMode ? "rgba(248, 250, 252, 0.86)" : "rgba(148, 163, 184, 0.1)")
+	                                        : row.isBackupStation
+	                                        ? (isPlanningVisualMode ? "linear-gradient(135deg, rgba(255, 251, 235, 0.94), rgba(250, 245, 255, 0.82))" : "rgba(120, 53, 15, 0.18)")
+	                                        : commandCenterVisual.rowBackground,
                                       padding: "8px 10px",
                                       display: "grid",
                                       gap: "6px",
@@ -28326,12 +28329,12 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                         <span
                                           style={{
                                             ...commandChipStyle,
-                                            background: row.isBackupStation ? "rgba(253, 230, 138, 0.76)" : commandCenterVisual.activeSoftBackground,
-                                            color: row.isBackupStation ? "#7c2d12" : commandCenterVisual.activeSoftText,
-                                            border: row.isBackupStation ? "1px solid rgba(217, 119, 6, 0.24)" : commandCenterVisual.rowBorder,
-                                          }}
-                                        >
-                                          {row.isBackupStation ? "Backup / Standby" : "Active Station"}
+	                                            background: rowIsInactive ? "rgba(226, 232, 240, 0.76)" : row.isBackupStation ? "rgba(253, 230, 138, 0.76)" : commandCenterVisual.activeSoftBackground,
+	                                            color: rowIsInactive ? "#475569" : row.isBackupStation ? "#7c2d12" : commandCenterVisual.activeSoftText,
+	                                            border: rowIsInactive ? "1px solid rgba(148, 163, 184, 0.28)" : row.isBackupStation ? "1px solid rgba(217, 119, 6, 0.24)" : commandCenterVisual.rowBorder,
+	                                          }}
+	                                        >
+	                                          {rowStatusLabel}
                                         </span>
                                         {row.assignment ? (
                                           <span style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText, border: commandCenterVisual.rowBorder }}>
@@ -28349,8 +28352,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                       <div>
                                         <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Learner</div>
                                         <div style={{ color: commandCenterVisual.textColor, fontWeight: 800, fontSize: "13px", display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                                          {row.learnerLabels.length ? (
-                                            row.learnerLabels.map((learner, learnerIndex) => (
+	                                          {row.learnerLabels.length ? (
+	                                            row.learnerLabels.map((learner, learnerIndex) => (
                                               <span
                                                 key={`${row.key}-ops-learner-${learnerIndex}-${learner || "unassigned"}`}
                                                 style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}
@@ -28358,10 +28361,10 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                                 <RoundOperationAvatar name={normalizeLearnerName(learner)} role="student" />
                                                 {learner}
                                               </span>
-                                            ))
-                                          ) : (
-                                            row.isBackupStation ? "Standby coverage" : "Learner TBD"
-                                          )}
+	                                            ))
+	                                          ) : (
+	                                            rowIsInactive ? "Inactive room" : row.isBackupStation ? "Standby coverage" : "Learner TBD"
+	                                          )}
                                         </div>
                                       </div>
                                       <div>

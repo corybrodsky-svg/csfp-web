@@ -24,7 +24,7 @@ function getInitialScheduleView(raw: string | null) {
 }
 
 function getInitialCompanionView(raw: string | null) {
-  if (raw === "announcements" || raw === "student" || raw === "sp" || raw === "operations") {
+  if (raw === "announcements" || raw === "student" || raw === "sp" || raw === "operations" || raw === "attendance") {
     return raw;
   }
   return null;

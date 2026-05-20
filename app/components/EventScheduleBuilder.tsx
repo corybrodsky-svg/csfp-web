@@ -44,7 +44,7 @@ type EventsResponse = {
   error?: string;
 };
 
-type ScheduleCompanionView = "announcements" | "student" | "sp" | "operations";
+type ScheduleCompanionView = "announcements" | "student" | "sp" | "operations" | "attendance";
 type ScheduleBuilderViewMode = "student" | "operations";
 type SchedulePreviewFamily = "ticket" | "schedule";
 
@@ -124,9 +124,24 @@ type GeneratedRoomSlot = {
 
 type ScheduleSlotActivityState = Pick<GeneratedRoomSlot, "roomType" | "capacity" | "caseLabel"> & {
   learnerLabels?: string[];
+  stationStatus?: ScheduleStationStatus;
+  isBackupStation?: boolean;
 };
 
+type ScheduleStationStatus = "active" | "backup" | "inactive";
+
+function normalizeScheduleStationStatus(value: unknown): ScheduleStationStatus | "" {
+  const normalized = normalizeDisplayText(value).toLowerCase();
+  if (normalized === "active") return "active";
+  if (normalized === "backup" || normalized === "standby") return "backup";
+  if (normalized === "inactive" || normalized === "empty") return "inactive";
+  return "";
+}
+
 function isActiveScheduleSlot(slot: ScheduleSlotActivityState, singleCaseMode: boolean) {
+  const stationStatus = normalizeScheduleStationStatus(slot.stationStatus);
+  if (stationStatus === "inactive" || stationStatus === "backup" || slot.isBackupStation) return false;
+  if (stationStatus === "active") return true;
   if (slot.roomType !== "exam" || slot.capacity <= 0) return false;
   if (singleCaseMode) return true;
   return Boolean(normalizeDisplayText(slot.caseLabel) || (slot.learnerLabels?.length || 0));
@@ -161,8 +176,11 @@ type ScheduledRoomSlot = GeneratedRoomSlot & {
   caseLabel?: string;
   caseIndex?: number;
   backupSpName?: string;
+  roleId?: string;
   roleLabel?: string;
   notes?: string;
+  stationStatus?: ScheduleStationStatus;
+  isBackupStation?: boolean;
 };
 
 type ScheduledRound = Omit<GeneratedRound, "roomSlots"> & {
@@ -251,8 +269,11 @@ type PersistedScheduleBuilderRoomSlot = {
   assignedSpName?: string;
   backupSpName?: string;
   caseLabel?: string;
+  roleId?: string;
   roleLabel?: string;
   notes?: string;
+  stationStatus?: ScheduleStationStatus;
+  isBackupStation?: boolean;
   roomType?: GeneratedRoomSlot["roomType"];
   capacity?: number;
 };
@@ -284,8 +305,11 @@ type ScheduleRoomAdjustmentSlot = {
   spName?: string;
   backupSpName?: string;
   caseLabel?: string;
+  roleId?: string;
   roleLabel?: string;
   notes?: string;
+  stationStatus?: ScheduleStationStatus;
+  isBackupStation?: boolean;
 };
 
 type ParsedScheduleRoomAdjustments = {
@@ -366,7 +390,8 @@ const scheduleCompanionViewLabels: Record<ScheduleCompanionView, string> = {
   announcements: "Announcements",
   student: "Student Schedule",
   sp: "SP Schedule",
-  operations: "Operations View",
+  operations: "Room Operations",
+  attendance: "Room Operations",
 };
 
 const schedulePreviewKindOptions: Array<{ value: SchedulePreviewKind; label: string }> = [
@@ -4066,6 +4091,13 @@ function createEmptyScheduleRoomAdjustments(): ParsedScheduleRoomAdjustments {
   };
 }
 
+function hasScheduleRoomAdjustmentField(
+  slot: Partial<ScheduleRoomAdjustmentSlot> | null | undefined,
+  field: keyof ScheduleRoomAdjustmentSlot
+) {
+  return Boolean(slot) && Object.prototype.hasOwnProperty.call(slot, field);
+}
+
 function parseScheduleRoomAdjustments(raw: string | null): ParsedScheduleRoomAdjustments {
   const clean = asText(raw);
   if (!clean) return createEmptyScheduleRoomAdjustments();
@@ -4081,11 +4113,14 @@ function parseScheduleRoomAdjustments(raw: string | null): ParsedScheduleRoomAdj
         manualOverride?: boolean;
         roomName?: string;
         spName?: string;
-        backupSpName?: string;
-        caseLabel?: string;
-        roleLabel?: string;
-        notes?: string;
-      }>;
+	        backupSpName?: string;
+	        caseLabel?: string;
+	        roleId?: string;
+	        roleLabel?: string;
+	        notes?: string;
+	        stationStatus?: string;
+	        isBackupStation?: boolean;
+	      }>;
       }>;
     };
 
@@ -4099,10 +4134,11 @@ function parseScheduleRoomAdjustments(raw: string | null): ParsedScheduleRoomAdj
       if (!Number.isFinite(roundNumber) || roundNumber < 1) return;
 
       const slots = (roundEntry.slots || [])
-        .map((slotEntry) => {
-          if (!slotEntry || typeof slotEntry !== "object") return null;
-          const slotIndex = parseInt(String((slotEntry as { slotIndex?: unknown }).slotIndex || ""), 10);
-          if (!Number.isFinite(slotIndex) || slotIndex < 0) return null;
+	        .map((slotEntry) => {
+	          if (!slotEntry || typeof slotEntry !== "object") return null;
+	          const slotRecord = slotEntry as Record<string, unknown>;
+	          const slotIndex = parseInt(String((slotEntry as { slotIndex?: unknown }).slotIndex || ""), 10);
+	          if (!Number.isFinite(slotIndex) || slotIndex < 0) return null;
 
           const learnerLabels = normalizeLearnerNames((slotEntry as { learnerLabels?: unknown }).learnerLabels || []);
           const manualOverrideValue = (slotEntry as { manualOverride?: unknown }).manualOverride;
@@ -4112,23 +4148,47 @@ function parseScheduleRoomAdjustments(raw: string | null): ParsedScheduleRoomAdj
             asText(manualOverrideValue).toLowerCase() === "1" ||
             asText(manualOverrideValue).toLowerCase() === "yes";
           const roomName = normalizeDisplayText((slotEntry as { roomName?: unknown }).roomName);
-          const spName = normalizeDisplayText((slotEntry as { spName?: unknown }).spName);
-          const backupSpName = normalizeDisplayText((slotEntry as { backupSpName?: unknown }).backupSpName);
-          const caseLabel = normalizeDisplayText((slotEntry as { caseLabel?: unknown }).caseLabel);
-          const roleLabel = normalizeDisplayText((slotEntry as { roleLabel?: unknown }).roleLabel);
-          const notes = normalizeDisplayText((slotEntry as { notes?: unknown }).notes);
-          return {
-            slotIndex,
-            learnerLabels,
-            ...(manualOverride ? { manualOverride: true } : {}),
-            ...(roomName ? { roomName } : {}),
-            ...(spName ? { spName } : {}),
-            ...(backupSpName ? { backupSpName } : {}),
-            ...(caseLabel ? { caseLabel } : {}),
-            ...(roleLabel ? { roleLabel } : {}),
-            ...(notes ? { notes } : {}),
-          } as ScheduleRoomAdjustmentSlot;
-        })
+	          const spName = normalizeDisplayText((slotEntry as { spName?: unknown }).spName);
+	          const backupSpName = normalizeDisplayText((slotEntry as { backupSpName?: unknown }).backupSpName);
+	          const caseLabel = normalizeDisplayText((slotEntry as { caseLabel?: unknown }).caseLabel);
+	          const roleId = normalizeDisplayText((slotEntry as { roleId?: unknown }).roleId);
+	          const roleLabel = normalizeDisplayText((slotEntry as { roleLabel?: unknown }).roleLabel);
+	          const notes = normalizeDisplayText((slotEntry as { notes?: unknown }).notes);
+	          const stationStatus = normalizeScheduleStationStatus((slotEntry as { stationStatus?: unknown }).stationStatus);
+	          const isBackupStationValue = (slotEntry as { isBackupStation?: unknown }).isBackupStation;
+	          const isBackupStation =
+	            isBackupStationValue === true ||
+	            asText(isBackupStationValue).toLowerCase() === "true" ||
+	            asText(isBackupStationValue).toLowerCase() === "1" ||
+	            asText(isBackupStationValue).toLowerCase() === "yes";
+	          const hasExplicitField = [
+	            "learnerLabels",
+	            "roomName",
+	            "spName",
+	            "backupSpName",
+	            "caseLabel",
+	            "roleId",
+	            "roleLabel",
+	            "notes",
+	            "stationStatus",
+	            "isBackupStation",
+	          ].some((field) => Object.prototype.hasOwnProperty.call(slotRecord, field));
+	          if (!learnerLabels.length && !manualOverride && !hasExplicitField) return null;
+	          return {
+	            slotIndex,
+	            learnerLabels,
+	            ...(manualOverride ? { manualOverride: true } : {}),
+	            ...(Object.prototype.hasOwnProperty.call(slotRecord, "roomName") ? { roomName } : {}),
+	            ...(Object.prototype.hasOwnProperty.call(slotRecord, "spName") ? { spName } : {}),
+	            ...(Object.prototype.hasOwnProperty.call(slotRecord, "backupSpName") ? { backupSpName } : {}),
+	            ...(Object.prototype.hasOwnProperty.call(slotRecord, "caseLabel") ? { caseLabel } : {}),
+	            ...(Object.prototype.hasOwnProperty.call(slotRecord, "roleId") ? { roleId } : {}),
+	            ...(Object.prototype.hasOwnProperty.call(slotRecord, "roleLabel") ? { roleLabel } : {}),
+	            ...(Object.prototype.hasOwnProperty.call(slotRecord, "notes") ? { notes } : {}),
+	            ...(Object.prototype.hasOwnProperty.call(slotRecord, "stationStatus") ? { stationStatus: stationStatus || undefined } : {}),
+	            ...(Object.prototype.hasOwnProperty.call(slotRecord, "isBackupStation") ? { isBackupStation } : {}),
+	          } as ScheduleRoomAdjustmentSlot;
+	        })
         .filter(Boolean) as ScheduleRoomAdjustmentSlot[];
 
       if (slots.length) {
@@ -4160,33 +4220,41 @@ function normalizeScheduleRoomAdjustments(value: ParsedScheduleRoomAdjustments) 
         const learnerLabels = normalizeLearnerNames(slot.learnerLabels || []);
         const manualOverride = Boolean(slot.manualOverride);
         const roomName = normalizeDisplayText(slot.roomName);
-        const spName = normalizeDisplayText(slot.spName);
-        const backupSpName = normalizeDisplayText(slot.backupSpName);
-        const caseLabel = normalizeDisplayText(slot.caseLabel);
-        const roleLabel = normalizeDisplayText(slot.roleLabel);
-        const notes = normalizeDisplayText(slot.notes);
-        return {
-          slotIndex: slot.slotIndex,
-          learnerLabels,
-          ...(manualOverride ? { manualOverride: true } : {}),
-          ...(roomName ? { roomName } : {}),
-          ...(spName ? { spName } : {}),
-          ...(backupSpName ? { backupSpName } : {}),
-          ...(caseLabel ? { caseLabel } : {}),
-          ...(roleLabel ? { roleLabel } : {}),
-          ...(notes ? { notes } : {}),
-        } as ScheduleRoomAdjustmentSlot;
-      })
-      .filter((slot) =>
-        slot.learnerLabels.length ||
-        slot.manualOverride ||
-        slot.roomName ||
-        slot.spName ||
-        slot.backupSpName ||
-        slot.caseLabel ||
-        slot.roleLabel ||
-        slot.notes
-      )
+	        const spName = normalizeDisplayText(slot.spName);
+	        const backupSpName = normalizeDisplayText(slot.backupSpName);
+	        const caseLabel = normalizeDisplayText(slot.caseLabel);
+	        const roleId = normalizeDisplayText(slot.roleId);
+	        const roleLabel = normalizeDisplayText(slot.roleLabel);
+	        const notes = normalizeDisplayText(slot.notes);
+	        const stationStatus = normalizeScheduleStationStatus(slot.stationStatus);
+	        return {
+	          slotIndex: slot.slotIndex,
+	          learnerLabels,
+	          ...(manualOverride ? { manualOverride: true } : {}),
+	          ...(hasScheduleRoomAdjustmentField(slot, "roomName") ? { roomName } : {}),
+	          ...(hasScheduleRoomAdjustmentField(slot, "spName") ? { spName } : {}),
+	          ...(hasScheduleRoomAdjustmentField(slot, "backupSpName") ? { backupSpName } : {}),
+	          ...(hasScheduleRoomAdjustmentField(slot, "caseLabel") ? { caseLabel } : {}),
+	          ...(hasScheduleRoomAdjustmentField(slot, "roleId") ? { roleId } : {}),
+	          ...(hasScheduleRoomAdjustmentField(slot, "roleLabel") ? { roleLabel } : {}),
+	          ...(hasScheduleRoomAdjustmentField(slot, "notes") ? { notes } : {}),
+	          ...(hasScheduleRoomAdjustmentField(slot, "stationStatus") ? { stationStatus: stationStatus || undefined } : {}),
+	          ...(hasScheduleRoomAdjustmentField(slot, "isBackupStation") ? { isBackupStation: Boolean(slot.isBackupStation) } : {}),
+	        } as ScheduleRoomAdjustmentSlot;
+	      })
+	      .filter((slot) =>
+	        slot.learnerLabels.length ||
+	        slot.manualOverride ||
+	        hasScheduleRoomAdjustmentField(slot, "roomName") ||
+	        hasScheduleRoomAdjustmentField(slot, "spName") ||
+	        hasScheduleRoomAdjustmentField(slot, "backupSpName") ||
+	        hasScheduleRoomAdjustmentField(slot, "caseLabel") ||
+	        hasScheduleRoomAdjustmentField(slot, "roleId") ||
+	        hasScheduleRoomAdjustmentField(slot, "roleLabel") ||
+	        hasScheduleRoomAdjustmentField(slot, "notes") ||
+	        hasScheduleRoomAdjustmentField(slot, "stationStatus") ||
+	        hasScheduleRoomAdjustmentField(slot, "isBackupStation")
+	      )
     );
   });
   return normalized;
@@ -4204,28 +4272,34 @@ function serializeScheduleRoomAdjustments(value: ParsedScheduleRoomAdjustments) 
           .slice()
           .sort((a, b) => a.slotIndex - b.slotIndex)
           .map((slot) => ({
-            slotIndex: slot.slotIndex,
-            learnerLabels: normalizeLearnerNames(slot.learnerLabels || []),
-            ...(slot.manualOverride ? { manualOverride: true } : {}),
-            ...(normalizeDisplayText(slot.roomName) ? { roomName: normalizeDisplayText(slot.roomName) } : {}),
-            ...(normalizeDisplayText(slot.spName) ? { spName: normalizeDisplayText(slot.spName) } : {}),
-            ...(normalizeDisplayText(slot.backupSpName) ? { backupSpName: normalizeDisplayText(slot.backupSpName) } : {}),
-            ...(normalizeDisplayText(slot.caseLabel) ? { caseLabel: normalizeDisplayText(slot.caseLabel) } : {}),
-            ...(normalizeDisplayText(slot.roleLabel) ? { roleLabel: normalizeDisplayText(slot.roleLabel) } : {}),
-            ...(normalizeDisplayText(slot.notes) ? { notes: normalizeDisplayText(slot.notes) } : {}),
-          })),
+	            slotIndex: slot.slotIndex,
+	            learnerLabels: normalizeLearnerNames(slot.learnerLabels || []),
+	            ...(slot.manualOverride ? { manualOverride: true } : {}),
+	            ...(hasScheduleRoomAdjustmentField(slot, "roomName") ? { roomName: normalizeDisplayText(slot.roomName) } : {}),
+	            ...(hasScheduleRoomAdjustmentField(slot, "spName") ? { spName: normalizeDisplayText(slot.spName) } : {}),
+	            ...(hasScheduleRoomAdjustmentField(slot, "backupSpName") ? { backupSpName: normalizeDisplayText(slot.backupSpName) } : {}),
+	            ...(hasScheduleRoomAdjustmentField(slot, "caseLabel") ? { caseLabel: normalizeDisplayText(slot.caseLabel) } : {}),
+	            ...(hasScheduleRoomAdjustmentField(slot, "roleId") ? { roleId: normalizeDisplayText(slot.roleId) } : {}),
+	            ...(hasScheduleRoomAdjustmentField(slot, "roleLabel") ? { roleLabel: normalizeDisplayText(slot.roleLabel) } : {}),
+	            ...(hasScheduleRoomAdjustmentField(slot, "notes") ? { notes: normalizeDisplayText(slot.notes) } : {}),
+	            ...(hasScheduleRoomAdjustmentField(slot, "stationStatus") ? { stationStatus: normalizeScheduleStationStatus(slot.stationStatus) || undefined } : {}),
+	            ...(hasScheduleRoomAdjustmentField(slot, "isBackupStation") ? { isBackupStation: Boolean(slot.isBackupStation) } : {}),
+	          })),
       }))
       .filter((entry) =>
         entry.slots.some((slot) =>
-          slot.learnerLabels.length ||
-          Boolean(slot.manualOverride) ||
-          normalizeDisplayText(slot.roomName) ||
-          normalizeDisplayText(slot.spName) ||
-          normalizeDisplayText(slot.backupSpName) ||
-          normalizeDisplayText(slot.caseLabel) ||
-          normalizeDisplayText(slot.roleLabel) ||
-          normalizeDisplayText(slot.notes)
-        )
+	          slot.learnerLabels.length ||
+	          Boolean(slot.manualOverride) ||
+	          hasScheduleRoomAdjustmentField(slot, "roomName") ||
+	          hasScheduleRoomAdjustmentField(slot, "spName") ||
+	          hasScheduleRoomAdjustmentField(slot, "backupSpName") ||
+	          hasScheduleRoomAdjustmentField(slot, "caseLabel") ||
+	          hasScheduleRoomAdjustmentField(slot, "roleId") ||
+	          hasScheduleRoomAdjustmentField(slot, "roleLabel") ||
+	          hasScheduleRoomAdjustmentField(slot, "notes") ||
+	          hasScheduleRoomAdjustmentField(slot, "stationStatus") ||
+	          hasScheduleRoomAdjustmentField(slot, "isBackupStation")
+	        )
       ),
   });
 }
@@ -4240,12 +4314,26 @@ function upsertScheduleRoomAdjustmentSlot(
   const nextRounds = new Map(current.roundsByNumber);
   const currentSlots = nextRounds.get(roundNumber)?.slice() || [];
   const existing = currentSlots.find((slot) => slot.slotIndex === slotIndex) || { slotIndex, learnerLabels: [] };
+  const hasAnyExplicitField = [
+    "learnerLabels",
+    "roomName",
+    "spName",
+    "backupSpName",
+    "caseLabel",
+    "roleId",
+    "roleLabel",
+    "notes",
+    "stationStatus",
+    "isBackupStation",
+  ].some((field) => hasScheduleRoomAdjustmentField(partial, field as keyof ScheduleRoomAdjustmentSlot));
   const merged: ScheduleRoomAdjustmentSlot = {
     ...existing,
     ...partial,
     slotIndex,
     manualOverride:
-      partial.learnerLabels !== undefined
+      partial.manualOverride !== undefined
+        ? Boolean(partial.manualOverride)
+        : hasAnyExplicitField
         ? true
         : Boolean(existing.manualOverride),
     learnerLabels:
@@ -4261,8 +4349,11 @@ function upsertScheduleRoomAdjustmentSlot(
     normalizeDisplayText(merged.spName) ||
     normalizeDisplayText(merged.backupSpName) ||
     normalizeDisplayText(merged.caseLabel) ||
+    normalizeDisplayText(merged.roleId) ||
     normalizeDisplayText(merged.roleLabel) ||
-    normalizeDisplayText(merged.notes)
+    normalizeDisplayText(merged.notes) ||
+    hasScheduleRoomAdjustmentField(merged, "stationStatus") ||
+    hasScheduleRoomAdjustmentField(merged, "isBackupStation")
   ) {
     nextSlots.push(merged);
   }
@@ -4279,37 +4370,60 @@ function applyScheduleRoomAdjustments(
   assignedSpNames: string[],
   adjustments: ParsedScheduleRoomAdjustments
 ) {
+  // IMPORTANT REGRESSION GUARD:
+  // Room Operations is the operational source for room/station assignment and live attendance state.
+  // Setup mode, Live Attendance mode, Admin Schedule, and export views must render from the same merged room truth.
+  // Do not allow Operations, Attendance, and Admin Schedule to rebuild from separate stale/generated data paths.
   return rounds.map((round) => {
     if (!rounds.length) return round;
-    const nextSlots = round.roomSlots.map((slot, slotIndex) => {
-      const overrides = (adjustments.roundsByNumber.get(round.round) || []).find(
-        (entry) => entry.slotIndex === slotIndex
-      );
-      const nextLearners =
-        overrides?.manualOverride
-          ? normalizeLearnerNames(overrides.learnerLabels)
-          : overrides?.learnerLabels?.length
-            ? normalizeLearnerNames(overrides.learnerLabels)
-            : slot.learnerLabels;
-      const nextSpName = normalizeDisplayText(overrides?.spName);
+	    const nextSlots = round.roomSlots.map((slot, slotIndex) => {
+	      const overrides = (adjustments.roundsByNumber.get(round.round) || []).find(
+	        (entry) => entry.slotIndex === slotIndex
+	      );
+	      const hasRoomNameOverride = hasScheduleRoomAdjustmentField(overrides, "roomName");
+	      const hasSpNameOverride = hasScheduleRoomAdjustmentField(overrides, "spName");
+	      const hasBackupSpOverride = hasScheduleRoomAdjustmentField(overrides, "backupSpName");
+	      const hasCaseLabelOverride = hasScheduleRoomAdjustmentField(overrides, "caseLabel");
+	      const hasRoleIdOverride = hasScheduleRoomAdjustmentField(overrides, "roleId");
+	      const hasRoleLabelOverride = hasScheduleRoomAdjustmentField(overrides, "roleLabel");
+	      const hasNotesOverride = hasScheduleRoomAdjustmentField(overrides, "notes");
+	      const hasStationStatusOverride = hasScheduleRoomAdjustmentField(overrides, "stationStatus");
+	      const hasBackupStationOverride = hasScheduleRoomAdjustmentField(overrides, "isBackupStation");
+	      const nextLearners =
+	        overrides?.manualOverride
+	          ? normalizeLearnerNames(overrides.learnerLabels)
+	          : overrides?.learnerLabels?.length
+	            ? normalizeLearnerNames(overrides.learnerLabels)
+	            : slot.learnerLabels;
+	      const nextSpName = normalizeDisplayText(overrides?.spName);
       const matchedSpIndex = nextSpName
         ? assignedSpNames.findIndex((candidate) =>
             normalizeDisplayText(candidate).toLowerCase() === normalizeDisplayText(nextSpName).toLowerCase()
           )
         : -1;
-      return {
-        ...slot,
-        roomName: normalizeDisplayText(overrides?.roomName) || normalizeDisplayText(slot.roomName),
-        learnerLabels: nextLearners,
-        caseLabel: normalizeDisplayText(overrides?.caseLabel) || normalizeDisplayText(slot.caseLabel),
-        backupSpName: normalizeDisplayText(overrides?.backupSpName) || normalizeDisplayText(slot.backupSpName),
-        roleLabel: normalizeDisplayText(overrides?.roleLabel) || normalizeDisplayText(slot.roleLabel),
-        notes: normalizeDisplayText(overrides?.notes) || normalizeDisplayText(slot.notes),
-        learnerIndexes: nextLearners.length
-          ? nextLearners.map((value) => slot.learnerLabels.indexOf(value)).filter((value) => value >= 0)
-          : [],
-        assignedSpIndex: nextSpName ? (matchedSpIndex >= 0 ? matchedSpIndex : undefined) : slot.assignedSpIndex,
-      };
+	      return {
+	        ...slot,
+	        roomName: hasRoomNameOverride
+	          ? normalizeDisplayText(overrides?.roomName) || normalizeDisplayText(slot.roomName)
+	          : normalizeDisplayText(slot.roomName),
+	        learnerLabels: nextLearners,
+	        caseLabel: hasCaseLabelOverride ? normalizeDisplayText(overrides?.caseLabel) : normalizeDisplayText(slot.caseLabel),
+	        backupSpName: hasBackupSpOverride ? normalizeDisplayText(overrides?.backupSpName) : normalizeDisplayText(slot.backupSpName),
+	        roleId: hasRoleIdOverride ? normalizeDisplayText(overrides?.roleId) : normalizeDisplayText(slot.roleId),
+	        roleLabel: hasRoleLabelOverride ? normalizeDisplayText(overrides?.roleLabel) : normalizeDisplayText(slot.roleLabel),
+	        notes: hasNotesOverride ? normalizeDisplayText(overrides?.notes) : normalizeDisplayText(slot.notes),
+	        stationStatus: hasStationStatusOverride
+	          ? normalizeScheduleStationStatus(overrides?.stationStatus) || undefined
+	          : slot.stationStatus,
+	        isBackupStation: hasBackupStationOverride
+	          ? Boolean(overrides?.isBackupStation)
+	          : Boolean(slot.isBackupStation),
+	        learnerIndexes: nextLearners.length
+	          ? nextLearners.map((value) => slot.learnerLabels.indexOf(value)).filter((value) => value >= 0)
+	          : [],
+	        assignedSpIndex: hasSpNameOverride ? (nextSpName && matchedSpIndex >= 0 ? matchedSpIndex : undefined) : slot.assignedSpIndex,
+	        assignedSpName: hasSpNameOverride ? nextSpName : normalizeDisplayText(slot.assignedSpName),
+	      };
     });
     return { ...round, roomSlots: nextSlots };
   });
@@ -4343,6 +4457,8 @@ function buildSchedulePreviewData(args: {
   roomColumns: PreviewRoomColumn[];
   roomContext: Parameters<typeof getRoomDisplayLabel>[2];
   caseName?: string;
+  caseDocumentLabel?: string;
+  isSingleCaseMode?: boolean;
   assignedSpNames?: string[];
   learnerCount: number;
   generated: {
@@ -4363,6 +4479,8 @@ function buildSchedulePreviewData(args: {
     roomColumns,
     roomContext,
     caseName,
+    caseDocumentLabel,
+    isSingleCaseMode,
     assignedSpNames,
     learnerCount,
     generated,
@@ -4372,6 +4490,7 @@ function buildSchedulePreviewData(args: {
   const isOperations = kind === "operations" || kind === "rotation";
   const isStudentPreview = kind === "student";
   const isFacultyPreview = kind === "timeline";
+  const singleCaseMode = Boolean(isSingleCaseMode);
   const locationAccess = getLocationAccessFromBuilderEvent(event);
   const effectivePreviewFamily = getPreviewFamilyForKind(kind, previewFamily);
   const titleMap: Record<SchedulePreviewKind, string> = {
@@ -4403,6 +4522,12 @@ function buildSchedulePreviewData(args: {
     lines.push(`Event: ${event.name || "Untitled Event"}`);
     lines.push(`Date: ${formatEventDate(event)}`);
     lines.push(`Location / Access: ${locationAccess.label}`);
+    if (!isStudentPreview && caseName) {
+      lines.push(`Case: ${caseName}`);
+    }
+    if (!isStudentPreview && caseDocumentLabel) {
+      lines.push(`Case File: ${caseDocumentLabel}`);
+    }
     if (selectedEventSummaryTime) {
       lines.push(`Time Window: ${selectedEventSummaryTime}`);
     }
@@ -4444,6 +4569,15 @@ function buildSchedulePreviewData(args: {
         : "")
     );
   };
+  const shouldShowRoomCaseLabels = (round: ScheduledRound | GeneratedRound) => {
+    if (singleCaseMode) return false;
+    const caseLabels = new Set(
+      round.roomSlots
+        .map((slot) => normalizeDisplayText(slot.caseLabel) || normalizeDisplayText(caseName))
+        .filter(Boolean)
+    );
+    return caseLabels.size > 1;
+  };
 
   if (kind === "timeline") {
     lines.push("EVENT FLOW");
@@ -4467,6 +4601,7 @@ function buildSchedulePreviewData(args: {
           lines.push(`  ${subBlock.label}: ${formatRange(subBlock.start, subBlock.end)}`);
         });
       }
+      const showRoomCaseLabels = shouldShowRoomCaseLabels(round);
       round.roomSlots.forEach((slot, slotIndex) => {
         const displayRoomName = formatRoomName(slot.roomName, slot.roomType, slotIndex + 1, roomContext);
         const learnerText = slot.learnerLabels.length ? slot.learnerLabels.join(", ") : "No learner assigned";
@@ -4475,10 +4610,12 @@ function buildSchedulePreviewData(args: {
           const spName = getSlotSpName(slot) || "Unassigned";
           lines.push(`    SP: ${spName}`);
           const normalizedCaseLabel = normalizeDisplayText(slot.caseLabel);
+          if (showRoomCaseLabels && (normalizedCaseLabel || caseName)) {
+            lines.push(`    Case: ${normalizedCaseLabel || caseName}`);
+          }
           const normalizedBackupSpName = normalizeDisplayText(slot.backupSpName);
           const normalizedRoleLabel = normalizeDisplayText(slot.roleLabel);
           const normalizedNotes = normalizeDisplayText(slot.notes);
-          if (normalizedCaseLabel || caseName) lines.push(`    Case: ${normalizedCaseLabel || caseName}`);
           if (normalizedBackupSpName) lines.push(`    Backup: ${normalizedBackupSpName}`);
           if (normalizedRoleLabel) lines.push(`    Role: ${normalizedRoleLabel}`);
           if (normalizedNotes) lines.push(`    Notes: ${normalizedNotes}`);
@@ -4512,6 +4649,7 @@ function buildSchedulePreviewData(args: {
           lines.push(`  ${subBlock.label}: ${formatRange(subBlock.start, subBlock.end)}`);
         });
       }
+      const showRoomCaseLabels = shouldShowRoomCaseLabels(round);
       round.roomSlots.forEach((slot, slotIndex) => {
         const displayRoomName = formatRoomName(slot.roomName, slot.roomType, slotIndex + 1, roomContext);
         const learnerText = slot.learnerLabels.length ? slot.learnerLabels.join(", ") : "No learner assigned";
@@ -4525,10 +4663,12 @@ function buildSchedulePreviewData(args: {
         if (includeOperationsContext) {
           lines.push(`    SP: ${getSlotSpName(slot) || "Unassigned SP"}`);
           const normalizedCaseLabel = normalizeDisplayText(slot.caseLabel);
+          if (showRoomCaseLabels && (normalizedCaseLabel || caseName)) {
+            lines.push(`    Case: ${normalizedCaseLabel || caseName}`);
+          }
           const normalizedBackupSpName = normalizeDisplayText(slot.backupSpName);
           const normalizedRoleLabel = normalizeDisplayText(slot.roleLabel);
           const normalizedNotes = normalizeDisplayText(slot.notes);
-          if (normalizedCaseLabel || caseName) lines.push(`    Case: ${normalizedCaseLabel || caseName}`);
           if (normalizedBackupSpName) lines.push(`    Backup: ${normalizedBackupSpName}`);
           if (normalizedRoleLabel) lines.push(`    Role: ${normalizedRoleLabel}`);
           if (normalizedNotes) lines.push(`    Notes: ${normalizedNotes}`);
@@ -4569,6 +4709,17 @@ function buildSchedulePreviewData(args: {
             <div class="event-meta-value">${escapeHtml(locationAccess.label)}</div>
             <div class="event-meta-subtle">${escapeHtml(locationAccess.modeLabel)}</div>
           </div>
+          ${
+            !isStudentPreview && caseName
+              ? `
+                <div class="event-meta-card">
+                  <div class="event-meta-label">Case</div>
+                  <div class="event-meta-value">${escapeHtml(caseName)}</div>
+                  ${caseDocumentLabel ? `<div class="event-meta-subtle">${escapeHtml(caseDocumentLabel)}</div>` : ""}
+                </div>
+              `
+              : ""
+          }
           ${
             selectedEventSummaryTime
               ? `
@@ -4735,6 +4886,7 @@ function buildSchedulePreviewData(args: {
 
               const round = entry.round;
               const subBlockSummary = getFlowRhythmSummary(round) || "Encounter flow only";
+              const showRoomCaseLabels = shouldShowRoomCaseLabels(round);
 
               return `
                 <tbody class="round-grid-group">
@@ -4774,7 +4926,7 @@ function buildSchedulePreviewData(args: {
                                   : ""
                               }
                               ${
-                                isOperations && slotCaseName
+                                isOperations && showRoomCaseLabels && slotCaseName
                                   ? `<div><span class="detail-label">Case</span><span class="detail-value">${escapeHtml(slotCaseName)}</span></div>`
                                   : ""
                               }
@@ -4981,11 +5133,13 @@ function buildSchedulePreviewData(args: {
         ]
       : [
           ["Round", "Time", "Room", "Learner", "SP", "Case", "Seat"],
-          ...previewRounds.flatMap((round) =>
-            round.roomSlots.map((slot, slotIndex) => {
+          ...previewRounds.flatMap((round) => {
+            const showRoomCaseLabels = includeOperationsContext && shouldShowRoomCaseLabels(round);
+            return round.roomSlots.map((slot, slotIndex) => {
               const displayRoomName = formatRoomName(slot.roomName, slot.roomType, slotIndex + 1, roomContext);
               const learnerText = slot.learnerLabels.length ? slot.learnerLabels.join(", ") : "No learner assigned";
               const spName = getSlotSpName(slot);
+              const slotCaseName = normalizeDisplayText(slot.caseLabel) || caseName || "";
 
               return [
                 `Round ${round.round}`,
@@ -4993,11 +5147,11 @@ function buildSchedulePreviewData(args: {
                 displayRoomName,
                 kind !== "sp" ? learnerText : "",
                 kind === "sp" || includeOperationsContext ? spName : "",
-                includeOperationsContext ? caseName || "" : "",
+                showRoomCaseLabels ? slotCaseName : "",
                 slot.capacityLabel,
               ];
-            })
-          ),
+            });
+          }),
         ];
 
   return {
@@ -5210,13 +5364,16 @@ function normalizePersistedScheduleBuilderRounds(raw: unknown): PersistedSchedul
             return {
               roomName: asText(slotRecord.roomName) || `Exam ${slotIndex + 1}`,
               learnerLabels: normalizeLearnerNames(slotRecord.learnerLabels || []),
-              assignedSpName: normalizeDisplayText(slotRecord.assignedSpName),
-              backupSpName: normalizeDisplayText(slotRecord.backupSpName),
-              caseLabel: normalizeDisplayText(slotRecord.caseLabel),
-              roleLabel: normalizeDisplayText(slotRecord.roleLabel),
-              notes: normalizeDisplayText(slotRecord.notes),
-              roomType: slotRecord.roomType === "flex" ? "flex" : "exam",
-              capacity: Math.max(0, parseNumber(slotRecord.capacity, 1)),
+	              assignedSpName: normalizeDisplayText(slotRecord.assignedSpName),
+	              backupSpName: normalizeDisplayText(slotRecord.backupSpName),
+	              caseLabel: normalizeDisplayText(slotRecord.caseLabel),
+	              roleId: normalizeDisplayText(slotRecord.roleId),
+	              roleLabel: normalizeDisplayText(slotRecord.roleLabel),
+	              notes: normalizeDisplayText(slotRecord.notes),
+	              stationStatus: normalizeScheduleStationStatus(slotRecord.stationStatus) || undefined,
+	              isBackupStation: Boolean(slotRecord.isBackupStation),
+	              roomType: slotRecord.roomType === "flex" ? "flex" : "exam",
+	              capacity: Math.max(0, parseNumber(slotRecord.capacity, 1)),
             } satisfies PersistedScheduleBuilderRoomSlot;
           })
         : [];
@@ -5272,12 +5429,15 @@ function convertPersistedRoundsToScheduledRounds(
             : "Flex / empty",
           learnerLabels,
           learnerIndexes: [],
-          assignedSpName: normalizeDisplayText(slot.assignedSpName),
-          backupSpName: normalizeDisplayText(slot.backupSpName),
-          caseLabel: normalizeDisplayText(slot.caseLabel),
-          roleLabel: normalizeDisplayText(slot.roleLabel),
-          notes: normalizeDisplayText(slot.notes),
-        } satisfies ScheduledRoomSlot;
+	          assignedSpName: normalizeDisplayText(slot.assignedSpName),
+	          backupSpName: normalizeDisplayText(slot.backupSpName),
+	          caseLabel: normalizeDisplayText(slot.caseLabel),
+	          roleId: normalizeDisplayText(slot.roleId),
+	          roleLabel: normalizeDisplayText(slot.roleLabel),
+	          notes: normalizeDisplayText(slot.notes),
+	          stationStatus: normalizeScheduleStationStatus(slot.stationStatus) || undefined,
+	          isBackupStation: Boolean(slot.isBackupStation),
+	        } satisfies ScheduledRoomSlot;
       }),
     } satisfies ScheduledRound;
   });
@@ -5330,11 +5490,14 @@ function buildPersistedScheduleBuilderRounds(
       assignedSpName:
         normalizeDisplayText(slot.assignedSpName) ||
         (typeof slot.assignedSpIndex === "number" ? asText(assignedNames[slot.assignedSpIndex]) : ""),
-      backupSpName: asText(slot.backupSpName),
-      caseLabel: asText(slot.caseLabel),
-      roleLabel: asText(slot.roleLabel),
-      notes: asText(slot.notes),
-      roomType: slot.roomType,
+	      backupSpName: asText(slot.backupSpName),
+	      caseLabel: asText(slot.caseLabel),
+	      roleId: asText(slot.roleId),
+	      roleLabel: asText(slot.roleLabel),
+	      notes: asText(slot.notes),
+	      stationStatus: normalizeScheduleStationStatus(slot.stationStatus) || undefined,
+	      isBackupStation: Boolean(slot.isBackupStation),
+	      roomType: slot.roomType,
       capacity: slot.capacity,
     })),
   }));
@@ -6968,22 +7131,26 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       if (!savedRounds.length) return [];
 
       const targetCount = Math.max(persistedResolvedRoundTargetCount, savedRounds.length);
-      if (savedRounds.length >= targetCount) return savedRounds;
+      const expandedRounds = savedRounds.length >= targetCount
+        ? savedRounds
+        : (() => {
+            const savedByRound = new Map(savedRounds.map((round) => [round.round, round]));
+            const generatedByRound = new Map(generatedScheduledRounds.map((round) => [round.round, round]));
+            const templateRound = savedRounds[savedRounds.length - 1];
 
-      const savedByRound = new Map(savedRounds.map((round) => [round.round, round]));
-      const generatedByRound = new Map(generatedScheduledRounds.map((round) => [round.round, round]));
-      const templateRound = savedRounds[savedRounds.length - 1];
+            return Array.from({ length: targetCount }, (_, index) => {
+              const roundNumber = index + 1;
+              return (
+                savedByRound.get(roundNumber) ||
+                generatedByRound.get(roundNumber) ||
+                cloneScheduledRoundForNumber(templateRound, roundNumber)
+              );
+            });
+          })();
 
-      return Array.from({ length: targetCount }, (_, index) => {
-        const roundNumber = index + 1;
-        return (
-          savedByRound.get(roundNumber) ||
-          generatedByRound.get(roundNumber) ||
-          cloneScheduledRoundForNumber(templateRound, roundNumber)
-        );
-      });
+      return applyScheduleRoomAdjustments(expandedRounds, assignedNames, roomAdjustments);
     },
-    [generatedScheduledRounds, persistedResolvedRoundTargetCount, persistedResolvedRounds]
+    [assignedNames, generatedScheduledRounds, persistedResolvedRoundTargetCount, persistedResolvedRounds, roomAdjustments]
   );
   const scheduledRounds = useMemo(
     () => {
@@ -7151,6 +7318,11 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     [selectedEvent, selectedEventMetadata.case_name]
   );
   const previewCaseFallbackLabel = activeCaseCount > 1 ? "" : selectedEventEncounterLabel;
+  const previewCaseDocumentLabel = useMemo(() => {
+    if (activeCaseCount > 1) return "";
+    const selectedCase = activeScheduleCases[0] || scheduleCaseDefinitions[0];
+    return normalizeDisplayText(selectedCase?.documentName) || "";
+  }, [activeCaseCount, activeScheduleCases, scheduleCaseDefinitions]);
   const rotationEnd = generated.rotationEnd;
   const totalEventEnd = useMemo(() => {
     if (scheduledRounds.length) return scheduledRounds[scheduledRounds.length - 1].end;
@@ -7212,6 +7384,8 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       roomColumns,
       roomContext: roomNamingContext,
       caseName: previewCaseFallbackLabel,
+      caseDocumentLabel: previewCaseDocumentLabel,
+      isSingleCaseMode,
       assignedSpNames: assignedNames,
       learnerCount: learnerRoster.length,
       generated,
@@ -7227,6 +7401,8 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       roomColumns,
       roomContext: roomNamingContext,
       caseName: previewCaseFallbackLabel,
+      caseDocumentLabel: previewCaseDocumentLabel,
+      isSingleCaseMode,
       assignedSpNames: assignedNames,
       learnerCount: learnerRoster.length,
       generated,
@@ -7242,6 +7418,8 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       roomColumns,
       roomContext: roomNamingContext,
       caseName: previewCaseFallbackLabel,
+      caseDocumentLabel: previewCaseDocumentLabel,
+      isSingleCaseMode,
       assignedSpNames: assignedNames,
       learnerCount: learnerRoster.length,
       generated,
@@ -7257,6 +7435,8 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       roomColumns,
       roomContext: roomNamingContext,
       caseName: previewCaseFallbackLabel,
+      caseDocumentLabel: previewCaseDocumentLabel,
+      isSingleCaseMode,
       assignedSpNames: assignedNames,
       learnerCount: learnerRoster.length,
       generated,
@@ -7272,6 +7452,8 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       roomColumns,
       roomContext: roomNamingContext,
       caseName: previewCaseFallbackLabel,
+      caseDocumentLabel: previewCaseDocumentLabel,
+      isSingleCaseMode,
       assignedSpNames: assignedNames,
       learnerCount: learnerRoster.length,
       generated,
@@ -7287,6 +7469,8 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       roomColumns,
       roomContext: roomNamingContext,
       caseName: previewCaseFallbackLabel,
+      caseDocumentLabel: previewCaseDocumentLabel,
+      isSingleCaseMode,
       assignedSpNames: assignedNames,
       learnerCount: learnerRoster.length,
       generated,
@@ -7312,6 +7496,8 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     roomColumns,
     selectedEvent,
     previewCaseFallbackLabel,
+    previewCaseDocumentLabel,
+    isSingleCaseMode,
     selectedEventSummaryTime,
     props.previewFamily,
     studentPreviewRounds,
@@ -9126,9 +9312,9 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                             label="Visible to"
                             value={block.visibleTo}
                             options={[
-                              { value: "student", label: "Student Schedule" },
-                              { value: "operations", label: "Operations View" },
-                              { value: "both", label: "Both" },
+	                              { value: "student", label: "Student Schedule" },
+	                              { value: "operations", label: "Room Operations" },
+	                              { value: "both", label: "Both" },
                             ]}
                             onChange={(value) => handleUpdateDayBlock(block.id, { visibleTo: value as DayBlockVisibility })}
                           />
@@ -9727,8 +9913,12 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                                     ) : (
                                       <div style={{ opacity: 0.72 }}>No backup assigned</div>
                                     )}
-                                    <div>Case: {normalizeDisplayText(slot.caseLabel) || selectedEventEncounterLabel || "Case not assigned"}</div>
-                                    <div>Role: {normalizeDisplayText(slot.roleLabel) || "Role TBD"}</div>
+                                    {normalizeDisplayText(slot.caseLabel) ? (
+                                      <div>Case: {normalizeDisplayText(slot.caseLabel)}</div>
+                                    ) : null}
+                                    {normalizeDisplayText(slot.roleLabel) ? (
+                                      <div>Role: {normalizeDisplayText(slot.roleLabel)}</div>
+                                    ) : null}
                                   </div>
                                 ) : null}
                                 <div style={{ marginTop: "8px", display: "grid", gap: "6px" }}>
