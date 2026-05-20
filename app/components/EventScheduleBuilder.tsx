@@ -124,6 +124,8 @@ type GeneratedRoomSlot = {
 
 type ScheduleSlotActivityState = Pick<GeneratedRoomSlot, "roomType" | "capacity" | "caseLabel"> & {
   learnerLabels?: string[];
+  roleId?: string;
+  roleLabel?: string;
   stationStatus?: ScheduleStationStatus;
   isBackupStation?: boolean;
 };
@@ -160,6 +162,16 @@ function shouldIncludeStudentFacingScheduleSlot(slot: ScheduleSlotActivityState)
   if (isExcludedFromStudentFacingSchedule(slot)) return false;
   if (hasExplicitStudentFacingRoomStatus(slot)) return true;
   return normalizeLearnerNames(slot.learnerLabels || []).length > 0;
+}
+
+function hasStudentFacingCaseStationIdentity(slot: ScheduleSlotActivityState) {
+  if (isExcludedFromStudentFacingSchedule(slot)) return false;
+  return Boolean(
+    normalizeDisplayText(slot.caseLabel) ||
+      normalizeDisplayText(slot.roleId) ||
+      normalizeDisplayText(slot.roleLabel) ||
+      hasExplicitStudentFacingRoomStatus(slot)
+  );
 }
 
 type GeneratedRound = {
@@ -3852,16 +3864,34 @@ function isPrimaryScheduleWideTimelineBlock(block: TimelineBlock) {
 }
 
 function buildStudentFacingRoomSlotIndexes(rounds: ScheduledRound[]) {
-  const slotIndexes = new Set<number>();
+  const occupiedSlotIndexes = new Set<number>();
+  const caseStationSlotCounts = new Map<number, number>();
 
   rounds.forEach((round) => {
     round.roomSlots.forEach((slot, slotIndex) => {
+      if (hasStudentFacingCaseStationIdentity(slot)) {
+        caseStationSlotCounts.set(slotIndex, (caseStationSlotCounts.get(slotIndex) || 0) + 1);
+      }
       if (shouldIncludeStudentFacingScheduleSlot(slot)) {
-        slotIndexes.add(slotIndex);
+        occupiedSlotIndexes.add(slotIndex);
       }
     });
   });
 
+  // IMPORTANT REGRESSION GUARD:
+  // When a schedule is marked complete, never rebuild student/admin/live schedule structure from room count,
+  // learner count, or capacity fallback. The user's completed schedule snapshot is authoritative. Multi-case
+  // rotations must preserve all active case stations, including empty stations, because empty stations can be
+  // intentional in a rotation with fewer learner groups than cases.
+  const stableCaseStationSlotIndexes = new Set<number>();
+  const minimumStationRounds = rounds.length > 1 ? 2 : 1;
+  caseStationSlotCounts.forEach((count, slotIndex) => {
+    if (count >= minimumStationRounds || occupiedSlotIndexes.has(slotIndex)) {
+      stableCaseStationSlotIndexes.add(slotIndex);
+    }
+  });
+
+  const slotIndexes = stableCaseStationSlotIndexes.size > 1 ? stableCaseStationSlotIndexes : occupiedSlotIndexes;
   return Array.from(slotIndexes).sort((a, b) => a - b);
 }
 
@@ -3869,6 +3899,9 @@ function buildStudentFacingScheduledRounds(rounds: ScheduledRound[], roomSlotInd
   const slotTemplates = new Map<number, ScheduledRoomSlot>();
   roomSlotIndexes.forEach((slotIndex) => {
     const template =
+      rounds
+        .map((round) => round.roomSlots[slotIndex])
+        .find((slot): slot is ScheduledRoomSlot => Boolean(slot) && hasStudentFacingCaseStationIdentity(slot)) ||
       rounds
         .map((round) => round.roomSlots[slotIndex])
         .find((slot): slot is ScheduledRoomSlot => Boolean(slot) && shouldIncludeStudentFacingScheduleSlot(slot)) ||
