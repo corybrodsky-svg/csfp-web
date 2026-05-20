@@ -12,6 +12,12 @@ import { normalizeDisplayText, normalizeLearnerName, normalizeLearnerNames } fro
 import { getRoomDisplayLabel, getRoomTypeLabel } from "../lib/roomNaming";
 import { buildRoundAnnouncementItems } from "../lib/roundAnnouncements";
 import {
+  formatRoundRhythmBreakdown,
+  getExpectedSchedulePreviewRoundCount,
+  getSchedulePreviewRounds,
+  type SchedulePreviewRound,
+} from "../lib/schedulePreviewGuardrails";
+import {
   getStudentInstructionsConfigFromMetadata,
   splitInstructionLines,
   type StudentInstructionsConfig,
@@ -3385,10 +3391,9 @@ function getFlowRhythmSegmentStyles(label: string) {
 }
 
 function getFlowRhythmSummary(round: ScheduledRound) {
-  return round.subBlocks
-    .filter((subBlock) => !isMajorScheduleDividerBlock(subBlock) && !isFillerTimingLabel(subBlock.label))
-    .map((subBlock) => `${subBlock.label} ${formatDurationCompact(getBlockDurationMinutes(subBlock.start, subBlock.end))}`)
-    .join(" • ");
+  return formatRoundRhythmBreakdown({
+    subBlocks: round.subBlocks.filter((subBlock) => !isMajorScheduleDividerBlock(subBlock) && !isFillerTimingLabel(subBlock.label)),
+  });
 }
 
 function isRoundTimelineLabel(label: string) {
@@ -5228,7 +5233,7 @@ function normalizePersistedScheduleBuilderRounds(raw: unknown): PersistedSchedul
 }
 
 function convertPersistedRoundsToScheduledRounds(
-  rounds: PersistedScheduleBuilderRound[],
+  rounds: SchedulePreviewRound[],
   rhythmRounds: ScheduledRound[] = []
 ): ScheduledRound[] {
   const rhythmByRound = new Map(rhythmRounds.map((round) => [round.round, round]));
@@ -5236,8 +5241,8 @@ function convertPersistedRoundsToScheduledRounds(
   return rounds.map((round, roundIndex) => {
     const roundNumber = Math.max(1, parseNumber(round.round, roundIndex + 1));
     const rhythmRound = rhythmByRound.get(roundNumber) || null;
-    const start = rhythmRound?.start ?? toMinutes(round.startTime) ?? 0;
-    const parsedEnd = toMinutes(round.endTime);
+    const start = rhythmRound?.start ?? toMinutes(asText(round.startTime)) ?? 0;
+    const parsedEnd = toMinutes(asText(round.endTime));
     const end = rhythmRound?.end ?? (parsedEnd !== null ? (parsedEnd < start ? parsedEnd + 24 * 60 : parsedEnd) : start);
     const subBlocks = rhythmRound?.subBlocks.length
       ? rhythmRound.subBlocks.map((block) => ({ ...block }))
@@ -5255,8 +5260,9 @@ function convertPersistedRoundsToScheduledRounds(
       start,
       end,
       subBlocks,
-      roomSlots: round.roomSlots.map((slot) => {
-        const capacity = Math.max(0, parseNumber(slot.capacity, Math.max(slot.learnerLabels.length, 1)));
+      roomSlots: (round.roomSlots || []).map((slot) => {
+        const learnerLabels = normalizeLearnerNames(slot.learnerLabels || []);
+        const capacity = Math.max(0, parseNumber(slot.capacity, Math.max(learnerLabels.length, 1)));
         return {
           roomName: asText(slot.roomName),
           roomType: slot.roomType === "flex" ? "flex" : "exam",
@@ -5264,7 +5270,7 @@ function convertPersistedRoundsToScheduledRounds(
           capacityLabel: capacity
             ? `${capacity} learner${capacity === 1 ? "" : "s"}`
             : "Flex / empty",
-          learnerLabels: normalizeLearnerNames(slot.learnerLabels || []),
+          learnerLabels,
           learnerIndexes: [],
           assignedSpName: normalizeDisplayText(slot.assignedSpName),
           backupSpName: normalizeDisplayText(slot.backupSpName),
@@ -5525,11 +5531,11 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       (draft as Partial<PersistedScheduleBuilderSnapshot>).resolvedRounds
     );
     const persistedSnapshot = draft as Partial<PersistedScheduleBuilderSnapshot>;
-    const savedRoundTargetCount = Math.max(
-      savedResolvedRounds.length,
-      parseNumber(persistedSnapshot.scheduleRoundCount, 0),
-      parseNumber(draft.roundCount, 0)
-    );
+    const savedRoundTargetCount = getExpectedSchedulePreviewRoundCount({
+      resolvedRounds: savedResolvedRounds,
+      scheduleRoundCount: persistedSnapshot.scheduleRoundCount,
+      roundCount: draft.roundCount,
+    });
     setBuilderMode(props.expandedWorkspace && !draft.savedAt ? "advanced" : draft.builderMode);
     setScheduleViewMode(props.initialScheduleViewMode || draft.scheduleViewMode);
     setSelectedEventId(props.fixedEventId || draft.selectedEventId || "");
@@ -6943,7 +6949,22 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   );
   const persistedScheduledRounds = useMemo(
     () => {
-      const savedRounds = convertPersistedRoundsToScheduledRounds(persistedResolvedRounds, generatedScheduledRounds);
+      // IMPORTANT REGRESSION GUARD:
+      // Do not treat non-empty resolvedRounds as complete. Some persisted
+      // snapshots only contain Round 1. Always compare against saved schedule
+      // metadata / expected round count before rendering Open Schedule.
+      const expandedPersistedRounds = getSchedulePreviewRounds({
+        resolvedRounds: persistedResolvedRounds,
+        scheduleRoundCount: persistedResolvedRoundTargetCount,
+        rhythmRounds: generatedScheduledRounds.map((round) => ({
+          round: round.round,
+          start: round.start,
+          end: round.end,
+          subBlocks: round.subBlocks,
+          roomSlots: round.roomSlots,
+        })),
+      });
+      const savedRounds = convertPersistedRoundsToScheduledRounds(expandedPersistedRounds, generatedScheduledRounds);
       if (!savedRounds.length) return [];
 
       const targetCount = Math.max(persistedResolvedRoundTargetCount, savedRounds.length);
