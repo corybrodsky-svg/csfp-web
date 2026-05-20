@@ -3503,154 +3503,158 @@ function renderCommandToolIcon(toolIcon: CommandToolIconKey, color: string) {
     case "commandCenter":
       return (
         <svg {...sharedProps} aria-hidden="true">
-          <circle cx="12" cy="12" r="9.5" />
-          <path d="M12 2.5v4" />
-          <path d="M2.5 12h4" />
-          <path d="M12 21.5v-4" />
-          <path d="M21.5 12h-4" />
-          <path d="M5.6 5.6l2.3 2.3M16.1 5.6l-2.3 2.3M5.6 18.4l2.3-2.3M16.1 18.4l-2.3-2.3" />
-          <circle cx="12" cy="12" r="2.2" />
+          <rect x="3.8" y="5.1" width="16.4" height="10.4" rx="2.1" />
+          <path d="M8.5 5.1V3.8M15.5 5.1V3.8" />
+          <path d="M5.8 8.4h12.4M5.8 11.2h9.8M5.8 14h7.2" />
+          <path d="M3.8 15.5h16.4" />
+          <rect x="4.8" y="16.3" width="14.4" height="2.8" rx="1.4" />
+          <path d="M11.4 19.4v.8M12.6 19.4v.8" />
         </svg>
       );
     case "spFinder":
       return (
         <svg {...sharedProps} aria-hidden="true">
-          <circle cx="9" cy="9" r="2.1" />
-          <path d="M12.6 16.2c-2.5 0-4-1.3-4.7-3.5" />
-          <circle cx="17" cy="9" r="1.4" />
-          <path d="M17 12.5v3.9M17 12.5c-.8 0-1.6.3-2.1.8M15.2 18.4h3.6" />
-          <path d="M11.6 17.6c-1 1.5-2.7 2.5-4.6 2.5H4.8l1.2-2.2M8.4 20h2.6" />
+          <circle cx="9" cy="9" r="2.2" />
+          <path d="M15 15 17.2 17.2" />
+          <path d="M11.1 9a2.2 2.2 0 1 1 4.4 0 2.2 2.2 0 1 1-4.4 0Z" />
+          <path d="M3 20v-2.8a2 2 0 0 1 2-2h2.4M7.4 20H19" />
+          <path d="M11.8 13.8h4.5" />
         </svg>
       );
     case "scheduleBuilder":
       return (
         <svg {...sharedProps} aria-hidden="true">
-          <path d="M4.5 5h15v14h-15z" />
-          <path d="M4.5 8.8h15M7.4 5v3.2M16.6 5v3.2M7.4 15.2h6.4" />
-          <path d="M10.3 12.4h3.5M10.3 14.1h5.2" />
-          <path d="M17.8 15.7h0" />
+          <rect x="4.6" y="4.9" width="14.8" height="14.2" rx="2" />
+          <path d="M7.9 4.1v2.2M16.1 4.1v2.2" />
+          <path d="M7.9 10.2h8.5M7.9 12.9h8.5M7.9 15.6h8.5" />
+          <path d="M7.9 7.8h6M7.9 9.8h4.6" />
+          <rect x="16.9" y="12.8" width="2.2" height="2.2" />
+          <path d="M5.2 18.2h3.2" />
         </svg>
       );
     case "eventAttendance":
       return (
         <svg {...sharedProps} aria-hidden="true">
-          <path d="M4.5 18.2V8.7a2 2 0 0 1 2-2h4.6a2 2 0 0 1 1.9 1.4l.8 2.3a2 2 0 0 0 1.9 1.4h5.7a2 2 0 0 1 2 2v4.4" />
-          <path d="M8.2 10.7h8.4M8.2 13.4h6.2M8.2 16.1h4" />
-          <circle cx="7.6" cy="18" r="1.5" />
-          <path d="m11.1 18 1.3-1.3 3.4 3.4" />
+          <rect x="5.4" y="5.1" width="13.2" height="13.4" rx="2" />
+          <path d="M7.8 9h7.8M7.8 11.8h5.6M7.8 14.5h3.6" />
+          <path d="M7.4 8v.8M16.8 8v.8" />
+          <path d="M15 17l1.4 1.4 2.8-2.8" />
         </svg>
       );
     case "overview":
       return (
         <svg {...sharedProps} aria-hidden="true">
-          <path d="M12 3.8v16.4" />
-          <path d="M12 3.8 6.4 7.6M12 3.8l5.6 3.8" />
-          <path d="M4.6 10.8 12 15.1 19.4 10.8" />
-          <path d="M6 20.8h12" />
+          <rect x="4.8" y="4.1" width="14.4" height="15.8" rx="1.9" />
+          <path d="M4.8 8.1h14.4" />
+          <path d="M7.4 11.4h9M7.4 14.3h9M7.4 17.2h6.4" />
+          <circle cx="12" cy="6.6" r="1" />
         </svg>
       );
     case "operations":
       return (
         <svg {...sharedProps} aria-hidden="true">
-          <rect x="4.5" y="6.6" width="15" height="10.4" rx="2.2" />
-          <path d="M7.2 6.6V5.7c0-.8.7-1.5 1.5-1.5h6.6c.8 0 1.5.7 1.5 1.5v.9M6.9 17h10.2" />
-          <path d="M8.4 8.8h1.2M11.4 8.8h1.2M14.4 8.8h1.2M8.4 11h1.2M11.4 11h1.2M14.4 11h1.2" />
+          <rect x="4.4" y="4.6" width="15.2" height="14.8" rx="2.1" />
+          <path d="M6.8 9.2h10.4M6.8 12h10.4M6.8 14.8h10.4" />
+          <circle cx="7.5" cy="9.2" r="1" />
+          <circle cx="7.5" cy="12" r="1" />
+          <circle cx="7.5" cy="14.8" r="1" />
+          <line x1="8.5" y1="7.2" x2="17.2" y2="7.2" />
+          <line x1="8.5" y1="16.5" x2="17.2" y2="16.5" />
         </svg>
       );
     case "staffing":
       return (
         <svg {...sharedProps} aria-hidden="true">
-          <path d="M17.2 20v-2.5a2.4 2.4 0 0 0-2.4-2.4H9.2a2.4 2.4 0 0 0-2.4 2.4V20" />
-          <path d="M12.8 11.8c1.7 0 3-1.4 3-3s-1.3-3-3-3-3 1.4-3 3 1.4 3 3 3Z" />
-          <path d="M8.4 9.6 6.1 7.8M15.6 9.6 17.9 7.8" />
+          <path d="M7.6 8.2a2.4 2.4 0 1 1 4.8 0 2.4 2.4 0 1 1-4.8 0" />
+          <path d="M12.4 18.6c0-2.1-1.6-3.7-3.4-3.7h-2.4c-1.9 0-3.4 1.6-3.4 3.7v1.8h9.2v-1.8Z" />
+          <path d="M15.4 11.4h.4M13.4 11.4h.4M17.4 11.4h.4M13.4 13.8h.4M15.4 13.8h.4M17.4 13.8h.4" />
+          <path d="M12.8 18.6h7.4v-1.8a2.9 2.9 0 0 0-2.9-2.9" />
         </svg>
       );
     case "learnerFlow":
       return (
         <svg {...sharedProps} aria-hidden="true">
-          <path d="M4.8 10.2h14.4" />
-          <path d="M5.2 12.8h14.4M5.2 15.4h10.6" />
-          <path d="M7 9.2c-1.3-2.7-.3-4.6 2-5.5 2.1-1.2 4.4-.5 5.6 1.4 1 1.5.8 3.8-.8 5.1" />
-          <path d="M16.8 17.8c1.3 2.7.3 4.6-2 5.5-2.1 1.2-4.4.5-5.6-1.4-1-1.5-.8-3.8.8-5.1" />
-          <path d="m18.5 14.5 3.2-2.6M6 14.5 2.8 12" />
+          <path d="M4.6 8.4h12.8" />
+          <path d="M17.4 8.4l2.2 2-2.2 2" />
+          <path d="M7.7 15.2h10.1" />
+          <path d="M17.1 15.2l1.8-1.6 1.8 1.6" />
+          <path d="M11.2 12h.01M11.2 12" />
         </svg>
       );
     case "coverage":
       return (
         <svg {...sharedProps} aria-hidden="true">
-          <path d="M12 20.2 4.8 14.6V7.4h14.4v7.2z" />
-          <circle cx="12" cy="10.7" r="2.4" />
-          <path d="M9.2 6.4h5.6" />
-          <path d="M7 16.2h10" />
+          <path d="M12 3.8 4.8 8.7v6.9c0 4.8 3 7.2 6.8 8.1 3.8-1 6.8-3.4 6.8-8.1V8.7L12 3.8Z" />
+          <path d="M12 8.9a2.3 2.3 0 0 1 2.2 1.7" />
+          <path d="M15.8 12.2l-.3.7a1.6 1.6 0 0 1-1.4.9h-.7" />
         </svg>
       );
     case "live":
       return (
         <svg {...sharedProps} aria-hidden="true">
-          <path d="M4.8 12h2.1M8.9 12h1.5M13 12h1.5M17.1 12h2.1" />
-          <path d="M9 6h.2M14.8 6h.2M6.8 18h.2M16.8 18h.2" />
-          <path d="M12 4.3c-.5 1.8-.5 2.5 0 3.4M12 16.3c-.6 1-.8 1.9 0 3.4" />
-          <path d="M4.2 12c1.2 2.7 3.8 4.6 6.9 4.6" />
-          <path d="M12.9 16.6c3.1 0 5.7-1.9 6.9-4.6" />
+          <path d="M5.1 16.8c.9-1.8 3.1-5.4 6.9-5.4 4 0 6.1 3.6 7 5.4" />
+          <path d="M7.5 19.9c1.4-2 4-4.3 6.8-4.3 3 .1 5.5 2.2 6.8 4.3" />
+          <circle cx="12" cy="10.2" r="1.1" />
         </svg>
       );
     case "communication":
       return (
         <svg {...sharedProps} aria-hidden="true">
-          <path d="M20.2 8.6v-3a2.3 2.3 0 0 0-2.3-2.3H6.1a2.3 2.3 0 0 0-2.3 2.3v9.1l4.4-3h11.9a2.3 2.3 0 0 0 2.3-2.3v-1.2M4.8 9.7h12.2" />
-          <path d="m16.2 15.4 2.8 2.2v1.6M13.4 16.8h-3.6l-4.5 2.6M6.8 15.4h0" />
-          <circle cx="11.9" cy="12.2" r="1.8" />
+          <path d="M6.6 4.7h10.2a2.2 2.2 0 0 1 2.2 2.2v8.8a2.2 2.2 0 0 1-2.2 2.2h-4.6l-3.2 2.4V17.9h-.4a2.2 2.2 0 0 1-2.2-2.2V6.9A2.2 2.2 0 0 1 6.6 4.7Z" />
+          <path d="M9.4 10.5h4.7M9.4 13.3h3.3" />
         </svg>
       );
     case "announcements":
       return (
         <svg {...sharedProps} aria-hidden="true">
-          <path d="M12.1 3.9h-.2a4.9 4.9 0 0 0-4.8 4.9v1.7a1.4 1.4 0 0 1-.4.9l-1.9 1.7a.7.7 0 0 0 .5 1.2h12.4a.7.7 0 0 0 .5-1.2l-1.9-1.7a1.4 1.4 0 0 1-.4-.9V8.8A4.9 4.9 0 0 0 12.1 3.9Z" />
-          <path d="M10 20.7h4.1M11 17h2.2" />
+          <path d="M4.7 8.5h9.2l3.4 2.4v4.4l-3.4 2.4H4.7a2 2 0 0 1-2-2V10.5a2 2 0 0 1 2-2Z" />
+          <path d="M10.8 5.2h3.9M10.8 7.2h3.9" />
+          <path d="M11.7 14.8h1.3" />
         </svg>
       );
     case "training":
       return (
         <svg {...sharedProps} aria-hidden="true">
-          <path d="M7.2 20v-8.6M12.1 20V9.4M16.9 20V11" />
-          <path d="M4.7 20h14.8M4.7 12l1.9-7.4h8.8L17.3 12M6.6 12h10.8" />
-          <circle cx="12.1" cy="4.1" r="2.2" />
+          <rect x="5.3" y="4.8" width="13.4" height="14.4" rx="1.9" />
+          <path d="M8 8.7h7.8M8 11.8h7.8M8 14.9h5.6" />
+          <path d="M13.3 18.3l1.8 1.8 3.6-3.6" />
+          <path d="M5.3 10.3h2.1" />
         </svg>
       );
     case "faculty":
       return (
         <svg {...sharedProps} aria-hidden="true">
-          <path d="M6.5 6.6A2.7 2.7 0 1 1 11.8 6a2.7 2.7 0 0 1-5.3 0.6Z" />
-          <path d="M6.5 11.5h0c.8 0 2.9 3.3 2.9 6.9v1.3M17.8 6.6A2.7 2.7 0 1 1 23.1 6a2.7 2.7 0 0 1-5.3 0.6Z" />
-          <path d="M17.8 11.5h0c.8 0 2.9 3.3 2.9 6.9v1.3M10 20.2h4.3M10 17.5h4.3" />
-          <path d="M12 12.9v6.8" />
+          <rect x="4.8" y="5.5" width="14.4" height="12.8" rx="1.8" />
+          <path d="M11 12h2.4" />
+          <path d="M7.2 10.7a2 2 0 1 1 4 0M12.8 10.7a2 2 0 1 1 4 0" />
+          <path d="M8.5 18.3h7M8.5 16.1h7M8.5 14h7" />
         </svg>
       );
     case "fileCabinet":
       return (
         <svg {...sharedProps} aria-hidden="true">
-          <path d="M4.6 7.3H19.5v11.4H4.6z" />
-          <path d="M4.6 10.2h14.9M4.6 13.7h14.9M4.6 17.2h14.9" />
-          <path d="M7.8 7.3v-2.1M16.2 7.3V5.2M7.8 18.7v2M16.2 18.7v2" />
-          <rect x="7.8" y="5.2" width="8.4" height="15.5" rx="1" />
+          <rect x="4.8" y="5.4" width="14.4" height="13.2" rx="1.3" />
+          <path d="M4.8 9.3h14.4M4.8 12.9h14.4M4.8 16.5h14.4" />
+          <path d="M7.4 8.1h3.4M11.9 8.1h1.4M14.9 8.1h2.2" />
+          <path d="M8.1 12.9h2.9M8.1 16.5h2.9" />
         </svg>
       );
     case "qa":
       return (
         <svg {...sharedProps} aria-hidden="true">
-          <path d="M5 5.1h14v14.1H5z" />
-          <path d="M8.6 9.6h6.8M8.6 12.8h6.8M8.6 16h4" />
-          <path d="M8.8 20.3H5.6M18.4 20.3h-6.4" />
-          <path d="M14.2 7.9v-2.6h-4.4v2.6" />
+          <rect x="5.2" y="4.8" width="13.6" height="14.4" rx="1.8" />
+          <path d="M8.2 8.3h6.3M8.2 11.2h6.3M8.2 14.2h4.8" />
+          <path d="M8.2 17.1h3.4" />
+          <path d="M8.8 8.3a.8.8 0 0 1 1.4.6c-.6 1.3-1.8 2.2-3.2 2.2-.9 0-1.7-.5-2.3-1.2M8.8 11.2a.8.8 0 0 1 1.4.6c-.6 1.3-1.8 2.2-3.2 2.2-.9 0-1.7-.5-2.3-1.2" />
         </svg>
       );
     case "advanced":
       return (
         <svg {...sharedProps} aria-hidden="true">
-          <path d="M12 8.2a3.8 3.8 0 1 0 3.8 3.8A3.8 3.8 0 0 0 12 8.2Z" />
-          <path d="M12 2v1.7M12 20.3v1.7" />
-          <path d="M12 3.8c-1.1 0-2.1 1-2.1 2.2 0 1.2.9 2.2 2.1 2.2 1.1 0 2.1-1 2.1-2.2 0-1.2-.9-2.2-2.1-2.2ZM12 20.3c-1.1 0-2.1-1-2.1-2.2 0-1.2.9-2.2 2.1-2.2 1.1 0 2.1 1 2.1 2.2 0 1.2-.9 2.2-2.1 2.2ZM19.4 12c0-1.1-1-2.1-2.2-2.1-1.2 0-2.2 1-2.2 2.1 0 1.1 1 2.1 2.2 2.1 1.2 0 2.2-1 2.2-2.1ZM5.6 12c0-1.1 1-2.1 2.2-2.1 1.2 0 2.2 1 2.2 2.1 0 1.1-1 2.1-2.2 2.1-1.2 0-2.2-1-2.2-2.1ZM17.6 16.6l-1.3-1.3M7.7 8.5 6.4 7.2M7.7 15.4 6.4 16.7M16.6 7.2 17.9 5.9M16.6 18.1 17.9 19.4" />
-          <path d="M6.4 7.2v.1M17.9 16.7v.1M6.4 16.7v.1M17.9 7.2v.1" />
+          <circle cx="12" cy="12" r="2.7" />
+          <path d="M12 6.4v1.9M12 15.7v1.9" />
+          <path d="M6.4 12h1.9M15.7 12h1.9" />
+          <path d="M8.4 8.4l1.3 1.3M14.3 14.3l1.3 1.3M14.3 9.7l1.3-1.3M8.4 15.6l1.3-1.3" />
         </svg>
       );
   }
