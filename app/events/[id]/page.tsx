@@ -52,6 +52,14 @@ import {
 } from "../../lib/emailTemplates";
 import { normalizeDisplayText, normalizeLearnerName, normalizeLearnerNames } from "../../lib/learnerNames";
 import {
+  buildSessionChecklist,
+  getSessionChecklistConfig,
+  parseSessionChecklistState,
+  upsertSessionChecklistStateInNotes,
+  type SessionChecklistStateMap,
+  type SessionChecklistStatus,
+} from "../../lib/sessionQaChecklist";
+import {
   getFacultyText,
   getSimStaffNames,
 } from "../../lib/eventRoster";
@@ -929,6 +937,42 @@ function getWorkflowReadinessTone(status: WorkflowReadinessStatus) {
     cardBackground: "linear-gradient(180deg, rgba(248, 250, 252, 0.96) 0%, rgba(226, 232, 240, 0.72) 100%)",
     border: "1px solid rgba(100, 116, 139, 0.22)",
     color: "#475569",
+  };
+}
+
+function getSessionChecklistStatusTone(status: SessionChecklistStatus) {
+  if (status === "complete") {
+    return {
+      background: "rgba(16, 185, 129, 0.16)",
+      color: "#065f46",
+      border: "1px solid rgba(16, 185, 129, 0.34)",
+    };
+  }
+  if (status === "overdue") {
+    return {
+      background: "rgba(59, 130, 246, 0.16)",
+      color: "#1e3a8a",
+      border: "1px solid rgba(59, 130, 246, 0.36)",
+    };
+  }
+  if (status === "due_soon") {
+    return {
+      background: "rgba(14, 165, 233, 0.14)",
+      color: "#0c4a6e",
+      border: "1px solid rgba(14, 165, 233, 0.28)",
+    };
+  }
+  if (status === "date_needed") {
+    return {
+      background: "rgba(148, 163, 184, 0.16)",
+      color: "#475569",
+      border: "1px solid rgba(148, 163, 184, 0.28)",
+    };
+  }
+  return {
+    background: "rgba(37, 99, 235, 0.12)",
+    color: "#1d4ed8",
+    border: "1px solid rgba(37, 99, 235, 0.26)",
   };
 }
 
@@ -6000,6 +6044,10 @@ export default function EventDetailPage() {
   const [viewerRole, setViewerRole] = useState<CommandCenterData["viewerRole"]>("unknown");
   const [spPortal, setSpPortal] = useState<NonNullable<CommandCenterData["spPortal"]> | null>(null);
   const [workflowChecks, setWorkflowChecks] = useState<Record<string, boolean>>({});
+  const [sessionChecklistStateOverride, setSessionChecklistStateOverride] = useState<SessionChecklistStateMap | null>(null);
+  const [sessionChecklistSaveState, setSessionChecklistSaveState] = useState<"saved" | "saving" | "error">("saved");
+  const [sessionChecklistSavedAt, setSessionChecklistSavedAt] = useState("");
+  const [sessionChecklistSaveError, setSessionChecklistSaveError] = useState("");
   const [me, setMe] = useState<{
     email: string;
     fullName: string;
@@ -14040,6 +14088,46 @@ Cory`;
   const staffingTrainingWindowStyles = getOperationalWindowStyles(staffingTrainingWindowTone);
   const operationsSupportWindowStyles = getOperationalWindowStyles(operationsSupportWindowTone);
   const materialsCommunicationWindowStyles = getOperationalWindowStyles(materialsCommunicationWindowTone);
+  const sessionChecklistNotesSource = eventEditor.notes || event?.notes || "";
+  const persistedSessionChecklistState = useMemo(
+    () => parseSessionChecklistState(sessionChecklistNotesSource),
+    [sessionChecklistNotesSource]
+  );
+  const sessionChecklistConfig = useMemo(
+    () => getSessionChecklistConfig(sessionChecklistNotesSource),
+    [sessionChecklistNotesSource]
+  );
+  const activeSessionChecklistState = sessionChecklistStateOverride || persistedSessionChecklistState;
+  // IMPORTANT REGRESSION GUARD:
+  // Session Details Checklist config/state must come from one event-note metadata path.
+  // QA Board, readiness summary labels, and Settings checklist editor must consume this same source.
+  const sessionChecklist = useMemo(
+    () =>
+      buildSessionChecklist(sessionChecklistConfig, activeSessionChecklistState, {
+        trainingDate: normalEventTrainingCountdownTarget?.start || normalEventTrainingDate || null,
+        eventDate: primaryEventDate || null,
+        eventStart: eventCountdownTarget?.start || null,
+        eventEnd: eventCountdownTarget?.end || eventCountdownTarget?.start || null,
+      }),
+    [
+      activeSessionChecklistState,
+      eventCountdownTarget?.end,
+      eventCountdownTarget?.start,
+      normalEventTrainingCountdownTarget?.start,
+      normalEventTrainingDate,
+      primaryEventDate,
+      sessionChecklistConfig,
+    ]
+  );
+  const canEditSessionChecklistCompletion =
+    viewerRole === "admin" || viewerRole === "super_admin" || viewerRole === "sim_op";
+  const qaChecklistStatusLabel = sessionChecklist.summary.statusLabel;
+  const qaChecklistStatusDetail = [
+    sessionChecklist.summary.statusDetail,
+    sessionChecklist.summary.nextDueLabel ? `Next due: ${sessionChecklist.summary.nextDueLabel}` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
   const workflowReportItems: WorkflowReadinessItem[] = [
     {
       id: "staffing",
@@ -14314,12 +14402,20 @@ Cory`;
   const workflowRequiredReady = workflowReportItems
     .filter((item) => workflowRequiredReadyIds.has(item.id))
     .every((item) => item.status === "Ready");
-  const workflowBoardStatus: WorkflowReadinessStatus = workflowActionCount > 0 ? "Needs Action" : workflowRequiredReady ? "Ready" : "In Progress";
-  const workflowBoardStatusLabel = workflowRequiredReady ? "Operationally Ready" : workflowBoardStatus;
-  const workflowBoardStatusDetail = workflowRequiredReady
+  const qaChecklistNeedsAction = sessionChecklist.summary.overdueCount > 0;
+  const workflowBoardStatus: WorkflowReadinessStatus =
+    qaChecklistNeedsAction || workflowActionCount > 0
+      ? "Needs Action"
+      : workflowRequiredReady
+        ? "Ready"
+        : "In Progress";
+  const workflowBoardStatusLabel = workflowRequiredReady && !qaChecklistNeedsAction ? "Operationally Ready" : workflowBoardStatus;
+  const workflowBoardStatusDetail = workflowRequiredReady && !qaChecklistNeedsAction
     ? "All required readiness systems are complete."
-    : workflowActionCount > 0
-      ? `${workflowReadyCount} ready / optional · ${workflowActionCount} blocker${workflowActionCount === 1 ? "" : "s"}`
+    : qaChecklistNeedsAction
+      ? `Session checklist has ${sessionChecklist.summary.overdueCount} overdue item${sessionChecklist.summary.overdueCount === 1 ? "" : "s"}.`
+      : workflowActionCount > 0
+        ? `${workflowReadyCount} ready / optional · ${workflowActionCount} blocker${workflowActionCount === 1 ? "" : "s"}`
       : `${workflowReadyCount} ready / optional · no unresolved blockers`;
   const workflowDetailItemMap = new Map<string, WorkflowReadinessItem>();
   readinessGroups.forEach((group) => {
@@ -17169,6 +17265,10 @@ Cory`;
   }, [persistedWorkflowChecks]);
 
   useEffect(() => {
+    setSessionChecklistStateOverride(null);
+  }, [eventEditor.notes, event?.notes]);
+
+  useEffect(() => {
     return () => {
       clearActionFeedbackTimers();
     };
@@ -17605,6 +17705,66 @@ Cory`;
       await persistWorkflowChecks(nextChecks);
     } catch (error) {
       setEventSaveError(error instanceof Error ? error.message : "Could not update workflow.");
+    }
+  }
+
+  async function handleToggleSessionChecklistTask(taskId: string, currentlyCompleted: boolean) {
+    if (!id) return;
+    if (!canEditSessionChecklistCompletion) {
+      setSessionChecklistSaveState("error");
+      setSessionChecklistSaveError("Admin or Sim Ops access is required to update checklist completion.");
+      return;
+    }
+
+    const nextState: SessionChecklistStateMap = {
+      ...activeSessionChecklistState,
+    };
+
+    if (currentlyCompleted) {
+      delete nextState[taskId];
+    } else {
+      nextState[taskId] = {
+        taskId,
+        completed: true,
+        completedAt: new Date().toISOString(),
+        completedBy: me?.scheduleName || me?.fullName || me?.email || "",
+        notes: asText(activeSessionChecklistState[taskId]?.notes),
+      };
+    }
+
+    setSessionChecklistStateOverride(nextState);
+    setSessionChecklistSaveState("saving");
+    setSessionChecklistSaveError("");
+
+    try {
+      const nextNotes = upsertSessionChecklistStateInNotes(eventEditor.notes, nextState);
+      const response = await fetch(`/api/events/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          event_updates: {
+            notes: nextNotes,
+          },
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(await parseApiError(response));
+      }
+
+      setEventEditor((current) => ({
+        ...current,
+        notes: nextNotes,
+      }));
+      setEvent((current) => (current ? { ...current, notes: nextNotes } : current));
+      setSessionChecklistStateOverride(null);
+      setSessionChecklistSaveState("saved");
+      setSessionChecklistSavedAt(new Date().toISOString());
+      setSessionChecklistSaveError("");
+    } catch (error) {
+      setSessionChecklistStateOverride(null);
+      setSessionChecklistSaveState("error");
+      setSessionChecklistSaveError(error instanceof Error ? error.message : "Could not save checklist item.");
     }
   }
 
@@ -26366,7 +26526,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 value: "qa",
                                 identity: "qa" as const,
                                 label: "QA Board",
-                                status: workflowBoardStatusLabel,
+                                status: qaChecklistStatusLabel,
                               },
                               {
                                 kind: "advanced",
@@ -26503,7 +26663,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         { value: "fileCabinet" as const, label: "File Cabinet", status: commandFileCabinetSummaryLabel },
                         { value: "staffing" as const, label: "Staffing", status: staffingCoverageMet ? "Ready" : "Needs scan" },
                         { value: "communication" as const, label: "Communication", status: outreachProgressLabel },
-                        { value: "qa" as const, label: "QA Board", status: workflowBoardStatusLabel },
+                        { value: "qa" as const, label: "QA Board", status: qaChecklistStatusLabel },
                         { value: "advanced" as const, label: "Advanced Settings", status: scheduleStatusLabel },
                       ].map((tool) => {
                         const selected = selectedCommandTool === tool.value;
@@ -29208,7 +29368,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           { value: "fileCabinet" as const, identity: "fileCabinet" as const, label: "File Cabinet", status: commandFileCabinetSummaryLabel },
                           { value: "staffing" as const, identity: "staffing" as const, label: "Staffing", status: staffingCoverageMet ? "Ready" : "Needs scan" },
                           { value: "communication" as const, identity: "communication" as const, label: "Communication", status: outreachProgressLabel },
-                          { value: "qa" as const, identity: "qa" as const, label: "QA Board", status: workflowBoardStatusLabel },
+                          { value: "qa" as const, identity: "qa" as const, label: "QA Board", status: qaChecklistStatusLabel },
                           { value: "advanced" as const, identity: "advanced" as const, label: "Advanced Settings", status: scheduleStatusLabel },
                         ].map((tool) => {
                           const isToolSelected = selectedCommandTool === (tool.value as SelectedCommandTool);
@@ -29311,7 +29471,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                       : selectedCommandTool === "communication"
                                         ? outreachProgressLabel
                                         : selectedCommandTool === "qa"
-                                          ? workflowBoardStatusLabel
+                                          ? qaChecklistStatusLabel
                                           : scheduleStatusLabel}
                             </div>
                           </div>
@@ -30331,11 +30491,142 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           </div>
                         ) : selectedCommandTool === "qa" ? (
                           <div style={{ display: "grid", gap: "8px" }}>
-                            <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 750 }}>{workflowBoardStatusDetail}</div>
-                            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "8px" }}>
-                              {workflowReportItems.filter((item) => workflowDetailActionStatuses.has(item.status)).length
-                                ? workflowReportItems.filter((item) => workflowDetailActionStatuses.has(item.status)).map((item) => renderWorkflowReadinessItem(item, true))
-                                : workflowReportItems.slice(0, 4).map((item) => renderWorkflowReadinessItem(item, true))}
+                            <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", alignItems: "flex-start", flexWrap: "wrap" }}>
+                              <div>
+                                <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Operational QA</div>
+                                <div style={{ marginTop: "2px", color: commandCenterVisual.headingColor, fontSize: "16px", fontWeight: 950 }}>
+                                  Session Details Checklist
+                                </div>
+                                <div style={{ marginTop: "2px", color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 750 }}>
+                                  {qaChecklistStatusDetail}
+                                </div>
+                              </div>
+                              <Link
+                                href={`/settings?eventId=${encodeURIComponent(id)}#session-checklist`}
+                                style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px", textDecoration: "none" }}
+                              >
+                                Edit checklist settings
+                              </Link>
+                            </div>
+                            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                              <span style={{ ...commandChipStyle, background: commandCenterVisual.activeSoftBackground, color: commandCenterVisual.activeSoftText }}>
+                                Planning {sessionChecklist.summary.planningComplete}/{sessionChecklist.summary.planningTotal}
+                              </span>
+                              <span style={{ ...commandChipStyle, background: commandCenterVisual.activeSoftBackground, color: commandCenterVisual.activeSoftText }}>
+                                Day-of {sessionChecklist.summary.dayOfComplete}/{sessionChecklist.summary.dayOfTotal}
+                              </span>
+                              <span
+                                style={{
+                                  ...commandChipStyle,
+                                  background: sessionChecklist.summary.overdueCount ? "rgba(59, 130, 246, 0.16)" : commandCenterVisual.activeSoftBackground,
+                                  color: sessionChecklist.summary.overdueCount ? "#1e3a8a" : commandCenterVisual.activeSoftText,
+                                }}
+                              >
+                                Overdue {sessionChecklist.summary.overdueCount}
+                              </span>
+                              <span style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText }}>
+                                Next due: {sessionChecklist.summary.nextDueLabel}
+                              </span>
+                            </div>
+                            <div style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 750 }}>
+                              {sessionChecklistSaveState === "saving"
+                                ? "Saving..."
+                                : sessionChecklistSaveState === "error"
+                                  ? `Save failed: ${sessionChecklistSaveError || "Could not save checklist change."}`
+                                  : sessionChecklistSavedAt
+                                    ? `Saved ✓ ${formatAttendanceTimestamp(sessionChecklistSavedAt)}`
+                                    : "Saved ✓"}
+                            </div>
+                            <div style={{ display: "grid", gap: "10px" }}>
+                              {([
+                                { key: "planning", label: "Planning", tasks: sessionChecklist.planning },
+                                { key: "day_of", label: "Day-of", tasks: sessionChecklist.dayOf },
+                              ] as const).map((section) => (
+                                <section
+                                  key={section.key}
+                                  style={{
+                                    borderRadius: "14px",
+                                    border: commandCenterVisual.cardBorder,
+                                    background: commandCenterVisual.cardBackground,
+                                    padding: "9px",
+                                    display: "grid",
+                                    gap: "8px",
+                                  }}
+                                >
+                                  <div style={{ color: commandCenterVisual.headingColor, fontSize: "13px", fontWeight: 950 }}>
+                                    {section.label}
+                                  </div>
+                                  {section.tasks.length ? section.tasks.map((task) => {
+                                    const tone = getSessionChecklistStatusTone(task.status);
+                                    const checkboxLabel = task.completed
+                                      ? `Mark ${task.label} incomplete`
+                                      : `Mark ${task.label} complete`;
+                                    return (
+                                      <label
+                                        key={`qa-checklist-task-${task.taskId}`}
+                                        style={{
+                                          borderRadius: "12px",
+                                          border: commandCenterVisual.rowBorder,
+                                          background: isPlanningVisualMode ? "rgba(255,255,255,0.76)" : "rgba(255,255,255,0.05)",
+                                          padding: "8px",
+                                          display: "grid",
+                                          gap: "6px",
+                                        }}
+                                      >
+                                        <div style={{ display: "grid", gridTemplateColumns: "auto minmax(0, 1fr) auto", gap: "8px", alignItems: "start" }}>
+                                          <input
+                                            type="checkbox"
+                                            checked={task.completed}
+                                            onChange={() => void handleToggleSessionChecklistTask(task.taskId, task.completed)}
+                                            disabled={sessionChecklistSaveState === "saving" || !canEditSessionChecklistCompletion}
+                                            title={checkboxLabel}
+                                            aria-label={checkboxLabel}
+                                            style={{ width: "16px", height: "16px", marginTop: "1px", accentColor: "#0f766e" }}
+                                          />
+                                          <div style={{ display: "grid", gap: "2px" }}>
+                                            <span style={{ color: commandCenterVisual.textColor, fontSize: "12px", fontWeight: 950 }}>
+                                              {task.label}
+                                            </span>
+                                            <span style={{ color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 750 }}>
+                                              {task.dueRuleLabel}
+                                            </span>
+                                            <span style={{ color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 750 }}>
+                                              {task.dueAtLabel}
+                                            </span>
+                                          </div>
+                                          <span
+                                            style={{
+                                              borderRadius: "999px",
+                                              border: tone.border,
+                                              background: tone.background,
+                                              color: tone.color,
+                                              fontSize: "10px",
+                                              fontWeight: 850,
+                                              padding: "4px 8px",
+                                              whiteSpace: "nowrap",
+                                            }}
+                                          >
+                                            {task.statusLabel}
+                                          </span>
+                                        </div>
+                                        {task.owner || task.notes || task.completedAt ? (
+                                          <div style={{ color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 700, lineHeight: 1.4 }}>
+                                            {task.owner ? `Owner: ${task.owner}` : ""}
+                                            {task.owner && task.notes ? " · " : ""}
+                                            {task.notes ? task.notes : ""}
+                                            {(task.owner || task.notes) && task.completedAt ? " · " : ""}
+                                            {task.completedAt ? `Completed ${formatAttendanceTimestamp(task.completedAt)}${task.completedBy ? ` by ${task.completedBy}` : ""}` : ""}
+                                          </div>
+                                        ) : null}
+                                      </label>
+                                    );
+                                  }) : (
+                                    <div style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 750 }}>
+                                      No active checklist tasks in this section.
+                                    </div>
+                                  )}
+                                </section>
+                              ))}
                             </div>
                           </div>
                         ) : (
@@ -30522,8 +30813,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 {
                   key: "qa" as const,
                   label: "QA Board",
-                  status: workflowBoardStatusLabel,
-                  detail: workflowBoardStatusDetail,
+                  status: qaChecklistStatusLabel,
+                  detail: qaChecklistStatusDetail,
                   actionLabel: "Open QA",
                   action: () => {
                     window.requestAnimationFrame(() => document.getElementById("command-dock-qa")?.scrollIntoView({ behavior: "smooth", block: "start" }));

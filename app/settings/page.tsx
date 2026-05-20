@@ -12,6 +12,18 @@ import {
 } from "../lib/emailTemplates";
 import { formatHumanDate } from "../lib/eventDateUtils";
 import { parseEventMetadata } from "../lib/eventMetadata";
+import {
+  buildSessionChecklist,
+  getDefaultSessionChecklistConfig,
+  getSessionChecklistConfig,
+  parseSessionChecklistState,
+  upsertSessionChecklistConfigInNotes,
+  type SessionChecklistDueAnchor,
+  type SessionChecklistOffsetDirection,
+  type SessionChecklistOffsetUnit,
+  type SessionChecklistSection,
+  type SessionChecklistTaskConfig,
+} from "../lib/sessionQaChecklist";
 
 type EventEditState = {
   name: string;
@@ -234,6 +246,402 @@ const blankTemplate: EmailTemplateRecord = {
   default_from_label: "{{senderName}}",
   is_active: true,
 };
+
+function parseLooseDate(value: string) {
+  const raw = text(value);
+  if (!raw) return null;
+  const normalized = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (normalized) {
+    const date = new Date(`${normalized[1]}-${normalized[2]}-${normalized[3]}T00:00:00`);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function parseDateTime(dateText: string, timeText: string) {
+  const date = parseLooseDate(dateText);
+  if (!date) return null;
+  const rawTime = text(timeText);
+  if (!rawTime) return date;
+  const match = rawTime.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+  if (!match) return date;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return date;
+  const next = new Date(date.getTime());
+  next.setHours(hour, minute, 0, 0);
+  return next;
+}
+
+function SessionChecklistManager({
+  canEdit,
+  eventId,
+  eventNotes,
+  eventDateText,
+  sessions,
+  onNotesChange,
+}: {
+  canEdit: boolean;
+  eventId: string;
+  eventNotes: string;
+  eventDateText: string;
+  sessions: EventSessionRow[];
+  onNotesChange: (nextNotes: string) => void;
+}) {
+  const [configDraft, setConfigDraft] = useState<SessionChecklistTaskConfig[]>([]);
+  const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    const loaded = getSessionChecklistConfig(eventNotes);
+    setConfigDraft(loaded);
+    setDirty(false);
+  }, [eventNotes]);
+
+  const checklistState = useMemo(() => parseSessionChecklistState(eventNotes), [eventNotes]);
+  const trainingMetadata = useMemo(() => parseEventMetadata(eventNotes).training, [eventNotes]);
+  const orderedSessions = useMemo(
+    () =>
+      [...sessions].sort((a, b) =>
+        `${text(a.session_date)} ${text(a.start_time)}`.localeCompare(`${text(b.session_date)} ${text(b.start_time)}`)
+      ),
+    [sessions]
+  );
+  const firstSession = orderedSessions[0] || null;
+  const lastSession = orderedSessions[orderedSessions.length - 1] || null;
+  const trainingDate =
+    parseLooseDate(trainingMetadata.training_date || trainingMetadata.preferred_training_date || trainingMetadata.imported_training_date) || null;
+  const eventDate = parseLooseDate(firstSession?.session_date || eventDateText) || null;
+  const eventStart =
+    parseDateTime(
+      firstSession?.session_date || eventDateText,
+      firstSession?.start_time || trainingMetadata.event_start_time || ""
+    ) || null;
+  const eventEnd =
+    parseDateTime(
+      lastSession?.session_date || firstSession?.session_date || eventDateText,
+      lastSession?.end_time || trainingMetadata.event_end_time || ""
+    ) || null;
+
+  const preview = useMemo(
+    () =>
+      buildSessionChecklist(configDraft, checklistState, {
+        trainingDate,
+        eventDate,
+        eventStart,
+        eventEnd,
+      }),
+    [checklistState, configDraft, eventDate, eventEnd, eventStart, trainingDate]
+  );
+
+  const sectionOptions: Array<{ value: SessionChecklistSection; label: string }> = [
+    { value: "planning", label: "Planning" },
+    { value: "day_of", label: "Day-of" },
+  ];
+  const anchorOptions: Array<{ value: SessionChecklistDueAnchor; label: string }> = [
+    { value: "training_date", label: "Training Date" },
+    { value: "event_date", label: "Event Date" },
+    { value: "event_start", label: "Event Start" },
+    { value: "event_end", label: "Event End" },
+  ];
+  const unitOptions: Array<{ value: SessionChecklistOffsetUnit; label: string }> = [
+    { value: "minutes", label: "Minutes" },
+    { value: "hours", label: "Hours" },
+    { value: "days", label: "Days" },
+  ];
+  const directionOptions: Array<{ value: SessionChecklistOffsetDirection; label: string }> = [
+    { value: "before", label: "Before" },
+    { value: "after", label: "After" },
+  ];
+
+  function updateTask(taskId: string, patch: Partial<SessionChecklistTaskConfig>) {
+    setConfigDraft((current) =>
+      current.map((task) => (task.taskId === taskId ? { ...task, ...patch } : task))
+    );
+    setDirty(true);
+    setMessage("");
+    setError("");
+  }
+
+  function reorderTask(taskId: string, direction: "up" | "down") {
+    setConfigDraft((current) => {
+      const index = current.findIndex((task) => task.taskId === taskId);
+      if (index < 0) return current;
+      const targetIndex = direction === "up" ? index - 1 : index + 1;
+      if (targetIndex < 0 || targetIndex >= current.length) return current;
+      const next = [...current];
+      const [moved] = next.splice(index, 1);
+      next.splice(targetIndex, 0, moved);
+      return next.map((task, taskIndex) => ({ ...task, sortOrder: taskIndex }));
+    });
+    setDirty(true);
+    setMessage("");
+    setError("");
+  }
+
+  function removeTask(taskId: string) {
+    setConfigDraft((current) =>
+      current
+        .filter((task) => task.taskId !== taskId)
+        .map((task, index) => ({ ...task, sortOrder: index }))
+    );
+    setDirty(true);
+    setMessage("");
+    setError("");
+  }
+
+  function addTask(section: SessionChecklistSection) {
+    setConfigDraft((current) => {
+      const nextId = `qa-task-${Date.now()}`;
+      return [
+        ...current,
+        {
+          taskId: nextId,
+          section,
+          label: "New checklist task",
+          dueAnchor: section === "planning" ? "event_date" : "event_start",
+          offsetValue: section === "planning" ? 2 : 0,
+          offsetUnit: section === "planning" ? "days" : "minutes",
+          offsetDirection: "before",
+          active: true,
+          owner: "",
+          notes: "",
+          sortOrder: current.length,
+          required: true,
+        },
+      ];
+    });
+    setDirty(true);
+    setMessage("");
+    setError("");
+  }
+
+  async function saveChecklistConfig() {
+    if (!eventId) {
+      setError("Select an event before saving checklist settings.");
+      return;
+    }
+    if (!canEdit) {
+      setError("Admin or Sim Ops access is required to edit checklist settings.");
+      return;
+    }
+
+    const normalizedConfig = configDraft.map((task, index) => ({
+      ...task,
+      label: text(task.label) || "Untitled task",
+      offsetValue: Number.isFinite(Number(task.offsetValue)) ? Math.max(0, Math.floor(Number(task.offsetValue))) : 0,
+      sortOrder: index,
+    }));
+
+    setSaving(true);
+    setMessage("");
+    setError("");
+    try {
+      const nextNotes = upsertSessionChecklistConfigInNotes(eventNotes, normalizedConfig);
+      const response = await fetch(`/api/events/${encodeURIComponent(eventId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          event_updates: {
+            notes: nextNotes,
+          },
+        }),
+      });
+      if (!response.ok) {
+        const detail = await response.text().catch(() => "");
+        throw new Error(detail || "Could not save checklist settings.");
+      }
+      onNotesChange(nextNotes);
+      setConfigDraft(normalizedConfig);
+      setDirty(false);
+      setMessage("Checklist settings saved.");
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Could not save checklist settings.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function resetDefaults() {
+    setConfigDraft(getDefaultSessionChecklistConfig());
+    setDirty(true);
+    setMessage("");
+    setError("");
+  }
+
+  return (
+    <section id="session-checklist" className="rounded-[22px] border border-[var(--cfsp-border)] bg-white p-4 shadow-sm">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <p className="cfsp-kicker">Event Setup</p>
+          <h2 className="mt-1 text-xl font-black text-[var(--cfsp-text)]">Session Checklist Settings</h2>
+          <p className="mt-1 text-sm font-semibold leading-6 text-[var(--cfsp-text-muted)]">
+            Configure Planning and Day-of operational tasks that drive the QA board in Event Command Center.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => addTask("planning")}
+            disabled={!canEdit}
+            className="cfsp-btn cfsp-btn-secondary disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Add Planning Task
+          </button>
+          <button
+            type="button"
+            onClick={() => addTask("day_of")}
+            disabled={!canEdit}
+            className="cfsp-btn cfsp-btn-secondary disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Add Day-of Task
+          </button>
+          <button
+            type="button"
+            onClick={resetDefaults}
+            disabled={!canEdit}
+            className="cfsp-btn cfsp-btn-secondary disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Reset Defaults
+          </button>
+          <button
+            type="button"
+            onClick={() => void saveChecklistConfig()}
+            disabled={!dirty || saving || !canEdit}
+            className="cfsp-btn cfsp-btn-primary disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {saving ? "Saving..." : "Save Checklist"}
+          </button>
+        </div>
+      </div>
+
+      {message ? <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-bold text-emerald-700">{message}</div> : null}
+      {error ? <div className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-700">{error}</div> : null}
+      {!canEdit ? (
+        <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-bold text-amber-800">
+          Read-only. Admin or Sim Ops access is required to edit checklist settings.
+        </div>
+      ) : null}
+
+      <div className="mt-4 grid gap-3">
+        {configDraft.map((task, index) => {
+          const resolvedTask = preview.tasks.find((row) => row.taskId === task.taskId);
+          return (
+            <article key={task.taskId} className="rounded-2xl border border-[var(--cfsp-border)] bg-slate-50 p-3">
+              <div className="grid gap-3 lg:grid-cols-2">
+                <Field label="Task name" value={task.label} onChange={(value) => updateTask(task.taskId, { label: value })} />
+                <Field label="Owner / role" value={task.owner} onChange={(value) => updateTask(task.taskId, { owner: value })} />
+                <label className="grid gap-1">
+                  <span className="text-[11px] font-black uppercase tracking-[0.16em] text-[var(--cfsp-text-muted)]">Section</span>
+                  <select
+                    value={task.section}
+                    onChange={(event) => updateTask(task.taskId, { section: event.target.value as SessionChecklistSection })}
+                    className="rounded-xl border border-[var(--cfsp-border)] bg-white px-3 py-2 text-sm font-semibold text-[var(--cfsp-text)] outline-none transition focus:border-emerald-400"
+                  >
+                    {sectionOptions.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="grid gap-1">
+                  <span className="text-[11px] font-black uppercase tracking-[0.16em] text-[var(--cfsp-text-muted)]">Due anchor</span>
+                  <select
+                    value={task.dueAnchor}
+                    onChange={(event) => updateTask(task.taskId, { dueAnchor: event.target.value as SessionChecklistDueAnchor })}
+                    className="rounded-xl border border-[var(--cfsp-border)] bg-white px-3 py-2 text-sm font-semibold text-[var(--cfsp-text)] outline-none transition focus:border-emerald-400"
+                  >
+                    {anchorOptions.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="grid gap-1">
+                  <span className="text-[11px] font-black uppercase tracking-[0.16em] text-[var(--cfsp-text-muted)]">Offset value</span>
+                  <input
+                    type="number"
+                    min={0}
+                    value={task.offsetValue}
+                    onChange={(event) => updateTask(task.taskId, { offsetValue: Number(event.target.value || 0) })}
+                    className="rounded-xl border border-[var(--cfsp-border)] bg-white px-3 py-2 text-sm font-semibold text-[var(--cfsp-text)] outline-none transition focus:border-emerald-400"
+                  />
+                </label>
+                <label className="grid gap-1">
+                  <span className="text-[11px] font-black uppercase tracking-[0.16em] text-[var(--cfsp-text-muted)]">Offset unit</span>
+                  <select
+                    value={task.offsetUnit}
+                    onChange={(event) => updateTask(task.taskId, { offsetUnit: event.target.value as SessionChecklistOffsetUnit })}
+                    className="rounded-xl border border-[var(--cfsp-border)] bg-white px-3 py-2 text-sm font-semibold text-[var(--cfsp-text)] outline-none transition focus:border-emerald-400"
+                  >
+                    {unitOptions.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="grid gap-1">
+                  <span className="text-[11px] font-black uppercase tracking-[0.16em] text-[var(--cfsp-text-muted)]">Before / after</span>
+                  <select
+                    value={task.offsetDirection}
+                    onChange={(event) => updateTask(task.taskId, { offsetDirection: event.target.value as SessionChecklistOffsetDirection })}
+                    className="rounded-xl border border-[var(--cfsp-border)] bg-white px-3 py-2 text-sm font-semibold text-[var(--cfsp-text)] outline-none transition focus:border-emerald-400"
+                  >
+                    {directionOptions.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="flex items-center gap-2 rounded-xl border border-[var(--cfsp-border)] bg-white px-3 py-2 text-sm font-black text-[var(--cfsp-text)]">
+                  <input
+                    type="checkbox"
+                    checked={task.active !== false}
+                    onChange={(event) => updateTask(task.taskId, { active: event.target.checked })}
+                  />
+                  Active task
+                </label>
+                <label className="flex items-center gap-2 rounded-xl border border-[var(--cfsp-border)] bg-white px-3 py-2 text-sm font-black text-[var(--cfsp-text)]">
+                  <input
+                    type="checkbox"
+                    checked={task.required !== false}
+                    onChange={(event) => updateTask(task.taskId, { required: event.target.checked })}
+                  />
+                  Required for readiness
+                </label>
+                <div className="lg:col-span-2">
+                  <TextAreaField
+                    label="Task notes"
+                    value={task.notes}
+                    onChange={(value) => updateTask(task.taskId, { notes: value })}
+                    placeholder="Optional context for operators."
+                  />
+                </div>
+              </div>
+              <div className="mt-3 flex flex-wrap items-center gap-2 text-xs font-bold text-[var(--cfsp-text-muted)]">
+                <span>Status preview: {resolvedTask?.statusLabel || "Upcoming"}</span>
+                <span>•</span>
+                <span>{resolvedTask?.dueRuleLabel || "Due rule pending"}</span>
+                <span>•</span>
+                <span>{resolvedTask?.dueAtLabel || "Date needed"}</span>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button type="button" onClick={() => reorderTask(task.taskId, "up")} disabled={index === 0 || !canEdit} className="cfsp-btn cfsp-btn-secondary disabled:cursor-not-allowed disabled:opacity-50">
+                  Move Up
+                </button>
+                <button type="button" onClick={() => reorderTask(task.taskId, "down")} disabled={index === configDraft.length - 1 || !canEdit} className="cfsp-btn cfsp-btn-secondary disabled:cursor-not-allowed disabled:opacity-50">
+                  Move Down
+                </button>
+                <button type="button" onClick={() => removeTask(task.taskId)} disabled={!canEdit} className="cfsp-btn cfsp-btn-secondary disabled:cursor-not-allowed disabled:opacity-50">
+                  Delete
+                </button>
+              </div>
+            </article>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
 
 function EmailTemplatesManager({ canEdit, event, sessions }: { canEdit: boolean; event: EventEditState; sessions: EventSessionRow[] }) {
   const [templates, setTemplates] = useState<EmailTemplateRecord[]>(DEFAULT_CFSP_EMAIL_TEMPLATES);
@@ -622,6 +1030,16 @@ function SettingsContent() {
           <div className="grid gap-5 xl:grid-cols-2">
             <div className="xl:col-span-2">
               <EmailTemplatesManager canEdit={canEdit} event={eventEdit} sessions={eventSessions} />
+            </div>
+            <div className="xl:col-span-2">
+              <SessionChecklistManager
+                canEdit={canEdit}
+                eventId={eventId}
+                eventNotes={eventEdit.notes}
+                eventDateText={eventEdit.dateText}
+                sessions={eventSessions}
+                onNotesChange={(nextNotes) => setEventEdit((current) => ({ ...current, notes: nextNotes }))}
+              />
             </div>
 
             <Panel title="Core Event Details" detail="Edit the event record itself. These values should match what the command center shows.">
