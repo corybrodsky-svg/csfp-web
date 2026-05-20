@@ -5272,6 +5272,29 @@ function convertPersistedRoundsToScheduledRounds(rounds: PersistedScheduleBuilde
   });
 }
 
+function cloneScheduledRoundForNumber(round: ScheduledRound, roundNumber: number): ScheduledRound {
+  const duration = Math.max(round.end - round.start, 1);
+  const start = round.start + (roundNumber - round.round) * duration;
+  const end = start + duration;
+
+  return {
+    ...round,
+    round: roundNumber,
+    start,
+    end,
+    subBlocks: round.subBlocks.map((block) => ({
+      ...block,
+      start: block.start + (start - round.start),
+      end: block.end + (start - round.start),
+    })),
+    roomSlots: round.roomSlots.map((slot) => ({
+      ...slot,
+      learnerLabels: [...slot.learnerLabels],
+      learnerIndexes: [...slot.learnerIndexes],
+    })),
+  };
+}
+
 function formatSavedTimestamp(value: string | null) {
   if (!value) return "";
   const parsed = new Date(value);
@@ -5472,6 +5495,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const [me, setMe] = useState<BuilderMeResponse | null>(null);
   const [roomAdjustments, setRoomAdjustments] = useState<ParsedScheduleRoomAdjustments>(createEmptyScheduleRoomAdjustments());
   const [persistedResolvedRounds, setPersistedResolvedRounds] = useState<PersistedScheduleBuilderRound[]>([]);
+  const [persistedResolvedRoundTargetCount, setPersistedResolvedRoundTargetCount] = useState(0);
 
   useEffect(() => {
     if (!showSchedulePreview || typeof document === "undefined") return;
@@ -5494,6 +5518,12 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const applyDraft = useCallback((draft: ScheduleBuilderDraft) => {
     const savedResolvedRounds = normalizePersistedScheduleBuilderRounds(
       (draft as Partial<PersistedScheduleBuilderSnapshot>).resolvedRounds
+    );
+    const persistedSnapshot = draft as Partial<PersistedScheduleBuilderSnapshot>;
+    const savedRoundTargetCount = Math.max(
+      savedResolvedRounds.length,
+      parseNumber(persistedSnapshot.scheduleRoundCount, 0),
+      parseNumber(draft.roundCount, 0)
     );
     setBuilderMode(props.expandedWorkspace && !draft.savedAt ? "advanced" : draft.builderMode);
     setScheduleViewMode(props.initialScheduleViewMode || draft.scheduleViewMode);
@@ -5532,6 +5562,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     setDebriefMinutes(draft.debriefMinutes);
     setBreakdownMinutes(draft.breakdownMinutes);
     setPersistedResolvedRounds(savedResolvedRounds);
+    setPersistedResolvedRoundTargetCount(savedRoundTargetCount);
     setLastSavedAt(draft.savedAt || null);
     setSaveState(draft.savedAt ? "saved" : "saved");
     setSaveErrorMessage("");
@@ -6142,6 +6173,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   }, [multipleCasesEnabled, parsedExamRooms, scheduleCasesForMath, scheduleCaseDefinitions, singleCaseDefinitionName]);
   const handleRebuildScheduleMath = useCallback(() => {
     setPersistedResolvedRounds([]);
+    setPersistedResolvedRoundTargetCount(0);
     setScheduleMathEpoch((current) => current + 1);
     setSelectedBuilderRound(null);
     setSaveState("unsaved");
@@ -6403,7 +6435,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     (now: string, statusOverride?: "complete" | "in_progress") => {
       const nextStatus = statusOverride || (scheduleWorkflowStatus === "complete" ? "complete" : "in_progress");
       const resolvedAssignedNames = selectedEvent ? getAssignedNames(selectedEvent) : [];
-      const resolvedRounds = persistedResolvedRounds.length
+      const shouldReusePersistedRounds =
+        persistedResolvedRounds.length > 0 &&
+        persistedResolvedRounds.length >= Math.max(persistedResolvedRoundTargetCount, persistedResolvedRounds.length);
+      const resolvedRounds = shouldReusePersistedRounds
         ? persistedResolvedRounds
         : buildPersistedScheduleBuilderRounds(
             applyScheduleRoomAdjustments(
@@ -6465,6 +6500,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       originalUploadedLearners,
       parsedRoomCapacity,
       persistedResolvedRounds,
+      persistedResolvedRoundTargetCount,
       roomAdjustments,
       scheduleWorkflowStatus,
       selectedEvent,
@@ -6880,14 +6916,8 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   ]);
 
   const assignedNames = useMemo(() => (selectedEvent ? getAssignedNames(selectedEvent) : []), [selectedEvent]);
-  const persistedScheduledRounds = useMemo(
-    () => convertPersistedRoundsToScheduledRounds(persistedResolvedRounds),
-    [persistedResolvedRounds]
-  );
-  const scheduledRounds = useMemo(
-    () => {
-      if (persistedScheduledRounds.length) return persistedScheduledRounds;
-      return (
+  const generatedScheduledRounds = useMemo(
+    () =>
       applyScheduleRoomAdjustments(
         assignUniquePrimarySpIndexes(
           attachLearners(
@@ -6903,20 +6933,38 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         ),
         assignedNames,
         roomAdjustments
-      )
-      );
+      ),
+    [activeCaseCount, assignedNames, generated.rounds, isVirtualEvent, learnerRoster, multipleCasesEnabled, parsedRoomCapacity, roomAdjustments]
+  );
+  const persistedScheduledRounds = useMemo(
+    () => {
+      const savedRounds = convertPersistedRoundsToScheduledRounds(persistedResolvedRounds);
+      if (!savedRounds.length) return [];
+
+      const targetCount = Math.max(persistedResolvedRoundTargetCount, savedRounds.length);
+      if (savedRounds.length >= targetCount) return savedRounds;
+
+      const savedByRound = new Map(savedRounds.map((round) => [round.round, round]));
+      const generatedByRound = new Map(generatedScheduledRounds.map((round) => [round.round, round]));
+      const templateRound = savedRounds[savedRounds.length - 1];
+
+      return Array.from({ length: targetCount }, (_, index) => {
+        const roundNumber = index + 1;
+        return (
+          savedByRound.get(roundNumber) ||
+          generatedByRound.get(roundNumber) ||
+          cloneScheduledRoundForNumber(templateRound, roundNumber)
+        );
+      });
     },
-    [
-      activeCaseCount,
-      assignedNames,
-      generated.rounds,
-      isVirtualEvent,
-      learnerRoster,
-      multipleCasesEnabled,
-      parsedRoomCapacity,
-      persistedScheduledRounds,
-      roomAdjustments,
-    ]
+    [generatedScheduledRounds, persistedResolvedRoundTargetCount, persistedResolvedRounds]
+  );
+  const scheduledRounds = useMemo(
+    () => {
+      if (persistedScheduledRounds.length) return persistedScheduledRounds;
+      return generatedScheduledRounds;
+    },
+    [generatedScheduledRounds, persistedScheduledRounds]
   );
   const scheduleValidationMessages = useMemo(() => {
     const messages: string[] = [];
