@@ -239,6 +239,7 @@ type RoundRoomRow = {
   roomName: string;
   location: string;
   learnerLabels: string[];
+  learnerCountFallback: number;
   assignment: AssignmentRow | null;
   sp: SPRow | null;
   backupSpName: string;
@@ -263,6 +264,7 @@ type OperationsRoomCardRow = RoundRoomRow & {
 type EventAttendanceCanonicalRoom = {
   roomName: string;
   learnerLabels: string[];
+  learnerCountFallback: number;
   assignment: AssignmentRow | null;
   sp: SPRow | null;
   spName: string;
@@ -285,6 +287,7 @@ type ResolvedScheduleTruthStation = {
   roomLabel: string;
   location: string;
   learnerLabels: string[];
+  learnerCountFallback: number;
   primarySpName: string;
   backupSpName: string;
   caseLabel: string;
@@ -1537,6 +1540,9 @@ function getInitials(value: string) {
 }
 
 type RoundOperationAvatarRole = "student" | "sp" | "operations";
+type OperationalPresenceAvatarKind = "sp" | "learner" | "backup" | "faculty";
+type OperationalPresenceAvatarStatus = "expected" | "arrived" | "in-room" | "late" | "missing";
+type OperationalPresenceAvatarSize = "sm" | "md" | "lg";
 
 function getRoundOperationAvatarLabel(value: string, role: RoundOperationAvatarRole) {
   const text = asText(value).trim();
@@ -1547,30 +1553,55 @@ function getRoundOperationAvatarLabel(value: string, role: RoundOperationAvatarR
   return role === "operations" ? "OP" : getInitials(text);
 }
 
-function getRoundOperationAvatarSymbol(role: RoundOperationAvatarRole) {
-  if (role === "student") return "👤";
-  if (role === "sp") return "◆";
-  return "✦";
-}
-
-function RoundOperationAvatar({
+function OperationalPresenceAvatar({
   name,
-  role,
+  initials,
+  kind,
+  status = "expected",
+  size = "md",
+  selected = false,
   onClick,
 }: {
   name: string;
-  role: RoundOperationAvatarRole;
+  initials?: string;
+  kind: OperationalPresenceAvatarKind;
+  status?: OperationalPresenceAvatarStatus;
+  size?: OperationalPresenceAvatarSize;
+  selected?: boolean;
   onClick?: () => void;
 }) {
-  const label = asText(name).trim() || (role === "sp" ? "SP" : role === "student" ? "Learner" : "Operations");
-  const initials = getRoundOperationAvatarLabel(name, role);
-  const symbol = getRoundOperationAvatarSymbol(role);
+  const label = asText(name).trim() || (kind === "learner" ? "Learner" : kind === "backup" ? "Backup SP" : kind.toUpperCase());
+  const resolvedInitials = (asText(initials) || getInitials(label)).slice(0, 3).toUpperCase();
+  const sizeMap = {
+    sm: { width: 34, height: 42, head: 12, shoulders: 24, text: 9 },
+    md: { width: 42, height: 50, head: 14, shoulders: 29, text: 10 },
+    lg: { width: 50, height: 58, head: 16, shoulders: 34, text: 11 },
+  }[size];
+  const statusColor =
+    status === "arrived" || status === "in-room"
+      ? "#059669"
+      : status === "late"
+        ? "#b45309"
+        : status === "missing"
+          ? "#dc2626"
+          : kind === "backup"
+            ? "#d97706"
+            : kind === "sp" || kind === "faculty"
+              ? "#3b82f6"
+              : "#0f766e";
+  const kindWash =
+    kind === "backup"
+      ? "rgba(253, 230, 138, 0.44)"
+      : kind === "sp" || kind === "faculty"
+        ? "rgba(191, 219, 254, 0.58)"
+        : "rgba(153, 246, 228, 0.48)";
+  const present = status === "arrived" || status === "in-room";
 
   return (
     <span
-      className={`cfsp-hologram-avatar is-${role}`}
+      className={`cfsp-operational-presence-avatar cfsp-hologram-avatar is-${kind}`}
       aria-hidden={onClick ? undefined : "true"}
-      title={label}
+      title={`${label}${status ? ` - ${getEventAttendanceStatusLabel(status === "in-room" ? "in_room" : status)}` : ""}`}
       onClick={onClick}
       onKeyDown={(event) => {
         if (!onClick) return;
@@ -1582,28 +1613,21 @@ function RoundOperationAvatar({
       role={onClick ? "button" : undefined}
       tabIndex={onClick ? 0 : undefined}
       style={{
-        width: role === "operations" ? "36px" : "34px",
-        height: role === "operations" ? "36px" : "34px",
-        borderRadius: "999px",
+        width: `${sizeMap.width}px`,
+        height: `${sizeMap.height}px`,
+        borderRadius: "18px",
         display: "inline-grid",
         placeItems: "center",
         position: "relative",
         isolation: "isolate",
-        color: role === "sp" ? "#f0f9ff" : "#ecfeff",
-        background:
-          role === "sp"
-            ? "radial-gradient(circle at 35% 25%, rgba(216, 180, 254, 0.92), rgba(124, 58, 237, 0.58) 46%, rgba(15, 23, 42, 0.95) 100%)"
-            : "radial-gradient(circle at 35% 25%, rgba(153, 246, 228, 0.96), rgba(20, 184, 166, 0.62) 46%, rgba(6, 31, 45, 0.95) 100%)",
-        border: role === "sp" ? "1px solid rgba(216, 180, 254, 0.72)" : "1px solid rgba(94, 234, 212, 0.72)",
-        boxShadow:
-          role === "sp"
-            ? "0 0 18px rgba(168, 85, 247, 0.34), inset 0 0 12px rgba(255,255,255,0.22)"
-            : "0 0 18px rgba(45, 212, 191, 0.34), inset 0 0 12px rgba(255,255,255,0.22)",
-        animation: "cfspMatrixAvatarFloat 3.6s ease-in-out infinite",
         overflow: "hidden",
+        color: kind === "backup" ? "#7c2d12" : kind === "learner" ? "#064e3b" : "#0f2b46",
+        background: `radial-gradient(circle at 50% 14%, rgba(255,255,255,0.98), ${kindWash} 42%, rgba(240,249,255,0.96) 100%)`,
+        border: present || selected ? `2px solid ${statusColor}` : `1px solid ${statusColor}aa`,
+        boxShadow: `${selected || present ? "0 0 20px" : "0 0 12px"} ${statusColor}66, inset 0 0 14px rgba(255,255,255,0.54), 0 0 0 3px ${kindWash}`,
+        animation: "cfspMatrixAvatarFloat 3.6s ease-in-out infinite",
         flex: "0 0 auto",
         cursor: onClick ? "pointer" : "default",
-        transform: onClick ? "translateY(0)" : undefined,
         transition: "transform 120ms ease, box-shadow 140ms ease",
       }}
     >
@@ -1611,13 +1635,35 @@ function RoundOperationAvatar({
         aria-hidden="true"
         style={{
           position: "absolute",
-          top: "5px",
-          width: "10px",
-          height: "10px",
+          inset: "4px",
+          borderRadius: "15px",
+          background: "linear-gradient(180deg, rgba(255,255,255,0.42), transparent 42%), repeating-linear-gradient(180deg, rgba(20,91,150,0.1) 0 1px, transparent 1px 5px)",
+          opacity: 0.72,
+        }}
+      />
+      <span
+        aria-hidden="true"
+        style={{
+          position: "absolute",
+          top: size === "sm" ? "6px" : "7px",
+          width: `${sizeMap.head}px`,
+          height: `${sizeMap.head}px`,
           borderRadius: "999px",
-          background: "rgba(255,255,255,0.88)",
-          boxShadow: "0 0 8px rgba(255,255,255,0.55)",
-          opacity: 0.85,
+          background: "rgba(248, 250, 252, 0.9)",
+          boxShadow: `0 0 12px ${statusColor}88`,
+        }}
+      />
+      <span
+        aria-hidden="true"
+        style={{
+          position: "absolute",
+          bottom: size === "sm" ? "8px" : "9px",
+          width: `${sizeMap.shoulders}px`,
+          height: `${Math.round(sizeMap.shoulders * 0.62)}px`,
+          borderRadius: "16px 16px 8px 8px",
+          background: kind === "backup" ? "rgba(253, 230, 138, 0.5)" : kind === "learner" ? "rgba(209, 250, 229, 0.48)" : "rgba(191, 219, 254, 0.48)",
+          clipPath: "polygon(18% 18%, 82% 18%, 100% 100%, 0 100%)",
+          boxShadow: `0 0 10px ${statusColor}66`,
         }}
       />
       <span
@@ -1625,17 +1671,49 @@ function RoundOperationAvatar({
         style={{
           position: "absolute",
           bottom: "5px",
-          width: "18px",
-          height: "10px",
-          borderRadius: "10px 10px 8px 8px",
-          background: "rgba(226, 250, 247, 0.35)",
-          boxShadow: "0 0 8px rgba(153, 246, 228, 0.35)",
-          opacity: 0.75,
+          width: `${Math.round(sizeMap.shoulders * 1.16)}px`,
+          height: present ? "3px" : "2px",
+          borderRadius: "999px",
+          background: statusColor,
+          opacity: present ? 1 : 0.72,
+          boxShadow: `0 0 14px ${statusColor}`,
         }}
       />
-      <span className="cfsp-hologram-avatar-icon" aria-hidden="true" style={{ fontSize: "8px", opacity: 0.82, transform: "translateY(-6px)" }}>{symbol}</span>
-      <span className="cfsp-hologram-avatar-text" style={{ position: "relative", zIndex: 2, fontSize: "10px", fontWeight: 900, letterSpacing: "0.02em", transform: "translateY(5px)" }}>{initials}</span>
+      <span
+        style={{
+          position: "relative",
+          zIndex: 2,
+          fontSize: `${sizeMap.text}px`,
+          fontWeight: 950,
+          letterSpacing: "0",
+          transform: size === "sm" ? "translateY(8px)" : "translateY(10px)",
+          textShadow: "0 1px 2px rgba(255,255,255,0.48)",
+        }}
+      >
+        {resolvedInitials}
+      </span>
     </span>
+  );
+}
+
+function RoundOperationAvatar({
+  name,
+  role,
+  onClick,
+}: {
+  name: string;
+  role: RoundOperationAvatarRole;
+  onClick?: () => void;
+}) {
+  return (
+    <OperationalPresenceAvatar
+      name={name}
+      initials={getRoundOperationAvatarLabel(name, role)}
+      kind={role === "sp" ? "sp" : role === "student" ? "learner" : "faculty"}
+      status="expected"
+      size="sm"
+      onClick={onClick}
+    />
   );
 }
 
@@ -1686,45 +1764,6 @@ function normalizeEventAttendanceStatus(value: unknown): EventAttendanceFilter {
 
 type EventAttendanceAvatarRole = "sp" | "learner";
 
-function getEventAttendanceAvatarPalette(
-  status: EventAttendanceFilter,
-  role: EventAttendanceAvatarRole,
-  selected = false
-) {
-  const statusTone = getEventAttendanceStatusColors(status);
-  const present = isEventAttendancePresentStatus(status);
-  const roleAura = present
-    ? role === "sp"
-      ? "rgba(59, 130, 246, 0.2)"
-      : "rgba(16, 185, 129, 0.24)"
-    : role === "sp"
-      ? "rgba(96, 165, 250, 0.2)"
-      : "rgba(20, 91, 150, 0.22)";
-  const statusWash =
-    status === "expected"
-      ? "rgba(191, 219, 254, 0.64)"
-      : status === "arrived"
-        ? "rgba(16, 185, 129, 0.42)"
-        : status === "late"
-          ? "rgba(245, 158, 11, 0.32)"
-          : status === "missing"
-            ? "rgba(248, 113, 113, 0.34)"
-            : status === "in_room"
-              ? "rgba(20, 184, 166, 0.42)"
-              : "rgba(34, 197, 94, 0.36)";
-  const ringColor = statusTone.ring;
-  const ringGlow = present ? (selected ? "0 0 20px" : "0 0 14px") : selected ? "0 0 14px" : "0 0 8px";
-  return {
-    ringColor,
-    foreground: statusTone.text,
-    background: present
-      ? `radial-gradient(circle at 50% 16%, rgba(255, 255, 255, 0.99), ${statusWash} 40%, rgba(226, 252, 244, 0.98) 100%)`
-      : `radial-gradient(circle at 50% 18%, rgba(255, 255, 255, 0.98), ${statusWash} 44%, rgba(240, 249, 255, 0.95) 100%)`,
-    roleAura,
-    ringShadow: `${ringGlow} ${ringColor}${present ? "cc" : "99"}`,
-  };
-}
-
 function EventAttendanceHologramAvatar({
   name,
   role,
@@ -1739,125 +1778,25 @@ function EventAttendanceHologramAvatar({
   compact?: boolean;
 }) {
   const initials = getRoundOperationAvatarLabel(name, role === "sp" ? "sp" : "student");
-  const label = asText(name).trim() || (role === "sp" ? "SP" : "Learner");
-  const palette = getEventAttendanceAvatarPalette(status, role, selected);
-  const present = isEventAttendancePresentStatus(status);
-  const width = compact ? 34 : 42;
-  const height = compact ? 42 : 50;
-
+  const operationalStatus: OperationalPresenceAvatarStatus =
+    status === "arrived"
+      ? "arrived"
+      : status === "in_room" || status === "completed"
+        ? "in-room"
+        : status === "late"
+          ? "late"
+          : status === "missing"
+            ? "missing"
+            : "expected";
   return (
-    <span
-      aria-hidden="true"
-      title={`${label} - ${getEventAttendanceStatusLabel(status)}`}
-      style={{
-        width: `${width}px`,
-        height: `${height}px`,
-        borderRadius: "18px",
-        display: "inline-grid",
-        placeItems: "center",
-        position: "relative",
-        isolation: "isolate",
-        overflow: "hidden",
-        background: palette.background,
-        border: present ? `2px solid ${palette.ringColor}` : `1px solid ${palette.ringColor}`,
-        boxShadow: present
-          ? `${palette.ringShadow}, inset 0 0 14px rgba(236,253,245,0.42), 0 0 0 1px rgba(187,247,208,0.4), 0 0 0 3px ${palette.roleAura}`
-          : `${palette.ringShadow}, inset 0 0 10px rgba(255,255,255,0.5), 0 0 0 1px ${palette.roleAura}`,
-        transition: "transform 140ms ease, box-shadow 160ms ease",
-        animation: "cfspMatrixAvatarFloat 3.6s ease-in-out infinite",
-        flex: "0 0 auto",
-      }}
-    >
-      <span
-        aria-hidden="true"
-        style={{
-          position: "absolute",
-          inset: "4px",
-          borderRadius: "15px",
-          background:
-            "linear-gradient(180deg, rgba(255,255,255,0.4), transparent 40%), repeating-linear-gradient(180deg, rgba(20, 91, 150, 0.09) 0 1px, transparent 1px 5px)",
-          opacity: 0.7,
-          mixBlendMode: "normal",
-        }}
-      />
-      <span
-        aria-hidden="true"
-        style={{
-          position: "absolute",
-          top: compact ? "6px" : "7px",
-          width: compact ? "12px" : "14px",
-          height: compact ? "12px" : "14px",
-          borderRadius: "999px",
-          background: "rgba(248, 250, 252, 0.9)",
-          boxShadow: `0 0 12px ${palette.ringColor}88`,
-        }}
-      />
-      <span
-        aria-hidden="true"
-        style={{
-          position: "absolute",
-          bottom: compact ? "8px" : "9px",
-          width: compact ? "24px" : "29px",
-          height: compact ? "16px" : "18px",
-          borderRadius: "16px 16px 8px 8px",
-          background: role === "sp" ? "rgba(221, 214, 254, 0.42)" : "rgba(209, 250, 229, 0.42)",
-          clipPath: "polygon(18% 18%, 82% 18%, 100% 100%, 0 100%)",
-          boxShadow: `0 0 10px ${palette.ringColor}66`,
-        }}
-      />
-      <span
-        aria-hidden="true"
-        style={{
-          position: "absolute",
-          bottom: compact ? "5px" : "6px",
-          width: compact ? "28px" : "34px",
-          height: present ? "3px" : "2px",
-          borderRadius: "999px",
-          background: palette.ringColor,
-          opacity: present ? 1 : selected ? 0.9 : 0.62,
-          boxShadow: present ? `0 0 18px ${palette.ringColor}` : `0 0 10px ${palette.ringColor}`,
-        }}
-      />
-      {present ? (
-        <span
-          aria-hidden="true"
-          style={{
-            position: "absolute",
-            top: compact ? "1px" : "2px",
-            right: compact ? "1px" : "2px",
-            zIndex: 3,
-            width: compact ? "15px" : "17px",
-            height: compact ? "15px" : "17px",
-            borderRadius: "999px",
-            display: "grid",
-            placeItems: "center",
-            background: "linear-gradient(135deg, #dcfce7, #34d399)",
-            border: "1px solid rgba(236, 253, 245, 0.96)",
-            color: "#052e16",
-            fontSize: compact ? "10px" : "11px",
-            fontWeight: 950,
-            lineHeight: 1,
-            boxShadow: "0 0 14px rgba(52, 211, 153, 0.82), 0 2px 8px rgba(2, 6, 23, 0.32)",
-          }}
-        >
-          ✓
-        </span>
-      ) : null}
-      <span
-        style={{
-          position: "relative",
-          zIndex: 2,
-          color: palette.foreground,
-          fontSize: compact ? "9px" : "10px",
-          fontWeight: 900,
-          letterSpacing: "0",
-          transform: compact ? "translateY(8px)" : "translateY(10px)",
-          textShadow: "0 1px 2px rgba(255, 255, 255, 0.45)",
-        }}
-      >
-        {initials}
-      </span>
-    </span>
+    <OperationalPresenceAvatar
+      name={name}
+      initials={initials}
+      kind={role === "sp" ? "sp" : "learner"}
+      status={operationalStatus}
+      size={compact ? "sm" : "md"}
+      selected={selected}
+    />
   );
 }
 
@@ -4479,7 +4418,7 @@ function parseScheduleLearnerRosterMetadata(value: unknown) {
   for (const candidate of candidates) {
     try {
       const parsed = JSON.parse(candidate);
-      const roster = normalizeTextArray(parsed);
+      const roster = getActualLearnerNames(parsed);
       if (roster.length) return roster;
     } catch {
       // Fall through to line/comma parsing for older hand-authored metadata.
@@ -4489,12 +4428,39 @@ function parseScheduleLearnerRosterMetadata(value: unknown) {
   return text
     .split(/\r?\n|,/)
     .map((item) => normalizeLearnerName(item))
-    .filter(Boolean);
+    .filter((item) => Boolean(item) && !isLearnerCountPlaceholderLabel(item));
 }
 
-function getLearnerRoomAssignmentLabel(learnerLabels: string[]) {
-  const labels = normalizeLearnerNames(learnerLabels);
-  return labels.length ? labels.join(", ") : UNASSIGNED_LEARNER_ROOM_LABEL;
+function parseLearnerCountPlaceholder(value: unknown) {
+  const text = asText(value).toLowerCase();
+  if (!text) return 0;
+  const countOnlyMatch = text.match(/^(\d{1,3})$/);
+  if (countOnlyMatch) return Number(countOnlyMatch[1]) || 0;
+  const countLabelMatch = text.match(/^(\d{1,3})\s+(?:learner|learners|student|students|participant|participants)$/);
+  if (countLabelMatch) return Number(countLabelMatch[1]) || 0;
+  return 0;
+}
+
+function isLearnerCountPlaceholderLabel(value: unknown) {
+  return parseLearnerCountPlaceholder(value) > 0;
+}
+
+function getActualLearnerNames(values: unknown) {
+  return normalizeLearnerNames(values).filter((label) => !isLearnerCountPlaceholderLabel(label));
+}
+
+function getLearnerCountFallbackFromLabels(values: unknown) {
+  if (!Array.isArray(values)) return 0;
+  return values.reduce((highest, value) => Math.max(highest, parseLearnerCountPlaceholder(value)), 0);
+}
+
+function getLearnerRoomAssignmentLabel(learnerLabels: string[], learnerCountFallback = 0) {
+  const labels = getActualLearnerNames(learnerLabels);
+  if (labels.length) return labels.join(", ");
+  if (learnerCountFallback > 0) {
+    return `${learnerCountFallback} learner${learnerCountFallback === 1 ? "" : "s"}`;
+  }
+  return UNASSIGNED_LEARNER_ROOM_LABEL;
 }
 
 function parseScheduleRoomAdjustments(value: unknown) {
@@ -4532,7 +4498,7 @@ function parseScheduleRoomAdjustments(value: unknown) {
           const slotRecord = slotEntry && typeof slotEntry === "object" ? (slotEntry as Record<string, unknown>) : {};
           const slotIndex = Number(slotEntry?.slotIndex);
           if (!Number.isFinite(slotIndex) || slotIndex < 0) return null;
-          const learnerLabels = normalizeLearnerNames(slotEntry?.learnerLabels || []);
+          const learnerLabels = getActualLearnerNames(slotEntry?.learnerLabels || []);
           const manualOverride = parseBooleanValue(slotEntry?.manualOverride, false);
           const source = normalizeDisplayText(slotEntry?.source);
           const stationStatus = normalizeScheduleStationStatus(slotEntry?.stationStatus);
@@ -4596,7 +4562,7 @@ function serializeScheduleRoomAdjustments(value: ParsedScheduleRoomAdjustments) 
           .sort((a, b) => a.slotIndex - b.slotIndex)
           .map((slot) => ({
             slotIndex: slot.slotIndex,
-            learnerLabels: normalizeLearnerNames(slot.learnerLabels || []),
+            learnerLabels: getActualLearnerNames(slot.learnerLabels || []),
             ...(slot.manualOverride ? { manualOverride: true } : {}),
             ...(hasScheduleRoomAdjustmentField(slot, "source") ? { source: normalizeDisplayText(slot.source) } : {}),
             ...(hasScheduleRoomAdjustmentField(slot, "stationStatus") ? { stationStatus: normalizeScheduleStationStatus(slot.stationStatus) || undefined } : {}),
@@ -4681,8 +4647,8 @@ function upsertScheduleRoomAdjustmentSlot(
         : Boolean(existing.manualOverride),
     learnerLabels:
       partial.learnerLabels !== undefined
-        ? normalizeLearnerNames(partial.learnerLabels)
-        : normalizeLearnerNames(existing.learnerLabels || []),
+        ? getActualLearnerNames(partial.learnerLabels)
+        : getActualLearnerNames(existing.learnerLabels || []),
   };
   const filtered = currentSlots.filter((slot) => slot.slotIndex !== slotIndex);
   if (
@@ -4711,6 +4677,7 @@ function isAssignedLearnerRoomLabel(label: unknown) {
   if (!text) return false;
   const normalized = text.toLowerCase();
   return (
+    !isLearnerCountPlaceholderLabel(text) &&
     normalized !== LEGACY_UNASSIGNED_LEARNER_LABEL.toLowerCase() &&
     normalized !== UNASSIGNED_LEARNER_ROOM_LABEL.toLowerCase() &&
     normalized !== "overflow / standby"
@@ -4886,9 +4853,9 @@ function buildSelectedRoundOperationalRooms(args: {
       });
 
   // IMPORTANT REGRESSION GUARD:
-  // Room Operations is the operational source for room/station assignment and live attendance state.
-  // Setup mode, Live Attendance mode, Admin Schedule, and export views must render from the same merged room truth.
-  // Do not allow Operations, Attendance, and Admin Schedule to rebuild from separate stale/generated data paths.
+  // Room Operations is the authoritative source for round/room/SP/learner/case/status truth after a schedule is built.
+  // Setup, Live Attendance, Admin Schedule, Student Schedule, and exports must consume the same merged room truth.
+  // Do not create separate derived room data paths that can drift.
   return sourceSlots.map(({ slot, sourceIndex, location }, slotIndex) => {
     const slotOverride =
       roundAdjustments.find((adjustment: ScheduleRoomAdjustmentSlot) => adjustment.slotIndex === slotIndex) || null;
@@ -4903,9 +4870,30 @@ function buildSelectedRoundOperationalRooms(args: {
     const hasStationStatusOverride = hasScheduleRoomAdjustmentField(slotOverride, "stationStatus");
     const hasBackupStationOverride = hasScheduleRoomAdjustmentField(slotOverride, "isBackupStation");
 
+    const generatedLearnerLabels = getResolvedRoundLearnerLabels({
+      learnerRoster: scheduleBuilderLearnerNames,
+      roomCapacity: scheduleBuilderRoomCapacity,
+      roundIndex: Math.max(roundNumber - 1, 0),
+      slotIndex,
+      roomSlotCount: slotCount,
+      activeCaseCount: resolvedScheduleMatrixCaseCount,
+      isMultiCaseMode: resolvedScheduleMatrixCaseCount > 1,
+      isVirtualEvent: isScheduleMatrixVirtual,
+    });
+    const savedLearnerLabels = getActualLearnerNames(Array.isArray(slot?.learnerLabels) ? slot.learnerLabels : []);
+    const overrideLearnerLabels = getActualLearnerNames(slotOverride?.learnerLabels || []);
+    const savedLearnerCountFallback = getLearnerCountFallbackFromLabels(Array.isArray(slot?.learnerLabels) ? slot.learnerLabels : []);
+    const overrideLearnerCountFallback = getLearnerCountFallbackFromLabels(slotOverride?.learnerLabels || []);
     const learnerLabels = hasLearnerLabelsOverride
-      ? normalizeLearnerNames(slotOverride?.learnerLabels || [])
-      : normalizeLearnerNames(Array.isArray(slot?.learnerLabels) ? slot.learnerLabels : []);
+      ? overrideLearnerLabels
+      : savedLearnerLabels.length
+        ? savedLearnerLabels
+        : generatedLearnerLabels;
+    const learnerCountFallback = learnerLabels.length
+      ? 0
+      : hasLearnerLabelsOverride
+        ? overrideLearnerCountFallback
+        : savedLearnerCountFallback;
     const roomName =
       (hasRoomNameOverride ? asText(slotOverride?.roomName) : asText(slot?.roomName)) ||
       getFallbackRoomLabel(slotIndex, roomNamingContext);
@@ -4959,6 +4947,7 @@ function buildSelectedRoundOperationalRooms(args: {
       roomLabel: roomName,
       location,
       learnerLabels,
+      learnerCountFallback,
       primarySpName,
       backupSpName,
       caseLabel,
@@ -5019,7 +5008,7 @@ function parseScheduleBuilderPreviewDraft(value: string | null) {
                     const slotRecord = slot && typeof slot === "object" ? (slot as Record<string, unknown>) : {};
                     return {
                       roomName: asText(slotRecord.roomName),
-                      learnerLabels: normalizeTextArray(slotRecord.learnerLabels),
+                      learnerLabels: getActualLearnerNames(slotRecord.learnerLabels),
                       assignedSpName: asText(slotRecord.assignedSpName),
                       backupSpName: asText(slotRecord.backupSpName),
                       caseLabel: asText(slotRecord.caseLabel),
@@ -5945,6 +5934,12 @@ export default function EventDetailPage() {
   const [roundOperationsSaveState, setRoundOperationsSaveState] = useState<"saved" | "unsaved" | "saving" | "error">("saved");
   const [roundOperationsLastSavedAt, setRoundOperationsLastSavedAt] = useState("");
   const [roundOperationsSaveError, setRoundOperationsSaveError] = useState("");
+  const [roomOperationsScheduleWarning, setRoomOperationsScheduleWarning] = useState<{
+    impactLabel: string;
+    skipSession: boolean;
+  } | null>(null);
+  const roomOperationsScheduleWarningResolverRef = useRef<((confirmed: boolean) => void) | null>(null);
+  const [skipRoomOperationsScheduleWarningForSession, setSkipRoomOperationsScheduleWarningForSession] = useState(false);
   const [trainingImportResult, setTrainingImportResult] = useState<TrainingImportResult | null>(null);
   const [trainingImportError, setTrainingImportError] = useState("");
   const [trainingImporting, setTrainingImporting] = useState(false);
@@ -6889,11 +6884,11 @@ export default function EventDetailPage() {
   );
   const scheduleBuilderDraftLearnerRoster = useMemo(() => {
     if (!scheduleBuilderPreviewDraft) return persistedScheduleLearnerRoster;
-    const snapshotRoster = scheduleBuilderPreviewDraft.scheduleLearnerRoster;
+    const snapshotRoster = getActualLearnerNames(scheduleBuilderPreviewDraft.scheduleLearnerRoster);
     if (snapshotRoster.length) return snapshotRoster;
-    const localRoster = scheduleBuilderPreviewDraft.uploadedLearners.length
-      ? scheduleBuilderPreviewDraft.uploadedLearners
-      : scheduleBuilderPreviewDraft.originalUploadedLearners;
+    const localUploadedRoster = getActualLearnerNames(scheduleBuilderPreviewDraft.uploadedLearners);
+    const localOriginalRoster = getActualLearnerNames(scheduleBuilderPreviewDraft.originalUploadedLearners);
+    const localRoster = localUploadedRoster.length ? localUploadedRoster : localOriginalRoster;
     return localRoster.length ? localRoster : persistedScheduleLearnerRoster;
   }, [persistedScheduleLearnerRoster, scheduleBuilderPreviewDraft]);
   const scheduleBuilderDraftRoomCount = useMemo(
@@ -8126,6 +8121,9 @@ const operationalEventStatusLabel = useMemo(() => {
     setLocalOccupancySpCheckIns({});
     setLocalOccupancyLearnerRoomMoves({});
     setLocalOccupancySpRoomMoves({});
+    setSkipRoomOperationsScheduleWarningForSession(false);
+    setRoomOperationsScheduleWarning(null);
+    roomOperationsScheduleWarningResolverRef.current = null;
   }, [id]);
   useEffect(() => {
     if (typeof window === "undefined" || !id) return;
@@ -8416,6 +8414,8 @@ const operationalEventStatusLabel = useMemo(() => {
     scheduleWorkflowStatus === "complete" ||
     asText(trainingMetadata.rotation_schedule_status).toLowerCase() === "complete" ||
     hasCompletedScheduleSnapshot;
+  const roomOperationsScheduleOutputProtected =
+    scheduleCompleted || rotationScheduleBuilt || ["built", "saved"].includes(scheduleWorkflowStatus);
   const scheduleInProgress =
     !scheduleCompleted && (scheduleWorkflowStatus === "in_progress" || hasSavedScheduleDraft || hasRoomsBuilt);
 
@@ -10026,7 +10026,7 @@ const operationalEventStatusLabel = useMemo(() => {
         ? findAssignmentBySpDisplayName(availableAssignments, spsById, station.primarySpName)
         : null;
       const sp = assignment?.sp_id ? spsById.get(assignment.sp_id) || null : null;
-      const learnerLabels = normalizeLearnerNames(station.learnerLabels);
+      const learnerLabels = getActualLearnerNames(station.learnerLabels);
       const flags = [
         station.roomName ? "" : "Missing room",
         assignment && !sp ? "Missing SP profile" : "",
@@ -10040,6 +10040,7 @@ const operationalEventStatusLabel = useMemo(() => {
         roomName: station.roomName,
         location: station.location || asText(event?.location),
         learnerLabels,
+        learnerCountFallback: station.learnerCountFallback,
         assignment,
         sp,
         backupSpName: station.backupSpName,
@@ -10071,7 +10072,7 @@ const operationalEventStatusLabel = useMemo(() => {
     return selectedRoundResolvedScheduleTruth.map((station) => {
       const existingRow = scheduleRowsBySlotIndex.get(station.roomSlotIndex) || null;
       const primarySpName = asText(station.primarySpName);
-      const learnerLabels = normalizeLearnerNames(station.learnerLabels);
+      const learnerLabels = getActualLearnerNames(station.learnerLabels);
       const roomName = station.roomName;
       const caseLabel = asText(station.caseLabel);
       const effectiveCaseEntry = findCaseFileEntryForLabel(caseFileEntries, caseLabel);
@@ -10092,6 +10093,7 @@ const operationalEventStatusLabel = useMemo(() => {
         roomName,
         location: station.location || existingRow?.location || asText(event?.location),
         learnerLabels,
+        learnerCountFallback: station.learnerCountFallback || existingRow?.learnerCountFallback || 0,
         assignment,
         sp,
         primarySpName,
@@ -10127,7 +10129,8 @@ const operationalEventStatusLabel = useMemo(() => {
         .map((station) => ({
           key: `${station.key}-learner-flow`,
           roomName: station.roomName,
-          learnerLabels: normalizeLearnerNames(station.learnerLabels),
+          learnerLabels: getActualLearnerNames(station.learnerLabels),
+          learnerCountFallback: station.learnerCountFallback,
           stationLabel: station.stationLabel,
           caseLabel: station.caseLabel,
           roleLabel: station.roleLabel,
@@ -10143,7 +10146,8 @@ const operationalEventStatusLabel = useMemo(() => {
     return selectedRoundScheduleRows.map((row, index) => ({
       key: `${row.key}-learner-flow`,
       roomName: row.roomName || getFallbackRoomLabel(index, roomNamingContext),
-      learnerLabels: normalizeLearnerNames(row.learnerLabels),
+      learnerLabels: getActualLearnerNames(row.learnerLabels),
+      learnerCountFallback: row.learnerCountFallback || 0,
       stationLabel: row.stationLabel,
       caseLabel: row.caseLabel,
       roleLabel: row.roleLabel,
@@ -10549,6 +10553,7 @@ const operationalEventStatusLabel = useMemo(() => {
           roomName: entry.roomName,
           location: existingRow?.location || asText(event?.location),
           learnerLabels,
+          learnerCountFallback: existingRow?.learnerCountFallback || 0,
           assignment,
           sp,
           backupSpName: existingRow?.backupSpName || "",
@@ -11300,7 +11305,8 @@ const operationalEventStatusLabel = useMemo(() => {
     return selectedRoundOperationsRows.filter((row) => row.stationStatus !== "inactive").map((row, fallbackIndex) => {
       return {
         roomName: asText(row.roomName),
-        learnerLabels: normalizeLearnerNames(row.learnerLabels).filter((learner) => isAssignedLearnerRoomLabel(learner)),
+        learnerLabels: getActualLearnerNames(row.learnerLabels).filter((learner) => isAssignedLearnerRoomLabel(learner)),
+        learnerCountFallback: row.learnerCountFallback || 0,
         assignment: row.assignment,
         sp: row.sp,
         spName: getOperationsRoomPrimarySpName(row),
@@ -11318,12 +11324,14 @@ const operationalEventStatusLabel = useMemo(() => {
       selectedRoundResolvedAttendanceRooms?.length
         ? selectedRoundResolvedAttendanceRooms.map((room) => ({
             roomName: room.roomName,
-            learnerLabels: normalizeLearnerNames(room.learnerLabels).filter((learner) => isAssignedLearnerRoomLabel(learner)),
+            learnerLabels: getActualLearnerNames(room.learnerLabels).filter((learner) => isAssignedLearnerRoomLabel(learner)),
+            learnerCountFallback: room.learnerCountFallback || 0,
             fallbackIndex: room.fallbackIndex,
           }))
         : selectedRoundScheduleRows.map((row, index) => ({
             roomName: row.roomName,
-            learnerLabels: normalizeLearnerNames(row.learnerLabels).filter((learner) => isAssignedLearnerRoomLabel(learner)),
+            learnerLabels: getActualLearnerNames(row.learnerLabels).filter((learner) => isAssignedLearnerRoomLabel(learner)),
+            learnerCountFallback: row.learnerCountFallback || 0,
             fallbackIndex: index,
           })),
     [selectedRoundResolvedAttendanceRooms, selectedRoundScheduleRows]
@@ -11374,7 +11382,7 @@ const operationalEventStatusLabel = useMemo(() => {
                   : room.statusLabel,
             learnerLabel: matchedResolvedRoom?.learnerLabels.length
               ? matchedResolvedRoom.learnerLabels.join(", ")
-              : UNASSIGNED_LEARNER_ROOM_LABEL,
+              : getLearnerRoomAssignmentLabel([], matchedResolvedRoom?.learnerCountFallback || 0),
             encounterLabel: asText(matchedResolvedRoom?.encounterLabel) || room.encounterLabel,
           };
         }
@@ -11425,7 +11433,7 @@ const operationalEventStatusLabel = useMemo(() => {
               : localSpChecked === false
                 ? "Not Checked In"
                 : room.statusLabel,
-          learnerLabel: learnerNames.length ? learnerNames.join(", ") : UNASSIGNED_LEARNER_ROOM_LABEL,
+          learnerLabel: learnerNames.length ? learnerNames.join(", ") : getLearnerRoomAssignmentLabel([], matchedOccupancyRoom?.learnerCountFallback || 0),
         };
       }),
     [
@@ -11445,7 +11453,8 @@ const operationalEventStatusLabel = useMemo(() => {
       : selectedRoundScheduleRows.length
         ? selectedRoundScheduleRows.map((row, fallbackIndex) => ({
             roomName: row.roomName,
-            learnerLabels: normalizeLearnerNames(row.learnerLabels).filter((learner) => isAssignedLearnerRoomLabel(learner)),
+            learnerLabels: getActualLearnerNames(row.learnerLabels).filter((learner) => isAssignedLearnerRoomLabel(learner)),
+            learnerCountFallback: row.learnerCountFallback || 0,
             assignment: row.assignment,
             sp: row.sp,
             spName: row.sp ? getFullName(row.sp) : "",
@@ -11505,6 +11514,7 @@ const operationalEventStatusLabel = useMemo(() => {
         sp: room.sp || matchedRoom?.sp || null,
         spName: room.spName || matchedRoom?.spName || "",
         learnerLabels,
+        learnerCountFallback: learnerLabels.length ? 0 : room.learnerCountFallback || 0,
         stationStatus: room.stationStatus,
         isActiveStation: room.stationStatus === "active",
         isBackupStation: room.stationStatus === "backup",
@@ -15444,10 +15454,58 @@ Cory`;
     await persistTrainingMetadataFields(nextTrainingMetadata, successMessage);
   }
 
+  function resolveRoomOperationsScheduleWarning(confirmed: boolean) {
+    const shouldSkip = Boolean(roomOperationsScheduleWarning?.skipSession);
+    if (confirmed && shouldSkip) {
+      setSkipRoomOperationsScheduleWarningForSession(true);
+    }
+    const resolver = roomOperationsScheduleWarningResolverRef.current;
+    roomOperationsScheduleWarningResolverRef.current = null;
+    setRoomOperationsScheduleWarning(null);
+    resolver?.(confirmed);
+  }
+
+  function requestRoomOperationsScheduleUpdateConfirmation(impactLabel: string) {
+    if (!roomOperationsScheduleOutputProtected || skipRoomOperationsScheduleWarningForSession) {
+      return Promise.resolve(true);
+    }
+    return new Promise<boolean>((resolve) => {
+      if (roomOperationsScheduleWarningResolverRef.current) {
+        roomOperationsScheduleWarningResolverRef.current(false);
+      }
+      roomOperationsScheduleWarningResolverRef.current = resolve;
+      setRoomOperationsScheduleWarning({ impactLabel, skipSession: false });
+    });
+  }
+
+  async function persistRoundOperationsAdjustments(
+    nextAdjustments: ParsedScheduleRoomAdjustments,
+    successMessage = "Round changes saved."
+  ) {
+    setRoundOperationsDraftAdjustments(nextAdjustments);
+    setRoundOperationsSaveState("saving");
+    setRoundOperationsSaveError("");
+    try {
+      await persistScheduleRoomAdjustmentMetadata(nextAdjustments, successMessage);
+      const now = new Date().toISOString();
+      setRoundOperationsDraftAdjustments(null);
+      setRoundOperationsLastSavedAt(now);
+      setRoundOperationsSaveState("saved");
+      return true;
+    } catch (error) {
+      setRoundOperationsSaveState("error");
+      setRoundOperationsSaveError(error instanceof Error ? error.message : "Could not save round changes.");
+      return false;
+    }
+  }
+
   async function handleRoundRoomAdjustment(
     slotIndex: number,
-    partial: Partial<ScheduleRoomAdjustmentSlot>
+    partial: Partial<ScheduleRoomAdjustmentSlot>,
+    options?: { impactLabel?: string }
   ) {
+    const confirmed = await requestRoomOperationsScheduleUpdateConfirmation(options?.impactLabel || "room assignment");
+    if (!confirmed) return false;
     const roundNumber = selectedResolvedRoundNumber;
     const nextAdjustments = upsertScheduleRoomAdjustmentSlot(
       activeScheduleRoomAdjustments,
@@ -15458,10 +15516,13 @@ Cory`;
     setRoundOperationsDraftAdjustments(nextAdjustments);
     setRoundOperationsSaveState("unsaved");
     setRoundOperationsSaveError("");
+    return persistRoundOperationsAdjustments(nextAdjustments);
   }
 
   async function handleMoveRoundAssignment(sourceRow: RoundRoomRow, targetRow: RoundRoomRow | undefined) {
     if (!targetRow || targetRow.slotIndex === sourceRow.slotIndex) return;
+    const confirmed = await requestRoomOperationsScheduleUpdateConfirmation("paired room assignment move");
+    if (!confirmed) return;
     const roundNumber = selectedResolvedRoundNumber;
     const sourcePrimarySpName = sourceRow.sp ? getFullName(sourceRow.sp) : asText((sourceRow as { primarySpName?: string }).primarySpName);
     const targetPrimarySpName = targetRow.sp ? getFullName(targetRow.sp) : asText((targetRow as { primarySpName?: string }).primarySpName);
@@ -15500,6 +15561,7 @@ Cory`;
     setRoundOperationsDraftAdjustments(nextAdjustments);
     setRoundOperationsSaveState("unsaved");
     setRoundOperationsSaveError("");
+    await persistRoundOperationsAdjustments(nextAdjustments, "Room assignment moved.");
   }
 
   async function handleSaveRoundOperationsChanges() {
@@ -15507,11 +15569,7 @@ Cory`;
     setRoundOperationsSaveState("saving");
     setRoundOperationsSaveError("");
     try {
-      await persistScheduleRoomAdjustmentMetadata(payload, "Round changes saved.");
-      const now = new Date().toISOString();
-      setRoundOperationsDraftAdjustments(null);
-      setRoundOperationsLastSavedAt(now);
-      setRoundOperationsSaveState("saved");
+      await persistRoundOperationsAdjustments(payload, "Round changes saved.");
     } catch (error) {
       setRoundOperationsSaveState("error");
       setRoundOperationsSaveError(error instanceof Error ? error.message : "Could not save round changes.");
@@ -15519,6 +15577,8 @@ Cory`;
   }
 
   async function handleRoundRoomCountChange(delta: 1 | -1) {
+    const confirmed = await requestRoomOperationsScheduleUpdateConfirmation(delta > 0 ? "room added to completed schedule" : "room removed from completed schedule");
+    if (!confirmed) return;
     const nextRoomCount = Math.max(1, effectiveRoomCount + delta);
     if (delta < 0) {
       const lastRoom = selectedRoundScheduleRows[selectedRoundScheduleRows.length - 1];
@@ -15531,11 +15591,71 @@ Cory`;
       }
     }
 
-    await persistScheduleRoomAdjustmentMetadata(
-      activeScheduleRoomAdjustments,
-      delta > 0 ? "Room added." : "Room removed.",
-      { nextRoomCount }
+    setRoundOperationsSaveState("saving");
+    setRoundOperationsSaveError("");
+    try {
+      await persistScheduleRoomAdjustmentMetadata(
+        activeScheduleRoomAdjustments,
+        delta > 0 ? "Room added." : "Room removed.",
+        { nextRoomCount }
+      );
+      setRoundOperationsLastSavedAt(new Date().toISOString());
+      setRoundOperationsSaveState("saved");
+    } catch (error) {
+      setRoundOperationsSaveState("error");
+      setRoundOperationsSaveError(error instanceof Error ? error.message : "Could not save room count changes.");
+    }
+  }
+
+  async function handleRoomOperationsStatusChange(assignment: AssignmentRow, status: AssignmentStatus) {
+    const confirmed = await requestRoomOperationsScheduleUpdateConfirmation(
+      status === "backup" ? "SP moved to backup/standby" : "SP room assignment status"
     );
+    if (!confirmed) return;
+    setRoundOperationsSaveState("saving");
+    setRoundOperationsSaveError("");
+    const result = await handleStatusChange(assignment, status);
+    if (result.ok) {
+      setRoundOperationsLastSavedAt(new Date().toISOString());
+      setRoundOperationsSaveState("saved");
+      return;
+    }
+    setRoundOperationsSaveState("error");
+    setRoundOperationsSaveError(result.error || "Could not update assignment.");
+  }
+
+  async function handleRoomOperationsRemoveAssignment(assignment: AssignmentRow) {
+    const confirmed = await requestRoomOperationsScheduleUpdateConfirmation("SP assignment removed from completed schedule");
+    if (!confirmed) return;
+    setRoundOperationsSaveState("saving");
+    setRoundOperationsSaveError("");
+    const result = await handleRemoveAssignment(assignment);
+    if (result.ok) {
+      setRoundOperationsLastSavedAt(new Date().toISOString());
+      setRoundOperationsSaveState("saved");
+      return;
+    }
+    setRoundOperationsSaveState("error");
+    setRoundOperationsSaveError(result.error || "Could not remove assignment.");
+  }
+
+  async function handleRoomOperationsDeleteAssignmentHistory(assignment: AssignmentRow) {
+    const confirmed = await requestRoomOperationsScheduleUpdateConfirmation("assignment history deleted from completed schedule");
+    if (!confirmed) return;
+    setRoundOperationsSaveState("saving");
+    setRoundOperationsSaveError("");
+    const result = await handleDeleteAssignmentHistory(assignment);
+    if (result.ok) {
+      setRoundOperationsLastSavedAt(new Date().toISOString());
+      setRoundOperationsSaveState("saved");
+      return;
+    }
+    if (result.cancelled) {
+      setRoundOperationsSaveState("saved");
+      return;
+    }
+    setRoundOperationsSaveState("error");
+    setRoundOperationsSaveError(result.error || "Could not delete assignment history.");
   }
 
   function queueCommandContentScroll() {
@@ -16866,14 +16986,16 @@ Cory`;
         },
       });
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Could not update assignment.");
+      const message = error instanceof Error ? error.message : "Could not update assignment.";
+      setErrorMessage(message);
       setSaving(false);
-      return;
+      return { ok: false, error: message };
     }
 
     await refreshData();
     showSuccessMessage("Assignment updated.");
     setSaving(false);
+    return { ok: true };
   }
 
   async function handleAssignmentDetailsChange(
@@ -16917,20 +17039,23 @@ Cory`;
         assignment_id: assignment.id,
       });
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Could not remove assignment.");
+      const message = error instanceof Error ? error.message : "Could not remove assignment.";
+      setErrorMessage(message);
       setSaving(false);
-      return;
+      return { ok: false, error: message };
     }
 
     await refreshData();
     showSuccessMessage(`${spName || "Selected SP"} returned to Candidate SP Pool.`);
     setSaving(false);
+    return { ok: true };
   }
 
   async function handleDeleteAssignmentHistory(assignment: AssignmentRow) {
     if (!canDeleteAssignmentHistory) {
-      setErrorMessage("Only admins can delete assignment history.");
-      return;
+      const message = "Only admins can delete assignment history.";
+      setErrorMessage(message);
+      return { ok: false, error: message };
     }
 
     const spName = assignment.sp_id ? getFullName(spsById.get(assignment.sp_id) || emptySpRow) : "selected SP";
@@ -16939,7 +17064,7 @@ Cory`;
     );
     if (!confirmed) {
       setSaving(false);
-      return;
+      return { ok: false, cancelled: true };
     }
 
     setSaving(true);
@@ -16955,14 +17080,16 @@ Cory`;
         delete_history: true,
       });
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Could not delete assignment history.");
+      const message = error instanceof Error ? error.message : "Could not delete assignment history.";
+      setErrorMessage(message);
       setSaving(false);
-      return;
+      return { ok: false, error: message };
     }
 
     await refreshData();
     showSuccessMessage(`Deleted assignment history for ${spName || "selected SP"}.`);
     setSaving(false);
+    return { ok: true };
   }
 
   async function handleOpenAvailabilityRequest() {
@@ -27500,7 +27627,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                               );
                             }) : (
                               <span style={{ color: "#5b7a91", fontSize: "11px", fontWeight: 800 }}>
-                                {room.isBackupStation ? "Standby coverage" : "No learner assigned"}
+                                {room.isBackupStation ? "Standby coverage" : getLearnerRoomAssignmentLabel([], room.learnerCountFallback || 0)}
                               </span>
                             )}
                           </div>
@@ -27508,7 +27635,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             <span style={{ color: "#5b7a91", fontSize: "10px", fontWeight: 800 }}>
                               {room.isBackupStation
                                 ? "Backup / standby room"
-                                : `${learnerTokens.length} learner${learnerTokens.length === 1 ? "" : "s"} in room`}
+                                : learnerTokens.length
+                                  ? `${learnerTokens.length} learner${learnerTokens.length === 1 ? "" : "s"} in room`
+                                  : getLearnerRoomAssignmentLabel([], room.learnerCountFallback || 0)}
                             </span>
                             <span style={{ color: "#3b82f6", fontSize: "9px", fontWeight: 800, letterSpacing: "0.06em" }}>
                               ROOM POD
@@ -28027,15 +28156,26 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             )
 	                          ) : (
 	                            selectedRoundOperationsScheduleReady ? (
-	                              <div style={{ display: "grid", gap: "6px" }}>
+	                              <div
+                                  style={{
+                                    borderRadius: "20px",
+                                    border: "1px solid rgba(99, 181, 217, 0.24)",
+                                    background:
+                                      "radial-gradient(circle at 10% 8%, rgba(125, 211, 252, 0.2), transparent 34%), radial-gradient(circle at 92% 0%, rgba(45, 212, 191, 0.16), transparent 34%), linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(240, 249, 255, 0.96) 52%, rgba(236, 253, 245, 0.94) 100%)",
+                                    boxShadow: "inset 0 1px 0 rgba(255,255,255,0.86), 0 18px 44px rgba(20, 65, 95, 0.12)",
+                                    padding: "14px",
+                                    display: "grid",
+                                    gap: "12px",
+                                    overflow: "hidden",
+                                    position: "relative",
+                                  }}
+                                >
 	                                {roomOperationsModeTabs}
 	                                <section
                                   style={{
                                     borderRadius: "16px",
-                                    border: isPlanningVisualMode ? "1px solid rgba(20, 91, 150, 0.22)" : "1px solid rgba(126, 231, 219, 0.24)",
-                                    background: isPlanningVisualMode
-                                      ? "linear-gradient(135deg, rgba(239, 246, 255, 0.92), rgba(236, 253, 245, 0.74))"
-                                      : "linear-gradient(135deg, rgba(8, 30, 46, 0.72), rgba(7, 42, 38, 0.68))",
+                                    border: "1px solid rgba(99, 181, 217, 0.2)",
+                                    background: "linear-gradient(135deg, rgba(255,255,255,0.96), rgba(232, 246, 250, 0.82))",
                                     padding: "12px",
                                     display: "grid",
                                     gap: "10px",
@@ -28043,8 +28183,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 >
                                   <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
 	                                    <div>
-	                                      <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Room Operations</div>
-	                                      <div style={{ marginTop: "4px", color: commandCenterVisual.headingColor, fontWeight: 950, fontSize: "17px" }}>
+	                                      <div style={{ ...statLabel, color: "#12617f" }}>Room Operations</div>
+	                                      <div style={{ marginTop: "4px", color: "#102d44", fontWeight: 950, fontSize: "17px" }}>
 	                                        Round {activeSelectedRotationRoundIndex + 1} setup / assignments
                                       </div>
                                     </div>
@@ -28063,8 +28203,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                       </span>
                                     </div>
                                   </div>
-	                                  <div style={{ color: commandCenterVisual.mutedColor, fontSize: "13px", fontWeight: 750, lineHeight: 1.45 }}>
-	                                    Shared room truth for station status, room assignments, SPs, learners, cases, roles, and notes.
+	                                  <div style={{ color: "#5b7a91", fontSize: "13px", fontWeight: 750, lineHeight: 1.45 }}>
+	                                    Edit mode for the same room pods used by Live Attendance: station status, room assignments, SPs, learners, cases, roles, and notes.
 	                                  </div>
                                 </section>
                                 <section
@@ -28154,7 +28294,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                             <span>{getFullName(sp || emptySpRow) || "Primary SP"}</span>
                                             <button
                                               type="button"
-                                              onClick={() => void handleStatusChange(assignment, "backup")}
+                                              onClick={() => void handleRoomOperationsStatusChange(assignment, "backup")}
                                               disabled={saving}
                                               style={{ ...staffingSecondaryButtonStyle, padding: "4px 7px", fontSize: "10px", opacity: saving ? 0.65 : 1 }}
                                             >
@@ -28180,7 +28320,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                             <div style={{ display: "flex", gap: "5px", flexWrap: "wrap" }}>
                                               <button
                                                 type="button"
-                                                onClick={() => void handleStatusChange(assignment, "confirmed")}
+                                                onClick={() => void handleRoomOperationsStatusChange(assignment, "confirmed")}
                                                 disabled={saving}
                                                 style={{ ...buttonStyle, padding: "5px 8px", fontSize: "10px", opacity: saving ? 0.65 : 1 }}
                                               >
@@ -28188,7 +28328,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                               </button>
                                               <button
                                                 type="button"
-                                                onClick={() => void handleRemoveAssignment(assignment)}
+                                                onClick={() => void handleRoomOperationsRemoveAssignment(assignment)}
                                                 disabled={saving}
                                                 style={{ ...dangerButtonStyle, padding: "5px 8px", fontSize: "10px", opacity: saving ? 0.65 : 1 }}
                                               >
@@ -28197,7 +28337,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                               {canDeleteAssignmentHistory ? (
                                                 <button
                                                   type="button"
-                                                  onClick={() => void handleDeleteAssignmentHistory(assignment)}
+                                                  onClick={() => void handleRoomOperationsDeleteAssignmentHistory(assignment)}
                                                   disabled={saving}
                                                   style={{
                                                     ...dangerButtonStyle,
@@ -28307,15 +28447,17 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                     key={`${row.key}-ops`}
                                     style={{
                                       borderRadius: "12px",
-	                                      border: rowIsInactive ? "1px solid rgba(148, 163, 184, 0.24)" : row.isBackupStation ? "1px solid rgba(217, 119, 6, 0.26)" : commandCenterVisual.rowBorder,
+	                                      border: rowIsInactive ? "1px solid rgba(148, 163, 184, 0.24)" : row.isBackupStation ? "1px solid rgba(217, 119, 6, 0.26)" : "1px solid rgba(20, 91, 150, 0.28)",
 	                                      background: rowIsInactive
-	                                        ? (isPlanningVisualMode ? "rgba(248, 250, 252, 0.86)" : "rgba(148, 163, 184, 0.1)")
+	                                        ? "linear-gradient(135deg, rgba(248, 250, 252, 0.94), rgba(241, 245, 249, 0.84))"
 	                                        : row.isBackupStation
-	                                        ? (isPlanningVisualMode ? "linear-gradient(135deg, rgba(255, 251, 235, 0.94), rgba(250, 245, 255, 0.82))" : "rgba(120, 53, 15, 0.18)")
-	                                        : commandCenterVisual.rowBackground,
+	                                        ? "linear-gradient(135deg, rgba(255, 251, 235, 0.94), rgba(250, 245, 255, 0.82))"
+	                                        : "linear-gradient(rgba(99, 181, 217, 0.06) 1px, transparent 1px), linear-gradient(90deg, rgba(99, 181, 217, 0.06) 1px, transparent 1px), linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(240, 249, 255, 0.86))",
+                                      backgroundSize: rowIsInactive || row.isBackupStation ? undefined : "22px 22px, 22px 22px, auto",
                                       padding: "8px 10px",
                                       display: "grid",
                                       gap: "6px",
+                                      boxShadow: rowIsInactive ? "none" : "0 8px 22px rgba(20, 91, 150, 0.1)",
                                     }}
                                   >
                                     <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
@@ -28348,7 +28490,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                         ) : null}
                                       </div>
                                     </div>
-                                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: "6px" }}>
+                                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(124px, 1fr))", gap: "7px" }}>
                                       <div>
                                         <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Learner</div>
                                         <div style={{ color: commandCenterVisual.textColor, fontWeight: 800, fontSize: "13px", display: "flex", gap: "6px", flexWrap: "wrap" }}>
@@ -28363,7 +28505,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                               </span>
 	                                            ))
 	                                          ) : (
-	                                            rowIsInactive ? "Inactive room" : row.isBackupStation ? "Standby coverage" : "Learner TBD"
+	                                            rowIsInactive ? "Inactive room" : row.isBackupStation ? "Standby coverage" : getLearnerRoomAssignmentLabel([], row.learnerCountFallback || 0)
 	                                          )}
                                         </div>
                                       </div>
@@ -28375,6 +28517,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                         </div>
                                         {row.backupSpName ? (
                                           <div style={{ marginTop: "6px", color: commandCenterVisual.textColor, fontSize: "11px", fontWeight: 900, display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+                                            <OperationalPresenceAvatar name={row.backupSpName} kind="backup" status="expected" size="sm" />
                                             <span style={{ ...commandChipStyle, background: commandCenterVisual.activeSoftBackground, color: commandCenterVisual.activeSoftText, border: commandCenterVisual.rowBorder, padding: "3px 7px", fontSize: "10px" }}>
                                               Backup
                                             </span>
@@ -28467,6 +28610,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                         paddingTop: "8px",
                                       }}
                                     >
+                                      <div style={{ gridColumn: "1 / -1", ...statLabel, color: "#12617f" }}>Assignment controls</div>
                                       <label style={{ display: "grid", gap: "4px" }}>
                                         <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Station status</span>
                                         <select
@@ -28502,7 +28646,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                           value={row.learnerLabels.join("\n")}
                                           onChange={(event) =>
                                             void handleRoundRoomAdjustment(row.slotIndex, {
-                                              learnerLabels: normalizeLearnerNames(event.target.value.split(/\r?\n|,/g)),
+                                              learnerLabels: getActualLearnerNames(event.target.value.split(/\r?\n|,/g)),
                                             })
                                           }
                                           disabled={saving}
@@ -34460,6 +34604,86 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     </div>
   </div>
 ) : null}
+      {roomOperationsScheduleWarning ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="room-operations-schedule-warning-title"
+          onClick={() => resolveRoomOperationsScheduleWarning(false)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 76,
+            background: "rgba(3, 9, 17, 0.72)",
+            display: "grid",
+            placeItems: "center",
+            padding: "24px",
+          }}
+        >
+          <div
+            onClick={(event) => event.stopPropagation()}
+            style={{
+              width: "min(520px, 100%)",
+              borderRadius: "18px",
+              border: "1px solid rgba(99, 181, 217, 0.32)",
+              background:
+                "linear-gradient(rgba(99, 181, 217, 0.07) 1px, transparent 1px), linear-gradient(90deg, rgba(99, 181, 217, 0.07) 1px, transparent 1px), linear-gradient(135deg, rgba(255,255,255,0.98), rgba(240,249,255,0.96), rgba(236,253,245,0.92))",
+              backgroundSize: "22px 22px, 22px 22px, auto",
+              boxShadow: "0 24px 60px rgba(3, 10, 20, 0.42)",
+              padding: "18px",
+              display: "grid",
+              gap: "12px",
+              color: "#102d44",
+            }}
+          >
+            <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+              <OperationalPresenceAvatar name="Schedule" kind="faculty" status="late" size="md" />
+              <div>
+                <div style={{ ...statLabel, color: "#12617f" }}>Room Operations</div>
+                <h2 id="room-operations-schedule-warning-title" style={{ margin: "3px 0 0", fontSize: "20px", fontWeight: 950 }}>
+                  Update completed schedule?
+                </h2>
+              </div>
+            </div>
+            <p style={{ margin: 0, color: "#425f77", fontSize: "13px", fontWeight: 750, lineHeight: 1.55 }}>
+              This event has a completed schedule. Changing room, learner, SP, case, role, or station assignments will update the operational schedule and may affect Admin Schedule, Student Schedule, and exports.
+            </p>
+            {roomOperationsScheduleWarning.impactLabel ? (
+              <div style={{ ...commandChipStyle, justifySelf: "start", background: "rgba(254, 243, 199, 0.78)", color: "#7c2d12", border: "1px solid rgba(217,119,6,0.24)" }}>
+                Impact: {roomOperationsScheduleWarning.impactLabel}
+              </div>
+            ) : null}
+            <label style={{ display: "flex", gap: "8px", alignItems: "center", color: "#425f77", fontSize: "12px", fontWeight: 800 }}>
+              <input
+                type="checkbox"
+                checked={roomOperationsScheduleWarning.skipSession}
+                onChange={(event) =>
+                  setRoomOperationsScheduleWarning((current) =>
+                    current ? { ...current, skipSession: event.target.checked } : current
+                  )
+                }
+              />
+              Don&apos;t warn me again for this event during this session
+            </label>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px", flexWrap: "wrap" }}>
+              <button
+                type="button"
+                onClick={() => resolveRoomOperationsScheduleWarning(false)}
+                style={{ ...staffingSecondaryButtonStyle, padding: "8px 12px" }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => resolveRoomOperationsScheduleWarning(true)}
+                style={{ ...buttonStyle, padding: "8px 12px", background: "#0f766e", borderColor: "#0d9488", color: "#ffffff" }}
+              >
+                Update Schedule
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       {materialPreview ? (
         <div
           role="dialog"

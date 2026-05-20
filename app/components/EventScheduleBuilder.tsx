@@ -4371,9 +4371,9 @@ function applyScheduleRoomAdjustments(
   adjustments: ParsedScheduleRoomAdjustments
 ) {
   // IMPORTANT REGRESSION GUARD:
-  // Room Operations is the operational source for room/station assignment and live attendance state.
-  // Setup mode, Live Attendance mode, Admin Schedule, and export views must render from the same merged room truth.
-  // Do not allow Operations, Attendance, and Admin Schedule to rebuild from separate stale/generated data paths.
+  // Room Operations is the authoritative source for round/room/SP/learner/case/status truth after a schedule is built.
+  // Setup, Live Attendance, Admin Schedule, Student Schedule, and exports must consume the same merged room truth.
+  // Do not create separate derived room data paths that can drift.
   return rounds.map((round) => {
     if (!rounds.length) return round;
 	    const nextSlots = round.roomSlots.map((slot, slotIndex) => {

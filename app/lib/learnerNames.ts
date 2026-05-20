@@ -67,7 +67,12 @@ export function normalizeLearnerName(value: unknown) {
     .trim();
 }
 
+function isLearnerCountPlaceholder(value: string) {
+  const text = normalizeDisplayText(value).toLowerCase();
+  return /^(\d{1,3})$/.test(text) || /^(\d{1,3})\s+(?:learner|learners|student|students|participant|participants)$/.test(text);
+}
+
 export function normalizeLearnerNames(values: unknown) {
   if (!Array.isArray(values)) return [] as string[];
-  return values.map(normalizeLearnerName).filter(Boolean);
+  return values.map(normalizeLearnerName).filter((name) => Boolean(name) && !isLearnerCountPlaceholder(name));
 }
