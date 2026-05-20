@@ -944,6 +944,7 @@ type StudentInstructionsExportContext = {
   programLabel?: string;
   dateLabel?: string;
   zoomLink?: string;
+  locationLabel?: string;
   instructionsConfig?: StudentInstructionsConfig;
   encounterMinutes?: number | null;
   feedbackMinutes?: number | null;
@@ -979,6 +980,38 @@ type PdfExportPages = {
   contentHeight: number;
   root: HTMLElement;
 };
+
+function isLikelyVirtualAccessUrl(value: string) {
+  const normalized = normalizeDisplayText(value);
+  if (!normalized) return false;
+  return (
+    /^https?:\/\//i.test(normalized) ||
+    /\bzoom\.us\b/i.test(normalized) ||
+    /\bteams\.microsoft\.com\b/i.test(normalized)
+  );
+}
+
+function resolveStudentInstructionsAccessDetails(args: {
+  configAccess?: string | null;
+  contextAccess?: string | null;
+  contextLocation?: string | null;
+  eventLocation?: string | null;
+}) {
+  const candidates = [
+    normalizeDisplayText(args.configAccess),
+    normalizeDisplayText(args.contextAccess),
+    normalizeDisplayText(args.contextLocation),
+    normalizeDisplayText(args.eventLocation),
+  ].filter(Boolean);
+
+  const zoomLink = candidates.find((value) => isLikelyVirtualAccessUrl(value)) || "";
+  const location = candidates.find((value) => !isLikelyVirtualAccessUrl(value)) || "";
+
+  return {
+    zoomLink,
+    location,
+  };
+}
 
 type StyledPdfDocument = {
   addImage: JsPDFClass["addImage"];
@@ -1980,23 +2013,34 @@ function buildCompactScheduleExportHtml(previewHtml: string, printView: CompactS
       /<div class="event-meta-card">\s*<div class="event-meta-label">([\s\S]*?)<\/div>\s*<div class="event-meta-value">([\s\S]*?)<\/div>\s*<\/div>/gi
     )
   );
-  const scheduleGridTable = previewHtml.match(/<table class="schedule-grid-table">[\s\S]*?<\/table>/i)?.[0] || "";
+  const scheduleGridTable = previewHtml.match(/<table class="[^"]*\bschedule-grid-table\b[^"]*"[^>]*>[\s\S]*?<\/table>/i)?.[0] || "";
   const roomColumnCount =
     Array.from(previewHtml.matchAll(/<th class="room-column-header"/g)).length ||
     Math.max((previewHtml.match(/<th>/g) || []).length - 2, 1);
-  const fixedIndexColumnPercent = roomColumnCount >= 6 ? 5.2 : 6.2;
-  const fixedTimeColumnPercent = roomColumnCount >= 6 ? 9.8 : 11.2;
+  const denseRoomMode = roomColumnCount >= 7;
+  const fixedIndexColumnPercent = denseRoomMode ? 4.6 : roomColumnCount >= 6 ? 5.2 : 6.2;
+  const fixedTimeColumnPercent = denseRoomMode ? 8.6 : roomColumnCount >= 6 ? 9.8 : 11.2;
   const fixedRoomColumnPercent = Math.max(
-    8,
+    denseRoomMode ? 6 : 8,
     (100 - fixedIndexColumnPercent - fixedTimeColumnPercent) / Math.max(roomColumnCount, 1)
   );
-  const compactFontSize = roomColumnCount >= 7 ? 6.2 : roomColumnCount >= 6 ? 6.8 : roomColumnCount >= 5 ? 7.5 : 8.8;
-  const compactCardPadding = roomColumnCount >= 6 ? 2 : 3;
-  const compactGridGap = roomColumnCount >= 6 ? 1 : 2;
+  const compactFontSize = denseRoomMode ? 5.8 : roomColumnCount >= 6 ? 6.8 : roomColumnCount >= 5 ? 7.5 : 8.8;
+  const compactCardPadding = denseRoomMode ? 1 : roomColumnCount >= 6 ? 2 : 3;
+  const compactGridGap = denseRoomMode ? 0 : roomColumnCount >= 6 ? 1 : 2;
+  const compactShellPadding = denseRoomMode ? "0.55mm" : "1.2mm";
+  const compactPreviewPadding = denseRoomMode ? "0.55mm" : "1.2mm";
+  const compactPageMargin = denseRoomMode ? "0.08in" : "0.12in";
+  const tableClassName = [
+    "schedule-grid-table",
+    denseRoomMode ? "schedule-grid--dense" : "",
+    `schedule-grid--rooms-${roomColumnCount}`,
+  ]
+    .filter(Boolean)
+    .join(" ");
   const scheduleGridTableWithColumns = scheduleGridTable
     ? scheduleGridTable.replace(
-        /<table class="schedule-grid-table">/i,
-        `<table class="schedule-grid-table" data-room-count="${roomColumnCount}"><colgroup><col style="width:${fixedIndexColumnPercent}%"><col style="width:${fixedTimeColumnPercent}%">${Array.from(
+        /<table class="[^"]*\bschedule-grid-table\b[^"]*"[^>]*>/i,
+        `<table class="${tableClassName}" data-room-count="${roomColumnCount}"><colgroup><col style="width:${fixedIndexColumnPercent}%"><col style="width:${fixedTimeColumnPercent}%">${Array.from(
           { length: roomColumnCount },
           () => `<col style="width:${fixedRoomColumnPercent}%">`
         ).join("")}</colgroup>`
@@ -2028,7 +2072,7 @@ function buildCompactScheduleExportHtml(previewHtml: string, printView: CompactS
     "  width: 100% !important;",
     "  max-width: 100% !important;",
     "  min-width: 0 !important;",
-    "  padding: 1.2mm;",
+    `  padding: ${compactShellPadding};`,
     "  box-sizing: border-box;",
     "  overflow: visible !important;",
     "}",
@@ -2114,7 +2158,7 @@ function buildCompactScheduleExportHtml(previewHtml: string, printView: CompactS
     "}",
     ".cfsp-schedule-export .event-meta-card,",
     ".cfsp-schedule-export .round-section { padding: 5px 6px; }",
-    ".cfsp-schedule-export .event-meta { gap: 4px; grid-template-columns: repeat(auto-fit, minmax(112px, 1fr)); }",
+    `.cfsp-schedule-export .event-meta { gap: ${denseRoomMode ? "3px" : "4px"}; grid-template-columns: repeat(auto-fit, minmax(${denseRoomMode ? "96px" : "112px"}, 1fr)); }`,
     ".cfsp-schedule-export .event-meta-value,",
     ".cfsp-schedule-export .detail-value,",
     ".cfsp-schedule-export .timeline-segment-title,",
@@ -2197,7 +2241,7 @@ function buildCompactScheduleExportHtml(previewHtml: string, printView: CompactS
     "}",
     ".cfsp-schedule-export .schedule-grid-table th,",
     ".cfsp-schedule-export .schedule-grid-table td {",
-    `  padding: ${roomColumnCount >= 6 ? "2px 3px" : "3px 4px"};`,
+    `  padding: ${denseRoomMode ? "1px 2px" : roomColumnCount >= 6 ? "2px 3px" : "3px 4px"};`,
     `  font-size: ${compactFontSize}px;`,
     "  line-height: 1.08;",
     "  vertical-align: top;",
@@ -2232,7 +2276,7 @@ function buildCompactScheduleExportHtml(previewHtml: string, printView: CompactS
     ".cfsp-schedule-export .schedule-room-card {",
     `  gap: ${compactGridGap}px;`,
     `  padding: ${compactCardPadding}px !important;`,
-    "  border-radius: 5px !important;",
+    `  border-radius: ${denseRoomMode ? "4px" : "5px"} !important;`,
     "  min-width: 0 !important;",
     "  box-shadow: none !important;",
     "}",
@@ -2244,6 +2288,14 @@ function buildCompactScheduleExportHtml(previewHtml: string, printView: CompactS
     `  font-size: ${compactFontSize}px;`,
     "  margin-top: 1px;",
     "  line-height: 1.08;",
+    "}",
+    ".cfsp-schedule-export .schedule-grid-table.schedule-grid--dense .schedule-room-card > div {",
+    "  margin: 0 !important;",
+    "}",
+    ".cfsp-schedule-export .schedule-grid-table.schedule-grid--dense .detail-label,",
+    ".cfsp-schedule-export .schedule-grid-table.schedule-grid--dense .detail-value {",
+    "  overflow-wrap: anywhere;",
+    "  word-break: break-word;",
     "}",
     ".cfsp-schedule-export .round-grid-row {",
     "  break-inside: avoid;",
@@ -2278,10 +2330,10 @@ function buildCompactScheduleExportHtml(previewHtml: string, printView: CompactS
     "  break-inside: avoid !important;",
     "  page-break-inside: avoid !important;",
     "}",
-    ".cfsp-schedule-export .preview-shell { padding: 1.2mm; }",
+    `.cfsp-schedule-export .preview-shell { padding: ${compactPreviewPadding}; }`,
     "@page {",
-    "  size: A4 landscape;",
-    "  margin: 0.12in;",
+    "  size: landscape;",
+    `  margin: ${compactPageMargin};`,
     "}",
     "@media print {",
     "  html, body { background: #fff !important; }",
@@ -2458,7 +2510,14 @@ function buildStudentInstructionsExportHtml(context: StudentInstructionsExportCo
     (!isGenericStudentInstructionsProgramLabel(savedProgramLabel) ? savedProgramLabel : "") ||
     "PROGRAM";
   const dateLabel = normalizeDisplayText(context.dateLabel);
-  const zoomLink = normalizeDisplayText(instructionsConfig?.zoomLink) || normalizeDisplayText(context.zoomLink) || "Provided separately.";
+  const accessDetails = resolveStudentInstructionsAccessDetails({
+    configAccess: instructionsConfig?.zoomLink,
+    contextAccess: context.zoomLink,
+    contextLocation: context.locationLabel,
+    eventLocation: context.event?.location,
+  });
+  const zoomLink = accessDetails.zoomLink;
+  const locationLabel = accessDetails.location;
   const encounterLabel = normalizeDisplayText(instructionsConfig?.encounterTimeDetail) || formatStudentInstructionsMinutes(encounterMinutes);
   const feedbackLabel = normalizeDisplayText(instructionsConfig?.feedbackTimeDetail) || formatStudentInstructionsMinutes(feedbackMinutes);
   const joinOffsetMinutes = getStudentInstructionsJoinOffsetMinutes(instructionsConfig);
@@ -2488,10 +2547,17 @@ function buildStudentInstructionsExportHtml(context: StudentInstructionsExportCo
   if (firstEncounterLabel) {
     timingRows.push(["First scheduled encounter:", firstEncounterLabel]);
   }
-  const zoomIsLink = /^https?:\/\//i.test(zoomLink);
-  const zoomValueHtml = zoomIsLink
-    ? `<a href="${escapeHtml(zoomLink)}">${escapeHtml(zoomLink)}</a>`
-    : escapeHtml(zoomLink);
+  const accessRows: string[] = [];
+  if (zoomLink) {
+    const zoomHref = /^https?:\/\//i.test(zoomLink) ? zoomLink : `https://${zoomLink}`;
+    accessRows.push(`<p>Zoom link: <a href="${escapeHtml(zoomHref)}">${escapeHtml(zoomLink)}</a></p>`);
+  }
+  if (locationLabel) {
+    accessRows.push(`<p>Location: ${escapeHtml(locationLabel)}</p>`);
+  }
+  if (!accessRows.length) {
+    accessRows.push("<p>Location: Provided separately.</p>");
+  }
   const scheduleBlocks = buildVirStyleStudentScheduleBlocks({
     rounds: studentScheduleRounds,
     roomColumns,
@@ -3023,7 +3089,7 @@ color: #17304f;
             <section class="student-packet-page-section instructions-section">
               <h3>Before Your Encounter</h3>
               <p>${escapeHtml(joinInstruction)}</p>
-              <p>Zoom link: ${zoomValueHtml}</p>
+              ${accessRows.join("\n")}
               ${waitingRoomNote ? `<p>${escapeHtml(waitingRoomNote)}</p>` : ""}
               ${timeZoneNote ? `<p>${escapeHtml(timeZoneNote)}</p>` : ""}
             </section>
@@ -4847,10 +4913,17 @@ function buildSchedulePreviewData(args: {
     if (!previewScheduleGridRows.length || !roomColumns.length) {
       return `<div class="empty-state">No rotation schedule has been generated yet.</div>`;
     }
+    const scheduleGridClassName = [
+      "schedule-grid-table",
+      roomColumns.length >= 7 ? "schedule-grid--dense" : "",
+      `schedule-grid--rooms-${roomColumns.length}`,
+    ]
+      .filter(Boolean)
+      .join(" ");
 
     return `
       <div class="schedule-grid-shell">
-        <table class="schedule-grid-table">
+        <table class="${scheduleGridClassName}" data-room-count="${roomColumns.length}">
           <colgroup>
             <col class="round-index-column" />
             <col class="round-time-column" />
@@ -5204,20 +5277,25 @@ function buildSchedulePreviewData(args: {
             .room-capacity { font-size: 11px; font-weight: 700; color: #5e7388; text-transform: uppercase; letter-spacing: 0.06em; }
             .room-row-detail { font-size: 13px; color: #35526f; line-height: 1.5; }
             .room-row-grid { display: grid; gap: 8px; }
-            .schedule-grid-shell { overflow-x: auto; border: 1px solid #dce6ee; border-radius: 14px; background: #f8fbfd; }
-            .schedule-grid-table { width: 100%; border-collapse: collapse; min-width: 880px; }
+            .schedule-grid-shell { overflow-x: auto; border: 1px solid #dce6ee; border-radius: 14px; background: #f8fbfd; max-width: 100%; }
+            .schedule-grid-table { width: 100%; border-collapse: collapse; min-width: 880px; table-layout: fixed; }
+            .schedule-grid-table.schedule-grid--dense { min-width: 0; }
             .round-grid-group, .round-grid-row, .wide-row, .schedule-room-cell, .schedule-room-card {
               break-inside: avoid;
               page-break-inside: avoid;
               -webkit-column-break-inside: avoid;
             }
-            .schedule-grid-table th { text-align: left; padding: 12px; border-bottom: 1px solid #dce6ee; color: #5e7388; font-size: 12px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; background: #f8fbfd; }
-            .schedule-grid-table td { padding: 12px; border-bottom: 1px solid #eef3f7; vertical-align: top; background: #ffffff; }
+            .schedule-grid-table th { text-align: left; padding: 12px; border-bottom: 1px solid #dce6ee; color: #5e7388; font-size: 12px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; background: #f8fbfd; overflow-wrap: anywhere; }
+            .schedule-grid-table td { padding: 12px; border-bottom: 1px solid #eef3f7; vertical-align: top; background: #ffffff; overflow-wrap: anywhere; word-break: break-word; }
+            .schedule-grid-table.schedule-grid--dense th,
+            .schedule-grid-table.schedule-grid--dense td { padding: 6px 7px; font-size: 11px; line-height: 1.2; }
             .round-index { font-size: 13px; font-weight: 900; color: #14304f; white-space: nowrap; }
             .round-time { font-size: 13px; font-weight: 900; color: #14304f; }
             .round-time-summary { margin-top: 6px; font-size: 12px; line-height: 1.45; color: #5e7388; }
             .schedule-room-cell { background: #fdfefe; min-width: 180px; }
+            .schedule-grid-table.schedule-grid--dense .schedule-room-cell { min-width: 0; }
             .schedule-room-card { border: 1px solid #dce6ee; border-radius: 12px; background: #f8fbfd; padding: 10px; display: grid; gap: 8px; }
+            .schedule-grid-table.schedule-grid--dense .schedule-room-card { padding: 6px; gap: 5px; border-radius: 9px; }
             .announcement-list { display: grid; gap: 14px; }
             .announcement-round { display: grid; gap: 10px; break-inside: avoid; page-break-inside: avoid; }
             .announcement-table { width: 100%; border-collapse: collapse; border: 1px solid #dce6ee; border-radius: 12px; overflow: hidden; background: #ffffff; }
@@ -7547,9 +7625,17 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     return parseNumber(feedbackMinutes, parseNumber(DEFAULT_SCHEDULE_BUILDER_DRAFT.feedbackMinutes, 10));
   }, [feedbackMinutes, scheduledRounds]);
   const studentInstructionsEventName = normalizeDisplayText(selectedEvent?.name);
-  const studentInstructionsResolvedZoomLink =
-    normalizeDisplayText(savedStudentInstructionsConfig?.zoomLink) ||
-    normalizeDisplayText(getStudentInstructionsZoomLinkFromBuilderEvent(selectedEvent));
+  const studentInstructionsAccessDetails = useMemo(
+    () =>
+      resolveStudentInstructionsAccessDetails({
+        configAccess: savedStudentInstructionsConfig?.zoomLink,
+        contextAccess: getStudentInstructionsZoomLinkFromBuilderEvent(selectedEvent),
+        eventLocation: selectedEvent?.location,
+      }),
+    [savedStudentInstructionsConfig?.zoomLink, selectedEvent]
+  );
+  const studentInstructionsResolvedZoomLink = studentInstructionsAccessDetails.zoomLink;
+  const studentInstructionsResolvedLocation = studentInstructionsAccessDetails.location;
   const studentInstructionsContextError = useMemo(() => {
     if (!selectedEvent?.id) {
       return "Open this from an event before generating Student Instructions.";
@@ -7560,11 +7646,17 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     if (!selectedScheduleDateLabel) {
       return "This event is missing a student schedule date for Student Instructions.";
     }
-    if (!studentInstructionsResolvedZoomLink) {
-      return "Add a Zoom link in Student Instructions or event details before generating the packet.";
+    if (!studentInstructionsResolvedZoomLink && !studentInstructionsResolvedLocation) {
+      return "Add a Zoom link or location in Student Instructions or event details before generating the packet.";
     }
     return "";
-  }, [selectedEvent?.id, selectedScheduleDateLabel, studentInstructionsEventName, studentInstructionsResolvedZoomLink]);
+  }, [
+    selectedEvent?.id,
+    selectedScheduleDateLabel,
+    studentInstructionsEventName,
+    studentInstructionsResolvedLocation,
+    studentInstructionsResolvedZoomLink,
+  ]);
   const studentInstructionsPrintHtml = useMemo(
     () =>
       studentInstructionsContextError
@@ -7574,6 +7666,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
             programLabel: studentInstructionsEventName,
             dateLabel: selectedScheduleDateLabel,
             zoomLink: studentInstructionsResolvedZoomLink,
+            locationLabel: studentInstructionsResolvedLocation,
             instructionsConfig: savedStudentInstructionsConfig,
             encounterMinutes: firstStudentEncounterDurationMinutes,
             feedbackMinutes: firstFeedbackDurationMinutes,
@@ -7593,6 +7686,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       savedStudentInstructionsConfig,
       studentInstructionsContextError,
       studentInstructionsEventName,
+      studentInstructionsResolvedLocation,
       studentInstructionsResolvedZoomLink,
       studentPreviewRounds,
     ]
