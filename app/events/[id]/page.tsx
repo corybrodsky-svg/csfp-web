@@ -179,6 +179,34 @@ type AssignmentRow = {
   attendance_note?: string | null;
 };
 
+type EmailTemplateApiResponse = {
+  templates?: EmailTemplateRecord[];
+  source?: "defaults" | "database";
+  canManage?: boolean;
+  warning?: string;
+};
+
+type CommunicationCard = {
+  key: string;
+  title: string;
+  description: string;
+  status: string;
+  statusDetail: string;
+  ready: boolean;
+  href: string;
+  cc?: number;
+  categoryLabel?: string;
+  templateSource?: "saved" | "fallback";
+  actionEnabled?: boolean;
+  actionLabel?: string;
+  onClick: () => void | Promise<void>;
+};
+
+type FallbackCommunicationCard = CommunicationCard & {
+  templateCategory: string;
+  templateNames: string[];
+};
+
 type AvailabilityRow = {
   id?: string | number | null;
   sp_id?: string | number | null;
@@ -5544,6 +5572,40 @@ function normalizeEmail(value: string) {
   return asText(value).toLowerCase();
 }
 
+function normalizeEmailTemplateMatchValue(value: unknown) {
+  return asText(value)
+    .toLowerCase()
+    .replace(/\b(email|template|draft|card)\b/g, "")
+    .replace(/[^a-z0-9]+/g, "")
+    .trim();
+}
+
+function getEmailTemplateCategoryLabel(value: unknown) {
+  const category = asText(value);
+  if (!category) return "General";
+  return category
+    .split(/[\s_-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(" ");
+}
+
+function splitEmailAddressList(value: unknown) {
+  const text = asText(value);
+  if (!text) return [] as string[];
+  const emailMatches = text.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi);
+  const candidates = emailMatches?.length ? emailMatches : text.split(/[,;\n]+/g);
+  return Array.from(new Set(candidates.map((item) => normalizeEmail(item)).filter(Boolean)));
+}
+
+function mergeEmailAddressLists(...lists: string[][]) {
+  return Array.from(new Set(lists.flat().map((item) => normalizeEmail(item)).filter(Boolean)));
+}
+
+function emailTemplateMentionsSpRecipients(value: unknown) {
+  return /sp\s*emails|spemails|standardized\s*patient|standardizedpatient/i.test(asText(value));
+}
+
 function normalizeLocationSignal(value: string) {
   return asText(value)
     .toLowerCase()
@@ -5842,6 +5904,8 @@ export default function EventDetailPage() {
   const [showEmailDraft, setShowEmailDraft] = useState(false);
   const [emailTemplates, setEmailTemplates] = useState<EmailTemplateRecord[]>(DEFAULT_CFSP_EMAIL_TEMPLATES);
   const [emailTemplateSource, setEmailTemplateSource] = useState<"defaults" | "database">("defaults");
+  const [emailTemplatesLoading, setEmailTemplatesLoading] = useState(true);
+  const [emailTemplatesError, setEmailTemplatesError] = useState("");
   const [assignmentFilter, setAssignmentFilter] = useState<AssignmentFilterStatus>("all");
   const [suggestedAssignmentFilter, setSuggestedAssignmentFilter] = useState<SuggestedAssignmentFilter>("all");
   const commandCenterMode = "planning" as CommandCenterMode;
@@ -6000,25 +6064,30 @@ export default function EventDetailPage() {
     let cancelled = false;
 
     async function loadEmailTemplates() {
+      setEmailTemplatesLoading(true);
+      setEmailTemplatesError("");
       try {
         const response = await fetch("/api/email-templates", { cache: "no-store" });
-        const payload = await response.json().catch(() => null) as {
-          templates?: EmailTemplateRecord[];
-          source?: "defaults" | "database";
-        } | null;
-        const templates = Array.isArray(payload?.templates) && payload.templates.length
+        const payload = await response.json().catch(() => null) as EmailTemplateApiResponse | null;
+        if (!response.ok) throw new Error(payload?.warning || "Could not load templates");
+        const source = payload?.source === "database" ? "database" : "defaults";
+        const templates = Array.isArray(payload?.templates)
           ? payload.templates
           : DEFAULT_CFSP_EMAIL_TEMPLATES;
 
         if (!cancelled) {
           setEmailTemplates(templates);
-          setEmailTemplateSource(payload?.source === "database" ? "database" : "defaults");
+          setEmailTemplateSource(source);
+          setEmailTemplatesError(payload?.warning || "");
         }
-      } catch {
+      } catch (error) {
         if (!cancelled) {
           setEmailTemplates(DEFAULT_CFSP_EMAIL_TEMPLATES);
           setEmailTemplateSource("defaults");
+          setEmailTemplatesError(error instanceof Error ? error.message : "Could not load templates");
         }
+      } finally {
+        if (!cancelled) setEmailTemplatesLoading(false);
       }
     }
 
@@ -14599,10 +14668,12 @@ Cory`;
           : facultyReadinessComplete
             ? "Faculty email needed"
             : "Add faculty contact";
-  const communicationCards = [
+  const fallbackCommunicationCards: FallbackCommunicationCard[] = [
     {
       key: "hiring-poll",
       title: "SP Hiring Poll Email",
+      templateCategory: "hiring",
+      templateNames: ["SP Availability Poll", "SP Hiring Poll Email"],
       description: "Send a hiring/availability poll to candidate SPs.",
       status: hiringPollCardStatus,
       statusDetail: hiringPollCardStatus === "Needs info"
@@ -14635,6 +14706,8 @@ Cory`;
     {
       key: "availability-poll-closed",
       title: "Availability Poll Closed Email",
+      templateCategory: "poll",
+      templateNames: ["Availability Poll Closed", "Availability Poll Closed Email"],
       description: "Notify polled SPs that availability collection is closed.",
       status: availabilityPollClosedBccEmails.length ? "Ready to draft" : "Needs info",
       statusDetail: availabilityPollClosedBccEmails.length
@@ -14654,6 +14727,8 @@ Cory`;
     {
       key: "hire-confirmation",
       title: "Hire Confirmation Email",
+      templateCategory: "confirmation",
+      templateNames: ["Confirmation Hire", "Hire Confirmation", "Hire Confirmation Email"],
       description: "Draft confirmation for selected SPs with finalized event details.",
       status: confirmationCardStatus,
       statusDetail: confirmationCardStatus === "Needs info"
@@ -14677,6 +14752,8 @@ Cory`;
     {
       key: "prep-training",
       title: "Prep for Training Email",
+      templateCategory: "training",
+      templateNames: ["Prep for Training", "Prep for Training Email"],
       description: "Draft the SP training prep email with event logistics and materials.",
       status: assignedBccEmails.length ? "Ready to draft" : "Needs info",
       statusDetail: assignedBccEmails.length
@@ -14695,6 +14772,8 @@ Cory`;
     {
       key: "post-training",
       title: "Post-Training / Pre-Event Email",
+      templateCategory: "training",
+      templateNames: ["Link to Recorded SP Training", "Post-Training / Pre-Event Email"],
       description: "Share the recorded training link and pre-event touchpoints.",
       status: assignedBccEmails.length ? "Ready to draft" : "Needs info",
       statusDetail: assignedBccEmails.length
@@ -14713,6 +14792,8 @@ Cory`;
     {
       key: "sp-cancellation",
       title: "SP Cancellation Email",
+      templateCategory: "cancellation",
+      templateNames: ["SP Cancellation", "SP Cancellation Email"],
       description: "Draft release/cancellation notice for declined or no-show assignment rows.",
       status: cancellationEmailBccEmails.length ? "Ready to draft" : "Needs info",
       statusDetail: cancellationEmailBccEmails.length
@@ -14732,6 +14813,8 @@ Cory`;
     {
       key: "payroll-wrapup",
       title: "Post-Event Payroll / Wrap-Up Email",
+      templateCategory: "confirmation",
+      templateNames: ["Post-Event Payroll / Wrap-Up Email", "Payroll Wrap-Up"],
       description: "Draft payroll timing and hours guidance for assigned/confirmed SPs.",
       status: payrollEmailBccEmails.length ? "Ready to draft" : "Needs info",
       statusDetail: payrollEmailBccEmails.length
@@ -14750,6 +14833,8 @@ Cory`;
     {
       key: "faculty-training-date-email",
       title: "Faculty Training Date Email",
+      templateCategory: "faculty",
+      templateNames: ["Faculty Training Date Email"],
       description: "Draft a scheduling email to faculty with date/time, location, and expectations.",
       status: facultyTrainingDateEmailCardStatus,
       statusDetail: facultyTrainingDateEmailCardStatus === "Faculty email needed"
@@ -14782,6 +14867,157 @@ Cory`;
         await handleDraftFacultyTrainingAvailabilityRequest();
       },
     },
+  ];
+  const activeSavedCommunicationTemplates = emailTemplateSource === "database"
+    ? emailTemplates.filter((template) => template.is_active !== false)
+    : [];
+  const knownSpEmailSet = new Set(
+    mergeEmailAddressLists(
+      sps.map((sp) => getEmail(sp)).filter(Boolean),
+      assignedBccEmails,
+      hiringPollBccEmails,
+      confirmationBccEmails,
+      availabilityPollClosedBccEmails,
+      cancellationEmailBccEmails,
+      payrollEmailBccEmails
+    )
+  );
+
+  function fallbackCardMatchesTemplate(card: FallbackCommunicationCard, template: EmailTemplateRecord) {
+    const templateName = normalizeEmailTemplateMatchValue(template.name);
+    const templateCategory = normalizeEmailTemplateMatchValue(template.category);
+    const cardCategory = normalizeEmailTemplateMatchValue(card.templateCategory);
+    const candidateNames = [card.title, ...card.templateNames].map(normalizeEmailTemplateMatchValue);
+    return (
+      candidateNames.includes(templateName) ||
+      (templateCategory === cardCategory && candidateNames.includes(templateName))
+    );
+  }
+
+  function getCommunicationTemplateSpEmails(template: EmailTemplateRecord) {
+    const signal = `${template.category || ""} ${template.name || ""}`.toLowerCase();
+    if (signal.includes("poll closed") || signal.includes("availability poll closed")) return availabilityPollClosedBccEmails;
+    if (signal.includes("availability poll") || signal.includes("hiring")) return hiringPollBccEmails;
+    if (signal.includes("confirmation") || signal.includes("hire")) return confirmationBccEmails.length ? confirmationBccEmails : assignedBccEmails;
+    if (signal.includes("cancel")) return cancellationEmailBccEmails;
+    if (signal.includes("payroll") || signal.includes("wrap")) return payrollEmailBccEmails;
+    if (signal.includes("faculty")) return [];
+    return assignedBccEmails;
+  }
+
+  function getSavedCommunicationTemplateDraft(template: EmailTemplateRecord) {
+    const spTemplateRecipients = getCommunicationTemplateSpEmails(template);
+    const context = {
+      ...emailTemplateContext,
+      spEmails: spTemplateRecipients.join(","),
+      Event: emailTemplateContext.eventName,
+      Date: emailTemplateContext.eventDate,
+      Time: emailTemplateContext.eventTime,
+      "Zoom Link": emailTemplateContext.trainingZoomLink,
+      senderEmail: emailTemplateContext.senderEmail,
+      senderName: emailTemplateContext.senderName,
+      faculty: emailTemplateContext.faculty,
+    };
+    const rendered = renderEmailTemplate(template, context);
+    const spSourceByField = {
+      to: emailTemplateMentionsSpRecipients(template.default_to),
+      cc: emailTemplateMentionsSpRecipients(template.default_cc),
+      bcc: emailTemplateMentionsSpRecipients(template.default_bcc),
+    };
+    const moveSpRecipientsToBcc = (values: string[], sourceMentionsSp: boolean) => {
+      const kept: string[] = [];
+      const moved: string[] = [];
+      values.forEach((email) => {
+        const normalized = normalizeEmail(email);
+        if (sourceMentionsSp || knownSpEmailSet.has(normalized)) {
+          moved.push(normalized);
+        } else {
+          kept.push(normalized);
+        }
+      });
+      return { kept, moved };
+    };
+    const toPartition = moveSpRecipientsToBcc(splitEmailAddressList(rendered.to), spSourceByField.to);
+    const ccPartition = moveSpRecipientsToBcc(splitEmailAddressList(rendered.cc), spSourceByField.cc);
+    const bccEmails = mergeEmailAddressLists(
+      splitEmailAddressList(rendered.bcc),
+      toPartition.moved,
+      ccPartition.moved
+    );
+    const href = buildMailtoHref({
+      to: toPartition.kept.join(","),
+      cc: ccPartition.kept,
+      bcc: bccEmails,
+      subject: rendered.subject,
+      body: rendered.body,
+    });
+    const needsSpRecipients =
+      spSourceByField.to ||
+      spSourceByField.cc ||
+      spSourceByField.bcc ||
+      /\b(sp|standardized patient)\b/i.test(`${template.category || ""} ${template.name || ""}`);
+    const hasAnyRecipient = Boolean(toPartition.kept.length || ccPartition.kept.length || bccEmails.length);
+    const missingReason = needsSpRecipients && !spTemplateRecipients.length
+      ? "SP recipients are not available for this saved template."
+      : !hasAnyRecipient
+        ? "Default recipients did not resolve from the current event."
+        : "";
+    return {
+      href,
+      ready: !missingReason,
+      statusDetail: missingReason || "Draft uses the saved subject, body, and default recipients from Settings.",
+      to: toPartition.kept,
+      cc: ccPartition.kept,
+      bcc: bccEmails,
+      fromLabel: rendered.fromLabel,
+    };
+  }
+
+  function handleDraftSavedCommunicationTemplate(template: EmailTemplateRecord) {
+    const draft = getSavedCommunicationTemplateDraft(template);
+    if (!draft.ready) {
+      setEventSaveError(draft.statusDetail);
+      return;
+    }
+    setEventSaveError("");
+    window.location.href = draft.href;
+    showSuccessMessage(`Draft opened from ${template.name}.`);
+  }
+
+  const savedCommunicationCards: CommunicationCard[] = activeSavedCommunicationTemplates.map((template) => {
+    const matchedFallback = fallbackCommunicationCards.find((card) => fallbackCardMatchesTemplate(card, template));
+    const draft = getSavedCommunicationTemplateDraft(template);
+    const matchedFallbackActionEnabled = matchedFallback?.actionEnabled ?? matchedFallback?.ready ?? true;
+    const actionEnabled = Boolean(matchedFallbackActionEnabled && draft.ready);
+    const ready = Boolean((matchedFallback?.ready ?? draft.ready) && draft.ready);
+    return {
+      key: `saved-template-${template.id || normalizeEmailTemplateMatchValue(template.name)}`,
+      title: template.name,
+      description: matchedFallback?.description || "Saved email template from Settings.",
+      status: ready ? (matchedFallback?.status === "Needs info" ? "Ready to draft" : matchedFallback?.status || "Ready to draft") : "Needs info",
+      statusDetail: ready
+        ? `Saved ${getEmailTemplateCategoryLabel(template.category)} template. ${draft.fromLabel ? `From: ${draft.fromLabel}. ` : ""}SP recipients remain in BCC when included.`
+        : draft.statusDetail,
+      ready,
+      href: draft.href,
+      cc: draft.cc.length,
+      categoryLabel: getEmailTemplateCategoryLabel(template.category),
+      templateSource: "saved",
+      actionEnabled,
+      actionLabel: "Draft Email",
+      onClick: () => handleDraftSavedCommunicationTemplate(template),
+    };
+  });
+  const fallbackCardsWithoutSavedMatches: CommunicationCard[] = fallbackCommunicationCards
+    .filter((card) => !activeSavedCommunicationTemplates.some((template) => fallbackCardMatchesTemplate(card, template)))
+    .map((card) => ({
+      ...card,
+      categoryLabel: getEmailTemplateCategoryLabel(card.templateCategory),
+      templateSource: "fallback" as const,
+    }));
+  const communicationCards: CommunicationCard[] = [
+    ...savedCommunicationCards,
+    ...fallbackCardsWithoutSavedMatches,
   ];
   const communicationCommandChecklistItems = [
     {
@@ -29956,8 +30192,23 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                               href={`/settings?eventId=${encodeURIComponent(id)}#email-templates`}
                               style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px", justifySelf: "start", textDecoration: "none" }}
                             >
-                              Manage Email Templates
+                              Manage Templates
                             </Link>
+                            {emailTemplatesLoading ? (
+                              <div style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 800 }}>
+                                Loading templates...
+                              </div>
+                            ) : null}
+                            {emailTemplatesError ? (
+                              <div style={{ borderRadius: "12px", border: "1px solid rgba(217, 119, 6, 0.24)", background: "rgba(254, 243, 199, 0.64)", color: "#7c2d12", padding: "8px 10px", fontSize: "11px", fontWeight: 800 }}>
+                                Could not load templates{emailTemplatesError ? `: ${emailTemplatesError}` : ""}
+                              </div>
+                            ) : null}
+                            {!emailTemplatesLoading && !emailTemplatesError && emailTemplateSource === "database" && !activeSavedCommunicationTemplates.length ? (
+                              <div style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 800 }}>
+                                No active templates found
+                              </div>
+                            ) : null}
                             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: "8px" }}>
                               {communicationCards.map((card) => {
                                 const isReady = card.ready;
@@ -29977,7 +30228,14 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                     }}
                                   >
                                     <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", alignItems: "flex-start" }}>
-                                      <div style={{ color: commandCenterVisual.textColor, fontSize: "12px", fontWeight: 950, lineHeight: 1.25 }}>{card.title}</div>
+                                      <div>
+                                        <div style={{ color: commandCenterVisual.textColor, fontSize: "12px", fontWeight: 950, lineHeight: 1.25 }}>{card.title}</div>
+                                        {card.categoryLabel ? (
+                                          <div style={{ marginTop: "3px", color: commandCenterVisual.mutedColor, fontSize: "9px", fontWeight: 850, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                                            {card.templateSource === "saved" ? "Saved template" : "Fallback"} · {card.categoryLabel}
+                                          </div>
+                                        ) : null}
+                                      </div>
                                       <span style={{ ...commandChipStyle, background: isReady ? commandCenterVisual.activeSoftBackground : "rgba(248,113,113,0.12)", color: isReady ? commandCenterVisual.activeSoftText : staffingWorkspacePalette.dangerText }}>
                                         {card.status}
                                       </span>

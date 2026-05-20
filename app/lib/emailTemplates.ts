@@ -44,6 +44,22 @@ const FRIENDLY_MERGE_PLACEHOLDERS: Record<string, string> = {
   generalStaffSignature: "CFSP Simulation Operations",
 };
 
+const MERGE_FIELD_ALIASES: Record<string, string> = {
+  event: "eventName",
+  eventname: "eventName",
+  date: "eventDate",
+  eventdate: "eventDate",
+  time: "eventTime",
+  eventtime: "eventTime",
+  zoomlink: "trainingZoomLink",
+  zoomurl: "trainingZoomLink",
+  trainingzoomlink: "trainingZoomLink",
+  senderemail: "senderEmail",
+  sendername: "senderName",
+  faculty: "faculty",
+  spemails: "spEmails",
+};
+
 export const CFSP_EMAIL_TEMPLATE_CATEGORIES = [
   "hiring",
   "confirmation",
@@ -346,12 +362,15 @@ export function renderEmailTemplateText(
   options?: { missingMode?: "friendly" | "blank" }
 ) {
   const missingMode = options?.missingMode || "friendly";
-  return normalizeEmailPlainText(template).replace(/\{\{\s*([A-Za-z0-9_]+)\s*\}\}/g, (_match, key: string) => {
-    const value = context[key];
+  return normalizeEmailPlainText(template).replace(/\{\{\s*([A-Za-z0-9_ -]+)\s*\}\}/g, (_match, key: string) => {
+    const trimmedKey = key.trim();
+    const normalizedKey = trimmedKey.toLowerCase().replace(/[^a-z0-9]+/g, "");
+    const canonicalKey = MERGE_FIELD_ALIASES[normalizedKey] || trimmedKey;
+    const value = context[trimmedKey] ?? context[canonicalKey];
     const renderedValue = value === null || value === undefined ? "" : String(value).trim();
     if (renderedValue) return renderedValue;
     if (missingMode === "blank") return "";
-    return FRIENDLY_MERGE_PLACEHOLDERS[key] || `${key} TBD`;
+    return FRIENDLY_MERGE_PLACEHOLDERS[canonicalKey] || `${trimmedKey} TBD`;
   });
 }
 
