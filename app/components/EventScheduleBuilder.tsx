@@ -443,7 +443,7 @@ function createDayBlock(partial?: Partial<DayBlockConfig>): DayBlockConfig {
   };
 }
 
-function parseNumber(value: string, fallback: number) {
+function parseNumber(value: unknown, fallback: number) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.max(0, Math.floor(parsed));
@@ -4406,7 +4406,7 @@ function buildSchedulePreviewData(args: {
     if (selectedEventSummaryTime) {
       lines.push(`Time Window: ${selectedEventSummaryTime}`);
     }
-    lines.push(`Rooms in Rotation: ${generated.rounds[0]?.roomSlots.length || 0}`);
+    lines.push(`Rooms in Rotation: ${roomColumns.length || previewRounds[0]?.roomSlots.length || generated.rounds[0]?.roomSlots.length || 0}`);
     lines.push("");
   }
 
@@ -4542,9 +4542,15 @@ function buildSchedulePreviewData(args: {
     }
   }
 
-  const timelineSummary = meaningfulPreviewTimeline.length
-    ? `${meaningfulPreviewTimeline.length} timeline block${meaningfulPreviewTimeline.length === 1 ? "" : "s"} · ${Math.max(generated.rotationEnd - generated.rotationStart, 0)} min planned`
+  const previewRotationStart = previewRounds[0]?.start ?? generated.rotationStart;
+  const previewRotationEnd = previewRounds[previewRounds.length - 1]?.end ?? generated.rotationEnd;
+  const previewRoundSummary = previewRounds.length
+    ? `${previewRounds.length} saved rotation round${previewRounds.length === 1 ? "" : "s"}`
+    : "";
+  const previewTimelineSummary = meaningfulPreviewTimeline.length
+    ? `${meaningfulPreviewTimeline.length} timeline block${meaningfulPreviewTimeline.length === 1 ? "" : "s"} · ${Math.max(previewRotationEnd - previewRotationStart, 0)} min planned`
     : "No timeline blocks configured";
+  const timelineSummary = [previewRoundSummary, previewTimelineSummary].filter(Boolean).join(" · ");
   const renderCountSummary = `${previewRounds.length} round${previewRounds.length === 1 ? "" : "s"} rendered • ${roomColumns.length} room${roomColumns.length === 1 ? "" : "s"} rendered • ${learnerCount} learner${learnerCount === 1 ? "" : "s"} rendered`;
 
   const eventMetaHtml = event
@@ -4575,7 +4581,7 @@ function buildSchedulePreviewData(args: {
           }
           <div class="event-meta-card">
             <div class="event-meta-label">Rooms in Rotation</div>
-            <div class="event-meta-value">${generated.rounds[0]?.roomSlots.length || 0}</div>
+            <div class="event-meta-value">${roomColumns.length || previewRounds[0]?.roomSlots.length || generated.rounds[0]?.roomSlots.length || 0}</div>
           </div>
         </div>
       `
@@ -5192,6 +5198,80 @@ function parseScheduleBuilderSnapshot(raw: unknown) {
   return null;
 }
 
+function normalizePersistedScheduleBuilderRounds(raw: unknown): PersistedScheduleBuilderRound[] {
+  if (!Array.isArray(raw)) return [];
+
+  return raw
+    .map((round, roundIndex) => {
+      const record = round as Partial<PersistedScheduleBuilderRound>;
+      const roomSlots = Array.isArray(record.roomSlots)
+        ? record.roomSlots.map((slot, slotIndex) => {
+            const slotRecord = slot as Partial<PersistedScheduleBuilderRoomSlot>;
+            return {
+              roomName: asText(slotRecord.roomName) || `Exam ${slotIndex + 1}`,
+              learnerLabels: normalizeLearnerNames(slotRecord.learnerLabels || []),
+              assignedSpName: normalizeDisplayText(slotRecord.assignedSpName),
+              backupSpName: normalizeDisplayText(slotRecord.backupSpName),
+              caseLabel: normalizeDisplayText(slotRecord.caseLabel),
+              roleLabel: normalizeDisplayText(slotRecord.roleLabel),
+              notes: normalizeDisplayText(slotRecord.notes),
+              roomType: slotRecord.roomType === "flex" ? "flex" : "exam",
+              capacity: Math.max(0, parseNumber(slotRecord.capacity, 1)),
+            } satisfies PersistedScheduleBuilderRoomSlot;
+          })
+        : [];
+
+      return {
+        round: Math.max(1, parseNumber(record.round, roundIndex + 1)),
+        sessionDate: asText(record.sessionDate),
+        startTime: asText(record.startTime),
+        endTime: asText(record.endTime),
+        roomSlots,
+      } satisfies PersistedScheduleBuilderRound;
+    })
+    .filter((round) => round.roomSlots.length > 0 || asText(round.startTime) || asText(round.endTime));
+}
+
+function convertPersistedRoundsToScheduledRounds(rounds: PersistedScheduleBuilderRound[]): ScheduledRound[] {
+  return rounds.map((round, roundIndex) => {
+    const start = toMinutes(round.startTime) ?? 0;
+    const parsedEnd = toMinutes(round.endTime);
+    const end = parsedEnd !== null ? (parsedEnd < start ? parsedEnd + 24 * 60 : parsedEnd) : start;
+
+    return {
+      round: Math.max(1, parseNumber(round.round, roundIndex + 1)),
+      start,
+      end,
+      subBlocks: [
+        {
+          label: "Encounter",
+          start,
+          end,
+          visibleTo: "both",
+        },
+      ],
+      roomSlots: round.roomSlots.map((slot) => {
+        const capacity = Math.max(0, parseNumber(slot.capacity, Math.max(slot.learnerLabels.length, 1)));
+        return {
+          roomName: asText(slot.roomName),
+          roomType: slot.roomType === "flex" ? "flex" : "exam",
+          capacity,
+          capacityLabel: capacity
+            ? `${capacity} learner${capacity === 1 ? "" : "s"}`
+            : "Flex / empty",
+          learnerLabels: normalizeLearnerNames(slot.learnerLabels || []),
+          learnerIndexes: [],
+          assignedSpName: normalizeDisplayText(slot.assignedSpName),
+          backupSpName: normalizeDisplayText(slot.backupSpName),
+          caseLabel: normalizeDisplayText(slot.caseLabel),
+          roleLabel: normalizeDisplayText(slot.roleLabel),
+          notes: normalizeDisplayText(slot.notes),
+        } satisfies ScheduledRoomSlot;
+      }),
+    } satisfies ScheduledRound;
+  });
+}
+
 function formatSavedTimestamp(value: string | null) {
   if (!value) return "";
   const parsed = new Date(value);
@@ -5391,6 +5471,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const [activeFlowDetailKey, setActiveFlowDetailKey] = useState("");
   const [me, setMe] = useState<BuilderMeResponse | null>(null);
   const [roomAdjustments, setRoomAdjustments] = useState<ParsedScheduleRoomAdjustments>(createEmptyScheduleRoomAdjustments());
+  const [persistedResolvedRounds, setPersistedResolvedRounds] = useState<PersistedScheduleBuilderRound[]>([]);
 
   useEffect(() => {
     if (!showSchedulePreview || typeof document === "undefined") return;
@@ -5411,6 +5492,9 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   }, [props.initialPreviewKind]);
 
   const applyDraft = useCallback((draft: ScheduleBuilderDraft) => {
+    const savedResolvedRounds = normalizePersistedScheduleBuilderRounds(
+      (draft as Partial<PersistedScheduleBuilderSnapshot>).resolvedRounds
+    );
     setBuilderMode(props.expandedWorkspace && !draft.savedAt ? "advanced" : draft.builderMode);
     setScheduleViewMode(props.initialScheduleViewMode || draft.scheduleViewMode);
     setSelectedEventId(props.fixedEventId || draft.selectedEventId || "");
@@ -5447,6 +5531,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     setIncludeBreakdown(draft.includeBreakdown);
     setDebriefMinutes(draft.debriefMinutes);
     setBreakdownMinutes(draft.breakdownMinutes);
+    setPersistedResolvedRounds(savedResolvedRounds);
     setLastSavedAt(draft.savedAt || null);
     setSaveState(draft.savedAt ? "saved" : "saved");
     setSaveErrorMessage("");
@@ -6056,6 +6141,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     }));
   }, [multipleCasesEnabled, parsedExamRooms, scheduleCasesForMath, scheduleCaseDefinitions, singleCaseDefinitionName]);
   const handleRebuildScheduleMath = useCallback(() => {
+    setPersistedResolvedRounds([]);
     setScheduleMathEpoch((current) => current + 1);
     setSelectedBuilderRound(null);
     setSaveState("unsaved");
@@ -6317,26 +6403,28 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     (now: string, statusOverride?: "complete" | "in_progress") => {
       const nextStatus = statusOverride || (scheduleWorkflowStatus === "complete" ? "complete" : "in_progress");
       const resolvedAssignedNames = selectedEvent ? getAssignedNames(selectedEvent) : [];
-      const resolvedRounds = buildPersistedScheduleBuilderRounds(
-        applyScheduleRoomAdjustments(
-          assignUniquePrimarySpIndexes(
-            attachLearners(
-              generated.rounds,
-              learnerRoster,
-              parsedRoomCapacity,
-              activeCaseCount,
-              multipleCasesEnabled,
-              isVirtualEvent
+      const resolvedRounds = persistedResolvedRounds.length
+        ? persistedResolvedRounds
+        : buildPersistedScheduleBuilderRounds(
+            applyScheduleRoomAdjustments(
+              assignUniquePrimarySpIndexes(
+                attachLearners(
+                  generated.rounds,
+                  learnerRoster,
+                  parsedRoomCapacity,
+                  activeCaseCount,
+                  multipleCasesEnabled,
+                  isVirtualEvent
+                ),
+                resolvedAssignedNames,
+                !multipleCasesEnabled
+              ),
+              resolvedAssignedNames,
+              roomAdjustments
             ),
             resolvedAssignedNames,
-            !multipleCasesEnabled
-          ),
-          resolvedAssignedNames,
-          roomAdjustments
-        ),
-        resolvedAssignedNames,
-        selectedEvent?.earliest_session_date || selectedEvent?.date_text || ""
-      );
+            selectedEvent?.earliest_session_date || selectedEvent?.date_text || ""
+          );
       const normalizedResolvedRounds = resolvedRounds.map((round) => ({
         ...round,
         roomSlots: round.roomSlots.map((slot, slotIndex) => {
@@ -6376,6 +6464,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       multipleCasesEnabled,
       originalUploadedLearners,
       parsedRoomCapacity,
+      persistedResolvedRounds,
       roomAdjustments,
       scheduleWorkflowStatus,
       selectedEvent,
@@ -6737,7 +6826,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     async (caseIndex: number, partial: Partial<ScheduleRoomAdjustmentSlot>) => {
       if (!selectedEvent?.id) return;
       let nextAdjustments = roomAdjustments;
-      const roundTotal = Math.max(generated.rounds.length, effectiveRoundCount, activeCaseCount || 1);
+      const roundTotal = Math.max(persistedResolvedRounds.length, generated.rounds.length, effectiveRoundCount, activeCaseCount || 1);
       for (let roundNumber = 1; roundNumber <= roundTotal; roundNumber += 1) {
         nextAdjustments = upsertScheduleRoomAdjustmentSlot(nextAdjustments, roundNumber, caseIndex, partial);
       }
@@ -6759,7 +6848,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         showCopyMessage(message, "error", 3200);
       }
     },
-    [activeCaseCount, effectiveRoundCount, generated.rounds.length, persistScheduleWorkflowMetadata, roomAdjustments, selectedEvent?.id, showCopyMessage]
+    [activeCaseCount, effectiveRoundCount, generated.rounds.length, persistScheduleWorkflowMetadata, persistedResolvedRounds.length, roomAdjustments, selectedEvent?.id, showCopyMessage]
   );
 
   useEffect(() => {
@@ -6791,8 +6880,14 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   ]);
 
   const assignedNames = useMemo(() => (selectedEvent ? getAssignedNames(selectedEvent) : []), [selectedEvent]);
+  const persistedScheduledRounds = useMemo(
+    () => convertPersistedRoundsToScheduledRounds(persistedResolvedRounds),
+    [persistedResolvedRounds]
+  );
   const scheduledRounds = useMemo(
-    () =>
+    () => {
+      if (persistedScheduledRounds.length) return persistedScheduledRounds;
+      return (
       applyScheduleRoomAdjustments(
         assignUniquePrimarySpIndexes(
           attachLearners(
@@ -6808,8 +6903,20 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         ),
         assignedNames,
         roomAdjustments
-      ),
-    [activeCaseCount, assignedNames, generated.rounds, isVirtualEvent, learnerRoster, multipleCasesEnabled, parsedRoomCapacity, roomAdjustments]
+      )
+      );
+    },
+    [
+      activeCaseCount,
+      assignedNames,
+      generated.rounds,
+      isVirtualEvent,
+      learnerRoster,
+      multipleCasesEnabled,
+      parsedRoomCapacity,
+      persistedScheduledRounds,
+      roomAdjustments,
+    ]
   );
   const scheduleValidationMessages = useMemo(() => {
     const messages: string[] = [];
@@ -6972,10 +7079,11 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const previewCaseFallbackLabel = activeCaseCount > 1 ? "" : selectedEventEncounterLabel;
   const rotationEnd = generated.rotationEnd;
   const totalEventEnd = useMemo(() => {
+    if (scheduledRounds.length) return scheduledRounds[scheduledRounds.length - 1].end;
     const lastTimeline = generated.timeline[generated.timeline.length - 1];
     return lastTimeline ? lastTimeline.end : rotationEnd;
-  }, [generated.timeline, rotationEnd]);
-  const totalEventDuration = Math.max(totalEventEnd - (parsedStartMinutes ?? totalEventEnd), 0);
+  }, [generated.timeline, rotationEnd, scheduledRounds]);
+  const totalEventDuration = Math.max(totalEventEnd - (scheduledRounds[0]?.start ?? parsedStartMinutes ?? totalEventEnd), 0);
   const estimatedStaffDayLength = useMemo(() => {
     if (!generated.timeline.length) return 0;
     return generated.timeline[generated.timeline.length - 1].end - generated.timeline[0].start;
@@ -6995,6 +7103,8 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       })),
     [roomNamingContext, scheduledRounds]
   );
+  const renderedRoundCount = scheduledRounds.length || effectiveRoundCount;
+  const renderedRoomCount = roomColumns.length || totalRoomCount;
   const learnerCapacitySummary =
     uploadedLearners.length && slotsPerRound > 0
       ? `${uploadedLearners.length} learners • ${totalRoomCount} rooms • ${effectiveRoundCount} rounds required`
@@ -7003,9 +7113,12 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         : "";
 
   const selectedEventSummaryTime = useMemo(() => {
+    if (scheduledRounds.length) {
+      return formatRange(scheduledRounds[0].start, scheduledRounds[scheduledRounds.length - 1].end);
+    }
     if (parsedStartMinutes === null || !generated.rounds.length) return "";
     return formatRange(parsedStartMinutes, generated.rotationEnd);
-  }, [generated.rotationEnd, generated.rounds.length, parsedStartMinutes]);
+  }, [generated.rotationEnd, generated.rounds.length, parsedStartMinutes, scheduledRounds]);
   const studentScheduleGridRows = useMemo(
     () => buildScheduleGridPreviewRows(studentPreviewRounds, studentPreviewTimeline),
     [studentPreviewRounds, studentPreviewTimeline]
@@ -8138,8 +8251,8 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
             </div>
             <div className="flex flex-wrap gap-2">
               <span className="cfsp-chip">Learners {learnerRoster.length}</span>
-              <span className="cfsp-chip">Rooms {totalRoomCount}</span>
-              <span className="cfsp-chip">Rounds {effectiveRoundCount}</span>
+              <span className="cfsp-chip">Rooms {renderedRoomCount}</span>
+              <span className="cfsp-chip">Rounds {renderedRoundCount}</span>
               <span className="cfsp-chip">
                 Cases {activeCaseDisplayCount}
                 {configuredFlexRoomCountForDisplay
@@ -8395,7 +8508,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                 <div className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
                   <div className="cfsp-label">End Time</div>
                   <div className="mt-2 text-base font-black text-[#14304f]">
-                    {generated.rounds.length ? formatTimeWithDayOffset(rotationEnd) : "Not generated yet"}
+                    {scheduledRounds.length || generated.rounds.length ? formatTimeWithDayOffset(totalEventEnd) : "Not generated yet"}
                   </div>
                   <div className="mt-2 text-xs font-semibold text-[#5e7388]">
                     {referenceEndTimeLabel || "Calculated from the builder settings"}
@@ -8403,7 +8516,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                 </div>
                 <div className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
                   <div className="cfsp-label">Rounds Needed</div>
-                  <div className="mt-2 text-base font-black text-[#14304f]">{effectiveRoundCount}</div>
+                  <div className="mt-2 text-base font-black text-[#14304f]">{renderedRoundCount}</div>
                 </div>
                 <div className="rounded-[12px] border border-[#dce6ee] bg-[#f8fbfd] px-4 py-3">
                   <div className="cfsp-label">Total Event Duration</div>
