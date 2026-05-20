@@ -995,6 +995,12 @@ function normalizeAccessLink(value: string) {
   return normalizeDisplayText(value).replace(/\/+$/, "").toLowerCase();
 }
 
+function hasRenderablePrintHtml(value: string) {
+  const html = asText(value);
+  if (!html) return false;
+  return /<\s*(html|body|section|article|table|div)\b/i.test(html);
+}
+
 function resolveStudentInstructionsAccessDetails(args: {
   configAccess?: string | null;
   contextAccess?: string | null;
@@ -7973,37 +7979,58 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
 
   const openSchedulePrintFlow = useCallback((): boolean => {
     if (typeof window === "undefined") return false;
+    if (!hasRenderablePrintHtml(compactSchedulePrintHtml)) {
+      console.error("[student-instructions] Missing schedule print HTML for fallback print flow.");
+      return false;
+    }
 
     const popup = window.open("", "_blank", "noopener,noreferrer");
     if (!popup) {
       return false;
     }
-    popup.document.open();
-    popup.document.write(compactSchedulePrintHtml);
-    popup.document.close();
-    popup.onload = () => {
-      popup.focus();
-      popup.print();
-    };
-    return true;
+    try {
+      popup.document.open();
+      popup.document.write(compactSchedulePrintHtml);
+      popup.document.close();
+      popup.onload = () => {
+        popup.focus();
+        popup.print();
+      };
+      return true;
+    } catch (error) {
+      console.error("[student-instructions] Could not write schedule print window.", error);
+      popup.close();
+      return false;
+    }
   }, [compactSchedulePrintHtml]);
 
   const openStudentInstructionsPrintFlow = useCallback((): boolean => {
     if (typeof window === "undefined") return false;
-    if (studentInstructionsContextError || !studentInstructionsPrintHtml) return false;
+    if (studentInstructionsContextError || !hasRenderablePrintHtml(studentInstructionsPrintHtml)) {
+      console.error("[student-instructions] Missing printable packet HTML.", {
+        contextError: studentInstructionsContextError || null,
+      });
+      return false;
+    }
 
     const popup = window.open("", "_blank", "noopener,noreferrer");
     if (!popup) {
       return false;
     }
-    popup.document.open();
-    popup.document.write(studentInstructionsPrintHtml);
-    popup.document.close();
-    popup.onload = () => {
-      popup.focus();
-      popup.print();
-    };
-    return true;
+    try {
+      popup.document.open();
+      popup.document.write(studentInstructionsPrintHtml);
+      popup.document.close();
+      popup.onload = () => {
+        popup.focus();
+        popup.print();
+      };
+      return true;
+    } catch (error) {
+      console.error("[student-instructions] Could not write student instructions print window.", error);
+      popup.close();
+      return false;
+    }
   }, [studentInstructionsContextError, studentInstructionsPrintHtml]);
 
   const handleStyledPdfDownload = useCallback(async () => {
@@ -8044,8 +8071,14 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
 
   const handleStudentInstructionsPdfDownload = useCallback(async () => {
     if (studentInstructionsPdfExporting) return;
-    if (studentInstructionsContextError || !studentInstructionsPrintHtml) {
-      showCopyMessage(studentInstructionsContextError || "Open this from an event before generating Student Instructions.", "error", 3600);
+    if (studentInstructionsContextError || !hasRenderablePrintHtml(studentInstructionsPrintHtml)) {
+      const contextMessage =
+        studentInstructionsContextError || "Could not generate Student Instructions PDF. No printable packet content was created.";
+      console.error("[student-instructions] PDF generation blocked before export.", {
+        contextError: studentInstructionsContextError || null,
+        hasHtml: hasRenderablePrintHtml(studentInstructionsPrintHtml),
+      });
+      showCopyMessage(contextMessage, "error", 4200);
       return;
     }
 
@@ -8060,12 +8093,13 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       showCopyMessage("Student Instructions PDF downloaded.", "success", 2600);
     } catch (error) {
       const printOpened = openStudentInstructionsPrintFlow();
+      const fallbackErrorMessage = "Could not generate Student Instructions PDF.";
       showCopyMessage(
         printOpened
           ? "Direct Student Instructions PDF download was blocked, so a print window opened. Use Save as PDF from the print dialog."
           : error instanceof Error
-            ? error.message
-            : "Could not download Student Instructions PDF. Use the print window and Save as PDF.",
+            ? `${fallbackErrorMessage} ${error.message}`
+            : `${fallbackErrorMessage} Use the print window and Save as PDF.`,
         printOpened ? "success" : "error",
         printOpened ? 5200 : 3600
       );
