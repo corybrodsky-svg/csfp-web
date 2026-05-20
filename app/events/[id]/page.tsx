@@ -254,14 +254,10 @@ type RoundRoomBoardRow = RoundRoomRow & {
   isExplicitMapped: boolean;
   mappingState: string;
 };
-type EventAttendanceCanonicalRoom = {
-  roomName: string;
-  learnerLabels: string[];
-  assignment: AssignmentRow | null;
-  sp: SPRow | null;
-  spName: string;
+type RoundCommandStation = RoundRoomRow & {
+  primarySpName: string;
   encounterLabel: string;
-  fallbackIndex: number;
+  isActive: boolean;
 };
 type AssignSpOptions = {
   status?: AssignmentStatus;
@@ -5072,9 +5068,6 @@ export default function EventDetailPage() {
     secondaryTools: true,
   });
   const [liveRoomStates, setLiveRoomStates] = useState<Record<string, LiveRoomLocalState>>({});
-  const [localOccupancySpCheckIns, setLocalOccupancySpCheckIns] = useState<Record<string, boolean>>({});
-  const [localOccupancyLearnerRoomMoves, setLocalOccupancyLearnerRoomMoves] = useState<Record<string, string>>({});
-  const [localOccupancySpRoomMoves, setLocalOccupancySpRoomMoves] = useState<Record<string, string>>({});
   const [scheduleBuilderPreviewDraft, setScheduleBuilderPreviewDraft] =
     useState<ScheduleBuilderPreviewDraft | null>(null);
   const [liveDelayMinutes, setLiveDelayMinutes] = useState(0);
@@ -5134,14 +5127,13 @@ export default function EventDetailPage() {
   const [attendanceSaving, setAttendanceSaving] = useState(false);
   const [attendanceError, setAttendanceError] = useState("");
   const [attendanceSuccess, setAttendanceSuccess] = useState("");
-  const [activeEventAttendanceKey, setActiveEventAttendanceKey] = useState("");
-  const [eventAttendanceFilter, setEventAttendanceFilter] = useState<EventAttendanceFilter>("all");
   const [attendanceSavingKeys, setAttendanceSavingKeys] = useState<Record<string, boolean>>({});
   const [persistedLearnerAttendanceRecords, setPersistedLearnerAttendanceRecords] = useState<LearnerAttendanceMap>({});
   const [roundOperationsDraftAdjustments, setRoundOperationsDraftAdjustments] = useState<ParsedScheduleRoomAdjustments | null>(null);
   const [roundOperationsSaveState, setRoundOperationsSaveState] = useState<"saved" | "unsaved" | "saving" | "error">("saved");
   const [roundOperationsLastSavedAt, setRoundOperationsLastSavedAt] = useState("");
   const [roundOperationsSaveError, setRoundOperationsSaveError] = useState("");
+  const [showInactiveCommandStations, setShowInactiveCommandStations] = useState(false);
   const [trainingImportResult, setTrainingImportResult] = useState<TrainingImportResult | null>(null);
   const [trainingImportError, setTrainingImportError] = useState("");
   const [trainingImporting, setTrainingImporting] = useState(false);
@@ -7312,9 +7304,7 @@ const operationalEventStatusLabel = useMemo(() => {
     setRoundOperationsSaveState("saved");
     setRoundOperationsLastSavedAt("");
     setRoundOperationsSaveError("");
-    setLocalOccupancySpCheckIns({});
-    setLocalOccupancyLearnerRoomMoves({});
-    setLocalOccupancySpRoomMoves({});
+    setShowInactiveCommandStations(false);
   }, [id]);
   useEffect(() => {
     if (typeof window === "undefined" || !id) return;
@@ -9309,6 +9299,80 @@ const operationalEventStatusLabel = useMemo(() => {
     spsById,
     staffingRelevant,
   ]);
+  const selectedRoundAdjustmentSlotsByIndex = useMemo(() => {
+    const next = new Map<number, ScheduleRoomAdjustmentSlot>();
+    (activeScheduleRoomAdjustments.get(activeSelectedRotationRoundGlobalIndex + 1) || []).forEach((slot: ScheduleRoomAdjustmentSlot) => {
+      next.set(slot.slotIndex, slot);
+    });
+    return next;
+  }, [activeSelectedRotationRoundGlobalIndex, activeScheduleRoomAdjustments]);
+  const selectedRoundCommandStations = useMemo(
+    () =>
+      selectedRoundScheduleRows.map((row) => {
+        const resolvedSlot = selectedResolvedRoomSlots[row.slotIndex] || null;
+        const slotAdjustment = selectedRoundAdjustmentSlotsByIndex.get(row.slotIndex) || null;
+        const learnerLabels = normalizeLearnerNames(row.learnerLabels).filter((learner) => isAssignedLearnerRoomLabel(learner));
+        const primarySpName =
+          (row.sp ? getFullName(row.sp) : "") ||
+          asText(slotAdjustment?.spName) ||
+          asText(resolvedSlot?.assignedSpName);
+        const explicitCaseLabel =
+          asText(slotAdjustment?.caseLabel) ||
+          asText(resolvedSlot?.caseLabel) ||
+          (!selectedResolvedRoomSlots.length ? row.caseLabel : "");
+        const explicitRoleId =
+          asText(slotAdjustment?.roleId) ||
+          asText(resolvedSlot?.roleId) ||
+          (!selectedResolvedRoomSlots.length ? row.roleId : "");
+        const explicitRoleLabel =
+          asText(slotAdjustment?.roleLabel) ||
+          asText(resolvedSlot?.roleLabel) ||
+          (!selectedResolvedRoomSlots.length ? row.roleLabel : "");
+        const encounterLabel =
+          [row.stationLabel, explicitCaseLabel].filter(Boolean).join(" · ") || "Case pending";
+        const isActive =
+          learnerLabels.length > 0 ||
+          Boolean(primarySpName || row.assignment) ||
+          Boolean(explicitCaseLabel) ||
+          Boolean(explicitRoleId || explicitRoleLabel);
+
+        return {
+          ...row,
+          learnerLabels,
+          backupSpName: asText(slotAdjustment?.backupSpName) || asText(resolvedSlot?.backupSpName) || row.backupSpName,
+          caseLabel: explicitCaseLabel,
+          roleId: explicitRoleId,
+          roleLabel: explicitRoleId || explicitRoleLabel ? row.roleLabel || explicitRoleLabel : "",
+          primarySpName,
+          encounterLabel,
+          isActive,
+        } satisfies RoundCommandStation;
+      }),
+    [selectedResolvedRoomSlots, selectedRoundAdjustmentSlotsByIndex, selectedRoundScheduleRows]
+  );
+  const selectedRoundActiveCommandStations = useMemo(
+    () => selectedRoundCommandStations.filter((station) => station.isActive),
+    [selectedRoundCommandStations]
+  );
+  const selectedRoundInactiveCommandStations = useMemo(
+    () => selectedRoundCommandStations.filter((station) => !station.isActive),
+    [selectedRoundCommandStations]
+  );
+  const selectedRoundActiveStationCount = selectedRoundActiveCommandStations.length;
+  const selectedRoundConfiguredStationCount = selectedRoundCommandStations.length || selectedRoundRoomCount;
+  const selectedRoundCommandStationLearnerCount = selectedRoundActiveCommandStations.reduce(
+    (total, station) => total + station.learnerLabels.length,
+    0
+  );
+  const selectedRoundCommandStationAssignedSpCount = selectedRoundActiveCommandStations.filter(
+    (station) => Boolean(station.primarySpName || station.assignment)
+  ).length;
+  const selectedRoundCommandStationStationsNeedingSp = selectedRoundActiveCommandStations.filter(
+    (station) => staffingRelevant && !station.assignment && !station.primarySpName
+  ).length;
+  const selectedRoundCommandStationsVisible = showInactiveCommandStations
+    ? selectedRoundCommandStations
+    : selectedRoundActiveCommandStations;
   const selectedRoundLearnerCount = useMemo(() => {
     if (!selectedRotationRound) return null;
     const resolvedLearnerCount = selectedRoundScheduleRows.reduce((total, row) => total + row.learnerLabels.length, 0);
@@ -10428,170 +10492,37 @@ const operationalEventStatusLabel = useMemo(() => {
     });
     return [...liveBlueprintBaseRooms, ...extraRooms];
   }, [liveBlueprintBaseHighestRoomNumber, liveBlueprintBaseRooms, liveExtraRoomCount, roomNamingContext]);
-  const selectedRoundOccupancyKey = asText(selectedRotationRound?.key || currentLiveReferenceRound?.key || "");
-  const selectedRoundOccupancyRoomLearners = useMemo(
-    () =>
-      selectedRoundScheduleRows.map((row, index) => ({
-        roomName: row.roomName,
-        learnerLabels: normalizeLearnerNames(row.learnerLabels).filter((learner) => isAssignedLearnerRoomLabel(learner)),
-        fallbackIndex: index,
-      })),
-    [selectedRoundScheduleRows]
-  );
-  const selectedRoundOccupancyScheduledLearners = useMemo(
-    () =>
-      Array.from(
-        new Set(
-          selectedRoundOccupancyRoomLearners
-            .flatMap((room) => room.learnerLabels)
-            .map((learner) => normalizeLearnerName(learner))
-            .filter(Boolean)
-        )
-      ),
-    [selectedRoundOccupancyRoomLearners]
-  );
   const interactiveLiveAttendanceBlueprintRooms = useMemo(
     () =>
       liveAttendanceBlueprintRooms.map((room, roomIndex) => {
-        const matchedOccupancyRoom =
-          selectedRoundOccupancyRoomLearners.find((candidate) => compareRoomLabels(candidate.roomName, room.roomName) === 0) ||
-          selectedRoundOccupancyRoomLearners[roomIndex] ||
+        const matchedStation =
+          selectedRoundCommandStations.find((station) => compareRoomLabels(station.roomName, room.roomName) === 0) ||
+          selectedRoundCommandStations[roomIndex] ||
           null;
-        const baseLearners = matchedOccupancyRoom?.learnerLabels || [];
-        const learnerNames = Array.from(
-          new Set([
-            ...baseLearners.filter((learner) => {
-              const moveTarget = localOccupancyLearnerRoomMoves[`${selectedRoundOccupancyKey}|${learner}`];
-              return !moveTarget || compareRoomLabels(moveTarget, room.roomName) === 0;
-            }),
-            ...selectedRoundOccupancyScheduledLearners.filter(
-              (learner) =>
-                !baseLearners.includes(learner) &&
-                compareRoomLabels(localOccupancyLearnerRoomMoves[`${selectedRoundOccupancyKey}|${learner}`], room.roomName) === 0
-            ),
-          ])
-        );
-        const spMoveTarget = room.spName ? localOccupancySpRoomMoves[`${selectedRoundOccupancyKey}|${room.spName}`] : "";
-        const movedInSpName =
-          Object.entries(localOccupancySpRoomMoves).find(
-            ([key, targetRoom]) =>
-              key.startsWith(`${selectedRoundOccupancyKey}|`) &&
-              compareRoomLabels(targetRoom, room.roomName) === 0 &&
-              key.split("|").slice(1).join("|") !== room.spName
-          )?.[0].split("|").slice(1).join("|") || "";
-        const spName = movedInSpName || (spMoveTarget && compareRoomLabels(spMoveTarget, room.roomName) !== 0 ? "" : room.spName);
-        const spCheckKey = `${selectedRoundOccupancyKey}|${room.roomName}|${spName || room.spName || "unassigned-sp"}`;
-        const localSpChecked = localOccupancySpCheckIns[spCheckKey];
-        const status =
-          localSpChecked === true
-            ? "checked_in"
-            : localSpChecked === false
-              ? "awaiting"
-              : room.status;
-
+        const learnerLabels = matchedStation?.learnerLabels || [];
         return {
           ...room,
-          spName,
-          status,
-          statusLabel:
-            localSpChecked === true
-              ? "Checked In"
-              : localSpChecked === false
-                ? "Not Checked In"
-                : room.statusLabel,
-          learnerLabel: learnerNames.length ? learnerNames.join(", ") : UNASSIGNED_LEARNER_ROOM_LABEL,
+          roomName: matchedStation?.roomName || room.roomName,
+          assignment: matchedStation?.assignment || room.assignment,
+          sp: matchedStation?.sp || room.sp,
+          spName: matchedStation?.primarySpName || room.spName,
+          learnerLabel: learnerLabels.length ? getLearnerRoomAssignmentLabel(learnerLabels) : room.learnerLabel,
+          encounterLabel: matchedStation?.encounterLabel || room.encounterLabel,
         };
       }),
-    [
-      liveAttendanceBlueprintRooms,
-      localOccupancyLearnerRoomMoves,
-      localOccupancySpCheckIns,
-      localOccupancySpRoomMoves,
-      selectedRoundOccupancyKey,
-      selectedRoundOccupancyRoomLearners,
-      selectedRoundOccupancyScheduledLearners,
-    ]
+    [liveAttendanceBlueprintRooms, selectedRoundCommandStations]
   );
-  const eventAttendanceRoomCards = useMemo(() => {
-    const canonicalRooms: EventAttendanceCanonicalRoom[] = selectedRoundScheduleRows.length
-      ? selectedRoundScheduleRows.map((row, fallbackIndex) => ({
-          roomName: row.roomName,
-          learnerLabels: normalizeLearnerNames(row.learnerLabels).filter((learner) => isAssignedLearnerRoomLabel(learner)),
-          assignment: row.assignment,
-          sp: row.sp,
-          spName: row.sp ? getFullName(row.sp) : "",
-          encounterLabel: [row.stationLabel, row.caseLabel].filter(Boolean).join(" · ") || "Case pending",
-          fallbackIndex,
-        }))
-      : selectedRoundOccupancyRoomLearners.map((room) => ({
-          ...room,
-          assignment: null,
-          sp: null,
-          spName: "",
-          encounterLabel: "Case pending",
-        }));
-
-    return canonicalRooms.map((room, roomIndex) => {
-      const matchedRoom =
-        (room.assignment
-          ? interactiveLiveAttendanceBlueprintRooms.find((candidate) => candidate.assignment?.id === room.assignment?.id)
-          : null) ||
-        interactiveLiveAttendanceBlueprintRooms.find((candidate) => compareRoomLabels(candidate.roomName, room.roomName) === 0) ||
-        interactiveLiveAttendanceBlueprintRooms[roomIndex] ||
-        null;
-      const fallbackRoomName =
-        asText(room.roomName) ||
-        asText(matchedRoom?.roomName) ||
-        getFallbackRoomLabel(roomIndex, roomNamingContext);
-      const baseLearners = room.learnerLabels || [];
-      const learnerLabels = Array.from(
-        new Set([
-          ...baseLearners.filter((learner) => {
-            const moveTarget = localOccupancyLearnerRoomMoves[`${selectedRoundOccupancyKey}|${learner}`];
-            return !moveTarget || compareRoomLabels(moveTarget, fallbackRoomName) === 0;
-          }),
-          ...selectedRoundOccupancyScheduledLearners.filter(
-            (learner) =>
-              !baseLearners.includes(learner) &&
-              compareRoomLabels(localOccupancyLearnerRoomMoves[`${selectedRoundOccupancyKey}|${learner}`], fallbackRoomName) === 0
-          ),
-        ])
-      );
-
-      return {
-        key: matchedRoom?.key || `event-attendance-room-${selectedRoundOccupancyKey}-${roomIndex}`,
-        roomName: fallbackRoomName,
-        encounterLabel: room.encounterLabel || matchedRoom?.encounterLabel || "Case pending",
-        statusLabel: matchedRoom?.statusLabel || "Standby",
-        isCurrentRotationRoom: Boolean(matchedRoom?.isCurrentRotationRoom),
-        assignment: room.assignment || matchedRoom?.assignment || null,
-        sp: room.sp || matchedRoom?.sp || null,
-        spName: room.spName || matchedRoom?.spName || "",
-        learnerLabels,
-      };
-    });
-  }, [
-    interactiveLiveAttendanceBlueprintRooms,
-    localOccupancyLearnerRoomMoves,
-    roomNamingContext,
-    selectedRoundOccupancyKey,
-    selectedRoundOccupancyRoomLearners,
-    selectedRoundOccupancyScheduledLearners,
-    selectedRoundScheduleRows,
-  ]);
+  const selectedRoundCommandStationKey = asText(selectedRotationRound?.key);
   const eventAttendanceLearnerPresenceTokens = useMemo(
     () =>
-      eventAttendanceRoomCards.flatMap((room, roomIndex) =>
-        room.learnerLabels.map((learnerName, learnerIndex) => {
-          const attendanceKey = getLearnerAttendanceKey(selectedRoundOccupancyKey || currentLiveReferenceRound?.key, room.roomName, learnerName);
+      selectedRoundActiveCommandStations.flatMap((station, stationIndex) =>
+        station.learnerLabels.map((learnerName, learnerIndex) => {
+          const attendanceKey = getLearnerAttendanceKey(selectedRoundCommandStationKey, station.roomName, learnerName);
           const record = liveLearnerAttendanceRecords[attendanceKey] || null;
           const initialSeed = learnerName.replace(/[^A-Za-z0-9]/g, "");
-          const initials = (initialSeed.slice(0, 2) || String(roomIndex + learnerIndex + 1)).toUpperCase();
+          const initials = (initialSeed.slice(0, 2) || String(stationIndex + learnerIndex + 1)).toUpperCase();
           const storedStatus = record?.status || "expected";
-          const displayStatus: LearnerAttendanceStatus =
-            storedStatus === "arrived" && room.isCurrentRotationRoom
-              ? "in_room"
-              : storedStatus;
+          const displayStatus: LearnerAttendanceStatus = storedStatus;
           const state =
             displayStatus === "in_room" || displayStatus === "completed"
               ? "roomed"
@@ -10603,25 +10534,24 @@ const operationalEventStatusLabel = useMemo(() => {
                     ? "absent"
                     : "queued";
           return {
-            key: `${room.key}-event-learner-token-${learnerIndex}`,
+            key: `${station.key}-event-learner-token-${learnerIndex}`,
             attendanceKey,
-            roomKey: room.key,
-            roomName: room.roomName,
+            roomKey: station.key,
+            roomName: station.roomName,
             learnerName,
             initials,
             state,
             status: displayStatus,
             storedStatus,
             updatedAt: record?.updatedAt || "",
-            isCurrentRoom: room.isCurrentRotationRoom,
+            isCurrentRoom: selectedRoundLiveTimingState.status === "active",
           };
         })
       ),
     [
-      currentLiveReferenceRound?.key,
-      eventAttendanceRoomCards,
       liveLearnerAttendanceRecords,
-      selectedRoundOccupancyKey,
+      selectedRoundActiveCommandStations,
+      selectedRoundCommandStationKey,
     ]
   );
   const liveVisibleRoomCount = interactiveLiveAttendanceBlueprintRooms.length;
@@ -10697,33 +10627,28 @@ const operationalEventStatusLabel = useMemo(() => {
   ).length;
   const eventAttendanceSpTokens = useMemo(
     () =>
-      sortedAssignments.map((assignment) => {
+      selectedRoundActiveCommandStations
+        .filter((station): station is RoundCommandStation & { assignment: AssignmentRow } => Boolean(station.assignment))
+        .map((station) => {
+        const assignment = station.assignment;
         const sp = assignment.sp_id ? spsById.get(assignment.sp_id) : null;
-        const spName = getFullName(sp || emptySpRow) || "Assigned SP";
-        const room =
-          eventAttendanceRoomCards.find((candidate) => candidate.assignment?.id === assignment.id) ||
-          interactiveLiveAttendanceBlueprintRooms.find((candidate) => candidate.assignment?.id === assignment.id);
+        const spName = station.primarySpName || getFullName(sp || emptySpRow) || "Assigned SP";
         const status = asText(assignment.event_attendance_status) || (assignment.event_checked_in_at ? "arrived" : "expected");
         return {
           key: `sp:${assignment.id}`,
           assignment,
           name: spName,
           status,
-          roomName: room?.roomName || "",
+          roomName: station.roomName,
+          stationKey: station.key,
           note: asText(assignment.attendance_note),
         };
       }),
-    [eventAttendanceRoomCards, interactiveLiveAttendanceBlueprintRooms, sortedAssignments, spsById]
+    [selectedRoundActiveCommandStations, spsById]
   );
   const eventAttendanceSpArrivedCount = eventAttendanceSpTokens.filter((token) =>
     ["arrived", "in_room", "completed"].includes(asText(token.status))
   ).length;
-  const eventAttendanceRoomActiveCount = eventAttendanceRoomCards.filter(
-    (room) => Boolean(room.assignment || room.spName || room.learnerLabels.length)
-  ).length;
-  const eventAttendanceHallSplitIndex = Math.ceil(eventAttendanceRoomCards.length / 2);
-  const eventAttendanceNorthRooms = eventAttendanceRoomCards.slice(0, eventAttendanceHallSplitIndex);
-  const eventAttendanceSouthRooms = eventAttendanceRoomCards.slice(eventAttendanceHallSplitIndex);
   const eventAttendanceLearnerExpectedCount = eventAttendanceLearnerPresenceTokens.length;
   const eventAttendanceLearnerArrivedCount = eventAttendanceLearnerPresenceTokens.filter((token) =>
     ["arrived", "in_room", "completed"].includes(token.status)
@@ -10734,23 +10659,687 @@ const operationalEventStatusLabel = useMemo(() => {
   const eventAttendanceLateCount =
     eventAttendanceSpTokens.filter((token) => asText(token.status) === "late").length +
     eventAttendanceLearnerPresenceTokens.filter((token) => token.status === "late").length;
-  const visibleEventAttendanceSpTokens = useMemo(
-    () =>
-      eventAttendanceSpTokens.filter((token) =>
-        eventAttendanceFilter === "all"
-          ? true
-          : normalizeEventAttendanceStatus(token.status) === eventAttendanceFilter
-      ),
-    [eventAttendanceFilter, eventAttendanceSpTokens]
-  );
-  const visibleEventAttendanceLearnerTokens = useMemo(
-    () =>
-      eventAttendanceLearnerPresenceTokens.filter((token) =>
-        eventAttendanceFilter === "all"
-          ? true
-          : normalizeEventAttendanceStatus(token.status) === eventAttendanceFilter
-      ),
-    [eventAttendanceFilter, eventAttendanceLearnerPresenceTokens]
+  const renderRoundCommandStationPanel = () => selectedRoundOperationsScheduleReady ? (
+    <div style={{ display: "grid", gap: "10px" }}>
+      <section
+        style={{
+          borderRadius: "18px",
+          border: commandCenterVisual.rowBorder,
+          background: commandCenterVisual.rowBackground,
+          padding: "12px",
+          display: "grid",
+          gap: "10px",
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "flex-start" }}>
+          <div>
+            <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Round Command Station</div>
+            <div style={{ marginTop: "4px", color: commandCenterVisual.headingColor, fontWeight: 950, fontSize: "18px" }}>
+              {selectedRotationRound ? `Round ${activeSelectedRotationRoundIndex + 1}` : "No round selected"}
+            </div>
+            <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 750, lineHeight: 1.45 }}>
+              Resolved selected-round stations with attendance, case access, learner placement, and room controls in one command surface.
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+            <button
+              type="button"
+              onClick={() => void handleBulkEventSpAttendance("arrived")}
+              disabled={!eventAttendanceSpTokens.length}
+              style={{ ...buttonStyle, padding: "7px 10px", fontSize: "11px", opacity: eventAttendanceSpTokens.length ? 1 : 0.6 }}
+            >
+              Mark SPs Arrived
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleBulkEventLearnerAttendance("arrived")}
+              disabled={!eventAttendanceLearnerPresenceTokens.length}
+              style={{ ...buttonStyle, padding: "7px 10px", fontSize: "11px", opacity: eventAttendanceLearnerPresenceTokens.length ? 1 : 0.6 }}
+            >
+              Mark Learners Arrived
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleSaveRoundOperationsChanges()}
+              disabled={roundOperationsSaveState === "saving" || saving}
+              style={{
+                ...buttonStyle,
+                padding: "7px 10px",
+                fontSize: "11px",
+                background:
+                  roundOperationsSaveState === "error"
+                    ? "#b42318"
+                    : roundOperationsSaveState === "saved"
+                      ? "#12805c"
+                      : "#c65f16",
+                borderColor:
+                  roundOperationsSaveState === "error"
+                    ? "#912018"
+                    : roundOperationsSaveState === "saved"
+                      ? "#0f684b"
+                      : "#9a4712",
+                color: "#fff",
+                opacity: roundOperationsSaveState === "saving" || saving ? 0.72 : 1,
+              }}
+            >
+              {roundOperationsSaveState === "saving"
+                ? "Saving..."
+                : roundOperationsSaveState === "error"
+                  ? "Save Failed"
+                  : roundOperationsSaveState === "saved"
+                    ? `Saved ✓${roundOperationsLastSavedAt ? ` at ${new Date(roundOperationsLastSavedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}`
+                    : "Save Round Changes"}
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleRoundRoomCountChange(1)}
+              disabled={saving}
+              style={{ ...buttonStyle, padding: "7px 10px", fontSize: "11px", opacity: saving ? 0.65 : 1 }}
+            >
+              + Station
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleRoundRoomCountChange(-1)}
+              disabled={saving || effectiveRoomCount <= 1}
+              style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px", fontSize: "11px", opacity: saving || effectiveRoomCount <= 1 ? 0.55 : 1 }}
+            >
+              - Station
+            </button>
+          </div>
+        </div>
+
+        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+          {[
+            selectedRotationRound ? `Selected Round ${activeSelectedRotationRoundIndex + 1}` : null,
+            `${selectedRoundActiveStationCount} active station${selectedRoundActiveStationCount === 1 ? "" : "s"}`,
+            selectedRoundConfiguredStationCount > selectedRoundActiveStationCount
+              ? `${selectedRoundConfiguredStationCount} configured room${selectedRoundConfiguredStationCount === 1 ? "" : "s"}`
+              : null,
+            `${selectedRoundCommandStationLearnerCount} learner${selectedRoundCommandStationLearnerCount === 1 ? "" : "s"}`,
+            `${selectedRoundCommandStationAssignedSpCount} SP${selectedRoundCommandStationAssignedSpCount === 1 ? "" : "s"} assigned`,
+            eventAttendanceSpTokens.length
+              ? `${eventAttendanceSpArrivedCount}/${eventAttendanceSpTokens.length} SPs arrived`
+              : null,
+            eventAttendanceLearnerExpectedCount
+              ? `${eventAttendanceLearnerArrivedCount}/${eventAttendanceLearnerExpectedCount} learners arrived`
+              : null,
+          ].filter(Boolean).map((chip) => (
+            <span key={`round-command-chip-${chip}`} style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText, border: commandCenterVisual.rowBorder }}>
+              {chip}
+            </span>
+          ))}
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(136px, 1fr))", gap: "8px" }}>
+          {[
+            { label: "Active Stations", value: String(selectedRoundActiveStationCount) },
+            { label: "Configured Rooms", value: String(selectedRoundConfiguredStationCount) },
+            { label: "Learners In Round", value: String(selectedRoundCommandStationLearnerCount) },
+            { label: "SPs Assigned", value: String(selectedRoundCommandStationAssignedSpCount) },
+            { label: "Needs SP", value: String(selectedRoundCommandStationStationsNeedingSp) },
+            { label: "Attendance Alerts", value: String(eventAttendanceMissingCount + eventAttendanceLateCount) },
+          ].map((metric) => (
+            <div key={`round-command-metric-${metric.label}`} style={{ borderRadius: "12px", border: commandCenterVisual.rowBorder, background: commandCenterVisual.chipBackground, padding: "8px 9px" }}>
+              <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>{metric.label}</div>
+              <div style={{ marginTop: "4px", color: commandCenterVisual.textColor, fontSize: "15px", fontWeight: 950 }}>{metric.value}</div>
+            </div>
+          ))}
+        </div>
+
+        {selectedRoundOperationsFlags.length ? (
+          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+            {selectedRoundOperationsFlags.map((flag) => (
+              <span key={`round-command-flag-${flag}`} style={{ ...commandChipStyle, background: "rgba(248, 113, 113, 0.12)", color: staffingWorkspacePalette.dangerText }}>
+                {flag}
+              </span>
+            ))}
+          </div>
+        ) : null}
+
+        {roundOperationsSaveError || attendanceError || attendanceSuccess ? (
+          <div
+            style={{
+              borderRadius: "12px",
+              border: roundOperationsSaveError || attendanceError ? "1px solid rgba(248, 113, 113, 0.26)" : "1px solid rgba(25, 138, 112, 0.22)",
+              background: roundOperationsSaveError || attendanceError ? "rgba(254, 226, 226, 0.88)" : "rgba(236, 253, 245, 0.92)",
+              color: roundOperationsSaveError || attendanceError ? "#7f1d1d" : "#065f46",
+              padding: "8px 9px",
+              fontSize: "12px",
+              fontWeight: 850,
+            }}
+          >
+            {roundOperationsSaveError || attendanceError || attendanceSuccess}
+          </div>
+        ) : null}
+      </section>
+
+      {selectedRoundCommandStationsVisible.length ? (
+        <div style={{ display: "grid", gap: "8px" }}>
+          {selectedRoundCommandStationsVisible.map((station, index) => {
+            const stationCaseEntry = findCaseFileEntryForLabel(caseFileEntries, station.caseLabel);
+            const stationCaseAssets = stationCaseEntry
+              ? buildTrainingMaterialAssetUrls({
+                  eventId: id,
+                  rawUrl: stationCaseEntry.url,
+                  storagePath: stationCaseEntry.storagePath,
+                  fileName: stationCaseEntry.name || station.caseLabel || "case-file",
+                })
+              : null;
+            const stationHasCaseFile = Boolean(stationCaseEntry && (stationCaseEntry.url || stationCaseEntry.storagePath));
+            const stationCaseRoles = stationCaseEntry?.hasRoles ? (stationCaseEntry.roles || []).filter((role) => role.name) : [];
+            const stationRoleMatchesCase = station.roleId ? stationCaseRoles.some((role) => role.id === station.roleId) : false;
+            const stationRoleMatchesName = station.roleLabel
+              ? stationCaseRoles.some((role) => role.name.toLowerCase() === station.roleLabel.toLowerCase())
+              : false;
+            const stationRoleSelectValue = station.roleId && stationRoleMatchesCase
+              ? `role:${station.roleId}`
+              : station.roleLabel
+                ? `custom:${station.roleLabel}`
+                : "";
+            const stationSpToken = station.assignment
+              ? eventAttendanceSpTokens.find((token) => token.assignment.id === station.assignment?.id) || null
+              : null;
+            const stationSpStatus = normalizeEventAttendanceStatus(stationSpToken?.status || "expected");
+            const stationLearnerTokens = eventAttendanceLearnerPresenceTokens.filter((token) => token.roomKey === station.key);
+            const stationLearnerArrivedCount = stationLearnerTokens.filter((token) =>
+              ["arrived", "in_room", "completed"].includes(token.status)
+            ).length;
+            const stationAlertCount =
+              stationLearnerTokens.filter((token) => token.status === "late" || token.status === "absent").length +
+              (stationSpStatus === "late" || stationSpStatus === "missing" ? 1 : 0);
+
+            return (
+              <div
+                key={`${station.key}-command-station`}
+                style={{
+                  borderRadius: "16px",
+                  border: commandCenterVisual.rowBorder,
+                  background: commandCenterVisual.rowBackground,
+                  padding: "10px 12px",
+                  display: "grid",
+                  gap: "10px",
+                  opacity: station.isActive ? 1 : 0.78,
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "flex-start" }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ color: commandCenterVisual.headingColor, fontWeight: 900, fontSize: "16px", overflowWrap: "anywhere" }}>
+                      {station.roomName || `Station ${index + 1}`}
+                    </div>
+                    <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 800, overflowWrap: "anywhere" }}>
+                      {station.encounterLabel}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                    <span style={{ ...commandChipStyle, background: station.isActive ? commandCenterVisual.activeSoftBackground : commandCenterVisual.chipBackground, color: station.isActive ? commandCenterVisual.activeSoftText : commandCenterVisual.chipText, border: commandCenterVisual.rowBorder }}>
+                      {station.isActive ? "Active Station" : "Inactive / Empty"}
+                    </span>
+                    <span style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText, border: commandCenterVisual.rowBorder }}>
+                      {stationLearnerArrivedCount}/{stationLearnerTokens.length || station.learnerLabels.length} learners arrived
+                    </span>
+                    {stationAlertCount ? (
+                      <span style={{ ...commandChipStyle, background: "rgba(248, 113, 113, 0.12)", color: staffingWorkspacePalette.dangerText, border: commandCenterVisual.rowBorder }}>
+                        {stationAlertCount} alert{stationAlertCount === 1 ? "" : "s"}
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: "8px" }}>
+                  <div>
+                    <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Case</div>
+                    <div style={{ color: commandCenterVisual.textColor, fontWeight: 900, fontSize: "13px" }}>{station.caseLabel || "Case TBD"}</div>
+                  </div>
+                  <div>
+                    <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Role</div>
+                    <div style={{ color: commandCenterVisual.textColor, fontWeight: 900, fontSize: "13px" }}>{station.roleLabel || "Role TBD"}</div>
+                  </div>
+                  <div>
+                    <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Primary SP</div>
+                    <div style={{ color: commandCenterVisual.textColor, fontWeight: 900, fontSize: "13px" }}>{station.primarySpName || "SP TBD"}</div>
+                  </div>
+                  <div>
+                    <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Backup SP</div>
+                    <div style={{ color: commandCenterVisual.textColor, fontWeight: 900, fontSize: "13px" }}>{station.backupSpName || "Backup TBD"}</div>
+                  </div>
+                </div>
+
+                <div style={{ borderRadius: "12px", border: commandCenterVisual.rowBorder, background: commandCenterVisual.chipBackground, padding: "8px 9px", display: "grid", gap: "8px" }}>
+                  <div style={{ display: "grid", gap: "6px" }}>
+                    <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>SP Attendance</div>
+                    {stationSpToken ? (
+                      <div style={{ display: "grid", gap: "6px" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                          <div style={{ display: "inline-flex", alignItems: "center", gap: "8px", color: commandCenterVisual.textColor, fontSize: "12px", fontWeight: 900 }}>
+                            <EventAttendanceHologramAvatar name={stationSpToken.name} role="sp" status={stationSpStatus} />
+                            {stationSpToken.name}
+                          </div>
+                          <span style={{ ...commandChipStyle, background: "rgba(255,255,255,0.78)", color: commandCenterVisual.textColor, border: commandCenterVisual.rowBorder }}>
+                            {getEventAttendanceStatusLabel(stationSpStatus)}
+                          </span>
+                        </div>
+                        <div style={{ display: "flex", gap: "5px", flexWrap: "wrap" }}>
+                          {[
+                            { label: "Arrived", action: "arrived" as const },
+                            { label: "Late", action: "late" as const },
+                            { label: "Missing", action: "missing" as const },
+                            { label: "In Room", action: "in_room" as const },
+                            { label: "Completed", action: "completed" as const },
+                            { label: "Reset", action: "expected" as const },
+                          ].map((action) => (
+                            <button
+                              key={`${stationSpToken.key}-${action.action}`}
+                              type="button"
+                              onClick={() => void handleEventSpAttendanceAction(stationSpToken.assignment, action.action)}
+                              disabled={Boolean(attendanceSavingKeys[`sp:${stationSpToken.assignment.id}`])}
+                              style={{ ...staffingSecondaryButtonStyle, padding: "4px 7px", fontSize: "9px", opacity: attendanceSavingKeys[`sp:${stationSpToken.assignment.id}`] ? 0.6 : 1 }}
+                            >
+                              {attendanceSavingKeys[`sp:${stationSpToken.assignment.id}`] ? "Saving..." : action.label}
+                            </button>
+                          ))}
+                          <button
+                            type="button"
+                            onClick={() => handleEventSpAttendanceNote(stationSpToken.assignment)}
+                            disabled={Boolean(attendanceSavingKeys[`sp:${stationSpToken.assignment.id}`])}
+                            style={{ ...staffingSecondaryButtonStyle, padding: "4px 7px", fontSize: "9px", opacity: attendanceSavingKeys[`sp:${stationSpToken.assignment.id}`] ? 0.6 : 1 }}
+                          >
+                            Note
+                          </button>
+                        </div>
+                        {stationSpToken.note ? (
+                          <div style={{ color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 750 }}>Note: {stationSpToken.note}</div>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <div style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 800 }}>
+                        {station.primarySpName ? "Attendance status unavailable for this SP assignment." : "No primary SP assigned."}
+                      </div>
+                    )}
+                  </div>
+
+                  <div style={{ display: "grid", gap: "6px" }}>
+                    <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Learner Attendance</div>
+                    {stationLearnerTokens.length ? (
+                      stationLearnerTokens.map((token) => {
+                        const tokenStatus = normalizeEventAttendanceStatus(token.status);
+                        const tokenSaving = Boolean(attendanceSavingKeys[`learner:${token.attendanceKey}`]);
+                        return (
+                          <div key={token.key} style={{ borderRadius: "10px", border: commandCenterVisual.rowBorder, background: "rgba(255,255,255,0.72)", padding: "7px 8px", display: "grid", gap: "6px" }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                              <div style={{ display: "inline-flex", alignItems: "center", gap: "8px", color: commandCenterVisual.textColor, fontSize: "12px", fontWeight: 900 }}>
+                                <EventAttendanceHologramAvatar name={token.learnerName} role="learner" status={tokenStatus} compact />
+                                {token.learnerName}
+                              </div>
+                              <span style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText, border: commandCenterVisual.rowBorder }}>
+                                {getEventAttendanceStatusLabel(tokenStatus)}
+                              </span>
+                            </div>
+                            <div style={{ display: "flex", gap: "5px", flexWrap: "wrap" }}>
+                              {[
+                                { label: "Arrived", action: "arrived" as const },
+                                { label: "Late", action: "late" as const },
+                                { label: "Missing", action: "absent" as const },
+                                { label: "In Room", action: "in_room" as const },
+                                { label: "Completed", action: "completed" as const },
+                                { label: "Reset", action: "expected" as const },
+                              ].map((action) => (
+                                <button
+                                  key={`${token.key}-${action.action}`}
+                                  type="button"
+                                  onClick={() => void handleLiveLearnerAttendanceAction(token, action.action)}
+                                  disabled={tokenSaving}
+                                  style={{ ...staffingSecondaryButtonStyle, padding: "4px 7px", fontSize: "9px", opacity: tokenSaving ? 0.6 : 1 }}
+                                >
+                                  {tokenSaving ? "Saving..." : action.label}
+                                </button>
+                              ))}
+                              <button
+                                type="button"
+                                onClick={() => handleEventLearnerAttendanceNote(token)}
+                                disabled={tokenSaving}
+                                style={{ ...staffingSecondaryButtonStyle, padding: "4px 7px", fontSize: "9px", opacity: tokenSaving ? 0.6 : 1 }}
+                              >
+                                Note
+                              </button>
+                            </div>
+                            {liveLearnerAttendanceRecords[token.attendanceKey]?.note ? (
+                              <div style={{ color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 750 }}>
+                                Note: {liveLearnerAttendanceRecords[token.attendanceKey]?.note}
+                              </div>
+                            ) : null}
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <div style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 800 }}>No learners assigned.</div>
+                    )}
+                  </div>
+                </div>
+
+                {station.notes ? (
+                  <div style={{ borderRadius: "10px", border: commandCenterVisual.rowBorder, background: commandCenterVisual.chipBackground, color: commandCenterVisual.textColor, padding: "8px 10px", fontSize: "10px", fontWeight: 700 }}>
+                    {station.notes}
+                  </div>
+                ) : null}
+
+                <div style={{ borderRadius: "10px", border: commandCenterVisual.rowBorder, background: commandCenterVisual.chipBackground, padding: "7px 9px", display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Case file</div>
+                    <div style={{ color: commandCenterVisual.textColor, fontWeight: 900, fontSize: "12px", overflowWrap: "break-word" }}>
+                      {station.caseLabel || "Case TBD"}
+                    </div>
+                    {!stationHasCaseFile ? (
+                      <div style={{ marginTop: "2px", color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 800 }}>
+                        No case file uploaded
+                      </div>
+                    ) : null}
+                  </div>
+                  <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
+                    {stationHasCaseFile ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => openCaseFilePreview(stationCaseEntry)}
+                          style={{ ...staffingSecondaryButtonStyle, padding: "5px 8px", fontSize: "10px" }}
+                        >
+                          Preview Case
+                        </button>
+                        {stationCaseAssets?.downloadUrl ? (
+                          <a
+                            href={stationCaseAssets.downloadUrl}
+                            download={stationCaseAssets.fileName}
+                            style={{ ...staffingSecondaryButtonStyle, padding: "5px 8px", fontSize: "10px", textDecoration: "none", display: "inline-flex", alignItems: "center" }}
+                          >
+                            Download Case
+                          </a>
+                        ) : null}
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedCommandTool("fileCabinet");
+                          setCommandFileCabinetExpanded(true);
+                          queueCommandContentScroll();
+                        }}
+                        style={{ ...staffingSecondaryButtonStyle, padding: "5px 8px", fontSize: "10px" }}
+                      >
+                        Open File Cabinet
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    display: "grid",
+                    gap: "6px",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
+                    borderTop: commandCenterVisual.rowBorder,
+                    paddingTop: "8px",
+                  }}
+                >
+                  <label style={{ display: "grid", gap: "4px" }}>
+                    <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Room name</span>
+                    <input
+                      value={station.roomName}
+                      onChange={(event) => void handleRoundRoomAdjustment(station.slotIndex, { roomName: event.target.value })}
+                      disabled={saving}
+                      placeholder={`Room ${station.slotIndex + 1}`}
+                      style={{ ...inputStyle, width: "100%", boxSizing: "border-box", fontSize: "11px", padding: "6px 7px" }}
+                    />
+                  </label>
+                  <label style={{ display: "grid", gap: "4px" }}>
+                    <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Learners in station</span>
+                    <textarea
+                      value={station.learnerLabels.join("\n")}
+                      onChange={(event) =>
+                        void handleRoundRoomAdjustment(station.slotIndex, {
+                          learnerLabels: normalizeLearnerNames(event.target.value.split(/\r?\n|,/g)),
+                        })
+                      }
+                      disabled={saving}
+                      placeholder="One learner per line"
+                      style={{ ...inputStyle, width: "100%", boxSizing: "border-box", minHeight: "58px", resize: "vertical", fontSize: "11px", padding: "6px 7px" }}
+                    />
+                  </label>
+                  <label style={{ display: "grid", gap: "4px" }}>
+                    <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Primary SP</span>
+                    <select
+                      value={station.primarySpName}
+                      onChange={(event) =>
+                        void handleRoundRoomAdjustment(
+                          station.slotIndex,
+                          { spName: event.target.value }
+                        )
+                      }
+                      disabled={saving}
+                      style={{ ...selectStyle, width: "100%", maxWidth: "none", fontSize: "11px", padding: "6px 7px" }}
+                    >
+                      <option value="">SP TBD</option>
+                      {[...confirmedAssignments, ...backupAssignments].map((assignment) => {
+                        const sp = assignment.sp_id ? spsById.get(assignment.sp_id) : null;
+                        const spName = getFullName(sp || emptySpRow);
+                        return spName ? (
+                          <option key={`${station.key}-sp-option-${assignment.id}`} value={spName}>
+                            {spName} ({getAssignmentStatus(assignment) === "backup" ? "backup" : "primary"})
+                          </option>
+                        ) : null;
+                      })}
+                    </select>
+                  </label>
+                  <label style={{ display: "grid", gap: "4px" }}>
+                    <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Backup SP</span>
+                    <select
+                      value={station.backupSpName}
+                      onChange={(event) =>
+                        void handleRoundRoomAdjustment(station.slotIndex, { backupSpName: event.target.value })
+                      }
+                      disabled={saving}
+                      style={{ ...selectStyle, width: "100%", maxWidth: "none", fontSize: "11px", padding: "6px 7px" }}
+                    >
+                      <option value="">Backup TBD</option>
+                      {backupAssignments.map((assignment) => {
+                        const sp = assignment.sp_id ? spsById.get(assignment.sp_id) : null;
+                        const spName = getFullName(sp || emptySpRow);
+                        return spName ? (
+                          <option key={`${station.key}-backup-option-${assignment.id}`} value={spName}>
+                            {spName}
+                          </option>
+                        ) : null;
+                      })}
+                    </select>
+                  </label>
+                  <label style={{ display: "grid", gap: "4px" }}>
+                    <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Case assignment</span>
+                    <select
+                      value={station.caseLabel}
+                      onChange={(event) =>
+                        void handleRoundRoomAdjustment(station.slotIndex, { caseLabel: event.target.value, roleId: "", roleLabel: "" })
+                      }
+                      disabled={saving}
+                      style={{ ...selectStyle, width: "100%", maxWidth: "none", fontSize: "11px", padding: "6px 7px" }}
+                    >
+                      <option value="">Case TBD</option>
+                      {caseFileEntries
+                        .filter((caseEntry) => caseEntry.status !== "inactive")
+                        .map((caseEntry, caseIndex) => (
+                          <option key={`${station.key}-case-option-${caseEntry.id}-${caseIndex}`} value={caseEntry.name || `Case ${caseIndex + 1}`}>
+                            {caseEntry.name || `Case ${caseIndex + 1}`}
+                          </option>
+                        ))}
+                      {station.caseLabel && !caseFileEntries.some((caseEntry) => caseEntry.name === station.caseLabel) ? (
+                        <option value={station.caseLabel}>{station.caseLabel}</option>
+                      ) : null}
+                    </select>
+                  </label>
+                  <label style={{ display: "grid", gap: "4px" }}>
+                    <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Manual case title</span>
+                    <input
+                      value={station.caseLabel}
+                      onChange={(event) => void handleRoundRoomAdjustment(station.slotIndex, { caseLabel: event.target.value, roleId: "", roleLabel: "" })}
+                      disabled={saving}
+                      placeholder="Type case title"
+                      style={{ ...inputStyle, width: "100%", boxSizing: "border-box", fontSize: "11px", padding: "6px 7px" }}
+                    />
+                  </label>
+                  <label style={{ display: "grid", gap: "4px" }}>
+                    <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Role / portrayal</span>
+                    {stationCaseRoles.length ? (
+                      <>
+                        <select
+                          value={stationRoleSelectValue}
+                          onChange={(event) => {
+                            const selectedValue = event.target.value;
+                            if (selectedValue.startsWith("role:")) {
+                              const selectedRoleId = selectedValue.slice("role:".length);
+                              const selectedRole = stationCaseRoles.find((role) => role.id === selectedRoleId);
+                              void handleRoundRoomAdjustment(station.slotIndex, { roleId: selectedRoleId, roleLabel: selectedRole?.name || "" });
+                              return;
+                            }
+                            if (selectedValue === "__custom") {
+                              void handleRoundRoomAdjustment(station.slotIndex, { roleId: "", roleLabel: station.roleLabel || "" });
+                              return;
+                            }
+                            void handleRoundRoomAdjustment(station.slotIndex, { roleId: "", roleLabel: "" });
+                          }}
+                          disabled={saving}
+                          style={{ ...selectStyle, width: "100%", maxWidth: "none", fontSize: "11px", padding: "6px 7px" }}
+                        >
+                          <option value="">Role TBD</option>
+                          {stationCaseRoles.map((role) => (
+                            <option key={`${station.key}-role-option-${role.id}`} value={`role:${role.id}`}>
+                              {role.name}
+                            </option>
+                          ))}
+                          {station.roleLabel && (!stationRoleMatchesCase || !stationRoleMatchesName) ? (
+                            <option value={`custom:${station.roleLabel}`}>
+                              {station.roleId && !stationRoleMatchesCase ? `Role removed: ${station.roleLabel}` : `Custom: ${station.roleLabel}`}
+                            </option>
+                          ) : null}
+                          <option value="__custom">Other / custom</option>
+                        </select>
+                        {!station.roleId ? (
+                          <input
+                            value={station.roleLabel}
+                            onChange={(event) => void handleRoundRoomAdjustment(station.slotIndex, { roleId: "", roleLabel: event.target.value })}
+                            disabled={saving}
+                            placeholder="Custom role / portrayal"
+                            style={{ ...inputStyle, width: "100%", boxSizing: "border-box", fontSize: "11px", padding: "6px 7px" }}
+                          />
+                        ) : null}
+                      </>
+                    ) : (
+                      <input
+                        value={station.roleLabel}
+                        onChange={(event) => void handleRoundRoomAdjustment(station.slotIndex, { roleId: "", roleLabel: event.target.value })}
+                        disabled={saving}
+                        placeholder="Nurse, patient, family..."
+                        style={{ ...inputStyle, width: "100%", boxSizing: "border-box", fontSize: "11px", padding: "6px 7px" }}
+                      />
+                    )}
+                  </label>
+                  <label style={{ display: "grid", gap: "4px" }}>
+                    <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Move paired assignment</span>
+                    <select
+                      defaultValue=""
+                      onChange={(event) => {
+                        const targetSlotIndex = Number(event.target.value);
+                        if (!Number.isFinite(targetSlotIndex) || targetSlotIndex === station.slotIndex) return;
+                        const targetStation = selectedRoundCommandStations.find((candidate) => candidate.slotIndex === targetSlotIndex);
+                        void handleMoveRoundAssignment(station, targetStation);
+                        event.currentTarget.value = "";
+                      }}
+                      disabled={saving}
+                      style={{ ...selectStyle, width: "100%", maxWidth: "none", fontSize: "11px", padding: "6px 7px" }}
+                    >
+                      <option value="">Move to station...</option>
+                      {selectedRoundCommandStations
+                        .filter((candidate) => candidate.slotIndex !== station.slotIndex)
+                        .map((candidate) => (
+                          <option key={`${station.key}-move-${candidate.slotIndex}`} value={candidate.slotIndex}>
+                            {candidate.roomName}
+                          </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label style={{ display: "grid", gap: "4px", gridColumn: "1 / -1" }}>
+                    <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Room notes</span>
+                    <textarea
+                      value={station.notes}
+                      onChange={(event) => void handleRoundRoomAdjustment(station.slotIndex, { notes: event.target.value })}
+                      disabled={saving}
+                      placeholder="Operational notes, setup cues, mismatch risks, or role details"
+                      style={{ ...inputStyle, width: "100%", boxSizing: "border-box", minHeight: "48px", resize: "vertical", fontSize: "11px", padding: "6px 7px" }}
+                    />
+                  </label>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div style={{ color: commandCenterVisual.mutedColor, fontWeight: 700, fontSize: "13px" }}>
+          No active stations are scheduled for this round yet.
+        </div>
+      )}
+
+      {selectedRoundInactiveCommandStations.length ? (
+        <section
+          style={{
+            borderRadius: "14px",
+            border: commandCenterVisual.rowBorder,
+            background: commandCenterVisual.rowBackground,
+            padding: "10px 12px",
+            display: "grid",
+            gap: "8px",
+          }}
+        >
+          <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+            <div>
+              <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Inactive / Empty Rooms</div>
+              <div style={{ marginTop: "3px", color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 750 }}>
+                Hidden by default so the command surface stays focused on active stations.
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowInactiveCommandStations((current) => !current)}
+              style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px", fontSize: "10px" }}
+            >
+              {showInactiveCommandStations
+                ? `Hide ${selectedRoundInactiveCommandStations.length} inactive room${selectedRoundInactiveCommandStations.length === 1 ? "" : "s"}`
+                : `Show ${selectedRoundInactiveCommandStations.length} inactive room${selectedRoundInactiveCommandStations.length === 1 ? "" : "s"}`}
+            </button>
+          </div>
+        </section>
+      ) : null}
+
+      {selectedRoundOperationsNotes.length ? (
+        <section
+          style={{
+            borderRadius: "14px",
+            border: "1px solid rgba(243, 187, 103, 0.22)",
+            background: "rgba(243, 187, 103, 0.08)",
+            padding: "10px 12px",
+            display: "grid",
+            gap: "6px",
+          }}
+        >
+          <div style={{ color: commandCenterVisual.textColor, fontWeight: 800 }}>Operations reminders</div>
+          {selectedRoundOperationsNotes.slice(0, 3).map((note, index) => (
+            <div key={`${selectedRotationRound?.key || "round"}-command-note-${index}`} style={{ color: isPlanningVisualMode ? "#92400e" : "#f7d9a2", fontSize: "11px", fontWeight: 700 }}>
+              {note}
+            </div>
+          ))}
+        </section>
+      ) : null}
+    </div>
+  ) : (
+    <div style={{ color: commandCenterVisual.mutedColor, fontWeight: 700, fontSize: "13px" }}>
+      No round command station has been built for this round yet.
+    </div>
   );
   const selectedRoundLiveTimingState = useMemo(() => {
     if (!selectedRotationRound) {
@@ -12139,6 +12728,7 @@ Cory`;
       : []),
   ];
   const showLegacyEventSummaryPanels = false;
+  const isRoundCommandStationView = roundCompanionView === "operations" || roundCompanionView === "attendance";
   const commandSurfaceViewLabel =
     roundCompanionView === "overview"
       ? "Overview"
@@ -12154,8 +12744,8 @@ Cory`;
                 ? "Student Schedule"
                 : roundCompanionView === "sp"
                   ? "SP Schedule"
-                  : roundCompanionView === "attendance"
-                    ? "Attendance"
+                  : isRoundCommandStationView
+                    ? "Round Command Station"
                     : "Operations";
   type PlanningWindowRow = {
     key: string;
@@ -16664,28 +17254,28 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
   }
 
   async function handleBulkEventSpAttendance(action: "arrived" | "expected") {
-    const targets = visibleEventAttendanceSpTokens;
+    const targets = eventAttendanceSpTokens;
     if (!targets.length) return;
     setAttendanceError("");
     setAttendanceSuccess("");
     const results = await Promise.all(targets.map((token) => handleEventSpAttendanceAction(token.assignment, action, undefined, { silent: true })));
     const successCount = results.filter(Boolean).length;
     if (successCount === targets.length) {
-      setAttendanceSuccess(action === "arrived" ? "Visible SPs marked arrived." : "Visible SPs reset to expected.");
+      setAttendanceSuccess(action === "arrived" ? "Active station SPs marked arrived." : "Active station SPs reset to expected.");
       return;
     }
     setAttendanceError(`${targets.length - successCount} SP update${targets.length - successCount === 1 ? "" : "s"} failed. Retry the highlighted rows.`);
   }
 
   async function handleBulkEventLearnerAttendance(action: "arrived" | "expected") {
-    const targets = visibleEventAttendanceLearnerTokens;
+    const targets = eventAttendanceLearnerPresenceTokens;
     if (!targets.length) return;
     setAttendanceError("");
     setAttendanceSuccess("");
     const results = await Promise.all(targets.map((token) => handleLiveLearnerAttendanceAction(token, action, undefined, { silent: true })));
     const successCount = results.filter(Boolean).length;
     if (successCount === targets.length) {
-      setAttendanceSuccess(action === "arrived" ? "Visible learners marked arrived." : "Visible learners reset to expected.");
+      setAttendanceSuccess(action === "arrived" ? "Active station learners marked arrived." : "Active station learners reset to expected.");
       return;
     }
     setAttendanceError(`${targets.length - successCount} learner update${targets.length - successCount === 1 ? "" : "s"} failed. Retry the highlighted rows.`);
@@ -24416,11 +25006,17 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           { value: "commandCenter" as const, label: "Command Center", status: selectedCommandTool === "primary" ? "Operational board" : "Tool selected" },
                           { value: "spFinder" as const, label: "SP Finder", status: `${confirmedCount} confirmed` },
                           { value: "scheduleBuilder" as const, label: "Schedule Builder", status: scheduleStatusLabel },
-                          { value: "eventAttendance" as const, label: "Event Attendance", status: "Live check-in" },
+                          {
+                            value: "eventAttendance" as const,
+                            label: "Round Command Station",
+                            status: `${selectedRoundActiveStationCount} active`,
+                          },
                         ].map((tool) => {
                           const selected =
                             tool.value === "eventAttendance"
-                              ? primaryEventTool === "commandCenter" && selectedCommandTool === "primary" && roundCompanionView === "attendance"
+                              ? primaryEventTool === "commandCenter" && selectedCommandTool === "primary" && isRoundCommandStationView
+                              : tool.value === "commandCenter"
+                                ? primaryEventTool === "commandCenter" && !(selectedCommandTool === "primary" && isRoundCommandStationView)
                               : primaryEventTool === tool.value;
                           return (
                             <button
@@ -24431,15 +25027,19 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 if (tool.value === "eventAttendance") {
                                   setPrimaryEventTool("commandCenter");
                                   setSelectedCommandTool("primary");
-                                  setRoundCompanionView("attendance");
+                                  setRoundCompanionView("operations");
+                                  queueCommandContentScroll();
+                                  return;
+                                }
+                                if (tool.value === "commandCenter") {
+                                  setPrimaryEventTool("commandCenter");
+                                  setSelectedCommandTool("primary");
+                                  setRoundCompanionView("overview");
                                   queueCommandContentScroll();
                                   return;
                                 }
                                 setPrimaryEventTool(tool.value);
                                 queueCommandContentScroll();
-                                if (tool.value === "commandCenter" && selectedCommandTool === "staffing") {
-                                  setSelectedCommandTool("primary");
-                                }
                               }}
                               aria-pressed={selected}
                               style={{
@@ -24521,7 +25121,12 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             group: "Core Command",
                             tools: [
                               { kind: "view", value: "overview", label: "Overview", status: "Round snapshot" },
-                              { kind: "view", value: "operations", label: "Operations", status: "Room controls" },
+                              {
+                                kind: "view",
+                                value: "operations",
+                                label: "Round Command Station",
+                                status: `${selectedRoundActiveStationCount} active`,
+                              },
                             ],
                           },
                           {
@@ -24529,7 +25134,6 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             tools: [
                               { kind: "primary", value: "spFinder", label: "SP Finder", status: `${confirmedCount} confirmed` },
                               { kind: "tool", value: "staffing", label: "Staffing", status: staffingCoverageMet ? "Ready" : "Needs scan" },
-                              { kind: "view", value: "attendance", label: "Event Attendance", status: "Live check-in" },
                               { kind: "view", value: "learner", label: "Learner Flow", status: `${selectedRoundAssignedLearnerCount} learners` },
                             ],
                           },
@@ -24577,7 +25181,10 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                               {group.tools.map((tool) => {
                                 const selected =
                                   tool.kind === "view"
-                                    ? selectedCommandTool === "primary" && roundCompanionView === tool.value
+                                    ? selectedCommandTool === "primary" && (
+                                        roundCompanionView === tool.value ||
+                                        (tool.value === "operations" && roundCompanionView === "attendance")
+                                      )
                                     : tool.kind === "primary"
                                       ? primaryEventTool === tool.value
                                       : tool.kind === "advanced"
@@ -25055,12 +25662,14 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             selectedRotationRound.start_time && selectedRotationRound.end_time
                               ? `${formatDisplayTime(selectedRotationRound.start_time)} - ${formatDisplayTime(selectedRotationRound.end_time)}`
                               : formatDisplayTime(selectedRotationRound.start_time || selectedRotationRound.end_time) || "Time TBD",
-                            `${selectedRoundRoomCount} room${selectedRoundRoomCount === 1 ? "" : "s"}`,
+                            isRoundCommandStationView
+                              ? `${selectedRoundActiveStationCount} active station${selectedRoundActiveStationCount === 1 ? "" : "s"}`
+                              : `${selectedRoundRoomCount} room${selectedRoundRoomCount === 1 ? "" : "s"}`,
+                            isRoundCommandStationView && selectedRoundConfiguredStationCount > selectedRoundActiveStationCount
+                              ? `${selectedRoundConfiguredStationCount} configured room${selectedRoundConfiguredStationCount === 1 ? "" : "s"}`
+                              : null,
                             roundCompanionView !== "sp" && selectedRoundLearnerCount !== null
                               ? `${selectedRoundLearnerCount} learner${selectedRoundLearnerCount === 1 ? "" : "s"}`
-                              : null,
-                            roundCompanionView === "operations" && selectedRoundEmptySlots !== null
-                              ? `${selectedRoundEmptySlots} empty slot${selectedRoundEmptySlots === 1 ? "" : "s"}`
                               : null,
                           ].filter(Boolean).map((chip) => (
                             <span
@@ -25711,615 +26320,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     </section>
   </div>
 ) : roundCompanionView === "attendance" ? (
-  <section
-    style={{
-      borderRadius: "20px",
-      border: "1px solid rgba(99, 181, 217, 0.24)",
-      background:
-        "radial-gradient(circle at 10% 8%, rgba(125, 211, 252, 0.2), transparent 34%), radial-gradient(circle at 92% 0%, rgba(45, 212, 191, 0.16), transparent 34%), linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(240, 249, 255, 0.96) 52%, rgba(236, 253, 245, 0.94) 100%)",
-      boxShadow: "inset 0 1px 0 rgba(255,255,255,0.86), 0 18px 44px rgba(20, 65, 95, 0.12)",
-      padding: "14px",
-      display: "grid",
-      gap: "12px",
-      overflow: "hidden",
-      scrollMarginTop: "170px",
-      position: "relative",
-      zIndex: 1,
-    }}
-  >
-    <section
-      style={{
-        borderRadius: "16px",
-        border: "1px solid rgba(99, 181, 217, 0.2)",
-        background: "linear-gradient(135deg, rgba(255,255,255,0.96), rgba(232, 246, 250, 0.82))",
-        padding: "11px",
-        display: "grid",
-        gap: "10px",
-      }}
-    >
-      <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "flex-start" }}>
-        <div>
-          <div style={{ ...statLabel, color: "#12617f" }}>Event Day Attendance</div>
-          <div style={{ marginTop: "4px", color: "#102d44", fontSize: "20px", fontWeight: 950 }}>Event Attendance</div>
-          <div style={{ marginTop: "3px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 750 }}>
-            Selected-round check-in board for SPs, learners, and room occupancy.
-          </div>
-        </div>
-        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
-          <span style={{ ...commandChipStyle, background: "rgba(191, 219, 254, 0.52)", color: "#1e40af", border: "1px solid rgba(20, 91, 150, 0.24)" }}>
-            {selectedRotationRound ? `Round ${activeSelectedRotationRoundIndex + 1}` : "Round TBD"}
-          </span>
-          <span style={{ ...commandChipStyle, background: "rgba(209, 250, 229, 0.6)", color: "#065f46", border: "1px solid rgba(25, 138, 112, 0.24)" }}>
-            {eventAttendanceRoomCards.length} rooms
-          </span>
-        </div>
-      </div>
-
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(128px, 1fr))", gap: "7px" }}>
-        {[
-          { label: "SPs arrived", value: `${eventAttendanceSpArrivedCount}/${eventAttendanceSpTokens.length}`, tone: "ready" },
-          { label: "Learners arrived", value: `${eventAttendanceLearnerArrivedCount}/${eventAttendanceLearnerExpectedCount}`, tone: "ready" },
-          { label: "Missing", value: String(eventAttendanceMissingCount), tone: eventAttendanceMissingCount ? "alert" : "quiet" },
-          { label: "Late", value: String(eventAttendanceLateCount), tone: eventAttendanceLateCount ? "warning" : "quiet" },
-          { label: "Rooms active", value: `${eventAttendanceRoomActiveCount}/${eventAttendanceRoomCards.length}`, tone: "active" },
-        ].map((metric) => (
-          <div
-            key={`event-attendance-metric-${metric.label}`}
-            style={{
-              borderRadius: "10px",
-              border:
-                metric.tone === "alert"
-                  ? "1px solid rgba(248, 113, 113, 0.28)"
-                  : metric.tone === "warning"
-                    ? "1px solid rgba(245, 158, 11, 0.26)"
-                    : "1px solid rgba(99, 181, 217, 0.18)",
-              background:
-                metric.tone === "alert"
-                  ? "rgba(254, 226, 226, 0.82)"
-                  : metric.tone === "warning"
-                    ? "rgba(254, 243, 199, 0.8)"
-                    : "rgba(255, 255, 255, 0.86)",
-              padding: "7px 8px",
-            }}
-          >
-            <div style={{ color: "#5b7a91", fontSize: "9px", fontWeight: 850, textTransform: "uppercase", letterSpacing: "0.06em" }}>{metric.label}</div>
-            <div style={{ marginTop: "3px", color: "#102d44", fontSize: "15px", fontWeight: 950 }}>{metric.value}</div>
-          </div>
-        ))}
-      </div>
-
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(240px, auto)", gap: "8px", alignItems: "center" }}>
-        <div style={{ display: "flex", gap: "5px", flexWrap: "wrap", alignItems: "center" }}>
-          {[
-            { value: "all" as const, label: "All" },
-            { value: "expected" as const, label: "Expected" },
-            { value: "arrived" as const, label: "Arrived" },
-            { value: "late" as const, label: "Late" },
-            { value: "missing" as const, label: "Missing" },
-            { value: "in_room" as const, label: "In Room" },
-            { value: "completed" as const, label: "Completed" },
-          ].map((filterOption) => {
-            const selected = eventAttendanceFilter === filterOption.value;
-            return (
-              <button
-                key={`event-attendance-filter-${filterOption.value}`}
-                type="button"
-                onClick={() => setEventAttendanceFilter(filterOption.value)}
-                style={{
-                  ...staffingSecondaryButtonStyle,
-                  padding: "5px 8px",
-                  fontSize: "10px",
-                  borderRadius: "999px",
-                  background: selected ? "rgba(16, 185, 129, 0.2)" : "rgba(255, 255, 255, 0.82)",
-                  color: selected ? "#065f46" : "#3b556b",
-                  border: selected ? "1px solid rgba(25, 138, 112, 0.34)" : "1px solid rgba(99, 181, 217, 0.18)",
-                }}
-              >
-                {filterOption.label}
-              </button>
-            );
-          })}
-          <span style={{ color: "#5b7a91", fontSize: "10px", fontWeight: 800 }}>
-            {visibleEventAttendanceSpTokens.length} SPs · {visibleEventAttendanceLearnerTokens.length} learners
-          </span>
-        </div>
-        <div style={{ display: "flex", gap: "5px", flexWrap: "wrap", justifyContent: "flex-end" }}>
-          <button type="button" onClick={() => void handleBulkEventSpAttendance("arrived")} style={{ ...buttonStyle, padding: "6px 9px", fontSize: "10px", borderRadius: "999px" }}>
-            Mark SPs Arrived
-          </button>
-          <button type="button" onClick={() => void handleBulkEventLearnerAttendance("arrived")} style={{ ...buttonStyle, padding: "6px 9px", fontSize: "10px", borderRadius: "999px" }}>
-            Mark Learners Arrived
-          </button>
-          <button type="button" onClick={() => void handleBulkEventSpAttendance("expected")} style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px", fontSize: "10px", borderRadius: "999px" }}>
-            Reset SPs
-          </button>
-          <button type="button" onClick={() => void handleBulkEventLearnerAttendance("expected")} style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px", fontSize: "10px", borderRadius: "999px" }}>
-            Reset Learners
-          </button>
-        </div>
-      </div>
-
-      {attendanceError || attendanceSuccess ? (
-        <div
-          style={{
-            borderRadius: "10px",
-            border: attendanceError ? "1px solid rgba(248, 113, 113, 0.26)" : "1px solid rgba(25, 138, 112, 0.22)",
-            background: attendanceError ? "rgba(254, 226, 226, 0.88)" : "rgba(236, 253, 245, 0.92)",
-            color: attendanceError ? "#7f1d1d" : "#065f46",
-            padding: "8px 9px",
-            fontSize: "12px",
-            fontWeight: 850,
-          }}
-        >
-          {attendanceError || attendanceSuccess}
-        </div>
-      ) : null}
-    </section>
-
-    <section
-      style={{
-        borderRadius: "18px",
-        border: "1px solid rgba(99, 181, 217, 0.24)",
-        background:
-          "radial-gradient(circle at 12% 0%, rgba(125, 211, 252, 0.14), transparent 34%), linear-gradient(140deg, rgba(255, 255, 255, 0.95), rgba(236, 253, 245, 0.84))",
-        boxShadow: "inset 0 1px 0 rgba(255,255,255,0.9), 0 14px 30px rgba(20, 65, 95, 0.1)",
-        padding: "11px",
-        display: "grid",
-        gap: "10px",
-      }}
-    >
-      <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
-        <div>
-          <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Room Attendance Map</div>
-          <div style={{ marginTop: "3px", color: "#102d44", fontSize: "13px", fontWeight: 900 }}>
-            Blueprint occupancy command map
-          </div>
-        </div>
-        <span style={{ ...commandChipStyle, background: "rgba(209, 250, 229, 0.6)", color: "#065f46", border: "1px solid rgba(25, 138, 112, 0.24)" }}>
-          {eventAttendanceRoomCards.length} rooms visible
-        </span>
-      </div>
-      {eventAttendanceRoomCards.length ? (
-        <div
-          style={{
-            position: "relative",
-            borderRadius: "14px",
-            border: "1px solid rgba(99, 181, 217, 0.2)",
-            background:
-              "linear-gradient(rgba(99, 181, 217, 0.08) 1px, transparent 1px), linear-gradient(90deg, rgba(99, 181, 217, 0.08) 1px, transparent 1px), linear-gradient(140deg, rgba(250, 253, 255, 0.95), rgba(240, 249, 255, 0.88))",
-            backgroundSize: "22px 22px, 22px 22px, auto",
-            padding: "10px",
-            overflow: "hidden",
-          }}
-        >
-          <div
-            aria-hidden="true"
-            style={{
-              position: "absolute",
-              inset: "12px 10px",
-              borderRadius: "12px",
-              border: "1px dashed rgba(99, 181, 217, 0.26)",
-              pointerEvents: "none",
-            }}
-          />
-          <div style={{ position: "relative", display: "grid", gap: "8px" }}>
-            {[
-              { key: "north", label: "North Hallway", rooms: eventAttendanceNorthRooms },
-              { key: "south", label: "South Hallway", rooms: eventAttendanceSouthRooms },
-            ]
-              .filter((wall) => wall.rooms.length)
-              .map((wall, wallIndex) => (
-                <div key={`event-attendance-wall-${wall.key}`} style={{ display: "grid", gap: "7px" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", alignItems: "center" }}>
-                    <span
-                      style={{
-                        color: "#3f6c89",
-                        fontSize: "10px",
-                        fontWeight: 900,
-                        letterSpacing: "0.09em",
-                        textTransform: "uppercase",
-                      }}
-                    >
-                      {wall.label}
-                    </span>
-                    <span style={{ height: "1px", flex: 1, background: "linear-gradient(90deg, rgba(59, 130, 246, 0.24), transparent)" }} />
-                  </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(188px, 1fr))", gap: "8px" }}>
-                    {wall.rooms.map((room) => {
-                      const learnerTokens = eventAttendanceLearnerPresenceTokens.filter((token) => token.roomKey === room.key);
-                      const spToken = eventAttendanceSpTokens.find((token) => token.assignment.id === room.assignment?.id);
-                      const spStatus = normalizeEventAttendanceStatus(spToken?.status || "expected");
-                      const spPresent = isEventAttendancePresentStatus(spStatus);
-                      const spSaving = spToken ? Boolean(attendanceSavingKeys[`sp:${spToken.assignment.id}`]) : false;
-                      return (
-                        <div
-                          key={`event-attendance-room-${room.key}`}
-                          style={{
-                            borderRadius: "12px",
-                            border: room.isCurrentRotationRoom
-                              ? "1px solid rgba(20, 91, 150, 0.36)"
-                              : "1px solid rgba(99, 181, 217, 0.2)",
-                            background: room.isCurrentRotationRoom
-                              ? "linear-gradient(135deg, rgba(219, 234, 254, 0.94), rgba(209, 250, 229, 0.86))"
-                              : "linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(240, 249, 255, 0.86))",
-                            padding: "8px",
-                            display: "grid",
-                            gap: "7px",
-                            boxShadow: room.isCurrentRotationRoom ? "0 8px 22px rgba(20, 91, 150, 0.12)" : "0 4px 12px rgba(20, 91, 150, 0.06)",
-                          }}
-                        >
-                          <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", alignItems: "flex-start" }}>
-                            <div>
-                              <div style={{ color: commandCenterVisual.textColor, fontSize: "12px", fontWeight: 950 }}>{room.roomName}</div>
-                              <div style={{ marginTop: "2px", color: "#5b7a91", fontSize: "10px", fontWeight: 800 }}>{room.encounterLabel || "Case pending"}</div>
-                            </div>
-                            <span
-                              style={{
-                                ...commandChipStyle,
-                                background: room.isCurrentRotationRoom ? "rgba(191, 219, 254, 0.72)" : "rgba(236, 253, 245, 0.82)",
-                                color: room.isCurrentRotationRoom ? "#1e3a8a" : "#065f46",
-                                fontSize: "9px",
-                                padding: "3px 7px",
-                              }}
-                            >
-                              {room.isCurrentRotationRoom ? "Active" : room.statusLabel || "Standby"}
-                            </span>
-                          </div>
-                          <div style={{ display: "flex", gap: "7px", alignItems: "center", flexWrap: "wrap" }}>
-                            {spToken ? (
-                              <button
-                                type="button"
-                                title={
-                                  spStatus === "expected"
-                                    ? "Mark SP arrived"
-                                    : `SP status: ${getEventAttendanceStatusLabel(spStatus)}`
-                                }
-                                onClick={() => {
-                                  if (spStatus === "expected") {
-                                    void handleEventSpAttendanceAction(spToken.assignment, "arrived");
-                                    return;
-                                  }
-                                  setActiveEventAttendanceKey((current) => (current === spToken.key ? "" : spToken.key));
-                                }}
-                                disabled={spSaving}
-                                style={{
-                                  all: "unset",
-                                  cursor: spSaving ? "progress" : "pointer",
-                                  display: "inline-flex",
-                                  alignItems: "center",
-                                  gap: "6px",
-                                  opacity: spSaving ? 0.65 : 1,
-                                  borderRadius: "999px",
-                                  padding: spPresent ? "3px 8px 3px 4px" : "0",
-                                  border: spPresent ? "1px solid rgba(25, 138, 112, 0.5)" : "1px solid transparent",
-                                  background: spPresent
-                                    ? "linear-gradient(135deg, rgba(209, 250, 229, 0.9), rgba(167, 243, 208, 0.82))"
-                                    : "transparent",
-                                  boxShadow: spPresent
-                                    ? "0 0 14px rgba(16, 185, 129, 0.28), inset 0 0 0 1px rgba(255, 255, 255, 0.8)"
-                                    : "none",
-                                }}
-                              >
-                                <EventAttendanceHologramAvatar
-                                  name={room.spName || "SP TBD"}
-                                  role="sp"
-                                  status={spStatus}
-                                  selected={activeEventAttendanceKey === spToken.key}
-                                />
-                                <span style={{ display: "grid", gap: "1px", minWidth: 0 }}>
-                                  <span style={{ color: spPresent ? "#065f46" : "#102d44", fontSize: "10px", fontWeight: 950 }}>{room.spName || "SP TBD"}</span>
-                                  {spPresent ? (
-                                    <span style={{ color: "#047857", fontSize: "8px", fontWeight: 950, letterSpacing: "0.06em", textTransform: "uppercase" }}>✓ Present</span>
-                                  ) : null}
-                                </span>
-                              </button>
-                            ) : (
-                              <>
-                                <EventAttendanceHologramAvatar name={room.spName || "SP TBD"} role="sp" status="expected" />
-                                <span style={{ color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 800 }}>SP TBD</span>
-                              </>
-                            )}
-                          </div>
-                          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                            {learnerTokens.length ? learnerTokens.map((token) => {
-                              const tokenStatus = normalizeEventAttendanceStatus(token.status);
-                              const tokenPresent = isEventAttendancePresentStatus(tokenStatus);
-                              const tokenSaving = Boolean(attendanceSavingKeys[`learner:${token.attendanceKey}`]);
-                              return (
-                                <button
-                                  key={`event-room-token-${token.attendanceKey}`}
-                                  type="button"
-                                  title={
-                                    tokenStatus === "expected"
-                                      ? "Mark learner arrived"
-                                      : `Learner status: ${getEventAttendanceStatusLabel(tokenStatus)}`
-                                  }
-                                  onClick={() => {
-                                    if (tokenStatus === "expected") {
-                                      void handleLiveLearnerAttendanceAction(token, "arrived");
-                                      return;
-                                    }
-                                    setActiveEventAttendanceKey((current) => current === token.key ? "" : token.key);
-                                  }}
-                                  disabled={tokenSaving}
-                                  style={{
-                                    border: tokenPresent ? "1px solid rgba(52, 211, 153, 0.78)" : "1px solid rgba(125, 211, 252, 0.22)",
-                                    background: tokenPresent
-                                      ? "linear-gradient(135deg, rgba(209, 250, 229, 0.92), rgba(167, 243, 208, 0.84))"
-                                      : "rgba(255, 255, 255, 0.92)",
-                                    color: tokenPresent ? "#065f46" : "#12324d",
-                                    borderRadius: "999px",
-                                    padding: "2px 7px 2px 3px",
-                                    display: "inline-flex",
-                                    alignItems: "center",
-                                    gap: "6px",
-                                    cursor: tokenSaving ? "progress" : "pointer",
-                                    fontSize: "10px",
-                                    fontWeight: tokenPresent ? 950 : 850,
-                                    opacity: tokenSaving ? 0.6 : 1,
-                                    boxShadow: tokenPresent
-                                      ? "0 0 14px rgba(16, 185, 129, 0.28), inset 0 0 0 1px rgba(255, 255, 255, 0.75)"
-                                      : activeEventAttendanceKey === token.key ? "0 0 12px rgba(59, 130, 246, 0.22)" : "none",
-                                  }}
-                                >
-                                  <EventAttendanceHologramAvatar
-                                    name={token.learnerName}
-                                    role="learner"
-                                    status={tokenStatus}
-                                    selected={activeEventAttendanceKey === token.key}
-                                    compact
-                                  />
-                                  <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", minWidth: 0 }}>
-                                    <span style={{ maxWidth: tokenPresent ? "92px" : "110px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{token.learnerName}</span>
-                                    {tokenPresent ? (
-                                      <span style={{ color: "#047857", fontSize: "8px", fontWeight: 950, letterSpacing: "0.04em", textTransform: "uppercase", whiteSpace: "nowrap" }}>✓ Present</span>
-                                    ) : null}
-                                  </span>
-                                </button>
-                              );
-                            }) : (
-                              <span style={{ color: "#5b7a91", fontSize: "11px", fontWeight: 800 }}>No learner assigned</span>
-                            )}
-                          </div>
-                          <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", alignItems: "center" }}>
-                            <span style={{ color: "#5b7a91", fontSize: "10px", fontWeight: 800 }}>
-                              {learnerTokens.length} learner{learnerTokens.length === 1 ? "" : "s"} in room
-                            </span>
-                            <span style={{ color: "#3b82f6", fontSize: "9px", fontWeight: 800, letterSpacing: "0.06em" }}>
-                              ROOM POD
-                            </span>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                  {wallIndex === 0 && eventAttendanceSouthRooms.length ? (
-                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                      <span style={{ color: "#5b7a91", fontSize: "9px", fontWeight: 850, letterSpacing: "0.08em", textTransform: "uppercase" }}>
-                        Main corridor
-                      </span>
-                      <span style={{ height: "1px", flex: 1, background: "linear-gradient(90deg, rgba(99, 181, 217, 0.24), rgba(59, 130, 246, 0.28), rgba(99, 181, 217, 0.24))" }} />
-                    </div>
-                  ) : null}
-                </div>
-              ))}
-          </div>
-        </div>
-      ) : (
-        <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 800 }}>No room schedule is available yet.</div>
-      )}
-    </section>
-
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "10px", alignItems: "start" }}>
-      <section style={{ borderRadius: "14px", border: "1px solid rgba(99, 181, 217, 0.2)", background: "linear-gradient(rgba(99, 181, 217, 0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(99, 181, 217, 0.05) 1px, transparent 1px), radial-gradient(circle at 12% 8%, rgba(232, 244, 255, 0.46), transparent 34%), linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(240, 249, 255, 0.9), rgba(236, 253, 245, 0.84))", backgroundSize: "24px 24px, 24px 24px, auto, auto", padding: "10px", display: "grid", gap: "8px", minHeight: 0 }}>
-        <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>SP Check-In</div>
-        <div style={{ display: "grid", gap: "7px", maxHeight: "320px", overflowY: "auto", paddingRight: "2px" }}>
-          {visibleEventAttendanceSpTokens.length ? (
-            visibleEventAttendanceSpTokens.map((token) => {
-              const colors = getEventAttendanceStatusColors(token.status);
-              const isActive = activeEventAttendanceKey === token.key;
-              const tokenStatus = normalizeEventAttendanceStatus(token.status);
-              const tokenPresent = isEventAttendancePresentStatus(tokenStatus);
-              const tokenSaving = Boolean(attendanceSavingKeys[`sp:${token.assignment.id}`]);
-              return (
-                <div
-                  key={token.key}
-                  style={{
-                    borderRadius: "11px",
-                    border: tokenPresent ? `1px solid ${colors.ring}` : `1px solid ${colors.ring}55`,
-                    background: tokenPresent
-                      ? "linear-gradient(135deg, rgba(209, 250, 229, 0.92), rgba(167, 243, 208, 0.84))"
-                      : colors.bg,
-                    padding: "6px",
-                    display: "grid",
-                    gap: "6px",
-                    boxShadow: tokenPresent
-                      ? `0 0 14px ${colors.ring}44, inset 0 0 0 1px rgba(255, 255, 255, 0.78)`
-                      : "none",
-                  }}
-                >
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", alignItems: "center" }}>
-                    <button
-                      type="button"
-                      title={tokenStatus === "expected" ? "Click to mark arrived" : "Open SP actions"}
-                      onClick={() => {
-                        if (tokenStatus === "expected") {
-                          void handleEventSpAttendanceAction(token.assignment, "arrived");
-                          return;
-                        }
-                        setActiveEventAttendanceKey((current) => current === token.key ? "" : token.key);
-                      }}
-                      style={{ all: "unset", cursor: tokenSaving ? "progress" : "pointer", display: "flex", gap: "8px", alignItems: "center", minWidth: 0, opacity: tokenSaving ? 0.7 : 1 }}
-                    >
-                      <EventAttendanceHologramAvatar
-                        name={token.name}
-                        role="sp"
-                        status={tokenStatus}
-                        selected={isActive}
-                      />
-                      <span style={{ display: "grid", gap: "2px", minWidth: 0 }}>
-                        <span style={{ color: tokenPresent ? "#065f46" : commandCenterVisual.textColor, fontSize: "12px", fontWeight: 950, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{token.name}</span>
-                        <span style={{ color: tokenPresent ? "#047857" : commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: tokenPresent ? 950 : 800 }}>
-                          {token.roomName || "Room pending"} · {getEventAttendanceStatusLabel(token.status)}
-                          {tokenPresent ? " ✓" : ""}
-                        </span>
-                      </span>
-                    </button>
-                    <button
-                      type="button"
-                      title={isActive ? "Hide actions" : "Manage SP status"}
-                      onClick={() => setActiveEventAttendanceKey((current) => current === token.key ? "" : token.key)}
-                      style={{ ...staffingSecondaryButtonStyle, padding: "4px 8px", fontSize: "9px", whiteSpace: "nowrap", opacity: tokenSaving ? 0.6 : 1 }}
-                      disabled={tokenSaving}
-                    >
-                      {isActive ? "Close" : "Manage"}
-                    </button>
-                  </div>
-                  {isActive ? (
-                    <div style={{ display: "flex", gap: "5px", flexWrap: "wrap", borderTop: "1px solid rgba(20, 91, 150, 0.16)", paddingTop: "6px", background: "rgba(255, 255, 255, 0.84)", borderRadius: "8px", paddingInline: "4px", paddingBottom: "4px" }}>
-                      {[
-                        { label: "Arrived", action: "arrived" as const },
-                        { label: "Late", action: "late" as const },
-                        { label: "Missing", action: "missing" as const },
-                        { label: "In Room", action: "in_room" as const },
-                        { label: "Completed", action: "completed" as const },
-                        { label: "Reset", action: "expected" as const },
-                      ].map((action) => (
-                        <button
-                          key={`${token.key}-${action.action}`}
-                          type="button"
-                          title={action.label}
-                          onClick={() => void handleEventSpAttendanceAction(token.assignment, action.action)}
-                          disabled={tokenSaving}
-                          style={{ ...staffingSecondaryButtonStyle, padding: "4px 7px", fontSize: "9px", opacity: tokenSaving ? 0.6 : 1 }}
-                        >
-                          {tokenSaving ? "Saving..." : action.label}
-                        </button>
-                      ))}
-                      <button type="button" title="Add note" onClick={() => handleEventSpAttendanceNote(token.assignment)} disabled={tokenSaving} style={{ ...staffingSecondaryButtonStyle, padding: "4px 7px", fontSize: "9px", opacity: tokenSaving ? 0.6 : 1 }}>
-                        Note
-                      </button>
-                      {token.note ? <span style={{ color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 750 }}>Note: {token.note}</span> : null}
-                    </div>
-                  ) : null}
-                </div>
-              );
-            })
-          ) : (
-            <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 800 }}>
-              {eventAttendanceSpTokens.length ? "No SPs match the current filter." : "No SPs assigned yet. Add SPs from SP Finder."}
-            </div>
-          )}
-        </div>
-      </section>
-
-      <section style={{ borderRadius: "14px", border: "1px solid rgba(99, 181, 217, 0.2)", background: "linear-gradient(rgba(99, 181, 217, 0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(99, 181, 217, 0.05) 1px, transparent 1px), radial-gradient(circle at 12% 8%, rgba(232, 244, 255, 0.46), transparent 34%), linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(240, 249, 255, 0.9), rgba(236, 253, 245, 0.84))", backgroundSize: "24px 24px, 24px 24px, auto, auto", padding: "10px", display: "grid", gap: "8px", minHeight: 0 }}>
-        <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Student / Learner Arrival Rail</div>
-        <div style={{ display: "grid", gap: "7px", maxHeight: "320px", overflowY: "auto", paddingRight: "2px" }}>
-          {visibleEventAttendanceLearnerTokens.length ? (
-            visibleEventAttendanceLearnerTokens.map((token) => {
-              const colors = getEventAttendanceStatusColors(token.status);
-              const isActive = activeEventAttendanceKey === token.key;
-              const tokenStatus = normalizeEventAttendanceStatus(token.status);
-              const tokenPresent = isEventAttendancePresentStatus(tokenStatus);
-              const tokenSaving = Boolean(attendanceSavingKeys[`learner:${token.attendanceKey}`]);
-              return (
-                <div
-                  key={`event-attendance-${token.key}`}
-                  style={{
-                    borderRadius: "11px",
-                    border: tokenPresent ? `1px solid ${colors.ring}` : `1px solid ${colors.ring}55`,
-                    background: tokenPresent
-                      ? "linear-gradient(135deg, rgba(209, 250, 229, 0.92), rgba(167, 243, 208, 0.84))"
-                      : colors.bg,
-                    padding: "6px",
-                    display: "grid",
-                    gap: "6px",
-                    boxShadow: tokenPresent
-                      ? `0 0 14px ${colors.ring}44, inset 0 0 0 1px rgba(255, 255, 255, 0.78)`
-                      : "none",
-                  }}
-                >
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", alignItems: "center" }}>
-                    <button
-                      type="button"
-                      title={tokenStatus === "expected" ? "Click to mark arrived" : "Open learner actions"}
-                      onClick={() => {
-                        if (tokenStatus === "expected") {
-                          void handleLiveLearnerAttendanceAction(token, "arrived");
-                          return;
-                        }
-                        setActiveEventAttendanceKey((current) => current === token.key ? "" : token.key);
-                      }}
-                      style={{ all: "unset", cursor: tokenSaving ? "progress" : "pointer", display: "flex", gap: "8px", alignItems: "center", minWidth: 0, opacity: tokenSaving ? 0.7 : 1 }}
-                    >
-                      <EventAttendanceHologramAvatar
-                        name={token.learnerName}
-                        role="learner"
-                        status={tokenStatus}
-                        selected={isActive}
-                      />
-                      <span style={{ display: "grid", gap: "2px", minWidth: 0 }}>
-                        <span style={{ color: tokenPresent ? "#065f46" : commandCenterVisual.textColor, fontSize: "12px", fontWeight: 950, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{token.learnerName}</span>
-                        <span style={{ color: tokenPresent ? "#047857" : commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: tokenPresent ? 950 : 800 }}>
-                          {token.roomName || "Room pending"} · {getEventAttendanceStatusLabel(token.status)}
-                          {tokenPresent ? " ✓" : ""}
-                        </span>
-                      </span>
-                    </button>
-                    <button
-                      type="button"
-                      title={isActive ? "Hide actions" : "Manage learner status"}
-                      onClick={() => setActiveEventAttendanceKey((current) => current === token.key ? "" : token.key)}
-                      style={{ ...staffingSecondaryButtonStyle, padding: "4px 8px", fontSize: "9px", whiteSpace: "nowrap", opacity: tokenSaving ? 0.6 : 1 }}
-                      disabled={tokenSaving}
-                    >
-                      {isActive ? "Close" : "Manage"}
-                    </button>
-                  </div>
-                  {isActive ? (
-                    <div style={{ display: "flex", gap: "5px", flexWrap: "wrap", borderTop: "1px solid rgba(20, 91, 150, 0.16)", paddingTop: "6px", background: "rgba(255, 255, 255, 0.84)", borderRadius: "8px", paddingInline: "4px", paddingBottom: "4px" }}>
-                      {[
-                        { label: "Arrived", action: "arrived" as const },
-                        { label: "Late", action: "late" as const },
-                        { label: "Missing", action: "absent" as const },
-                        { label: "In Room", action: "in_room" as const },
-                        { label: "Completed", action: "completed" as const },
-                        { label: "Reset", action: "expected" as const },
-                      ].map((action) => (
-                        <button
-                          key={`${token.key}-${action.action}`}
-                          type="button"
-                          title={action.label}
-                          onClick={() => void handleLiveLearnerAttendanceAction(token, action.action)}
-                          disabled={tokenSaving}
-                          style={{ ...staffingSecondaryButtonStyle, padding: "4px 7px", fontSize: "9px", opacity: tokenSaving ? 0.6 : 1 }}
-                        >
-                          {tokenSaving ? "Saving..." : action.label}
-                        </button>
-                      ))}
-                      <button type="button" title="Add note" onClick={() => handleEventLearnerAttendanceNote(token)} disabled={tokenSaving} style={{ ...staffingSecondaryButtonStyle, padding: "4px 7px", fontSize: "9px", opacity: tokenSaving ? 0.6 : 1 }}>
-                        Note
-                      </button>
-                      {liveLearnerAttendanceRecords[token.attendanceKey]?.note ? (
-                        <span style={{ color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 750 }}>Note: {liveLearnerAttendanceRecords[token.attendanceKey]?.note}</span>
-                      ) : null}
-                    </div>
-                  ) : null}
-                </div>
-              );
-            })
-          ) : (
-            <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 800 }}>
-              {eventAttendanceLearnerPresenceTokens.length
-                ? "No learners match the current filter."
-                : "No learner roster found. Add or import learners from Schedule Builder."}
-            </div>
-          )}
-        </div>
-      </section>
-    </div>
-  </section>
+  renderRoundCommandStationPanel()
 ) : roundCompanionView === "announcements" ? (
                             selectedRoundAnnouncementTimeline.length ? (
                               <div style={{ display: "grid", gap: "10px" }}>
@@ -26601,616 +26602,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                               </div>
                             )
                           ) : (
-                            selectedRoundOperationsScheduleReady ? (
-                              <div style={{ display: "grid", gap: "6px" }}>
-                                <section
-                                  style={{
-                                    borderRadius: "16px",
-                                    border: isPlanningVisualMode ? "1px solid rgba(20, 91, 150, 0.22)" : "1px solid rgba(126, 231, 219, 0.24)",
-                                    background: isPlanningVisualMode
-                                      ? "linear-gradient(135deg, rgba(239, 246, 255, 0.92), rgba(236, 253, 245, 0.74))"
-                                      : "linear-gradient(135deg, rgba(8, 30, 46, 0.72), rgba(7, 42, 38, 0.68))",
-                                    padding: "12px",
-                                    display: "grid",
-                                    gap: "10px",
-                                  }}
-                                >
-                                  <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
-                                    <div>
-                                      <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Operations View</div>
-                                      <div style={{ marginTop: "4px", color: commandCenterVisual.headingColor, fontWeight: 950, fontSize: "17px" }}>
-                                        Round {activeSelectedRotationRoundIndex + 1} execution flow
-                                      </div>
-                                    </div>
-                                    <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
-                                      <span style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText }}>
-                                        {selectedRoundRoomCount} rooms
-                                      </span>
-                                      {selectedRoundLearnerCount !== null ? (
-                                        <span style={{ ...commandChipStyle, background: commandCenterVisual.activeSoftBackground, color: commandCenterVisual.activeSoftText }}>
-                                          {selectedRoundLearnerCount} learners
-                                        </span>
-                                      ) : null}
-                                      <span style={{ ...commandChipStyle, background: selectedRoundOperationsFlags.length ? "rgba(243, 187, 103, 0.14)" : commandCenterVisual.activeSoftBackground, color: selectedRoundOperationsFlags.length ? (isPlanningVisualMode ? "#92400e" : "#f3bb67") : commandCenterVisual.activeSoftText }}>
-                                        {selectedRoundOperationsFlags.length ? `${selectedRoundOperationsFlags.length} ops note${selectedRoundOperationsFlags.length === 1 ? "" : "s"}` : "Ops stable"}
-                                      </span>
-                                    </div>
-                                  </div>
-                                  <div style={{ color: commandCenterVisual.mutedColor, fontSize: "13px", fontWeight: 750, lineHeight: 1.45 }}>
-                                    Focused staff view for rooms, SPs, learners, timing blocks, transitions, and operational reminders.
-                                  </div>
-                                </section>
-                                <section
-                                  style={{
-                                    borderRadius: "14px",
-                                    border: commandCenterVisual.rowBorder,
-                                    background: commandCenterVisual.rowBackground,
-                                    padding: "10px 12px",
-                                    display: "grid",
-                                    gap: "10px",
-                                  }}
-                                >
-                                  <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
-                                    <div>
-                                      <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Backup + Room Controls</div>
-                                      <div style={{ marginTop: "3px", color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 800 }}>
-                                        {confirmedAssignments.length} primary SPs · {backupAssignments.length} backup SPs · {selectedRoundRoomCount} rooms
-                                      </div>
-                                    </div>
-                                    <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                                      <button
-                                        type="button"
-                                        onClick={() => void handleSaveRoundOperationsChanges()}
-                                        disabled={roundOperationsSaveState === "saving" || saving}
-                                        style={{
-                                          ...buttonStyle,
-                                          padding: "6px 10px",
-                                          fontSize: "11px",
-                                          background:
-                                            roundOperationsSaveState === "error"
-                                              ? "#b42318"
-                                              : roundOperationsSaveState === "saved"
-                                                ? "#12805c"
-                                                : "#c65f16",
-                                          borderColor:
-                                            roundOperationsSaveState === "error"
-                                              ? "#912018"
-                                              : roundOperationsSaveState === "saved"
-                                                ? "#0f684b"
-                                                : "#9a4712",
-                                          color: "#fff",
-                                          opacity: roundOperationsSaveState === "saving" || saving ? 0.72 : 1,
-                                        }}
-                                      >
-                                        {roundOperationsSaveState === "saving"
-                                          ? "Saving..."
-                                          : roundOperationsSaveState === "error"
-                                            ? "Save Failed"
-                                            : roundOperationsSaveState === "saved"
-                                              ? `Saved ✓${roundOperationsLastSavedAt ? ` at ${new Date(roundOperationsLastSavedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}`
-                                              : "Save Round Changes"}
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => void handleRoundRoomCountChange(1)}
-                                        disabled={saving}
-                                        style={{ ...buttonStyle, padding: "6px 9px", fontSize: "11px", opacity: saving ? 0.65 : 1 }}
-                                      >
-                                        + Room
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => void handleRoundRoomCountChange(-1)}
-                                        disabled={saving || effectiveRoomCount <= 1}
-                                        style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px", fontSize: "11px", opacity: saving || effectiveRoomCount <= 1 ? 0.55 : 1 }}
-                                      >
-                                        - Room
-                                      </button>
-                                    </div>
-                                  </div>
-                                  {roundOperationsSaveState === "unsaved" ? (
-                                    <div style={{ color: isPlanningVisualMode ? "#92400e" : "#f3bb67", fontSize: "11px", fontWeight: 850 }}>
-                                      Unsaved round changes. Use Save Round Changes to update Schedule Builder, Viewer, Live Mode, and exports.
-                                    </div>
-                                  ) : roundOperationsSaveState === "error" && roundOperationsSaveError ? (
-                                    <div style={{ color: staffingWorkspacePalette.dangerText, fontSize: "11px", fontWeight: 850 }}>
-                                      {roundOperationsSaveError}
-                                    </div>
-                                  ) : null}
-                                  <div style={{ display: "grid", gap: "6px", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
-                                    <div style={{ display: "grid", gap: "6px" }}>
-                                      <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Primary SPs</div>
-                                      {confirmedAssignments.length ? confirmedAssignments.map((assignment) => {
-                                        const sp = assignment.sp_id ? spsById.get(assignment.sp_id) : null;
-                                        return (
-                                          <div key={`round-primary-${assignment.id}`} style={{ display: "flex", justifyContent: "space-between", gap: "6px", alignItems: "center", color: commandCenterVisual.textColor, fontSize: "11px", fontWeight: 850 }}>
-                                            <span>{getFullName(sp || emptySpRow) || "Primary SP"}</span>
-                                            <button
-                                              type="button"
-                                              onClick={() => void handleStatusChange(assignment, "backup")}
-                                              disabled={saving}
-                                              style={{ ...staffingSecondaryButtonStyle, padding: "4px 7px", fontSize: "10px", opacity: saving ? 0.65 : 1 }}
-                                            >
-                                              Move to backup
-                                            </button>
-                                          </div>
-                                        );
-                                      }) : (
-                                        <div style={{ color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 800 }}>No primary SPs confirmed.</div>
-                                      )}
-                                    </div>
-                                    <div style={{ display: "grid", gap: "6px" }}>
-                                      <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Backup SPs</div>
-                                      {backupAssignments.length ? backupAssignments.map((assignment) => {
-                                        const sp = assignment.sp_id ? spsById.get(assignment.sp_id) : null;
-                                        const spName = getFullName(sp || emptySpRow) || "Backup SP";
-                                        return (
-                                          <div key={`round-backup-${assignment.id}`} style={{ display: "grid", gap: "5px", borderRadius: "10px", border: commandCenterVisual.rowBorder, background: isPlanningVisualMode ? "rgba(255,255,255,0.82)" : "rgba(255,255,255,0.06)", padding: "7px" }}>
-                                            <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", alignItems: "center", color: commandCenterVisual.textColor, fontSize: "11px", fontWeight: 900 }}>
-                                              <span>{spName}</span>
-                                              <span style={{ ...commandChipStyle, background: commandCenterVisual.activeSoftBackground, color: commandCenterVisual.activeSoftText, border: commandCenterVisual.rowBorder }}>Backup</span>
-                                            </div>
-                                            <div style={{ display: "flex", gap: "5px", flexWrap: "wrap" }}>
-                                              <button
-                                                type="button"
-                                                onClick={() => void handleStatusChange(assignment, "confirmed")}
-                                                disabled={saving}
-                                                style={{ ...buttonStyle, padding: "5px 8px", fontSize: "10px", opacity: saving ? 0.65 : 1 }}
-                                              >
-                                                Promote
-                                              </button>
-                                              <button
-                                                type="button"
-                                                onClick={() => void handleRemoveAssignment(assignment)}
-                                                disabled={saving}
-                                                style={{ ...dangerButtonStyle, padding: "5px 8px", fontSize: "10px", opacity: saving ? 0.65 : 1 }}
-                                              >
-                                                Remove
-                                              </button>
-                                              {canDeleteAssignmentHistory ? (
-                                                <button
-                                                  type="button"
-                                                  onClick={() => void handleDeleteAssignmentHistory(assignment)}
-                                                  disabled={saving}
-                                                  style={{
-                                                    ...dangerButtonStyle,
-                                                    padding: "5px 8px",
-                                                    fontSize: "10px",
-                                                    opacity: saving ? 0.65 : 1,
-                                                    background: "#7f1d1d",
-                                                    borderColor: "#b91c1c",
-                                                    color: "#fff7ed",
-                                                  }}
-                                                >
-                                                  Delete Assignment History
-                                                </button>
-                                              ) : null}
-                                            </div>
-                                            <select
-                                              aria-label={`Assign ${spName} to room`}
-                                              defaultValue=""
-                                              onChange={(event) => {
-                                                const slotIndex = Number(event.target.value);
-                                                if (!Number.isFinite(slotIndex)) return;
-                                                void handleRoundRoomAdjustment(slotIndex, { backupSpName: spName });
-                                                event.currentTarget.value = "";
-                                              }}
-                                              disabled={saving || !selectedRoundScheduleRows.length}
-                                              style={{ ...selectStyle, width: "100%", maxWidth: "none", fontSize: "11px", padding: "6px 7px" }}
-                                            >
-                                              <option value="">Assign backup to room...</option>
-                                              {selectedRoundScheduleRows.map((row) => (
-                                                <option key={`backup-room-${assignment.id}-${row.slotIndex}`} value={row.slotIndex}>
-                                                  {row.roomName}
-                                                </option>
-                                              ))}
-                                            </select>
-                                          </div>
-                                        );
-                                      }) : (
-                                        <div style={{ color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 800 }}>No backup SPs selected.</div>
-                                      )}
-                                    </div>
-                                  </div>
-                                </section>
-                                <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                                  {selectedRoundScheduleRows.length ? selectedRoundScheduleRows.map((row) => (
-                                    <span key={`${row.key}-room-chip`} style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText, border: commandCenterVisual.rowBorder }}>
-                                      {row.roomName}
-                                    </span>
-                                  )) : (
-                                    <span style={{ ...commandChipStyle, background: isPlanningVisualMode ? "rgba(226, 236, 244, 0.92)" : "rgba(226, 232, 240, 0.16)", color: commandCenterVisual.mutedColor, border: commandCenterVisual.rowBorder }}>
-                                      Rooms TBD
-                                    </span>
-                                  )}
-                                </div>
-                                {selectedRoundOperationsFlags.length ? (
-                                  <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                                    {selectedRoundOperationsFlags.map((flag) => (
-                                      <span key={`${selectedRotationRound.key}-ops-flag-${flag}`} style={{ ...commandChipStyle, background: "rgba(248, 113, 113, 0.12)", color: staffingWorkspacePalette.dangerText }}>
-                                        {flag}
-                                      </span>
-                                    ))}
-                                  </div>
-                                ) : null}
-                                {selectedRoundScheduleRows.map((row, index) => {
-                                  const rowCaseEntry = findCaseFileEntryForLabel(caseFileEntries, row.caseLabel);
-                                  const rowCaseAssets = rowCaseEntry
-                                    ? buildTrainingMaterialAssetUrls({
-                                        eventId: id,
-                                        rawUrl: rowCaseEntry.url,
-                                        storagePath: rowCaseEntry.storagePath,
-                                        fileName: rowCaseEntry.name || row.caseLabel || "case-file",
-                                      })
-                                    : null;
-                                  const rowHasCaseFile = Boolean(rowCaseEntry && (rowCaseEntry.url || rowCaseEntry.storagePath));
-                                  const rowCaseRoles = rowCaseEntry?.hasRoles ? (rowCaseEntry.roles || []).filter((role) => role.name) : [];
-                                  const rowRoleMatchesCase = row.roleId ? rowCaseRoles.some((role) => role.id === row.roleId) : false;
-                                  const rowRoleMatchesName = row.roleLabel
-                                    ? rowCaseRoles.some((role) => role.name.toLowerCase() === row.roleLabel.toLowerCase())
-                                    : false;
-                                  const rowRoleSelectValue = row.roleId && rowRoleMatchesCase
-                                    ? `role:${row.roleId}`
-                                    : row.roleLabel
-                                      ? `custom:${row.roleLabel}`
-                                      : "";
-
-                                  return (
-                                  <div key={`${row.key}-ops`} style={{ borderRadius: "12px", border: commandCenterVisual.rowBorder, background: commandCenterVisual.rowBackground, padding: "8px 10px", display: "grid", gap: "6px" }}>
-                                    <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
-                                      <div>
-                                        <div style={{ color: commandCenterVisual.textColor, fontWeight: 900 }}>{row.roomName || `Room ${index + 1}`}</div>
-                                        <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 800 }}>
-                                          {[row.stationLabel, row.caseLabel].filter(Boolean).join(" · ") || "Case not assigned"}
-                                        </div>
-                                      </div>
-                                      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
-                                        {row.assignment ? (
-                                          <span style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText, border: commandCenterVisual.rowBorder }}>
-                                            {assignmentStatusLabels[getAssignmentStatus(row.assignment)]}
-                                          </span>
-                                        ) : null}
-                                        {row.sp && getEmail(row.sp) ? (
-                                          <span style={{ ...commandChipStyle, background: commandCenterVisual.activeSoftBackground, color: commandCenterVisual.activeSoftText, border: commandCenterVisual.rowBorder }}>
-                                            Email ready
-                                          </span>
-                                        ) : null}
-                                      </div>
-                                    </div>
-                                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: "6px" }}>
-                                      <div>
-                                        <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Learner</div>
-                                        <div style={{ color: commandCenterVisual.textColor, fontWeight: 800, fontSize: "13px", display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                                          {row.learnerLabels.length ? (
-                                            row.learnerLabels.map((learner, learnerIndex) => (
-                                              <span
-                                                key={`${row.key}-ops-learner-${learnerIndex}-${learner || "unassigned"}`}
-                                                style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}
-                                              >
-                                                <RoundOperationAvatar name={normalizeLearnerName(learner)} role="student" />
-                                                {learner}
-                                              </span>
-                                            ))
-                                          ) : (
-                                            "Learner TBD"
-                                          )}
-                                        </div>
-                                      </div>
-                                      <div>
-                                        <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>SP</div>
-                                        <div style={{ color: commandCenterVisual.textColor, fontWeight: 800, fontSize: "13px", display: "inline-flex", alignItems: "center", gap: "6px" }}>
-                                          <RoundOperationAvatar name={row.sp ? getFullName(row.sp) : "SP TBD"} role="sp" />
-                                          {row.sp ? getFullName(row.sp) : "SP TBD"}
-                                        </div>
-                                        {row.backupSpName ? (
-                                          <div style={{ marginTop: "6px", color: commandCenterVisual.textColor, fontSize: "11px", fontWeight: 900, display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
-                                            <span style={{ ...commandChipStyle, background: commandCenterVisual.activeSoftBackground, color: commandCenterVisual.activeSoftText, border: commandCenterVisual.rowBorder, padding: "3px 7px", fontSize: "10px" }}>
-                                              Backup
-                                            </span>
-                                            {row.backupSpName}
-                                          </div>
-                                        ) : null}
-                                      </div>
-                                      <div>
-                                        <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Role</div>
-                                        <div style={{ color: commandCenterVisual.textColor, fontWeight: 900, fontSize: "13px" }}>
-                                          {row.roleLabel || "Role TBD"}
-                                        </div>
-                                      </div>
-                                      <div>
-                                        <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Location</div>
-                                        <div style={{ color: commandCenterVisual.textColor, fontWeight: 900, fontSize: "13px" }}>
-                                          {row.location || "Location TBD"}
-                                        </div>
-                                      </div>
-                                    </div>
-                                    {row.notes ? (
-                                      <div style={{ borderRadius: "10px", border: commandCenterVisual.rowBorder, background: commandCenterVisual.chipBackground, color: commandCenterVisual.textColor, padding: "8px 10px", fontSize: "10px", fontWeight: 700 }}>
-                                        {row.notes}
-                                      </div>
-                                    ) : null}
-                                    <div style={{ borderRadius: "10px", border: commandCenterVisual.rowBorder, background: commandCenterVisual.chipBackground, padding: "7px 9px", display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
-                                      <div style={{ minWidth: 0 }}>
-                                        <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Case file</div>
-                                        <div style={{ color: commandCenterVisual.textColor, fontWeight: 900, fontSize: "12px", overflowWrap: "break-word" }}>
-                                          {row.caseLabel || "Case TBD"}
-                                        </div>
-                                        {!rowHasCaseFile ? (
-                                          <div style={{ marginTop: "2px", color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 800 }}>
-                                            No case file uploaded
-                                          </div>
-                                        ) : null}
-                                      </div>
-                                      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
-                                        {rowHasCaseFile ? (
-                                          <>
-                                            <button
-                                              type="button"
-                                              onClick={() => openCaseFilePreview(rowCaseEntry)}
-                                              style={{ ...staffingSecondaryButtonStyle, padding: "5px 8px", fontSize: "10px" }}
-                                            >
-                                              Preview Case
-                                            </button>
-                                            {rowCaseAssets?.downloadUrl ? (
-                                              <a
-                                                href={rowCaseAssets.downloadUrl}
-                                                download={rowCaseAssets.fileName}
-                                                style={{ ...staffingSecondaryButtonStyle, padding: "5px 8px", fontSize: "10px", textDecoration: "none", display: "inline-flex", alignItems: "center" }}
-                                              >
-                                                Download Case
-                                              </a>
-                                            ) : null}
-                                          </>
-                                        ) : (
-                                          <button
-                                            type="button"
-                                            onClick={() => {
-                                              setSelectedCommandTool("fileCabinet");
-                                              setCommandFileCabinetExpanded(true);
-                                              queueCommandContentScroll();
-                                            }}
-                                            style={{ ...staffingSecondaryButtonStyle, padding: "5px 8px", fontSize: "10px" }}
-                                          >
-                                            Open File Cabinet
-                                          </button>
-                                        )}
-                                      </div>
-                                    </div>
-                                    <div
-                                      style={{
-                                        display: "grid",
-                                        gap: "6px",
-                                        gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
-                                        borderTop: commandCenterVisual.rowBorder,
-                                        paddingTop: "8px",
-                                      }}
-                                    >
-                                      <label style={{ display: "grid", gap: "4px" }}>
-                                        <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Room name</span>
-                                        <input
-                                          value={row.roomName}
-                                          onChange={(event) => void handleRoundRoomAdjustment(row.slotIndex, { roomName: event.target.value })}
-                                          disabled={saving}
-                                          placeholder={`Room ${row.slotIndex + 1}`}
-                                          style={{ ...inputStyle, width: "100%", boxSizing: "border-box", fontSize: "11px", padding: "6px 7px" }}
-                                        />
-                                      </label>
-                                      <label style={{ display: "grid", gap: "4px" }}>
-                                        <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Learners in room</span>
-                                        <textarea
-                                          value={row.learnerLabels.join("\n")}
-                                          onChange={(event) =>
-                                            void handleRoundRoomAdjustment(row.slotIndex, {
-                                              learnerLabels: normalizeLearnerNames(event.target.value.split(/\r?\n|,/g)),
-                                            })
-                                          }
-                                          disabled={saving}
-                                          placeholder="One learner per line"
-                                          style={{ ...inputStyle, width: "100%", boxSizing: "border-box", minHeight: "58px", resize: "vertical", fontSize: "11px", padding: "6px 7px" }}
-                                        />
-                                      </label>
-                                      <label style={{ display: "grid", gap: "4px" }}>
-                                        <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Primary SP</span>
-                                        <select
-                                          value={row.sp ? getFullName(row.sp) : ""}
-                                          onChange={(event) =>
-                                            void handleRoundRoomAdjustment(
-                                              row.slotIndex,
-                                              { spName: event.target.value }
-                                            )
-                                          }
-                                          disabled={saving}
-                                          style={{ ...selectStyle, width: "100%", maxWidth: "none", fontSize: "11px", padding: "6px 7px" }}
-                                        >
-                                          <option value="">SP TBD</option>
-                                          {[...confirmedAssignments, ...backupAssignments].map((assignment) => {
-                                            const sp = assignment.sp_id ? spsById.get(assignment.sp_id) : null;
-                                            const spName = getFullName(sp || emptySpRow);
-                                            return spName ? (
-                                              <option key={`${row.key}-sp-option-${assignment.id}`} value={spName}>
-                                                {spName} ({getAssignmentStatus(assignment) === "backup" ? "backup" : "primary"})
-                                              </option>
-                                            ) : null;
-                                          })}
-                                        </select>
-                                      </label>
-                                      <label style={{ display: "grid", gap: "4px" }}>
-                                        <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Backup SP</span>
-                                        <select
-                                          value={row.backupSpName}
-                                          onChange={(event) =>
-                                            void handleRoundRoomAdjustment(row.slotIndex, { backupSpName: event.target.value })
-                                          }
-                                          disabled={saving}
-                                          style={{ ...selectStyle, width: "100%", maxWidth: "none", fontSize: "11px", padding: "6px 7px" }}
-                                        >
-                                          <option value="">Backup TBD</option>
-                                          {backupAssignments.map((assignment) => {
-                                            const sp = assignment.sp_id ? spsById.get(assignment.sp_id) : null;
-                                            const spName = getFullName(sp || emptySpRow);
-                                            return spName ? (
-                                              <option key={`${row.key}-backup-option-${assignment.id}`} value={spName}>
-                                                {spName}
-                                              </option>
-                                            ) : null;
-                                          })}
-                                        </select>
-                                      </label>
-                                      <label style={{ display: "grid", gap: "4px" }}>
-                                        <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Case assignment</span>
-                                        <select
-                                          value={row.caseLabel}
-                                          onChange={(event) =>
-                                            void handleRoundRoomAdjustment(row.slotIndex, { caseLabel: event.target.value, roleId: "", roleLabel: "" })
-                                          }
-                                          disabled={saving}
-                                          style={{ ...selectStyle, width: "100%", maxWidth: "none", fontSize: "11px", padding: "6px 7px" }}
-                                        >
-                                          <option value="">Case TBD</option>
-                                          {caseFileEntries
-                                            .filter((caseEntry) => caseEntry.status !== "inactive")
-                                            .map((caseEntry, caseIndex) => (
-                                              <option key={`${row.key}-case-option-${caseEntry.id}-${caseIndex}`} value={caseEntry.name || `Case ${caseIndex + 1}`}>
-                                                {caseEntry.name || `Case ${caseIndex + 1}`}
-                                              </option>
-                                            ))}
-                                          {row.caseLabel && !caseFileEntries.some((caseEntry) => caseEntry.name === row.caseLabel) ? (
-                                            <option value={row.caseLabel}>{row.caseLabel}</option>
-                                          ) : null}
-                                        </select>
-                                      </label>
-                                      <label style={{ display: "grid", gap: "4px" }}>
-                                        <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Manual case title</span>
-                                        <input
-                                          value={row.caseLabel}
-                                          onChange={(event) => void handleRoundRoomAdjustment(row.slotIndex, { caseLabel: event.target.value, roleId: "", roleLabel: "" })}
-                                          disabled={saving}
-                                          placeholder="Type case title"
-                                          style={{ ...inputStyle, width: "100%", boxSizing: "border-box", fontSize: "11px", padding: "6px 7px" }}
-                                        />
-                                      </label>
-                                      <label style={{ display: "grid", gap: "4px" }}>
-                                        <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Role / portrayal</span>
-                                        {rowCaseRoles.length ? (
-                                          <>
-                                            <select
-                                              value={rowRoleSelectValue}
-                                              onChange={(event) => {
-                                                const selectedValue = event.target.value;
-                                                if (selectedValue.startsWith("role:")) {
-                                                  const selectedRoleId = selectedValue.slice("role:".length);
-                                                  const selectedRole = rowCaseRoles.find((role) => role.id === selectedRoleId);
-                                                  void handleRoundRoomAdjustment(row.slotIndex, { roleId: selectedRoleId, roleLabel: selectedRole?.name || "" });
-                                                  return;
-                                                }
-                                                if (selectedValue === "__custom") {
-                                                  void handleRoundRoomAdjustment(row.slotIndex, { roleId: "", roleLabel: row.roleLabel || "" });
-                                                  return;
-                                                }
-                                                void handleRoundRoomAdjustment(row.slotIndex, { roleId: "", roleLabel: "" });
-                                              }}
-                                              disabled={saving}
-                                              style={{ ...selectStyle, width: "100%", maxWidth: "none", fontSize: "11px", padding: "6px 7px" }}
-                                            >
-                                              <option value="">Role TBD</option>
-                                              {rowCaseRoles.map((role) => (
-                                                <option key={`${row.key}-role-option-${role.id}`} value={`role:${role.id}`}>
-                                                  {role.name}
-                                                </option>
-                                              ))}
-                                              {row.roleLabel && (!rowRoleMatchesCase || !rowRoleMatchesName) ? (
-                                                <option value={`custom:${row.roleLabel}`}>
-                                                  {row.roleId && !rowRoleMatchesCase ? `Role removed: ${row.roleLabel}` : `Custom: ${row.roleLabel}`}
-                                                </option>
-                                              ) : null}
-                                              <option value="__custom">Other / custom</option>
-                                            </select>
-                                            {!row.roleId ? (
-                                              <input
-                                                value={row.roleLabel}
-                                                onChange={(event) => void handleRoundRoomAdjustment(row.slotIndex, { roleId: "", roleLabel: event.target.value })}
-                                                disabled={saving}
-                                                placeholder="Custom role / portrayal"
-                                                style={{ ...inputStyle, width: "100%", boxSizing: "border-box", fontSize: "11px", padding: "6px 7px" }}
-                                              />
-                                            ) : null}
-                                          </>
-                                        ) : (
-                                          <input
-                                            value={row.roleLabel}
-                                            onChange={(event) => void handleRoundRoomAdjustment(row.slotIndex, { roleId: "", roleLabel: event.target.value })}
-                                            disabled={saving}
-                                            placeholder="Nurse, patient, family..."
-                                            style={{ ...inputStyle, width: "100%", boxSizing: "border-box", fontSize: "11px", padding: "6px 7px" }}
-                                          />
-                                        )}
-                                      </label>
-                                      <label style={{ display: "grid", gap: "4px" }}>
-                                        <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Move paired assignment</span>
-                                        <select
-                                          defaultValue=""
-                                          onChange={(event) => {
-                                            const targetSlotIndex = Number(event.target.value);
-                                            if (!Number.isFinite(targetSlotIndex) || targetSlotIndex === row.slotIndex) return;
-                                            const targetRow = selectedRoundScheduleRows.find((candidate) => candidate.slotIndex === targetSlotIndex);
-                                            void handleMoveRoundAssignment(row, targetRow);
-                                            event.currentTarget.value = "";
-                                          }}
-                                          disabled={saving}
-                                          style={{ ...selectStyle, width: "100%", maxWidth: "none", fontSize: "11px", padding: "6px 7px" }}
-                                        >
-                                          <option value="">Move to room...</option>
-                                          {selectedRoundScheduleRows
-                                            .filter((candidate) => candidate.slotIndex !== row.slotIndex)
-                                            .map((candidate) => (
-                                              <option key={`${row.key}-move-${candidate.slotIndex}`} value={candidate.slotIndex}>
-                                                {candidate.roomName}
-                                              </option>
-                                          ))}
-                                        </select>
-                                      </label>
-                                      <label style={{ display: "grid", gap: "4px", gridColumn: "1 / -1" }}>
-                                        <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Room notes</span>
-                                        <textarea
-                                          value={row.notes}
-                                          onChange={(event) => void handleRoundRoomAdjustment(row.slotIndex, { notes: event.target.value })}
-                                          disabled={saving}
-                                          placeholder="Operational notes, setup cues, mismatch risks, or role details"
-                                          style={{ ...inputStyle, width: "100%", boxSizing: "border-box", minHeight: "48px", resize: "vertical", fontSize: "11px", padding: "6px 7px" }}
-                                        />
-                                      </label>
-                                    </div>
-                                  </div>
-                                  );
-                                })}
-                                {visibleSelectedRoundScheduleBlocks.length ? (
-                                  <div style={{ display: "grid", gap: "6px" }}>
-                                    {visibleSelectedRoundScheduleBlocks.map((block) => (
-                                      <div key={`${selectedRotationRound.key}-ops-block-${block.label}`} style={{ borderRadius: "12px", border: commandCenterVisual.rowBorder, background: commandCenterVisual.rowBackground, padding: "10px 12px" }}>
-                                        <div style={{ color: commandCenterVisual.textColor, fontWeight: 800 }}>{block.label}</div>
-                                        <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 700 }}>{block.timeLabel || block.detail}</div>
-                                      </div>
-                                    ))}
-                                  </div>
-                                ) : null}
-                                {selectedRoundOperationsNotes.length ? (
-                                  <div style={{ borderRadius: "12px", border: "1px solid rgba(243, 187, 103, 0.22)", background: "rgba(243, 187, 103, 0.08)", padding: "10px 12px" }}>
-                                    <div style={{ color: commandCenterVisual.textColor, fontWeight: 800 }}>Operations reminders</div>
-                                    <div style={{ marginTop: "6px", display: "grid", gap: "6px" }}>
-                                      {selectedRoundOperationsNotes.slice(0, 3).map((note, index) => (
-                                        <div key={`${selectedRotationRound.key}-ops-note-${index}`} style={{ color: "#f7d9a2", fontSize: "11px", fontWeight: 700 }}>
-                                          {note}
-                                        </div>
-                                      ))}
-                                    </div>
-                                  </div>
-                                ) : null}
-                              </div>
-                            ) : (
-                              <div style={{ color: commandCenterVisual.mutedColor, fontWeight: 700, fontSize: "13px" }}>
-                                No operations schedule has been built for this round yet.
-                              </div>
-                            )
+                            renderRoundCommandStationPanel()
                           )}
                         </div>
                       </>
