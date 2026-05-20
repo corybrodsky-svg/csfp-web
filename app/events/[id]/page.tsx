@@ -254,6 +254,9 @@ type RoundRoomBoardRow = RoundRoomRow & {
   isExplicitMapped: boolean;
   mappingState: string;
 };
+type OperationsRoomCardRow = RoundRoomRow & {
+  primarySpName: string;
+};
 type EventAttendanceCanonicalRoom = {
   roomName: string;
   learnerLabels: string[];
@@ -9183,7 +9186,6 @@ const operationalEventStatusLabel = useMemo(() => {
     selectedRotationRound,
     selectedRoundStationLabel,
   ]);
-  void selectedResolvedCommandStations;
   const selectedRoundScheduleRows = useMemo(() => {
     if (!selectedRotationRound) {
       return [] as Array<RoundRoomRow>;
@@ -9374,6 +9376,89 @@ const operationalEventStatusLabel = useMemo(() => {
     spsById,
     staffingRelevant,
   ]);
+  const selectedRoundOperationsRows = useMemo(() => {
+    if (!selectedResolvedCommandStations?.length) {
+      return selectedRoundScheduleRows.map((row) => ({
+        ...row,
+        primarySpName: row.sp ? getFullName(row.sp) : "",
+      })) as OperationsRoomCardRow[];
+    }
+
+    const roundAdjustments = activeScheduleRoomAdjustments.get(activeSelectedRotationRoundGlobalIndex + 1) || [];
+    const availableAssignments = [...confirmedAssignments, ...backupAssignments];
+    const scheduleRowsBySlotIndex = new Map(selectedRoundScheduleRows.map((row) => [row.slotIndex, row]));
+
+    return selectedResolvedCommandStations.map((station) => {
+      const slotOverride =
+        roundAdjustments.find((slot: ScheduleRoomAdjustmentSlot) => slot.slotIndex === station.slotIndex) || null;
+      const existingRow = scheduleRowsBySlotIndex.get(station.slotIndex) || null;
+      const hasRoomNameOverride = Boolean(slotOverride && Object.prototype.hasOwnProperty.call(slotOverride, "roomName"));
+      const hasSpNameOverride = Boolean(slotOverride && Object.prototype.hasOwnProperty.call(slotOverride, "spName"));
+      const hasBackupSpOverride = Boolean(slotOverride && Object.prototype.hasOwnProperty.call(slotOverride, "backupSpName"));
+      const hasCaseLabelOverride = Boolean(slotOverride && Object.prototype.hasOwnProperty.call(slotOverride, "caseLabel"));
+      const hasRoleIdOverride = Boolean(slotOverride && Object.prototype.hasOwnProperty.call(slotOverride, "roleId"));
+      const hasRoleLabelOverride = Boolean(slotOverride && Object.prototype.hasOwnProperty.call(slotOverride, "roleLabel"));
+      const hasNotesOverride = Boolean(slotOverride && Object.prototype.hasOwnProperty.call(slotOverride, "notes"));
+
+      const primarySpName = hasSpNameOverride
+        ? asText(slotOverride?.spName)
+        : asText(station.assignedSpName);
+      const learnerLabels = slotOverride?.manualOverride
+        ? normalizeLearnerNames(slotOverride.learnerLabels || [])
+        : normalizeLearnerNames(station.learnerLabels);
+      const roomName = hasRoomNameOverride
+        ? asText(slotOverride?.roomName) || station.roomName
+        : station.roomName;
+      const caseLabel = hasCaseLabelOverride
+        ? asText(slotOverride?.caseLabel)
+        : asText(station.caseLabel);
+      const effectiveCaseEntry = findCaseFileEntryForLabel(caseFileEntries, caseLabel);
+      const roleId = hasRoleIdOverride
+        ? asText(slotOverride?.roleId)
+        : asText(station.roleId);
+      const roleLabel = resolveCaseRoleLabel(
+        effectiveCaseEntry,
+        roleId,
+        hasRoleLabelOverride ? asText(slotOverride?.roleLabel) : asText(station.roleLabel)
+      );
+      const assignment = primarySpName
+        ? findAssignmentBySpDisplayName(availableAssignments, spsById, primarySpName)
+        : null;
+      const sp = assignment?.sp_id ? spsById.get(assignment.sp_id) || null : null;
+
+      return {
+        key: `${station.key}-ops`,
+        slotIndex: station.slotIndex,
+        roomName,
+        location: existingRow?.location || asText(event?.location),
+        learnerLabels,
+        assignment,
+        sp,
+        primarySpName,
+        backupSpName: hasBackupSpOverride
+          ? asText(slotOverride?.backupSpName)
+          : asText(station.backupSpName),
+        caseLabel,
+        roleId,
+        roleLabel,
+        notes: hasNotesOverride ? asText(slotOverride?.notes) : asText(station.notes),
+        stationLabel: asText(station.stationLabel),
+        flags: existingRow?.flags || [],
+      } satisfies OperationsRoomCardRow;
+    });
+  }, [
+    activeScheduleRoomAdjustments,
+    activeSelectedRotationRoundGlobalIndex,
+    backupAssignments,
+    caseFileEntries,
+    confirmedAssignments,
+    event?.location,
+    selectedResolvedCommandStations,
+    selectedRoundScheduleRows,
+    spsById,
+  ]);
+  const getOperationsRoomPrimarySpName = (row: OperationsRoomCardRow | RoundRoomRow) =>
+    row.sp ? getFullName(row.sp) : ("primarySpName" in row ? asText(row.primarySpName) : "");
   const selectedRoundLearnerCount = useMemo(() => {
     if (!selectedRotationRound) return null;
     const resolvedLearnerCount = selectedRoundScheduleRows.reduce((total, row) => total + row.learnerLabels.length, 0);
@@ -9653,7 +9738,7 @@ const operationalEventStatusLabel = useMemo(() => {
       (row) => !isRoomPlaceholderLabel(row.roomName) || Boolean(row.sp || row.caseLabel || row.stationLabel)
     ) || visibleSelectedRoundScheduleBlocks.length > 0;
   const selectedRoundOperationsScheduleReady =
-    selectedRoundScheduleRows.length > 0 ||
+    selectedRoundOperationsRows.length > 0 ||
     visibleSelectedRoundScheduleBlocks.length > 0;
   const selectedRoundPlanRoomEntries = useMemo(
     () =>
@@ -14571,13 +14656,15 @@ Cory`;
   async function handleMoveRoundAssignment(sourceRow: RoundRoomRow, targetRow: RoundRoomRow | undefined) {
     if (!targetRow || targetRow.slotIndex === sourceRow.slotIndex) return;
     const roundNumber = activeSelectedRotationRoundIndex + 1;
+    const sourcePrimarySpName = sourceRow.sp ? getFullName(sourceRow.sp) : asText((sourceRow as { primarySpName?: string }).primarySpName);
+    const targetPrimarySpName = targetRow.sp ? getFullName(targetRow.sp) : asText((targetRow as { primarySpName?: string }).primarySpName);
     let nextAdjustments = upsertScheduleRoomAdjustmentSlot(
       activeScheduleRoomAdjustments,
       roundNumber,
       targetRow.slotIndex,
       {
         learnerLabels: sourceRow.learnerLabels,
-        spName: sourceRow.sp ? getFullName(sourceRow.sp) : "",
+        spName: sourcePrimarySpName,
         backupSpName: sourceRow.backupSpName,
         caseLabel: sourceRow.caseLabel,
         roleId: sourceRow.roleId,
@@ -14591,7 +14678,7 @@ Cory`;
       sourceRow.slotIndex,
       {
         learnerLabels: targetRow.learnerLabels,
-        spName: targetRow.sp ? getFullName(targetRow.sp) : "",
+        spName: targetPrimarySpName,
         backupSpName: targetRow.backupSpName,
         caseLabel: targetRow.caseLabel,
         roleId: targetRow.roleId,
@@ -26860,11 +26947,11 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                                 void handleRoundRoomAdjustment(slotIndex, { backupSpName: spName });
                                                 event.currentTarget.value = "";
                                               }}
-                                              disabled={saving || !selectedRoundScheduleRows.length}
+                                              disabled={saving || !selectedRoundOperationsRows.length}
                                               style={{ ...selectStyle, width: "100%", maxWidth: "none", fontSize: "11px", padding: "6px 7px" }}
                                             >
                                               <option value="">Assign backup to room...</option>
-                                              {selectedRoundScheduleRows.map((row) => (
+                                              {selectedRoundOperationsRows.map((row) => (
                                                 <option key={`backup-room-${assignment.id}-${row.slotIndex}`} value={row.slotIndex}>
                                                   {row.roomName}
                                                 </option>
@@ -26879,7 +26966,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                   </div>
                                 </section>
                                 <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                                  {selectedRoundScheduleRows.length ? selectedRoundScheduleRows.map((row) => (
+                                  {selectedRoundOperationsRows.length ? selectedRoundOperationsRows.map((row) => (
                                     <span key={`${row.key}-room-chip`} style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText, border: commandCenterVisual.rowBorder }}>
                                       {row.roomName}
                                     </span>
@@ -26898,7 +26985,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                     ))}
                                   </div>
                                 ) : null}
-                                {selectedRoundScheduleRows.map((row, index) => {
+                                {selectedRoundOperationsRows.map((row, index) => {
                                   const rowCaseEntry = findCaseFileEntryForLabel(caseFileEntries, row.caseLabel);
                                   const rowCaseAssets = rowCaseEntry
                                     ? buildTrainingMaterialAssetUrls({
@@ -26964,8 +27051,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                       <div>
                                         <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>SP</div>
                                         <div style={{ color: commandCenterVisual.textColor, fontWeight: 800, fontSize: "13px", display: "inline-flex", alignItems: "center", gap: "6px" }}>
-                                          <RoundOperationAvatar name={row.sp ? getFullName(row.sp) : "SP TBD"} role="sp" />
-                                          {row.sp ? getFullName(row.sp) : "SP TBD"}
+                                          <RoundOperationAvatar name={getOperationsRoomPrimarySpName(row) || "SP TBD"} role="sp" />
+                                          {getOperationsRoomPrimarySpName(row) || "SP TBD"}
                                         </div>
                                         {row.backupSpName ? (
                                           <div style={{ marginTop: "6px", color: commandCenterVisual.textColor, fontSize: "11px", fontWeight: 900, display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
@@ -27077,7 +27164,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                       <label style={{ display: "grid", gap: "4px" }}>
                                         <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Primary SP</span>
                                         <select
-                                          value={row.sp ? getFullName(row.sp) : ""}
+                                          value={getOperationsRoomPrimarySpName(row)}
                                           onChange={(event) =>
                                             void handleRoundRoomAdjustment(
                                               row.slotIndex,
@@ -27097,6 +27184,15 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                               </option>
                                             ) : null;
                                           })}
+                                          {getOperationsRoomPrimarySpName(row) &&
+                                          ![...confirmedAssignments, ...backupAssignments].some((assignment) => {
+                                            const sp = assignment.sp_id ? spsById.get(assignment.sp_id) : null;
+                                            return getFullName(sp || emptySpRow) === getOperationsRoomPrimarySpName(row);
+                                          }) ? (
+                                            <option value={getOperationsRoomPrimarySpName(row)}>
+                                              {getOperationsRoomPrimarySpName(row)}
+                                            </option>
+                                          ) : null}
                                         </select>
                                       </label>
                                       <label style={{ display: "grid", gap: "4px" }}>
@@ -27119,6 +27215,13 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                               </option>
                                             ) : null;
                                           })}
+                                          {row.backupSpName &&
+                                          !backupAssignments.some((assignment) => {
+                                            const sp = assignment.sp_id ? spsById.get(assignment.sp_id) : null;
+                                            return getFullName(sp || emptySpRow) === row.backupSpName;
+                                          }) ? (
+                                            <option value={row.backupSpName}>{row.backupSpName}</option>
+                                          ) : null}
                                         </select>
                                       </label>
                                       <label style={{ display: "grid", gap: "4px" }}>
@@ -27217,7 +27320,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                           onChange={(event) => {
                                             const targetSlotIndex = Number(event.target.value);
                                             if (!Number.isFinite(targetSlotIndex) || targetSlotIndex === row.slotIndex) return;
-                                            const targetRow = selectedRoundScheduleRows.find((candidate) => candidate.slotIndex === targetSlotIndex);
+                                            const targetRow = selectedRoundOperationsRows.find((candidate) => candidate.slotIndex === targetSlotIndex);
                                             void handleMoveRoundAssignment(row, targetRow);
                                             event.currentTarget.value = "";
                                           }}
@@ -27225,7 +27328,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                           style={{ ...selectStyle, width: "100%", maxWidth: "none", fontSize: "11px", padding: "6px 7px" }}
                                         >
                                           <option value="">Move to room...</option>
-                                          {selectedRoundScheduleRows
+                                          {selectedRoundOperationsRows
                                             .filter((candidate) => candidate.slotIndex !== row.slotIndex)
                                             .map((candidate) => (
                                               <option key={`${row.key}-move-${candidate.slotIndex}`} value={candidate.slotIndex}>
