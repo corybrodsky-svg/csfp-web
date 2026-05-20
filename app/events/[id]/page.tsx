@@ -7889,13 +7889,16 @@ const operationalEventStatusLabel = useMemo(() => {
       trainingMetadata.case_file_uploaded_by,
     ]
   );
+  const structuredCaseFileEntries = useMemo(
+    () => parseCaseFileEntries(trainingMetadata.case_manager_cases || trainingMetadata.case_files),
+    [trainingMetadata.case_files, trainingMetadata.case_manager_cases]
+  );
   const caseFileEntries = useMemo(
     () =>
-      mergeLegacyCaseFileEntry(
-        parseCaseFileEntries(trainingMetadata.case_manager_cases || trainingMetadata.case_files),
-        legacyCaseFileEntry
-      ),
-    [legacyCaseFileEntry, trainingMetadata.case_files, trainingMetadata.case_manager_cases]
+      structuredCaseFileEntries.length
+        ? structuredCaseFileEntries
+        : mergeLegacyCaseFileEntry([], legacyCaseFileEntry),
+    [legacyCaseFileEntry, structuredCaseFileEntries]
   );
   const primaryCaseFileEntry = caseFileEntries[0] || legacyCaseFileEntry;
   const caseFileCount = caseFileEntries.length;
@@ -9217,7 +9220,7 @@ const operationalEventStatusLabel = useMemo(() => {
       const learnerLabels = normalizeLearnerNames(Array.isArray(slot?.learnerLabels) ? slot.learnerLabels : []);
       const roomName = asText(slot?.roomName) || getFallbackRoomLabel(slotIndex, roomNamingContext);
       const primarySpName = asText(slot?.assignedSpName);
-      const backupSpName = asText(slot?.backupSpName);
+      const backupSpName = asText(slotOverride?.backupSpName) || asText(slot?.backupSpName);
       const caseLabel = asText(slot?.caseLabel);
       const roleId = asText(slot?.roleId);
       const roleLabel = asText(slot?.roleLabel);
@@ -9231,12 +9234,9 @@ const operationalEventStatusLabel = useMemo(() => {
       const hasActivePrimarySp = Boolean(primarySpName && !primarySpIsBackup);
       const explicitBackupStation = isScheduleBackupStation(slotOverride);
       const inferredBackupStation = Boolean(
-        !hasLearnerEncounter &&
-        (
-          explicitBackupStation ||
-          primarySpIsBackup ||
-          (!hasCaseOrRole && !primarySpName && backupSpName)
-        )
+        backupSpName ||
+        explicitBackupStation ||
+        primarySpIsBackup
       );
       const stationStatus: ScheduleStationStatus =
         manualStationStatus === "inactive"
@@ -15722,6 +15722,8 @@ Cory`;
       const nextCaseEntries = caseFileEntries.filter((_, entryIndex) => entryIndex !== index);
       const primaryCaseEntry = nextCaseEntries[0] || null;
       const nextNotes = upsertEventMetadata(eventEditor.notes, { training: {
+        case_name: asText(primaryCaseEntry?.name),
+        case_count: nextCaseEntries.length ? String(nextCaseEntries.length) : "",
         case_file_url: asText(primaryCaseEntry?.url),
         case_file_name: asText(primaryCaseEntry?.name),
         case_file_storage_path: asText(primaryCaseEntry?.storagePath),
