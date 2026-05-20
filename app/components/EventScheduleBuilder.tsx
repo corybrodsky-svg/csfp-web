@@ -1001,6 +1001,31 @@ function hasRenderablePrintHtml(value: string) {
   return /<\s*(html|body|section|article|table|div)\b/i.test(html);
 }
 
+function validateStudentInstructionsPrintHtml(value: string): { ready: boolean; reason: string } {
+  const html = asText(value);
+  if (!html) {
+    return { ready: false, reason: "Could not generate Student Instructions PDF. No printable packet content was created." };
+  }
+  if (!hasRenderablePrintHtml(html)) {
+    return { ready: false, reason: "Could not generate Student Instructions PDF. Printable packet markup is missing." };
+  }
+  try {
+    const parsed = new DOMParser().parseFromString(html, "text/html");
+    const hasExportRoot = Boolean(parsed.querySelector(".cfsp-schedule-export"));
+    const hasPacketShell = Boolean(parsed.querySelector(".student-instructions-document"));
+    const hasPacketSection = Boolean(parsed.querySelector(".student-packet-page-section"));
+    if (!hasExportRoot || !hasPacketShell || !hasPacketSection) {
+      return {
+        ready: false,
+        reason: "Could not generate Student Instructions PDF. Printable packet sections are incomplete.",
+      };
+    }
+    return { ready: true, reason: "" };
+  } catch {
+    return { ready: false, reason: "Could not generate Student Instructions PDF. Printable packet could not be parsed." };
+  }
+}
+
 function resolveStudentInstructionsAccessDetails(args: {
   configAccess?: string | null;
   contextAccess?: string | null;
@@ -7890,6 +7915,12 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     const eventBaseName = getSafeFileName(normalizeDisplayText(selectedEvent?.name));
     return eventBaseName ? `${eventBaseName}-student-instructions.pdf` : "student-instructions.pdf";
   }, [selectedEvent?.name]);
+  const studentInstructionsHtmlValidation = useMemo(
+    () => validateStudentInstructionsPrintHtml(studentInstructionsPrintHtml),
+    [studentInstructionsPrintHtml]
+  );
+  const studentInstructionsGenerationError =
+    studentInstructionsContextError || (studentInstructionsHtmlValidation.ready ? "" : studentInstructionsHtmlValidation.reason);
   const autoDownloadTriggeredRef = useRef(false);
   const previewDocumentParts = useMemo(
     () => getPreviewDocumentParts(schedulePreview.html),
@@ -8006,9 +8037,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
 
   const openStudentInstructionsPrintFlow = useCallback((): boolean => {
     if (typeof window === "undefined") return false;
-    if (studentInstructionsContextError || !hasRenderablePrintHtml(studentInstructionsPrintHtml)) {
+    if (studentInstructionsGenerationError) {
       console.error("[student-instructions] Missing printable packet HTML.", {
         contextError: studentInstructionsContextError || null,
+        htmlError: studentInstructionsHtmlValidation.reason || null,
       });
       return false;
     }
@@ -8031,7 +8063,12 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       popup.close();
       return false;
     }
-  }, [studentInstructionsContextError, studentInstructionsPrintHtml]);
+  }, [
+    studentInstructionsContextError,
+    studentInstructionsGenerationError,
+    studentInstructionsHtmlValidation.reason,
+    studentInstructionsPrintHtml,
+  ]);
 
   const handleStyledPdfDownload = useCallback(async () => {
     if (styledPdfExporting) return;
@@ -8071,14 +8108,12 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
 
   const handleStudentInstructionsPdfDownload = useCallback(async () => {
     if (studentInstructionsPdfExporting) return;
-    if (studentInstructionsContextError || !hasRenderablePrintHtml(studentInstructionsPrintHtml)) {
-      const contextMessage =
-        studentInstructionsContextError || "Could not generate Student Instructions PDF. No printable packet content was created.";
+    if (studentInstructionsGenerationError) {
       console.error("[student-instructions] PDF generation blocked before export.", {
         contextError: studentInstructionsContextError || null,
-        hasHtml: hasRenderablePrintHtml(studentInstructionsPrintHtml),
+        htmlError: studentInstructionsHtmlValidation.reason || null,
       });
-      showCopyMessage(contextMessage, "error", 4200);
+      showCopyMessage(studentInstructionsGenerationError, "error", 4200);
       return;
     }
 
@@ -8110,6 +8145,8 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     openStudentInstructionsPrintFlow,
     showCopyMessage,
     studentInstructionsContextError,
+    studentInstructionsGenerationError,
+    studentInstructionsHtmlValidation.reason,
     studentInstructionsPdfExporting,
     studentInstructionsPdfFileName,
     studentInstructionsPrintHtml,
