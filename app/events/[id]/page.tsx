@@ -1790,6 +1790,25 @@ function normalizeEventAttendanceStatus(value: unknown): EventAttendanceFilter {
   return "expected";
 }
 
+function getNextAttendanceToggleStatus(
+  status: EventAttendanceFilter,
+  options?: { inRoomWhenCurrent?: boolean }
+): "expected" | "arrived" | "in_room" {
+  if (isEventAttendancePresentStatus(status)) return "expected";
+  if (options?.inRoomWhenCurrent) return "in_room";
+  return "arrived";
+}
+
+function getAttendanceToggleLabel(
+  name: string,
+  status: EventAttendanceFilter,
+  options?: { inRoomWhenCurrent?: boolean }
+) {
+  const personName = asText(name) || "Participant";
+  const nextStatus = getNextAttendanceToggleStatus(status, options);
+  return `Mark ${personName} ${nextStatus === "expected" ? "expected" : nextStatus === "in_room" ? "in room" : "arrived"}`;
+}
+
 type EventAttendanceAvatarRole = "sp" | "learner";
 
 function EventAttendanceHologramAvatar({
@@ -27819,17 +27838,11 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             {spToken ? (
                               <button
                                 type="button"
-                                title={
-                                  spStatus === "expected"
-                                    ? "Mark SP arrived"
-                                    : `SP status: ${getEventAttendanceStatusLabel(spStatus)}`
-                                }
+                                title={getAttendanceToggleLabel(room.spName || "SP", spStatus)}
+                                aria-label={getAttendanceToggleLabel(room.spName || "SP", spStatus)}
                                 onClick={() => {
-                                  if (spStatus === "expected") {
-                                    void handleEventSpAttendanceAction(spToken.assignment, "arrived");
-                                    return;
-                                  }
-                                  setActiveEventAttendanceKey((current) => (current === spToken.key ? "" : spToken.key));
+                                  const nextStatus = getNextAttendanceToggleStatus(spStatus);
+                                  void handleEventSpAttendanceAction(spToken.assignment, nextStatus);
                                 }}
                                 disabled={spSaving}
                                 style={{
@@ -27879,17 +27892,11 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 <button
                                   key={`event-room-token-${token.attendanceKey}`}
                                   type="button"
-                                  title={
-                                    tokenStatus === "expected"
-                                      ? "Mark learner arrived"
-                                      : `Learner status: ${getEventAttendanceStatusLabel(tokenStatus)}`
-                                  }
+                                  title={getAttendanceToggleLabel(token.learnerName, tokenStatus, { inRoomWhenCurrent: token.isCurrentRoom })}
+                                  aria-label={getAttendanceToggleLabel(token.learnerName, tokenStatus, { inRoomWhenCurrent: token.isCurrentRoom })}
                                   onClick={() => {
-                                    if (tokenStatus === "expected") {
-                                      void handleLiveLearnerAttendanceAction(token, "arrived");
-                                      return;
-                                    }
-                                    setActiveEventAttendanceKey((current) => current === token.key ? "" : token.key);
+                                    const nextStatus = getNextAttendanceToggleStatus(tokenStatus, { inRoomWhenCurrent: token.isCurrentRoom });
+                                    void handleLiveLearnerAttendanceAction(token, nextStatus);
                                   }}
                                   disabled={tokenSaving}
                                   style={{
@@ -28000,13 +28007,11 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", alignItems: "center" }}>
                     <button
                       type="button"
-                      title={tokenStatus === "expected" ? "Click to mark arrived" : "Open SP actions"}
+                      title={getAttendanceToggleLabel(token.name, tokenStatus)}
+                      aria-label={getAttendanceToggleLabel(token.name, tokenStatus)}
                       onClick={() => {
-                        if (tokenStatus === "expected") {
-                          void handleEventSpAttendanceAction(token.assignment, "arrived");
-                          return;
-                        }
-                        setActiveEventAttendanceKey((current) => current === token.key ? "" : token.key);
+                        const nextStatus = getNextAttendanceToggleStatus(tokenStatus);
+                        void handleEventSpAttendanceAction(token.assignment, nextStatus);
                       }}
                       style={{ all: "unset", cursor: tokenSaving ? "progress" : "pointer", display: "flex", gap: "8px", alignItems: "center", minWidth: 0, opacity: tokenSaving ? 0.7 : 1 }}
                     >
@@ -28102,13 +28107,11 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", alignItems: "center" }}>
                     <button
                       type="button"
-                      title={tokenStatus === "expected" ? "Click to mark arrived" : "Open learner actions"}
+                      title={getAttendanceToggleLabel(token.learnerName, tokenStatus, { inRoomWhenCurrent: token.isCurrentRoom })}
+                      aria-label={getAttendanceToggleLabel(token.learnerName, tokenStatus, { inRoomWhenCurrent: token.isCurrentRoom })}
                       onClick={() => {
-                        if (tokenStatus === "expected") {
-                          void handleLiveLearnerAttendanceAction(token, "arrived");
-                          return;
-                        }
-                        setActiveEventAttendanceKey((current) => current === token.key ? "" : token.key);
+                        const nextStatus = getNextAttendanceToggleStatus(tokenStatus, { inRoomWhenCurrent: token.isCurrentRoom });
+                        void handleLiveLearnerAttendanceAction(token, nextStatus);
                       }}
                       style={{ all: "unset", cursor: tokenSaving ? "progress" : "pointer", display: "flex", gap: "8px", alignItems: "center", minWidth: 0, opacity: tokenSaving ? 0.7 : 1 }}
                     >
