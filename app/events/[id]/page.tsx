@@ -1335,32 +1335,35 @@ function asText(value: unknown) {
   return String(value).trim();
 }
 
-const CORRECTED_PA565_VIR_ZOOM_URL = "https://drexel.zoom.us/j/83108006111";
-
-function getStudentInstructionsZoomFallback(
-  event: EventDetailRow | null,
-  metadata: Partial<TrainingEventMetadata> | null | undefined
-) {
-  const metadataLink = asText(metadata?.zoom_url) || asText(metadata?.training_zoom_link);
-  const sourceText = [metadataLink, event?.name, event?.location, event?.notes].map((value) => asText(value)).join("\n");
-  const looksLikePa565Vir = /\bpa\s*565\b/i.test(sourceText) && /\bvir\b/i.test(sourceText);
-  const hasCorrectedMeetingId = /\b83108006111\b/.test(sourceText);
-  const hasDrexelZoomLink = /https?:\/\/drexel\.zoom\.us\/j\/\d+/i.test(sourceText);
-  if (hasCorrectedMeetingId || (looksLikePa565Vir && hasDrexelZoomLink)) {
-    return CORRECTED_PA565_VIR_ZOOM_URL;
+function getStudentInstructionsZoomFallback(event: EventDetailRow | null) {
+  const notesText = asText(event?.notes);
+  const explicitLabels = [
+    "Student Zoom Link",
+    "Student Access Link",
+    "Student Virtual Access",
+    "Student Encounter Zoom",
+    "Encounter Zoom Link",
+    "Encounter Access Link",
+    "Learner Zoom Link",
+    "Learner Access Link",
+    "Virtual Access (Students)",
+  ];
+  for (const label of explicitLabels) {
+    const escapedLabel = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const match = notesText.match(new RegExp(`(?:^|\\n)\\s*${escapedLabel}\\s*:\\s*([^\\n]+)`, "i"));
+    const candidate = asText(match?.[1]);
+    if (/^(https?:\/\/|[^@\s]+\.(zoom\.us|teams\.microsoft\.com))/i.test(candidate)) {
+      return candidate;
+    }
   }
-  const noteLink = sourceText.match(/https?:\/\/[^\s<>"']*(?:zoom|simiq)[^\s<>"']*/i)?.[0]?.replace(/[).,;]+$/, "");
-  return metadataLink || noteLink || "";
+  return "";
 }
 
-function buildDefaultStudentInstructionsDraft(
-  event: EventDetailRow | null,
-  metadata: Partial<TrainingEventMetadata> | null | undefined
-) {
+function buildDefaultStudentInstructionsDraft(event: EventDetailRow | null) {
   return normalizeStudentInstructionsConfig({
     ...DEFAULT_STUDENT_INSTRUCTIONS_CONFIG,
     title: asText(event?.name),
-    zoomLink: getStudentInstructionsZoomFallback(event, metadata),
+    zoomLink: getStudentInstructionsZoomFallback(event),
   });
 }
 
@@ -6928,8 +6931,8 @@ export default function EventDetailPage() {
     [trainingMetadata]
   );
   const defaultStudentInstructionsConfig = useMemo(
-    () => buildDefaultStudentInstructionsDraft(event, trainingMetadata),
-    [event, trainingMetadata]
+    () => buildDefaultStudentInstructionsDraft(event),
+    [event]
   );
   const resolvedStudentInstructionsConfig = useMemo(
     () =>
@@ -6952,13 +6955,14 @@ export default function EventDetailPage() {
   const studentInstructionsDirty =
     JSON.stringify(normalizeStudentInstructionsConfig(studentInstructionsDraft)) !==
     JSON.stringify(normalizeStudentInstructionsConfig(resolvedStudentInstructionsConfig));
-  const studentInstructionsNeedsZoom = !asText(studentInstructionsDraft.zoomLink);
+  const studentInstructionsHasAccess = Boolean(asText(studentInstructionsDraft.zoomLink) || asText(event?.location));
+  const studentInstructionsNeedsAccess = !studentInstructionsHasAccess;
   const studentInstructionsStatusLabel = studentInstructionsDirty
     ? "Unsaved changes"
     : studentInstructionsSavedMessage
       ? "Saved"
-      : studentInstructionsNeedsZoom
-        ? "Needs Zoom link"
+      : studentInstructionsNeedsAccess
+        ? "Needs access details"
         : "Ready to generate";
   const explicitEventTypes = parsedEventMetadata.eventTypes;
   const explicitEventTypeSet = useMemo(() => new Set(explicitEventTypes), [explicitEventTypes]);
@@ -16144,15 +16148,15 @@ Cory`;
 
   function renderStudentInstructionsEditor(variant: "central" | "dock" = "dock") {
     const isCentral = variant === "central";
-    const statusIsReady = !studentInstructionsDirty && !studentInstructionsNeedsZoom;
+    const statusIsReady = !studentInstructionsDirty && !studentInstructionsNeedsAccess;
     const statusBackground = studentInstructionsDirty
       ? "rgba(245, 158, 11, 0.14)"
-      : studentInstructionsNeedsZoom
+      : studentInstructionsNeedsAccess
         ? "rgba(248, 113, 113, 0.12)"
         : "rgba(16, 185, 129, 0.14)";
     const statusColor = studentInstructionsDirty
       ? "var(--cfsp-warning)"
-      : studentInstructionsNeedsZoom
+      : studentInstructionsNeedsAccess
         ? "var(--cfsp-danger)"
         : "var(--cfsp-success)";
     const editorBorder = isCentral ? commandCenterVisual.rowBorder : "1px solid var(--cfsp-border)";
@@ -30276,12 +30280,12 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 <span
                                   style={{
                                     ...commandChipStyle,
-                                    background: studentInstructionsNeedsZoom
+                                    background: studentInstructionsNeedsAccess
                                       ? "rgba(248, 113, 113, 0.12)"
                                       : studentInstructionsDirty
                                         ? "rgba(245, 158, 11, 0.14)"
                                         : commandCenterVisual.activeSoftBackground,
-                                    color: studentInstructionsNeedsZoom
+                                    color: studentInstructionsNeedsAccess
                                       ? "var(--cfsp-danger)"
                                       : studentInstructionsDirty
                                         ? "var(--cfsp-warning)"

@@ -991,18 +991,28 @@ function isLikelyVirtualAccessUrl(value: string) {
   );
 }
 
+function normalizeAccessLink(value: string) {
+  return normalizeDisplayText(value).replace(/\/+$/, "").toLowerCase();
+}
+
 function resolveStudentInstructionsAccessDetails(args: {
   configAccess?: string | null;
   contextAccess?: string | null;
   contextLocation?: string | null;
   eventLocation?: string | null;
+  excludedAccessLinks?: string[];
 }) {
+  const excluded = new Set(
+    (args.excludedAccessLinks || [])
+      .map((value) => normalizeAccessLink(asText(value)))
+      .filter(Boolean)
+  );
   const candidates = [
     normalizeDisplayText(args.configAccess),
     normalizeDisplayText(args.contextAccess),
     normalizeDisplayText(args.contextLocation),
     normalizeDisplayText(args.eventLocation),
-  ].filter(Boolean);
+  ].filter((value) => Boolean(value) && !excluded.has(normalizeAccessLink(value)));
 
   const zoomLink = candidates.find((value) => isLikelyVirtualAccessUrl(value)) || "";
   const location = candidates.find((value) => !isLikelyVirtualAccessUrl(value)) || "";
@@ -2510,30 +2520,46 @@ function buildStudentInstructionsExportHtml(context: StudentInstructionsExportCo
     (!isGenericStudentInstructionsProgramLabel(savedProgramLabel) ? savedProgramLabel : "") ||
     "PROGRAM";
   const dateLabel = normalizeDisplayText(context.dateLabel);
+  const trainingMetadata = parseEventMetadata(context.event?.notes).training;
+  const trainingAccessLinks = [trainingMetadata.zoom_url, trainingMetadata.training_zoom_link]
+    .map((value) => asText(value))
+    .filter(Boolean);
   const accessDetails = resolveStudentInstructionsAccessDetails({
     configAccess: instructionsConfig?.zoomLink,
     contextAccess: context.zoomLink,
     contextLocation: context.locationLabel,
     eventLocation: context.event?.location,
+    excludedAccessLinks: trainingAccessLinks,
   });
   const zoomLink = accessDetails.zoomLink;
   const locationLabel = accessDetails.location;
+  const hasVirtualAccess = Boolean(zoomLink);
+  const hasPhysicalLocation = Boolean(locationLabel);
+  const accessMode = hasVirtualAccess && !hasPhysicalLocation
+    ? "virtual"
+    : !hasVirtualAccess && hasPhysicalLocation
+      ? "in_person"
+      : "hybrid";
   const encounterLabel = normalizeDisplayText(instructionsConfig?.encounterTimeDetail) || formatStudentInstructionsMinutes(encounterMinutes);
   const feedbackLabel = normalizeDisplayText(instructionsConfig?.feedbackTimeDetail) || formatStudentInstructionsMinutes(feedbackMinutes);
   const joinOffsetMinutes = getStudentInstructionsJoinOffsetMinutes(instructionsConfig);
+  const arrivalOffsetMinutes = joinOffsetMinutes > 0 ? joinOffsetMinutes : 15;
   const hasFirstEncounterStart =
     typeof firstEncounterStartMinutes === "number" && Number.isFinite(firstEncounterStartMinutes);
   const firstEncounterStartMinuteValue = hasFirstEncounterStart ? Math.floor(firstEncounterStartMinutes) : null;
   const joinByMinuteValue =
-    firstEncounterStartMinuteValue === null ? null : firstEncounterStartMinuteValue - joinOffsetMinutes;
+    firstEncounterStartMinuteValue === null ? null : firstEncounterStartMinuteValue - arrivalOffsetMinutes;
   const firstEncounterLabel = firstEncounterStartMinuteValue === null ? "" : toDisplayTime(firstEncounterStartMinuteValue);
   const joinTimeLabel = joinByMinuteValue === null ? "" : toDisplayTime(joinByMinuteValue);
-  const baseJoinInstructions =
-    normalizeDisplayText(instructionsConfig?.joinInstructions) ||
-    `Students join Zoom ${joinOffsetMinutes} minutes before their first scheduled encounter.`;
-  const joinInstruction = hasFirstEncounterStart
-    ? `${baseJoinInstructions} For this schedule, the first encounter begins at ${firstEncounterLabel}; please join by ${joinTimeLabel}.`
-    : baseJoinInstructions;
+  const arrivalVerb = accessMode === "virtual" ? "join" : accessMode === "in_person" ? "arrive" : "arrive/check in";
+  const arrivalInstruction = hasFirstEncounterStart && firstEncounterLabel && joinTimeLabel
+    ? `The first encounter begins at ${firstEncounterLabel}. Please ${arrivalVerb} by ${joinTimeLabel} for pre-brief.`
+    : `Please ${arrivalVerb} at least ${arrivalOffsetMinutes} minutes before your first scheduled encounter for pre-brief.`;
+  const customJoinInstructions = normalizeDisplayText(instructionsConfig?.joinInstructions);
+  const supplementalJoinInstruction =
+    customJoinInstructions && !/students?\s+join\s+zoom/i.test(customJoinInstructions)
+      ? customJoinInstructions
+      : "";
   const waitingRoomNote = normalizeDisplayText(instructionsConfig?.waitingRoomNote);
   const timeZoneNote = normalizeDisplayText(instructionsConfig?.timeZoneNote);
   const netiquetteLines = splitInstructionLines(instructionsConfig?.netiquetteInstructions || "");
@@ -2547,17 +2573,27 @@ function buildStudentInstructionsExportHtml(context: StudentInstructionsExportCo
   if (firstEncounterLabel) {
     timingRows.push(["First scheduled encounter:", firstEncounterLabel]);
   }
+  if (joinTimeLabel) {
+    timingRows.push(["Arrival / check-in:", joinTimeLabel]);
+  }
   const accessRows: string[] = [];
   if (zoomLink) {
     const zoomHref = /^https?:\/\//i.test(zoomLink) ? zoomLink : `https://${zoomLink}`;
     accessRows.push(`<p>Zoom link: <a href="${escapeHtml(zoomHref)}">${escapeHtml(zoomLink)}</a></p>`);
-  }
-  if (locationLabel) {
+  } else if (locationLabel) {
     accessRows.push(`<p>Location: ${escapeHtml(locationLabel)}</p>`);
   }
   if (!accessRows.length) {
     accessRows.push("<p>Location: Provided separately.</p>");
   }
+  const summaryStripItems: Array<{ label: string; value: string }> = [
+    { label: "Date", value: dateLabel || "TBD" },
+    { label: "Arrival / Check-in", value: joinTimeLabel || "TBD" },
+    { label: "First Encounter", value: firstEncounterLabel || "TBD" },
+    { label: hasVirtualAccess ? "Access" : "Location", value: hasVirtualAccess ? "Virtual encounter access provided below" : locationLabel || "Provided separately" },
+    { label: "Rounds", value: studentScheduleRounds.length ? String(studentScheduleRounds.length) : "TBD" },
+    { label: "Rooms", value: roomColumns.length ? String(roomColumns.length) : "TBD" },
+  ];
   const scheduleBlocks = buildVirStyleStudentScheduleBlocks({
     rounds: studentScheduleRounds,
     roomColumns,
@@ -3060,10 +3096,155 @@ color: #17304f;
             border-top: 1px solid #d7e1ea;
             padding-top: 8px;
           }
+          /* Modern packet visual refresh */
+          .student-instructions-document {
+            --si-bg: #f4f8fc;
+            --si-card: #ffffff;
+            --si-border: #d8e4ef;
+            --si-ink: #0f2740;
+            --si-muted: #4f6b84;
+            --si-accent: #145b96;
+            --si-accent-soft: #e9f2fb;
+            gap: 12px !important;
+            padding: 10px 26px 20px !important;
+            background: radial-gradient(circle at top right, #eaf4ff 0%, #f8fbff 40%, #ffffff 85%) !important;
+          }
+          .student-instructions-header {
+            border: 1px solid var(--si-border);
+            border-radius: 14px;
+            padding: 12px 14px !important;
+            background: linear-gradient(135deg, #ffffff 0%, #f3f8fe 100%);
+            box-shadow: 0 6px 18px rgba(15, 39, 64, 0.06);
+            gap: 6px !important;
+          }
+          .student-instructions-header h1 {
+            color: var(--si-ink) !important;
+            font-size: 23px !important;
+            letter-spacing: 0.01em;
+          }
+          .student-instructions-date {
+            color: var(--si-muted) !important;
+            font-size: 12px !important;
+            font-weight: 800;
+          }
+          .student-instructions-date span:last-child {
+            border-bottom: 1px solid #b7c9dc;
+          }
+          .student-instructions-subtitle {
+            margin-top: 1px !important;
+            color: var(--si-accent) !important;
+            font-size: 16px !important;
+            font-weight: 900 !important;
+            padding-bottom: 0 !important;
+          }
+          .student-instructions-subtitle::after {
+            height: 1px !important;
+            margin-top: 6px !important;
+            background: linear-gradient(90deg, var(--si-accent) 0%, rgba(20, 91, 150, 0.1) 100%) !important;
+          }
+          .instructions-section {
+            border: 1px solid var(--si-border) !important;
+            border-radius: 12px !important;
+            padding: 11px 12px !important;
+            background: var(--si-card) !important;
+            box-shadow: 0 2px 10px rgba(15, 39, 64, 0.04);
+            gap: 6px !important;
+          }
+          .instructions-section h3 {
+            color: var(--si-accent) !important;
+            font-size: 14px !important;
+            letter-spacing: 0.01em;
+          }
+          .instructions-section p,
+          .instructions-list {
+            color: var(--si-ink) !important;
+            font-size: 12px !important;
+            line-height: 1.45 !important;
+          }
+          .student-ops-strip {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 7px;
+          }
+          .student-ops-item {
+            border: 1px solid var(--si-border);
+            border-radius: 10px;
+            background: var(--si-accent-soft);
+            padding: 7px 8px;
+            min-height: 44px;
+            display: grid;
+            align-content: start;
+            gap: 2px;
+          }
+          .student-ops-label {
+            color: var(--si-muted);
+            font-size: 9.5px;
+            font-weight: 900;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+          }
+          .student-ops-value {
+            color: var(--si-ink);
+            font-size: 11.5px;
+            font-weight: 850;
+            line-height: 1.2;
+            overflow-wrap: anywhere;
+          }
+          .timing-grid {
+            gap: 7px !important;
+          }
+          .timing-item {
+            border: 1px solid var(--si-border) !important;
+            border-radius: 10px !important;
+            background: var(--si-accent-soft) !important;
+            padding: 8px 9px !important;
+            min-height: 48px !important;
+          }
+          .timing-label {
+            color: var(--si-muted) !important;
+            letter-spacing: 0.05em !important;
+          }
+          .timing-value {
+            color: var(--si-ink) !important;
+            font-size: 13px !important;
+            margin-top: 4px !important;
+          }
+          .vir-schedule-block {
+            border-radius: 10px !important;
+            border-color: #c3d2e1 !important;
+            box-shadow: 0 2px 8px rgba(15, 39, 64, 0.05);
+          }
+          .vir-encounter-title {
+            background: linear-gradient(90deg, #113255 0%, #1d4872 100%) !important;
+            padding: 7px 10px !important;
+          }
+          .vir-encounter-title span {
+            font-size: 13px !important;
+          }
+          .vir-room-header {
+            background: #eaf2fa !important;
+            color: #23435f !important;
+            font-size: 9.8px !important;
+          }
+          .vir-student-cell {
+            background: #f8fbff !important;
+            min-height: 50px !important;
+          }
+          .vir-student-name {
+            font-size: 10.3px !important;
+            color: #12324b !important;
+          }
+          .student-instructions-footer {
+            border-top-color: var(--si-border) !important;
+            color: var(--si-muted) !important;
+            font-size: 10px !important;
+          }
           a { color: #0f5f9f; text-decoration: none; overflow-wrap: anywhere; }
           @page { size: A4 portrait; margin: 0.35in; }
           @media print {
             html, body { background: #ffffff !important; }
+            .student-ops-strip,
+            .student-ops-item,
             .instructions-section,
             .timing-item,
             .student-packet-page-section,
@@ -3087,8 +3268,24 @@ color: #17304f;
             </header>
 
             <section class="student-packet-page-section instructions-section">
+              <div class="student-ops-strip">
+                ${summaryStripItems
+                  .map(
+                    (item) => `
+                      <div class="student-ops-item">
+                        <div class="student-ops-label">${escapeHtml(item.label)}</div>
+                        <div class="student-ops-value">${escapeHtml(item.value)}</div>
+                      </div>
+                    `
+                  )
+                  .join("")}
+              </div>
+            </section>
+
+            <section class="student-packet-page-section instructions-section">
               <h3>Before Your Encounter</h3>
-              <p>${escapeHtml(joinInstruction)}</p>
+              <p>${escapeHtml(arrivalInstruction)}</p>
+              ${supplementalJoinInstruction ? `<p>${escapeHtml(supplementalJoinInstruction)}</p>` : ""}
               ${accessRows.join("\n")}
               ${waitingRoomNote ? `<p>${escapeHtml(waitingRoomNote)}</p>` : ""}
               ${timeZoneNote ? `<p>${escapeHtml(timeZoneNote)}</p>` : ""}
@@ -3297,37 +3494,24 @@ function getScheduleNoteValue(notes: string | null | undefined, labels: string[]
   return "";
 }
 
-const CORRECTED_STUDENT_INSTRUCTIONS_ZOOM_URL = "https://drexel.zoom.us/j/83108006111";
-
-function getZoomLinkFromBuilderEvent(event: EventRow | null) {
-  const metadata = parseEventMetadata(event?.notes).training;
-  const explicitLink =
-    asText(metadata.zoom_url) ||
-    asText(metadata.training_zoom_link) ||
-    getScheduleNoteValue(event?.notes, ["Virtual Access", "Virtual Access / Zoom", "Zoom", "Zoom Link", "SimIQ", "Virtual Link"]);
-  if (explicitLink) return explicitLink;
-
-  const sourceText = [event?.location, event?.notes].map((value) => asText(value)).join("\n");
-  const linkMatch = sourceText.match(/https?:\/\/[^\s<>"']*(?:zoom|simiq)[^\s<>"']*/i);
-  return linkMatch?.[0]?.replace(/[).,;]+$/, "") || "";
-}
-
 function getStudentInstructionsZoomLinkFromBuilderEvent(event: EventRow | null) {
-  const resolvedLink = getZoomLinkFromBuilderEvent(event);
-  const sourceText = [resolvedLink, event?.name, event?.location, event?.notes].map((value) => asText(value)).join("\n");
-  const correctedMeetingIdPattern = /\b83108006111\b/;
-  const staleDrexelZoomPattern = /https?:\/\/drexel\.zoom\.us\/j\/\d+/i;
-  const looksLikePa565Vir = /\bpa\s*565\b/i.test(sourceText) && /\bvir\b/i.test(sourceText);
+  const notes = asText(event?.notes);
+  const explicitStudentFacingLink = getScheduleNoteValue(notes, [
+    "Student Zoom Link",
+    "Student Access Link",
+    "Student Virtual Access",
+    "Student Encounter Zoom",
+    "Encounter Zoom Link",
+    "Encounter Access Link",
+    "Learner Zoom Link",
+    "Learner Access Link",
+    "Student Virtual Link",
+    "Virtual Access (Students)",
+  ]);
+  if (isLikelyVirtualAccessUrl(explicitStudentFacingLink)) return explicitStudentFacingLink;
 
-  if (correctedMeetingIdPattern.test(sourceText)) {
-    return CORRECTED_STUDENT_INSTRUCTIONS_ZOOM_URL;
-  }
-
-  if (looksLikePa565Vir && staleDrexelZoomPattern.test(sourceText)) {
-    return CORRECTED_STUDENT_INSTRUCTIONS_ZOOM_URL;
-  }
-
-  return resolvedLink;
+  const eventLocation = asText(event?.location);
+  return isLikelyVirtualAccessUrl(eventLocation) ? eventLocation : "";
 }
 
 function getLocationAccessFromBuilderEvent(event: EventRow | null) {
@@ -7626,12 +7810,17 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   }, [feedbackMinutes, scheduledRounds]);
   const studentInstructionsEventName = normalizeDisplayText(selectedEvent?.name);
   const studentInstructionsAccessDetails = useMemo(
-    () =>
-      resolveStudentInstructionsAccessDetails({
+    () => {
+      const trainingMetadata = parseEventMetadata(selectedEvent?.notes).training;
+      return resolveStudentInstructionsAccessDetails({
         configAccess: savedStudentInstructionsConfig?.zoomLink,
         contextAccess: getStudentInstructionsZoomLinkFromBuilderEvent(selectedEvent),
         eventLocation: selectedEvent?.location,
-      }),
+        excludedAccessLinks: [trainingMetadata.zoom_url, trainingMetadata.training_zoom_link]
+          .map((value) => asText(value))
+          .filter(Boolean),
+      });
+    },
     [savedStudentInstructionsConfig?.zoomLink, selectedEvent]
   );
   const studentInstructionsResolvedZoomLink = studentInstructionsAccessDetails.zoomLink;
