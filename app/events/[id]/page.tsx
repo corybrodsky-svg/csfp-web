@@ -10578,15 +10578,43 @@ const operationalEventStatusLabel = useMemo(() => {
     });
     return [...liveBlueprintBaseRooms, ...extraRooms];
   }, [liveBlueprintBaseHighestRoomNumber, liveBlueprintBaseRooms, liveExtraRoomCount, roomNamingContext]);
+  const selectedRoundResolvedAttendanceRooms = useMemo(() => {
+    if (!selectedResolvedCommandStations?.length) {
+      return null as EventAttendanceCanonicalRoom[] | null;
+    }
+
+    return selectedResolvedCommandStations.map((station, fallbackIndex) => {
+      const assignment = station.assignedSpName
+        ? findAssignmentBySpDisplayName(sortedAssignments, spsById, station.assignedSpName)
+        : null;
+      const sp = assignment?.sp_id ? spsById.get(assignment.sp_id) || null : null;
+
+      return {
+        roomName: asText(station.roomName),
+        learnerLabels: normalizeLearnerNames(station.learnerLabels).filter((learner) => isAssignedLearnerRoomLabel(learner)),
+        assignment,
+        sp,
+        spName: asText(station.assignedSpName),
+        encounterLabel: asText(station.encounterLabel) || "Case pending",
+        fallbackIndex,
+      } satisfies EventAttendanceCanonicalRoom;
+    });
+  }, [selectedResolvedCommandStations, sortedAssignments, spsById]);
   const selectedRoundOccupancyKey = asText(selectedRotationRound?.key || currentLiveReferenceRound?.key || "");
   const selectedRoundOccupancyRoomLearners = useMemo(
     () =>
-      selectedRoundScheduleRows.map((row, index) => ({
-        roomName: row.roomName,
-        learnerLabels: normalizeLearnerNames(row.learnerLabels).filter((learner) => isAssignedLearnerRoomLabel(learner)),
-        fallbackIndex: index,
-      })),
-    [selectedRoundScheduleRows]
+      selectedRoundResolvedAttendanceRooms?.length
+        ? selectedRoundResolvedAttendanceRooms.map((room) => ({
+            roomName: room.roomName,
+            learnerLabels: normalizeLearnerNames(room.learnerLabels).filter((learner) => isAssignedLearnerRoomLabel(learner)),
+            fallbackIndex: room.fallbackIndex,
+          }))
+        : selectedRoundScheduleRows.map((row, index) => ({
+            roomName: row.roomName,
+            learnerLabels: normalizeLearnerNames(row.learnerLabels).filter((learner) => isAssignedLearnerRoomLabel(learner)),
+            fallbackIndex: index,
+          })),
+    [selectedRoundResolvedAttendanceRooms, selectedRoundScheduleRows]
   );
   const selectedRoundOccupancyScheduledLearners = useMemo(
     () =>
@@ -10603,6 +10631,42 @@ const operationalEventStatusLabel = useMemo(() => {
   const interactiveLiveAttendanceBlueprintRooms = useMemo(
     () =>
       liveAttendanceBlueprintRooms.map((room, roomIndex) => {
+        if (selectedRoundResolvedAttendanceRooms?.length) {
+          const matchedResolvedRoom =
+            selectedRoundResolvedAttendanceRooms.find((candidate) => compareRoomLabels(candidate.roomName, room.roomName) === 0) ||
+            selectedRoundResolvedAttendanceRooms[roomIndex] ||
+            null;
+          const resolvedRoomName = asText(matchedResolvedRoom?.roomName) || room.roomName;
+          const resolvedSpName = asText(matchedResolvedRoom?.spName) || room.spName;
+          const spCheckKey = `${selectedRoundOccupancyKey}|${resolvedRoomName}|${resolvedSpName || "unassigned-sp"}`;
+          const localSpChecked = localOccupancySpCheckIns[spCheckKey];
+          const status =
+            localSpChecked === true
+              ? "checked_in"
+              : localSpChecked === false
+                ? "awaiting"
+                : room.status;
+
+          return {
+            ...room,
+            roomName: resolvedRoomName,
+            assignment: matchedResolvedRoom?.assignment || room.assignment,
+            sp: matchedResolvedRoom?.sp || room.sp,
+            spName: resolvedSpName,
+            status,
+            statusLabel:
+              localSpChecked === true
+                ? "Checked In"
+                : localSpChecked === false
+                  ? "Not Checked In"
+                  : room.statusLabel,
+            learnerLabel: matchedResolvedRoom?.learnerLabels.length
+              ? matchedResolvedRoom.learnerLabels.join(", ")
+              : UNASSIGNED_LEARNER_ROOM_LABEL,
+            encounterLabel: asText(matchedResolvedRoom?.encounterLabel) || room.encounterLabel,
+          };
+        }
+
         const matchedOccupancyRoom =
           selectedRoundOccupancyRoomLearners.find((candidate) => compareRoomLabels(candidate.roomName, room.roomName) === 0) ||
           selectedRoundOccupancyRoomLearners[roomIndex] ||
@@ -10657,29 +10721,32 @@ const operationalEventStatusLabel = useMemo(() => {
       localOccupancyLearnerRoomMoves,
       localOccupancySpCheckIns,
       localOccupancySpRoomMoves,
+      selectedRoundResolvedAttendanceRooms,
       selectedRoundOccupancyKey,
       selectedRoundOccupancyRoomLearners,
       selectedRoundOccupancyScheduledLearners,
     ]
   );
   const eventAttendanceRoomCards = useMemo(() => {
-    const canonicalRooms: EventAttendanceCanonicalRoom[] = selectedRoundScheduleRows.length
-      ? selectedRoundScheduleRows.map((row, fallbackIndex) => ({
-          roomName: row.roomName,
-          learnerLabels: normalizeLearnerNames(row.learnerLabels).filter((learner) => isAssignedLearnerRoomLabel(learner)),
-          assignment: row.assignment,
-          sp: row.sp,
-          spName: row.sp ? getFullName(row.sp) : "",
-          encounterLabel: [row.stationLabel, row.caseLabel].filter(Boolean).join(" · ") || "Case pending",
-          fallbackIndex,
-        }))
-      : selectedRoundOccupancyRoomLearners.map((room) => ({
-          ...room,
-          assignment: null,
-          sp: null,
-          spName: "",
-          encounterLabel: "Case pending",
-        }));
+    const canonicalRooms: EventAttendanceCanonicalRoom[] = selectedRoundResolvedAttendanceRooms?.length
+      ? selectedRoundResolvedAttendanceRooms
+      : selectedRoundScheduleRows.length
+        ? selectedRoundScheduleRows.map((row, fallbackIndex) => ({
+            roomName: row.roomName,
+            learnerLabels: normalizeLearnerNames(row.learnerLabels).filter((learner) => isAssignedLearnerRoomLabel(learner)),
+            assignment: row.assignment,
+            sp: row.sp,
+            spName: row.sp ? getFullName(row.sp) : "",
+            encounterLabel: [row.stationLabel, row.caseLabel].filter(Boolean).join(" · ") || "Case pending",
+            fallbackIndex,
+          }))
+        : selectedRoundOccupancyRoomLearners.map((room) => ({
+            ...room,
+            assignment: null,
+            sp: null,
+            spName: "",
+            encounterLabel: "Case pending",
+          }));
 
     return canonicalRooms.map((room, roomIndex) => {
       const matchedRoom =
@@ -10694,19 +10761,21 @@ const operationalEventStatusLabel = useMemo(() => {
         asText(matchedRoom?.roomName) ||
         getFallbackRoomLabel(roomIndex, roomNamingContext);
       const baseLearners = room.learnerLabels || [];
-      const learnerLabels = Array.from(
-        new Set([
-          ...baseLearners.filter((learner) => {
-            const moveTarget = localOccupancyLearnerRoomMoves[`${selectedRoundOccupancyKey}|${learner}`];
-            return !moveTarget || compareRoomLabels(moveTarget, fallbackRoomName) === 0;
-          }),
-          ...selectedRoundOccupancyScheduledLearners.filter(
-            (learner) =>
-              !baseLearners.includes(learner) &&
-              compareRoomLabels(localOccupancyLearnerRoomMoves[`${selectedRoundOccupancyKey}|${learner}`], fallbackRoomName) === 0
-          ),
-        ])
-      );
+      const learnerLabels = selectedRoundResolvedAttendanceRooms?.length
+        ? baseLearners
+        : Array.from(
+            new Set([
+              ...baseLearners.filter((learner) => {
+                const moveTarget = localOccupancyLearnerRoomMoves[`${selectedRoundOccupancyKey}|${learner}`];
+                return !moveTarget || compareRoomLabels(moveTarget, fallbackRoomName) === 0;
+              }),
+              ...selectedRoundOccupancyScheduledLearners.filter(
+                (learner) =>
+                  !baseLearners.includes(learner) &&
+                  compareRoomLabels(localOccupancyLearnerRoomMoves[`${selectedRoundOccupancyKey}|${learner}`], fallbackRoomName) === 0
+              ),
+            ])
+          );
 
       return {
         key: matchedRoom?.key || `event-attendance-room-${selectedRoundOccupancyKey}-${roomIndex}`,
@@ -10727,6 +10796,7 @@ const operationalEventStatusLabel = useMemo(() => {
     selectedRoundOccupancyKey,
     selectedRoundOccupancyRoomLearners,
     selectedRoundOccupancyScheduledLearners,
+    selectedRoundResolvedAttendanceRooms,
     selectedRoundScheduleRows,
   ]);
   const eventAttendanceLearnerPresenceTokens = useMemo(
