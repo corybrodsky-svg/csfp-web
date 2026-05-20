@@ -4381,12 +4381,7 @@ function buildSchedulePreviewData(args: {
     ? timeline.filter((block) => !isMajorScheduleDividerBlock(block) && !/lunch/i.test(asText(block.label)))
     : timeline;
   const meaningfulPreviewTimeline = previewTimeline.filter((block) => !isFillerTimingLabel(block.label));
-  const previewRounds = isStudentPreview
-    ? rounds.map((round) => ({
-        ...round,
-        subBlocks: round.subBlocks.filter((subBlock) => /^encounter$/i.test(asText(subBlock.label))),
-      }))
-    : rounds;
+  const previewRounds = rounds;
   const previewScheduleGridRows = isStudentPreview
     ? scheduleGridRows.filter((entry) => entry.kind !== "wide")
     : scheduleGridRows;
@@ -5232,24 +5227,34 @@ function normalizePersistedScheduleBuilderRounds(raw: unknown): PersistedSchedul
     .filter((round) => round.roomSlots.length > 0 || asText(round.startTime) || asText(round.endTime));
 }
 
-function convertPersistedRoundsToScheduledRounds(rounds: PersistedScheduleBuilderRound[]): ScheduledRound[] {
+function convertPersistedRoundsToScheduledRounds(
+  rounds: PersistedScheduleBuilderRound[],
+  rhythmRounds: ScheduledRound[] = []
+): ScheduledRound[] {
+  const rhythmByRound = new Map(rhythmRounds.map((round) => [round.round, round]));
+
   return rounds.map((round, roundIndex) => {
-    const start = toMinutes(round.startTime) ?? 0;
+    const roundNumber = Math.max(1, parseNumber(round.round, roundIndex + 1));
+    const rhythmRound = rhythmByRound.get(roundNumber) || null;
+    const start = rhythmRound?.start ?? toMinutes(round.startTime) ?? 0;
     const parsedEnd = toMinutes(round.endTime);
-    const end = parsedEnd !== null ? (parsedEnd < start ? parsedEnd + 24 * 60 : parsedEnd) : start;
+    const end = rhythmRound?.end ?? (parsedEnd !== null ? (parsedEnd < start ? parsedEnd + 24 * 60 : parsedEnd) : start);
+    const subBlocks = rhythmRound?.subBlocks.length
+      ? rhythmRound.subBlocks.map((block) => ({ ...block }))
+      : [
+          {
+            label: "Encounter",
+            start,
+            end,
+            visibleTo: "both" as const,
+          },
+        ];
 
     return {
-      round: Math.max(1, parseNumber(round.round, roundIndex + 1)),
+      round: roundNumber,
       start,
       end,
-      subBlocks: [
-        {
-          label: "Encounter",
-          start,
-          end,
-          visibleTo: "both",
-        },
-      ],
+      subBlocks,
       roomSlots: round.roomSlots.map((slot) => {
         const capacity = Math.max(0, parseNumber(slot.capacity, Math.max(slot.learnerLabels.length, 1)));
         return {
@@ -6938,7 +6943,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   );
   const persistedScheduledRounds = useMemo(
     () => {
-      const savedRounds = convertPersistedRoundsToScheduledRounds(persistedResolvedRounds);
+      const savedRounds = convertPersistedRoundsToScheduledRounds(persistedResolvedRounds, generatedScheduledRounds);
       if (!savedRounds.length) return [];
 
       const targetCount = Math.max(persistedResolvedRoundTargetCount, savedRounds.length);
