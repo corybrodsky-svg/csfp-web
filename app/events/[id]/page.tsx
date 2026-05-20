@@ -3486,6 +3486,209 @@ type CommandToolIconKey =
   | "qa"
   | "advanced";
 
+type CommandToolBadgeTheme = {
+  badgeBg: string;
+  selectedBadgeBg: string;
+  badgeBorder: string;
+  selectedBadgeBorder: string;
+  iconColor: string;
+  selectedIconColor: string;
+  badgeGlow: string;
+  selectedBadgeGlow: string;
+};
+
+const commandToolBadgeThemes: Record<CommandToolIconKey, CommandToolBadgeTheme> = {
+  commandCenter: {
+    badgeBg: "linear-gradient(160deg, rgba(125, 211, 252, 0.26), rgba(96, 165, 250, 0.2))",
+    selectedBadgeBg: "linear-gradient(160deg, rgba(125, 211, 252, 0.44), rgba(96, 165, 250, 0.34))",
+    badgeBorder: "rgba(125, 211, 252, 0.42)",
+    selectedBadgeBorder: "rgba(165, 243, 252, 0.7)",
+    iconColor: "#0f4f85",
+    selectedIconColor: "#0f4f85",
+    badgeGlow: "inset 0 1px 0 rgba(255, 255, 255, 0.35)",
+    selectedBadgeGlow: "0 0 0 1px rgba(165, 243, 252, 0.36), 0 10px 18px rgba(125, 211, 252, 0.22)",
+  },
+  spFinder: {
+    badgeBg: "linear-gradient(160deg, rgba(134, 239, 172, 0.24), rgba(94, 234, 212, 0.18))",
+    selectedBadgeBg: "linear-gradient(160deg, rgba(134, 239, 172, 0.46), rgba(94, 234, 212, 0.36))",
+    badgeBorder: "rgba(110, 231, 183, 0.38)",
+    selectedBadgeBorder: "rgba(165, 243, 252, 0.6)",
+    iconColor: "#134e4a",
+    selectedIconColor: "#0f4f85",
+    badgeGlow: "inset 0 1px 0 rgba(255, 255, 255, 0.3)",
+    selectedBadgeGlow: "0 0 0 1px rgba(134, 239, 172, 0.24), 0 10px 18px rgba(110, 231, 183, 0.2)",
+  },
+  scheduleBuilder: {
+    badgeBg: "linear-gradient(160deg, rgba(167, 139, 250, 0.24), rgba(196, 181, 253, 0.16))",
+    selectedBadgeBg: "linear-gradient(160deg, rgba(196, 181, 253, 0.44), rgba(224, 231, 255, 0.34))",
+    badgeBorder: "rgba(196, 181, 253, 0.38)",
+    selectedBadgeBorder: "rgba(221, 214, 254, 0.66)",
+    iconColor: "#3f3c88",
+    selectedIconColor: "#0f4f85",
+    badgeGlow: "inset 0 1px 0 rgba(255, 255, 255, 0.3)",
+    selectedBadgeGlow: "0 0 0 1px rgba(196, 181, 253, 0.24), 0 10px 18px rgba(167, 139, 250, 0.2)",
+  },
+  eventAttendance: {
+    badgeBg: "linear-gradient(160deg, rgba(253, 224, 71, 0.26), rgba(254, 215, 170, 0.2))",
+    selectedBadgeBg: "linear-gradient(160deg, rgba(253, 224, 71, 0.48), rgba(253, 186, 116, 0.34))",
+    badgeBorder: "rgba(253, 224, 71, 0.44)",
+    selectedBadgeBorder: "rgba(250, 204, 21, 0.75)",
+    iconColor: "#8c4d00",
+    selectedIconColor: "#0f4f85",
+    badgeGlow: "inset 0 1px 0 rgba(255, 255, 255, 0.3)",
+    selectedBadgeGlow: "0 0 0 1px rgba(253, 224, 71, 0.28), 0 10px 18px rgba(252, 211, 77, 0.22)",
+  },
+  overview: {
+    badgeBg: "linear-gradient(160deg, rgba(14, 165, 233, 0.24), rgba(125, 211, 252, 0.16))",
+    selectedBadgeBg: "linear-gradient(160deg, rgba(56, 189, 248, 0.42), rgba(191, 219, 254, 0.32))",
+    badgeBorder: "rgba(56, 189, 248, 0.38)",
+    selectedBadgeBorder: "rgba(186, 230, 253, 0.65)",
+    iconColor: "#0c4a6e",
+    selectedIconColor: "#0f4f85",
+    badgeGlow: "inset 0 1px 0 rgba(255, 255, 255, 0.3)",
+    selectedBadgeGlow: "0 0 0 1px rgba(56, 189, 248, 0.22), 0 10px 16px rgba(125, 211, 252, 0.18)",
+  },
+  operations: {
+    badgeBg: "linear-gradient(160deg, rgba(125, 211, 252, 0.24), rgba(203, 213, 225, 0.16))",
+    selectedBadgeBg: "linear-gradient(160deg, rgba(125, 211, 252, 0.44), rgba(196, 211, 238, 0.34))",
+    badgeBorder: "rgba(125, 211, 252, 0.36)",
+    selectedBadgeBorder: "rgba(165, 243, 252, 0.62)",
+    iconColor: "#164e63",
+    selectedIconColor: "#0f4f85",
+    badgeGlow: "inset 0 1px 0 rgba(255, 255, 255, 0.28)",
+    selectedBadgeGlow: "0 0 0 1px rgba(125, 211, 252, 0.24), 0 10px 18px rgba(125, 211, 252, 0.2)",
+  },
+  staffing: {
+    badgeBg: "linear-gradient(160deg, rgba(244, 114, 182, 0.2), rgba(251, 207, 232, 0.16))",
+    selectedBadgeBg: "linear-gradient(160deg, rgba(244, 114, 182, 0.42), rgba(251, 207, 232, 0.34))",
+    badgeBorder: "rgba(244, 114, 182, 0.4)",
+    selectedBadgeBorder: "rgba(251, 207, 232, 0.64)",
+    iconColor: "#9d174d",
+    selectedIconColor: "#0f4f85",
+    badgeGlow: "inset 0 1px 0 rgba(255, 255, 255, 0.26)",
+    selectedBadgeGlow: "0 0 0 1px rgba(244, 114, 182, 0.22), 0 10px 18px rgba(244, 114, 182, 0.2)",
+  },
+  learnerFlow: {
+    badgeBg: "linear-gradient(160deg, rgba(74, 222, 128, 0.24), rgba(134, 239, 172, 0.16))",
+    selectedBadgeBg: "linear-gradient(160deg, rgba(74, 222, 128, 0.42), rgba(134, 239, 172, 0.34))",
+    badgeBorder: "rgba(74, 222, 128, 0.38)",
+    selectedBadgeBorder: "rgba(187, 247, 208, 0.62)",
+    iconColor: "#166534",
+    selectedIconColor: "#0f4f85",
+    badgeGlow: "inset 0 1px 0 rgba(255, 255, 255, 0.3)",
+    selectedBadgeGlow: "0 0 0 1px rgba(74, 222, 128, 0.22), 0 10px 16px rgba(74, 222, 128, 0.2)",
+  },
+  coverage: {
+    badgeBg: "linear-gradient(160deg, rgba(34, 211, 238, 0.24), rgba(125, 211, 252, 0.16))",
+    selectedBadgeBg: "linear-gradient(160deg, rgba(34, 211, 238, 0.42), rgba(191, 219, 254, 0.34))",
+    badgeBorder: "rgba(34, 211, 238, 0.38)",
+    selectedBadgeBorder: "rgba(165, 243, 252, 0.62)",
+    iconColor: "#0e7490",
+    selectedIconColor: "#0f4f85",
+    badgeGlow: "inset 0 1px 0 rgba(255, 255, 255, 0.3)",
+    selectedBadgeGlow: "0 0 0 1px rgba(34, 211, 238, 0.22), 0 10px 16px rgba(56, 189, 248, 0.2)",
+  },
+  live: {
+    badgeBg: "linear-gradient(160deg, rgba(248, 113, 113, 0.24), rgba(254, 205, 211, 0.2))",
+    selectedBadgeBg: "linear-gradient(160deg, rgba(248, 113, 113, 0.45), rgba(254, 205, 211, 0.34))",
+    badgeBorder: "rgba(248, 113, 113, 0.4)",
+    selectedBadgeBorder: "rgba(254, 202, 202, 0.68)",
+    iconColor: "#991b1b",
+    selectedIconColor: "#0f4f85",
+    badgeGlow: "inset 0 1px 0 rgba(255, 255, 255, 0.27)",
+    selectedBadgeGlow: "0 0 0 1px rgba(248, 113, 113, 0.24), 0 10px 16px rgba(248, 113, 113, 0.2)",
+  },
+  communication: {
+    badgeBg: "linear-gradient(160deg, rgba(125, 211, 252, 0.26), rgba(196, 181, 253, 0.16))",
+    selectedBadgeBg: "linear-gradient(160deg, rgba(125, 211, 252, 0.44), rgba(199, 210, 254, 0.34))",
+    badgeBorder: "rgba(125, 211, 252, 0.34)",
+    selectedBadgeBorder: "rgba(165, 243, 252, 0.62)",
+    iconColor: "#0f4c81",
+    selectedIconColor: "#0f4f85",
+    badgeGlow: "inset 0 1px 0 rgba(255, 255, 255, 0.3)",
+    selectedBadgeGlow: "0 0 0 1px rgba(125, 211, 252, 0.24), 0 10px 16px rgba(125, 211, 252, 0.2)",
+  },
+  announcements: {
+    badgeBg: "linear-gradient(160deg, rgba(250, 204, 21, 0.24), rgba(253, 224, 71, 0.16))",
+    selectedBadgeBg: "linear-gradient(160deg, rgba(250, 204, 21, 0.48), rgba(253, 224, 71, 0.34))",
+    badgeBorder: "rgba(250, 204, 21, 0.42)",
+    selectedBadgeBorder: "rgba(254, 240, 138, 0.62)",
+    iconColor: "#854d0e",
+    selectedIconColor: "#0f4f85",
+    badgeGlow: "inset 0 1px 0 rgba(255, 255, 255, 0.32)",
+    selectedBadgeGlow: "0 0 0 1px rgba(250, 204, 21, 0.22), 0 10px 16px rgba(250, 204, 21, 0.2)",
+  },
+  training: {
+    badgeBg: "linear-gradient(160deg, rgba(16, 185, 129, 0.24), rgba(190, 242, 100, 0.16))",
+    selectedBadgeBg: "linear-gradient(160deg, rgba(16, 185, 129, 0.44), rgba(190, 242, 100, 0.34))",
+    badgeBorder: "rgba(16, 185, 129, 0.38)",
+    selectedBadgeBorder: "rgba(187, 247, 208, 0.62)",
+    iconColor: "#065f46",
+    selectedIconColor: "#0f4f85",
+    badgeGlow: "inset 0 1px 0 rgba(255, 255, 255, 0.3)",
+    selectedBadgeGlow: "0 0 0 1px rgba(16, 185, 129, 0.24), 0 10px 16px rgba(16, 185, 129, 0.2)",
+  },
+  faculty: {
+    badgeBg: "linear-gradient(160deg, rgba(96, 165, 250, 0.26), rgba(125, 211, 252, 0.16))",
+    selectedBadgeBg: "linear-gradient(160deg, rgba(96, 165, 250, 0.46), rgba(125, 211, 252, 0.34))",
+    badgeBorder: "rgba(96, 165, 250, 0.38)",
+    selectedBadgeBorder: "rgba(186, 230, 253, 0.68)",
+    iconColor: "#1e3a8a",
+    selectedIconColor: "#0f4f85",
+    badgeGlow: "inset 0 1px 0 rgba(255, 255, 255, 0.28)",
+    selectedBadgeGlow: "0 0 0 1px rgba(96, 165, 250, 0.24), 0 10px 16px rgba(96, 165, 250, 0.2)",
+  },
+  fileCabinet: {
+    badgeBg: "linear-gradient(160deg, rgba(71, 85, 105, 0.2), rgba(148, 163, 184, 0.16))",
+    selectedBadgeBg: "linear-gradient(160deg, rgba(71, 85, 105, 0.36), rgba(148, 163, 184, 0.28))",
+    badgeBorder: "rgba(148, 163, 184, 0.34)",
+    selectedBadgeBorder: "rgba(203, 213, 225, 0.72)",
+    iconColor: "#0f172a",
+    selectedIconColor: "#0f4f85",
+    badgeGlow: "inset 0 1px 0 rgba(255, 255, 255, 0.28)",
+    selectedBadgeGlow: "0 0 0 1px rgba(148, 163, 184, 0.24), 0 10px 16px rgba(148, 163, 184, 0.2)",
+  },
+  qa: {
+    badgeBg: "linear-gradient(160deg, rgba(168, 85, 247, 0.22), rgba(196, 181, 253, 0.16))",
+    selectedBadgeBg: "linear-gradient(160deg, rgba(168, 85, 247, 0.44), rgba(196, 181, 253, 0.34))",
+    badgeBorder: "rgba(168, 85, 247, 0.36)",
+    selectedBadgeBorder: "rgba(221, 214, 254, 0.62)",
+    iconColor: "#5b21b6",
+    selectedIconColor: "#0f4f85",
+    badgeGlow: "inset 0 1px 0 rgba(255, 255, 255, 0.3)",
+    selectedBadgeGlow: "0 0 0 1px rgba(168, 85, 247, 0.22), 0 10px 16px rgba(168, 85, 247, 0.2)",
+  },
+  advanced: {
+    badgeBg: "linear-gradient(160deg, rgba(125, 211, 252, 0.24), rgba(94, 234, 212, 0.16))",
+    selectedBadgeBg: "linear-gradient(160deg, rgba(125, 211, 252, 0.44), rgba(94, 234, 212, 0.34))",
+    badgeBorder: "rgba(125, 211, 252, 0.38)",
+    selectedBadgeBorder: "rgba(165, 243, 252, 0.65)",
+    iconColor: "#164e63",
+    selectedIconColor: "#0f4f85",
+    badgeGlow: "inset 0 1px 0 rgba(255, 255, 255, 0.28)",
+    selectedBadgeGlow: "0 0 0 1px rgba(125, 211, 252, 0.24), 0 10px 16px rgba(125, 211, 252, 0.2)",
+  },
+};
+
+function renderCommandToolBadge(toolIcon: CommandToolIconKey, selected: boolean) {
+  const theme = commandToolBadgeThemes[toolIcon];
+  if (!theme) return null;
+  const iconColor = selected ? theme.selectedIconColor : theme.iconColor;
+  return (
+    <span
+      className="cfsp-command-tool-badge"
+      aria-hidden="true"
+      style={{
+        background: selected ? theme.selectedBadgeBg : theme.badgeBg,
+        borderColor: selected ? theme.selectedBadgeBorder : theme.badgeBorder,
+        boxShadow: selected ? `${theme.selectedBadgeGlow}` : `${theme.badgeGlow}`,
+      }}
+    >
+      {renderCommandToolIcon(toolIcon, iconColor)}
+    </span>
+  );
+}
+
 function renderCommandToolIcon(toolIcon: CommandToolIconKey, color: string) {
   const sharedProps = {
     width: 19,
@@ -22628,15 +22831,35 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 cursor: pointer;
                 isolation: isolate;
               }
-              .cfsp-command-tool-icon-wrap {
-                width: 22px;
-                height: 22px;
-                border-radius: 8px;
+              .cfsp-command-tool-badge {
+                width: 40px;
+                height: 40px;
+                border-radius: 12px;
                 border: 1px solid var(--cfsp-command-tool-border);
                 display: inline-grid;
                 place-items: center;
                 background: color-mix(in oklab, var(--cfsp-command-tool-bg) 62%, var(--cfsp-command-tool-active-bg));
-                box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.32);
+                box-shadow:
+                  inset 0 0 0 1px rgba(255, 255, 255, 0.32),
+                  inset 0 -6px 12px rgba(3, 7, 18, 0.08);
+                position: relative;
+                overflow: hidden;
+                z-index: 1;
+                transition:
+                  transform 180ms ease,
+                  border-color 180ms ease,
+                  box-shadow 180ms ease,
+                  filter 180ms ease,
+                  background 180ms ease;
+              }
+
+              .cfsp-command-tool-badge::after {
+                content: "";
+                position: absolute;
+                inset: 5px;
+                border-radius: 8px;
+                border: 1px solid rgba(255, 255, 255, 0.16);
+                pointer-events: none;
               }
               .cfsp-command-tool-card::after {
                 content: "";
@@ -22736,17 +22959,27 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   repeating-linear-gradient(180deg, rgba(255, 255, 255, 0.12) 0 1px, transparent 1px 13px),
                   linear-gradient(180deg, rgba(20, 91, 150, 0.1) 0%, rgba(20, 91, 150, 0.1) 100%);
               }
-              .cfsp-command-tool-card .cfsp-command-tool-icon-wrap {
+              .cfsp-command-tool-card .cfsp-command-tool-badge {
                 position: relative;
                 z-index: 1;
-                transition: border-color 180ms ease, transform 180ms ease;
+                transition:
+                  transform 180ms ease,
+                  border-color 180ms ease,
+                  box-shadow 180ms ease,
+                  filter 180ms ease;
               }
-              .cfsp-command-tool-card:hover .cfsp-command-tool-icon-wrap {
+              .cfsp-command-tool-card:hover .cfsp-command-tool-badge {
                 transform: translateY(-1px);
                 border-color: rgba(20, 91, 150, 0.32);
+                filter: saturate(1.1);
+                box-shadow:
+                  0 0 0 1px rgba(255, 255, 255, 0.16),
+                  inset 0 0 0 1px rgba(255, 255, 255, 0.32),
+                  inset 0 -6px 12px rgba(3, 7, 18, 0.08),
+                  0 10px 20px rgba(15, 23, 42, 0.14);
               }
-              .cfsp-command-tool-card[data-tool-identity="fileCabinet"] .cfsp-command-tool-icon-wrap {
-                border-radius: 8px 16px 16px 8px;
+              .cfsp-command-tool-card[data-tool-identity="fileCabinet"] .cfsp-command-tool-badge {
+                border-radius: 10px 16px 12px 16px;
               }
               .cfsp-command-tool-card:hover .cfsp-command-tool-title,
               .cfsp-command-tool-card:focus-visible .cfsp-command-tool-title {
@@ -25244,7 +25477,6 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             tool.value === "eventAttendance"
                               ? primaryEventTool === "commandCenter" && selectedCommandTool === "primary" && roundCompanionView === "attendance"
                               : primaryEventTool === tool.value;
-                          const iconColor = selected ? "var(--cfsp-command-tool-active-title)" : "var(--cfsp-command-tool-title)";
                           return (
                             <button
                               key={`primary-event-tool-${tool.value}`}
@@ -25283,11 +25515,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                   : "var(--cfsp-command-tool-text)",
                                 border: selected ? "var(--cfsp-command-tool-active-border)" : "var(--cfsp-command-tool-border)",
                                 boxShadow: selected ? "var(--cfsp-command-tool-active-shadow)" : "var(--cfsp-command-tool-shadow)",
-                              }}
-                            >
-                              <span className="cfsp-command-tool-icon-wrap" aria-hidden="true">
-                                {renderCommandToolIcon(tool.identity, iconColor)}
-                              </span>
+                            }}
+                          >
+                              {renderCommandToolBadge(tool.identity, selected)}
                               <span className="cfsp-command-tool-title" style={{ fontSize: "14px", lineHeight: 1.12 }}>
                                 {tool.label}
                               </span>
@@ -25542,14 +25772,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                         : "var(--cfsp-command-tool-text)",
                                       border: selected ? "var(--cfsp-command-tool-active-border)" : "var(--cfsp-command-tool-border)",
                                       boxShadow: selected ? "var(--cfsp-command-tool-active-shadow)" : "var(--cfsp-command-tool-shadow)",
-                                    }}
-                                  >
-                                    <span className="cfsp-command-tool-icon-wrap" aria-hidden="true">
-                                      {renderCommandToolIcon(
-                                        tool.identity,
-                                        selected ? "var(--cfsp-command-tool-active-title)" : "var(--cfsp-command-tool-text)"
-                                      )}
-                                    </span>
+                                  }}
+                                >
+                                    {renderCommandToolBadge(tool.identity, selected)}
                                     <span className="cfsp-command-tool-title" style={{ fontSize: "12px", lineHeight: 1.15 }}>
                                       {tool.label}
                                     </span>
@@ -28309,14 +28534,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 isToolSelected ? "var(--cfsp-command-tool-active-border)" : "var(--cfsp-command-tool-border)",
                               boxShadow:
                                 isToolSelected ? "var(--cfsp-command-tool-active-shadow)" : "var(--cfsp-command-tool-shadow)",
-                            }}
+                          }}
                           >
-                            <span className="cfsp-command-tool-icon-wrap" aria-hidden="true">
-                              {renderCommandToolIcon(
-                                tool.identity,
-                                isToolSelected ? "var(--cfsp-command-tool-active-title)" : "var(--cfsp-command-tool-text)"
-                              )}
-                            </span>
+                            {renderCommandToolBadge(tool.identity, isToolSelected)}
                             <span style={{ fontSize: "11px", fontWeight: 950 }}>{tool.label}</span>
                             <span
                               style={{

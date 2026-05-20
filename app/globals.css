@@ -582,27 +582,54 @@ textarea {
   color: var(--cfsp-command-tool-selected-status) !important;
 }
 
-.cfsp-command-tool-icon-wrap {
-  width: 22px;
-  height: 22px;
-  border-radius: 8px;
+.cfsp-command-tool-badge {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
   border: 1px solid var(--cfsp-command-tool-border);
   display: inline-grid;
   place-items: center;
-  background: color-mix(in oklab, var(--cfsp-command-tool-bg) 62%, var(--cfsp-command-tool-active-bg));
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.32);
-  transition: border-color 180ms ease, transform 180ms ease;
   position: relative;
+  overflow: hidden;
+  background: color-mix(in oklab, var(--cfsp-command-tool-bg) 62%, var(--cfsp-command-tool-active-bg));
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.32),
+    inset 0 -6px 12px rgba(3, 7, 18, 0.08);
+  transition:
+    transform 180ms ease,
+    border-color 180ms ease,
+    box-shadow 180ms ease,
+    filter 180ms ease,
+    background 180ms ease;
   z-index: 1;
 }
 
-.cfsp-command-tool-icon-wrap:hover {
-  transform: translateY(-1px);
-  border-color: rgba(20, 91, 150, 0.32);
+.cfsp-command-tool-badge::after {
+  content: "";
+  position: absolute;
+  inset: 5px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  pointer-events: none;
 }
 
-.cfsp-command-tool-card[data-tool-identity="fileCabinet"] .cfsp-command-tool-icon-wrap {
-  border-radius: 8px 16px 16px 8px;
+.cfsp-command-tool-card .cfsp-command-tool-badge {
+  z-index: 1;
+}
+
+.cfsp-command-tool-card:hover .cfsp-command-tool-badge {
+  transform: translateY(-1px);
+  border-color: rgba(20, 91, 150, 0.32);
+  filter: saturate(1.1);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.16),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.32),
+    inset 0 -6px 12px rgba(3, 7, 18, 0.08),
+    0 10px 20px rgba(15, 23, 42, 0.14);
+}
+
+.cfsp-command-tool-card[data-tool-identity="fileCabinet"] .cfsp-command-tool-badge {
+  border-radius: 10px 16px 12px 16px;
 }
 
 .cfsp-nav-link {
