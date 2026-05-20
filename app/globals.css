@@ -548,6 +548,173 @@ textarea {
   box-shadow: var(--cfsp-command-tool-hover-shadow);
 }
 
+.cfsp-command-tool-module-grid {
+  width: 100%;
+}
+
+.cfsp-command-tool-module-grid--primary {
+  align-items: stretch;
+}
+
+.cfsp-command-tool-module-grid--secondary {
+  align-items: stretch;
+}
+
+.cfsp-command-tool-command-module {
+  --module-rail: var(--cfsp-command-tool-active-rim);
+  position: relative;
+  isolation: isolate;
+  min-height: 72px;
+  padding: clamp(8px, 0.88rem, 12px);
+  border-radius: 15px;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  text-align: center;
+  letter-spacing: -0.01em;
+  transition:
+    transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    box-shadow 180ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    border-color 180ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    background 180ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    filter 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.cfsp-command-tool-command-module::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.12) 0, transparent 36%, transparent 100%),
+    radial-gradient(circle at 90% 8%, rgba(255, 255, 255, 0.28), transparent 52%);
+  opacity: 0.16;
+  z-index: 0;
+}
+
+.cfsp-command-tool-command-module::after {
+  content: "";
+  position: absolute;
+  top: 10px;
+  right: 11px;
+  width: 11px;
+  height: 3px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.08),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+  z-index: 2;
+  transition: transform 180ms ease, opacity 180ms ease, box-shadow 180ms ease;
+}
+
+.cfsp-command-tool-command-module:hover {
+  transform: translateY(-2px);
+  filter: saturate(1.08);
+  box-shadow: var(--cfsp-command-tool-hover-shadow);
+}
+
+.cfsp-command-tool-command-module:active {
+  transform: translateY(1px) scale(0.995);
+  transition-duration: 80ms;
+}
+
+.cfsp-command-tool-command-module[data-command-tool-tier="primary"] {
+  min-height: 84px;
+}
+
+.cfsp-command-tool-command-module[data-command-tool-tier="primary"]::after {
+  width: 14px;
+  top: 11px;
+}
+
+.cfsp-command-tool-command-module[data-command-tool-tier="secondary"]::after {
+  width: 8px;
+  top: 11px;
+  opacity: 0.64;
+}
+
+.cfsp-command-tool-command-module--primary {
+  gap: 6px;
+}
+
+.cfsp-command-tool-command-module--compact {
+  gap: 3px;
+}
+
+.cfsp-command-tool-command-module--auxiliary {
+  min-height: 50px;
+}
+
+.cfsp-command-tool-command-module .cfsp-command-tool-title {
+  display: block;
+  position: relative;
+  z-index: 1;
+}
+
+.cfsp-command-tool-command-module .cfsp-command-tool-status {
+  display: block;
+  position: relative;
+  z-index: 1;
+}
+
+.cfsp-command-tool-command-module.is-selected {
+  box-shadow:
+    0 0 0 1px var(--cfsp-command-tool-active-rim),
+    var(--cfsp-command-tool-active-shadow);
+}
+
+.cfsp-command-tool-command-module.is-selected::after {
+  transform: scaleX(1.18);
+  background: linear-gradient(120deg, rgba(255, 255, 255, 0.5), transparent);
+  box-shadow: 0 0 0 2px var(--cfsp-command-tool-active-rim);
+}
+
+.cfsp-command-tool-command-module.is-selected::before {
+  opacity: 0.24;
+}
+
+.cfsp-command-tool-command-module.is-selected .cfsp-command-tool-title {
+  color: var(--cfsp-command-tool-selected-title);
+}
+
+.cfsp-command-tool-command-module.is-selected .cfsp-command-tool-status {
+  color: var(--cfsp-command-tool-selected-status);
+}
+
+.cfsp-command-tool-command-module[data-tool-identity="fileCabinet"] .cfsp-command-tool-badge {
+  border-radius: 10px 16px 12px 16px;
+  background:
+    linear-gradient(150deg, rgba(20, 30, 48, 0.75), rgba(71, 85, 105, 0.82)),
+    linear-gradient(150deg, rgba(71, 85, 105, 0.26), rgba(148, 163, 184, 0.16));
+}
+
+.cfsp-command-tool-grid--balanced {
+  align-items: stretch;
+  grid-auto-rows: 1fr;
+}
+
+.cfsp-command-tool-group--module {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+  border-radius: 18px;
+  padding: 11px;
+  min-height: 100%;
+}
+
+.cfsp-command-tool-group-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 10px;
+  font-weight: 900;
+  opacity: 0.92;
+}
+
 .cfsp-command-tool-card:focus-visible {
   outline: 2px solid rgba(20, 91, 150, 0.46);
   outline-offset: 2px;

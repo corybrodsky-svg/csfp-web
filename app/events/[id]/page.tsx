@@ -18601,7 +18601,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       </div>
                     </div>
 
-                    <div style={{ display: "grid", gap: "10px" }}>
+                    <div className="cfsp-command-tool-shell" style={{ display: "grid", gap: "10px" }}>
                       <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
                         <div style={{ color: livePanelLabelText, fontSize: "11px", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.08em" }}>
                           Live Flow Rail
@@ -18666,6 +18666,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       </div>
 
                       <div
+                        className="cfsp-command-tool-row"
                         style={{
                           display: "flex",
                           gap: "7px",
@@ -20246,6 +20247,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       </div>
 
                       <div
+                        className="cfsp-command-tool-module-grid"
                         style={{
                           display: "grid",
                           gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))",
@@ -25604,10 +25606,12 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         </div>
                       </div>
                       <div
+                        className="cfsp-command-tool-module-grid cfsp-command-tool-module-grid--primary"
                         style={{
                           display: "grid",
                           gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
                           gap: "10px",
+                          alignItems: "stretch",
                           borderRadius: "18px",
                           border: isPlanningVisualMode ? "1px solid rgba(20, 91, 150, 0.22)" : "1px solid rgba(126, 231, 219, 0.24)",
                           background: isPlanningVisualMode
@@ -25646,11 +25650,11 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             tool.value === "eventAttendance"
                               ? primaryEventTool === "commandCenter" && selectedCommandTool === "primary" && roundCompanionView === "attendance"
                               : primaryEventTool === tool.value;
-                          return (
+                            return (
                             <button
                               key={`primary-event-tool-${tool.value}`}
                               type="button"
-                              className={`cfsp-command-tool-card cfsp-primary-command-card ${selected ? "is-selected" : ""}`}
+                              className={`cfsp-command-tool-card cfsp-primary-command-card cfsp-command-tool-command-module cfsp-command-tool-command-module--primary ${selected ? "is-selected" : ""}`}
                               data-tool-identity={tool.identity}
                               data-command-tool-tier="primary"
                               onClick={() => {
@@ -25878,7 +25882,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         ].map((group) => (
                           <section
                             key={`command-grid-group-${group.group}`}
-                            className="cfsp-command-tool-group"
+                            className="cfsp-command-tool-group cfsp-command-tool-group--module"
                             style={{
                               borderRadius: "18px",
                               border: isPlanningVisualMode ? "1px solid rgba(20, 91, 150, 0.16)" : "1px solid rgba(148, 163, 184, 0.14)",
@@ -25888,9 +25892,17 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                               gap: "10px",
                               boxShadow: isPlanningVisualMode ? "inset 0 1px 0 rgba(255,255,255,0.78), 0 8px 18px rgba(20, 65, 95, 0.05)" : undefined,
                             }}
-                          >
-                            <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>{group.group}</div>
-                            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "9px" }}>
+                            >
+                            <div
+                              className="cfsp-command-tool-group-title"
+                              style={{ ...statLabel, color: commandCenterVisual.labelColor }}
+                            >
+                              {group.group}
+                            </div>
+                            <div
+                              className="cfsp-command-tool-grid cfsp-command-tool-grid--balanced"
+                              style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "9px", alignItems: "stretch" }}
+                            >
                               {group.tools.map((tool) => {
                                 const selected =
                                   tool.kind === "view"
@@ -25900,11 +25912,11 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                       : tool.kind === "advanced"
                                         ? false
                                         : selectedCommandTool === tool.value;
-                                return (
+                            return (
                             <button
                                     key={`command-grid-tool-${tool.kind}-${tool.value}`}
                                     type="button"
-                                    className={`cfsp-command-tool-card ${selected ? "is-selected" : ""}`}
+                                    className={`cfsp-command-tool-card cfsp-command-tool-command-module ${selected ? "is-selected" : ""}`}
                                     data-tool-identity={tool.identity}
                                     data-command-tool-tier="secondary"
                                     onClick={() => {
@@ -25971,8 +25983,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     </div>
 
                     {primaryEventTool === "commandCenter" ? (
-                    <div
-                      aria-label="Secondary tool dock"
+                          <div
+                          className="cfsp-command-tool-module-grid cfsp-command-tool-module-grid--secondary"
+                          aria-label="Secondary tool dock"
                       style={{
                         borderRadius: "16px",
                         border: isPlanningVisualMode ? "1px solid rgba(99, 181, 217, 0.2)" : "1px solid rgba(126, 231, 219, 0.22)",
@@ -25996,10 +26009,15 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         { value: "advanced" as const, label: "Advanced Settings", status: scheduleStatusLabel },
                       ].map((tool) => {
                         const selected = selectedCommandTool === tool.value;
-                        return (
+                          return (
                           <button
                             key={`central-command-tool-${tool.value}`}
                             type="button"
+                            className={`cfsp-command-tool-command-module ${
+                              tool.value === "advanced"
+                                ? "cfsp-command-tool-command-module--auxiliary"
+                                : "cfsp-command-tool-command-module--compact"
+                            }`}
                             onClick={() => {
                               if (tool.value === "advanced") {
                                 router.push(`/settings?eventId=${encodeURIComponent(id)}`);
@@ -26033,8 +26051,18 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 : "none",
                             }}
                           >
-                            <span style={{ fontSize: "11px", fontWeight: 950, lineHeight: 1.15 }}>{tool.label}</span>
-                            <span style={{ color: selected ? "inherit" : commandCenterVisual.mutedColor, fontSize: "9px", fontWeight: 800, lineHeight: 1.2 }}>
+                            <span className="cfsp-command-tool-title" style={{ fontSize: "11px", fontWeight: 950, lineHeight: 1.15 }}>
+                              {tool.label}
+                            </span>
+                            <span
+                              className="cfsp-command-tool-status"
+                              style={{
+                                color: selected ? "inherit" : commandCenterVisual.mutedColor,
+                                fontSize: "9px",
+                                fontWeight: 800,
+                                lineHeight: 1.2,
+                              }}
+                            >
                               {tool.status}
                             </span>
                           </button>
@@ -28679,6 +28707,12 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           <button
                             key={`central-command-support-tool-${tool.value}`}
                             type="button"
+                            className={`cfsp-command-tool-card cfsp-command-tool-command-module ${
+                              tool.value === "advanced"
+                                ? "cfsp-command-tool-command-module--auxiliary"
+                                : "cfsp-command-tool-command-module--compact"
+                            } ${isToolSelected ? "is-selected" : ""}`}
+                            data-tool-identity={tool.identity}
                             onClick={() => {
                               if (tool.value === "advanced") {
                                 router.push(`/settings?eventId=${encodeURIComponent(id)}`);
@@ -28687,8 +28721,6 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                               setSelectedCommandTool(tool.value);
                               queueCommandContentScroll();
                             }}
-                            className={`cfsp-command-tool-card ${isToolSelected ? "is-selected" : ""}`}
-                            data-tool-identity={tool.identity}
                             style={{
                               ...buttonStyle,
                               padding: "7px 9px",
@@ -28708,8 +28740,11 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           }}
                           >
                             {renderCommandToolBadge(tool.identity, isToolSelected)}
-                            <span style={{ fontSize: "11px", fontWeight: 950 }}>{tool.label}</span>
+                            <span className="cfsp-command-tool-title" style={{ fontSize: "11px", fontWeight: 950 }}>
+                              {tool.label}
+                            </span>
                             <span
+                              className="cfsp-command-tool-status"
                               style={{
                                 color:
                                   isToolSelected
