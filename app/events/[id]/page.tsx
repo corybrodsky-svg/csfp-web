@@ -11599,10 +11599,75 @@ const operationalEventStatusLabel = useMemo(() => {
     selectedRoundResolvedAttendanceRooms,
     selectedRoundScheduleRows,
   ]);
+  const selectedRoundLearnerArrivalRooms = useMemo(
+    () =>
+      eventAttendanceRoomCards.map((room, roomIndex) => {
+        const matchedFlowRoom =
+          selectedRoundLearnerFlowRows.find((candidate) => compareRoomLabels(candidate.roomName, room.roomName) === 0) ||
+          selectedRoundLearnerFlowRows[roomIndex] ||
+          null;
+        const matchedOccupancyRoom =
+          selectedRoundOccupancyRoomLearners.find((candidate) => compareRoomLabels(candidate.roomName, room.roomName) === 0) ||
+          selectedRoundOccupancyRoomLearners[roomIndex] ||
+          null;
+        const generatedLearners = getResolvedRoundLearnerLabels({
+          learnerRoster: scheduleBuilderLearnerNames,
+          roomCapacity: scheduleBuilderRoomCapacity,
+          roundIndex: Math.max(selectedResolvedRoundNumber - 1, 0),
+          slotIndex: roomIndex,
+          roomSlotCount: Math.max(eventAttendanceRoomCards.length, selectedRoundRoomCount, 1),
+          activeCaseCount: resolvedScheduleMatrixCaseCount,
+          isMultiCaseMode: resolvedScheduleMatrixCaseCount > 1,
+          isVirtualEvent: isScheduleMatrixVirtual,
+        }).filter((learner) => isAssignedLearnerRoomLabel(learner));
+        const roomTruthLearners = getActualLearnerNames(room.learnerLabels).filter((learner) => isAssignedLearnerRoomLabel(learner));
+        const flowLearners = getActualLearnerNames(matchedFlowRoom?.learnerLabels || []).filter((learner) => isAssignedLearnerRoomLabel(learner));
+        const occupancyLearners = getActualLearnerNames(matchedOccupancyRoom?.learnerLabels || []).filter((learner) => isAssignedLearnerRoomLabel(learner));
+        const learnerLabels = roomTruthLearners.length
+          ? roomTruthLearners
+          : flowLearners.length
+            ? flowLearners
+            : occupancyLearners.length
+              ? occupancyLearners
+              : generatedLearners;
+        const learnerCountFallback = learnerLabels.length
+          ? 0
+          : Math.max(
+              room.learnerCountFallback || 0,
+              matchedFlowRoom?.learnerCountFallback || 0,
+              matchedOccupancyRoom?.learnerCountFallback || 0
+            );
+
+        return {
+          ...room,
+          learnerLabels,
+          learnerCountFallback,
+        };
+      }),
+    [
+      eventAttendanceRoomCards,
+      isScheduleMatrixVirtual,
+      resolvedScheduleMatrixCaseCount,
+      scheduleBuilderLearnerNames,
+      scheduleBuilderRoomCapacity,
+      selectedResolvedRoundNumber,
+      selectedRoundLearnerFlowRows,
+      selectedRoundOccupancyRoomLearners,
+      selectedRoundRoomCount,
+    ]
+  );
   const eventAttendanceLearnerPresenceTokens = useMemo(
     () =>
-      eventAttendanceRoomCards.flatMap((room, roomIndex) =>
-        room.learnerLabels.map((learnerName, learnerIndex) => {
+      selectedRoundLearnerArrivalRooms.flatMap((room, roomIndex) => {
+        const actualLearners = getActualLearnerNames(room.learnerLabels).filter((learner) => isAssignedLearnerRoomLabel(learner));
+        const learnerEntries = actualLearners.length
+          ? actualLearners.map((learnerName) => ({ learnerName, isFallbackLearnerName: false }))
+          : Array.from({ length: Math.max(room.learnerCountFallback || 0, 0) }, (_, fallbackIndex) => ({
+              learnerName: `Learner ${fallbackIndex + 1}`,
+              isFallbackLearnerName: true,
+            }));
+
+        return learnerEntries.map(({ learnerName, isFallbackLearnerName }, learnerIndex) => {
           const attendanceKey = getLearnerAttendanceKey(selectedRoundOccupancyKey || currentLiveReferenceRound?.key, room.roomName, learnerName);
           const record = liveLearnerAttendanceRecords[attendanceKey] || null;
           const initialSeed = learnerName.replace(/[^A-Za-z0-9]/g, "");
@@ -11634,13 +11699,14 @@ const operationalEventStatusLabel = useMemo(() => {
             storedStatus,
             updatedAt: record?.updatedAt || "",
             isCurrentRoom: room.isCurrentRotationRoom,
+            isFallbackLearnerName,
           };
-        })
-      ),
+        });
+      }),
     [
       currentLiveReferenceRound?.key,
-      eventAttendanceRoomCards,
       liveLearnerAttendanceRecords,
+      selectedRoundLearnerArrivalRooms,
       selectedRoundOccupancyKey,
     ]
   );
@@ -27855,6 +27921,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                   />
                                   <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", minWidth: 0 }}>
                                     <span style={{ maxWidth: tokenPresent ? "92px" : "110px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{token.learnerName}</span>
+                                    {token.isFallbackLearnerName ? (
+                                      <span style={{ color: "#5b7a91", fontSize: "8px", fontWeight: 900, letterSpacing: "0.04em", textTransform: "uppercase", whiteSpace: "nowrap" }}>Name pending</span>
+                                    ) : null}
                                     {tokenPresent ? (
                                       <span style={{ color: "#047857", fontSize: "8px", fontWeight: 950, letterSpacing: "0.04em", textTransform: "uppercase", whiteSpace: "nowrap" }}>✓ Present</span>
                                     ) : null}
@@ -28053,6 +28122,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         <span style={{ color: tokenPresent ? "#065f46" : commandCenterVisual.textColor, fontSize: "12px", fontWeight: 950, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{token.learnerName}</span>
                         <span style={{ color: tokenPresent ? "#047857" : commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: tokenPresent ? 950 : 800 }}>
                           {token.roomName || "Room pending"} · {getEventAttendanceStatusLabel(token.status)}
+                          {token.isFallbackLearnerName ? " · name pending" : ""}
                           {tokenPresent ? " ✓" : ""}
                         </span>
                       </span>
@@ -28103,7 +28173,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
             <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 800 }}>
               {eventAttendanceLearnerPresenceTokens.length
                 ? "No learners match the current filter."
-                : "No learner roster found. Add or import learners from Schedule Builder."}
+                : "No learner names found for this round. Add/import learner names in Schedule Builder or enter them in Setup."}
             </div>
           )}
         </div>
