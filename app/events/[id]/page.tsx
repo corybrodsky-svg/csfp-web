@@ -256,6 +256,9 @@ type RoundRoomBoardRow = RoundRoomRow & {
 };
 type OperationsRoomCardRow = RoundRoomRow & {
   primarySpName: string;
+  stationStatus: ScheduleStationStatus;
+  isActiveStation: boolean;
+  isBackupStation: boolean;
 };
 type EventAttendanceCanonicalRoom = {
   roomName: string;
@@ -265,7 +268,11 @@ type EventAttendanceCanonicalRoom = {
   spName: string;
   encounterLabel: string;
   fallbackIndex: number;
+  stationStatus: ScheduleStationStatus;
+  isActiveStation: boolean;
+  isBackupStation: boolean;
 };
+type ScheduleStationStatus = "active" | "backup" | "inactive";
 type ResolvedScheduleTruthStation = {
   key: string;
   roundKey: string;
@@ -284,7 +291,9 @@ type ResolvedScheduleTruthStation = {
   notes: string;
   stationLabel: string;
   encounterLabel: string;
+  stationStatus: ScheduleStationStatus;
   isActiveStation: boolean;
+  isBackupStation: boolean;
 };
 type AssignSpOptions = {
   status?: AssignmentStatus;
@@ -413,6 +422,8 @@ type ScheduleRoomAdjustmentSlot = {
   learnerLabels: string[];
   manualOverride?: boolean;
   source?: string;
+  stationStatus?: ScheduleStationStatus;
+  isBackupStation?: boolean;
   roomName?: string;
   spName?: string;
   backupSpName?: string;
@@ -4009,6 +4020,8 @@ function parseScheduleRoomAdjustments(value: unknown) {
           learnerLabels?: unknown;
           manualOverride?: unknown;
           source?: unknown;
+          stationStatus?: unknown;
+          isBackupStation?: unknown;
           roomName?: unknown;
           spName?: unknown;
           backupSpName?: unknown;
@@ -4030,6 +4043,8 @@ function parseScheduleRoomAdjustments(value: unknown) {
           const learnerLabels = normalizeLearnerNames(slotEntry?.learnerLabels || []);
           const manualOverride = parseBooleanValue(slotEntry?.manualOverride, false);
           const source = normalizeDisplayText(slotEntry?.source);
+          const stationStatus = normalizeScheduleStationStatus(slotEntry?.stationStatus);
+          const isBackupStation = parseBooleanValue(slotEntry?.isBackupStation, false);
           const roomName = normalizeDisplayText(slotEntry?.roomName);
           const spName = normalizeDisplayText(slotEntry?.spName);
           const backupSpName = normalizeDisplayText(slotEntry?.backupSpName);
@@ -4037,12 +4052,14 @@ function parseScheduleRoomAdjustments(value: unknown) {
           const roleId = normalizeDisplayText(slotEntry?.roleId);
           const roleLabel = normalizeDisplayText(slotEntry?.roleLabel);
           const notes = normalizeDisplayText(slotEntry?.notes);
-          if (!learnerLabels.length && !manualOverride && !source && !roomName && !spName && !backupSpName && !caseLabel && !roleId && !roleLabel && !notes) return null;
+          if (!learnerLabels.length && !manualOverride && !source && !stationStatus && !isBackupStation && !roomName && !spName && !backupSpName && !caseLabel && !roleId && !roleLabel && !notes) return null;
           return {
             slotIndex,
             learnerLabels,
             ...(manualOverride ? { manualOverride: true } : {}),
             ...(source ? { source } : {}),
+            ...(stationStatus ? { stationStatus } : {}),
+            ...(isBackupStation ? { isBackupStation: true } : {}),
             ...(roomName ? { roomName } : {}),
             ...(spName ? { spName } : {}),
             ...(backupSpName ? { backupSpName } : {}),
@@ -4077,6 +4094,8 @@ function serializeScheduleRoomAdjustments(value: ParsedScheduleRoomAdjustments) 
             learnerLabels: normalizeLearnerNames(slot.learnerLabels || []),
             ...(slot.manualOverride ? { manualOverride: true } : {}),
             ...(normalizeDisplayText(slot.source) ? { source: normalizeDisplayText(slot.source) } : {}),
+            ...(normalizeScheduleStationStatus(slot.stationStatus) ? { stationStatus: normalizeScheduleStationStatus(slot.stationStatus) } : {}),
+            ...(slot.isBackupStation ? { isBackupStation: true } : {}),
             ...(normalizeDisplayText(slot.roomName) ? { roomName: normalizeDisplayText(slot.roomName) } : {}),
             ...(normalizeDisplayText(slot.spName) ? { spName: normalizeDisplayText(slot.spName) } : {}),
             ...(normalizeDisplayText(slot.backupSpName) ? { backupSpName: normalizeDisplayText(slot.backupSpName) } : {}),
@@ -4091,6 +4110,8 @@ function serializeScheduleRoomAdjustments(value: ParsedScheduleRoomAdjustments) 
           slot.learnerLabels.length ||
           slot.manualOverride ||
           normalizeDisplayText(slot.source) ||
+          normalizeScheduleStationStatus(slot.stationStatus) ||
+          slot.isBackupStation ||
           normalizeDisplayText(slot.roomName) ||
           normalizeDisplayText(slot.spName) ||
           normalizeDisplayText(slot.backupSpName) ||
@@ -4103,8 +4124,20 @@ function serializeScheduleRoomAdjustments(value: ParsedScheduleRoomAdjustments) 
   });
 }
 
+function normalizeScheduleStationStatus(value: unknown): ScheduleStationStatus | "" {
+  const normalized = normalizeDisplayText(value).toLowerCase();
+  if (normalized === "active") return "active";
+  if (normalized === "backup" || normalized === "standby") return "backup";
+  if (normalized === "inactive" || normalized === "empty") return "inactive";
+  return "";
+}
+
 function isExplicitManualRoomEdit(slot?: Partial<ScheduleRoomAdjustmentSlot> | null) {
   return Boolean(slot?.manualOverride || normalizeDisplayText(slot?.source) === "manual-room-edit");
+}
+
+function isScheduleBackupStation(slot?: Partial<ScheduleRoomAdjustmentSlot> | null) {
+  return Boolean(slot?.isBackupStation || normalizeScheduleStationStatus(slot?.stationStatus) === "backup");
 }
 
 function upsertScheduleRoomAdjustmentSlot(
@@ -4140,6 +4173,8 @@ function upsertScheduleRoomAdjustmentSlot(
     merged.manualOverride ||
     asText(merged.roomName) ||
     asText(merged.source) ||
+    asText(merged.stationStatus) ||
+    Boolean(merged.isBackupStation) ||
     asText(merged.spName) ||
     asText(merged.backupSpName) ||
     asText(merged.caseLabel) ||
@@ -9155,11 +9190,21 @@ const operationalEventStatusLabel = useMemo(() => {
     () => getFirstNoteValue(eventEditor.notes || event?.notes, ["Station", "Station Label", "Station Labels"]),
     [event?.notes, eventEditor.notes]
   );
+  const backupAssignmentNameSet = useMemo(() => {
+    const names = new Set<string>();
+    backupAssignments.forEach((assignment) => {
+      const sp = assignment.sp_id ? spsById.get(assignment.sp_id) || null : null;
+      const spName = normalizeDisplayText(getFullName(sp || emptySpRow)).toLowerCase();
+      if (spName) names.add(spName);
+    });
+    return names;
+  }, [backupAssignments, spsById]);
   const selectedRoundResolvedScheduleTruth = useMemo(() => {
     if (!selectedRotationRound || !selectedResolvedRound) {
       return null as ResolvedScheduleTruthStation[] | null;
     }
 
+    const roundAdjustments = activeScheduleRoomAdjustments.get(activeSelectedRotationRoundGlobalIndex + 1) || [];
     const roomSlots = Array.isArray(selectedResolvedRound.roomSlots) ? selectedResolvedRound.roomSlots : [];
     const roundKey = asText(selectedRotationRound.key);
     const roundNumber = Number.isFinite(selectedResolvedRound.round) ? selectedResolvedRound.round : activeSelectedRotationRoundIndex + 1;
@@ -9167,6 +9212,8 @@ const operationalEventStatusLabel = useMemo(() => {
     const end = asText(selectedResolvedRound.endTime) || asText(selectedRotationRound.end_time);
 
     return roomSlots.map((slot, slotIndex) => {
+      const slotOverride =
+        roundAdjustments.find((adjustment: ScheduleRoomAdjustmentSlot) => adjustment.slotIndex === slotIndex) || null;
       const learnerLabels = normalizeLearnerNames(Array.isArray(slot?.learnerLabels) ? slot.learnerLabels : []);
       const roomName = asText(slot?.roomName) || getFallbackRoomLabel(slotIndex, roomNamingContext);
       const primarySpName = asText(slot?.assignedSpName);
@@ -9177,6 +9224,30 @@ const operationalEventStatusLabel = useMemo(() => {
       const notes = asText(slot?.notes);
       const stationLabel = asText(selectedRoundStationLabel);
       const encounterLabel = [stationLabel, caseLabel].filter(Boolean).join(" · ") || "Case pending";
+      const manualStationStatus = normalizeScheduleStationStatus(slotOverride?.stationStatus);
+      const primarySpIsBackup = Boolean(primarySpName && backupAssignmentNameSet.has(normalizeDisplayText(primarySpName).toLowerCase()));
+      const hasLearnerEncounter = learnerLabels.length > 0;
+      const hasCaseOrRole = Boolean(caseLabel || roleId || roleLabel);
+      const hasActivePrimarySp = Boolean(primarySpName && !primarySpIsBackup);
+      const explicitBackupStation = isScheduleBackupStation(slotOverride);
+      const inferredBackupStation = Boolean(
+        !hasLearnerEncounter &&
+        (
+          explicitBackupStation ||
+          primarySpIsBackup ||
+          (!hasCaseOrRole && !primarySpName && backupSpName)
+        )
+      );
+      const stationStatus: ScheduleStationStatus =
+        manualStationStatus === "inactive"
+          ? "inactive"
+          : manualStationStatus === "active"
+            ? "active"
+            : inferredBackupStation
+              ? "backup"
+              : hasLearnerEncounter || hasCaseOrRole || hasActivePrimarySp
+                ? "active"
+                : "inactive";
 
       return {
         key: `${selectedRotationRound.key}-resolved-station-${slotIndex}`,
@@ -9196,21 +9267,32 @@ const operationalEventStatusLabel = useMemo(() => {
         notes,
         stationLabel,
         encounterLabel,
-        isActiveStation:
-          learnerLabels.length > 0 ||
-          Boolean(primarySpName) ||
-          Boolean(backupSpName) ||
-          Boolean(caseLabel) ||
-          Boolean(roleId || roleLabel),
+        stationStatus,
+        isActiveStation: stationStatus === "active",
+        isBackupStation: stationStatus === "backup",
       } satisfies ResolvedScheduleTruthStation;
     });
   }, [
+    activeScheduleRoomAdjustments,
+    activeSelectedRotationRoundGlobalIndex,
     activeSelectedRotationRoundIndex,
+    backupAssignmentNameSet,
     roomNamingContext,
     selectedResolvedRound,
     selectedRotationRound,
     selectedRoundStationLabel,
   ]);
+  const selectedRoundActiveScheduleTruth = useMemo(
+    () => selectedRoundResolvedScheduleTruth?.filter((station) => station.stationStatus === "active") || null,
+    [selectedRoundResolvedScheduleTruth]
+  );
+  const selectedRoundBackupScheduleTruth = useMemo(
+    () => selectedRoundResolvedScheduleTruth?.filter((station) => station.stationStatus === "backup") || null,
+    [selectedRoundResolvedScheduleTruth]
+  );
+  const selectedRoundActiveStationCount =
+    selectedRoundActiveScheduleTruth !== null ? selectedRoundActiveScheduleTruth.length : selectedRoundRoomCount;
+  const selectedRoundBackupStationCount = selectedRoundBackupScheduleTruth?.length || 0;
   const selectedRoundScheduleRows = useMemo(() => {
     if (!selectedRotationRound) {
       return [] as Array<RoundRoomRow>;
@@ -9302,6 +9384,8 @@ const operationalEventStatusLabel = useMemo(() => {
       const slotOverride = roundAdjustments.find((slot: ScheduleRoomAdjustmentSlot) => slot.slotIndex === slotIndex) || null;
       const hasExplicitManualRoomEdit = isExplicitManualRoomEdit(slotOverride);
       const persistedSlot = persistedRoomSlots[slotIndex] || null;
+      const stationTruth = selectedRoundResolvedScheduleTruth?.find((station) => station.roomSlotIndex === slotIndex) || null;
+      const isBackupStation = stationTruth?.stationStatus === "backup";
       const rawRoomName =
         asText(persistedSlot?.roomName) ||
         asText(session.room) ||
@@ -9358,8 +9442,8 @@ const operationalEventStatusLabel = useMemo(() => {
         const flags = [
           rawRoomName ? "" : "Missing room",
           assignment && !sp ? "Missing SP profile" : "",
-          staffingRelevant && !assignment ? "Missing SP" : "",
-          effectiveLearnerCount > 0 && !learnerLabels.length ? "No learner assigned" : "",
+          staffingRelevant && !assignment && !isBackupStation ? "Missing SP" : "",
+          effectiveLearnerCount > 0 && !learnerLabels.length && !isBackupStation ? "No learner assigned" : "",
         ].filter(Boolean);
 
         return {
@@ -9395,6 +9479,7 @@ const operationalEventStatusLabel = useMemo(() => {
     selectedRotationRound,
     selectedRoundRoomSlotEntries,
     selectedRoundCaseLabel,
+    selectedRoundResolvedScheduleTruth,
     selectedRoundSessions,
     selectedRoundStationLabel,
     backupAssignments,
@@ -9407,6 +9492,9 @@ const operationalEventStatusLabel = useMemo(() => {
       return selectedRoundScheduleRows.map((row) => ({
         ...row,
         primarySpName: row.sp ? getFullName(row.sp) : "",
+        stationStatus: "active" as const,
+        isActiveStation: true,
+        isBackupStation: false,
       })) as OperationsRoomCardRow[];
     }
 
@@ -9414,7 +9502,7 @@ const operationalEventStatusLabel = useMemo(() => {
     const availableAssignments = [...confirmedAssignments, ...backupAssignments];
     const scheduleRowsBySlotIndex = new Map(selectedRoundScheduleRows.map((row) => [row.slotIndex, row]));
 
-    return selectedRoundResolvedScheduleTruth.map((station) => {
+    return selectedRoundResolvedScheduleTruth.filter((station) => station.stationStatus !== "inactive").map((station) => {
       const slotOverride =
         roundAdjustments.find((slot: ScheduleRoomAdjustmentSlot) => slot.slotIndex === station.roomSlotIndex) || null;
       const existingRow = scheduleRowsBySlotIndex.get(station.roomSlotIndex) || null;
@@ -9476,7 +9564,12 @@ const operationalEventStatusLabel = useMemo(() => {
         roleLabel,
         notes: hasNotesOverride ? asText(slotOverride?.notes) : asText(station.notes),
         stationLabel: asText(station.stationLabel),
-        flags: existingRow?.flags || [],
+        stationStatus: station.stationStatus,
+        isActiveStation: station.stationStatus === "active",
+        isBackupStation: station.stationStatus === "backup",
+        flags: station.stationStatus === "backup"
+          ? (existingRow?.flags || []).filter((flag) => !["Missing SP", "No learner assigned"].includes(asText(flag)))
+          : existingRow?.flags || [],
       } satisfies OperationsRoomCardRow;
     });
   }, [
@@ -9504,7 +9597,7 @@ const operationalEventStatusLabel = useMemo(() => {
     return Math.min(roomCapacity, remaining);
   }, [activeSelectedRotationRoundGlobalIndex, effectiveLearnerCount, selectedRotationRound, selectedRoundRoomCount, selectedRoundScheduleRows]);
   const operationalRoundCount = rotationRounds.length || activeRotationCount || scheduleBuilderDraftRoundCount || 0;
-  const operationalRoomCount = selectedRoundRoomCount || effectiveRoomCount || scheduleBuilderDraftRoomCount || 0;
+  const operationalRoomCount = selectedRoundActiveStationCount || selectedRoundRoomCount || effectiveRoomCount || scheduleBuilderDraftRoomCount || 0;
   const operationalLearnerCountLabel =
     selectedRoundLearnerCount !== null
       ? String(selectedRoundLearnerCount)
@@ -9514,15 +9607,15 @@ const operationalEventStatusLabel = useMemo(() => {
   const selectedRoundEmptySlots = useMemo(() => {
     if (!selectedRotationRound) return null;
     if (selectedRoundLearnerCount === null) return null;
-    const roomSlots = selectedRoundRoomCount || 0;
+    const roomSlots = selectedRoundActiveStationCount || selectedRoundRoomCount || 0;
     if (roomSlots <= 0) return null;
     return Math.max(roomSlots - selectedRoundLearnerCount, 0);
-  }, [selectedRoundLearnerCount, selectedRotationRound, selectedRoundRoomCount]);
+  }, [selectedRoundActiveStationCount, selectedRoundLearnerCount, selectedRotationRound, selectedRoundRoomCount]);
   const learnerPlannerCapacity = useMemo(() => {
     if (effectiveRoomCount <= 0 || activeRotationCount <= 0) return 0;
     return effectiveRoomCount * Math.max(scheduleBuilderRoomCapacity, 1) * activeRotationCount;
   }, [activeRotationCount, effectiveRoomCount, scheduleBuilderRoomCapacity]);
-  const learnerFlowSelectedRoundCoverageShortage = Math.max(Math.max(selectedRoundRoomCount, needed) - confirmedAssignments.length, 0);
+  const learnerFlowSelectedRoundCoverageShortage = Math.max(Math.max(selectedRoundActiveStationCount || selectedRoundRoomCount, needed) - confirmedAssignments.length, 0);
   const learnerPlannerRosterCount = scheduleBuilderLearnerNames.length;
   const learnerPlannerExpectedCount = Math.max(effectiveLearnerCount, learnerPlannerRosterCount);
   const learnerPlannerAssignedCount =
@@ -9542,8 +9635,8 @@ const operationalEventStatusLabel = useMemo(() => {
   ].filter(Boolean);
   const selectedRoundAssignedLearnerCount = selectedRoundScheduleRows.reduce((total, row) => total + row.learnerLabels.length, 0);
   const selectedRoundExpectedLearnerCount = selectedRoundLearnerCount ?? 0;
-  const selectedRoundPrimaryCoveredCount = selectedRoundScheduleRows.filter(
-    (row) => row.assignment && getAssignmentStatus(row.assignment) === "confirmed"
+  const selectedRoundPrimaryCoveredCount = selectedRoundOperationsRows.filter(
+    (row) => row.isActiveStation && row.assignment && getAssignmentStatus(row.assignment) === "confirmed"
   ).length;
   const selectedRoundRoomNameCounts = selectedRoundScheduleRows.reduce<Map<string, number>>((map, row) => {
     const roomName = asText(row.roomName).trim().toLowerCase();
@@ -9803,7 +9896,7 @@ const operationalEventStatusLabel = useMemo(() => {
       ),
     [confirmedAssignments, roomNamingContext, selectedRoundExplicitSlotAssignments, selectedRoundPlanRoomEntries]
   );
-  const selectedRoundCoverageTarget = Math.max(selectedRoundRoomCount, needed);
+  const selectedRoundCoverageTarget = Math.max(selectedRoundActiveStationCount || selectedRoundRoomCount, needed);
   const selectedRoundCoverageShortage = Math.max(selectedRoundCoverageTarget - confirmedAssignments.length, 0);
   const selectedRoundTacticalBoardRows = useMemo(
     () => {
@@ -9913,8 +10006,10 @@ const operationalEventStatusLabel = useMemo(() => {
     ]
   );
   const selectedRoundMappedRoomCount = useMemo(
-    () =>
-      selectedRoundTacticalBoardRows.filter((row) => {
+    () => {
+      const backupSlotIndexes = new Set((selectedRoundBackupScheduleTruth || []).map((station) => station.roomSlotIndex));
+      return selectedRoundTacticalBoardRows.filter((row) => {
+        if (backupSlotIndexes.has(row.slotIndex)) return false;
         const rowTimingExists = Boolean(
           asText(selectedRotationRound?.start_time) ||
             asText(selectedRotationRound?.end_time)
@@ -9923,16 +10018,19 @@ const operationalEventStatusLabel = useMemo(() => {
         const rowHasRoomNumber = getRoomDisplayNumber(row.roomName) !== null || Boolean(row.roomName);
         const rowHasSp = Boolean(row.assignment);
         return rowHasRoomNumber && (rowHasSp || rowHasLearners || rowTimingExists) && row.mappingState !== "Needs room mapping";
-      }).length,
-    [selectedRoundTacticalBoardRows, selectedRotationRound]
+      }).length;
+    },
+    [selectedRoundTacticalBoardRows, selectedRotationRound, selectedRoundBackupScheduleTruth]
   );
-  const selectedRoundRoomMappingGap = Math.max(selectedRoundRoomCount - selectedRoundMappedRoomCount, 0);
-  const selectedRoundRoomsMapped = Math.max(selectedRoundRoomCount - selectedRoundRoomMappingGap, 0);
+  const selectedRoundRoomMappingGap = Math.max((selectedRoundActiveStationCount || selectedRoundRoomCount) - selectedRoundMappedRoomCount, 0);
+  const selectedRoundRoomsMapped = Math.max((selectedRoundActiveStationCount || selectedRoundRoomCount) - selectedRoundRoomMappingGap, 0);
   const selectedRoundOperationsFlags = useMemo(() => {
     const flags = new Set<string>();
+    const backupSlotIndexes = new Set((selectedRoundBackupScheduleTruth || []).map((station) => station.roomSlotIndex));
 
     if (!selectedRoundScheduleRows.length) flags.add("No room schedule");
     selectedRoundTacticalBoardRows.forEach((row) => {
+      if (backupSlotIndexes.has(row.slotIndex)) return;
       row.flags.forEach((flag) => {
         const normalizedFlag = asText(flag);
         if (!normalizedFlag) return;
@@ -9955,6 +10053,7 @@ const operationalEventStatusLabel = useMemo(() => {
     selectedRoundRoomMappingGap,
     selectedRoundScheduleRows,
     selectedRoundTacticalBoardRows,
+    selectedRoundBackupScheduleTruth,
   ]);
   const selectedRoundAnnouncementTimeline = useMemo(() => {
     if (!selectedRotationRound) {
@@ -10303,6 +10402,11 @@ const operationalEventStatusLabel = useMemo(() => {
         ? "yellow"
         : "red";
   const activeCoverageRiskRooms = useMemo(() => {
+    if (selectedRoundActiveScheduleTruth?.length) {
+      return selectedRoundActiveScheduleTruth.flatMap((station, index) =>
+        station.primarySpName ? [] : [station.roomName || `Room ${index + 1}`]
+      );
+    }
     if (!currentLiveRoomDisplayEntries.length) return [] as string[];
     return currentLiveRoomDisplayEntries.flatMap(({ roomName, sourceIndex }, index) => {
       const assignment = sourceIndex >= 0 ? sortedAssignments[sourceIndex] : null;
@@ -10311,7 +10415,7 @@ const operationalEventStatusLabel = useMemo(() => {
         ? [roomName || `Room ${index + 1}`]
         : [];
     });
-  }, [currentLiveRoomDisplayEntries, sortedAssignments]);
+  }, [currentLiveRoomDisplayEntries, selectedRoundActiveScheduleTruth, sortedAssignments]);
   const liveAlerts = useMemo(() => {
     const alerts: Array<{ tone: "info" | "warning" | "danger"; message: string }> = [];
     if (nextLiveBlock) {
@@ -10616,7 +10720,7 @@ const operationalEventStatusLabel = useMemo(() => {
       return null as EventAttendanceCanonicalRoom[] | null;
     }
 
-    return selectedRoundResolvedScheduleTruth.map((station, fallbackIndex) => {
+    return selectedRoundResolvedScheduleTruth.filter((station) => station.stationStatus !== "inactive").map((station, fallbackIndex) => {
       const assignment = station.primarySpName
         ? findAssignmentBySpDisplayName(sortedAssignments, spsById, station.primarySpName)
         : null;
@@ -10630,6 +10734,9 @@ const operationalEventStatusLabel = useMemo(() => {
         spName: asText(station.primarySpName),
         encounterLabel: asText(station.encounterLabel) || "Case pending",
         fallbackIndex,
+        stationStatus: station.stationStatus,
+        isActiveStation: station.stationStatus === "active",
+        isBackupStation: station.stationStatus === "backup",
       } satisfies EventAttendanceCanonicalRoom;
     });
   }, [selectedRoundResolvedScheduleTruth, sortedAssignments, spsById]);
@@ -10772,6 +10879,9 @@ const operationalEventStatusLabel = useMemo(() => {
             spName: row.sp ? getFullName(row.sp) : "",
             encounterLabel: [row.stationLabel, row.caseLabel].filter(Boolean).join(" · ") || "Case pending",
             fallbackIndex,
+            stationStatus: "active" as const,
+            isActiveStation: true,
+            isBackupStation: false,
           }))
         : selectedRoundOccupancyRoomLearners.map((room) => ({
             ...room,
@@ -10779,6 +10889,9 @@ const operationalEventStatusLabel = useMemo(() => {
             sp: null,
             spName: "",
             encounterLabel: "Case pending",
+            stationStatus: "active" as const,
+            isActiveStation: true,
+            isBackupStation: false,
           }));
 
     return canonicalRooms.map((room, roomIndex) => {
@@ -10820,6 +10933,9 @@ const operationalEventStatusLabel = useMemo(() => {
         sp: room.sp || matchedRoom?.sp || null,
         spName: room.spName || matchedRoom?.spName || "",
         learnerLabels,
+        stationStatus: room.stationStatus,
+        isActiveStation: room.stationStatus === "active",
+        isBackupStation: room.stationStatus === "backup",
       };
     });
   }, [
@@ -10971,12 +11087,12 @@ const operationalEventStatusLabel = useMemo(() => {
   const eventAttendanceSpArrivedCount = eventAttendanceSpTokens.filter((token) =>
     ["arrived", "in_room", "completed"].includes(asText(token.status))
   ).length;
-  const eventAttendanceRoomActiveCount = eventAttendanceRoomCards.filter(
-    (room) => Boolean(room.assignment || room.spName || room.learnerLabels.length)
-  ).length;
-  const eventAttendanceHallSplitIndex = Math.ceil(eventAttendanceRoomCards.length / 2);
-  const eventAttendanceNorthRooms = eventAttendanceRoomCards.slice(0, eventAttendanceHallSplitIndex);
-  const eventAttendanceSouthRooms = eventAttendanceRoomCards.slice(eventAttendanceHallSplitIndex);
+  const eventAttendanceActiveRoomCards = eventAttendanceRoomCards.filter((room) => room.stationStatus === "active");
+  const eventAttendanceBackupRoomCards = eventAttendanceRoomCards.filter((room) => room.stationStatus === "backup");
+  const eventAttendanceRoomActiveCount = eventAttendanceActiveRoomCards.length;
+  const eventAttendanceHallSplitIndex = Math.ceil(eventAttendanceActiveRoomCards.length / 2);
+  const eventAttendanceNorthRooms = eventAttendanceActiveRoomCards.slice(0, eventAttendanceHallSplitIndex);
+  const eventAttendanceSouthRooms = eventAttendanceActiveRoomCards.slice(eventAttendanceHallSplitIndex);
   const eventAttendanceLearnerExpectedCount = eventAttendanceLearnerPresenceTokens.length;
   const eventAttendanceLearnerArrivedCount = eventAttendanceLearnerPresenceTokens.filter((token) =>
     ["arrived", "in_room", "completed"].includes(token.status)
@@ -11947,7 +12063,7 @@ Cory`;
     { label: "Sim Staff", value: simStaffNames.length ? simStaffNames.join(", ") : trainingSimContact || "Not set" },
     { label: "Course Faculty", value: trainingFacultyText || "Not set" },
     { label: "Student Count", value: effectiveLearnerCount > 0 ? String(effectiveLearnerCount) : "Not set" },
-    { label: "Rooms", value: operationalRoomCount > 0 ? String(operationalRoomCount) : "Not set" },
+    { label: "Active Stations", value: operationalRoomCount > 0 ? String(operationalRoomCount) : "Not set" },
     {
       label: "Rotations Needed",
       value: scheduleBuilderAutoRoundCount > 0
@@ -12337,7 +12453,7 @@ Cory`;
   );
   const commandCenterScoreboardMetrics = [
     { label: "Learners", value: commandCenterHudLearnerValue, detail: commandCenterHudLearnerDetail },
-    { label: "Rooms", value: operationalRoomCount > 0 ? String(operationalRoomCount) : "TBD", detail: hasRoomsBuilt ? "Room surface ready" : "Room plan pending" },
+    { label: "Active Stations", value: operationalRoomCount > 0 ? String(operationalRoomCount) : "TBD", detail: hasRoomsBuilt ? "Room surface ready" : "Room plan pending" },
     { label: "Rounds", value: commandCenterHudRoundCount > 0 ? String(commandCenterHudRoundCount) : "TBD", detail: scheduleRoundCountResolution.label },
     { label: "Coverage", value: needed > 0 ? `${confirmedCount}/${needed}` : `${confirmedCount}`, detail: needed > 0 ? "Primary confirmed SPs" : "Confirmed SPs" },
     { label: "Readiness", value: operationalReadinessItems.primary, detail: eventRiskLevel.detail },
@@ -22463,7 +22579,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
             >
               {[
                 { label: "Learners", value: operationalLearnerCountLabel },
-                { label: "Rooms", value: operationalRoomCount || "TBD" },
+                { label: "Active Stations", value: operationalRoomCount || "TBD" },
                 { label: "Rounds", value: operationalRoundCount },
                 { label: "Coverage", value: needed > 0 ? `${confirmedCount}/${needed}` : `${confirmedCount}` },
                 { label: "Readiness", value: operationalReadinessItems.primary },
@@ -22643,7 +22759,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
             >
               {[
                 { label: "Learners", value: operationalLearnerCountLabel },
-                { label: "Rooms", value: operationalRoomCount || "TBD" },
+                { label: "Active Stations", value: operationalRoomCount || "TBD" },
                 { label: "Rounds", value: operationalRoundCount },
                 { label: "Coverage", value: needed > 0 ? `${confirmedCount}/${needed}` : `${confirmedCount}` },
                 { label: "Readiness", value: operationalReadinessItems.primary },
@@ -22801,7 +22917,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     >
                       {[
                         { label: "Learners", value: operationalLearnerCountLabel, detail: effectiveLearnerCount > 0 ? `Roster: ${effectiveLearnerCount}` : "Current roster source" },
-                        { label: "Rooms", value: operationalRoomCount || "TBD", detail: "Selected schedule round" },
+                        { label: "Active Stations", value: operationalRoomCount || "TBD", detail: selectedRoundBackupStationCount ? `${selectedRoundBackupStationCount} backup / standby` : "Selected schedule round" },
                           { label: "Rounds", value: operationalRoundCount, detail: scheduleRoundCountResolution.label },
                         {
                           label: "Coverage",
@@ -23190,7 +23306,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       ),
                     },
                     { label: "Unassigned", value: String(learnerPlannerUnassignedCount || 0) },
-                    { label: "Rooms/Rounds", value: `${operationalRoomCount || 0} rooms • ${operationalRoundCount || 0} rounds` },
+                    { label: "Stations/Rounds", value: `${operationalRoomCount || 0} active • ${operationalRoundCount || 0} rounds` },
                   ].map((metric) => (
                     <div
                       key={`learner-flow-${metric.label}`}
@@ -23356,7 +23472,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 	                        {[
 	                          { label: "Event time", value: summaryTimeLabel || "Time TBD", detail: eventDateMarkerValue || "Date TBD" },
 	                          { label: "Rounds", value: String(operationalRoundCount || 0), detail: planningLivePreviewNextBlock ? `Next: ${planningLivePreviewNextBlock.label}` : "No next block" },
-	                          { label: "Rooms", value: String(operationalRoomCount || 0), detail: hasRoomsBuilt ? "Room surface ready" : "Room plan pending" },
+	                          { label: "Active Stations", value: String(operationalRoomCount || 0), detail: hasRoomsBuilt ? "Room surface ready" : "Room plan pending" },
 	                          { label: "Learners", value: String(selectedRoundAssignedLearnerCount || effectiveLearnerCount || learnerPlannerRosterCount || 0), detail: effectiveLearnerCount > 0 ? `Roster: ${effectiveLearnerCount}` : learnerAssignmentsIncomplete ? "Assignment review needed" : "Learner flow ready" },
 	                          { label: "SP coverage", value: needed > 0 ? `${confirmedCount}/${needed}` : `${confirmedCount}`, detail: shortageCount > 0 ? "Staffing gap" : "Coverage stable" },
 	                          { label: "Materials", value: materialsStatusLabel, detail: eventMaterialName || (hasUploadedEventMaterial ? "Packet loaded" : "No event packet uploaded") },
@@ -25186,7 +25302,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "8px" }}>
                           {[
                             { label: "Rounds", value: operationalRoundCount || 0 },
-                            { label: "Rooms", value: operationalRoomCount || 0 },
+                            { label: "Active Stations", value: operationalRoomCount || 0 },
                             { label: "Learners", value: selectedRoundAssignedLearnerCount || effectiveLearnerCount || learnerPlannerRosterCount || 0 },
                             { label: "Next block", value: planningLivePreviewPrimaryBlock?.label || "No block" },
                           ].map((item) => (
@@ -25238,7 +25354,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                               selectedRotationRound?.start_time || selectedRotationRound?.end_time
                                 ? `${formatDisplayTime(selectedRotationRound?.start_time || "") || "Start TBD"} - ${formatDisplayTime(selectedRotationRound?.end_time || "") || "End TBD"}`
                                 : "Time TBD",
-                              `${selectedRoundRoomCount} room${selectedRoundRoomCount === 1 ? "" : "s"}`,
+                              `${selectedRoundRoomCount} configured room${selectedRoundRoomCount === 1 ? "" : "s"}`,
                               `${selectedRoundAssignedLearnerCount} learner${selectedRoundAssignedLearnerCount === 1 ? "" : "s"}`,
                               `${selectedRoundPrimaryCoveredCount} primary SP covered`,
                             ].map((chip) => (
@@ -25324,7 +25440,10 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             selectedRotationRound.start_time && selectedRotationRound.end_time
                               ? `${formatDisplayTime(selectedRotationRound.start_time)} - ${formatDisplayTime(selectedRotationRound.end_time)}`
                               : formatDisplayTime(selectedRotationRound.start_time || selectedRotationRound.end_time) || "Time TBD",
-                            `${selectedRoundRoomCount} room${selectedRoundRoomCount === 1 ? "" : "s"}`,
+                            `${selectedRoundActiveStationCount || selectedRoundRoomCount} active station${(selectedRoundActiveStationCount || selectedRoundRoomCount) === 1 ? "" : "s"}`,
+                            selectedRoundBackupStationCount
+                              ? `${selectedRoundBackupStationCount} standby`
+                              : null,
                             roundCompanionView !== "sp" && selectedRoundLearnerCount !== null
                               ? `${selectedRoundLearnerCount} learner${selectedRoundLearnerCount === 1 ? "" : "s"}`
                               : null,
@@ -25442,21 +25561,21 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           >
                             {[
                               {
-                                label: "Rooms",
-                                value: `${selectedRoundRoomCount}`,
-                                detail: "encounter slots",
+                                label: "Active Stations",
+                                value: `${selectedRoundActiveStationCount || selectedRoundRoomCount}`,
+                                detail: selectedRoundBackupStationCount ? `${selectedRoundBackupStationCount} backup / standby` : "encounter slots",
                               },
                               {
                                 label: "Event coverage",
                                 value: staffingRelevant
-                                  ? `${confirmedAssignments.length}/${selectedRoundRoomCount} confirmed`
+                                  ? `${confirmedAssignments.length}/${selectedRoundActiveStationCount || selectedRoundRoomCount} confirmed`
                                   : "No SP workflow",
                                 detail: staffingRelevant ? "current round staffing" : "not required",
                               },
                               {
                                 label: "Room mapping",
                                 value: staffingRelevant
-                                  ? `${selectedRoundRoomsMapped}/${selectedRoundRoomCount} rooms`
+                                  ? `${selectedRoundRoomsMapped}/${selectedRoundActiveStationCount || selectedRoundRoomCount} active`
                                   : "No SP workflow",
                                 detail: staffingRelevant ? "confirmed pool alignment" : "not required",
                               },
@@ -25755,7 +25874,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       <div style={{ display: "flex", gap: "7px", flexWrap: "wrap" }}>
         {[
           { label: "Learners", value: operationalLearnerCountLabel },
-          { label: "Rooms", value: operationalRoomCount > 0 ? String(operationalRoomCount) : "TBD" },
+          { label: "Active Stations", value: operationalRoomCount > 0 ? String(operationalRoomCount) : "TBD" },
           { label: "Coverage", value: needed > 0 ? `${confirmedCount}/${needed}` : `${confirmedCount}` },
           { label: "Support Alerts", value: String(selectedRoundOperationsFlags.length) },
         ].map((item) => (
@@ -26019,7 +26138,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
             {selectedRotationRound ? `Round ${activeSelectedRotationRoundIndex + 1}` : "Round TBD"}
           </span>
           <span style={{ ...commandChipStyle, background: "rgba(209, 250, 229, 0.6)", color: "#065f46", border: "1px solid rgba(25, 138, 112, 0.24)" }}>
-            {eventAttendanceRoomCards.length} rooms
+            {eventAttendanceRoomActiveCount} active{eventAttendanceBackupRoomCards.length ? ` · ${eventAttendanceBackupRoomCards.length} standby` : ""}
           </span>
         </div>
       </div>
@@ -26030,7 +26149,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           { label: "Learners arrived", value: `${eventAttendanceLearnerArrivedCount}/${eventAttendanceLearnerExpectedCount}`, tone: "ready" },
           { label: "Missing", value: String(eventAttendanceMissingCount), tone: eventAttendanceMissingCount ? "alert" : "quiet" },
           { label: "Late", value: String(eventAttendanceLateCount), tone: eventAttendanceLateCount ? "warning" : "quiet" },
-          { label: "Rooms active", value: `${eventAttendanceRoomActiveCount}/${eventAttendanceRoomCards.length}`, tone: "active" },
+          { label: "Active stations", value: String(eventAttendanceRoomActiveCount), tone: "active" },
         ].map((metric) => (
           <div
             key={`event-attendance-metric-${metric.label}`}
@@ -26145,7 +26264,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           </div>
         </div>
         <span style={{ ...commandChipStyle, background: "rgba(209, 250, 229, 0.6)", color: "#065f46", border: "1px solid rgba(25, 138, 112, 0.24)" }}>
-          {eventAttendanceRoomCards.length} rooms visible
+          {eventAttendanceRoomActiveCount} active station{eventAttendanceRoomActiveCount === 1 ? "" : "s"}
+          {eventAttendanceBackupRoomCards.length ? ` · ${eventAttendanceBackupRoomCards.length} standby` : ""}
         </span>
       </div>
       {eventAttendanceRoomCards.length ? (
@@ -26175,6 +26295,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
             {[
               { key: "north", label: "North Hallway", rooms: eventAttendanceNorthRooms },
               { key: "south", label: "South Hallway", rooms: eventAttendanceSouthRooms },
+              { key: "backup", label: "Backup / Standby Rooms", rooms: eventAttendanceBackupRoomCards, isBackup: true },
             ]
               .filter((wall) => wall.rooms.length)
               .map((wall, wallIndex) => (
@@ -26205,10 +26326,14 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           key={`event-attendance-room-${room.key}`}
                           style={{
                             borderRadius: "12px",
-                            border: room.isCurrentRotationRoom
+                            border: room.isBackupStation
+                              ? "1px solid rgba(168, 85, 247, 0.28)"
+                              : room.isCurrentRotationRoom
                               ? "1px solid rgba(20, 91, 150, 0.36)"
                               : "1px solid rgba(99, 181, 217, 0.2)",
-                            background: room.isCurrentRotationRoom
+                            background: room.isBackupStation
+                              ? "linear-gradient(135deg, rgba(250, 245, 255, 0.96), rgba(254, 243, 199, 0.82))"
+                              : room.isCurrentRotationRoom
                               ? "linear-gradient(135deg, rgba(219, 234, 254, 0.94), rgba(209, 250, 229, 0.86))"
                               : "linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(240, 249, 255, 0.86))",
                             padding: "8px",
@@ -26225,13 +26350,15 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             <span
                               style={{
                                 ...commandChipStyle,
-                                background: room.isCurrentRotationRoom ? "rgba(191, 219, 254, 0.72)" : "rgba(236, 253, 245, 0.82)",
-                                color: room.isCurrentRotationRoom ? "#1e3a8a" : "#065f46",
+                                background: room.isBackupStation
+                                  ? "rgba(253, 230, 138, 0.78)"
+                                  : room.isCurrentRotationRoom ? "rgba(191, 219, 254, 0.72)" : "rgba(236, 253, 245, 0.82)",
+                                color: room.isBackupStation ? "#7c2d12" : room.isCurrentRotationRoom ? "#1e3a8a" : "#065f46",
                                 fontSize: "9px",
                                 padding: "3px 7px",
                               }}
                             >
-                              {room.isCurrentRotationRoom ? "Active" : room.statusLabel || "Standby"}
+                              {room.isBackupStation ? "Backup / Standby" : room.isCurrentRotationRoom ? "Active" : room.statusLabel || "Standby"}
                             </span>
                           </div>
                           <div style={{ display: "flex", gap: "7px", alignItems: "center", flexWrap: "wrap" }}>
@@ -26347,12 +26474,16 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 </button>
                               );
                             }) : (
-                              <span style={{ color: "#5b7a91", fontSize: "11px", fontWeight: 800 }}>No learner assigned</span>
+                              <span style={{ color: "#5b7a91", fontSize: "11px", fontWeight: 800 }}>
+                                {room.isBackupStation ? "Standby coverage" : "No learner assigned"}
+                              </span>
                             )}
                           </div>
                           <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", alignItems: "center" }}>
                             <span style={{ color: "#5b7a91", fontSize: "10px", fontWeight: 800 }}>
-                              {learnerTokens.length} learner{learnerTokens.length === 1 ? "" : "s"} in room
+                              {room.isBackupStation
+                                ? "Backup / standby room"
+                                : `${learnerTokens.length} learner${learnerTokens.length === 1 ? "" : "s"} in room`}
                             </span>
                             <span style={{ color: "#3b82f6", fontSize: "9px", fontWeight: 800, letterSpacing: "0.06em" }}>
                               ROOM POD
@@ -26893,7 +27024,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                     </div>
                                     <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
                                       <span style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText }}>
-                                        {selectedRoundRoomCount} rooms
+                                        {selectedRoundActiveStationCount} active station{selectedRoundActiveStationCount === 1 ? "" : "s"}
+                                        {selectedRoundBackupStationCount ? ` · ${selectedRoundBackupStationCount} standby` : ""}
                                       </span>
                                       {selectedRoundLearnerCount !== null ? (
                                         <span style={{ ...commandChipStyle, background: commandCenterVisual.activeSoftBackground, color: commandCenterVisual.activeSoftText }}>
@@ -26923,7 +27055,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                     <div>
                                       <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Backup + Room Controls</div>
                                       <div style={{ marginTop: "3px", color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 800 }}>
-                                        {confirmedAssignments.length} primary SPs · {backupAssignments.length} backup SPs · {selectedRoundRoomCount} rooms
+                                        {confirmedAssignments.length} primary SPs · {backupAssignments.length} backup SPs · {selectedRoundActiveStationCount} active station{selectedRoundActiveStationCount === 1 ? "" : "s"}
                                       </div>
                                     </div>
                                     <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
@@ -27061,7 +27193,17 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                               onChange={(event) => {
                                                 const slotIndex = Number(event.target.value);
                                                 if (!Number.isFinite(slotIndex)) return;
-                                                void handleRoundRoomAdjustment(slotIndex, { backupSpName: spName });
+                                                const targetRow = selectedRoundOperationsRows.find((row) => row.slotIndex === slotIndex);
+                                                const targetIsEmpty =
+                                                  targetRow &&
+                                                  !targetRow.learnerLabels.length &&
+                                                  !getOperationsRoomPrimarySpName(targetRow) &&
+                                                  !targetRow.caseLabel &&
+                                                  !targetRow.roleLabel;
+                                                void handleRoundRoomAdjustment(slotIndex, {
+                                                  backupSpName: spName,
+                                                  ...(targetIsEmpty ? { stationStatus: "backup" as const, isBackupStation: true } : {}),
+                                                });
                                                 event.currentTarget.value = "";
                                               }}
                                               disabled={saving || !selectedRoundOperationsRows.length}
@@ -27084,8 +27226,16 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 </section>
                                 <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                                   {selectedRoundOperationsRows.length ? selectedRoundOperationsRows.map((row) => (
-                                    <span key={`${row.key}-room-chip`} style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText, border: commandCenterVisual.rowBorder }}>
-                                      {row.roomName}
+                                    <span
+                                      key={`${row.key}-room-chip`}
+                                      style={{
+                                        ...commandChipStyle,
+                                        background: row.isBackupStation ? "rgba(253, 230, 138, 0.68)" : commandCenterVisual.chipBackground,
+                                        color: row.isBackupStation ? "#7c2d12" : commandCenterVisual.chipText,
+                                        border: row.isBackupStation ? "1px solid rgba(217, 119, 6, 0.24)" : commandCenterVisual.rowBorder,
+                                      }}
+                                    >
+                                      {row.roomName}{row.isBackupStation ? " · standby" : ""}
                                     </span>
                                   )) : (
                                     <span style={{ ...commandChipStyle, background: isPlanningVisualMode ? "rgba(226, 236, 244, 0.92)" : "rgba(226, 232, 240, 0.16)", color: commandCenterVisual.mutedColor, border: commandCenterVisual.rowBorder }}>
@@ -27125,7 +27275,19 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                       : "";
 
                                   return (
-                                  <div key={`${row.key}-ops`} style={{ borderRadius: "12px", border: commandCenterVisual.rowBorder, background: commandCenterVisual.rowBackground, padding: "8px 10px", display: "grid", gap: "6px" }}>
+                                  <div
+                                    key={`${row.key}-ops`}
+                                    style={{
+                                      borderRadius: "12px",
+                                      border: row.isBackupStation ? "1px solid rgba(217, 119, 6, 0.26)" : commandCenterVisual.rowBorder,
+                                      background: row.isBackupStation
+                                        ? (isPlanningVisualMode ? "linear-gradient(135deg, rgba(255, 251, 235, 0.94), rgba(250, 245, 255, 0.82))" : "rgba(120, 53, 15, 0.18)")
+                                        : commandCenterVisual.rowBackground,
+                                      padding: "8px 10px",
+                                      display: "grid",
+                                      gap: "6px",
+                                    }}
+                                  >
                                     <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
                                       <div>
                                         <div style={{ color: commandCenterVisual.textColor, fontWeight: 900 }}>{row.roomName || `Room ${index + 1}`}</div>
@@ -27134,6 +27296,16 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                         </div>
                                       </div>
                                       <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                                        <span
+                                          style={{
+                                            ...commandChipStyle,
+                                            background: row.isBackupStation ? "rgba(253, 230, 138, 0.76)" : commandCenterVisual.activeSoftBackground,
+                                            color: row.isBackupStation ? "#7c2d12" : commandCenterVisual.activeSoftText,
+                                            border: row.isBackupStation ? "1px solid rgba(217, 119, 6, 0.24)" : commandCenterVisual.rowBorder,
+                                          }}
+                                        >
+                                          {row.isBackupStation ? "Backup / Standby" : "Active Station"}
+                                        </span>
                                         {row.assignment ? (
                                           <span style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText, border: commandCenterVisual.rowBorder }}>
                                             {assignmentStatusLabels[getAssignmentStatus(row.assignment)]}
@@ -27161,15 +27333,15 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                               </span>
                                             ))
                                           ) : (
-                                            "Learner TBD"
+                                            row.isBackupStation ? "Standby coverage" : "Learner TBD"
                                           )}
                                         </div>
                                       </div>
                                       <div>
                                         <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>SP</div>
                                         <div style={{ color: commandCenterVisual.textColor, fontWeight: 800, fontSize: "13px", display: "inline-flex", alignItems: "center", gap: "6px" }}>
-                                          <RoundOperationAvatar name={getOperationsRoomPrimarySpName(row) || "SP TBD"} role="sp" />
-                                          {getOperationsRoomPrimarySpName(row) || "SP TBD"}
+                                          <RoundOperationAvatar name={getOperationsRoomPrimarySpName(row) || row.backupSpName || "SP TBD"} role="sp" />
+                                          {getOperationsRoomPrimarySpName(row) || row.backupSpName || "SP TBD"}
                                         </div>
                                         {row.backupSpName ? (
                                           <div style={{ marginTop: "6px", color: commandCenterVisual.textColor, fontSize: "11px", fontWeight: 900, display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
@@ -27229,6 +27401,17 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                                 Download Case
                                               </a>
                                             ) : null}
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                setSelectedCommandTool("fileCabinet");
+                                                setCommandFileCabinetExpanded(true);
+                                                queueCommandContentScroll();
+                                              }}
+                                              style={{ ...staffingSecondaryButtonStyle, padding: "5px 8px", fontSize: "10px" }}
+                                            >
+                                              Open File Cabinet
+                                            </button>
                                           </>
                                         ) : (
                                           <button
@@ -27254,6 +27437,25 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                         paddingTop: "8px",
                                       }}
                                     >
+                                      <label style={{ display: "grid", gap: "4px" }}>
+                                        <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Station status</span>
+                                        <select
+                                          value={row.stationStatus}
+                                          onChange={(event) => {
+                                            const nextStatus = normalizeScheduleStationStatus(event.target.value) || "active";
+                                            void handleRoundRoomAdjustment(row.slotIndex, {
+                                              stationStatus: nextStatus,
+                                              isBackupStation: nextStatus === "backup",
+                                            });
+                                          }}
+                                          disabled={saving}
+                                          style={{ ...selectStyle, width: "100%", maxWidth: "none", fontSize: "11px", padding: "6px 7px" }}
+                                        >
+                                          <option value="active">Active station</option>
+                                          <option value="backup">Backup / standby</option>
+                                          <option value="inactive">Inactive / empty</option>
+                                        </select>
+                                      </label>
                                       <label style={{ display: "grid", gap: "4px" }}>
                                         <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Room name</span>
                                         <input
@@ -27446,7 +27648,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                         >
                                           <option value="">Move to room...</option>
                                           {selectedRoundOperationsRows
-                                            .filter((candidate) => candidate.slotIndex !== row.slotIndex)
+                                            .filter((candidate) => candidate.slotIndex !== row.slotIndex && candidate.stationStatus === "active")
                                             .map((candidate) => (
                                               <option key={`${row.key}-move-${candidate.slotIndex}`} value={candidate.slotIndex}>
                                                 {candidate.roomName}
@@ -27781,7 +27983,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                   ready: uploadedCaseFileCount > 0,
                                   actions: (
                                     <>
-                                      {caseFileEntries.slice(0, 3).map((caseEntry, caseIndex) => {
+                                      {caseFileEntries.length ? caseFileEntries.map((caseEntry, caseIndex) => {
+                                        const hasCaseFile = Boolean(caseEntry.url || caseEntry.storagePath);
                                         const assetUrls = buildTrainingMaterialAssetUrls({
                                           eventId: id,
                                           rawUrl: caseEntry.url,
@@ -27789,25 +27992,137 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                           fileName: caseEntry.name || `case-${caseIndex + 1}`,
                                         });
                                         return (
-                                          <div key={`central-case-file-${caseEntry.id}-${caseIndex}`} style={{ display: "flex", gap: "5px", flexWrap: "wrap", alignItems: "center" }}>
-                                            <span style={{ color: commandCenterVisual.textColor, fontSize: "11px", fontWeight: 850 }}>{caseEntry.name || `Case ${caseIndex + 1}`}</span>
-                                            <button type="button" onClick={() => openCaseFilePreview(caseEntry)} disabled={!caseEntry.url && !caseEntry.storagePath} style={{ ...staffingSecondaryButtonStyle, padding: "4px 7px", fontSize: "10px", opacity: caseEntry.url || caseEntry.storagePath ? 1 : 0.55 }}>
-                                              Preview
-                                            </button>
-                                            {caseEntry.url || caseEntry.storagePath ? (
-                                              <a href={assetUrls.downloadUrl} target="_blank" rel="noreferrer" download={assetUrls.fileName} style={{ ...staffingSecondaryButtonStyle, padding: "4px 7px", fontSize: "10px", textDecoration: "none" }}>
-                                                Download
-                                              </a>
-                                            ) : null}
-                                            <button type="button" onClick={() => openCaseFilePicker({ mode: "replace", index: caseIndex })} disabled={trainingMaterialSaving.case_file} style={{ ...staffingSecondaryButtonStyle, padding: "4px 7px", fontSize: "10px", opacity: trainingMaterialSaving.case_file ? 0.65 : 1 }}>
-                                              Replace
-                                            </button>
-                                            <button type="button" onClick={() => void handleRemoveCaseFile(caseIndex)} disabled={trainingMaterialSaving.case_file || (!caseEntry.url && !caseEntry.storagePath)} style={{ ...dangerButtonStyle, padding: "4px 7px", fontSize: "10px", opacity: trainingMaterialSaving.case_file || (!caseEntry.url && !caseEntry.storagePath) ? 0.55 : 1 }}>
-                                              Remove
-                                            </button>
+                                          <div
+                                            key={`central-case-file-${caseEntry.id}-${caseIndex}`}
+                                            style={{
+                                              borderRadius: "10px",
+                                              border: commandCenterVisual.rowBorder,
+                                              background: isPlanningVisualMode ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.05)",
+                                              padding: "8px",
+                                              display: "grid",
+                                              gap: "7px",
+                                              width: "100%",
+                                            }}
+                                          >
+                                            <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                                              <div style={{ minWidth: 0 }}>
+                                                <div style={{ color: commandCenterVisual.textColor, fontSize: "11px", fontWeight: 900, overflowWrap: "break-word" }}>
+                                                  {caseEntry.name || `Case ${caseIndex + 1}`}
+                                                </div>
+                                                <div style={{ marginTop: "2px", color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 750 }}>
+                                                  {hasCaseFile ? assetUrls.fileName : "No case file uploaded"}
+                                                </div>
+                                              </div>
+                                              <div style={{ display: "flex", gap: "5px", flexWrap: "wrap", alignItems: "center" }}>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => openCaseFilePreview(caseEntry)}
+                                                  disabled={!hasCaseFile}
+                                                  style={{ ...staffingSecondaryButtonStyle, padding: "4px 7px", fontSize: "10px", opacity: hasCaseFile ? 1 : 0.55 }}
+                                                >
+                                                  Preview
+                                                </button>
+                                                {hasCaseFile ? (
+                                                  <a
+                                                    href={assetUrls.downloadUrl}
+                                                    target="_blank"
+                                                    rel="noreferrer"
+                                                    download={assetUrls.fileName}
+                                                    style={{ ...staffingSecondaryButtonStyle, padding: "4px 7px", fontSize: "10px", textDecoration: "none" }}
+                                                  >
+                                                    Download
+                                                  </a>
+                                                ) : null}
+                                                <button
+                                                  type="button"
+                                                  onClick={() => openCaseFilePicker({ mode: "replace", index: caseIndex })}
+                                                  disabled={trainingMaterialSaving.case_file}
+                                                  style={{ ...staffingSecondaryButtonStyle, padding: "4px 7px", fontSize: "10px", opacity: trainingMaterialSaving.case_file ? 0.65 : 1 }}
+                                                >
+                                                  {hasCaseFile ? "Replace" : "Upload / Replace"}
+                                                </button>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => void handleRemoveCaseFile(caseIndex)}
+                                                  disabled={trainingMaterialSaving.case_file}
+                                                  style={{ ...dangerButtonStyle, padding: "4px 7px", fontSize: "10px", opacity: trainingMaterialSaving.case_file ? 0.55 : 1 }}
+                                                >
+                                                  Remove
+                                                </button>
+                                              </div>
+                                            </div>
+                                            <div style={{ display: "grid", gap: "6px", borderTop: commandCenterVisual.rowBorder, paddingTop: "6px" }}>
+                                              <label style={{ display: "inline-flex", alignItems: "center", gap: "6px", color: commandCenterVisual.textColor, fontSize: "10px", fontWeight: 850 }}>
+                                                <input
+                                                  type="checkbox"
+                                                  checked={Boolean(caseEntry.hasRoles)}
+                                                  onChange={(event) => void handleSaveCaseRoles(caseIndex, { hasRoles: event.target.checked }, "Case role setting saved.")}
+                                                  disabled={trainingMaterialSaving.case_file}
+                                                />
+                                                Does this case have roles?
+                                              </label>
+                                              {caseEntry.hasRoles ? (
+                                                <div style={{ display: "grid", gap: "5px" }}>
+                                                  {(caseEntry.roles || []).map((role, roleIndex) => (
+                                                    <div key={`central-case-role-${caseEntry.id}-${role.id}`} style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", gap: "5px" }}>
+                                                      <input
+                                                        defaultValue={role.name}
+                                                        onBlur={(event) => {
+                                                          const nextRoles = (caseEntry.roles || []).map((item) =>
+                                                            item.id === role.id ? { ...item, name: event.target.value } : item
+                                                          );
+                                                          void handleSaveCaseRoles(caseIndex, { roles: nextRoles }, "Case role saved.");
+                                                        }}
+                                                        disabled={trainingMaterialSaving.case_file}
+                                                        placeholder={`Role ${roleIndex + 1}`}
+                                                        style={{ ...inputStyle, width: "100%", boxSizing: "border-box", fontSize: "10px", padding: "5px 7px" }}
+                                                      />
+                                                      <button
+                                                        type="button"
+                                                        onClick={() =>
+                                                          void handleSaveCaseRoles(
+                                                            caseIndex,
+                                                            { roles: (caseEntry.roles || []).filter((item) => item.id !== role.id) },
+                                                            "Case role removed."
+                                                          )
+                                                        }
+                                                        disabled={trainingMaterialSaving.case_file}
+                                                        style={{ ...dangerButtonStyle, padding: "5px 7px", fontSize: "10px", opacity: trainingMaterialSaving.case_file ? 0.55 : 1 }}
+                                                      >
+                                                        Remove
+                                                      </button>
+                                                    </div>
+                                                  ))}
+                                                  <button
+                                                    type="button"
+                                                    onClick={() =>
+                                                      void handleSaveCaseRoles(
+                                                        caseIndex,
+                                                        {
+                                                          hasRoles: true,
+                                                          roles: [
+                                                            ...(caseEntry.roles || []),
+                                                            { id: `${caseEntry.id}-role-${Date.now()}`, name: `Role ${(caseEntry.roles || []).length + 1}` },
+                                                          ],
+                                                        },
+                                                        "Case role added."
+                                                      )
+                                                    }
+                                                    disabled={trainingMaterialSaving.case_file}
+                                                    style={{ ...staffingSecondaryButtonStyle, padding: "5px 8px", fontSize: "10px", justifySelf: "start", opacity: trainingMaterialSaving.case_file ? 0.65 : 1 }}
+                                                  >
+                                                    Add Role
+                                                  </button>
+                                                </div>
+                                              ) : null}
+                                            </div>
                                           </div>
                                         );
-                                      })}
+                                      }) : (
+                                        <div style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 800 }}>
+                                          No cases uploaded. Add a case to enable preview, download, and role setup.
+                                        </div>
+                                      )}
                                       <button type="button" onClick={() => openCaseFilePicker({ mode: "add" })} disabled={trainingMaterialSaving.case_file} style={{ ...buttonStyle, padding: "6px 9px", fontSize: "11px", opacity: trainingMaterialSaving.case_file ? 0.65 : 1 }}>
                                         Add Case
                                       </button>
