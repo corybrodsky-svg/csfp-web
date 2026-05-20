@@ -6004,10 +6004,8 @@ export default function EventDetailPage() {
   const [roundOperationsSaveError, setRoundOperationsSaveError] = useState("");
   const [roomOperationsScheduleWarning, setRoomOperationsScheduleWarning] = useState<{
     impactLabel: string;
-    skipSession: boolean;
   } | null>(null);
   const roomOperationsScheduleWarningResolverRef = useRef<((confirmed: boolean) => void) | null>(null);
-  const [skipRoomOperationsScheduleWarningForSession, setSkipRoomOperationsScheduleWarningForSession] = useState(false);
   const [trainingImportResult, setTrainingImportResult] = useState<TrainingImportResult | null>(null);
   const [trainingImportError, setTrainingImportError] = useState("");
   const [trainingImporting, setTrainingImporting] = useState(false);
@@ -8207,7 +8205,6 @@ const operationalEventStatusLabel = useMemo(() => {
     setLocalOccupancySpCheckIns({});
     setLocalOccupancyLearnerRoomMoves({});
     setLocalOccupancySpRoomMoves({});
-    setSkipRoomOperationsScheduleWarningForSession(false);
     setRoomOperationsScheduleWarning(null);
     roomOperationsScheduleWarningResolverRef.current = null;
   }, [id]);
@@ -15844,10 +15841,6 @@ Cory`;
   }
 
   function resolveRoomOperationsScheduleWarning(confirmed: boolean) {
-    const shouldSkip = Boolean(roomOperationsScheduleWarning?.skipSession);
-    if (confirmed && shouldSkip) {
-      setSkipRoomOperationsScheduleWarningForSession(true);
-    }
     const resolver = roomOperationsScheduleWarningResolverRef.current;
     roomOperationsScheduleWarningResolverRef.current = null;
     setRoomOperationsScheduleWarning(null);
@@ -15855,7 +15848,7 @@ Cory`;
   }
 
   function requestRoomOperationsScheduleUpdateConfirmation(impactLabel: string) {
-    if (!roomOperationsScheduleOutputProtected || skipRoomOperationsScheduleWarningForSession) {
+    if (!roomOperationsScheduleOutputProtected) {
       return Promise.resolve(true);
     }
     return new Promise<boolean>((resolve) => {
@@ -15863,7 +15856,7 @@ Cory`;
         roomOperationsScheduleWarningResolverRef.current(false);
       }
       roomOperationsScheduleWarningResolverRef.current = resolve;
-      setRoomOperationsScheduleWarning({ impactLabel, skipSession: false });
+      setRoomOperationsScheduleWarning({ impactLabel });
     });
   }
 
@@ -35232,18 +35225,6 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 Impact: {roomOperationsScheduleWarning.impactLabel}
               </div>
             ) : null}
-            <label style={{ display: "flex", gap: "8px", alignItems: "center", color: "#425f77", fontSize: "12px", fontWeight: 800 }}>
-              <input
-                type="checkbox"
-                checked={roomOperationsScheduleWarning.skipSession}
-                onChange={(event) =>
-                  setRoomOperationsScheduleWarning((current) =>
-                    current ? { ...current, skipSession: event.target.checked } : current
-                  )
-                }
-              />
-              Don&apos;t warn me again for this event during this session
-            </label>
             <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px", flexWrap: "wrap" }}>
               <button
                 type="button"
