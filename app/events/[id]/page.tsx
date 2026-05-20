@@ -376,6 +376,8 @@ type ScheduleBuilderPreviewResolvedRoomSlot = {
   roleId: string;
   roleLabel: string;
   notes: string;
+  stationStatus?: ScheduleStationStatus;
+  isBackupStation?: boolean;
 };
 
 type ScheduleBuilderPreviewResolvedRound = {
@@ -4619,8 +4621,11 @@ function normalizeScheduleStationStatus(value: unknown): ScheduleStationStatus |
   return "";
 }
 
-function isExplicitManualRoomEdit(slot?: Partial<ScheduleRoomAdjustmentSlot> | null) {
-  return Boolean(slot?.manualOverride || normalizeDisplayText(slot?.source) === "manual-room-edit");
+function hasScheduleRoomAdjustmentField(
+  slot: Partial<ScheduleRoomAdjustmentSlot> | null | undefined,
+  field: keyof ScheduleRoomAdjustmentSlot
+) {
+  return Boolean(slot) && Object.prototype.hasOwnProperty.call(slot, field);
 }
 
 function isScheduleBackupStation(slot?: Partial<ScheduleRoomAdjustmentSlot> | null) {
@@ -4639,6 +4644,19 @@ function upsertScheduleRoomAdjustmentSlot(
     slotIndex,
     learnerLabels: [],
   };
+  const hasAnyExplicitField = [
+    "learnerLabels",
+    "source",
+    "stationStatus",
+    "isBackupStation",
+    "roomName",
+    "spName",
+    "backupSpName",
+    "caseLabel",
+    "roleId",
+    "roleLabel",
+    "notes",
+  ].some((field) => hasScheduleRoomAdjustmentField(partial, field as keyof ScheduleRoomAdjustmentSlot));
   const merged: ScheduleRoomAdjustmentSlot = {
     ...existing,
     ...partial,
@@ -4646,7 +4664,7 @@ function upsertScheduleRoomAdjustmentSlot(
     manualOverride:
       partial.manualOverride !== undefined
         ? Boolean(partial.manualOverride)
-        : partial.learnerLabels !== undefined
+        : hasAnyExplicitField
         ? true
         : Boolean(existing.manualOverride),
     learnerLabels:
@@ -9729,17 +9747,43 @@ const operationalEventStatusLabel = useMemo(() => {
     return roomSlots.map((slot, slotIndex) => {
       const slotOverride =
         roundAdjustments.find((adjustment: ScheduleRoomAdjustmentSlot) => adjustment.slotIndex === slotIndex) || null;
-      const learnerLabels = normalizeLearnerNames(Array.isArray(slot?.learnerLabels) ? slot.learnerLabels : []);
-      const roomName = asText(slot?.roomName) || getFallbackRoomLabel(slotIndex, roomNamingContext);
-      const primarySpName = asText(slot?.assignedSpName);
-      const backupSpName = asText(slotOverride?.backupSpName) || asText(slot?.backupSpName);
-      const caseLabel = asText(slot?.caseLabel);
-      const roleId = asText(slot?.roleId);
-      const roleLabel = asText(slot?.roleLabel);
-      const notes = asText(slot?.notes);
+      const hasLearnerLabelsOverride = hasScheduleRoomAdjustmentField(slotOverride, "learnerLabels");
+      const hasRoomNameOverride = hasScheduleRoomAdjustmentField(slotOverride, "roomName");
+      const hasSpNameOverride = hasScheduleRoomAdjustmentField(slotOverride, "spName");
+      const hasBackupSpOverride = hasScheduleRoomAdjustmentField(slotOverride, "backupSpName");
+      const hasCaseLabelOverride = hasScheduleRoomAdjustmentField(slotOverride, "caseLabel");
+      const hasRoleIdOverride = hasScheduleRoomAdjustmentField(slotOverride, "roleId");
+      const hasRoleLabelOverride = hasScheduleRoomAdjustmentField(slotOverride, "roleLabel");
+      const hasNotesOverride = hasScheduleRoomAdjustmentField(slotOverride, "notes");
+      const hasStationStatusOverride = hasScheduleRoomAdjustmentField(slotOverride, "stationStatus");
+
+      const learnerLabels = hasLearnerLabelsOverride
+        ? normalizeLearnerNames(slotOverride?.learnerLabels || [])
+        : normalizeLearnerNames(Array.isArray(slot?.learnerLabels) ? slot.learnerLabels : []);
+      const roomName =
+        (hasRoomNameOverride ? asText(slotOverride?.roomName) : asText(slot?.roomName)) ||
+        getFallbackRoomLabel(slotIndex, roomNamingContext);
+      const primarySpName = hasSpNameOverride
+        ? asText(slotOverride?.spName)
+        : asText(slot?.assignedSpName);
+      const backupSpName = hasBackupSpOverride
+        ? asText(slotOverride?.backupSpName)
+        : asText(slot?.backupSpName);
+      const caseLabel = hasCaseLabelOverride
+        ? asText(slotOverride?.caseLabel)
+        : asText(slot?.caseLabel);
+      const roleId = hasRoleIdOverride
+        ? asText(slotOverride?.roleId)
+        : asText(slot?.roleId);
+      const roleLabel = hasRoleLabelOverride
+        ? asText(slotOverride?.roleLabel)
+        : asText(slot?.roleLabel);
+      const notes = hasNotesOverride ? asText(slotOverride?.notes) : asText(slot?.notes);
       const stationLabel = asText(selectedRoundStationLabel);
       const encounterLabel = [stationLabel, caseLabel].filter(Boolean).join(" · ") || "Case pending";
-      const manualStationStatus = normalizeScheduleStationStatus(slotOverride?.stationStatus);
+      const manualStationStatus = hasStationStatusOverride
+        ? normalizeScheduleStationStatus(slotOverride?.stationStatus)
+        : "";
       const primarySpIsBackup = Boolean(primarySpName && backupAssignmentNameSet.has(normalizeDisplayText(primarySpName).toLowerCase()));
       const hasLearnerEncounter = learnerLabels.length > 0;
       const hasCaseOrRole = Boolean(caseLabel || roleId || roleLabel);
@@ -9893,7 +9937,13 @@ const operationalEventStatusLabel = useMemo(() => {
 
     return displayRows.map(({ session, sourceIndex, slotIndex }, index) => {
       const slotOverride = roundAdjustments.find((slot: ScheduleRoomAdjustmentSlot) => slot.slotIndex === slotIndex) || null;
-      const hasExplicitManualRoomEdit = isExplicitManualRoomEdit(slotOverride);
+      const hasLearnerLabelsOverride = hasScheduleRoomAdjustmentField(slotOverride, "learnerLabels");
+      const hasRoomNameOverride = hasScheduleRoomAdjustmentField(slotOverride, "roomName");
+      const hasSpNameOverride = hasScheduleRoomAdjustmentField(slotOverride, "spName");
+      const hasCaseLabelOverride = hasScheduleRoomAdjustmentField(slotOverride, "caseLabel");
+      const hasRoleIdOverride = hasScheduleRoomAdjustmentField(slotOverride, "roleId");
+      const hasRoleLabelOverride = hasScheduleRoomAdjustmentField(slotOverride, "roleLabel");
+      const hasNotesOverride = hasScheduleRoomAdjustmentField(slotOverride, "notes");
       const persistedSlot = persistedRoomSlots[slotIndex] || null;
       const stationTruth = selectedRoundResolvedScheduleTruth?.find((station) => station.roomSlotIndex === slotIndex) || null;
       const isBackupStation = stationTruth?.stationStatus === "backup";
@@ -9904,7 +9954,7 @@ const operationalEventStatusLabel = useMemo(() => {
         "";
       const displayRoomName = rawRoomName || getFallbackRoomLabel(slotIndex, roomNamingContext);
       const fallbackSpName = usingResolvedSnapshot ? "" : getCanonicalNurs421RoomSpName(event?.id, slotIndex);
-      const overrideSpName = hasExplicitManualRoomEdit ? asText(slotOverride?.spName) : "";
+      const overrideSpName = hasSpNameOverride ? asText(slotOverride?.spName) : "";
       const persistedSpName = asText(persistedSlot?.assignedSpName);
       const assignmentFromOverride = overrideSpName
         ? findAssignmentBySpDisplayName(availableAssignments, spsById, overrideSpName)
@@ -9936,19 +9986,24 @@ const operationalEventStatusLabel = useMemo(() => {
             isVirtualEvent: isScheduleMatrixVirtual,
           });
       const learnerLabels =
-        hasExplicitManualRoomEdit
+        hasLearnerLabelsOverride
           ? normalizeLearnerNames(slotOverride.learnerLabels)
           : persistedSlot
             ? normalizeLearnerNames(persistedSlot.learnerLabels)
             : generatedLearnerLabels;
-      const resolvedRoomName = (hasExplicitManualRoomEdit ? asText(slotOverride?.roomName) : "") || displayRoomName;
-      const resolvedCaseLabel = asText(slotOverride?.caseLabel) || asText(persistedSlot?.caseLabel) || selectedRoundCaseLabel;
+      const resolvedRoomName = (hasRoomNameOverride ? asText(slotOverride?.roomName) : "") || displayRoomName;
+      const resolvedCaseLabel =
+        (hasCaseLabelOverride ? asText(slotOverride?.caseLabel) : asText(persistedSlot?.caseLabel)) || selectedRoundCaseLabel;
       const resolvedCaseEntry = findCaseFileEntryForLabel(caseFileEntries, resolvedCaseLabel);
-      const resolvedRoleId = asText(slotOverride?.roleId) || asText(persistedSlot?.roleId);
+      const resolvedRoleId = hasRoleIdOverride
+        ? asText(slotOverride?.roleId)
+        : asText(persistedSlot?.roleId);
       const resolvedRoleLabel = resolveCaseRoleLabel(
         resolvedCaseEntry,
         resolvedRoleId,
-        asText(slotOverride?.roleLabel) || asText(persistedSlot?.roleLabel)
+        hasRoleLabelOverride
+          ? asText(slotOverride?.roleLabel)
+          : asText(persistedSlot?.roleLabel)
       );
         const flags = [
           rawRoomName ? "" : "Missing room",
@@ -9965,11 +10020,13 @@ const operationalEventStatusLabel = useMemo(() => {
           learnerLabels,
           assignment,
           sp,
-          backupSpName: asText(slotOverride?.backupSpName) || asText(persistedSlot?.backupSpName),
+          backupSpName: hasScheduleRoomAdjustmentField(slotOverride, "backupSpName")
+            ? asText(slotOverride?.backupSpName)
+            : asText(persistedSlot?.backupSpName),
           caseLabel: resolvedCaseLabel,
           roleId: resolvedRoleId,
           roleLabel: resolvedRoleLabel,
-          notes: asText(slotOverride?.notes) || asText(persistedSlot?.notes),
+          notes: hasNotesOverride ? asText(slotOverride?.notes) : asText(persistedSlot?.notes),
           stationLabel: selectedRoundStationLabel,
           flags,
         } satisfies RoundRoomRow;
@@ -10000,9 +10057,9 @@ const operationalEventStatusLabel = useMemo(() => {
   ]);
   const selectedRoundOperationsRows = useMemo(() => {
     if (!selectedRoundResolvedScheduleTruth?.length) {
-      return selectedRoundScheduleRows.map((row) => ({
-        ...row,
-        primarySpName: row.sp ? getFullName(row.sp) : "",
+    return selectedRoundScheduleRows.map((row) => ({
+      ...row,
+      primarySpName: row.sp ? getFullName(row.sp) : "",
         stationStatus: "active" as const,
         isActiveStation: true,
         isBackupStation: false,
@@ -10017,22 +10074,13 @@ const operationalEventStatusLabel = useMemo(() => {
       const slotOverride =
         roundAdjustments.find((slot: ScheduleRoomAdjustmentSlot) => slot.slotIndex === station.roomSlotIndex) || null;
       const existingRow = scheduleRowsBySlotIndex.get(station.roomSlotIndex) || null;
-      const hasExplicitManualRoomEdit = isExplicitManualRoomEdit(slotOverride);
-      const hasSpNameOverride = Boolean(
-        hasExplicitManualRoomEdit &&
-        slotOverride &&
-        Object.prototype.hasOwnProperty.call(slotOverride, "spName")
-      );
-      const hasLearnerLabelsOverride = Boolean(
-        hasExplicitManualRoomEdit &&
-        slotOverride &&
-        Object.prototype.hasOwnProperty.call(slotOverride, "learnerLabels")
-      );
-      const hasBackupSpOverride = Boolean(slotOverride && Object.prototype.hasOwnProperty.call(slotOverride, "backupSpName"));
-      const hasCaseLabelOverride = Boolean(slotOverride && Object.prototype.hasOwnProperty.call(slotOverride, "caseLabel"));
-      const hasRoleIdOverride = Boolean(slotOverride && Object.prototype.hasOwnProperty.call(slotOverride, "roleId"));
-      const hasRoleLabelOverride = Boolean(slotOverride && Object.prototype.hasOwnProperty.call(slotOverride, "roleLabel"));
-      const hasNotesOverride = Boolean(slotOverride && Object.prototype.hasOwnProperty.call(slotOverride, "notes"));
+      const hasSpNameOverride = hasScheduleRoomAdjustmentField(slotOverride, "spName");
+      const hasLearnerLabelsOverride = hasScheduleRoomAdjustmentField(slotOverride, "learnerLabels");
+      const hasBackupSpOverride = hasScheduleRoomAdjustmentField(slotOverride, "backupSpName");
+      const hasCaseLabelOverride = hasScheduleRoomAdjustmentField(slotOverride, "caseLabel");
+      const hasRoleIdOverride = hasScheduleRoomAdjustmentField(slotOverride, "roleId");
+      const hasRoleLabelOverride = hasScheduleRoomAdjustmentField(slotOverride, "roleLabel");
+      const hasNotesOverride = hasScheduleRoomAdjustmentField(slotOverride, "notes");
 
       const primarySpName = hasSpNameOverride
         ? asText(slotOverride?.spName)
@@ -15344,27 +15392,26 @@ Cory`;
           const slotIndex = Number(slotAdjustment.slotIndex);
           if (!Number.isFinite(slotIndex) || slotIndex < 0) return;
 
-          const existingSlot = adjustedRoomSlots[slotIndex] || {
+          const existingSlot: ScheduleBuilderPreviewResolvedRoomSlot = adjustedRoomSlots[slotIndex] || {
             roomName: getFallbackRoomLabel(slotIndex, roomNamingContext),
+            learnerLabels: [],
+            assignedSpName: "",
+            backupSpName: "",
+            caseLabel: "",
+            roleId: "",
+            roleLabel: "",
+            notes: "",
           };
-          const hasExplicitManualRoomEdit = isExplicitManualRoomEdit(slotAdjustment);
-          const hasLearnerOverride = Boolean(
-            hasExplicitManualRoomEdit &&
-            Object.prototype.hasOwnProperty.call(slotAdjustment, "learnerLabels")
-          );
-          const hasRoomNameOverride = Boolean(
-            hasExplicitManualRoomEdit &&
-            Object.prototype.hasOwnProperty.call(slotAdjustment, "roomName")
-          );
-          const hasSpNameOverride = Boolean(
-            hasExplicitManualRoomEdit &&
-            Object.prototype.hasOwnProperty.call(slotAdjustment, "spName")
-          );
-          const hasBackupSpOverride = Object.prototype.hasOwnProperty.call(slotAdjustment, "backupSpName");
-          const hasCaseLabelOverride = Object.prototype.hasOwnProperty.call(slotAdjustment, "caseLabel");
-          const hasRoleIdOverride = Object.prototype.hasOwnProperty.call(slotAdjustment, "roleId");
-          const hasRoleLabelOverride = Object.prototype.hasOwnProperty.call(slotAdjustment, "roleLabel");
-          const hasNotesOverride = Object.prototype.hasOwnProperty.call(slotAdjustment, "notes");
+          const hasLearnerOverride = hasScheduleRoomAdjustmentField(slotAdjustment, "learnerLabels");
+          const hasRoomNameOverride = hasScheduleRoomAdjustmentField(slotAdjustment, "roomName");
+          const hasSpNameOverride = hasScheduleRoomAdjustmentField(slotAdjustment, "spName");
+          const hasBackupSpOverride = hasScheduleRoomAdjustmentField(slotAdjustment, "backupSpName");
+          const hasCaseLabelOverride = hasScheduleRoomAdjustmentField(slotAdjustment, "caseLabel");
+          const hasRoleIdOverride = hasScheduleRoomAdjustmentField(slotAdjustment, "roleId");
+          const hasRoleLabelOverride = hasScheduleRoomAdjustmentField(slotAdjustment, "roleLabel");
+          const hasNotesOverride = hasScheduleRoomAdjustmentField(slotAdjustment, "notes");
+          const hasStationStatusOverride = hasScheduleRoomAdjustmentField(slotAdjustment, "stationStatus");
+          const hasBackupStationOverride = hasScheduleRoomAdjustmentField(slotAdjustment, "isBackupStation");
 
           adjustedRoomSlots[slotIndex] = {
             ...existingSlot,
@@ -15380,6 +15427,12 @@ Cory`;
             roleId: hasRoleIdOverride ? asText(slotAdjustment.roleId) : asText(existingSlot.roleId),
             roleLabel: hasRoleLabelOverride ? asText(slotAdjustment.roleLabel) : asText(existingSlot.roleLabel),
             notes: hasNotesOverride ? asText(slotAdjustment.notes) : asText(existingSlot.notes),
+            stationStatus: hasStationStatusOverride
+              ? normalizeScheduleStationStatus(slotAdjustment.stationStatus) || undefined
+              : existingSlot.stationStatus,
+            isBackupStation: hasBackupStationOverride
+              ? Boolean(slotAdjustment.isBackupStation)
+              : Boolean(existingSlot.isBackupStation),
           };
         });
 
