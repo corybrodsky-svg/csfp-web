@@ -103,6 +103,24 @@
   --cfsp-command-button-primary-bg: #145b96;
   --cfsp-command-button-primary-text: #ffffff;
   --cfsp-command-button-success-bg: #198a70;
+  --cfsp-command-tool-bg: linear-gradient(135deg, #ffffff 0%, #f2f8fc 82%, #eef3ff 100%);
+  --cfsp-command-tool-border: rgba(20, 91, 150, 0.26);
+  --cfsp-command-tool-text: #102235;
+  --cfsp-command-tool-shadow: 0 10px 24px rgba(20, 91, 150, 0.08), inset 0 1px 0 rgba(255,255,255,0.72);
+  --cfsp-command-tool-hover-bg: linear-gradient(135deg, #f3f9ff 0%, #e3f2ff 58%, #edf6ff 100%);
+  --cfsp-command-tool-hover-border: rgba(20, 91, 150, 0.38);
+  --cfsp-command-tool-hover-shadow: 0 16px 30px rgba(20, 91, 150, 0.16);
+  --cfsp-command-tool-active-bg: linear-gradient(135deg, rgba(20, 91, 150, 0.28), rgba(25, 138, 112, 0.22));
+  --cfsp-command-tool-active-border: rgba(126, 231, 219, 0.36);
+  --cfsp-command-tool-active-text: #e6fbff;
+  --cfsp-command-tool-active-shadow: 0 0 0 1px rgba(45, 212, 191, 0.14), 0 16px 34px rgba(20, 91, 150, 0.24);
+  --cfsp-command-tool-active-rim: linear-gradient(135deg, #14b8a6, #7c3aed);
+  --cfsp-command-tool-title: #18344e;
+  --cfsp-command-tool-status: #3b5f7f;
+  --cfsp-command-tool-selected-title: #0f4f85;
+  --cfsp-command-tool-selected-status: #0b6476;
+  --cfsp-command-tool-active-title: #0f4f85;
+  --cfsp-command-tool-active-status: #0b6476;
 }
 
 html[data-theme="dark"] {
@@ -208,6 +226,24 @@ html[data-theme="dark"] {
   --cfsp-command-button-primary-bg: #145b96;
   --cfsp-command-button-primary-text: #ffffff;
   --cfsp-command-button-success-bg: #198a70;
+  --cfsp-command-tool-bg: linear-gradient(135deg, rgba(20, 36, 56, 0.95) 0%, rgba(15, 31, 54, 0.96) 100%);
+  --cfsp-command-tool-border: rgba(120, 180, 255, 0.24);
+  --cfsp-command-tool-text: #dbeaff;
+  --cfsp-command-tool-shadow: 0 10px 24px rgba(2, 6, 20, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  --cfsp-command-tool-hover-bg: linear-gradient(135deg, rgba(17, 32, 55, 0.96), rgba(11, 22, 38, 0.88));
+  --cfsp-command-tool-hover-border: rgba(120, 180, 255, 0.34);
+  --cfsp-command-tool-hover-shadow: 0 16px 30px rgba(2, 6, 20, 0.52), 0 0 0 1px rgba(120, 180, 255, 0.1), 0 0 16px rgba(20, 91, 150, 0.25);
+  --cfsp-command-tool-active-bg: linear-gradient(135deg, rgba(20, 91, 150, 0.4), rgba(25, 138, 112, 0.34));
+  --cfsp-command-tool-active-border: rgba(120, 180, 255, 0.56);
+  --cfsp-command-tool-active-text: #eaffff;
+  --cfsp-command-tool-active-shadow: 0 0 0 1px rgba(120, 180, 255, 0.16), 0 16px 34px rgba(2, 6, 23, 0.48);
+  --cfsp-command-tool-active-rim: linear-gradient(180deg, #14d8b6, #60a5fa);
+  --cfsp-command-tool-title: #eaf2ff;
+  --cfsp-command-tool-status: #96b8d7;
+  --cfsp-command-tool-selected-title: #a7e8ff;
+  --cfsp-command-tool-selected-status: #b8f8ed;
+  --cfsp-command-tool-active-title: #e8f8ff;
+  --cfsp-command-tool-active-status: #c8fff0;
 }
 
 @theme inline {
@@ -482,6 +518,91 @@ textarea {
 .cfsp-btn-success:hover {
   background: var(--cfsp-command-button-active-bg);
   border-color: var(--cfsp-command-button-active-border);
+}
+
+.cfsp-command-tool-card {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  cursor: pointer;
+  border-radius: 16px;
+}
+
+.cfsp-command-tool-card,
+.cfsp-command-tool-card::after,
+.cfsp-command-tool-card::before {
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease,
+    border-color 180ms ease,
+    background 180ms ease,
+    filter 180ms ease,
+    color 180ms ease;
+}
+
+.cfsp-command-tool-card:hover {
+  transform: translateY(-2px);
+  filter: saturate(1.05);
+  border-color: var(--cfsp-command-tool-hover-border);
+  box-shadow: var(--cfsp-command-tool-hover-shadow);
+}
+
+.cfsp-command-tool-card:focus-visible {
+  outline: 2px solid rgba(20, 91, 150, 0.46);
+  outline-offset: 2px;
+}
+
+.cfsp-command-tool-card .cfsp-command-tool-title {
+  color: var(--cfsp-command-tool-title);
+}
+
+.cfsp-command-tool-card .cfsp-command-tool-status {
+  color: var(--cfsp-command-tool-status);
+}
+
+.cfsp-command-tool-card.is-selected {
+  border-color: var(--cfsp-command-tool-active-border);
+}
+
+.cfsp-command-tool-card.is-selected::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 5px;
+  border-radius: 999px;
+  background: var(--cfsp-command-tool-active-rim);
+  z-index: 0;
+}
+
+.cfsp-command-tool-card.is-selected .cfsp-command-tool-title {
+  color: var(--cfsp-command-tool-selected-title);
+}
+
+.cfsp-command-tool-card.is-selected .cfsp-command-tool-status {
+  color: var(--cfsp-command-tool-selected-status) !important;
+}
+
+.cfsp-command-tool-icon-wrap {
+  width: 22px;
+  height: 22px;
+  border-radius: 8px;
+  border: 1px solid var(--cfsp-command-tool-border);
+  display: inline-grid;
+  place-items: center;
+  background: color-mix(in oklab, var(--cfsp-command-tool-bg) 62%, var(--cfsp-command-tool-active-bg));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.32);
+  transition: border-color 180ms ease, transform 180ms ease;
+  position: relative;
+  z-index: 1;
+}
+
+.cfsp-command-tool-icon-wrap:hover {
+  transform: translateY(-1px);
+  border-color: rgba(20, 91, 150, 0.32);
+}
+
+.cfsp-command-tool-card[data-tool-identity="fileCabinet"] .cfsp-command-tool-icon-wrap {
+  border-radius: 8px 16px 16px 8px;
 }
 
 .cfsp-nav-link {
@@ -2649,4 +2770,3 @@ html body .cfsp-holo-spark-c {
 }
 
 /* END CFSP PURPLE GOLD HOLOGRAPHIC COMMAND CENTER v21 */
-

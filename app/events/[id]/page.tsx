@@ -3467,6 +3467,195 @@ function renderCommandFileCabinetIcon(
   }
 }
 
+type CommandToolIconKey =
+  | "commandCenter"
+  | "spFinder"
+  | "scheduleBuilder"
+  | "eventAttendance"
+  | "overview"
+  | "operations"
+  | "staffing"
+  | "learnerFlow"
+  | "coverage"
+  | "live"
+  | "communication"
+  | "announcements"
+  | "training"
+  | "faculty"
+  | "fileCabinet"
+  | "qa"
+  | "advanced";
+
+function renderCommandToolIcon(toolIcon: CommandToolIconKey, color: string) {
+  const sharedProps = {
+    width: 19,
+    height: 19,
+    viewBox: "0 0 24 24",
+    fill: "none",
+    xmlns: "http://www.w3.org/2000/svg",
+    stroke: color,
+    strokeWidth: 1.8,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+  };
+
+  switch (toolIcon) {
+    case "commandCenter":
+      return (
+        <svg {...sharedProps} aria-hidden="true">
+          <circle cx="12" cy="12" r="9.5" />
+          <path d="M12 2.5v4" />
+          <path d="M2.5 12h4" />
+          <path d="M12 21.5v-4" />
+          <path d="M21.5 12h-4" />
+          <path d="M5.6 5.6l2.3 2.3M16.1 5.6l-2.3 2.3M5.6 18.4l2.3-2.3M16.1 18.4l-2.3-2.3" />
+          <circle cx="12" cy="12" r="2.2" />
+        </svg>
+      );
+    case "spFinder":
+      return (
+        <svg {...sharedProps} aria-hidden="true">
+          <circle cx="9" cy="9" r="2.1" />
+          <path d="M12.6 16.2c-2.5 0-4-1.3-4.7-3.5" />
+          <circle cx="17" cy="9" r="1.4" />
+          <path d="M17 12.5v3.9M17 12.5c-.8 0-1.6.3-2.1.8M15.2 18.4h3.6" />
+          <path d="M11.6 17.6c-1 1.5-2.7 2.5-4.6 2.5H4.8l1.2-2.2M8.4 20h2.6" />
+        </svg>
+      );
+    case "scheduleBuilder":
+      return (
+        <svg {...sharedProps} aria-hidden="true">
+          <path d="M4.5 5h15v14h-15z" />
+          <path d="M4.5 8.8h15M7.4 5v3.2M16.6 5v3.2M7.4 15.2h6.4" />
+          <path d="M10.3 12.4h3.5M10.3 14.1h5.2" />
+          <path d="M17.8 15.7h0" />
+        </svg>
+      );
+    case "eventAttendance":
+      return (
+        <svg {...sharedProps} aria-hidden="true">
+          <path d="M4.5 18.2V8.7a2 2 0 0 1 2-2h4.6a2 2 0 0 1 1.9 1.4l.8 2.3a2 2 0 0 0 1.9 1.4h5.7a2 2 0 0 1 2 2v4.4" />
+          <path d="M8.2 10.7h8.4M8.2 13.4h6.2M8.2 16.1h4" />
+          <circle cx="7.6" cy="18" r="1.5" />
+          <path d="m11.1 18 1.3-1.3 3.4 3.4" />
+        </svg>
+      );
+    case "overview":
+      return (
+        <svg {...sharedProps} aria-hidden="true">
+          <path d="M12 3.8v16.4" />
+          <path d="M12 3.8 6.4 7.6M12 3.8l5.6 3.8" />
+          <path d="M4.6 10.8 12 15.1 19.4 10.8" />
+          <path d="M6 20.8h12" />
+        </svg>
+      );
+    case "operations":
+      return (
+        <svg {...sharedProps} aria-hidden="true">
+          <rect x="4.5" y="6.6" width="15" height="10.4" rx="2.2" />
+          <path d="M7.2 6.6V5.7c0-.8.7-1.5 1.5-1.5h6.6c.8 0 1.5.7 1.5 1.5v.9M6.9 17h10.2" />
+          <path d="M8.4 8.8h1.2M11.4 8.8h1.2M14.4 8.8h1.2M8.4 11h1.2M11.4 11h1.2M14.4 11h1.2" />
+        </svg>
+      );
+    case "staffing":
+      return (
+        <svg {...sharedProps} aria-hidden="true">
+          <path d="M17.2 20v-2.5a2.4 2.4 0 0 0-2.4-2.4H9.2a2.4 2.4 0 0 0-2.4 2.4V20" />
+          <path d="M12.8 11.8c1.7 0 3-1.4 3-3s-1.3-3-3-3-3 1.4-3 3 1.4 3 3 3Z" />
+          <path d="M8.4 9.6 6.1 7.8M15.6 9.6 17.9 7.8" />
+        </svg>
+      );
+    case "learnerFlow":
+      return (
+        <svg {...sharedProps} aria-hidden="true">
+          <path d="M4.8 10.2h14.4" />
+          <path d="M5.2 12.8h14.4M5.2 15.4h10.6" />
+          <path d="M7 9.2c-1.3-2.7-.3-4.6 2-5.5 2.1-1.2 4.4-.5 5.6 1.4 1 1.5.8 3.8-.8 5.1" />
+          <path d="M16.8 17.8c1.3 2.7.3 4.6-2 5.5-2.1 1.2-4.4.5-5.6-1.4-1-1.5-.8-3.8.8-5.1" />
+          <path d="m18.5 14.5 3.2-2.6M6 14.5 2.8 12" />
+        </svg>
+      );
+    case "coverage":
+      return (
+        <svg {...sharedProps} aria-hidden="true">
+          <path d="M12 20.2 4.8 14.6V7.4h14.4v7.2z" />
+          <circle cx="12" cy="10.7" r="2.4" />
+          <path d="M9.2 6.4h5.6" />
+          <path d="M7 16.2h10" />
+        </svg>
+      );
+    case "live":
+      return (
+        <svg {...sharedProps} aria-hidden="true">
+          <path d="M4.8 12h2.1M8.9 12h1.5M13 12h1.5M17.1 12h2.1" />
+          <path d="M9 6h.2M14.8 6h.2M6.8 18h.2M16.8 18h.2" />
+          <path d="M12 4.3c-.5 1.8-.5 2.5 0 3.4M12 16.3c-.6 1-.8 1.9 0 3.4" />
+          <path d="M4.2 12c1.2 2.7 3.8 4.6 6.9 4.6" />
+          <path d="M12.9 16.6c3.1 0 5.7-1.9 6.9-4.6" />
+        </svg>
+      );
+    case "communication":
+      return (
+        <svg {...sharedProps} aria-hidden="true">
+          <path d="M20.2 8.6v-3a2.3 2.3 0 0 0-2.3-2.3H6.1a2.3 2.3 0 0 0-2.3 2.3v9.1l4.4-3h11.9a2.3 2.3 0 0 0 2.3-2.3v-1.2M4.8 9.7h12.2" />
+          <path d="m16.2 15.4 2.8 2.2v1.6M13.4 16.8h-3.6l-4.5 2.6M6.8 15.4h0" />
+          <circle cx="11.9" cy="12.2" r="1.8" />
+        </svg>
+      );
+    case "announcements":
+      return (
+        <svg {...sharedProps} aria-hidden="true">
+          <path d="M12.1 3.9h-.2a4.9 4.9 0 0 0-4.8 4.9v1.7a1.4 1.4 0 0 1-.4.9l-1.9 1.7a.7.7 0 0 0 .5 1.2h12.4a.7.7 0 0 0 .5-1.2l-1.9-1.7a1.4 1.4 0 0 1-.4-.9V8.8A4.9 4.9 0 0 0 12.1 3.9Z" />
+          <path d="M10 20.7h4.1M11 17h2.2" />
+        </svg>
+      );
+    case "training":
+      return (
+        <svg {...sharedProps} aria-hidden="true">
+          <path d="M7.2 20v-8.6M12.1 20V9.4M16.9 20V11" />
+          <path d="M4.7 20h14.8M4.7 12l1.9-7.4h8.8L17.3 12M6.6 12h10.8" />
+          <circle cx="12.1" cy="4.1" r="2.2" />
+        </svg>
+      );
+    case "faculty":
+      return (
+        <svg {...sharedProps} aria-hidden="true">
+          <path d="M6.5 6.6A2.7 2.7 0 1 1 11.8 6a2.7 2.7 0 0 1-5.3 0.6Z" />
+          <path d="M6.5 11.5h0c.8 0 2.9 3.3 2.9 6.9v1.3M17.8 6.6A2.7 2.7 0 1 1 23.1 6a2.7 2.7 0 0 1-5.3 0.6Z" />
+          <path d="M17.8 11.5h0c.8 0 2.9 3.3 2.9 6.9v1.3M10 20.2h4.3M10 17.5h4.3" />
+          <path d="M12 12.9v6.8" />
+        </svg>
+      );
+    case "fileCabinet":
+      return (
+        <svg {...sharedProps} aria-hidden="true">
+          <path d="M4.6 7.3H19.5v11.4H4.6z" />
+          <path d="M4.6 10.2h14.9M4.6 13.7h14.9M4.6 17.2h14.9" />
+          <path d="M7.8 7.3v-2.1M16.2 7.3V5.2M7.8 18.7v2M16.2 18.7v2" />
+          <rect x="7.8" y="5.2" width="8.4" height="15.5" rx="1" />
+        </svg>
+      );
+    case "qa":
+      return (
+        <svg {...sharedProps} aria-hidden="true">
+          <path d="M5 5.1h14v14.1H5z" />
+          <path d="M8.6 9.6h6.8M8.6 12.8h6.8M8.6 16h4" />
+          <path d="M8.8 20.3H5.6M18.4 20.3h-6.4" />
+          <path d="M14.2 7.9v-2.6h-4.4v2.6" />
+        </svg>
+      );
+    case "advanced":
+      return (
+        <svg {...sharedProps} aria-hidden="true">
+          <path d="M12 8.2a3.8 3.8 0 1 0 3.8 3.8A3.8 3.8 0 0 0 12 8.2Z" />
+          <path d="M12 2v1.7M12 20.3v1.7" />
+          <path d="M12 3.8c-1.1 0-2.1 1-2.1 2.2 0 1.2.9 2.2 2.1 2.2 1.1 0 2.1-1 2.1-2.2 0-1.2-.9-2.2-2.1-2.2ZM12 20.3c-1.1 0-2.1-1-2.1-2.2 0-1.2.9-2.2 2.1-2.2 1.1 0 2.1 1 2.1 2.2 0 1.2-.9 2.2-2.1 2.2ZM19.4 12c0-1.1-1-2.1-2.2-2.1-1.2 0-2.2 1-2.2 2.1 0 1.1 1 2.1 2.2 2.1 1.2 0 2.2-1 2.2-2.1ZM5.6 12c0-1.1 1-2.1 2.2-2.1 1.2 0 2.2 1 2.2 2.1 0 1.1-1 2.1-2.2 2.1-1.2 0-2.2-1-2.2-2.1ZM17.6 16.6l-1.3-1.3M7.7 8.5 6.4 7.2M7.7 15.4 6.4 16.7M16.6 7.2 17.9 5.9M16.6 18.1 17.9 19.4" />
+          <path d="M6.4 7.2v.1M17.9 16.7v.1M6.4 16.7v.1M17.9 7.2v.1" />
+        </svg>
+      );
+  }
+}
+
 function getEffectivePollResponseStatus(
   notes: string | null | undefined,
   imported?: ImportedPollResponseRecord | null
@@ -22420,8 +22609,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               .cfsp-button-tactical:hover {
                 transform: translateY(-2px);
                 filter: saturate(1.05);
-                border-color: rgba(20, 91, 150, 0.38) !important;
-                box-shadow: 0 16px 30px rgba(20, 91, 150, 0.17), 0 0 0 1px rgba(45, 212, 191, 0.1), 0 0 18px rgba(167, 139, 250, 0.08) !important;
+                border-color: var(--cfsp-command-tool-hover-border) !important;
+                box-shadow: var(--cfsp-command-tool-hover-shadow) !important;
               }
               .cfsp-command-hud-action:focus-visible,
               .cfsp-command-tool-card:focus-visible,
@@ -22433,6 +22622,17 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 position: relative;
                 overflow: hidden;
                 cursor: pointer;
+                isolation: isolate;
+              }
+              .cfsp-command-tool-icon-wrap {
+                width: 22px;
+                height: 22px;
+                border-radius: 8px;
+                border: 1px solid var(--cfsp-command-tool-border);
+                display: inline-grid;
+                place-items: center;
+                background: color-mix(in oklab, var(--cfsp-command-tool-bg) 62%, var(--cfsp-command-tool-active-bg));
+                box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.32);
               }
               .cfsp-command-tool-card::after {
                 content: "";
@@ -22449,6 +22649,28 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   box-shadow 180ms ease,
                   transform 180ms ease;
               }
+              .cfsp-command-tool-card[data-tool-identity="fileCabinet"]::after {
+                width: 10px;
+                height: 14px;
+                right: 10px;
+                top: 10px;
+                border-radius: 4px;
+                border: 1px solid rgba(255, 255, 255, 0.26);
+                background:
+                  linear-gradient(90deg, rgba(255, 255, 255, 0.2) 0 33%, transparent 33% 66%, rgba(255, 255, 255, 0.2) 66%),
+                  rgba(20, 91, 150, 0.2);
+              }
+              .cfsp-command-tool-card::before {
+                content: "";
+                position: absolute;
+                inset: 0;
+                pointer-events: none;
+                background:
+                  linear-gradient(100deg, transparent 0%, transparent 56%, rgba(20, 91, 150, 0.1) 62%, transparent 68%),
+                  linear-gradient(180deg, rgba(20, 91, 150, 0.06) 0 100%);
+                background-size: 100% 100%, 100% 14px;
+                opacity: 0.42;
+              }
               .cfsp-command-tool-card.is-selected::before {
                 content: "";
                 position: absolute;
@@ -22457,31 +22679,80 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 border-radius: 999px;
                 background: linear-gradient(180deg, #145b96, #0f766e 62%, #7c3aed 100%);
                 box-shadow: 0 0 18px rgba(20, 91, 150, 0.3);
+                z-index: 0;
               }
               .cfsp-command-tool-card.is-selected::after {
                 background: linear-gradient(135deg, #14b8a6, #7c3aed);
                 box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.12), 0 0 14px rgba(124, 58, 237, 0.18);
                 transform: scale(1.08);
+                z-index: 0;
+              }
+              .cfsp-command-tool-card.is-selected::before {
+                background: var(--cfsp-command-tool-active-rim);
               }
               .cfsp-command-tool-card .cfsp-command-tool-title {
                 display: block;
                 font-weight: 950;
                 letter-spacing: 0;
                 transition: color 180ms ease, transform 180ms ease;
+                color: var(--cfsp-command-tool-title);
               }
               .cfsp-command-tool-card .cfsp-command-tool-status {
                 display: block;
                 transition: color 180ms ease;
+                color: var(--cfsp-command-tool-status);
+              }
+              .cfsp-command-tool-card[data-tool-identity="overview"]::before,
+              .cfsp-command-tool-card[data-tool-identity="operations"]::before {
+                background:
+                  linear-gradient(100deg, transparent 0%, transparent 59%, rgba(20, 184, 166, 0.14) 67%, transparent 74%),
+                  linear-gradient(180deg, rgba(20, 91, 150, 0.08) 0%, rgba(20, 91, 150, 0.08) 100%);
+              }
+              .cfsp-command-tool-card[data-tool-identity="coverage"]::before {
+                background:
+                  linear-gradient(90deg, transparent 0%, rgba(20, 91, 150, 0.12) 0.1rem, transparent 0.45rem, rgba(168, 85, 247, 0.11) 2.5rem, transparent 2.82rem),
+                  linear-gradient(180deg, rgba(20, 91, 150, 0.08) 0%, rgba(20, 91, 150, 0.08) 100%);
+              }
+              .cfsp-command-tool-card[data-tool-identity="live"]::before {
+                background:
+                  linear-gradient(45deg, transparent 0, rgba(45, 212, 191, 0.14) 26%, transparent 52%, rgba(167, 139, 250, 0.1) 78%, transparent),
+                  linear-gradient(180deg, rgba(20, 91, 150, 0.08) 0%, rgba(20, 91, 150, 0.08) 100%);
+              }
+              .cfsp-command-tool-card[data-tool-identity="eventAttendance"]::before,
+              .cfsp-command-tool-card[data-tool-identity="attendance"]::before,
+              .cfsp-command-tool-card[data-tool-identity="learnerFlow"]::before {
+                background:
+                  linear-gradient(180deg, transparent 0, rgba(16, 185, 129, 0.14) 54%, transparent 54%),
+                  linear-gradient(100deg, transparent 0, rgba(20, 91, 150, 0.1) 52%, transparent 68%),
+                  linear-gradient(180deg, rgba(20, 91, 150, 0.08) 0%, rgba(20, 91, 150, 0.08) 100%);
+              }
+              .cfsp-command-tool-card[data-tool-identity="fileCabinet"]::before {
+                background:
+                  linear-gradient(90deg, rgba(20, 91, 150, 0.22) 0, transparent 8px, transparent 20px, rgba(20, 91, 150, 0.18) 20px, rgba(20, 91, 150, 0.18) 100%),
+                  repeating-linear-gradient(180deg, rgba(255, 255, 255, 0.12) 0 1px, transparent 1px 13px),
+                  linear-gradient(180deg, rgba(20, 91, 150, 0.1) 0%, rgba(20, 91, 150, 0.1) 100%);
+              }
+              .cfsp-command-tool-card .cfsp-command-tool-icon-wrap {
+                position: relative;
+                z-index: 1;
+                transition: border-color 180ms ease, transform 180ms ease;
+              }
+              .cfsp-command-tool-card:hover .cfsp-command-tool-icon-wrap {
+                transform: translateY(-1px);
+                border-color: rgba(20, 91, 150, 0.32);
+              }
+              .cfsp-command-tool-card[data-tool-identity="fileCabinet"] .cfsp-command-tool-icon-wrap {
+                border-radius: 8px 16px 16px 8px;
               }
               .cfsp-command-tool-card:hover .cfsp-command-tool-title,
               .cfsp-command-tool-card:focus-visible .cfsp-command-tool-title {
                 transform: translateY(-1px);
               }
               .cfsp-command-tool-card.is-selected .cfsp-command-tool-title {
-                color: #0f4f85;
+                color: var(--cfsp-command-tool-selected-title);
               }
               .cfsp-command-tool-card.is-selected .cfsp-command-tool-status {
-                color: #12617f !important;
+                color: var(--cfsp-command-tool-selected-status) !important;
               }
               .cfsp-command-tool-group {
                 transition:
@@ -24940,20 +25211,42 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                         }}
                       >
                         {[
-                          { value: "commandCenter" as const, label: "Command Center", status: selectedCommandTool === "primary" ? "Operational board" : "Tool selected" },
-                          { value: "spFinder" as const, label: "SP Finder", status: `${confirmedCount} confirmed` },
-                          { value: "scheduleBuilder" as const, label: "Schedule Builder", status: scheduleStatusLabel },
-                          { value: "eventAttendance" as const, label: "Event Attendance", status: "Live check-in" },
+                          {
+                            value: "commandCenter" as const,
+                            identity: "commandCenter" as const,
+                            label: "Command Center",
+                            status: selectedCommandTool === "primary" ? "Operational board" : "Tool selected",
+                          },
+                          {
+                            value: "spFinder" as const,
+                            identity: "spFinder" as const,
+                            label: "SP Finder",
+                            status: `${confirmedCount} confirmed`,
+                          },
+                          {
+                            value: "scheduleBuilder" as const,
+                            identity: "scheduleBuilder" as const,
+                            label: "Schedule Builder",
+                            status: scheduleStatusLabel,
+                          },
+                          {
+                            value: "eventAttendance" as const,
+                            identity: "eventAttendance" as const,
+                            label: "Event Attendance",
+                            status: "Live check-in",
+                          },
                         ].map((tool) => {
                           const selected =
                             tool.value === "eventAttendance"
                               ? primaryEventTool === "commandCenter" && selectedCommandTool === "primary" && roundCompanionView === "attendance"
                               : primaryEventTool === tool.value;
+                          const iconColor = selected ? "var(--cfsp-command-tool-active-title)" : "var(--cfsp-command-tool-title)";
                           return (
                             <button
                               key={`primary-event-tool-${tool.value}`}
                               type="button"
                               className={`cfsp-command-tool-card cfsp-primary-command-card ${selected ? "is-selected" : ""}`}
+                              data-tool-identity={tool.identity}
                               onClick={() => {
                                 if (tool.value === "eventAttendance") {
                                   setPrimaryEventTool("commandCenter");
@@ -24980,32 +25273,29 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 justifyItems: "center",
                                 minWidth: 0,
                                 textAlign: "center",
-                                background: selected
-                                  ? isPlanningVisualMode
-                                    ? "linear-gradient(135deg, rgba(235,246,255,1) 0%, rgba(214,250,233,0.94) 62%, rgba(245,240,255,0.84) 100%)"
-                                    : "linear-gradient(135deg, rgba(20, 91, 150, 0.32), rgba(25, 138, 112, 0.24))"
-                                  : isPlanningVisualMode
-                                    ? "linear-gradient(135deg, rgba(255,255,255,0.96) 0%, rgba(239,249,252,0.84) 62%, rgba(244,243,255,0.72) 100%)"
-                                    : "rgba(15, 23, 42, 0.58)",
+                                background: selected ? "var(--cfsp-command-tool-active-bg)" : "var(--cfsp-command-tool-bg)",
                                 color: selected
-                                  ? isPlanningVisualMode ? "#145b96" : "#d6f6f2"
-                                  : commandCenterVisual.textColor,
-                                border: selected
-                                  ? isPlanningVisualMode ? "1px solid rgba(20, 91, 150, 0.3)" : "1px solid rgba(126, 231, 219, 0.34)"
-                                  : isPlanningVisualMode ? "1px solid rgba(20, 91, 150, 0.16)" : "1px solid rgba(148, 163, 184, 0.16)",
-                                boxShadow: selected
-                                  ? isPlanningVisualMode
-                                    ? "0 0 0 1px rgba(25, 138, 112, 0.1), 0 14px 28px rgba(25, 138, 112, 0.15), 0 0 18px rgba(124, 58, 237, 0.08)"
-                                    : "0 0 22px rgba(126, 231, 219, 0.18)"
-                                  : isPlanningVisualMode
-                                    ? "0 10px 18px rgba(20, 65, 95, 0.08), inset 0 1px 0 rgba(255,255,255,0.78)"
-                                    : "none",
+                                  ? "var(--cfsp-command-tool-active-text)"
+                                  : "var(--cfsp-command-tool-text)",
+                                border: selected ? "var(--cfsp-command-tool-active-border)" : "var(--cfsp-command-tool-border)",
+                                boxShadow: selected ? "var(--cfsp-command-tool-active-shadow)" : "var(--cfsp-command-tool-shadow)",
                               }}
                             >
+                              <span className="cfsp-command-tool-icon-wrap" aria-hidden="true">
+                                {renderCommandToolIcon(tool.identity, iconColor)}
+                              </span>
                               <span className="cfsp-command-tool-title" style={{ fontSize: "14px", lineHeight: 1.12 }}>
                                 {tool.label}
                               </span>
-                              <span className="cfsp-command-tool-status" style={{ color: selected ? "inherit" : commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 850, lineHeight: 1.22 }}>
+                              <span
+                                className="cfsp-command-tool-status"
+                                style={{
+                                  color: selected ? "var(--cfsp-command-tool-selected-status)" : "var(--cfsp-command-tool-status)",
+                                  fontSize: "10px",
+                                  fontWeight: 850,
+                                  lineHeight: 1.22,
+                                }}
+                              >
                                 {tool.status}
                               </span>
                             </button>
@@ -25047,42 +25337,138 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           {
                             group: "Core Command",
                             tools: [
-                              { kind: "view", value: "overview", label: "Overview", status: "Round snapshot" },
-                              { kind: "view", value: "operations", label: "Operations", status: "Room controls" },
+                              {
+                                kind: "view",
+                                value: "overview",
+                                identity: "overview" as const,
+                                label: "Overview",
+                                status: "Round snapshot",
+                              },
+                              {
+                                kind: "view",
+                                value: "operations",
+                                identity: "operations" as const,
+                                label: "Operations",
+                                status: "Room controls",
+                              },
                             ],
                           },
                           {
                             group: "Staffing & People",
                             tools: [
-                              { kind: "primary", value: "spFinder", label: "SP Finder", status: `${confirmedCount} confirmed` },
-                              { kind: "tool", value: "staffing", label: "Staffing", status: staffingCoverageMet ? "Ready" : "Needs scan" },
-                              { kind: "view", value: "attendance", label: "Event Attendance", status: "Live check-in" },
-                              { kind: "view", value: "learner", label: "Learner Flow", status: `${selectedRoundAssignedLearnerCount} learners` },
+                              {
+                                kind: "primary",
+                                value: "spFinder",
+                                identity: "spFinder" as const,
+                                label: "SP Finder",
+                                status: `${confirmedCount} confirmed`,
+                              },
+                              {
+                                kind: "tool",
+                                value: "staffing",
+                                identity: "staffing" as const,
+                                label: "Staffing",
+                                status: staffingCoverageMet ? "Ready" : "Needs scan",
+                              },
+                              {
+                                kind: "view",
+                                value: "attendance",
+                                identity: "eventAttendance" as const,
+                                label: "Event Attendance",
+                                status: "Live check-in",
+                              },
+                              {
+                                kind: "view",
+                                value: "learner",
+                                identity: "learnerFlow" as const,
+                                label: "Learner Flow",
+                                status: `${selectedRoundAssignedLearnerCount} learners`,
+                              },
                             ],
                           },
                           {
                             group: "Schedule & Rooms",
                             tools: [
-                              { kind: "primary", value: "scheduleBuilder", label: "Schedule Builder", status: scheduleStatusLabel },
-                              { kind: "view", value: "coverage", label: "Coverage", status: staffingCoverageMet ? "Covered" : "Needs primary" },
-                              { kind: "view", value: "live", label: "Live", status: selectedRoundLiveTimingState.label },
+                              {
+                                kind: "primary",
+                                value: "scheduleBuilder",
+                                identity: "scheduleBuilder" as const,
+                                label: "Schedule Builder",
+                                status: scheduleStatusLabel,
+                              },
+                              {
+                                kind: "view",
+                                value: "coverage",
+                                identity: "coverage" as const,
+                                label: "Coverage",
+                                status: staffingCoverageMet ? "Covered" : "Needs primary",
+                              },
+                              {
+                                kind: "view",
+                                value: "live",
+                                identity: "live" as const,
+                                label: "Live",
+                                status: selectedRoundLiveTimingState.label,
+                              },
                             ],
                           },
                           {
                             group: "Communications & Prep",
                             tools: [
-                              { kind: "tool", value: "communication", label: "Communication", status: outreachProgressLabel },
-                              { kind: "view", value: "announcements", label: "Announcements", status: `${selectedRoundAnnouncementTimeline.length} cues` },
-                              { kind: "tool", value: "training", label: "Training", status: normalEventTrainingStatusLabel },
-                              { kind: "tool", value: "faculty", label: "Faculty", status: facultyPanelStatusLabel },
+                              {
+                                kind: "tool",
+                                value: "communication",
+                                identity: "communication" as const,
+                                label: "Communication",
+                                status: outreachProgressLabel,
+                              },
+                              {
+                                kind: "view",
+                                value: "announcements",
+                                identity: "announcements" as const,
+                                label: "Announcements",
+                                status: `${selectedRoundAnnouncementTimeline.length} cues`,
+                              },
+                              {
+                                kind: "tool",
+                                value: "training",
+                                identity: "training" as const,
+                                label: "Training",
+                                status: normalEventTrainingStatusLabel,
+                              },
+                              {
+                                kind: "tool",
+                                value: "faculty",
+                                identity: "faculty" as const,
+                                label: "Faculty",
+                                status: facultyPanelStatusLabel,
+                              },
                             ],
                           },
                           {
                             group: "Files & Admin",
                             tools: [
-                              { kind: "tool", value: "fileCabinet", label: "File Cabinet", status: commandFileCabinetSummaryLabel },
-                              { kind: "tool", value: "qa", label: "QA Board", status: workflowBoardStatusLabel },
-                              { kind: "advanced", value: "advanced", label: "Advanced Settings", status: "Settings" },
+                              {
+                                kind: "tool",
+                                value: "fileCabinet",
+                                identity: "fileCabinet" as const,
+                                label: "File Cabinet",
+                                status: commandFileCabinetSummaryLabel,
+                              },
+                              {
+                                kind: "tool",
+                                value: "qa",
+                                identity: "qa" as const,
+                                label: "QA Board",
+                                status: workflowBoardStatusLabel,
+                              },
+                              {
+                                kind: "advanced",
+                                value: "advanced",
+                                identity: "advanced" as const,
+                                label: "Advanced Settings",
+                                status: "Settings",
+                              },
                             ],
                           },
                         ].map((group) => (
@@ -25115,6 +25501,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                     key={`command-grid-tool-${tool.kind}-${tool.value}`}
                                     type="button"
                                     className={`cfsp-command-tool-card ${selected ? "is-selected" : ""}`}
+                                    data-tool-identity={tool.identity}
                                     onClick={() => {
                                       if (tool.kind === "advanced") {
                                         router.push(`/settings?eventId=${encodeURIComponent(id)}`);
@@ -25145,32 +25532,32 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                       alignContent: "center",
                                       justifyItems: "center",
                                       textAlign: "center",
-                                      background: selected
-                                        ? isPlanningVisualMode
-                                          ? "linear-gradient(135deg, rgba(214,250,233,0.86) 0%, rgba(232,244,255,0.98) 58%, rgba(245,240,255,0.78) 100%)"
-                                          : "linear-gradient(135deg, rgba(20,91,150,0.34), rgba(25,138,112,0.26))"
-                                        : isPlanningVisualMode
-                                          ? "linear-gradient(135deg, rgba(255,255,255,0.94) 0%, rgba(232,246,250,0.7) 62%, rgba(244,243,255,0.5) 100%)"
-                                          : "linear-gradient(135deg, rgba(15,23,42,0.58), rgba(8,31,47,0.42))",
+                                      background: selected ? "var(--cfsp-command-tool-active-bg)" : "var(--cfsp-command-tool-bg)",
                                       color: selected
-                                        ? isPlanningVisualMode ? "#145b96" : "#d6f6f2"
-                                        : commandCenterVisual.textColor,
-                                      border: selected
-                                        ? isPlanningVisualMode ? "1px solid rgba(20, 91, 150, 0.34)" : "1px solid rgba(126, 231, 219, 0.38)"
-                                        : isPlanningVisualMode ? "1px solid rgba(20, 91, 150, 0.15)" : "1px solid rgba(148, 163, 184, 0.16)",
-                                      boxShadow: selected
-                                        ? isPlanningVisualMode
-                                          ? "0 0 0 1px rgba(25, 138, 112, 0.1), 0 14px 24px rgba(25, 138, 112, 0.14), 0 0 16px rgba(124, 58, 237, 0.08)"
-                                          : "0 0 22px rgba(126, 231, 219, 0.18)"
-                                        : isPlanningVisualMode
-                                          ? "0 9px 16px rgba(20, 65, 95, 0.07), inset 0 1px 0 rgba(255,255,255,0.78)"
-                                          : "none",
+                                        ? "var(--cfsp-command-tool-active-text)"
+                                        : "var(--cfsp-command-tool-text)",
+                                      border: selected ? "var(--cfsp-command-tool-active-border)" : "var(--cfsp-command-tool-border)",
+                                      boxShadow: selected ? "var(--cfsp-command-tool-active-shadow)" : "var(--cfsp-command-tool-shadow)",
                                     }}
                                   >
+                                    <span className="cfsp-command-tool-icon-wrap" aria-hidden="true">
+                                      {renderCommandToolIcon(
+                                        tool.identity,
+                                        selected ? "var(--cfsp-command-tool-active-title)" : "var(--cfsp-command-tool-text)"
+                                      )}
+                                    </span>
                                     <span className="cfsp-command-tool-title" style={{ fontSize: "12px", lineHeight: 1.15 }}>
                                       {tool.label}
                                     </span>
-                                    <span className="cfsp-command-tool-status" style={{ color: selected ? "inherit" : commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 825, lineHeight: 1.22 }}>
+                                    <span
+                                      className="cfsp-command-tool-status"
+                                      style={{
+                                        color: selected ? "var(--cfsp-command-tool-selected-status)" : "var(--cfsp-command-tool-status)",
+                                        fontSize: "10px",
+                                        fontWeight: 825,
+                                        lineHeight: 1.22,
+                                      }}
+                                    >
                                       {tool.status}
                                     </span>
                                   </button>
@@ -27875,18 +28262,20 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           display: "none",
                           gridTemplateColumns: "repeat(auto-fit, minmax(112px, 1fr))",
                           gap: "6px",
-                          alignItems: "center",
-                        }}
-                      >
-                        {[
-                          { value: "faculty" as const, label: "Faculty", status: facultyPanelStatusLabel },
-                          { value: "training" as const, label: "Training", status: normalEventTrainingStatusLabel },
-                          { value: "fileCabinet" as const, label: "File Cabinet", status: commandFileCabinetSummaryLabel },
-                          { value: "staffing" as const, label: "Staffing", status: staffingCoverageMet ? "Ready" : "Needs scan" },
-                          { value: "communication" as const, label: "Communication", status: outreachProgressLabel },
-                          { value: "qa" as const, label: "QA Board", status: workflowBoardStatusLabel },
-                          { value: "advanced" as const, label: "Advanced Settings", status: scheduleStatusLabel },
-                        ].map((tool) => (
+                        alignItems: "center",
+                      }}
+                    >
+                      {[
+                          { value: "faculty" as const, identity: "faculty" as const, label: "Faculty", status: facultyPanelStatusLabel },
+                          { value: "training" as const, identity: "training" as const, label: "Training", status: normalEventTrainingStatusLabel },
+                          { value: "fileCabinet" as const, identity: "fileCabinet" as const, label: "File Cabinet", status: commandFileCabinetSummaryLabel },
+                          { value: "staffing" as const, identity: "staffing" as const, label: "Staffing", status: staffingCoverageMet ? "Ready" : "Needs scan" },
+                          { value: "communication" as const, identity: "communication" as const, label: "Communication", status: outreachProgressLabel },
+                          { value: "qa" as const, identity: "qa" as const, label: "QA Board", status: workflowBoardStatusLabel },
+                          { value: "advanced" as const, identity: "advanced" as const, label: "Advanced Settings", status: scheduleStatusLabel },
+                        ].map((tool) => {
+                          const isToolSelected = selectedCommandTool === (tool.value as SelectedCommandTool);
+                          return (
                           <button
                             key={`central-command-support-tool-${tool.value}`}
                             type="button"
@@ -27898,6 +28287,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                               setSelectedCommandTool(tool.value);
                               queueCommandContentScroll();
                             }}
+                            className={`cfsp-command-tool-card ${isToolSelected ? "is-selected" : ""}`}
+                            data-tool-identity={tool.identity}
                             style={{
                               ...buttonStyle,
                               padding: "7px 9px",
@@ -27906,17 +28297,39 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                               gap: "2px",
                               minWidth: 0,
                               textAlign: "center",
-                              background: isPlanningVisualMode ? "rgba(255,255,255,0.72)" : "rgba(15, 23, 42, 0.52)",
-                              color: commandCenterVisual.textColor,
-                              border: isPlanningVisualMode ? "1px solid rgba(128, 167, 182, 0.18)" : "1px solid rgba(148, 163, 184, 0.16)",
+                              background:
+                                isToolSelected ? "var(--cfsp-command-tool-active-bg)" : "var(--cfsp-command-tool-bg)",
+                              color:
+                                isToolSelected ? "var(--cfsp-command-tool-active-text)" : "var(--cfsp-command-tool-text)",
+                              border:
+                                isToolSelected ? "var(--cfsp-command-tool-active-border)" : "var(--cfsp-command-tool-border)",
+                              boxShadow:
+                                isToolSelected ? "var(--cfsp-command-tool-active-shadow)" : "var(--cfsp-command-tool-shadow)",
                             }}
                           >
+                            <span className="cfsp-command-tool-icon-wrap" aria-hidden="true">
+                              {renderCommandToolIcon(
+                                tool.identity,
+                                isToolSelected ? "var(--cfsp-command-tool-active-title)" : "var(--cfsp-command-tool-text)"
+                              )}
+                            </span>
                             <span style={{ fontSize: "11px", fontWeight: 950 }}>{tool.label}</span>
-                            <span style={{ color: commandCenterVisual.mutedColor, fontSize: "9px", fontWeight: 800, lineHeight: 1.2 }}>
+                            <span
+                              style={{
+                                color:
+                                  isToolSelected
+                                    ? "var(--cfsp-command-tool-selected-status)"
+                                    : "var(--cfsp-command-tool-status)",
+                                fontSize: "9px",
+                                fontWeight: 800,
+                                lineHeight: 1.2,
+                              }}
+                            >
                               {tool.status}
                             </span>
                           </button>
-                        ))}
+                          );
+                        })}
                       </div>
                       </>
                     ) : (
