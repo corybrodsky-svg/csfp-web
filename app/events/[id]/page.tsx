@@ -1647,36 +1647,26 @@ function OperationalPresenceAvatar({
 }) {
   const label = asText(name).trim() || (kind === "learner" ? "Learner" : kind === "backup" ? "Backup SP" : kind.toUpperCase());
   const resolvedInitials = (asText(initials) || getInitials(label)).slice(0, 3).toUpperCase();
-  const sizeMap = {
-    sm: { width: 34, height: 42, head: 12, shoulders: 24, text: 9 },
-    md: { width: 42, height: 50, head: 14, shoulders: 29, text: 10 },
-    lg: { width: 50, height: 58, head: 16, shoulders: 34, text: 11 },
-  }[size];
-  const statusColor =
-    status === "arrived" || status === "in-room"
-      ? "#059669"
-      : status === "late"
-        ? "#b45309"
-        : status === "missing"
-          ? "#dc2626"
-          : kind === "backup"
-            ? "#d97706"
-            : kind === "sp" || kind === "faculty"
-              ? "#3b82f6"
-              : "#0f766e";
-  const kindWash =
-    kind === "backup"
-      ? "rgba(253, 230, 138, 0.44)"
-      : kind === "sp" || kind === "faculty"
-        ? "rgba(191, 219, 254, 0.58)"
-        : "rgba(153, 246, 228, 0.48)";
   const present = status === "arrived" || status === "in-room";
+  const statusLabel = getEventAttendanceStatusLabel(status === "in-room" ? "in_room" : status);
+  const className = [
+    "cfsp-operational-presence-avatar",
+    "cfsp-hologram-avatar",
+    `is-${kind}`,
+    `is-${size}`,
+    `status-${status}`,
+    selected ? "is-selected" : "",
+    present ? "is-present" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   return (
     <span
-      className={`cfsp-operational-presence-avatar cfsp-hologram-avatar is-${kind}`}
+      className={className}
       aria-hidden={onClick ? undefined : "true"}
-      title={`${label}${status ? ` - ${getEventAttendanceStatusLabel(status === "in-room" ? "in_room" : status)}` : ""}`}
+      aria-label={onClick ? `${label} - ${statusLabel}` : undefined}
+      title={`${label}${status ? ` - ${statusLabel}` : ""}`}
       onClick={onClick}
       onKeyDown={(event) => {
         if (!onClick) return;
@@ -1687,86 +1677,19 @@ function OperationalPresenceAvatar({
       }}
       role={onClick ? "button" : undefined}
       tabIndex={onClick ? 0 : undefined}
-      style={{
-        width: `${sizeMap.width}px`,
-        height: `${sizeMap.height}px`,
-        borderRadius: "18px",
-        display: "inline-grid",
-        placeItems: "center",
-        position: "relative",
-        isolation: "isolate",
-        overflow: "hidden",
-        color: kind === "backup" ? "#7c2d12" : kind === "learner" ? "#064e3b" : "#0f2b46",
-        background: `radial-gradient(circle at 50% 14%, rgba(255,255,255,0.98), ${kindWash} 42%, rgba(240,249,255,0.96) 100%)`,
-        border: present || selected ? `2px solid ${statusColor}` : `1px solid ${statusColor}aa`,
-        boxShadow: `${selected || present ? "0 0 20px" : "0 0 12px"} ${statusColor}66, inset 0 0 14px rgba(255,255,255,0.54), 0 0 0 3px ${kindWash}`,
-        animation: "cfspMatrixAvatarFloat 3.6s ease-in-out infinite",
-        flex: "0 0 auto",
-        cursor: onClick ? "pointer" : "default",
-        transition: "transform 120ms ease, box-shadow 140ms ease",
-      }}
     >
-      <span
-        aria-hidden="true"
-        style={{
-          position: "absolute",
-          inset: "4px",
-          borderRadius: "15px",
-          background: "linear-gradient(180deg, rgba(255,255,255,0.42), transparent 42%), repeating-linear-gradient(180deg, rgba(20,91,150,0.1) 0 1px, transparent 1px 5px)",
-          opacity: 0.72,
-        }}
-      />
-      <span
-        aria-hidden="true"
-        style={{
-          position: "absolute",
-          top: size === "sm" ? "6px" : "7px",
-          width: `${sizeMap.head}px`,
-          height: `${sizeMap.head}px`,
-          borderRadius: "999px",
-          background: "rgba(248, 250, 252, 0.9)",
-          boxShadow: `0 0 12px ${statusColor}88`,
-        }}
-      />
-      <span
-        aria-hidden="true"
-        style={{
-          position: "absolute",
-          bottom: size === "sm" ? "8px" : "9px",
-          width: `${sizeMap.shoulders}px`,
-          height: `${Math.round(sizeMap.shoulders * 0.62)}px`,
-          borderRadius: "16px 16px 8px 8px",
-          background: kind === "backup" ? "rgba(253, 230, 138, 0.5)" : kind === "learner" ? "rgba(209, 250, 229, 0.48)" : "rgba(191, 219, 254, 0.48)",
-          clipPath: "polygon(18% 18%, 82% 18%, 100% 100%, 0 100%)",
-          boxShadow: `0 0 10px ${statusColor}66`,
-        }}
-      />
-      <span
-        aria-hidden="true"
-        style={{
-          position: "absolute",
-          bottom: "5px",
-          width: `${Math.round(sizeMap.shoulders * 1.16)}px`,
-          height: present ? "3px" : "2px",
-          borderRadius: "999px",
-          background: statusColor,
-          opacity: present ? 1 : 0.72,
-          boxShadow: `0 0 14px ${statusColor}`,
-        }}
-      />
-      <span
-        style={{
-          position: "relative",
-          zIndex: 2,
-          fontSize: `${sizeMap.text}px`,
-          fontWeight: 950,
-          letterSpacing: "0",
-          transform: size === "sm" ? "translateY(8px)" : "translateY(10px)",
-          textShadow: "0 1px 2px rgba(255,255,255,0.48)",
-        }}
-      >
+      <span className="cfsp-hologram-avatar-aura" aria-hidden="true" />
+      <span className="cfsp-hologram-avatar-scan" aria-hidden="true" />
+      <span className="cfsp-hologram-avatar-figure" aria-hidden="true">
+        <span className="cfsp-hologram-avatar-head" />
+        <span className="cfsp-hologram-avatar-neck" />
+        <span className="cfsp-hologram-avatar-shoulders" />
+        <span className="cfsp-hologram-avatar-core" />
+      </span>
+      <span className="cfsp-hologram-avatar-badge" aria-hidden="true">
         {resolvedInitials}
       </span>
+      {present ? <span className="cfsp-hologram-avatar-check" aria-hidden="true">✓</span> : null}
     </span>
   );
 }
@@ -19578,10 +19501,33 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         { value: "attendance" as const, label: "Live Attendance" },
       ].map((tab) => {
         const selected = roundCompanionView === tab.value;
+        const isLiveAttendanceTab = tab.value === "attendance";
+        const modeTabStyle: React.CSSProperties = selected
+          ? isLiveAttendanceTab
+            ? {
+                ...buttonStyle,
+                background: "linear-gradient(135deg, #9f2f27 0%, #d74d42 58%, #f97368 100%)",
+                color: "#fff7f6",
+                border: "1px solid rgba(248, 113, 113, 0.74)",
+                boxShadow:
+                  "0 0 0 1px rgba(248, 113, 113, 0.2), 0 0 18px rgba(215, 77, 66, 0.34), 0 8px 18px rgba(127, 29, 29, 0.14)",
+                textShadow: "0 1px 8px rgba(127, 29, 29, 0.28)",
+              }
+            : buttonStyle
+          : isLiveAttendanceTab
+            ? {
+                ...staffingSecondaryButtonStyle,
+                background: "linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(255, 241, 241, 0.86))",
+                color: "#9f2f27",
+                border: "1px solid rgba(248, 113, 113, 0.34)",
+                boxShadow: "0 6px 14px rgba(127, 29, 29, 0.06)",
+              }
+            : staffingSecondaryButtonStyle;
         return (
           <button
             key={`room-operations-mode-${tab.value}`}
             type="button"
+            className={`cfsp-room-mode-toggle ${isLiveAttendanceTab ? "is-live" : "is-setup"}${selected ? " is-selected" : ""}`}
             onClick={() => {
               setPrimaryEventTool("commandCenter");
               setSelectedCommandTool("primary");
@@ -19589,7 +19535,10 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               queueCommandContentScroll();
             }}
             style={{
-              ...(selected ? buttonStyle : staffingSecondaryButtonStyle),
+              ...modeTabStyle,
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "6px",
               padding: "6px 10px",
               borderRadius: "999px",
               fontSize: "11px",
@@ -19597,7 +19546,10 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
             }}
             aria-pressed={selected}
           >
-            {tab.label}
+            {isLiveAttendanceTab ? (
+              <span className={`cfsp-live-mode-dot${selected ? " is-active" : ""}`} aria-hidden="true" />
+            ) : null}
+            <span>{tab.label}</span>
           </button>
         );
       })}
@@ -25126,43 +25078,6 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       @keyframes cfspFloat {
                         0%, 100% { transform: translateY(0px); }
                         50% { transform: translateY(-1.2px); }
-                      }
-                      @keyframes cfspMatrixAvatarFloat {
-                        0%, 100% { transform: translateY(0) scale(1); filter: saturate(1); }
-                        45% { transform: translateY(-2px) scale(1.035); filter: saturate(1.2); }
-                        70% { transform: translateY(1px) scale(0.99); }
-                      }
-                      .cfsp-hologram-avatar::before {
-                        content: "";
-                        position: absolute;
-                        inset: 3px 6px 13px;
-                        border-radius: 999px 999px 60% 60%;
-                        background: rgba(255,255,255,0.24);
-                        filter: blur(0.3px);
-                        z-index: -1;
-                      }
-                      .cfsp-hologram-avatar-icon {
-                        position: absolute;
-                        inset: 3px 0 auto;
-                        text-align: center;
-                        font-size: 9px;
-                        line-height: 1;
-                        opacity: 0.86;
-                      }
-                      .cfsp-hologram-avatar-text {
-                        position: relative;
-                        font-size: 10px;
-                        line-height: 1;
-                        font-weight: 950;
-                        letter-spacing: 0.03em;
-                        text-shadow: 0 0 8px rgba(255,255,255,0.45);
-                        transform: translateY(4px);
-                      }
-                      .cfsp-hologram-avatar[role="button"]:hover,
-                      .cfsp-hologram-avatar[role="button"]:focus-visible {
-                        outline: none;
-                        transform: translateY(-2px) scale(1.08);
-                        box-shadow: 0 0 24px rgba(45, 212, 191, 0.48), inset 0 0 14px rgba(255,255,255,0.28) !important;
                       }
                       .cfsp-command-cabinet-shell::after {
                         content: "";

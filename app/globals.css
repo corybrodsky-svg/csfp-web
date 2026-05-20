@@ -1511,79 +1511,339 @@ textarea {
     drop-shadow(0 6px 10px rgba(0, 0, 0, 0.2));
 }
 
-.cfsp-hologram-avatar {
-  --cfsp-holo-foreground: #3b82f6;
-  --cfsp-holo-background: color-mix(in srgb, var(--cfsp-holo-foreground) 22%, transparent);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+.cfsp-room-mode-toggle {
   position: relative;
-  width: 14px;
-  height: 14px;
+  transition:
+    transform 160ms ease,
+    box-shadow 160ms ease,
+    border-color 160ms ease,
+    filter 160ms ease;
+}
+
+.cfsp-room-mode-toggle:hover {
+  transform: translateY(-1px);
+}
+
+.cfsp-room-mode-toggle:focus-visible {
+  outline: 2px solid rgba(248, 113, 113, 0.36);
+  outline-offset: 2px;
+}
+
+.cfsp-room-mode-toggle.is-setup:focus-visible {
+  outline-color: rgba(47, 128, 237, 0.36);
+}
+
+.cfsp-room-mode-toggle.is-live.is-selected {
+  filter: saturate(1.08);
+}
+
+.cfsp-live-mode-dot {
+  width: 7px;
+  height: 7px;
   border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--cfsp-holo-foreground) 56%, transparent);
-  color: var(--cfsp-holo-foreground);
-  background:
-    radial-gradient(circle at 40% 34%, color-mix(in srgb, var(--cfsp-holo-foreground) 34%, transparent), transparent 62%),
-    var(--cfsp-holo-background);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--cfsp-holo-foreground) 28%, transparent);
-  animation: cfspHologramOrbit 4.5s ease-in-out infinite;
+  background: #fb7185;
+  box-shadow:
+    0 0 0 2px rgba(251, 113, 133, 0.16),
+    0 0 10px rgba(248, 113, 113, 0.42);
 }
 
-.cfsp-hologram-avatar::before {
-  content: "";
-  position: absolute;
-  inset: 2px;
-  border-radius: inherit;
-  border: 1px solid color-mix(in srgb, var(--cfsp-holo-foreground) 42%, transparent);
-  opacity: 0.7;
-  animation: cfspHologramPulse 2.2s ease-in-out infinite;
+.cfsp-live-mode-dot.is-active {
+  background: #fff7f6;
+  box-shadow:
+    0 0 0 2px rgba(255, 247, 246, 0.18),
+    0 0 12px rgba(255, 255, 255, 0.68),
+    0 0 18px rgba(248, 113, 113, 0.54);
+  animation: cfspLiveModePulse 1.8s ease-in-out infinite;
 }
 
-.cfsp-hologram-avatar::after {
-  content: "";
-  position: absolute;
-  inset: -4px;
-  border-radius: inherit;
-  border: 1px dashed color-mix(in srgb, var(--cfsp-holo-foreground) 22%, transparent);
-  opacity: 0.42;
-  animation: cfspHologramScan 5.8s linear infinite;
-}
-
-.cfsp-hologram-avatar.is-student {
-  --cfsp-holo-foreground: #2dd4bf;
-}
-
-.cfsp-hologram-avatar.is-sp {
-  --cfsp-holo-foreground: #a855f7;
-}
-
-.cfsp-hologram-avatar.is-operations {
-  --cfsp-holo-foreground: #38bdf8;
-}
-
-.cfsp-hologram-avatar-icon,
-.cfsp-hologram-avatar-text {
+.cfsp-hologram-avatar {
+  --cfsp-holo-accent: #2f80ed;
+  --cfsp-holo-core: #9bd7ff;
+  --cfsp-holo-ink: #0f2b46;
+  --cfsp-holo-bg: rgba(226, 242, 255, 0.58);
+  --cfsp-holo-glow: rgba(47, 128, 237, 0.34);
+  --cfsp-holo-base: rgba(47, 128, 237, 0.72);
+  --cfsp-holo-badge-bg: rgba(9, 35, 58, 0.76);
+  --cfsp-holo-width: 42px;
+  --cfsp-holo-height: 54px;
+  appearance: none;
+  display: inline-grid;
+  place-items: center;
   position: relative;
-  z-index: 1;
-  font-size: 7px;
-  line-height: 1;
-  font-weight: 900;
-  letter-spacing: -0.02em;
-  transform: translateZ(0);
+  flex: 0 0 auto;
+  width: var(--cfsp-holo-width);
+  height: var(--cfsp-holo-height);
+  color: var(--cfsp-holo-ink);
+  border: 1px solid color-mix(in srgb, var(--cfsp-holo-accent) 52%, transparent);
+  border-radius: 15px 15px 11px 11px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.76), rgba(255, 255, 255, 0.16) 36%, transparent 66%),
+    repeating-linear-gradient(180deg, color-mix(in srgb, var(--cfsp-holo-accent) 16%, transparent) 0 1px, transparent 1px 5px),
+    radial-gradient(ellipse at 50% 16%, rgba(255, 255, 255, 0.86), transparent 34%),
+    linear-gradient(180deg, var(--cfsp-holo-bg), rgba(255, 255, 255, 0.58));
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--cfsp-holo-accent) 18%, transparent),
+    0 0 18px var(--cfsp-holo-glow),
+    0 9px 16px rgba(15, 45, 78, 0.14),
+    inset 0 0 18px rgba(255, 255, 255, 0.46);
+  isolation: isolate;
+  overflow: hidden;
+  transform-origin: 50% 100%;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease,
+    filter 160ms ease;
+  animation: cfspHologramFigureFloat 4.8s ease-in-out infinite;
 }
 
-.cfsp-hologram-avatar-icon {
-  opacity: 0.75;
+.cfsp-hologram-avatar.is-sm {
+  --cfsp-holo-width: 34px;
+  --cfsp-holo-height: 44px;
 }
 
-.cfsp-hologram-avatar-text {
+.cfsp-hologram-avatar.is-lg {
+  --cfsp-holo-width: 50px;
+  --cfsp-holo-height: 62px;
+}
+
+.cfsp-hologram-avatar.is-sp,
+.cfsp-hologram-avatar.is-faculty {
+  --cfsp-holo-accent: #2563eb;
+  --cfsp-holo-core: #93c5fd;
+  --cfsp-holo-ink: #0f2b46;
+  --cfsp-holo-bg: rgba(219, 234, 254, 0.74);
+  --cfsp-holo-glow: rgba(37, 99, 235, 0.34);
+}
+
+.cfsp-hologram-avatar.is-learner {
+  --cfsp-holo-accent: #16a34a;
+  --cfsp-holo-core: #86efac;
+  --cfsp-holo-ink: #064e3b;
+  --cfsp-holo-bg: rgba(220, 252, 231, 0.72);
+  --cfsp-holo-glow: rgba(22, 163, 74, 0.28);
+  --cfsp-holo-width: 38px;
+  --cfsp-holo-height: 49px;
+}
+
+.cfsp-hologram-avatar.is-learner.is-sm {
+  --cfsp-holo-width: 31px;
+  --cfsp-holo-height: 40px;
+}
+
+.cfsp-hologram-avatar.is-backup {
+  --cfsp-holo-accent: #d97706;
+  --cfsp-holo-core: #fde68a;
+  --cfsp-holo-ink: #7c2d12;
+  --cfsp-holo-bg: rgba(254, 243, 199, 0.78);
+  --cfsp-holo-glow: rgba(217, 119, 6, 0.3);
+}
+
+.cfsp-hologram-avatar.status-arrived,
+.cfsp-hologram-avatar.status-in-room,
+.cfsp-hologram-avatar.is-present {
+  --cfsp-holo-accent: #10b981;
+  --cfsp-holo-core: #a7f3d0;
+  --cfsp-holo-bg: rgba(209, 250, 229, 0.82);
+  --cfsp-holo-glow: rgba(16, 185, 129, 0.46);
+  border-color: rgba(16, 185, 129, 0.84);
+  box-shadow:
+    0 0 0 1px rgba(16, 185, 129, 0.2),
+    0 0 24px rgba(16, 185, 129, 0.42),
+    0 10px 18px rgba(15, 118, 110, 0.16),
+    inset 0 0 20px rgba(255, 255, 255, 0.54);
+}
+
+.cfsp-hologram-avatar.status-late {
+  --cfsp-holo-accent: #d97706;
+  --cfsp-holo-core: #fde68a;
+  --cfsp-holo-ink: #7c2d12;
+  --cfsp-holo-bg: rgba(254, 243, 199, 0.78);
+  --cfsp-holo-glow: rgba(217, 119, 6, 0.34);
+}
+
+.cfsp-hologram-avatar.status-missing {
+  --cfsp-holo-accent: #dc2626;
+  --cfsp-holo-core: #fecaca;
+  --cfsp-holo-ink: #7f1d1d;
+  --cfsp-holo-bg: rgba(254, 226, 226, 0.78);
+  --cfsp-holo-glow: rgba(220, 38, 38, 0.32);
+}
+
+.cfsp-hologram-avatar.is-selected {
+  filter: saturate(1.14);
+  transform: translateY(-1px);
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--cfsp-holo-accent) 22%, transparent),
+    0 0 26px var(--cfsp-holo-glow),
+    0 12px 20px rgba(15, 45, 78, 0.18),
+    inset 0 0 20px rgba(255, 255, 255, 0.5);
+}
+
+.cfsp-hologram-avatar[role="button"] {
+  cursor: pointer;
+}
+
+.cfsp-hologram-avatar[role="button"]:hover,
+.cfsp-hologram-avatar[role="button"]:focus-visible {
+  outline: none;
+  transform: translateY(-2px) scale(1.035);
+  border-color: color-mix(in srgb, var(--cfsp-holo-accent) 78%, white);
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--cfsp-holo-accent) 18%, transparent),
+    0 0 28px var(--cfsp-holo-glow),
+    0 12px 20px rgba(15, 45, 78, 0.2),
+    inset 0 0 20px rgba(255, 255, 255, 0.58);
+}
+
+.cfsp-hologram-avatar-aura,
+.cfsp-hologram-avatar-scan,
+.cfsp-hologram-avatar-figure,
+.cfsp-hologram-avatar-head,
+.cfsp-hologram-avatar-neck,
+.cfsp-hologram-avatar-shoulders,
+.cfsp-hologram-avatar-core,
+.cfsp-hologram-avatar-badge,
+.cfsp-hologram-avatar-check {
   position: absolute;
-  top: 1px;
+  pointer-events: none;
+}
+
+.cfsp-hologram-avatar-aura {
+  inset: 5px 6px 7px;
+  border-radius: 12px 12px 9px 9px;
+  border: 1px solid color-mix(in srgb, var(--cfsp-holo-accent) 24%, transparent);
+  background:
+    radial-gradient(ellipse at 50% 18%, color-mix(in srgb, var(--cfsp-holo-core) 48%, transparent), transparent 45%),
+    linear-gradient(180deg, color-mix(in srgb, var(--cfsp-holo-accent) 12%, transparent), transparent 72%);
+  opacity: 0.82;
+  animation: cfspHologramHaloPulse 2.8s ease-in-out infinite;
+  z-index: 0;
+}
+
+.cfsp-hologram-avatar-scan {
+  inset: -35% 0 auto;
+  height: 42%;
+  background: linear-gradient(180deg, transparent, rgba(255, 255, 255, 0.48), transparent);
+  mix-blend-mode: screen;
+  opacity: 0.5;
+  transform: translateY(-80%);
+  animation: cfspHologramScanline 4.2s linear infinite;
+}
+
+.cfsp-hologram-avatar-figure {
   left: 50%;
+  top: 6px;
+  width: 72%;
+  height: calc(100% - 15px);
   transform: translateX(-50%);
-  font-size: 6px;
-  color: color-mix(in srgb, currentColor 98%, transparent);
+}
+
+.cfsp-hologram-avatar-head {
+  left: 50%;
+  top: 0;
+  width: 34%;
+  aspect-ratio: 1;
+  border-radius: 999px;
+  border: 1.5px solid color-mix(in srgb, var(--cfsp-holo-accent) 78%, white);
+  background:
+    radial-gradient(circle at 35% 28%, rgba(255, 255, 255, 0.78), transparent 30%),
+    radial-gradient(circle at 50% 52%, var(--cfsp-holo-core), color-mix(in srgb, var(--cfsp-holo-accent) 42%, transparent));
+  box-shadow:
+    0 0 12px var(--cfsp-holo-glow),
+    inset 0 0 8px rgba(255, 255, 255, 0.38);
+  transform: translateX(-50%);
+}
+
+.cfsp-hologram-avatar-neck {
+  left: 50%;
+  top: 29%;
+  width: 9%;
+  height: 15%;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--cfsp-holo-accent) 74%, white);
+  box-shadow: 0 0 8px var(--cfsp-holo-glow);
+  transform: translateX(-50%);
+}
+
+.cfsp-hologram-avatar-shoulders {
+  left: 50%;
+  top: 38%;
+  width: 78%;
+  height: 32%;
+  border: 1.2px solid color-mix(in srgb, var(--cfsp-holo-accent) 56%, transparent);
+  border-radius: 42% 42% 18% 18%;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--cfsp-holo-core) 58%, transparent), color-mix(in srgb, var(--cfsp-holo-accent) 18%, transparent)),
+    repeating-linear-gradient(90deg, transparent 0 5px, color-mix(in srgb, var(--cfsp-holo-accent) 12%, transparent) 5px 6px);
+  clip-path: polygon(22% 0, 78% 0, 100% 100%, 0 100%);
+  box-shadow:
+    0 0 14px var(--cfsp-holo-glow),
+    inset 0 0 10px rgba(255, 255, 255, 0.28);
+  transform: translateX(-50%);
+}
+
+.cfsp-hologram-avatar-core {
+  left: 50%;
+  top: 49%;
+  width: 24%;
+  height: 25%;
+  border-radius: 999px 999px 35% 35%;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.68), color-mix(in srgb, var(--cfsp-holo-accent) 36%, transparent));
+  opacity: 0.68;
+  transform: translateX(-50%);
+}
+
+.cfsp-hologram-avatar-badge {
+  left: 50%;
+  bottom: 4px;
+  min-width: 66%;
+  max-width: calc(100% - 8px);
+  padding: 1px 4px;
+  border-radius: 999px;
+  color: #ffffff;
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--cfsp-holo-accent) 58%, rgba(4, 15, 26, 0.76)), var(--cfsp-holo-badge-bg));
+  box-shadow:
+    0 0 10px var(--cfsp-holo-glow),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+  font-size: 9px;
+  line-height: 1.2;
+  font-weight: 950;
+  letter-spacing: 0;
+  text-align: center;
+  text-shadow: 0 0 7px rgba(255, 255, 255, 0.44);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transform: translateX(-50%);
+}
+
+.cfsp-hologram-avatar.is-sm .cfsp-hologram-avatar-badge {
+  bottom: 3px;
+  font-size: 7.8px;
+  padding-inline: 3px;
+}
+
+.cfsp-hologram-avatar.is-lg .cfsp-hologram-avatar-badge {
+  font-size: 10px;
+}
+
+.cfsp-hologram-avatar-check {
+  right: -3px;
+  top: -3px;
+  display: grid;
+  place-items: center;
+  width: 15px;
+  height: 15px;
+  border-radius: 999px;
+  color: #ffffff;
+  background: #10b981;
+  border: 1px solid rgba(255, 255, 255, 0.86);
+  box-shadow: 0 0 14px rgba(16, 185, 129, 0.58);
+  font-size: 10px;
+  font-weight: 950;
+  line-height: 1;
 }
 
 .cfsp-presence-figure {
@@ -2017,18 +2277,72 @@ textarea {
   }
 }
 
+@keyframes cfspHologramFigureFloat {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-0.6deg);
+    filter: saturate(1);
+  }
+  48% {
+    transform: translateY(-1.4px) rotate(0.8deg);
+    filter: saturate(1.12);
+  }
+}
+
+@keyframes cfspHologramHaloPulse {
+  0%,
+  100% {
+    opacity: 0.58;
+    transform: scale(0.96);
+  }
+  50% {
+    opacity: 0.9;
+    transform: scale(1.03);
+  }
+}
+
+@keyframes cfspHologramScanline {
+  0% {
+    transform: translateY(-90%);
+    opacity: 0;
+  }
+  18% {
+    opacity: 0.52;
+  }
+  52% {
+    opacity: 0.22;
+  }
+  100% {
+    transform: translateY(330%);
+    opacity: 0;
+  }
+}
+
+@keyframes cfspLiveModePulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.9;
+  }
+  50% {
+    transform: scale(1.25);
+    opacity: 1;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .simvitals-mark::before,
   .simvitals-mark-signal path,
   .cfsp-recording-dot,
+  .cfsp-live-mode-dot.is-active,
   .cfsp-live-blueprint-wall::before,
   .cfsp-blueprint-room.is-active::after,
   .cfsp-blueprint-marker.is-checked-in,
   .cfsp-blueprint-room-x.is-checked-in,
   .cfsp-presence-figure,
   .cfsp-hologram-avatar,
-  .cfsp-hologram-avatar::before,
-  .cfsp-hologram-avatar::after,
+  .cfsp-hologram-avatar-aura,
+  .cfsp-hologram-avatar-scan,
   .cfsp-presence-arm,
   .cfsp-presence-leg,
   .cfsp-presence-step {
