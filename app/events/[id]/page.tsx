@@ -9585,9 +9585,51 @@ const operationalEventStatusLabel = useMemo(() => {
   ]);
   const getOperationsRoomPrimarySpName = (row: OperationsRoomCardRow | RoundRoomRow) =>
     row.sp ? getFullName(row.sp) : ("primarySpName" in row ? asText(row.primarySpName) : "");
+  const selectedRoundLearnerFlowRows = useMemo(() => {
+    if (selectedRoundResolvedScheduleTruth?.length) {
+      return selectedRoundResolvedScheduleTruth
+        .filter((station) => station.stationStatus !== "inactive")
+        .map((station) => ({
+          key: `${station.key}-learner-flow`,
+          roomName: station.roomName,
+          learnerLabels: normalizeLearnerNames(station.learnerLabels),
+          stationLabel: station.stationLabel,
+          caseLabel: station.caseLabel,
+          roleLabel: station.roleLabel,
+          encounterLabel: station.encounterLabel,
+          roundNumber: station.roundNumber,
+          start: station.start,
+          end: station.end,
+          stationStatus: station.stationStatus,
+          isBackupStation: station.isBackupStation,
+        }));
+    }
+
+    return selectedRoundScheduleRows.map((row, index) => ({
+      key: `${row.key}-learner-flow`,
+      roomName: row.roomName || getFallbackRoomLabel(index, roomNamingContext),
+      learnerLabels: normalizeLearnerNames(row.learnerLabels),
+      stationLabel: row.stationLabel,
+      caseLabel: row.caseLabel,
+      roleLabel: row.roleLabel,
+      encounterLabel: [row.stationLabel, row.caseLabel].filter(Boolean).join(" · ") || "Case pending",
+      roundNumber: activeSelectedRotationRoundIndex + 1,
+      start: asText(selectedRotationRound?.start_time),
+      end: asText(selectedRotationRound?.end_time),
+      stationStatus: "active" as ScheduleStationStatus,
+      isBackupStation: false,
+    }));
+  }, [
+    activeSelectedRotationRoundIndex,
+    roomNamingContext,
+    selectedRotationRound?.end_time,
+    selectedRotationRound?.start_time,
+    selectedRoundResolvedScheduleTruth,
+    selectedRoundScheduleRows,
+  ]);
   const selectedRoundLearnerCount = useMemo(() => {
     if (!selectedRotationRound) return null;
-    const resolvedLearnerCount = selectedRoundScheduleRows.reduce((total, row) => total + row.learnerLabels.length, 0);
+    const resolvedLearnerCount = selectedRoundLearnerFlowRows.reduce((total, row) => total + row.learnerLabels.length, 0);
     if (resolvedLearnerCount > 0) return resolvedLearnerCount;
     if (effectiveLearnerCount <= 0) return null;
     const roomCapacity = selectedRoundRoomCount || 0;
@@ -9595,7 +9637,7 @@ const operationalEventStatusLabel = useMemo(() => {
     const remaining = effectiveLearnerCount - activeSelectedRotationRoundGlobalIndex * roomCapacity;
     if (remaining <= 0) return 0;
     return Math.min(roomCapacity, remaining);
-  }, [activeSelectedRotationRoundGlobalIndex, effectiveLearnerCount, selectedRotationRound, selectedRoundRoomCount, selectedRoundScheduleRows]);
+  }, [activeSelectedRotationRoundGlobalIndex, effectiveLearnerCount, selectedRotationRound, selectedRoundLearnerFlowRows, selectedRoundRoomCount]);
   const operationalRoundCount = rotationRounds.length || activeRotationCount || scheduleBuilderDraftRoundCount || 0;
   const operationalRoomCount = selectedRoundActiveStationCount || selectedRoundRoomCount || effectiveRoomCount || scheduleBuilderDraftRoomCount || 0;
   const operationalLearnerCountLabel =
@@ -9633,7 +9675,7 @@ const operationalEventStatusLabel = useMemo(() => {
       ? `${learnerPlannerUnassignedCount} learner${learnerPlannerUnassignedCount === 1 ? "" : "s"} beyond current room/round capacity`
       : "",
   ].filter(Boolean);
-  const selectedRoundAssignedLearnerCount = selectedRoundScheduleRows.reduce((total, row) => total + row.learnerLabels.length, 0);
+  const selectedRoundAssignedLearnerCount = selectedRoundLearnerFlowRows.reduce((total, row) => total + row.learnerLabels.length, 0);
   const selectedRoundExpectedLearnerCount = selectedRoundLearnerCount ?? 0;
   const selectedRoundPrimaryCoveredCount = selectedRoundOperationsRows.filter(
     (row) => row.isActiveStation && row.assignment && getAssignmentStatus(row.assignment) === "confirmed"
@@ -25989,13 +26031,15 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
   </div>
 ) : roundCompanionView === "learner" ? (
   <div style={{ display: "grid", gap: "6px" }}>
-    {selectedRoundScheduleRows.map((row, index) => (
+    {selectedRoundLearnerFlowRows.map((row, index) => (
       <div
         key={`${row.key}-learnerflow`}
         style={{
           borderRadius: "12px",
-          border: commandCenterVisual.rowBorder,
-          background: commandCenterVisual.rowBackground,
+          border: row.isBackupStation ? "1px solid rgba(217, 119, 6, 0.26)" : commandCenterVisual.rowBorder,
+          background: row.isBackupStation
+            ? (isPlanningVisualMode ? "linear-gradient(135deg, rgba(255, 251, 235, 0.94), rgba(250, 245, 255, 0.82))" : "rgba(120, 53, 15, 0.18)")
+            : commandCenterVisual.rowBackground,
           padding: "8px 10px",
           display: "grid",
           gap: "6px",
@@ -26008,6 +26052,16 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           }}
         >
           {row.roomName || `Room ${index + 1}`}
+        </div>
+        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+          <span style={{ ...commandChipStyle, background: row.isBackupStation ? "rgba(253, 230, 138, 0.76)" : commandCenterVisual.chipBackground, color: row.isBackupStation ? "#7c2d12" : commandCenterVisual.chipText, border: row.isBackupStation ? "1px solid rgba(217, 119, 6, 0.24)" : commandCenterVisual.rowBorder }}>
+            {row.isBackupStation ? "Backup / Standby" : `Round ${row.roundNumber}`}
+          </span>
+          {row.encounterLabel ? (
+            <span style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText, border: commandCenterVisual.rowBorder }}>
+              {row.encounterLabel}
+            </span>
+          ) : null}
         </div>
 
         <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
@@ -26033,12 +26087,17 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 fontWeight: 700,
               }}
             >
-              No learners assigned
+              {row.isBackupStation ? "Standby coverage - no learners required" : "No learners assigned"}
             </span>
           )}
         </div>
       </div>
     ))}
+    {!selectedRoundLearnerFlowRows.length ? (
+      <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 750 }}>
+        No learner flow rows are available for this round yet.
+      </div>
+    ) : null}
   </div>
 ) : roundCompanionView === "live" ? (
   <div style={{ display: "grid", gap: "8px" }}>
