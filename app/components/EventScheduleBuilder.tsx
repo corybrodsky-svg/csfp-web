@@ -968,6 +968,13 @@ type StudentInstructionsScheduleBlock = {
   cells: StudentInstructionsScheduleCell[];
 };
 
+type StudentInstructionsHtmlBuildResult = {
+  html: string;
+  ready: boolean;
+  reason: string;
+  cause?: unknown;
+};
+
 type PdfExportPageManifest = {
   page: HTMLElement;
   roundCount: number;
@@ -980,6 +987,9 @@ type PdfExportPages = {
   contentHeight: number;
   root: HTMLElement;
 };
+
+const STUDENT_INSTRUCTIONS_EXPORT_ERROR_MESSAGE = "Could not generate Student Instructions. Please try again.";
+const PRINT_PREVIEW_URL_REVOKE_DELAY_MS = 60_000;
 
 function isLikelyVirtualAccessUrl(value: string) {
   const normalized = normalizeDisplayText(value);
@@ -1009,6 +1019,15 @@ function validateStudentInstructionsPrintHtml(value: string): { ready: boolean; 
   if (!hasRenderablePrintHtml(html)) {
     return { ready: false, reason: "Could not generate Student Instructions PDF. Printable packet markup is missing." };
   }
+  if (typeof DOMParser === "undefined") {
+    const hasRequiredMarkup =
+      /\bcfsp-schedule-export\b/.test(html) &&
+      /\bstudent-instructions-document\b/.test(html) &&
+      /\bstudent-packet-page-section\b/.test(html);
+    return hasRequiredMarkup
+      ? { ready: true, reason: "" }
+      : { ready: false, reason: "Could not generate Student Instructions PDF. Printable packet sections are incomplete." };
+  }
   try {
     const parsed = new DOMParser().parseFromString(html, "text/html");
     const hasExportRoot = Boolean(parsed.querySelector(".cfsp-schedule-export"));
@@ -1023,6 +1042,60 @@ function validateStudentInstructionsPrintHtml(value: string): { ready: boolean; 
     return { ready: true, reason: "" };
   } catch {
     return { ready: false, reason: "Could not generate Student Instructions PDF. Printable packet could not be parsed." };
+  }
+}
+
+function getErrorDetail(error: unknown) {
+  if (error instanceof Error) return error.message;
+  return asText(error) || "Unknown error";
+}
+
+function addPrintOnLoadScript(html: string, logLabel: string) {
+  const escapedLogLabel = logLabel.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  const script = `
+        <script>
+          (() => {
+            const printAfterLoad = () => {
+              window.setTimeout(() => {
+                try {
+                  window.focus();
+                  window.print();
+                } catch (error) {
+                  console.error("${escapedLogLabel}", error);
+                }
+              }, 250);
+            };
+            if (document.readyState === "complete") {
+              printAfterLoad();
+            } else {
+              window.addEventListener("load", printAfterLoad, { once: true });
+            }
+          })();
+        </script>`;
+  return /<\/body>/i.test(html) ? html.replace(/<\/body>/i, `${script}\n      </body>`) : `${html}${script}`;
+}
+
+function openPrintableHtmlBlob(html: string, options?: { printOnLoad?: boolean; logLabel?: string }) {
+  if (typeof window === "undefined") return false;
+  const printableHtml = options?.printOnLoad
+    ? addPrintOnLoadScript(html, options.logLabel || "[schedule-export] Could not open print dialog.")
+    : html;
+  if (!hasRenderablePrintHtml(printableHtml)) {
+    console.error("[schedule-export] Printable HTML was missing or invalid before opening preview.");
+    return false;
+  }
+
+  let url = "";
+  try {
+    const blob = new Blob([printableHtml], { type: "text/html;charset=utf-8" });
+    url = URL.createObjectURL(blob);
+    window.open(url, "_blank", "noopener,noreferrer");
+    window.setTimeout(() => URL.revokeObjectURL(url), PRINT_PREVIEW_URL_REVOKE_DELAY_MS);
+    return true;
+  } catch (error) {
+    if (url) URL.revokeObjectURL(url);
+    console.error("[schedule-export] Could not open printable HTML preview.", error);
+    return false;
   }
 }
 
@@ -1968,14 +2041,14 @@ async function createStyledSchedulePdfBlob(context: StyledPdfRenderContext) {
   if (isStudentInstructions) {
     try {
       pagesResult = await buildStudentInstructionsPdfPages(htmlSource, pageWidth, pageHeight, pdfSidePadding);
-    } catch {
-      console.error("[styled-pdf] Student instructions PDF page build failed; attempting fallback export.");
+    } catch (error) {
+      console.error("[styled-pdf] Student instructions PDF page build failed; attempting fallback export.", error);
     }
   } else {
     try {
       pagesResult = await buildSchedulePdfPages(htmlSource, pageWidth, pageHeight, pdfSidePadding);
-    } catch {
-      console.error("[styled-pdf] Sectioned PDF page build failed; attempting fallback export.");
+    } catch (error) {
+      console.error("[styled-pdf] Sectioned PDF page build failed; attempting fallback export.", error);
     }
   }
 
@@ -2037,7 +2110,7 @@ async function createStyledSchedulePdfBlob(context: StyledPdfRenderContext) {
     if (isCanvasTaintError(error)) {
       throw new Error("Direct PDF rendering blocked by browser CORS/canvas safety. Check image and asset access policies.");
     }
-    console.error("[styled-pdf] Section-based PDF render failed; attempting fallback export.");
+    console.error("[styled-pdf] Section-based PDF render failed; attempting fallback export.", error);
     return createFallbackStyledPdfBlob(htmlSource, scheduleDoc, pageWidthForRender, pageHeightForRender, pdfSidePadding, html2canvas);
   } finally {
     cleanup();
@@ -2608,11 +2681,12 @@ function buildStudentInstructionsExportHtml(context: StudentInstructionsExportCo
     timingRows.push(["Arrival / check-in:", joinTimeLabel]);
   }
   const accessRows: string[] = [];
+  if (locationLabel) {
+    accessRows.push(`<p>Location: ${escapeHtml(locationLabel)}</p>`);
+  }
   if (zoomLink) {
     const zoomHref = /^https?:\/\//i.test(zoomLink) ? zoomLink : `https://${zoomLink}`;
     accessRows.push(`<p>Zoom link: <a href="${escapeHtml(zoomHref)}">${escapeHtml(zoomLink)}</a></p>`);
-  } else if (locationLabel) {
-    accessRows.push(`<p>Location: ${escapeHtml(locationLabel)}</p>`);
   }
   if (!accessRows.length) {
     accessRows.push("<p>Location: Provided separately.</p>");
@@ -2621,7 +2695,7 @@ function buildStudentInstructionsExportHtml(context: StudentInstructionsExportCo
     { label: "Date", value: dateLabel || "TBD" },
     { label: "Arrival / Check-in", value: joinTimeLabel || "TBD" },
     { label: "First Encounter", value: firstEncounterLabel || "TBD" },
-    { label: hasVirtualAccess ? "Access" : "Location", value: hasVirtualAccess ? "Virtual encounter access provided below" : locationLabel || "Provided separately" },
+    { label: "Location", value: locationLabel || (hasVirtualAccess ? "Virtual encounter access provided below" : "Provided separately") },
     { label: "Rounds", value: studentScheduleRounds.length ? String(studentScheduleRounds.length) : "TBD" },
     { label: "Rooms", value: roomColumns.length ? String(roomColumns.length) : "TBD" },
   ];
@@ -7877,50 +7951,58 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     studentInstructionsResolvedLocation,
     studentInstructionsResolvedZoomLink,
   ]);
-  const studentInstructionsPrintHtml = useMemo(
-    () =>
-      studentInstructionsContextError
-        ? ""
-        : buildStudentInstructionsExportHtml({
-            event: selectedEvent,
-            programLabel: studentInstructionsEventName,
-            dateLabel: selectedScheduleDateLabel,
-            zoomLink: studentInstructionsResolvedZoomLink,
-            locationLabel: studentInstructionsResolvedLocation,
-            instructionsConfig: savedStudentInstructionsConfig,
-            encounterMinutes: firstStudentEncounterDurationMinutes,
-            feedbackMinutes: firstFeedbackDurationMinutes,
-            firstEncounterStartMinutes: firstStudentEncounterStartMinutes,
-            studentScheduleRounds: studentPreviewRounds,
-            roomColumns,
-            roomContext: roomNamingContext,
-          }),
-    [
-      firstFeedbackDurationMinutes,
-      firstStudentEncounterStartMinutes,
-      firstStudentEncounterDurationMinutes,
-      roomColumns,
-      roomNamingContext,
-      selectedEvent,
-      selectedScheduleDateLabel,
-      savedStudentInstructionsConfig,
-      studentInstructionsContextError,
-      studentInstructionsEventName,
-      studentInstructionsResolvedLocation,
-      studentInstructionsResolvedZoomLink,
-      studentPreviewRounds,
-    ]
-  );
+  const buildCurrentStudentInstructionsHtml = useCallback((): StudentInstructionsHtmlBuildResult => {
+    if (studentInstructionsContextError) {
+      return { html: "", ready: false, reason: studentInstructionsContextError };
+    }
+
+    try {
+      const html = buildStudentInstructionsExportHtml({
+        event: selectedEvent,
+        programLabel: studentInstructionsEventName,
+        dateLabel: selectedScheduleDateLabel,
+        zoomLink: studentInstructionsResolvedZoomLink,
+        locationLabel: studentInstructionsResolvedLocation,
+        instructionsConfig: savedStudentInstructionsConfig,
+        encounterMinutes: firstStudentEncounterDurationMinutes,
+        feedbackMinutes: firstFeedbackDurationMinutes,
+        firstEncounterStartMinutes: firstStudentEncounterStartMinutes,
+        studentScheduleRounds: studentPreviewRounds,
+        roomColumns,
+        roomContext: roomNamingContext,
+      });
+      const validation = validateStudentInstructionsPrintHtml(html);
+      if (!validation.ready) {
+        return { html: "", ready: false, reason: validation.reason };
+      }
+      return { html, ready: true, reason: "" };
+    } catch (error) {
+      return {
+        html: "",
+        ready: false,
+        reason: `Student Instructions HTML builder failed: ${getErrorDetail(error)}`,
+        cause: error,
+      };
+    }
+  }, [
+    firstFeedbackDurationMinutes,
+    firstStudentEncounterStartMinutes,
+    firstStudentEncounterDurationMinutes,
+    roomColumns,
+    roomNamingContext,
+    selectedEvent,
+    selectedScheduleDateLabel,
+    savedStudentInstructionsConfig,
+    studentInstructionsContextError,
+    studentInstructionsEventName,
+    studentInstructionsResolvedLocation,
+    studentInstructionsResolvedZoomLink,
+    studentPreviewRounds,
+  ]);
   const studentInstructionsPdfFileName = useMemo(() => {
     const eventBaseName = getSafeFileName(normalizeDisplayText(selectedEvent?.name));
     return eventBaseName ? `${eventBaseName}-student-instructions.pdf` : "student-instructions.pdf";
   }, [selectedEvent?.name]);
-  const studentInstructionsHtmlValidation = useMemo(
-    () => validateStudentInstructionsPrintHtml(studentInstructionsPrintHtml),
-    [studentInstructionsPrintHtml]
-  );
-  const studentInstructionsGenerationError =
-    studentInstructionsContextError || (studentInstructionsHtmlValidation.ready ? "" : studentInstructionsHtmlValidation.reason);
   const autoDownloadTriggeredRef = useRef(false);
   const previewDocumentParts = useMemo(
     () => getPreviewDocumentParts(schedulePreview.html),
@@ -8011,64 +8093,44 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const openSchedulePrintFlow = useCallback((): boolean => {
     if (typeof window === "undefined") return false;
     if (!hasRenderablePrintHtml(compactSchedulePrintHtml)) {
-      console.error("[student-instructions] Missing schedule print HTML for fallback print flow.");
+      console.error("[schedule-export] Missing schedule print HTML for fallback print flow.");
       return false;
     }
 
-    const popup = window.open("", "_blank", "noopener,noreferrer");
-    if (!popup) {
-      return false;
-    }
-    try {
-      popup.document.open();
-      popup.document.write(compactSchedulePrintHtml);
-      popup.document.close();
-      popup.onload = () => {
-        popup.focus();
-        popup.print();
-      };
-      return true;
-    } catch (error) {
-      console.error("[student-instructions] Could not write schedule print window.", error);
-      popup.close();
-      return false;
-    }
+    return openPrintableHtmlBlob(compactSchedulePrintHtml, {
+      printOnLoad: true,
+      logLabel: "[schedule-export] Could not open print dialog.",
+    });
   }, [compactSchedulePrintHtml]);
 
-  const openStudentInstructionsPrintFlow = useCallback((): boolean => {
+  const openStudentInstructionsPrintFlow = useCallback((preparedHtml?: string): boolean => {
     if (typeof window === "undefined") return false;
-    if (studentInstructionsGenerationError) {
-      console.error("[student-instructions] Missing printable packet HTML.", {
-        contextError: studentInstructionsContextError || null,
-        htmlError: studentInstructionsHtmlValidation.reason || null,
+    let html = asText(preparedHtml);
+    if (!html) {
+      const buildResult = buildCurrentStudentInstructionsHtml();
+      if (!buildResult.ready) {
+        console.error("[student-instructions] Student Instructions HTML generation failed before preview window.", {
+          reason: buildResult.reason,
+          cause: buildResult.cause,
+        });
+        return false;
+      }
+      html = buildResult.html;
+    }
+
+    const validation = validateStudentInstructionsPrintHtml(html);
+    if (!validation.ready) {
+      console.error("[student-instructions] Student Instructions HTML failed validation before preview window.", {
+        reason: validation.reason,
       });
       return false;
     }
 
-    const popup = window.open("", "_blank", "noopener,noreferrer");
-    if (!popup) {
-      return false;
-    }
-    try {
-      popup.document.open();
-      popup.document.write(studentInstructionsPrintHtml);
-      popup.document.close();
-      popup.onload = () => {
-        popup.focus();
-        popup.print();
-      };
-      return true;
-    } catch (error) {
-      console.error("[student-instructions] Could not write student instructions print window.", error);
-      popup.close();
-      return false;
-    }
-  }, [
-    studentInstructionsContextError,
-    studentInstructionsGenerationError,
-    studentInstructionsHtmlValidation.reason,
-    studentInstructionsPrintHtml,
-  ]);
+    return openPrintableHtmlBlob(html, {
+      printOnLoad: true,
+      logLabel: "[student-instructions] Could not open print dialog.",
+    });
+  }, [buildCurrentStudentInstructionsHtml]);
 
   const handleStyledPdfDownload = useCallback(async () => {
     if (styledPdfExporting) return;
@@ -8108,12 +8170,13 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
 
   const handleStudentInstructionsPdfDownload = useCallback(async () => {
     if (studentInstructionsPdfExporting) return;
-    if (studentInstructionsGenerationError) {
+    const buildResult = buildCurrentStudentInstructionsHtml();
+    if (!buildResult.ready) {
       console.error("[student-instructions] PDF generation blocked before export.", {
-        contextError: studentInstructionsContextError || null,
-        htmlError: studentInstructionsHtmlValidation.reason || null,
+        reason: buildResult.reason,
+        cause: buildResult.cause,
       });
-      showCopyMessage(studentInstructionsGenerationError, "error", 4200);
+      showCopyMessage(STUDENT_INSTRUCTIONS_EXPORT_ERROR_MESSAGE, "error", 4200);
       return;
     }
 
@@ -8121,35 +8184,30 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     showCopyMessage("Preparing Student Instructions PDF...", "success", 2200);
     try {
       const pdfBlob = await createStyledSchedulePdfBlob({
-        html: studentInstructionsPrintHtml,
+        html: buildResult.html,
         printView: "student-instructions",
       });
       downloadBlob(pdfBlob, studentInstructionsPdfFileName);
       showCopyMessage("Student Instructions PDF downloaded.", "success", 2600);
     } catch (error) {
-      const printOpened = openStudentInstructionsPrintFlow();
-      const fallbackErrorMessage = "Could not generate Student Instructions PDF.";
+      console.error("[student-instructions] PDF generation failed after HTML was validated.", error);
+      const printOpened = openStudentInstructionsPrintFlow(buildResult.html);
       showCopyMessage(
         printOpened
           ? "Direct Student Instructions PDF download was blocked, so a print window opened. Use Save as PDF from the print dialog."
-          : error instanceof Error
-            ? `${fallbackErrorMessage} ${error.message}`
-            : `${fallbackErrorMessage} Use the print window and Save as PDF.`,
+          : STUDENT_INSTRUCTIONS_EXPORT_ERROR_MESSAGE,
         printOpened ? "success" : "error",
-        printOpened ? 5200 : 3600
+        printOpened ? 5200 : 4200
       );
     } finally {
       setStudentInstructionsPdfExporting(false);
     }
   }, [
+    buildCurrentStudentInstructionsHtml,
     openStudentInstructionsPrintFlow,
     showCopyMessage,
-    studentInstructionsContextError,
-    studentInstructionsGenerationError,
-    studentInstructionsHtmlValidation.reason,
     studentInstructionsPdfExporting,
     studentInstructionsPdfFileName,
-    studentInstructionsPrintHtml,
   ]);
 
   useEffect(() => {
@@ -8182,7 +8240,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     if (loading || !props.previewOnly || !props.autoDownload) return;
     if (props.autoDownloadMode !== "student-instructions") return;
     if (!studentInstructionsContextError) return;
-    showCopyMessage(studentInstructionsContextError, "error", 4200);
+    console.error("[student-instructions] Student Instructions export unavailable.", {
+      reason: studentInstructionsContextError,
+    });
+    showCopyMessage(STUDENT_INSTRUCTIONS_EXPORT_ERROR_MESSAGE, "error", 4200);
   }, [loading, props.autoDownload, props.autoDownloadMode, props.previewOnly, showCopyMessage, studentInstructionsContextError]);
 
   function handleRenderedSchedulePrint() {
