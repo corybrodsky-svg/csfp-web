@@ -27018,15 +27018,6 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           </div>
                         </div>
                         <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                          {[
-                            { kind: "student" as const, label: "Student Schedule" },
-                            { kind: "sp" as const, label: "SP Schedule" },
-                            { kind: "operations" as const, label: "Operations Schedule" },
-                          ].map((scheduleView) => (
-                            <button key={`central-schedule-view-${scheduleView.kind}`} type="button" onClick={() => handleOpenEventScheduleRouteInNewTab(scheduleView.kind, "schedule")} style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px" }}>
-                              {scheduleView.label}
-                            </button>
-                          ))}
                           {scheduleSummaryActions.map((action) =>
                             action.href ? (
                               <Link key={`central-schedule-action-${action.label}`} href={action.href} style={{ ...buttonStyle, padding: "7px 10px", textDecoration: "none", display: "inline-flex", alignItems: "center" }}>
