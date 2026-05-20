@@ -3581,6 +3581,74 @@ function getRotationRoundKeyFromSession(session: EventSessionRow) {
   return getRotationRoundKeyFromParts(session.session_date, session.start_time, session.end_time);
 }
 
+function getSnapshotRoundKey(roundNumber: number) {
+  return `completed-snapshot-round-${roundNumber}`;
+}
+
+function getRoundNumberFromRotationKey(value: unknown) {
+  const text = asText(value);
+  const direct = Number(text);
+  if (Number.isFinite(direct) && direct > 0) return direct;
+  const match = text.match(/(?:^|[-_\s])round[-_\s]*(\d+)\b/i) || text.match(/\bround[-_\s]*(\d+)\b/i);
+  if (match?.[1]) return Number(match[1]) || 0;
+  return 0;
+}
+
+function timesMatch(left?: string | null, right?: string | null) {
+  const leftMinutes = parseTimeToMinutes(left);
+  const rightMinutes = parseTimeToMinutes(right);
+  if (leftMinutes !== null && rightMinutes !== null) return leftMinutes === rightMinutes;
+  return asText(left).toLowerCase() === asText(right).toLowerCase();
+}
+
+function resolveSelectedScheduleRound(args: {
+  selectedRotationRound: RotationRound | null | undefined;
+  resolvedRounds: ScheduleBuilderPreviewResolvedRound[];
+  persistedResolvedRoundsByKey: Map<string, ScheduleBuilderPreviewResolvedRound>;
+  selectedRoundIndex: number;
+  selectedRoundGlobalIndex: number;
+}) {
+  const selectedRound = args.selectedRotationRound;
+  if (!selectedRound || !args.resolvedRounds.length) return null;
+
+  const exactKeyMatch = args.persistedResolvedRoundsByKey.get(selectedRound.key);
+  if (exactKeyMatch) return exactKeyMatch;
+
+  const selectedRoundRecord = selectedRound as RotationRound & { round?: unknown; roundNumber?: unknown };
+  const explicitRoundNumber =
+    parsePositiveInteger(selectedRoundRecord.round, 0) ||
+    parsePositiveInteger(selectedRoundRecord.roundNumber, 0);
+  const keyRoundNumber = getRoundNumberFromRotationKey(selectedRound.key);
+  const globalRoundNumber = args.selectedRoundGlobalIndex >= 0 ? args.selectedRoundGlobalIndex + 1 : 0;
+  const localRoundNumber = args.selectedRoundIndex >= 0 ? args.selectedRoundIndex + 1 : 0;
+  const roundNumberCandidates = Array.from(
+    new Set([explicitRoundNumber, keyRoundNumber, globalRoundNumber, localRoundNumber].filter((value) => value > 0))
+  );
+
+  for (const roundNumber of roundNumberCandidates) {
+    const keyedRound = args.persistedResolvedRoundsByKey.get(getSnapshotRoundKey(roundNumber));
+    if (keyedRound) return keyedRound;
+    const numberedRound = args.resolvedRounds.find((round) => Number(round.round) === roundNumber);
+    if (numberedRound) return numberedRound;
+  }
+
+  const selectedDate = asText(selectedRound.session_date);
+  const timeMatchedRound = args.resolvedRounds.find((round) => {
+    const roundDate = asText(round.sessionDate);
+    const dateMatches = !selectedDate || !roundDate || selectedDate === roundDate;
+    return dateMatches && timesMatch(round.startTime, selectedRound.start_time) && timesMatch(round.endTime, selectedRound.end_time);
+  });
+  if (timeMatchedRound) return timeMatchedRound;
+
+  const safeGlobalIndex = args.selectedRoundGlobalIndex >= 0 ? args.selectedRoundGlobalIndex : -1;
+  if (safeGlobalIndex >= 0 && safeGlobalIndex < args.resolvedRounds.length) return args.resolvedRounds[safeGlobalIndex];
+
+  const safeLocalIndex = args.selectedRoundIndex >= 0 ? args.selectedRoundIndex : -1;
+  if (safeLocalIndex >= 0 && safeLocalIndex < args.resolvedRounds.length) return args.resolvedRounds[safeLocalIndex];
+
+  return null;
+}
+
 function getRotationRoundDurationMinutes(round: RotationRound) {
   const startMinutes = parseTimeToMinutes(round.start_time);
   const endMinutes = parseTimeToMinutes(round.end_time);
@@ -6619,8 +6687,16 @@ export default function EventDetailPage() {
   );
   const roomSlotEntriesByRoundKey = useMemo(() => {
     const next = new Map<string, RoomDisplayEntry[]>();
-    rotationRounds.forEach((round) => {
-      const persistedRoundSlotCount = persistedResolvedRoundsByKey.get(round.key)?.roomSlots.length || 0;
+    const resolvedRounds = scheduleBuilderPreviewDraft?.resolvedRounds || [];
+    rotationRounds.forEach((round, index) => {
+      const persistedRound = resolveSelectedScheduleRound({
+        selectedRotationRound: round,
+        resolvedRounds,
+        persistedResolvedRoundsByKey,
+        selectedRoundIndex: index,
+        selectedRoundGlobalIndex: index,
+      });
+      const persistedRoundSlotCount = persistedRound?.roomSlots.length || 0;
       next.set(
         round.key,
         buildFullRoomSlotsForRound(round, {
@@ -6630,7 +6706,7 @@ export default function EventDetailPage() {
       );
     });
     return next;
-  }, [effectiveRoomCount, persistedResolvedRoundsByKey, roomNamingContext, rotationRounds]);
+  }, [effectiveRoomCount, persistedResolvedRoundsByKey, roomNamingContext, rotationRounds, scheduleBuilderPreviewDraft?.resolvedRounds]);
   const hiddenExtraBackendRounds =
     activeRotationCount > 0 && allRotationRounds.length > rotationRounds.length
       ? allRotationRounds.length - rotationRounds.length
@@ -9141,9 +9217,26 @@ const operationalEventStatusLabel = useMemo(() => {
     return sessions.filter((session) => getRotationRoundKeyFromSession(session) === selectedRotationRound.key);
   }, [selectedRotationRound, sessions]);
   const selectedResolvedRound = useMemo(
-    () => (selectedRotationRound ? persistedResolvedRoundsByKey.get(selectedRotationRound.key) || null : null),
-    [persistedResolvedRoundsByKey, selectedRotationRound]
+    () =>
+      resolveSelectedScheduleRound({
+        selectedRotationRound,
+        resolvedRounds: scheduleBuilderPreviewDraft?.resolvedRounds || [],
+        persistedResolvedRoundsByKey,
+        selectedRoundIndex: activeSelectedRotationRoundIndex,
+        selectedRoundGlobalIndex: activeSelectedRotationRoundGlobalIndex,
+      }),
+    [
+      activeSelectedRotationRoundGlobalIndex,
+      activeSelectedRotationRoundIndex,
+      persistedResolvedRoundsByKey,
+      scheduleBuilderPreviewDraft?.resolvedRounds,
+      selectedRotationRound,
+    ]
   );
+  const selectedResolvedRoundNumber =
+    (selectedResolvedRound && Number.isFinite(selectedResolvedRound.round) ? selectedResolvedRound.round : 0) ||
+    getRoundNumberFromRotationKey(selectedRotationRound?.key) ||
+    (activeSelectedRotationRoundGlobalIndex >= 0 ? activeSelectedRotationRoundGlobalIndex + 1 : activeSelectedRotationRoundIndex + 1);
   const selectedResolvedRoomSlots = useMemo(
     () => selectedResolvedRound?.roomSlots || [],
     [selectedResolvedRound]
@@ -9152,7 +9245,7 @@ const operationalEventStatusLabel = useMemo(() => {
     if (!selectedRotationRound) return [] as RoomDisplayEntry[];
 
     const mappedSlots = roomSlotEntriesByRoundKey.get(selectedRotationRound.key) || [];
-    const persistedRoundSlotCount = persistedResolvedRoundsByKey.get(selectedRotationRound.key)?.roomSlots.length || 0;
+    const persistedRoundSlotCount = selectedResolvedRoomSlots.length || 0;
     const operationalRoomCount = Math.max(
       mappedSlots.length,
       persistedRoundSlotCount ? 0 : effectiveRoomCount
@@ -9173,9 +9266,9 @@ const operationalEventStatusLabel = useMemo(() => {
     }));
   }, [
     effectiveRoomCount,
-    persistedResolvedRoundsByKey,
     roomNamingContext,
     roomSlotEntriesByRoundKey,
+    selectedResolvedRoomSlots,
     selectedRotationRound,
   ]);
   const selectedRoundRoomCount = selectedResolvedRoomSlots.length || selectedRoundRoomSlotEntries.length;
@@ -9207,10 +9300,10 @@ const operationalEventStatusLabel = useMemo(() => {
       return null as ResolvedScheduleTruthStation[] | null;
     }
 
-    const roundAdjustments = activeScheduleRoomAdjustments.get(activeSelectedRotationRoundGlobalIndex + 1) || [];
+    const roundAdjustments = activeScheduleRoomAdjustments.get(selectedResolvedRoundNumber) || [];
     const roomSlots = Array.isArray(selectedResolvedRound.roomSlots) ? selectedResolvedRound.roomSlots : [];
     const roundKey = asText(selectedRotationRound.key);
-    const roundNumber = Number.isFinite(selectedResolvedRound.round) ? selectedResolvedRound.round : activeSelectedRotationRoundIndex + 1;
+    const roundNumber = selectedResolvedRoundNumber;
     const start = asText(selectedResolvedRound.startTime) || asText(selectedRotationRound.start_time);
     const end = asText(selectedResolvedRound.endTime) || asText(selectedRotationRound.end_time);
 
@@ -9274,11 +9367,10 @@ const operationalEventStatusLabel = useMemo(() => {
     });
   }, [
     activeScheduleRoomAdjustments,
-    activeSelectedRotationRoundGlobalIndex,
-    activeSelectedRotationRoundIndex,
     backupAssignmentNameSet,
     roomNamingContext,
     selectedResolvedRound,
+    selectedResolvedRoundNumber,
     selectedRotationRound,
     selectedRoundStationLabel,
   ]);
@@ -9377,7 +9469,7 @@ const operationalEventStatusLabel = useMemo(() => {
           };
         })
       : fallbackDisplayRows;
-    const roundAdjustments = activeScheduleRoomAdjustments.get(activeSelectedRotationRoundGlobalIndex + 1) || [];
+    const roundAdjustments = activeScheduleRoomAdjustments.get(selectedResolvedRoundNumber) || [];
     const availableAssignments = [...confirmedAssignments, ...backupAssignments];
 
     return displayRows.map(({ session, sourceIndex, slotIndex }, index) => {
@@ -9417,7 +9509,7 @@ const operationalEventStatusLabel = useMemo(() => {
         : getResolvedRoundLearnerLabels({
             learnerRoster: scheduleBuilderLearnerNames,
             roomCapacity: scheduleBuilderRoomCapacity,
-            roundIndex: activeSelectedRotationRoundGlobalIndex,
+            roundIndex: Math.max(selectedResolvedRoundNumber - 1, 0),
             slotIndex,
             roomSlotCount: Math.max(displayRows.length, 1),
             activeCaseCount: resolvedScheduleMatrixCaseCount,
@@ -9464,7 +9556,6 @@ const operationalEventStatusLabel = useMemo(() => {
         } satisfies RoundRoomRow;
     });
   }, [
-    activeSelectedRotationRoundGlobalIndex,
     event?.id,
     event?.location,
     effectiveLearnerCount,
@@ -9476,6 +9567,7 @@ const operationalEventStatusLabel = useMemo(() => {
     caseFileEntries,
     roomNamingContext,
     selectedResolvedRoomSlots,
+    selectedResolvedRoundNumber,
     selectedRotationRound,
     selectedRoundRoomSlotEntries,
     selectedRoundCaseLabel,
@@ -9498,7 +9590,7 @@ const operationalEventStatusLabel = useMemo(() => {
       })) as OperationsRoomCardRow[];
     }
 
-    const roundAdjustments = activeScheduleRoomAdjustments.get(activeSelectedRotationRoundGlobalIndex + 1) || [];
+    const roundAdjustments = activeScheduleRoomAdjustments.get(selectedResolvedRoundNumber) || [];
     const availableAssignments = [...confirmedAssignments, ...backupAssignments];
     const scheduleRowsBySlotIndex = new Map(selectedRoundScheduleRows.map((row) => [row.slotIndex, row]));
 
@@ -9574,13 +9666,13 @@ const operationalEventStatusLabel = useMemo(() => {
     });
   }, [
     activeScheduleRoomAdjustments,
-    activeSelectedRotationRoundGlobalIndex,
     backupAssignments,
     caseFileEntries,
     confirmedAssignments,
     event?.location,
     selectedRoundResolvedScheduleTruth,
     selectedRoundScheduleRows,
+    selectedResolvedRoundNumber,
     spsById,
   ]);
   const getOperationsRoomPrimarySpName = (row: OperationsRoomCardRow | RoundRoomRow) =>
@@ -9613,15 +9705,15 @@ const operationalEventStatusLabel = useMemo(() => {
       caseLabel: row.caseLabel,
       roleLabel: row.roleLabel,
       encounterLabel: [row.stationLabel, row.caseLabel].filter(Boolean).join(" · ") || "Case pending",
-      roundNumber: activeSelectedRotationRoundIndex + 1,
+      roundNumber: selectedResolvedRoundNumber,
       start: asText(selectedRotationRound?.start_time),
       end: asText(selectedRotationRound?.end_time),
       stationStatus: "active" as ScheduleStationStatus,
       isBackupStation: false,
     }));
   }, [
-    activeSelectedRotationRoundIndex,
     roomNamingContext,
+    selectedResolvedRoundNumber,
     selectedRotationRound?.end_time,
     selectedRotationRound?.start_time,
     selectedRoundResolvedScheduleTruth,
@@ -9634,10 +9726,10 @@ const operationalEventStatusLabel = useMemo(() => {
     if (effectiveLearnerCount <= 0) return null;
     const roomCapacity = selectedRoundRoomCount || 0;
     if (roomCapacity <= 0) return null;
-    const remaining = effectiveLearnerCount - activeSelectedRotationRoundGlobalIndex * roomCapacity;
+    const remaining = effectiveLearnerCount - Math.max(selectedResolvedRoundNumber - 1, 0) * roomCapacity;
     if (remaining <= 0) return 0;
     return Math.min(roomCapacity, remaining);
-  }, [activeSelectedRotationRoundGlobalIndex, effectiveLearnerCount, selectedRotationRound, selectedRoundLearnerFlowRows, selectedRoundRoomCount]);
+  }, [effectiveLearnerCount, selectedResolvedRoundNumber, selectedRotationRound, selectedRoundLearnerFlowRows, selectedRoundRoomCount]);
   const operationalRoundCount = rotationRounds.length || activeRotationCount || scheduleBuilderDraftRoundCount || 0;
   const operationalRoomCount = selectedRoundActiveStationCount || selectedRoundRoomCount || effectiveRoomCount || scheduleBuilderDraftRoomCount || 0;
   const operationalLearnerCountLabel =
@@ -9977,7 +10069,7 @@ const operationalEventStatusLabel = useMemo(() => {
           : getResolvedRoundLearnerLabels({
               learnerRoster: scheduleBuilderLearnerNames,
               roomCapacity: scheduleBuilderRoomCapacity,
-              roundIndex: activeSelectedRotationRoundIndex,
+              roundIndex: Math.max(selectedResolvedRoundNumber - 1, 0),
               slotIndex: index,
               roomSlotCount: Math.max(roomSlotEntries.length, 1),
               activeCaseCount: resolvedScheduleMatrixCaseCount,
@@ -10030,10 +10122,10 @@ const operationalEventStatusLabel = useMemo(() => {
       });
     },
     [
-      activeSelectedRotationRoundIndex,
       event?.location,
       isScheduleMatrixVirtual,
       resolvedScheduleMatrixCaseCount,
+      selectedResolvedRoundNumber,
       selectedRoundCoverageShortage,
       scheduleBuilderLearnerNames,
       scheduleBuilderRoomCapacity,
@@ -14912,7 +15004,7 @@ Cory`;
     slotIndex: number,
     partial: Partial<ScheduleRoomAdjustmentSlot>
   ) {
-    const roundNumber = activeSelectedRotationRoundIndex + 1;
+    const roundNumber = selectedResolvedRoundNumber;
     const nextAdjustments = upsertScheduleRoomAdjustmentSlot(
       activeScheduleRoomAdjustments,
       roundNumber,
@@ -14926,7 +15018,7 @@ Cory`;
 
   async function handleMoveRoundAssignment(sourceRow: RoundRoomRow, targetRow: RoundRoomRow | undefined) {
     if (!targetRow || targetRow.slotIndex === sourceRow.slotIndex) return;
-    const roundNumber = activeSelectedRotationRoundIndex + 1;
+    const roundNumber = selectedResolvedRoundNumber;
     const sourcePrimarySpName = sourceRow.sp ? getFullName(sourceRow.sp) : asText((sourceRow as { primarySpName?: string }).primarySpName);
     const targetPrimarySpName = targetRow.sp ? getFullName(targetRow.sp) : asText((targetRow as { primarySpName?: string }).primarySpName);
     let nextAdjustments = upsertScheduleRoomAdjustmentSlot(
@@ -24684,7 +24776,13 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       const roundGlobalIndex = rotationRounds.findIndex((candidate) => candidate.key === round.key);
                       const roundSlotEntries = roomSlotEntriesByRoundKey.get(round.key) || [];
                       const roundRoomCount = roundSlotEntries.length || 0;
-                      const persistedRoundSnapshot = persistedResolvedRoundsByKey.get(round.key) || null;
+                      const persistedRoundSnapshot = resolveSelectedScheduleRound({
+                        selectedRotationRound: round,
+                        resolvedRounds: scheduleBuilderPreviewDraft?.resolvedRounds || [],
+                        persistedResolvedRoundsByKey,
+                        selectedRoundIndex: index,
+                        selectedRoundGlobalIndex: roundGlobalIndex,
+                      });
                       const roundLearnerCount = persistedRoundSnapshot
                         ? persistedRoundSnapshot.roomSlots.reduce(
                             (total, slot) => total + normalizeTextArray(slot.learnerLabels).length,
