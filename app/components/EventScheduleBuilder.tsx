@@ -147,6 +147,21 @@ function isActiveScheduleSlot(slot: ScheduleSlotActivityState, singleCaseMode: b
   return Boolean(normalizeDisplayText(slot.caseLabel) || (slot.learnerLabels?.length || 0));
 }
 
+function isExcludedFromStudentFacingSchedule(slot: Pick<ScheduleSlotActivityState, "stationStatus" | "isBackupStation">) {
+  const stationStatus = normalizeScheduleStationStatus(slot.stationStatus);
+  return stationStatus === "inactive" || stationStatus === "backup" || Boolean(slot.isBackupStation);
+}
+
+function hasExplicitStudentFacingRoomStatus(slot: Pick<ScheduleSlotActivityState, "stationStatus" | "isBackupStation">) {
+  return !isExcludedFromStudentFacingSchedule(slot) && normalizeScheduleStationStatus(slot.stationStatus) === "active";
+}
+
+function shouldIncludeStudentFacingScheduleSlot(slot: ScheduleSlotActivityState) {
+  if (isExcludedFromStudentFacingSchedule(slot)) return false;
+  if (hasExplicitStudentFacingRoomStatus(slot)) return true;
+  return normalizeLearnerNames(slot.learnerLabels || []).length > 0;
+}
+
 type GeneratedRound = {
   round: number;
   start: number;
@@ -188,6 +203,7 @@ type ScheduledRound = Omit<GeneratedRound, "roomSlots"> & {
 };
 
 type PreviewRoomColumn = {
+  slotIndex: number;
   roomName: string;
   displayRoomName: string;
   roomType: GeneratedRoomSlot["roomType"];
@@ -301,6 +317,7 @@ type ScheduleRoomAdjustmentSlot = {
   slotIndex: number;
   learnerLabels: string[];
   manualOverride?: boolean;
+  source?: string;
   roomName?: string;
   spName?: string;
   backupSpName?: string;
@@ -311,6 +328,8 @@ type ScheduleRoomAdjustmentSlot = {
   stationStatus?: ScheduleStationStatus;
   isBackupStation?: boolean;
 };
+
+const CONFIRMED_SCHEDULE_OVERRIDE_SOURCE = "confirmed-schedule-override";
 
 type ParsedScheduleRoomAdjustments = {
   roundsByNumber: Map<number, ScheduleRoomAdjustmentSlot[]>;
@@ -964,7 +983,6 @@ type StudentInstructionsScheduleBlock = {
   key: string;
   title: string;
   detail: string;
-  chunkLabel: string;
   cells: StudentInstructionsScheduleCell[];
 };
 
@@ -2545,10 +2563,8 @@ function buildVirStyleStudentScheduleBlocks(args: {
   rounds: ScheduledRound[];
   roomColumns?: PreviewRoomColumn[];
   roomContext?: Parameters<typeof getRoomDisplayLabel>[2];
-  roomChunkSize?: number;
 }) {
-  const { rounds, roomColumns = [], roomContext = {}, roomChunkSize = 6 } = args;
-  const safeChunkSize = Math.max(4, Math.min(6, Math.floor(roomChunkSize) || 6));
+  const { rounds, roomColumns = [], roomContext = {} } = args;
   const blocks: StudentInstructionsScheduleBlock[] = [];
 
   rounds.forEach((round) => {
@@ -2560,32 +2576,30 @@ function buildVirStyleStudentScheduleBlocks(args: {
     const title = startLabel ? `${startLabel} Encounter` : `Round ${round.round}`;
     const detail = `Round ${round.round}${timeLabel ? ` • ${timeLabel}` : ""}`;
     const roomCount = Math.max(round.roomSlots.length, roomColumns.length);
+    const cells: StudentInstructionsScheduleCell[] = Array.from({ length: roomCount }, (_, roomIndex) => {
+      const slot = round.roomSlots[roomIndex];
+      const roomColumn = roomColumns[roomIndex];
+      const roomLabel = slot
+        ? formatRoomName(
+            slot.roomName,
+            slot.roomType,
+            typeof roomColumn?.slotIndex === "number" ? roomColumn.slotIndex + 1 : roomIndex + 1,
+            roomContext
+          )
+        : normalizeDisplayText(roomColumn?.displayRoomName) || `Breakout Room ${roomIndex + 1}`;
+      return {
+        key: `round-${round.round}-room-${roomIndex}`,
+        roomLabel,
+        studentLabels: normalizeLearnerNames(slot?.learnerLabels || []),
+      };
+    });
 
-    for (let chunkStart = 0; chunkStart < roomCount; chunkStart += safeChunkSize) {
-      const chunkEnd = Math.min(chunkStart + safeChunkSize, roomCount);
-      const cells: StudentInstructionsScheduleCell[] = [];
-
-      for (let roomIndex = chunkStart; roomIndex < chunkEnd; roomIndex += 1) {
-        const slot = round.roomSlots[roomIndex];
-        const roomColumn = roomColumns[roomIndex];
-        const roomLabel = slot
-          ? formatRoomName(slot.roomName, slot.roomType, roomIndex + 1, roomContext)
-          : normalizeDisplayText(roomColumn?.displayRoomName) || `Breakout Room ${roomIndex + 1}`;
-        cells.push({
-          key: `round-${round.round}-room-${roomIndex}`,
-          roomLabel,
-          studentLabels: normalizeLearnerNames(slot?.learnerLabels || []),
-        });
-      }
-
-      blocks.push({
-        key: `round-${round.round}-rooms-${chunkStart}-${chunkEnd}`,
-        title,
-        detail,
-        chunkLabel: roomCount > safeChunkSize ? `Rooms ${chunkStart + 1}-${chunkEnd}` : "",
-        cells,
-      });
-    }
+    blocks.push({
+      key: `round-${round.round}`,
+      title,
+      detail,
+      cells,
+    });
   });
 
   return blocks;
@@ -2703,7 +2717,6 @@ function buildStudentInstructionsExportHtml(context: StudentInstructionsExportCo
     rounds: studentScheduleRounds,
     roomColumns,
     roomContext,
-    roomChunkSize: 6,
   });
   const renderScheduleIntro = () => `
     <section class="student-packet-page-section instructions-section student-schedule-section student-schedule-section-first" data-packet-section="student-schedule-start">
@@ -2720,26 +2733,33 @@ function buildStudentInstructionsExportHtml(context: StudentInstructionsExportCo
       <div class="vir-schedule-block">
         <div class="vir-encounter-title">
           <span>${escapeHtml(block.title)}</span>
-          <small>${escapeHtml(block.detail)}${block.chunkLabel ? ` • ${escapeHtml(block.chunkLabel)}` : ""}</small>
+          <small>${escapeHtml(block.detail)}</small>
         </div>
-        <div class="vir-room-grid" style="grid-template-columns: repeat(${Math.max(block.cells.length, 1)}, minmax(0, 1fr));">
-          ${block.cells
-            .map((cell) => `<div class="vir-room-header">${escapeHtml(cell.roomLabel)}</div>`)
-            .join("")}
-          ${block.cells
-            .map(
-              (cell) => `
-                <div class="vir-student-cell${cell.studentLabels.length ? "" : " vir-student-cell-empty"}">
-                  ${
-                    cell.studentLabels.length
-                      ? cell.studentLabels.map((student) => `<div class="vir-student-name">${escapeHtml(student)}</div>`).join("")
-                      : `<div class="vir-no-student">No student assigned</div>`
-                  }
-                </div>
-              `
-            )
-            .join("")}
-        </div>
+        <table class="vir-room-table${block.cells.length >= 7 ? " vir-room-table-dense" : ""}" data-room-count="${Math.max(block.cells.length, 1)}">
+          <colgroup>${block.cells.map(() => '<col class="vir-room-table-col" />').join("")}</colgroup>
+          <thead>
+            <tr>
+              ${block.cells.map((cell) => `<th class="vir-room-header">${escapeHtml(cell.roomLabel)}</th>`).join("")}
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              ${block.cells
+                .map(
+                  (cell) => `
+                    <td class="vir-student-cell${cell.studentLabels.length ? "" : " vir-student-cell-empty"}">
+                      ${
+                        cell.studentLabels.length
+                          ? cell.studentLabels.map((student) => `<div class="vir-student-name">${escapeHtml(student)}</div>`).join("")
+                          : `<div class="vir-no-student">No student assigned</div>`
+                      }
+                    </td>
+                  `
+                )
+                .join("")}
+            </tr>
+          </tbody>
+        </table>
       </div>
     </section>
   `;
@@ -3126,20 +3146,24 @@ color: #17304f;
             font-weight: 850;
             text-align: right;
           }
-          .vir-room-grid {
-            display: grid;
+          .vir-room-table {
             width: 100%;
             max-width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
             background: #dfe7f0;
             border-top: 1px solid #aebccb;
-            overflow: visible;
+          }
+          .vir-room-table-col {
+            width: auto;
+            min-width: 0;
           }
           .vir-room-header {
             min-width: 0;
             min-height: 34px;
             padding: 7px 7px;
-            border-right: 1px solid #c3cfda;
             border-bottom: 1px solid #aebccb;
+            border-right: 1px solid #c3cfda;
             background: #e8eef5;
             color: #24445f;
             font-size: 10px;
@@ -3151,7 +3175,8 @@ color: #17304f;
             text-overflow: unset;
             overflow-wrap: anywhere;
           }
-          .vir-room-header:last-of-type { border-right: none; }
+          .vir-room-table thead th:last-child,
+          .vir-room-table tbody td:last-child { border-right: none; }
           .vir-student-cell {
             min-width: 0;
             min-height: 54px;
@@ -3167,8 +3192,8 @@ color: #17304f;
             overflow: visible;
             text-overflow: unset;
             overflow-wrap: anywhere;
+            vertical-align: middle;
           }
-          .vir-student-cell:nth-last-child(1) { border-right: none; }
           .vir-student-cell-empty {
             background: #fbf3e6;
             color: #8a6741;
@@ -3181,6 +3206,23 @@ color: #17304f;
             overflow: visible;
             text-overflow: unset;
             overflow-wrap: anywhere;
+          }
+          .vir-room-table-dense .vir-room-header {
+            padding: 6px 5px;
+            font-size: 9px;
+            line-height: 1.1;
+          }
+          .vir-room-table-dense .vir-student-cell {
+            min-height: 46px;
+            padding: 6px 5px;
+            gap: 2px;
+          }
+          .vir-room-table-dense .vir-student-name {
+            font-size: 9.4px;
+            line-height: 1.12;
+          }
+          .vir-room-table-dense .vir-no-student {
+            font-size: 8.8px;
           }
           .vir-no-student {
             font-size: 9.5px;
@@ -3338,6 +3380,12 @@ color: #17304f;
           .vir-student-name {
             font-size: 10.3px !important;
             color: #12324b !important;
+          }
+          .vir-room-table-dense .vir-room-header {
+            font-size: 8.8px !important;
+          }
+          .vir-room-table-dense .vir-student-name {
+            font-size: 9.1px !important;
           }
           .student-instructions-footer {
             border-top-color: var(--si-border) !important;
@@ -3803,7 +3851,74 @@ function isPrimaryScheduleWideTimelineBlock(block: TimelineBlock) {
   return false;
 }
 
-function filterRoundsForView(rounds: ScheduledRound[], viewMode: ScheduleBuilderViewMode) {
+function buildStudentFacingRoomSlotIndexes(rounds: ScheduledRound[]) {
+  const slotIndexes = new Set<number>();
+
+  rounds.forEach((round) => {
+    round.roomSlots.forEach((slot, slotIndex) => {
+      if (shouldIncludeStudentFacingScheduleSlot(slot)) {
+        slotIndexes.add(slotIndex);
+      }
+    });
+  });
+
+  return Array.from(slotIndexes).sort((a, b) => a - b);
+}
+
+function buildStudentFacingScheduledRounds(rounds: ScheduledRound[], roomSlotIndexes: number[]) {
+  const slotTemplates = new Map<number, ScheduledRoomSlot>();
+  roomSlotIndexes.forEach((slotIndex) => {
+    const template =
+      rounds
+        .map((round) => round.roomSlots[slotIndex])
+        .find((slot): slot is ScheduledRoomSlot => Boolean(slot) && shouldIncludeStudentFacingScheduleSlot(slot)) ||
+      rounds
+        .map((round) => round.roomSlots[slotIndex])
+        .find((slot): slot is ScheduledRoomSlot => Boolean(slot));
+    if (template) slotTemplates.set(slotIndex, template);
+  });
+
+  return rounds.map((round) => ({
+    ...round,
+    roomSlots: roomSlotIndexes
+      .map((slotIndex) => {
+        const currentSlot = round.roomSlots[slotIndex];
+        if (currentSlot && !isExcludedFromStudentFacingSchedule(currentSlot)) {
+          return currentSlot;
+        }
+        const templateSlot = slotTemplates.get(slotIndex);
+        if (!templateSlot) return null;
+        return {
+          ...templateSlot,
+          learnerLabels: [],
+          learnerIndexes: [],
+          assignedSpIndex: undefined,
+          assignedSpName: "",
+          backupSpName: "",
+          roleId: "",
+          roleLabel: "",
+          notes: "",
+          stationStatus: hasExplicitStudentFacingRoomStatus(templateSlot) ? "active" : templateSlot.stationStatus,
+          isBackupStation: false,
+        };
+      })
+      .filter((slot): slot is ScheduledRoomSlot => Boolean(slot)),
+    subBlocks: round.subBlocks.filter((block) =>
+      isDayBlockVisibleToView(block.visibleTo || "both", "student") && !isFillerTimingLabel(block.label)
+    ),
+  }));
+}
+
+function filterRoundsForView(
+  rounds: ScheduledRound[],
+  viewMode: ScheduleBuilderViewMode,
+  options?: { studentRoomSlotIndexes?: number[] }
+) {
+  if (viewMode === "student") {
+    const studentRoomSlotIndexes = options?.studentRoomSlotIndexes || [];
+    return buildStudentFacingScheduledRounds(rounds, studentRoomSlotIndexes);
+  }
+
   return rounds.map((round) => ({
     ...round,
     roomSlots: round.roomSlots,
@@ -3846,6 +3961,38 @@ function formatRoomName(
 ) {
   const resolvedHint = roomType === "exam" ? "exam" : "flex";
   return getRoomDisplayLabel(roomName, roomNumber, roomContext, resolvedHint);
+}
+
+function buildPreviewRoomColumns(
+  rounds: ScheduledRound[],
+  roomContext: Parameters<typeof getRoomDisplayLabel>[2],
+  roomSlotIndexes?: number[]
+): PreviewRoomColumn[] {
+  const resolvedSlotIndexes =
+    roomSlotIndexes && roomSlotIndexes.length
+      ? roomSlotIndexes
+      : (rounds[0]?.roomSlots || []).map((_, slotIndex) => slotIndex);
+
+  return resolvedSlotIndexes
+    .map((slotIndex) => {
+      const slot = rounds
+        .map((round) => round.roomSlots[slotIndex])
+        .find((candidate): candidate is ScheduledRoomSlot => Boolean(candidate));
+      if (!slot) return null;
+      return {
+        slotIndex,
+        roomName: slot.roomName,
+        displayRoomName: getRoomDisplayLabel(
+          slot.roomName,
+          slotIndex + 1,
+          roomContext,
+          slot.roomType === "exam" ? "exam" : "flex"
+        ),
+        roomType: slot.roomType,
+        capacityLabel: slot.capacityLabel,
+      };
+    })
+    .filter((column): column is PreviewRoomColumn => Boolean(column));
 }
 
 type ScheduleTimingVisibility = "all" | DayBlockVisibility;
@@ -4453,6 +4600,10 @@ function hasScheduleRoomAdjustmentField(
   return Boolean(slot) && Object.prototype.hasOwnProperty.call(slot, field);
 }
 
+function isConfirmedScheduleRoomAdjustment(slot: Partial<ScheduleRoomAdjustmentSlot> | null | undefined) {
+  return normalizeDisplayText(slot?.source).toLowerCase() === CONFIRMED_SCHEDULE_OVERRIDE_SOURCE;
+}
+
 function parseScheduleRoomAdjustments(raw: string | null): ParsedScheduleRoomAdjustments {
   const clean = asText(raw);
   if (!clean) return createEmptyScheduleRoomAdjustments();
@@ -4466,6 +4617,7 @@ function parseScheduleRoomAdjustments(raw: string | null): ParsedScheduleRoomAdj
         slotIndex?: number;
         learnerLabels?: string[];
         manualOverride?: boolean;
+        source?: string;
         roomName?: string;
         spName?: string;
 	        backupSpName?: string;
@@ -4503,6 +4655,7 @@ function parseScheduleRoomAdjustments(raw: string | null): ParsedScheduleRoomAdj
             asText(manualOverrideValue).toLowerCase() === "1" ||
             asText(manualOverrideValue).toLowerCase() === "yes";
           const roomName = normalizeDisplayText((slotEntry as { roomName?: unknown }).roomName);
+          const source = normalizeDisplayText((slotEntry as { source?: unknown }).source);
 	          const spName = normalizeDisplayText((slotEntry as { spName?: unknown }).spName);
 	          const backupSpName = normalizeDisplayText((slotEntry as { backupSpName?: unknown }).backupSpName);
 	          const caseLabel = normalizeDisplayText((slotEntry as { caseLabel?: unknown }).caseLabel);
@@ -4518,6 +4671,7 @@ function parseScheduleRoomAdjustments(raw: string | null): ParsedScheduleRoomAdj
 	            asText(isBackupStationValue).toLowerCase() === "yes";
 	          const hasExplicitField = [
 	            "learnerLabels",
+	            "source",
 	            "roomName",
 	            "spName",
 	            "backupSpName",
@@ -4533,6 +4687,7 @@ function parseScheduleRoomAdjustments(raw: string | null): ParsedScheduleRoomAdj
 	            slotIndex,
 	            learnerLabels,
 	            ...(manualOverride ? { manualOverride: true } : {}),
+	            ...(Object.prototype.hasOwnProperty.call(slotRecord, "source") ? { source } : {}),
 	            ...(Object.prototype.hasOwnProperty.call(slotRecord, "roomName") ? { roomName } : {}),
 	            ...(Object.prototype.hasOwnProperty.call(slotRecord, "spName") ? { spName } : {}),
 	            ...(Object.prototype.hasOwnProperty.call(slotRecord, "backupSpName") ? { backupSpName } : {}),
@@ -4574,6 +4729,7 @@ function normalizeScheduleRoomAdjustments(value: ParsedScheduleRoomAdjustments) 
       .map((slot) => {
         const learnerLabels = normalizeLearnerNames(slot.learnerLabels || []);
         const manualOverride = Boolean(slot.manualOverride);
+        const source = normalizeDisplayText(slot.source);
         const roomName = normalizeDisplayText(slot.roomName);
 	        const spName = normalizeDisplayText(slot.spName);
 	        const backupSpName = normalizeDisplayText(slot.backupSpName);
@@ -4586,6 +4742,7 @@ function normalizeScheduleRoomAdjustments(value: ParsedScheduleRoomAdjustments) 
 	          slotIndex: slot.slotIndex,
 	          learnerLabels,
 	          ...(manualOverride ? { manualOverride: true } : {}),
+	          ...(hasScheduleRoomAdjustmentField(slot, "source") ? { source } : {}),
 	          ...(hasScheduleRoomAdjustmentField(slot, "roomName") ? { roomName } : {}),
 	          ...(hasScheduleRoomAdjustmentField(slot, "spName") ? { spName } : {}),
 	          ...(hasScheduleRoomAdjustmentField(slot, "backupSpName") ? { backupSpName } : {}),
@@ -4600,6 +4757,7 @@ function normalizeScheduleRoomAdjustments(value: ParsedScheduleRoomAdjustments) 
 	      .filter((slot) =>
 	        slot.learnerLabels.length ||
 	        slot.manualOverride ||
+	        hasScheduleRoomAdjustmentField(slot, "source") ||
 	        hasScheduleRoomAdjustmentField(slot, "roomName") ||
 	        hasScheduleRoomAdjustmentField(slot, "spName") ||
 	        hasScheduleRoomAdjustmentField(slot, "backupSpName") ||
@@ -4630,6 +4788,7 @@ function serializeScheduleRoomAdjustments(value: ParsedScheduleRoomAdjustments) 
 	            slotIndex: slot.slotIndex,
 	            learnerLabels: normalizeLearnerNames(slot.learnerLabels || []),
 	            ...(slot.manualOverride ? { manualOverride: true } : {}),
+	            ...(hasScheduleRoomAdjustmentField(slot, "source") ? { source: normalizeDisplayText(slot.source) } : {}),
 	            ...(hasScheduleRoomAdjustmentField(slot, "roomName") ? { roomName: normalizeDisplayText(slot.roomName) } : {}),
 	            ...(hasScheduleRoomAdjustmentField(slot, "spName") ? { spName: normalizeDisplayText(slot.spName) } : {}),
 	            ...(hasScheduleRoomAdjustmentField(slot, "backupSpName") ? { backupSpName: normalizeDisplayText(slot.backupSpName) } : {}),
@@ -4645,6 +4804,7 @@ function serializeScheduleRoomAdjustments(value: ParsedScheduleRoomAdjustments) 
         entry.slots.some((slot) =>
 	          slot.learnerLabels.length ||
 	          Boolean(slot.manualOverride) ||
+	          hasScheduleRoomAdjustmentField(slot, "source") ||
 	          hasScheduleRoomAdjustmentField(slot, "roomName") ||
 	          hasScheduleRoomAdjustmentField(slot, "spName") ||
 	          hasScheduleRoomAdjustmentField(slot, "backupSpName") ||
@@ -4671,6 +4831,7 @@ function upsertScheduleRoomAdjustmentSlot(
   const existing = currentSlots.find((slot) => slot.slotIndex === slotIndex) || { slotIndex, learnerLabels: [] };
   const hasAnyExplicitField = [
     "learnerLabels",
+    "source",
     "roomName",
     "spName",
     "backupSpName",
@@ -4701,6 +4862,7 @@ function upsertScheduleRoomAdjustmentSlot(
     merged.learnerLabels.length ||
     Boolean(merged.manualOverride) ||
     normalizeDisplayText(merged.roomName) ||
+    normalizeDisplayText(merged.source) ||
     normalizeDisplayText(merged.spName) ||
     normalizeDisplayText(merged.backupSpName) ||
     normalizeDisplayText(merged.caseLabel) ||
@@ -4723,31 +4885,35 @@ function upsertScheduleRoomAdjustmentSlot(
 function applyScheduleRoomAdjustments(
   rounds: ScheduledRound[],
   assignedSpNames: string[],
-  adjustments: ParsedScheduleRoomAdjustments
+  adjustments: ParsedScheduleRoomAdjustments,
+  options?: { protectCompletedScheduleAssignments?: boolean }
 ) {
   // IMPORTANT REGRESSION GUARD:
-  // Room Operations is the authoritative source for round/room/SP/learner/case/status truth after a schedule is built.
-  // Setup, Live Attendance, Admin Schedule, Student Schedule, and exports must consume the same merged room truth.
-  // Do not create separate derived room data paths that can drift.
+  // For completed schedules, the completed schedule snapshot is the authoritative assignment source.
+  // Room Operations attendance/status metadata may overlay on top, but ordinary operational edits must
+  // not silently override completed schedule student/SP/room/case assignments. Assignment-changing edits
+  // require explicit confirmation and must be saved as confirmed schedule overrides.
   return rounds.map((round) => {
     if (!rounds.length) return round;
 	    const nextSlots = round.roomSlots.map((slot, slotIndex) => {
 	      const overrides = (adjustments.roundsByNumber.get(round.round) || []).find(
 	        (entry) => entry.slotIndex === slotIndex
 	      );
-	      const hasRoomNameOverride = hasScheduleRoomAdjustmentField(overrides, "roomName");
-	      const hasSpNameOverride = hasScheduleRoomAdjustmentField(overrides, "spName");
-	      const hasBackupSpOverride = hasScheduleRoomAdjustmentField(overrides, "backupSpName");
-	      const hasCaseLabelOverride = hasScheduleRoomAdjustmentField(overrides, "caseLabel");
-	      const hasRoleIdOverride = hasScheduleRoomAdjustmentField(overrides, "roleId");
-	      const hasRoleLabelOverride = hasScheduleRoomAdjustmentField(overrides, "roleLabel");
+	      const canApplyAssignmentOverride =
+	        !options?.protectCompletedScheduleAssignments || isConfirmedScheduleRoomAdjustment(overrides);
+	      const hasRoomNameOverride = canApplyAssignmentOverride && hasScheduleRoomAdjustmentField(overrides, "roomName");
+	      const hasSpNameOverride = canApplyAssignmentOverride && hasScheduleRoomAdjustmentField(overrides, "spName");
+	      const hasBackupSpOverride = canApplyAssignmentOverride && hasScheduleRoomAdjustmentField(overrides, "backupSpName");
+	      const hasCaseLabelOverride = canApplyAssignmentOverride && hasScheduleRoomAdjustmentField(overrides, "caseLabel");
+	      const hasRoleIdOverride = canApplyAssignmentOverride && hasScheduleRoomAdjustmentField(overrides, "roleId");
+	      const hasRoleLabelOverride = canApplyAssignmentOverride && hasScheduleRoomAdjustmentField(overrides, "roleLabel");
 	      const hasNotesOverride = hasScheduleRoomAdjustmentField(overrides, "notes");
-	      const hasStationStatusOverride = hasScheduleRoomAdjustmentField(overrides, "stationStatus");
-	      const hasBackupStationOverride = hasScheduleRoomAdjustmentField(overrides, "isBackupStation");
+	      const hasStationStatusOverride = canApplyAssignmentOverride && hasScheduleRoomAdjustmentField(overrides, "stationStatus");
+	      const hasBackupStationOverride = canApplyAssignmentOverride && hasScheduleRoomAdjustmentField(overrides, "isBackupStation");
 	      const nextLearners =
-	        overrides?.manualOverride
+	        canApplyAssignmentOverride && overrides?.manualOverride
 	          ? normalizeLearnerNames(overrides.learnerLabels)
-	          : overrides?.learnerLabels?.length
+	          : canApplyAssignmentOverride && overrides?.learnerLabels?.length
 	            ? normalizeLearnerNames(overrides.learnerLabels)
 	            : slot.learnerLabels;
 	      const nextSpName = normalizeDisplayText(overrides?.spName);
@@ -6996,7 +7162,8 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                 !multipleCasesEnabled
               ),
               resolvedAssignedNames,
-              roomAdjustments
+              roomAdjustments,
+              { protectCompletedScheduleAssignments: nextStatus === "complete" }
             ),
             resolvedAssignedNames,
             selectedEvent?.earliest_session_date || selectedEvent?.date_text || ""
@@ -7515,9 +7682,11 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
             });
           })();
 
-      return applyScheduleRoomAdjustments(expandedRounds, assignedNames, roomAdjustments);
+      return applyScheduleRoomAdjustments(expandedRounds, assignedNames, roomAdjustments, {
+        protectCompletedScheduleAssignments: scheduleWorkflowStatus === "complete",
+      });
     },
-    [assignedNames, generatedScheduledRounds, persistedResolvedRoundTargetCount, persistedResolvedRounds, roomAdjustments]
+    [assignedNames, generatedScheduledRounds, persistedResolvedRoundTargetCount, persistedResolvedRounds, roomAdjustments, scheduleWorkflowStatus]
   );
   const scheduledRounds = useMemo(
     () => {
@@ -7624,9 +7793,13 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     () => (scheduleViewMode === "student" ? studentPreviewTimeline : operationsPreviewTimeline),
     [operationsPreviewTimeline, scheduleViewMode, studentPreviewTimeline]
   );
-  const studentPreviewRounds = useMemo(
-    () => filterRoundsForView(scheduledRounds, "student"),
+  const studentRoomSlotIndexes = useMemo(
+    () => buildStudentFacingRoomSlotIndexes(scheduledRounds),
     [scheduledRounds]
+  );
+  const studentPreviewRounds = useMemo(
+    () => filterRoundsForView(scheduledRounds, "student", { studentRoomSlotIndexes }),
+    [scheduledRounds, studentRoomSlotIndexes]
   );
   const operationsPreviewRounds = useMemo(
     () => filterRoundsForView(scheduledRounds, "operations"),
@@ -7702,22 +7875,16 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     return generated.timeline[generated.timeline.length - 1].end - generated.timeline[0].start;
   }, [generated.timeline]);
   const roomColumns = useMemo(
-    () =>
-      (scheduledRounds[0]?.roomSlots || []).map((slot, index) => ({
-        roomName: slot.roomName,
-        displayRoomName: getRoomDisplayLabel(
-          slot.roomName,
-          index + 1,
-          roomNamingContext,
-          slot.roomType === "exam" ? "exam" : "flex"
-        ),
-        roomType: slot.roomType,
-        capacityLabel: slot.capacityLabel,
-      })),
-    [roomNamingContext, scheduledRounds]
+    () => buildPreviewRoomColumns(operationsPreviewRounds, roomNamingContext),
+    [operationsPreviewRounds, roomNamingContext]
   );
+  const studentRoomColumns = useMemo(
+    () => buildPreviewRoomColumns(scheduledRounds, roomNamingContext, studentRoomSlotIndexes),
+    [roomNamingContext, scheduledRounds, studentRoomSlotIndexes]
+  );
+  const visibleRoomColumns = scheduleViewMode === "student" ? studentRoomColumns : roomColumns;
   const renderedRoundCount = scheduledRounds.length || effectiveRoundCount;
-  const renderedRoomCount = roomColumns.length || totalRoomCount;
+  const renderedRoomCount = visibleRoomColumns.length || totalRoomCount;
   const learnerCapacitySummary =
     uploadedLearners.length && slotsPerRound > 0
       ? `${uploadedLearners.length} learners • ${totalRoomCount} rooms • ${effectiveRoundCount} rounds required`
@@ -7782,7 +7949,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       timeline: studentPreviewTimeline,
       rounds: studentPreviewRounds,
       scheduleGridRows: studentScheduleGridRows,
-      roomColumns,
+      roomColumns: studentRoomColumns,
       roomContext: roomNamingContext,
       caseName: previewCaseFallbackLabel,
       caseDocumentLabel: previewCaseDocumentLabel,
@@ -7861,6 +8028,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     operationsScheduleGridRows,
     roomNamingContext,
     roomColumns,
+    studentRoomColumns,
     selectedEvent,
     previewCaseFallbackLabel,
     previewCaseDocumentLabel,
@@ -7968,7 +8136,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         feedbackMinutes: firstFeedbackDurationMinutes,
         firstEncounterStartMinutes: firstStudentEncounterStartMinutes,
         studentScheduleRounds: studentPreviewRounds,
-        roomColumns,
+        roomColumns: studentRoomColumns,
         roomContext: roomNamingContext,
       });
       const validation = validateStudentInstructionsPrintHtml(html);
@@ -7988,7 +8156,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     firstFeedbackDurationMinutes,
     firstStudentEncounterStartMinutes,
     firstStudentEncounterDurationMinutes,
-    roomColumns,
+    studentRoomColumns,
     roomNamingContext,
     selectedEvent,
     selectedScheduleDateLabel,
@@ -10206,8 +10374,8 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                     <tr className="border-b border-[#dce6ee] text-sm text-[#5e7388]">
                       <th className="px-3 py-3 font-black">Round</th>
                       <th className="px-3 py-3 font-black">Time</th>
-                      {roomColumns.map((column) => (
-                        <th key={column.roomName} className="px-3 py-3 font-black">
+                      {visibleRoomColumns.map((column) => (
+                        <th key={`${column.slotIndex}-${column.roomName}`} className="px-3 py-3 font-black">
                           {column.displayRoomName}
                         </th>
                       ))}
@@ -10219,7 +10387,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                         const durationMinutes = getBlockDurationMinutes(entry.block.start, entry.block.end);
                         return (
                           <tr key={entry.key} className="border-b border-[#eef3f7]">
-                            <td colSpan={roomColumns.length + 2} className="px-3 py-3">
+                            <td colSpan={visibleRoomColumns.length + 2} className="px-3 py-3">
                               <div
                                 className="rounded-[14px] border px-4 py-3"
                                 style={{
