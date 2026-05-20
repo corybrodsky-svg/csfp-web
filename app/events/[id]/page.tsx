@@ -263,6 +263,23 @@ type EventAttendanceCanonicalRoom = {
   encounterLabel: string;
   fallbackIndex: number;
 };
+type ResolvedCommandStation = {
+  key: string;
+  roundKey: string;
+  roundNumber: number;
+  slotIndex: number;
+  roomName: string;
+  learnerLabels: string[];
+  assignedSpName: string;
+  backupSpName: string;
+  caseLabel: string;
+  roleId: string;
+  roleLabel: string;
+  notes: string;
+  stationLabel: string;
+  encounterLabel: string;
+  isActiveStation: boolean;
+};
 type AssignSpOptions = {
   status?: AssignmentStatus;
   confirmed?: boolean;
@@ -9119,6 +9136,54 @@ const operationalEventStatusLabel = useMemo(() => {
     () => getFirstNoteValue(eventEditor.notes || event?.notes, ["Station", "Station Label", "Station Labels"]),
     [event?.notes, eventEditor.notes]
   );
+  const selectedResolvedCommandStations = useMemo(() => {
+    if (!selectedRotationRound || !selectedResolvedRound) {
+      return null as ResolvedCommandStation[] | null;
+    }
+
+    const roomSlots = Array.isArray(selectedResolvedRound.roomSlots) ? selectedResolvedRound.roomSlots : [];
+    return roomSlots.map((slot, slotIndex) => {
+      const learnerLabels = normalizeLearnerNames(Array.isArray(slot?.learnerLabels) ? slot.learnerLabels : []);
+      const roomName = asText(slot?.roomName) || getFallbackRoomLabel(slotIndex, roomNamingContext);
+      const assignedSpName = asText(slot?.assignedSpName);
+      const backupSpName = asText(slot?.backupSpName);
+      const caseLabel = asText(slot?.caseLabel);
+      const roleId = asText(slot?.roleId);
+      const roleLabel = asText(slot?.roleLabel);
+      const notes = asText(slot?.notes);
+      const stationLabel = asText(selectedRoundStationLabel);
+      const encounterLabel = [stationLabel, caseLabel].filter(Boolean).join(" · ") || "Case pending";
+
+      return {
+        key: `${selectedRotationRound.key}-resolved-station-${slotIndex}`,
+        roundKey: asText(selectedRotationRound.key),
+        roundNumber: Number.isFinite(selectedResolvedRound.round) ? selectedResolvedRound.round : activeSelectedRotationRoundIndex + 1,
+        slotIndex,
+        roomName,
+        learnerLabels,
+        assignedSpName,
+        backupSpName,
+        caseLabel,
+        roleId,
+        roleLabel,
+        notes,
+        stationLabel,
+        encounterLabel,
+        isActiveStation:
+          learnerLabels.length > 0 ||
+          Boolean(assignedSpName) ||
+          Boolean(caseLabel) ||
+          Boolean(roleId || roleLabel),
+      } satisfies ResolvedCommandStation;
+    });
+  }, [
+    activeSelectedRotationRoundIndex,
+    roomNamingContext,
+    selectedResolvedRound,
+    selectedRotationRound,
+    selectedRoundStationLabel,
+  ]);
+  void selectedResolvedCommandStations;
   const selectedRoundScheduleRows = useMemo(() => {
     if (!selectedRotationRound) {
       return [] as Array<RoundRoomRow>;
