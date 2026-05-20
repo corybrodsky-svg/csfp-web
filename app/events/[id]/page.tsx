@@ -478,6 +478,8 @@ type ScheduleRoomAdjustmentSlot = {
 
 type ParsedScheduleRoomAdjustments = Map<number, ScheduleRoomAdjustmentSlot[]>;
 
+const CONFIRMED_SCHEDULE_OVERRIDE_SOURCE = "confirmed-schedule-override";
+
 type RelatedOperationalEventNode = {
   id: string;
   name: string | null;
@@ -4627,6 +4629,10 @@ function hasScheduleRoomAdjustmentField(
   return Boolean(slot) && Object.prototype.hasOwnProperty.call(slot, field);
 }
 
+function isConfirmedScheduleRoomAdjustment(slot: Partial<ScheduleRoomAdjustmentSlot> | null | undefined) {
+  return normalizeDisplayText(slot?.source).toLowerCase() === CONFIRMED_SCHEDULE_OVERRIDE_SOURCE;
+}
+
 function upsertScheduleRoomAdjustmentSlot(
   adjustments: ParsedScheduleRoomAdjustments,
   roundNumber: number,
@@ -4766,6 +4772,7 @@ function buildSelectedRoundOperationalRooms(args: {
   scheduleBuilderRoomCapacity: number;
   resolvedScheduleMatrixCaseCount: number;
   isScheduleMatrixVirtual: boolean;
+  protectCompletedScheduleAssignments?: boolean;
 }) {
   const {
     selectedRotationRound,
@@ -4786,6 +4793,7 @@ function buildSelectedRoundOperationalRooms(args: {
     scheduleBuilderRoomCapacity,
     resolvedScheduleMatrixCaseCount,
     isScheduleMatrixVirtual,
+    protectCompletedScheduleAssignments,
   } = args;
 
   if (!selectedRotationRound) {
@@ -4870,22 +4878,25 @@ function buildSelectedRoundOperationalRooms(args: {
       });
 
   // IMPORTANT REGRESSION GUARD:
-  // Room Operations is the authoritative source for round/room/SP/learner/case/status truth after a schedule is built.
-  // Setup, Live Attendance, Admin Schedule, Student Schedule, and exports must consume the same merged room truth.
-  // Do not create separate derived room data paths that can drift.
+  // For completed schedules, the completed schedule snapshot is the authoritative assignment source.
+  // Room Operations attendance/status metadata may overlay on top, but ordinary operational edits must
+  // not silently override completed schedule student/SP/room/case assignments. Assignment-changing edits
+  // require explicit confirmation and must be saved as confirmed schedule overrides.
   return sourceSlots.map(({ slot, sourceIndex, location }, slotIndex) => {
     const slotOverride =
       roundAdjustments.find((adjustment: ScheduleRoomAdjustmentSlot) => adjustment.slotIndex === slotIndex) || null;
-    const hasLearnerLabelsOverride = hasScheduleRoomAdjustmentField(slotOverride, "learnerLabels");
-    const hasRoomNameOverride = hasScheduleRoomAdjustmentField(slotOverride, "roomName");
-    const hasSpNameOverride = hasScheduleRoomAdjustmentField(slotOverride, "spName");
-    const hasBackupSpOverride = hasScheduleRoomAdjustmentField(slotOverride, "backupSpName");
-    const hasCaseLabelOverride = hasScheduleRoomAdjustmentField(slotOverride, "caseLabel");
-    const hasRoleIdOverride = hasScheduleRoomAdjustmentField(slotOverride, "roleId");
-    const hasRoleLabelOverride = hasScheduleRoomAdjustmentField(slotOverride, "roleLabel");
+    const canApplyAssignmentOverride =
+      !protectCompletedScheduleAssignments || isConfirmedScheduleRoomAdjustment(slotOverride);
+    const hasLearnerLabelsOverride = canApplyAssignmentOverride && hasScheduleRoomAdjustmentField(slotOverride, "learnerLabels");
+    const hasRoomNameOverride = canApplyAssignmentOverride && hasScheduleRoomAdjustmentField(slotOverride, "roomName");
+    const hasSpNameOverride = canApplyAssignmentOverride && hasScheduleRoomAdjustmentField(slotOverride, "spName");
+    const hasBackupSpOverride = canApplyAssignmentOverride && hasScheduleRoomAdjustmentField(slotOverride, "backupSpName");
+    const hasCaseLabelOverride = canApplyAssignmentOverride && hasScheduleRoomAdjustmentField(slotOverride, "caseLabel");
+    const hasRoleIdOverride = canApplyAssignmentOverride && hasScheduleRoomAdjustmentField(slotOverride, "roleId");
+    const hasRoleLabelOverride = canApplyAssignmentOverride && hasScheduleRoomAdjustmentField(slotOverride, "roleLabel");
     const hasNotesOverride = hasScheduleRoomAdjustmentField(slotOverride, "notes");
-    const hasStationStatusOverride = hasScheduleRoomAdjustmentField(slotOverride, "stationStatus");
-    const hasBackupStationOverride = hasScheduleRoomAdjustmentField(slotOverride, "isBackupStation");
+    const hasStationStatusOverride = canApplyAssignmentOverride && hasScheduleRoomAdjustmentField(slotOverride, "stationStatus");
+    const hasBackupStationOverride = canApplyAssignmentOverride && hasScheduleRoomAdjustmentField(slotOverride, "isBackupStation");
 
     const generatedLearnerLabels = getResolvedRoundLearnerLabels({
       learnerRoster: scheduleBuilderLearnerNames,
@@ -7070,12 +7081,12 @@ export default function EventDetailPage() {
     const scheduleStatus = asText(trainingMetadata.schedule_status).toLowerCase();
     const hasDraftTiming = Boolean(scheduleBuilderPreviewDraft?.startTime);
     const requiredCapacityCandidate = Math.max(scheduleBuilderAutoRoundCount, metadataRotationRoundsNeeded);
+    const completedSnapshotRoundCount = scheduleBuilderPreviewDraft?.resolvedRounds?.length || 0;
     const completedBaseCandidate =
       scheduleStatus === "complete"
-        ? scheduleBuilderDraftRoundCount || metadataBasedRotationCount
+        ? completedSnapshotRoundCount || scheduleBuilderDraftRoundCount || metadataBasedRotationCount
         : 0;
-    const completedCandidate =
-      completedBaseCandidate > 0 ? Math.max(completedBaseCandidate, requiredCapacityCandidate) : 0;
+    const completedCandidate = completedBaseCandidate;
     const draftBaseCandidate =
       !completedBaseCandidate && hasDraftTiming
         ? scheduleBuilderDraftRoundCount
@@ -7090,10 +7101,7 @@ export default function EventDetailPage() {
       candidates.push({
         source: "completed_snapshot",
         rounds: completedCandidate,
-        label:
-          completedCandidate > completedBaseCandidate
-            ? "Expanded completed schedule snapshot from roster and room capacity"
-            : "Using completed schedule snapshot",
+        label: "Using completed schedule snapshot",
       });
     } else if (draftCandidate > 0) {
       candidates.push({
@@ -7128,10 +7136,7 @@ export default function EventDetailPage() {
     if (completedCandidate > 0) {
       resolved = completedCandidate;
       source = "completed_snapshot";
-      sourceLabel =
-        completedCandidate > completedBaseCandidate
-          ? "Completed schedule snapshot + roster capacity"
-          : "Completed schedule snapshot";
+      sourceLabel = "Completed schedule snapshot";
     } else if (draftCandidate > 0) {
       resolved = draftCandidate;
       source = "saved_draft";
@@ -8036,13 +8041,27 @@ const operationalEventStatusLabel = useMemo(() => {
       ? rotationRounds.findIndex((round) => round.key === currentLiveReferenceRound.key)
       : -1;
     const liveReferenceFirstLearnerIndex = Math.max(liveReferenceRoundIndex, 0) * liveReferenceLearnersPerRound;
-    liveReferenceRoomSlotEntries.forEach((entry, slotIndex) => {
+    const completedReferenceRound = currentLiveReferenceRound
+      ? resolveSelectedScheduleRound({
+          selectedRotationRound: currentLiveReferenceRound,
+          resolvedRounds: scheduleBuilderPreviewDraft?.resolvedRounds || [],
+          persistedResolvedRoundsByKey,
+          selectedRoundIndex: Math.max(liveReferenceRoundIndex, 0),
+          selectedRoundGlobalIndex: Math.max(liveReferenceRoundIndex, 0),
+        })
+      : null;
+    const liveReferenceRows = completedReferenceRound?.roomSlots?.length
+      ? completedReferenceRound.roomSlots.map((slot, slotIndex) => ({
+          roomName: asText(slot.roomName) || getFallbackRoomLabel(slotIndex, roomNamingContext),
+          learnerLabels: getActualLearnerNames(slot.learnerLabels),
+        }))
+      : liveReferenceRoomSlotEntries.map((entry, slotIndex) => {
       const roomNumber = getRoomDisplayNumber(entry.roomName);
       const matchedSession =
         (roomNumber !== null ? liveReferenceSessionByRoomNumber.get(roomNumber) : null) ||
         liveReferenceSessionByRoomName.get(asText(entry.roomName).toLowerCase()) ||
         null;
-      const row = {
+      return {
         roomName:
           asText(matchedSession?.room) ||
           asText(entry.roomName) ||
@@ -8054,6 +8073,8 @@ const operationalEventStatusLabel = useMemo(() => {
           return "";
         }).filter(Boolean),
       };
+    });
+    liveReferenceRows.forEach((row) => {
       const resolvedRowRoomNumber = getRoomDisplayNumber(row.roomName);
       if (resolvedRowRoomNumber !== null && !liveReferenceRowsByRoomNumber.has(resolvedRowRoomNumber)) {
         liveReferenceRowsByRoomNumber.set(resolvedRowRoomNumber, row);
@@ -8141,10 +8162,12 @@ const operationalEventStatusLabel = useMemo(() => {
     effectiveRoomCount,
     livePausedAtMs,
     liveRoomStates,
+    persistedResolvedRoundsByKey,
     roomSlotEntriesByRoundKey,
     rotationRounds,
     scheduleBuilderDraftLearnerRoster,
     scheduleBuilderDraftRoomCapacity,
+    scheduleBuilderPreviewDraft?.resolvedRounds,
     sessions,
     simulatedLiveMinutes,
     currentLiveRoomAssignmentPlan.assignments,
@@ -9887,6 +9910,20 @@ const operationalEventStatusLabel = useMemo(() => {
   const currentLiveReferenceScheduleRows = useMemo(() => {
     if (!currentLiveReferenceRound) return [] as Array<{ roomName: string; learnerLabels: string[] }>;
 
+    const completedReferenceRound = resolveSelectedScheduleRound({
+      selectedRotationRound: currentLiveReferenceRound,
+      resolvedRounds: scheduleBuilderPreviewDraft?.resolvedRounds || [],
+      persistedResolvedRoundsByKey,
+      selectedRoundIndex: Math.max(currentLiveReferenceRoundIndex, 0),
+      selectedRoundGlobalIndex: Math.max(currentLiveReferenceRoundIndex, 0),
+    });
+    if (completedReferenceRound?.roomSlots?.length) {
+      return completedReferenceRound.roomSlots.map((slot, slotIndex) => ({
+        roomName: asText(slot.roomName) || getFallbackRoomLabel(slotIndex, roomNamingContext),
+        learnerLabels: getActualLearnerNames(slot.learnerLabels),
+      }));
+    }
+
     const sessionByRoomNumber = new Map<number, EventSessionRow>();
     const sessionByRoomName = new Map<string, EventSessionRow>();
     currentLiveReferenceSessions.forEach((session) => {
@@ -9934,8 +9971,10 @@ const operationalEventStatusLabel = useMemo(() => {
     currentLiveReferenceRoomSlotEntries,
     currentLiveReferenceSessions,
     isScheduleMatrixVirtual,
+    persistedResolvedRoundsByKey,
     resolvedScheduleMatrixCaseCount,
     roomNamingContext,
+    scheduleBuilderPreviewDraft?.resolvedRounds,
     scheduleBuilderLearnerNames,
     scheduleBuilderRoomCapacity,
   ]);
@@ -10043,6 +10082,7 @@ const operationalEventStatusLabel = useMemo(() => {
         scheduleBuilderRoomCapacity,
         resolvedScheduleMatrixCaseCount,
         isScheduleMatrixVirtual,
+        protectCompletedScheduleAssignments: scheduleCompleted,
       }),
     [
       activeScheduleRoomAdjustments,
@@ -10053,6 +10093,7 @@ const operationalEventStatusLabel = useMemo(() => {
       isScheduleMatrixVirtual,
       resolvedScheduleMatrixCaseCount,
       roomNamingContext,
+      scheduleCompleted,
       scheduleBuilderLearnerNames,
       scheduleBuilderRoomCapacity,
       selectedResolvedRound,
@@ -15736,22 +15777,26 @@ Cory`;
           const hasRoleIdOverride = hasScheduleRoomAdjustmentField(slotAdjustment, "roleId");
           const hasRoleLabelOverride = hasScheduleRoomAdjustmentField(slotAdjustment, "roleLabel");
           const hasNotesOverride = hasScheduleRoomAdjustmentField(slotAdjustment, "notes");
-          const hasStationStatusOverride = hasScheduleRoomAdjustmentField(slotAdjustment, "stationStatus");
-          const hasBackupStationOverride = hasScheduleRoomAdjustmentField(slotAdjustment, "isBackupStation");
+          const canApplyAssignmentOverride =
+            !scheduleCompleted || isConfirmedScheduleRoomAdjustment(slotAdjustment);
+          const hasStationStatusOverride =
+            canApplyAssignmentOverride && hasScheduleRoomAdjustmentField(slotAdjustment, "stationStatus");
+          const hasBackupStationOverride =
+            canApplyAssignmentOverride && hasScheduleRoomAdjustmentField(slotAdjustment, "isBackupStation");
 
           adjustedRoomSlots[slotIndex] = {
             ...existingSlot,
-            roomName: hasRoomNameOverride
+            roomName: canApplyAssignmentOverride && hasRoomNameOverride
               ? asText(slotAdjustment.roomName) || getFallbackRoomLabel(slotIndex, roomNamingContext)
               : asText(existingSlot.roomName) || getFallbackRoomLabel(slotIndex, roomNamingContext),
-            assignedSpName: hasSpNameOverride ? asText(slotAdjustment.spName) : asText(existingSlot.assignedSpName),
-            backupSpName: hasBackupSpOverride ? asText(slotAdjustment.backupSpName) : asText(existingSlot.backupSpName),
-            learnerLabels: hasLearnerOverride
+            assignedSpName: canApplyAssignmentOverride && hasSpNameOverride ? asText(slotAdjustment.spName) : asText(existingSlot.assignedSpName),
+            backupSpName: canApplyAssignmentOverride && hasBackupSpOverride ? asText(slotAdjustment.backupSpName) : asText(existingSlot.backupSpName),
+            learnerLabels: canApplyAssignmentOverride && hasLearnerOverride
               ? normalizeLearnerNames(slotAdjustment.learnerLabels || [])
               : normalizeTextArray(existingSlot.learnerLabels),
-            caseLabel: hasCaseLabelOverride ? asText(slotAdjustment.caseLabel) : asText(existingSlot.caseLabel),
-            roleId: hasRoleIdOverride ? asText(slotAdjustment.roleId) : asText(existingSlot.roleId),
-            roleLabel: hasRoleLabelOverride ? asText(slotAdjustment.roleLabel) : asText(existingSlot.roleLabel),
+            caseLabel: canApplyAssignmentOverride && hasCaseLabelOverride ? asText(slotAdjustment.caseLabel) : asText(existingSlot.caseLabel),
+            roleId: canApplyAssignmentOverride && hasRoleIdOverride ? asText(slotAdjustment.roleId) : asText(existingSlot.roleId),
+            roleLabel: canApplyAssignmentOverride && hasRoleLabelOverride ? asText(slotAdjustment.roleLabel) : asText(existingSlot.roleLabel),
             notes: hasNotesOverride ? asText(slotAdjustment.notes) : asText(existingSlot.notes),
             stationStatus: hasStationStatusOverride
               ? normalizeScheduleStationStatus(slotAdjustment.stationStatus) || undefined
@@ -15855,7 +15900,9 @@ Cory`;
       activeScheduleRoomAdjustments,
       roundNumber,
       slotIndex,
-      partial
+      scheduleCompleted
+        ? { ...partial, source: CONFIRMED_SCHEDULE_OVERRIDE_SOURCE, manualOverride: true }
+        : partial
     );
     setRoundOperationsDraftAdjustments(nextAdjustments);
     setRoundOperationsSaveState("unsaved");
@@ -15876,7 +15923,7 @@ Cory`;
       targetRow.slotIndex,
       {
         manualOverride: true,
-        source: "manual-room-edit",
+        source: scheduleCompleted ? CONFIRMED_SCHEDULE_OVERRIDE_SOURCE : "manual-room-edit",
         learnerLabels: sourceRow.learnerLabels,
         spName: sourcePrimarySpName,
         backupSpName: sourceRow.backupSpName,
@@ -15892,7 +15939,7 @@ Cory`;
       sourceRow.slotIndex,
       {
         manualOverride: true,
-        source: "manual-room-edit",
+        source: scheduleCompleted ? CONFIRMED_SCHEDULE_OVERRIDE_SOURCE : "manual-room-edit",
         learnerLabels: targetRow.learnerLabels,
         spName: targetPrimarySpName,
         backupSpName: targetRow.backupSpName,
@@ -35178,7 +35225,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               </div>
             </div>
             <p style={{ margin: 0, color: "#425f77", fontSize: "13px", fontWeight: 750, lineHeight: 1.55 }}>
-              This event has a completed schedule. Changing room, learner, SP, case, role, or station assignments will update the operational schedule and may affect Admin Schedule, Student Schedule, and exports.
+              This event has a completed schedule. Changing room, learner, SP, case, role, or station assignments will update the operational schedule and may affect Admin Schedule, Student Schedule, live room maps, and exports.
             </p>
             {roomOperationsScheduleWarning.impactLabel ? (
               <div style={{ ...commandChipStyle, justifySelf: "start", background: "rgba(254, 243, 199, 0.78)", color: "#7c2d12", border: "1px solid rgba(217,119,6,0.24)" }}>
