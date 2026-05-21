@@ -16,7 +16,10 @@ export type RoundAnnouncementItem = {
   key: string;
   timeMinutes: number;
   timeLabel: string;
+  cueTimingLabel: string;
   badgeLabel: string;
+  blockLabel: string;
+  phaseKey: string;
   message: string;
   detail?: string;
 };
@@ -143,6 +146,9 @@ export function buildRoundAnnouncementItems(
       key: string,
       timeMinutes: number,
       badgeLabel: string,
+      cueTimingLabel: string,
+      blockLabel: string,
+      phaseKey: string,
       message: string,
       detail?: string
     ) => {
@@ -151,31 +157,66 @@ export function buildRoundAnnouncementItems(
         key: `${roundKey}-${key}`,
         timeMinutes,
         timeLabel: formatTime(timeMinutes),
+        cueTimingLabel,
         badgeLabel,
+        blockLabel,
+        phaseKey,
         message,
         detail,
       });
     };
 
     pushItem(
-      "prepare",
+      "prepare-sp",
       encounterBlock.start - 1,
       "Prepare",
-      "SPs, please prepare.",
+      "1 minute before encounter",
+      "Encounter",
+      "prepare",
+      "SPs prepare.",
       "1 minute before encounter start"
     );
-    pushItem("start", encounterBlock.start, "Start", "You may now begin your encounter.");
+    pushItem(
+      "prepare-students",
+      encounterBlock.start - 1,
+      "Prepare",
+      "1 minute before encounter",
+      "Encounter",
+      "prepare",
+      "Students prepare.",
+      "1 minute before encounter start"
+    );
+    pushItem(
+      "start",
+      encounterBlock.start,
+      "Encounter",
+      "At encounter start",
+      "Encounter",
+      "encounter_start",
+      "Begin Encounter."
+    );
 
     const warningTime = encounterBlock.end - 5;
     if (warningTime > encounterBlock.start) {
-      pushItem("warning", warningTime, "5-Min Warning", "You have 5 minutes remaining in your encounter.");
+      pushItem(
+        "warning",
+        warningTime,
+        "Warning",
+        "5 minutes before encounter ends",
+        "Encounter",
+        "encounter_warning",
+        "5 minutes remaining."
+      );
     }
 
     pushItem(
       "feedback-start",
       feedbackStart,
       "Feedback",
-      "Encounter has ended. SPs, please begin feedback.",
+      "At feedback start",
+      "Feedback",
+      "feedback_start",
+      "Please begin feedback.",
       feedbackBlock
         ? `${formatDuration(getBlockDurationMinutes(feedbackBlock))} feedback window`
         : "Feedback timing not configured; using encounter end."
@@ -185,8 +226,11 @@ export function buildRoundAnnouncementItems(
       pushItem(
         "return-transition",
         returnTime,
-        "Return/Transition",
-        "Students, return to Main Room / transition to next assignment.",
+        "Encounter Over",
+        "At encounter end / transition",
+        transitionBlock ? transitionBlock.label || "Transition" : "Round Transition",
+        "encounter_complete",
+        "Encounter over. Please leave the meeting.",
         transitionBlock
           ? `${formatTime(transitionBlock.start)} - ${formatTime(transitionBlock.end)} transition`
           : feedbackBlock
@@ -195,11 +239,27 @@ export function buildRoundAnnouncementItems(
       );
     }
 
+    if (hasNextRound && nextRoundStart > roundStart && nextRoundStart - 1 > returnTime) {
+      pushItem(
+        "next-round-soon",
+        nextRoundStart - 1,
+        "Next Round",
+        "1 minute before next round",
+        "Next Round",
+        "next_round_soon",
+        "Next round begins soon.",
+        "1 minute warning before the next scheduled round."
+      );
+    }
+
     if (nextRoundStart >= roundStart) {
       pushItem(
         "next-round",
         nextRoundStart,
         hasNextRound ? "Next Round" : "Round End",
+        hasNextRound ? "At next round start" : "At round complete",
+        hasNextRound ? "Next Round" : "Round Complete",
+        hasNextRound ? "next_round_start" : "round_complete",
         hasNextRound ? "Next round begins." : "Round ends.",
         hasNextRound ? "Next scheduled round start." : "Round end."
       );

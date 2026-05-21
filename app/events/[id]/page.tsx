@@ -51,6 +51,16 @@ import {
   renderEmailTemplate,
   type EmailTemplateRecord,
 } from "../../lib/emailTemplates";
+import {
+  formatCueCountdown,
+  parseAnnouncementAlertSettings,
+  parseAnnouncementCueOverrides,
+  parseAnnouncementCueState,
+  serializeAnnouncementAlertSettings,
+  serializeAnnouncementCueOverrides,
+  serializeAnnouncementCueState,
+  type AnnouncementCueStateRecord,
+} from "../../lib/announcementCues";
 import { normalizeDisplayText, normalizeLearnerName, normalizeLearnerNames } from "../../lib/learnerNames";
 import {
   buildSessionChecklist,
@@ -256,6 +266,18 @@ type CommandDockPanelState = {
   secondaryTools: boolean;
 };
 type LiveRoomStatusValue = "ready" | "in_session" | "delayed" | "empty" | "sp_missing" | "complete";
+type AnnouncementCueTimelineEntry = {
+  key: string;
+  roundKey: string;
+  roundNumber: number;
+  timeMinutes: number;
+  timeLabel: string;
+  phaseLabel: string;
+  blockLabel: string;
+  cueTimingLabel: string;
+  announcement: string;
+  detail?: string;
+};
 type RoomDisplayEntry = {
   roomName: string;
   sourceIndex: number;
@@ -5395,6 +5417,9 @@ const LIVE_SYNC_TRAINING_METADATA_KEYS: Array<keyof TrainingEventMetadata> = [
   "schedule_learner_roster",
   "schedule_preview_enabled_for_sps",
   "rotation_schedule_status",
+  "announcement_cue_overrides",
+  "announcement_cue_state",
+  "announcement_alert_settings",
   "live_mode_started_at",
   "live_mode_ended_at",
   "live_alerts_acknowledged",
@@ -6058,6 +6083,9 @@ export default function EventDetailPage() {
   const [selectedRotationRoundKey, setSelectedRotationRoundKey] = useState("");
   const [roundCompanionView, setRoundCompanionView] = useState<RotationCompanionView>("overview");
   const [roundAnnouncementDrafts, setRoundAnnouncementDrafts] = useState<Record<string, string>>({});
+  const [announcementCueSaving, setAnnouncementCueSaving] = useState(false);
+  const [announcementDueCueKeys, setAnnouncementDueCueKeys] = useState<Record<string, string>>({});
+  const [announcementNotificationsPermission, setAnnouncementNotificationsPermission] = useState("default");
   const [hasTouchedRoundCompanion, setHasTouchedRoundCompanion] = useState(false);
   const [rotationCommandSurfaceOpen, setRotationCommandSurfaceOpen] = useState(true);
   const [tacticalRoomBoardOpen, setTacticalRoomBoardOpen] = useState(false);
@@ -6212,6 +6240,8 @@ export default function EventDetailPage() {
   const liveSyncRefreshInFlightRef = useRef(false);
   const liveSyncQueuedSourceRef = useRef<"realtime" | "fallback" | "focus">("realtime");
   const liveSyncChannelRef = useRef<RealtimeChannel | null>(null);
+  const announcementAudioContextRef = useRef<AudioContext | null>(null);
+  const announcementLastAlertAtRef = useRef<Record<string, number>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -7038,6 +7068,21 @@ export default function EventDetailPage() {
     () => mergeEventFamilyTrainingMetadata(parsedEventMetadata.training, relatedTrainingOperationalEvents),
     [parsedEventMetadata.training, relatedTrainingOperationalEvents]
   );
+  const announcementCueOverrides = useMemo(
+    () => parseAnnouncementCueOverrides(trainingMetadata.announcement_cue_overrides),
+    [trainingMetadata.announcement_cue_overrides]
+  );
+  const announcementCueStateMap = useMemo(
+    () => parseAnnouncementCueState(trainingMetadata.announcement_cue_state),
+    [trainingMetadata.announcement_cue_state]
+  );
+  const announcementAlertSettings = useMemo(
+    () => parseAnnouncementAlertSettings(trainingMetadata.announcement_alert_settings),
+    [trainingMetadata.announcement_alert_settings]
+  );
+  const announcementLiveModeActive = Boolean(announcementAlertSettings.liveModeActive);
+  const announcementAlertsMuted = Boolean(announcementAlertSettings.muteAlerts);
+  const announcementNotificationsEnabled = Boolean(announcementAlertSettings.notificationsEnabled);
   const savedStudentInstructionsConfig = useMemo(
     () => getStudentInstructionsConfigFromMetadata(trainingMetadata),
     [trainingMetadata]
@@ -10924,98 +10969,92 @@ const operationalEventStatusLabel = useMemo(() => {
     selectedRoundTacticalBoardRows,
     selectedRoundBackupScheduleTruth,
   ]);
-  const selectedRoundAnnouncementTimeline = useMemo(() => {
-    if (!selectedRotationRound) {
-      return [] as Array<{
-        key: string;
-        timeLabel: string;
-        phaseLabel: string;
-        announcement: string;
-        detail?: string;
-      }>;
-    }
+  const buildAnnouncementTimelineForRound = useCallback(
+    (round: RotationRound | null | undefined, roundIndex: number) => {
+      if (!round) return [] as AnnouncementCueTimelineEntry[];
 
-    const fallbackEmptyTimeline = [] as Array<{
-      key: string;
-      timeLabel: string;
-      phaseLabel: string;
-      announcement: string;
-      detail?: string;
-    }>;
+      const selectedRoundTiming = getNormalizedRotationRoundTiming(
+        round,
+        getSameDateRotationRounds(round, rotationRounds)
+      );
+      const startMinutes = selectedRoundTiming?.startMinutes ?? null;
+      const endMinutes = selectedRoundTiming?.endMinutes ?? null;
+      if (startMinutes === null || endMinutes === null || endMinutes <= startMinutes) {
+        return [] as AnnouncementCueTimelineEntry[];
+      }
 
-    const selectedRoundTiming = getNormalizedRotationRoundTiming(
-      selectedRotationRound,
-      getSameDateRotationRounds(selectedRotationRound, rotationRounds)
-    );
-    const startMinutes = selectedRoundTiming?.startMinutes ?? null;
-    const endMinutes = selectedRoundTiming?.endMinutes ?? null;
-    if (startMinutes === null || endMinutes === null || endMinutes <= startMinutes) {
-      return [] as Array<{
-        key: string;
-        timeLabel: string;
-        phaseLabel: string;
-        announcement: string;
-        detail?: string;
-      }>;
-    }
+      try {
+        const nextRound = activeDateRotationRounds[roundIndex + 1] || null;
+        const nextRoundTiming = nextRound
+          ? getNormalizedRotationRoundTiming(nextRound, getSameDateRotationRounds(nextRound, rotationRounds))
+          : null;
+        const nextRoundStartMinutes = nextRoundTiming?.startMinutes ?? null;
+        const selectedRoundKeyPrefix = `${asText(round.key)}-`;
+        const roundFlowBlocks = (Array.isArray(liveFlowBlocks) ? liveFlowBlocks : [])
+          .filter((block) => asText(block?.key).startsWith(selectedRoundKeyPrefix))
+          .map((block) => ({
+            label: asText(block?.label),
+            start: block?.startMinutes,
+            end: block?.endMinutes,
+          }));
 
-    try {
-      const nextRound = activeDateRotationRounds[activeSelectedRotationRoundIndex + 1] || null;
-      const nextRoundTiming = nextRound
-        ? getNormalizedRotationRoundTiming(nextRound, getSameDateRotationRounds(nextRound, rotationRounds))
-        : null;
-      const nextRoundStartMinutes = nextRoundTiming?.startMinutes ?? null;
-      const selectedRoundKeyPrefix = `${asText(selectedRotationRound.key)}-`;
-      const roundFlowBlocks = (Array.isArray(liveFlowBlocks) ? liveFlowBlocks : [])
-        .filter((block) => asText(block?.key).startsWith(selectedRoundKeyPrefix))
-        .map((block) => ({
-          label: asText(block?.label),
-          start: block?.startMinutes,
-          end: block?.endMinutes,
+        return buildRoundAnnouncementItems(
+          {
+            key: round.key,
+            round: roundIndex + 1,
+            start: startMinutes,
+            end: endMinutes,
+            subBlocks: roundFlowBlocks,
+          },
+          nextRoundStartMinutes !== null
+            ? {
+                key: nextRound?.key,
+                round: roundIndex + 2,
+                start: nextRoundStartMinutes,
+                end: nextRoundTiming?.endMinutes ?? nextRoundStartMinutes,
+                subBlocks: [],
+              }
+            : null,
+          { formatTime: formatMinutesAsClockLabel }
+        ).map((item) => ({
+          key: item.key,
+          roundKey: asText(round.key),
+          roundNumber: roundIndex + 1,
+          timeMinutes: item.timeMinutes,
+          timeLabel: item.timeLabel,
+          phaseLabel: item.badgeLabel,
+          blockLabel: item.blockLabel,
+          cueTimingLabel: item.cueTimingLabel,
+          announcement: item.message,
+          detail: item.detail,
         }));
-
-      return buildRoundAnnouncementItems(
-        {
-          key: selectedRotationRound.key,
-          round: activeSelectedRotationRoundIndex + 1,
-          start: startMinutes,
-          end: endMinutes,
-          subBlocks: roundFlowBlocks,
-        },
-        nextRoundStartMinutes !== null
-          ? {
-              key: nextRound?.key,
-              round: activeSelectedRotationRoundIndex + 2,
-              start: nextRoundStartMinutes,
-              end: nextRoundTiming?.endMinutes ?? nextRoundStartMinutes,
-              subBlocks: [],
-            }
-          : null,
-        { formatTime: formatMinutesAsClockLabel }
-      ).map((item) => ({
-        key: item.key,
-        timeLabel: item.timeLabel,
-        phaseLabel: item.badgeLabel,
-        announcement: item.message,
-        detail: item.detail,
-      }));
-    } catch {
-      return fallbackEmptyTimeline;
-    }
-  }, [
-    activeDateRotationRounds,
-    activeSelectedRotationRoundIndex,
-    liveFlowBlocks,
-    rotationRounds,
-    selectedRotationRound,
-  ]);
+      } catch {
+        return [] as AnnouncementCueTimelineEntry[];
+      }
+    },
+    [activeDateRotationRounds, liveFlowBlocks, rotationRounds]
+  );
+  const announcementCueTimeline = useMemo(
+    () =>
+      activeDateRotationRounds.flatMap((round, index) =>
+        buildAnnouncementTimelineForRound(round, index)
+      ),
+    [activeDateRotationRounds, buildAnnouncementTimelineForRound]
+  );
+  const selectedRoundAnnouncementTimeline = useMemo(
+    () =>
+      selectedRotationRound
+        ? buildAnnouncementTimelineForRound(selectedRotationRound, activeSelectedRotationRoundIndex)
+        : ([] as AnnouncementCueTimelineEntry[]),
+    [activeSelectedRotationRoundIndex, buildAnnouncementTimelineForRound, selectedRotationRound]
+  );
   const selectedRoundAnnouncementExportRows = useMemo(
     () =>
       selectedRoundAnnouncementTimeline.map((entry) => ({
         ...entry,
-        message: roundAnnouncementDrafts[entry.key] ?? entry.announcement,
+        message: roundAnnouncementDrafts[entry.key] ?? announcementCueOverrides[entry.key] ?? entry.announcement,
       })),
-    [roundAnnouncementDrafts, selectedRoundAnnouncementTimeline]
+    [announcementCueOverrides, roundAnnouncementDrafts, selectedRoundAnnouncementTimeline]
   );
   const selectedRoundAnnouncementExportText = useMemo(() => {
     const eventName = event?.name || "Untitled Event";
@@ -11056,6 +11095,101 @@ const operationalEventStatusLabel = useMemo(() => {
     selectedRoundAnnouncementExportRows,
     summaryTimeLabel,
   ]);
+  const announcementCueEntries = useMemo(() => {
+    const nowMs = countdownNowMs ?? Date.now();
+    return announcementCueTimeline.map((entry) => {
+      const persistedState = announcementCueStateMap[entry.key];
+      const persistedStatus = persistedState?.status;
+      const snoozedUntilMs = persistedState?.snoozedUntil ? new Date(persistedState.snoozedUntil).getTime() : 0;
+      const isSnoozed = snoozedUntilMs > nowMs;
+      const hasTriggeredDueState = Boolean(announcementDueCueKeys[entry.key]);
+      const minutesUntilCue = entry.timeMinutes - simulatedLiveMinutes;
+      const shouldActivateDue =
+        announcementLiveModeActive &&
+        !persistedStatus &&
+        !isSnoozed &&
+        minutesUntilCue <= 0 &&
+        minutesUntilCue >= -1;
+      const status =
+        persistedStatus === "delivered"
+          ? "Delivered"
+          : persistedStatus === "skipped"
+            ? "Skipped"
+            : hasTriggeredDueState || shouldActivateDue
+              ? "Due now"
+              : "Upcoming";
+      const timingDetail =
+        status === "Due now"
+          ? "Announcement Due"
+          : isSnoozed
+            ? `Snoozed until ${new Date(snoozedUntilMs).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`
+            : minutesUntilCue < -1
+              ? "Past cue - not auto-armed on load"
+              : formatCueCountdown(Math.max(minutesUntilCue, 0));
+      return {
+        ...entry,
+        announcementText: roundAnnouncementDrafts[entry.key] ?? announcementCueOverrides[entry.key] ?? entry.announcement,
+        persistentStatus: persistedStatus,
+        status,
+        timingDetail,
+        minutesUntilCue,
+        isSnoozed,
+        hasTriggeredDueState,
+        shouldActivateDue,
+      };
+    });
+  }, [
+    announcementCueOverrides,
+    announcementCueStateMap,
+    announcementCueTimeline,
+    announcementDueCueKeys,
+    announcementLiveModeActive,
+    countdownNowMs,
+    roundAnnouncementDrafts,
+    simulatedLiveMinutes,
+  ]);
+  const announcementCueEntriesByKey = useMemo(
+    () => new Map(announcementCueEntries.map((entry) => [entry.key, entry] as const)),
+    [announcementCueEntries]
+  );
+  const selectedRoundAnnouncementCueEntries = useMemo(
+    () =>
+      selectedRoundAnnouncementTimeline
+        .map((entry) => announcementCueEntriesByKey.get(entry.key) || null)
+        .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry)),
+    [announcementCueEntriesByKey, selectedRoundAnnouncementTimeline]
+  );
+  const announcementTimingUnavailable = announcementCueTimeline.length === 0;
+  const announcementCueStatusLabel = announcementTimingUnavailable
+    ? "Timing unavailable"
+    : announcementLiveModeActive
+      ? announcementAlertsMuted
+        ? "Live cue board muted"
+        : "Live cue board armed"
+      : "Preview mode";
+  const nextAnnouncementCue = useMemo(
+    () =>
+      announcementCueEntries.find(
+        (entry) =>
+          entry.status === "Due now" ||
+          (entry.status === "Upcoming" && !entry.isSnoozed && entry.minutesUntilCue >= -1)
+      ) || null,
+    [announcementCueEntries]
+  );
+  const announcementCueStripRoundLabel =
+    currentRotationRoundNumber !== null
+      ? `Round ${currentRotationRoundNumber}`
+      : nextAnnouncementCue
+        ? `Round ${nextAnnouncementCue.roundNumber}`
+        : selectedRotationRound
+          ? `Round ${activeSelectedRotationRoundIndex + 1}`
+          : "Round TBD";
+  const announcementCueStripBlockLabel = currentLiveBlock?.label || nextAnnouncementCue?.blockLabel || "Timing unavailable";
+  const announcementCueStripCountdownLabel = nextAnnouncementCue
+    ? nextAnnouncementCue.status === "Due now"
+      ? "Due now"
+      : formatCueCountdown(Math.max(nextAnnouncementCue.minutesUntilCue, 0))
+    : "No remaining cues";
   const selectedRoundOperationsNotes = useMemo(
     () =>
       [
@@ -17584,6 +17718,54 @@ Cory`;
     };
   }, []);
 
+  const playAnnouncementCueAlert = useCallback(async (title: string, body: string) => {
+    if (typeof window === "undefined") return;
+
+    if (!announcementAlertsMuted) {
+      try {
+        const AudioContextCtor =
+          window.AudioContext ||
+          (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+        if (AudioContextCtor) {
+          const context = announcementAudioContextRef.current || new AudioContextCtor();
+          announcementAudioContextRef.current = context;
+          if (context.state === "suspended") {
+            await context.resume().catch(() => undefined);
+          }
+          const oscillator = context.createOscillator();
+          const gainNode = context.createGain();
+          oscillator.type = "sine";
+          oscillator.frequency.value = 784;
+          gainNode.gain.setValueAtTime(0.0001, context.currentTime);
+          gainNode.gain.exponentialRampToValueAtTime(0.08, context.currentTime + 0.02);
+          gainNode.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.22);
+          oscillator.connect(gainNode);
+          gainNode.connect(context.destination);
+          oscillator.start();
+          oscillator.stop(context.currentTime + 0.24);
+        }
+      } catch {
+        // Fall through to in-app / notification cues when audio is unavailable.
+      }
+    }
+
+    if (
+      announcementNotificationsEnabled &&
+      announcementNotificationsPermission === "granted" &&
+      typeof Notification !== "undefined"
+    ) {
+      try {
+        const notification = new Notification(title, {
+          body,
+          silent: true,
+        });
+        window.setTimeout(() => notification.close(), 8000);
+      } catch {
+        return;
+      }
+    }
+  }, [announcementAlertsMuted, announcementNotificationsEnabled, announcementNotificationsPermission]);
+
   useEffect(() => {
     setCountdownNowMs(Date.now());
     const interval = window.setInterval(() => {
@@ -17591,6 +17773,48 @@ Cory`;
     }, 1000);
     return () => window.clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    if (typeof Notification === "undefined") return;
+    setAnnouncementNotificationsPermission(Notification.permission);
+  }, []);
+
+  useEffect(() => {
+    if (!announcementLiveModeActive) return;
+    const nextDueEntries = announcementCueEntries.filter(
+      (entry) => entry.shouldActivateDue && !announcementDueCueKeys[entry.key]
+    );
+    if (!nextDueEntries.length) return;
+    setAnnouncementDueCueKeys((current) => {
+      const next = { ...current };
+      nextDueEntries.forEach((entry) => {
+        next[entry.key] = new Date().toISOString();
+      });
+      return next;
+    });
+  }, [announcementCueEntries, announcementDueCueKeys, announcementLiveModeActive]);
+
+  useEffect(() => {
+    if (!announcementLiveModeActive) return;
+    const dueEntries = announcementCueEntries.filter((entry) => entry.status === "Due now");
+    if (!dueEntries.length) return;
+
+    const nowMs = Date.now();
+    const lastGlobalAlertAt = announcementLastAlertAtRef.current.__global__ || 0;
+    if (lastGlobalAlertAt && nowMs - lastGlobalAlertAt < 45000) return;
+    const nextAlertEntry = dueEntries.find((entry) => {
+      const lastAlertAt = announcementLastAlertAtRef.current[entry.key] || 0;
+      return !lastAlertAt || nowMs - lastAlertAt >= 45000;
+    });
+    if (!nextAlertEntry) return;
+
+    announcementLastAlertAtRef.current.__global__ = nowMs;
+    announcementLastAlertAtRef.current[nextAlertEntry.key] = nowMs;
+    void playAnnouncementCueAlert(
+      "Announcement Due",
+      `${nextAlertEntry.phaseLabel}: ${nextAlertEntry.announcementText}`
+    );
+  }, [announcementCueEntries, announcementLiveModeActive, playAnnouncementCueAlert]);
 
   useEffect(() => {
     if (!canRunLiveEventMode || commandCenterMode !== "live") return;
@@ -18192,6 +18416,209 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     if (typeof window !== "undefined") {
       window.localStorage.setItem(getTacticalRoomBoardStorageKey(id), nextOpen ? "open" : "closed");
     }
+  }
+
+  async function persistAnnouncementCueMetadata(args: {
+    overrides?: Record<string, string>;
+    cueState?: Record<string, AnnouncementCueStateRecord>;
+    alertSettings?: {
+      liveModeActive?: boolean;
+      muteAlerts?: boolean;
+      notificationsEnabled?: boolean;
+      lastStartedAt?: string;
+    };
+    successMessage?: string;
+    quiet?: boolean;
+  }) {
+    if (!id) return false;
+
+    setAnnouncementCueSaving(true);
+    setEventSaveError("");
+    try {
+      const nextNotes = upsertEventMetadata(eventEditor.notes, {
+        training: {
+          announcement_cue_overrides: serializeAnnouncementCueOverrides(args.overrides || announcementCueOverrides),
+          announcement_cue_state: serializeAnnouncementCueState(args.cueState || announcementCueStateMap),
+          announcement_alert_settings: serializeAnnouncementAlertSettings(args.alertSettings || announcementAlertSettings),
+        },
+      });
+      const response = await fetch(`/api/events/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          event_updates: {
+            notes: nextNotes,
+          },
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(await parseApiError(response));
+      }
+
+      setEvent((current) => (current ? { ...current, notes: nextNotes } : current));
+      setEventEditor((current) => ({ ...current, notes: nextNotes }));
+      await refreshData({
+        preserveLocalEdits: true,
+        preserveSelectedSp: true,
+        source: "manual",
+      });
+      if (!args.quiet) {
+        showSuccessMessage(args.successMessage || "Announcement cues updated.");
+      }
+      return true;
+    } catch (error) {
+      setEventSaveError(error instanceof Error ? error.message : "Could not update announcement cues.");
+      return false;
+    } finally {
+      setAnnouncementCueSaving(false);
+    }
+  }
+
+  async function handleSaveRoundAnnouncementDraft(key: string, value: string) {
+    const baseAnnouncement = announcementCueEntriesByKey.get(key)?.announcement || "";
+    const normalizedValue = value.trim();
+    const nextOverrides = {
+      ...announcementCueOverrides,
+    };
+    if (normalizedValue && normalizedValue !== baseAnnouncement) {
+      nextOverrides[key] = normalizedValue;
+    } else {
+      delete nextOverrides[key];
+    }
+
+    const saved = await persistAnnouncementCueMetadata({
+      overrides: nextOverrides,
+      successMessage: "Announcement text saved.",
+      quiet: true,
+    });
+    if (saved) {
+      setRoundAnnouncementDrafts((current) => {
+        const next = { ...current };
+        delete next[key];
+        return next;
+      });
+      showSuccessMessage("Announcement text saved.");
+    }
+  }
+
+  async function handleUpdateAnnouncementCueStatus(
+    key: string,
+    status: "delivered" | "skipped",
+    successMessage: string
+  ) {
+    const timestamp = new Date().toISOString();
+    const nextCueState = {
+      ...announcementCueStateMap,
+      [key]: {
+        ...announcementCueStateMap[key],
+        status,
+        updatedAt: timestamp,
+        updatedBy: me?.scheduleName || me?.fullName || me?.email || "",
+        snoozedUntil: "",
+      },
+    };
+    const saved = await persistAnnouncementCueMetadata({
+      cueState: nextCueState,
+      successMessage,
+    });
+    if (saved) {
+      setAnnouncementDueCueKeys((current) => {
+        if (!current[key]) return current;
+        const next = { ...current };
+        delete next[key];
+        return next;
+      });
+    }
+  }
+
+  async function handleSnoozeAnnouncementCue(key: string) {
+    const timestamp = new Date().toISOString();
+    const nextCueState = {
+      ...announcementCueStateMap,
+      [key]: {
+        ...announcementCueStateMap[key],
+        updatedAt: timestamp,
+        updatedBy: me?.scheduleName || me?.fullName || me?.email || "",
+        snoozedUntil: new Date(Date.now() + 60 * 1000).toISOString(),
+      },
+    };
+    delete nextCueState[key].status;
+    const saved = await persistAnnouncementCueMetadata({
+      cueState: nextCueState,
+      successMessage: "Announcement snoozed for 1 minute.",
+    });
+    if (saved) {
+      setAnnouncementDueCueKeys((current) => {
+        if (!current[key]) return current;
+        const next = { ...current };
+        delete next[key];
+        return next;
+      });
+    }
+  }
+
+  async function handleToggleAnnouncementAlertsMuted() {
+    await persistAnnouncementCueMetadata({
+      alertSettings: {
+        ...announcementAlertSettings,
+        liveModeActive: announcementLiveModeActive,
+        muteAlerts: !announcementAlertsMuted,
+        notificationsEnabled: announcementNotificationsEnabled,
+      },
+      successMessage: announcementAlertsMuted ? "Announcement alerts unmuted." : "Announcement alerts muted.",
+    });
+  }
+
+  async function handleToggleAnnouncementLiveMode() {
+    const nextLiveModeActive = !announcementLiveModeActive;
+    const saved = await persistAnnouncementCueMetadata({
+      alertSettings: {
+        ...announcementAlertSettings,
+        liveModeActive: nextLiveModeActive,
+        muteAlerts: announcementAlertsMuted,
+        notificationsEnabled: announcementNotificationsEnabled,
+        lastStartedAt: nextLiveModeActive ? new Date().toISOString() : announcementAlertSettings.lastStartedAt || "",
+      },
+      successMessage: nextLiveModeActive ? "Live cue board started." : "Live cue board stopped.",
+    });
+    if (saved && !nextLiveModeActive) {
+      setAnnouncementDueCueKeys({});
+    }
+  }
+
+  async function handleToggleAnnouncementNotifications() {
+    if (typeof window === "undefined" || typeof Notification === "undefined") {
+      setEventSaveError("Browser notifications are not available in this browser.");
+      return;
+    }
+
+    let nextPermission = Notification.permission;
+    if (!announcementNotificationsEnabled && nextPermission === "default") {
+      nextPermission = await Notification.requestPermission();
+    }
+    setAnnouncementNotificationsPermission(nextPermission);
+    if (nextPermission !== "granted" && !announcementNotificationsEnabled) {
+      setEventSaveError("Browser notification permission was not granted.");
+      return;
+    }
+
+    await persistAnnouncementCueMetadata({
+      alertSettings: {
+        ...announcementAlertSettings,
+        liveModeActive: announcementLiveModeActive,
+        muteAlerts: announcementAlertsMuted,
+        notificationsEnabled: !announcementNotificationsEnabled,
+      },
+      successMessage: announcementNotificationsEnabled
+        ? "Browser notifications disabled."
+        : "Browser notifications enabled.",
+    });
+  }
+
+  async function handleTestAnnouncementAlert() {
+    await playAnnouncementCueAlert("Announcement Due", "Test alert: cue board alarm.");
+    showSuccessMessage("Test alert sent.");
   }
 
   async function handleCopyRoundAnnouncement(text: string) {
@@ -28652,15 +29079,21 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     </div>
   </section>
 ) : roundCompanionView === "announcements" ? (
-                            selectedRoundAnnouncementTimeline.length ? (
+                            selectedRoundAnnouncementCueEntries.length ? (
                               <div style={{ display: "grid", gap: "10px" }}>
                                 {(() => {
-                                  const currentAnnouncement = selectedRoundAnnouncementTimeline[0];
-                                  const nextAnnouncement = selectedRoundAnnouncementTimeline[1] || null;
-                                  const currentAnnouncementText =
-                                    roundAnnouncementDrafts[currentAnnouncement.key] ?? currentAnnouncement.announcement;
+                                  const currentAnnouncement =
+                                    selectedRoundAnnouncementCueEntries.find((entry) => entry.status === "Due now") ||
+                                    selectedRoundAnnouncementCueEntries.find(
+                                      (entry) => entry.status !== "Delivered" && entry.status !== "Skipped"
+                                    ) ||
+                                    selectedRoundAnnouncementCueEntries[0];
+                                  const nextAnnouncement = selectedRoundAnnouncementCueEntries.find(
+                                    (entry) => entry.key !== currentAnnouncement.key && entry.status !== "Delivered" && entry.status !== "Skipped"
+                                  ) || null;
+                                  const currentAnnouncementText = currentAnnouncement.announcementText;
                                   const nextAnnouncementText = nextAnnouncement
-                                    ? roundAnnouncementDrafts[nextAnnouncement.key] ?? nextAnnouncement.announcement
+                                    ? nextAnnouncement.announcementText
                                     : "";
                                   return (
                                     <section
@@ -28680,15 +29113,46 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                     >
                                       <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", flexWrap: "wrap", alignItems: "flex-start" }}>
                                         <div>
-                                          <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Announcement Schedule</div>
+                                          <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Live Cue Board</div>
                                           <div style={{ marginTop: "4px", color: commandCenterVisual.headingColor, fontSize: "20px", fontWeight: 950 }}>
-                                            Now: {currentAnnouncement.phaseLabel}
+                                            {currentAnnouncement.status === "Due now" ? "Announcement Due" : "Next Announcement"}
                                           </div>
                                           <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "13px", fontWeight: 800 }}>
-                                            {currentAnnouncement.timeLabel}
+                                            {currentAnnouncement.phaseLabel} · {currentAnnouncement.timeLabel}
                                           </div>
                                         </div>
                                         <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                                          <button
+                                            type="button"
+                                            onClick={() => void handleToggleAnnouncementLiveMode()}
+                                            disabled={announcementCueSaving || announcementTimingUnavailable}
+                                            style={{ ...buttonStyle, padding: "8px 11px", opacity: announcementCueSaving || announcementTimingUnavailable ? 0.6 : 1 }}
+                                          >
+                                            {announcementLiveModeActive ? "Stop Live Cues" : "Start Live Cues"}
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => void handleToggleAnnouncementAlertsMuted()}
+                                            disabled={announcementCueSaving}
+                                            style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px", opacity: announcementCueSaving ? 0.65 : 1 }}
+                                          >
+                                            {announcementAlertsMuted ? "Unmute Alerts" : "Mute Alerts"}
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => void handleToggleAnnouncementNotifications()}
+                                            disabled={announcementCueSaving}
+                                            style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px", opacity: announcementCueSaving ? 0.65 : 1 }}
+                                          >
+                                            {announcementNotificationsEnabled ? "Disable Notifications" : "Enable Notifications"}
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => void handleTestAnnouncementAlert()}
+                                            style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px" }}
+                                          >
+                                            Test Alert
+                                          </button>
                                           <button
                                             type="button"
                                             onClick={() => handleCopyRoundAnnouncement(currentAnnouncementText)}
@@ -28726,19 +29190,122 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                           </button>
                                         </div>
                                       </div>
+                                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: "6px" }}>
+                                        {[
+                                          { label: "Current round", value: announcementCueStripRoundLabel },
+                                          { label: "Current block", value: announcementCueStripBlockLabel },
+                                          {
+                                            label: "Next cue",
+                                            value: nextAnnouncementCue
+                                              ? `${nextAnnouncementCue.phaseLabel} · ${nextAnnouncementCue.timeLabel}`
+                                              : "No remaining cues",
+                                          },
+                                          { label: "Time until next cue", value: announcementCueStripCountdownLabel },
+                                          { label: "Alert status", value: announcementCueStatusLabel },
+                                        ].map((item) => (
+                                          <div
+                                            key={`announcement-strip-${item.label}`}
+                                            style={{
+                                              borderRadius: "13px",
+                                              border: commandCenterVisual.rowBorder,
+                                              background: commandCenterVisual.rowBackground,
+                                              padding: "8px 10px",
+                                            }}
+                                          >
+                                            <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>{item.label}</div>
+                                            <div style={{ marginTop: "4px", color: commandCenterVisual.textColor, fontWeight: 900, lineHeight: 1.35 }}>
+                                              {item.value}
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
                                       <div
                                         style={{
                                           borderRadius: "14px",
-                                          border: commandCenterVisual.rowBorder,
-                                          background: isPlanningVisualMode ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.06)",
+                                          border:
+                                            currentAnnouncement.status === "Due now"
+                                              ? "1px solid rgba(245, 158, 11, 0.38)"
+                                              : commandCenterVisual.rowBorder,
+                                          background:
+                                            currentAnnouncement.status === "Due now"
+                                              ? "linear-gradient(135deg, rgba(254, 243, 199, 0.92), rgba(255, 251, 235, 0.88))"
+                                              : isPlanningVisualMode
+                                                ? "rgba(255,255,255,0.72)"
+                                                : "rgba(255,255,255,0.06)",
                                           padding: "12px",
-                                          color: commandCenterVisual.textColor,
+                                          color: currentAnnouncement.status === "Due now" ? "#78350f" : commandCenterVisual.textColor,
                                           fontSize: "15px",
                                           fontWeight: 900,
                                           lineHeight: 1.45,
+                                          boxShadow:
+                                            currentAnnouncement.status === "Due now"
+                                              ? "0 0 0 1px rgba(245, 158, 11, 0.08), 0 0 22px rgba(245, 158, 11, 0.18)"
+                                              : "none",
                                         }}
                                       >
                                         {currentAnnouncementText}
+                                      </div>
+                                      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                                        <span
+                                          style={{
+                                            ...commandChipStyle,
+                                            background:
+                                              currentAnnouncement.status === "Due now"
+                                                ? "rgba(245, 158, 11, 0.18)"
+                                                : currentAnnouncement.status === "Delivered"
+                                                  ? "rgba(25, 138, 112, 0.18)"
+                                                  : currentAnnouncement.status === "Skipped"
+                                                    ? "rgba(148, 163, 184, 0.18)"
+                                                    : commandCenterVisual.chipBackground,
+                                            color:
+                                              currentAnnouncement.status === "Due now"
+                                                ? "#92400e"
+                                                : currentAnnouncement.status === "Delivered"
+                                                  ? "#065f46"
+                                                  : currentAnnouncement.status === "Skipped"
+                                                    ? "#475569"
+                                                    : commandCenterVisual.chipText,
+                                          }}
+                                        >
+                                          {currentAnnouncement.status}
+                                        </span>
+                                        <span style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText }}>
+                                          {currentAnnouncement.cueTimingLabel}
+                                        </span>
+                                        <span style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText }}>
+                                          {currentAnnouncement.timingDetail}
+                                        </span>
+                                        {announcementNotificationsEnabled ? (
+                                          <span style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText }}>
+                                            Browser notifications on
+                                          </span>
+                                        ) : null}
+                                      </div>
+                                      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                                        <button
+                                          type="button"
+                                          onClick={() => void handleUpdateAnnouncementCueStatus(currentAnnouncement.key, "delivered", "Announcement marked delivered.")}
+                                          disabled={announcementCueSaving}
+                                          style={{ ...buttonStyle, padding: "8px 11px", opacity: announcementCueSaving ? 0.65 : 1 }}
+                                        >
+                                          Mark Delivered
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => void handleUpdateAnnouncementCueStatus(currentAnnouncement.key, "skipped", "Announcement skipped.")}
+                                          disabled={announcementCueSaving}
+                                          style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px", opacity: announcementCueSaving ? 0.65 : 1 }}
+                                        >
+                                          Skip
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => void handleSnoozeAnnouncementCue(currentAnnouncement.key)}
+                                          disabled={announcementCueSaving}
+                                          style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px", opacity: announcementCueSaving ? 0.65 : 1 }}
+                                        >
+                                          Snooze 1 min
+                                        </button>
                                       </div>
                                       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "6px" }}>
                                         <div style={{ borderRadius: "13px", border: commandCenterVisual.rowBorder, background: commandCenterVisual.rowBackground, padding: "6px 8px" }}>
@@ -28755,7 +29322,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                         <div style={{ borderRadius: "13px", border: commandCenterVisual.rowBorder, background: commandCenterVisual.rowBackground, padding: "6px 8px" }}>
                                           <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Upcoming</div>
                                           <div style={{ marginTop: "6px", display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                                            {selectedRoundAnnouncementTimeline.slice(2, 5).length ? selectedRoundAnnouncementTimeline.slice(2, 5).map((entry) => (
+                                            {selectedRoundAnnouncementCueEntries.slice(2, 5).length ? selectedRoundAnnouncementCueEntries.slice(2, 5).map((entry) => (
                                               <span key={`${entry.key}-upcoming-chip`} style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText }}>
                                                 {entry.phaseLabel} · {entry.timeLabel}
                                               </span>
@@ -28768,25 +29335,61 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                     </section>
                                   );
                                 })()}
-                                {selectedRoundAnnouncementTimeline.map((entry) => {
-                                  const draftValue = roundAnnouncementDrafts[entry.key] ?? entry.announcement;
+                                {selectedRoundAnnouncementCueEntries.map((entry) => {
+                                  const draftValue = roundAnnouncementDrafts[entry.key] ?? announcementCueOverrides[entry.key] ?? entry.announcement;
                                   return (
                                     <div
                                       key={entry.key}
                                       style={{
                                         borderRadius: "12px",
-                                        border: commandCenterVisual.rowBorder,
-                                        background: commandCenterVisual.rowBackground,
+                                        border:
+                                          entry.status === "Due now"
+                                            ? "1px solid rgba(245, 158, 11, 0.34)"
+                                            : commandCenterVisual.rowBorder,
+                                        background:
+                                          entry.status === "Due now"
+                                            ? "linear-gradient(135deg, rgba(255, 251, 235, 0.96), rgba(254, 243, 199, 0.82))"
+                                            : commandCenterVisual.rowBackground,
                                         padding: "8px 10px",
                                         display: "grid",
                                         gap: "6px",
                                       }}
                                     >
                                       <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
-                                        <div style={{ color: commandCenterVisual.textColor, fontWeight: 900 }}>{entry.timeLabel}</div>
-                                        <span style={{ ...commandChipStyle, background: "rgba(126, 231, 219, 0.14)", color: "#7ee7db" }}>
-                                          {entry.phaseLabel}
-                                        </span>
+                                        <div style={{ display: "grid", gap: "3px" }}>
+                                          <div style={{ color: commandCenterVisual.textColor, fontWeight: 900 }}>{entry.timeLabel}</div>
+                                          <div style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 700 }}>
+                                            {entry.cueTimingLabel}
+                                          </div>
+                                        </div>
+                                        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                                          <span style={{ ...commandChipStyle, background: "rgba(126, 231, 219, 0.14)", color: "#7ee7db" }}>
+                                            {entry.phaseLabel}
+                                          </span>
+                                          <span
+                                            style={{
+                                              ...commandChipStyle,
+                                              background:
+                                                entry.status === "Due now"
+                                                  ? "rgba(245, 158, 11, 0.18)"
+                                                  : entry.status === "Delivered"
+                                                    ? "rgba(25, 138, 112, 0.18)"
+                                                    : entry.status === "Skipped"
+                                                      ? "rgba(148, 163, 184, 0.18)"
+                                                      : commandCenterVisual.chipBackground,
+                                              color:
+                                                entry.status === "Due now"
+                                                  ? "#92400e"
+                                                  : entry.status === "Delivered"
+                                                    ? "#065f46"
+                                                    : entry.status === "Skipped"
+                                                      ? "#475569"
+                                                      : commandCenterVisual.chipText,
+                                            }}
+                                          >
+                                            {entry.status}
+                                          </span>
+                                        </div>
                                       </div>
                                       {canManageRoundAnnouncements ? (
                                         <textarea
@@ -28797,26 +29400,65 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                               [entry.key]: event.target.value,
                                             }))
                                           }
+                                          onBlur={(event) => {
+                                            void handleSaveRoundAnnouncementDraft(entry.key, event.target.value);
+                                          }}
                                           style={{ ...textareaStyle, minHeight: "64px" }}
                                         />
                                       ) : (
                                         <div style={{ color: commandCenterVisual.textColor, fontWeight: 800 }}>{draftValue}</div>
                                       )}
+                                      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleCopyRoundAnnouncement(draftValue)}
+                                          style={{ ...buttonStyle, padding: "6px 9px", fontSize: "10px" }}
+                                        >
+                                          Copy Announcement
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => void handleUpdateAnnouncementCueStatus(entry.key, "delivered", "Announcement marked delivered.")}
+                                          disabled={announcementCueSaving}
+                                          style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px", fontSize: "10px", opacity: announcementCueSaving ? 0.65 : 1 }}
+                                        >
+                                          Mark Delivered
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => void handleUpdateAnnouncementCueStatus(entry.key, "skipped", "Announcement skipped.")}
+                                          disabled={announcementCueSaving}
+                                          style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px", fontSize: "10px", opacity: announcementCueSaving ? 0.65 : 1 }}
+                                        >
+                                          Skip
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => void handleSnoozeAnnouncementCue(entry.key)}
+                                          disabled={announcementCueSaving}
+                                          style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px", fontSize: "10px", opacity: announcementCueSaving ? 0.65 : 1 }}
+                                        >
+                                          Snooze 1 min
+                                        </button>
+                                      </div>
                                       {entry.detail ? (
-                                        <div style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 700 }}>{entry.detail}</div>
+                                        <div style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 700 }}>
+                                          {entry.detail}
+                                          {entry.timingDetail ? ` · ${entry.timingDetail}` : ""}
+                                        </div>
                                       ) : null}
                                     </div>
                                   );
                                 })}
                                 {canManageRoundAnnouncements ? (
                                   <div style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 700 }}>
-                                    Announcement edits stay local for now and are ready for future event-level persistence.
+                                    Announcement text, cue status, snoozes, and alert settings save into this event and sync through the live event refresh path.
                                   </div>
                                 ) : null}
                               </div>
                             ) : (
                               <div style={{ color: commandCenterVisual.mutedColor, fontWeight: 700, fontSize: "13px" }}>
-                                No announcements configured for this round.
+                                {announcementTimingUnavailable ? "Timing unavailable. Complete the schedule or add round timing to arm announcements." : "No announcements configured for this round."}
                               </div>
                             )
                           ) : roundCompanionView === "student" ? (

@@ -90,6 +90,9 @@ export type TrainingEventMetadata = {
   schedule_preview_enabled_for_sps: string;
   live_room_adjustments: string;
   live_learner_attendance: string;
+  announcement_cue_overrides: string;
+  announcement_cue_state: string;
+  announcement_alert_settings: string;
   live_mode_started_at: string;
   live_mode_ended_at: string;
   live_alerts_acknowledged: string;
@@ -231,6 +234,9 @@ const TRAINING_METADATA_KEYS = [
   "schedule_preview_enabled_for_sps",
   "live_room_adjustments",
   "live_learner_attendance",
+  "announcement_cue_overrides",
+  "announcement_cue_state",
+  "announcement_alert_settings",
   "live_mode_started_at",
   "live_mode_ended_at",
   "live_alerts_acknowledged",
@@ -378,9 +384,12 @@ export function emptyTrainingEventMetadata(): TrainingEventMetadata {
   schedule_learner_roster: "",
   schedule_builder_snapshot: "",
   schedule_room_adjustments: "",
-  schedule_preview_enabled_for_sps: "",
+    schedule_preview_enabled_for_sps: "",
     live_room_adjustments: "",
     live_learner_attendance: "",
+    announcement_cue_overrides: "",
+    announcement_cue_state: "",
+    announcement_alert_settings: "",
     live_mode_started_at: "",
     live_mode_ended_at: "",
     live_alerts_acknowledged: "",
