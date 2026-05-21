@@ -6,7 +6,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import GlobalEventFinder from "../../components/GlobalEventFinder";
+import GlobalCommandSearch, { type GlobalCommandSearchCommand } from "../../components/GlobalCommandSearch";
 import EventStructureActionsPanel from "../../components/EventStructureActionsPanel";
 import SiteShell from "../../components/SiteShell";
 import {
@@ -17055,6 +17055,108 @@ Cory`;
     });
   }
 
+  function openCommandCenterTool(options: {
+    primary?: PrimaryEventTool;
+    commandTool?: SelectedCommandTool;
+    companionView?: RotationCompanionView;
+  }) {
+    setPrimaryEventTool(options.primary || "commandCenter");
+    if (options.commandTool) setSelectedCommandTool(options.commandTool);
+    if (options.companionView) setRoundCompanionView(options.companionView);
+    queueCommandContentScroll();
+  }
+
+  const commandSearchCommands: GlobalCommandSearchCommand[] = [
+    {
+      id: "room-operations",
+      label: "Open Room Operations",
+      detail: "Room assignments, station status, SPs, learners, cases, roles, and notes.",
+      group: "Commands",
+      keywords: ["rooms", "operations", "setup", "stations", "assignments"],
+      onSelect: () => openCommandCenterTool({ commandTool: "primary", companionView: "operations" }),
+    },
+    {
+      id: "live-attendance",
+      label: "Open Live Attendance",
+      detail: "Live room attendance for SPs and learners.",
+      group: "Commands",
+      keywords: ["attendance", "arrived", "late", "missing", "in room"],
+      onSelect: () => openCommandCenterTool({ commandTool: "primary", companionView: "attendance" }),
+    },
+    {
+      id: "schedule-builder",
+      label: "Edit Schedule",
+      detail: "Open the Schedule Builder for this event.",
+      group: "Schedules",
+      keywords: ["schedule builder", "edit schedule", "rotation"],
+      onSelect: () => router.push(expandedScheduleBuilderHref),
+    },
+    {
+      id: "open-schedule",
+      label: "Open Schedule",
+      detail: "Preview the operational schedule in a separate tab.",
+      group: "Schedules",
+      keywords: ["admin schedule", "schedule viewer", "operations schedule"],
+      onSelect: () => handleOpenEventScheduleRouteInNewTab("operations", "schedule"),
+    },
+    {
+      id: "student-schedule",
+      label: "Student Instructions",
+      detail: "Open the student-facing instructions and schedule packet.",
+      group: "Schedules",
+      keywords: ["student instructions", "student schedule", "pdf", "packet"],
+      onSelect: () => openCommandCenterTool({ commandTool: "communication" }),
+    },
+    {
+      id: "communications",
+      label: "Open Communications",
+      detail: "Draft emails, student instructions, and operator announcements.",
+      group: "Tools",
+      keywords: ["communication", "communications", "email", "messages"],
+      onSelect: () => openCommandCenterTool({ commandTool: "communication" }),
+    },
+    {
+      id: "announcements",
+      label: "Open Announcements",
+      detail: "Timed announcement cues for the active event.",
+      group: "Tools",
+      keywords: ["announcement", "announcements", "cue", "alarm"],
+      onSelect: () => openCommandCenterTool({ commandTool: "primary", companionView: "announcements" }),
+    },
+    {
+      id: "qa-board",
+      label: "Open QA Board",
+      detail: "Readiness and checklist status for the event.",
+      group: "Tools",
+      keywords: ["qa", "checklist", "readiness", "quality"],
+      onSelect: () => openCommandCenterTool({ commandTool: "qa" }),
+    },
+    {
+      id: "file-cabinet",
+      label: "Open File Cabinet",
+      detail: "Cases, materials, door signs, and recording guide.",
+      group: "Tools",
+      keywords: ["file cabinet", "materials", "case files", "doorsign", "recording"],
+      onSelect: () => openCommandCenterTool({ commandTool: "fileCabinet" }),
+    },
+    {
+      id: "sp-finder",
+      label: "Find SPs",
+      detail: "Open SP Finder and staffing tools.",
+      group: "Tools",
+      keywords: ["sp", "standardized patient", "staffing", "roster"],
+      onSelect: () => openCommandCenterTool({ primary: "spFinder" }),
+    },
+    {
+      id: "settings",
+      label: "Open Settings",
+      detail: "Event setup, admin fields, and settings.",
+      group: "Admin",
+      keywords: ["settings", "admin", "advanced", "event setup"],
+      onSelect: () => router.push(`/settings?eventId=${encodeURIComponent(id)}`),
+    },
+  ];
+
   function handleRelatedEventDateSwitch(nextEventId: string) {
     if (!nextEventId || nextEventId === id) return;
     if (saving || roundOperationsSaveState === "saving") return;
@@ -18220,7 +18322,7 @@ Cory`;
         });
         const body = (await response.json().catch(() => null)) as EventFinderResponse | null;
         if (!response.ok) {
-          throw new Error(body?.error || "Could not load event finder.");
+          throw new Error(body?.error || "Could not load command search events.");
         }
         if (!cancelled) {
           setFinderEvents(Array.isArray(body?.events) ? body.events : []);
@@ -24687,13 +24789,15 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         </div>
 
         <div style={{ marginTop: "12px" }}>
-          <GlobalEventFinder
+          <GlobalCommandSearch
             entries={commandCenterFinderEntries}
             loading={finderLoading}
             onOpenEvent={(eventId) => router.push(`/events/${encodeURIComponent(eventId)}`)}
-            placeholder="Find event…"
+            placeholder="Search events, SPs, schedules, rooms, tools..."
             compact
             currentEventId={id}
+            mode="command-center"
+            commands={commandSearchCommands}
           />
         </div>
 

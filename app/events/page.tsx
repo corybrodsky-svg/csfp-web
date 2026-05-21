@@ -327,7 +327,7 @@ export default function EventsPage() {
         >
           <h1 style={{ margin: 0, fontSize: 32, color: "var(--cfsp-text)" }}>Events Board</h1>
           <p style={{ margin: "10px 0 0", color: "var(--cfsp-text-muted)", maxWidth: 780 }}>
-            Open any event to jump straight into its command center. The global event finder now lives inside every command center, and this board remains the broad operational overview.
+            Open any event to jump straight into its command center. Dashboard is the main browsing home, and this board remains the broad operational overview.
           </p>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginTop: 16 }}>
             <input

@@ -4,7 +4,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import GlobalEventFinder from "../components/GlobalEventFinder";
+import GlobalCommandSearch from "../components/GlobalCommandSearch";
 import { SimVitalsDashboardPreview } from "../components/SimVitals";
 import SiteShell from "../components/SiteShell";
 import { isPastEvent } from "../lib/eventArchive";
@@ -1345,7 +1345,7 @@ export default function DashboardPage() {
                 : "Find events quickly, launch actions, and open just the dashboard panels you want today."}
           </p>
 
-          <GlobalEventFinder
+          <GlobalCommandSearch
             entries={allVisibleFinderEntries}
             myEventIds={myEventIds}
             scope={scope}
