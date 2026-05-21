@@ -506,6 +506,44 @@ type ScheduleRoomAdjustmentSlot = {
 type ParsedScheduleRoomAdjustments = Map<number, ScheduleRoomAdjustmentSlot[]>;
 
 const CONFIRMED_SCHEDULE_OVERRIDE_SOURCE = "confirmed-schedule-override";
+const KNOWN_COMPLETED_SCHEDULE_REPAIR_EVENT_ID = "6014a279-7f40-4795-8d25-38fc557cfe5b";
+const KNOWN_COMPLETED_SCHEDULE_REPAIR_EXPECTED_ROOM_COUNT = 4;
+const KNOWN_COMPLETED_SCHEDULE_REPAIR_EXPECTED_ROUND_COUNT = 4;
+const KNOWN_COMPLETED_SCHEDULE_REPAIR_EXPECTED_ROOM_CAPACITY = 2;
+const KNOWN_COMPLETED_SCHEDULE_REPAIR_LEARNER_ROSTER = [
+  "Lindsey",
+  "ShannayKay",
+  "Mary",
+  "Crystel",
+  "Andrea",
+  "Steffy",
+] as const;
+const KNOWN_COMPLETED_SCHEDULE_REPAIR_LAYOUT = [
+  [
+    ["Lindsey", "ShannayKay"],
+    ["Mary", "Crystel"],
+    ["Andrea", "Steffy"],
+    [],
+  ],
+  [
+    ["Mary", "Crystel"],
+    ["Andrea", "Steffy"],
+    [],
+    ["Lindsey", "ShannayKay"],
+  ],
+  [
+    ["Andrea", "Steffy"],
+    [],
+    ["Lindsey", "ShannayKay"],
+    ["Mary", "Crystel"],
+  ],
+  [
+    [],
+    ["Lindsey", "ShannayKay"],
+    ["Mary", "Crystel"],
+    ["Andrea", "Steffy"],
+  ],
+] as const satisfies readonly (readonly (readonly string[])[])[];
 
 type RelatedOperationalEventNode = {
   id: string;
@@ -4664,6 +4702,69 @@ function isConfirmedScheduleRoomAdjustment(slot: Partial<ScheduleRoomAdjustmentS
   return normalizeDisplayText(slot?.source).toLowerCase() === CONFIRMED_SCHEDULE_OVERRIDE_SOURCE;
 }
 
+function sanitizeCompletedScheduleRepairAdjustments(
+  adjustments: ParsedScheduleRoomAdjustments,
+  options?: { maxRounds?: number; maxSlotsPerRound?: number }
+) {
+  const maxRounds = Math.max(1, options?.maxRounds || KNOWN_COMPLETED_SCHEDULE_REPAIR_EXPECTED_ROUND_COUNT);
+  const maxSlotsPerRound = Math.max(1, options?.maxSlotsPerRound || KNOWN_COMPLETED_SCHEDULE_REPAIR_EXPECTED_ROOM_COUNT);
+  const next = new Map<number, ScheduleRoomAdjustmentSlot[]>();
+
+  adjustments.forEach((slots, rawRoundNumber) => {
+    const roundNumber = Math.max(1, Number(rawRoundNumber) || 0);
+    if (!roundNumber || roundNumber > maxRounds) return;
+
+    const sanitizedSlots = slots
+      .filter((slot) => Number.isFinite(slot.slotIndex) && slot.slotIndex >= 0 && slot.slotIndex < maxSlotsPerRound)
+      .map((slot) => {
+        const sanitized: ScheduleRoomAdjustmentSlot = {
+          slotIndex: slot.slotIndex,
+          learnerLabels: [],
+        };
+
+        if (slot.manualOverride) sanitized.manualOverride = true;
+        if (hasScheduleRoomAdjustmentField(slot, "source")) sanitized.source = normalizeDisplayText(slot.source);
+        if (hasScheduleRoomAdjustmentField(slot, "stationStatus")) {
+          sanitized.stationStatus = normalizeScheduleStationStatus(slot.stationStatus) || undefined;
+        }
+        if (hasScheduleRoomAdjustmentField(slot, "isBackupStation")) {
+          sanitized.isBackupStation = Boolean(slot.isBackupStation);
+        }
+        if (hasScheduleRoomAdjustmentField(slot, "notes")) {
+          sanitized.notes = normalizeDisplayText(slot.notes);
+        }
+
+        if (isConfirmedScheduleRoomAdjustment(slot)) {
+          if (hasScheduleRoomAdjustmentField(slot, "roomName")) sanitized.roomName = normalizeDisplayText(slot.roomName);
+          if (hasScheduleRoomAdjustmentField(slot, "spName")) sanitized.spName = normalizeDisplayText(slot.spName);
+          if (hasScheduleRoomAdjustmentField(slot, "backupSpName")) sanitized.backupSpName = normalizeDisplayText(slot.backupSpName);
+          if (hasScheduleRoomAdjustmentField(slot, "caseLabel")) sanitized.caseLabel = normalizeDisplayText(slot.caseLabel);
+          if (hasScheduleRoomAdjustmentField(slot, "roleId")) sanitized.roleId = normalizeDisplayText(slot.roleId);
+          if (hasScheduleRoomAdjustmentField(slot, "roleLabel")) sanitized.roleLabel = normalizeDisplayText(slot.roleLabel);
+        }
+
+        return sanitized;
+      })
+      .filter((slot) =>
+        slot.manualOverride ||
+        hasScheduleRoomAdjustmentField(slot, "source") ||
+        hasScheduleRoomAdjustmentField(slot, "stationStatus") ||
+        hasScheduleRoomAdjustmentField(slot, "isBackupStation") ||
+        hasScheduleRoomAdjustmentField(slot, "roomName") ||
+        hasScheduleRoomAdjustmentField(slot, "spName") ||
+        hasScheduleRoomAdjustmentField(slot, "backupSpName") ||
+        hasScheduleRoomAdjustmentField(slot, "caseLabel") ||
+        hasScheduleRoomAdjustmentField(slot, "roleId") ||
+        hasScheduleRoomAdjustmentField(slot, "roleLabel") ||
+        hasScheduleRoomAdjustmentField(slot, "notes")
+      );
+
+    if (sanitizedSlots.length) next.set(roundNumber, sanitizedSlots);
+  });
+
+  return next;
+}
+
 function upsertScheduleRoomAdjustmentSlot(
   adjustments: ParsedScheduleRoomAdjustments,
   roundNumber: number,
@@ -5191,6 +5292,39 @@ function parseScheduleBuilderPreviewDays(raw: string | null | undefined) {
   } catch {
     return new Map<number, ScheduleBuilderPreviewDraft>();
   }
+}
+
+function serializeScheduleBuilderPreviewDays(days: Map<number, ScheduleBuilderPreviewDraft>) {
+  if (!days.size) return "";
+  return JSON.stringify(
+    Object.fromEntries(
+      Array.from(days.entries())
+        .sort((a, b) => a[0] - b[0])
+        .map(([day, snapshot]) => [String(day), encodeURIComponent(JSON.stringify(snapshot))])
+    )
+  );
+}
+
+function getScheduleBuilderPreviewMaxRoomCount(snapshot: ScheduleBuilderPreviewDraft | null | undefined) {
+  if (!snapshot) return 0;
+  return Math.max(
+    snapshot.scheduleRoomCount || 0,
+    parsePositiveInteger(snapshot.examRoomCount, 0),
+    (snapshot.resolvedRounds || []).reduce((maxCount, round) => Math.max(maxCount, round.roomSlots.length), 0)
+  );
+}
+
+function hasCorruptedCompletedSchedulePlaceholderText(value: string | null | undefined) {
+  const text = asText(value);
+  if (!text) return false;
+  return (
+    /"learnerLabels"\s*:\s*\[[^\]]*"\d+\s+(?:learner|learners|student|students|participant|participants)"/i.test(text) ||
+    /"learnerLabels"\s*:\s*\[\s*"\d+"\s*(?:,\s*"\d+")*\s*\]/i.test(text)
+  );
+}
+
+function getLearnerAttendanceSlug(name: string) {
+  return asText(name).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
 }
 
 function resolveScheduleBuilderPreviewSnapshot(
@@ -8726,6 +8860,289 @@ const operationalEventStatusLabel = useMemo(() => {
     scheduleCompleted || rotationScheduleBuilt || ["built", "saved"].includes(scheduleWorkflowStatus);
   const scheduleInProgress =
     !scheduleCompleted && (scheduleWorkflowStatus === "in_progress" || hasSavedScheduleDraft || hasRoomsBuilt);
+  const canRepairCompletedScheduleSnapshot =
+    viewerRole === "admin" || viewerRole === "super_admin";
+  const completedScheduleRepairStatus = useMemo(() => {
+    const isKnownRepairEvent = id === KNOWN_COMPLETED_SCHEDULE_REPAIR_EVENT_ID;
+    const snapshot = scheduleBuilderPreviewDraft;
+    const caseEntries = parseCaseFileEntries(
+      trainingMetadata.case_manager_cases || trainingMetadata.case_files
+    ).filter((entry) => entry.status !== "inactive");
+    const activeCaseStationCount = Math.max(
+      KNOWN_COMPLETED_SCHEDULE_REPAIR_EXPECTED_ROOM_COUNT,
+      parsePositiveInteger(trainingMetadata.case_count, 0),
+      caseEntries.length
+    );
+    const snapshotMaxRoomCount = getScheduleBuilderPreviewMaxRoomCount(snapshot);
+    const storedRoomCount = parsePositiveInteger(trainingMetadata.schedule_room_count, 0);
+    const reasons: string[] = [];
+
+    if (!snapshot?.resolvedRounds?.length) {
+      reasons.push("Completed snapshot is missing resolved rounds.");
+    }
+    if (
+      hasCorruptedCompletedSchedulePlaceholderText(trainingMetadata.schedule_builder_snapshot) ||
+      hasCorruptedCompletedSchedulePlaceholderText(trainingMetadata.schedule_builder_days) ||
+      hasCorruptedCompletedSchedulePlaceholderText(trainingMetadata.schedule_room_adjustments)
+    ) {
+      reasons.push("Saved metadata still contains numeric learner placeholder labels.");
+    }
+    if (snapshotMaxRoomCount > activeCaseStationCount) {
+      reasons.push(
+        `Completed snapshot expands to ${snapshotMaxRoomCount} rooms instead of ${activeCaseStationCount} active case stations.`
+      );
+    }
+    if (storedRoomCount > activeCaseStationCount) {
+      reasons.push(
+        `Saved room count is ${storedRoomCount} instead of ${activeCaseStationCount} active case stations.`
+      );
+    }
+    if (
+      snapshot?.resolvedRounds?.[0]?.roomSlots?.length &&
+      snapshot.resolvedRounds[0].roomSlots.length > KNOWN_COMPLETED_SCHEDULE_REPAIR_EXPECTED_ROOM_COUNT
+    ) {
+      reasons.push(
+        `Round 1 snapshot saved ${snapshot.resolvedRounds[0].roomSlots.length} rooms instead of ${KNOWN_COMPLETED_SCHEDULE_REPAIR_EXPECTED_ROOM_COUNT}.`
+      );
+    }
+
+    return {
+      isKnownRepairEvent,
+      activeCaseStationCount,
+      snapshotMaxRoomCount,
+      isCorrupted:
+        isKnownRepairEvent &&
+        scheduleCompleted &&
+        reasons.length > 0,
+      reasons,
+      hasBackup:
+        Boolean(trainingMetadata.schedule_repair_backup_snapshot) ||
+        Boolean(trainingMetadata.schedule_repair_applied_at),
+    };
+  }, [
+    id,
+    scheduleBuilderPreviewDraft,
+    scheduleCompleted,
+    trainingMetadata.case_count,
+    trainingMetadata.case_files,
+    trainingMetadata.case_manager_cases,
+    trainingMetadata.schedule_builder_days,
+    trainingMetadata.schedule_builder_snapshot,
+    trainingMetadata.schedule_repair_applied_at,
+    trainingMetadata.schedule_repair_backup_snapshot,
+    trainingMetadata.schedule_room_adjustments,
+    trainingMetadata.schedule_room_count,
+  ]);
+  const buildKnownCompletedScheduleRepairSnapshot = useCallback(() => {
+    const baseSnapshot = scheduleBuilderPreviewDraft;
+    if (!baseSnapshot) return null;
+
+    const overlaySlotByIndex = new Map<number, ScheduleBuilderPreviewResolvedRoomSlot>();
+    (baseSnapshot.resolvedRounds || []).forEach((round) => {
+      (round.roomSlots || []).forEach((slot, slotIndex) => {
+        if (slotIndex >= KNOWN_COMPLETED_SCHEDULE_REPAIR_EXPECTED_ROOM_COUNT) return;
+        if (!overlaySlotByIndex.has(slotIndex)) {
+          overlaySlotByIndex.set(slotIndex, slot);
+          return;
+        }
+        const existing = overlaySlotByIndex.get(slotIndex);
+        const existingWeight = [
+          existing?.assignedSpName,
+          existing?.backupSpName,
+          existing?.caseLabel,
+          existing?.roleLabel,
+          existing?.notes,
+        ].filter(Boolean).length;
+        const candidateWeight = [
+          slot.assignedSpName,
+          slot.backupSpName,
+          slot.caseLabel,
+          slot.roleLabel,
+          slot.notes,
+        ].filter(Boolean).length;
+        if (candidateWeight > existingWeight) {
+          overlaySlotByIndex.set(slotIndex, slot);
+        }
+      });
+    });
+
+    const now = new Date().toISOString();
+    const repairedRounds = KNOWN_COMPLETED_SCHEDULE_REPAIR_LAYOUT.map((roundLearnerGroups, roundIndex) => {
+      const baseRound = baseSnapshot.resolvedRounds?.[roundIndex] || null;
+      return {
+        round: roundIndex + 1,
+        sessionDate:
+          asText(baseRound?.sessionDate) ||
+          asText(baseSnapshot.eventDate) ||
+          sessionEditor.session_date ||
+          asText(event?.date_text),
+        startTime: asText(baseRound?.startTime),
+        endTime: asText(baseRound?.endTime),
+        roomSlots: roundLearnerGroups.map((learnerGroup, slotIndex) => {
+          const baseSlot = baseRound?.roomSlots?.[slotIndex] || overlaySlotByIndex.get(slotIndex) || null;
+          return {
+            roomName: asText(baseSlot?.roomName) || getFallbackRoomLabel(slotIndex, roomNamingContext),
+            learnerLabels: [...learnerGroup],
+            assignedSpName: asText(baseSlot?.assignedSpName),
+            backupSpName: asText(baseSlot?.backupSpName),
+            caseLabel: asText(baseSlot?.caseLabel),
+            roleId: asText(baseSlot?.roleId),
+            roleLabel: asText(baseSlot?.roleLabel),
+            notes: asText(baseSlot?.notes),
+            stationStatus: normalizeScheduleStationStatus(baseSlot?.stationStatus) || undefined,
+            isBackupStation: Boolean(baseSlot?.isBackupStation),
+          } satisfies ScheduleBuilderPreviewResolvedRoomSlot;
+        }),
+      } satisfies ScheduleBuilderPreviewResolvedRound;
+    });
+
+    return {
+      ...baseSnapshot,
+      uploadedLearners: [...KNOWN_COMPLETED_SCHEDULE_REPAIR_LEARNER_ROSTER],
+      originalUploadedLearners: [...KNOWN_COMPLETED_SCHEDULE_REPAIR_LEARNER_ROSTER],
+      roundCount: String(KNOWN_COMPLETED_SCHEDULE_REPAIR_EXPECTED_ROUND_COUNT),
+      examRoomCount: String(KNOWN_COMPLETED_SCHEDULE_REPAIR_EXPECTED_ROOM_COUNT),
+      flexRoomCount: "0",
+      roomCapacity: String(KNOWN_COMPLETED_SCHEDULE_REPAIR_EXPECTED_ROOM_CAPACITY),
+      scheduleStatus: "complete",
+      scheduleRoundCount: KNOWN_COMPLETED_SCHEDULE_REPAIR_EXPECTED_ROUND_COUNT,
+      scheduleRoomCount: KNOWN_COMPLETED_SCHEDULE_REPAIR_EXPECTED_ROOM_COUNT,
+      scheduleRoomCapacity: KNOWN_COMPLETED_SCHEDULE_REPAIR_EXPECTED_ROOM_CAPACITY,
+      scheduleLearnerRoster: [...KNOWN_COMPLETED_SCHEDULE_REPAIR_LEARNER_ROSTER],
+      eventDate:
+        asText(baseSnapshot.eventDate) ||
+        sessionEditor.session_date ||
+        asText(event?.date_text),
+      resolvedRounds: repairedRounds,
+      savedAt: now,
+    } satisfies ScheduleBuilderPreviewDraft;
+  }, [event?.date_text, roomNamingContext, scheduleBuilderPreviewDraft, sessionEditor.session_date]);
+  async function handleRepairCompletedScheduleSnapshot() {
+    if (!id || !completedScheduleRepairStatus.isCorrupted) return;
+
+    const confirmed = window.confirm(
+      "Repair completed schedule snapshot?\n\nThis will replace corrupted saved schedule metadata for this event with the corrected completed schedule structure. This should only be used when the completed snapshot is known to be corrupted."
+    );
+    if (!confirmed) return;
+
+    const repairedSnapshot = buildKnownCompletedScheduleRepairSnapshot();
+    if (!repairedSnapshot) {
+      setEventSaveError("Could not repair this completed schedule because the saved snapshot is missing.");
+      setEventSaveMessage("");
+      return;
+    }
+
+    const currentDay = scheduleBuilderDay || 1;
+    const daySnapshots = parseScheduleBuilderPreviewDays(trainingMetadata.schedule_builder_days);
+    daySnapshots.set(currentDay, repairedSnapshot);
+    const currentAdjustments = parseScheduleRoomAdjustments(trainingMetadata.schedule_room_adjustments);
+    const sanitizedAdjustments = sanitizeCompletedScheduleRepairAdjustments(currentAdjustments, {
+      maxRounds: KNOWN_COMPLETED_SCHEDULE_REPAIR_EXPECTED_ROUND_COUNT,
+      maxSlotsPerRound: KNOWN_COMPLETED_SCHEDULE_REPAIR_EXPECTED_ROOM_COUNT,
+    });
+    const parsedAttendance = parseLearnerAttendanceMetadata(trainingMetadata.live_learner_attendance);
+    const learnerNameBySlug = new Map(
+      KNOWN_COMPLETED_SCHEDULE_REPAIR_LEARNER_ROSTER.map((name) => [getLearnerAttendanceSlug(name), name])
+    );
+    const repairedAttendanceRecords = Object.fromEntries(
+      Object.entries(parsedAttendance).flatMap(([key, record]) => {
+        const slug = asText(key).split(":").pop() || "";
+        const learnerName = learnerNameBySlug.get(slug);
+        if (!learnerName) {
+          return /^\d+$/.test(slug) ? [] : [[key, record]];
+        }
+        if (isLearnerCountPlaceholderLabel(learnerName)) return [];
+
+        const roundNumber = getRoundNumberFromRotationKey(record.roundKey || key);
+        if (
+          roundNumber < 1 ||
+          roundNumber > KNOWN_COMPLETED_SCHEDULE_REPAIR_EXPECTED_ROUND_COUNT
+        ) {
+          return [[key, record]];
+        }
+
+        const repairedRound = repairedSnapshot.resolvedRounds[roundNumber - 1];
+        if (!repairedRound) {
+          return [[key, record]];
+        }
+
+        const repairedSlotIndex = repairedRound.roomSlots.findIndex((slot) =>
+          slot.learnerLabels.some((label) => normalizeLearnerName(label) === normalizeLearnerName(learnerName))
+        );
+        if (repairedSlotIndex < 0) {
+          return [];
+        }
+
+        const repairedRoomName =
+          asText(repairedRound.roomSlots[repairedSlotIndex]?.roomName) ||
+          getFallbackRoomLabel(repairedSlotIndex, roomNamingContext);
+        const repairedRoundKey = getSnapshotRoundKey(roundNumber);
+        const repairedKey = getLearnerAttendanceKey(repairedRoundKey, repairedRoomName, learnerName);
+        return [[
+          repairedKey,
+          {
+            ...record,
+            roomName: repairedRoomName,
+            roundKey: repairedRoundKey,
+          } satisfies LearnerAttendanceRecord,
+        ]];
+      })
+    ) as LearnerAttendanceMap;
+    const now = new Date().toISOString();
+
+    setSaving(true);
+    setEventSaveMessage("Repairing completed schedule snapshot...");
+    setEventSaveError("");
+
+    try {
+      await persistTrainingMetadataFields(
+        {
+          schedule_builder_snapshot: encodeURIComponent(JSON.stringify(repairedSnapshot)),
+          schedule_builder_days: serializeScheduleBuilderPreviewDays(daySnapshots),
+          schedule_room_adjustments: serializeScheduleRoomAdjustments(sanitizedAdjustments),
+          schedule_room_count: String(KNOWN_COMPLETED_SCHEDULE_REPAIR_EXPECTED_ROOM_COUNT),
+          schedule_round_count: String(KNOWN_COMPLETED_SCHEDULE_REPAIR_EXPECTED_ROUND_COUNT),
+          schedule_room_capacity: String(KNOWN_COMPLETED_SCHEDULE_REPAIR_EXPECTED_ROOM_CAPACITY),
+          schedule_learner_count: String(KNOWN_COMPLETED_SCHEDULE_REPAIR_LEARNER_ROSTER.length),
+          schedule_learner_roster: encodeURIComponent(
+            JSON.stringify([...KNOWN_COMPLETED_SCHEDULE_REPAIR_LEARNER_ROSTER])
+          ),
+          schedule_status: "complete",
+          rotation_schedule_status:
+            asText(trainingMetadata.rotation_schedule_status).toLowerCase() === "complete"
+              ? trainingMetadata.rotation_schedule_status
+              : "complete",
+          live_learner_attendance: serializeLearnerAttendanceMetadata(repairedAttendanceRecords),
+          schedule_last_saved_at: now,
+          schedule_updated_at: now,
+          schedule_repair_backup_snapshot: asText(trainingMetadata.schedule_builder_snapshot),
+          schedule_repair_backup_days: asText(trainingMetadata.schedule_builder_days),
+          schedule_repair_backup_adjustments: asText(trainingMetadata.schedule_room_adjustments),
+          schedule_repair_backup_attendance: asText(trainingMetadata.live_learner_attendance),
+          schedule_repair_applied_at: now,
+          schedule_repair_applied_by: viewerRole,
+          schedule_repair_note:
+            "Known NUPR 706 VIR completed snapshot repair applied. Replaced corrupted learner placement metadata with the verified 4-round, 4-station rotation snapshot.",
+        },
+        "Completed schedule snapshot repaired."
+      );
+
+      setScheduleBuilderPreviewDraft(repairedSnapshot);
+      setPersistedLearnerAttendanceRecords(repairedAttendanceRecords);
+      await refreshData({
+        preserveLocalEdits: true,
+        preserveSelectedSp: true,
+        source: "manual",
+      });
+    } catch (error) {
+      setEventSaveError(
+        error instanceof Error ? error.message : "Could not repair the completed schedule snapshot."
+      );
+      setEventSaveMessage("");
+    } finally {
+      setSaving(false);
+    }
+  }
 
   // CFSP schedule file inside cabinet v13
   useEffect(() => {
@@ -33266,6 +33683,67 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                     )}
                   </div>
                 </section>
+
+                {canRepairCompletedScheduleSnapshot && completedScheduleRepairStatus.isKnownRepairEvent ? (
+                  <section
+                    style={{
+                      border: "1px solid rgba(185, 28, 28, 0.22)",
+                      borderRadius: "16px",
+                      padding: "12px 14px",
+                      background: "rgba(254, 242, 242, 0.92)",
+                      display: "grid",
+                      gap: "8px",
+                    }}
+                  >
+                    <div>
+                      <div style={{ ...statLabel, color: "#991b1b" }}>Schedule Repair</div>
+                      <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 700 }}>
+                        Admin-only repair for the known corrupted completed schedule snapshot on this event. This is a one-time metadata repair, not normal schedule fallback logic.
+                      </div>
+                    </div>
+                    <div style={{ color: completedScheduleRepairStatus.isCorrupted ? "#991b1b" : "var(--cfsp-text-muted)", fontSize: "12px", fontWeight: 800 }}>
+                      {completedScheduleRepairStatus.isCorrupted
+                        ? "Corruption detected in the saved completed snapshot."
+                        : completedScheduleRepairStatus.hasBackup
+                          ? "Repair backup metadata is already stored for this event."
+                          : "No known completed-snapshot corruption detected right now."}
+                    </div>
+                    {completedScheduleRepairStatus.reasons.length ? (
+                      <div style={{ display: "grid", gap: "4px" }}>
+                        {completedScheduleRepairStatus.reasons.map((reason) => (
+                          <div
+                            key={reason}
+                            style={{ color: "var(--cfsp-text)", fontSize: "12px", fontWeight: 700 }}
+                          >
+                            - {reason}
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                    {trainingMetadata.schedule_repair_applied_at ? (
+                      <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 700 }}>
+                        Last repair: {formatHumanDate(trainingMetadata.schedule_repair_applied_at)}
+                      </div>
+                    ) : null}
+                    <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                      <button
+                        type="button"
+                        onClick={() => void handleRepairCompletedScheduleSnapshot()}
+                        disabled={saving || !completedScheduleRepairStatus.isCorrupted}
+                        style={{
+                          ...dangerButtonStyle,
+                          padding: "9px 12px",
+                          opacity: saving || !completedScheduleRepairStatus.isCorrupted ? 0.6 : 1,
+                        }}
+                      >
+                        Repair completed schedule snapshot
+                      </button>
+                      <span style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 700 }}>
+                        Backs up the current snapshot metadata before writing the corrected 4-round, 4-station layout.
+                      </span>
+                    </div>
+                  </section>
+                ) : null}
 
                 {metadataInspectorPanel}
 

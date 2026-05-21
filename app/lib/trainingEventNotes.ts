@@ -90,6 +90,13 @@ export type TrainingEventMetadata = {
   schedule_preview_enabled_for_sps: string;
   live_room_adjustments: string;
   live_learner_attendance: string;
+  schedule_repair_backup_snapshot: string;
+  schedule_repair_backup_days: string;
+  schedule_repair_backup_adjustments: string;
+  schedule_repair_backup_attendance: string;
+  schedule_repair_applied_at: string;
+  schedule_repair_applied_by: string;
+  schedule_repair_note: string;
   announcement_cue_overrides: string;
   announcement_cue_state: string;
   announcement_alert_settings: string;
@@ -234,6 +241,13 @@ const TRAINING_METADATA_KEYS = [
   "schedule_preview_enabled_for_sps",
   "live_room_adjustments",
   "live_learner_attendance",
+  "schedule_repair_backup_snapshot",
+  "schedule_repair_backup_days",
+  "schedule_repair_backup_adjustments",
+  "schedule_repair_backup_attendance",
+  "schedule_repair_applied_at",
+  "schedule_repair_applied_by",
+  "schedule_repair_note",
   "announcement_cue_overrides",
   "announcement_cue_state",
   "announcement_alert_settings",
@@ -387,6 +401,13 @@ export function emptyTrainingEventMetadata(): TrainingEventMetadata {
     schedule_preview_enabled_for_sps: "",
     live_room_adjustments: "",
     live_learner_attendance: "",
+    schedule_repair_backup_snapshot: "",
+    schedule_repair_backup_days: "",
+    schedule_repair_backup_adjustments: "",
+    schedule_repair_backup_attendance: "",
+    schedule_repair_applied_at: "",
+    schedule_repair_applied_by: "",
+    schedule_repair_note: "",
     announcement_cue_overrides: "",
     announcement_cue_state: "",
     announcement_alert_settings: "",
