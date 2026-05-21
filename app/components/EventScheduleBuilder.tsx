@@ -2594,9 +2594,10 @@ function buildVirStyleStudentScheduleBlocks(args: {
     const cells: StudentInstructionsScheduleCell[] = Array.from({ length: roomCount }, (_, roomIndex) => {
       const roomColumn = roomColumns[roomIndex];
       // IMPORTANT REGRESSION GUARD:
-      // Student Instructions must render learner labels in the exact room cells from the completed
-      // schedule snapshot. Resolve room slots by stable slot index from source rounds first, and
-      // never rebuild room placement from counts or inferred learner ordering.
+      // Schedule Viewer is known-good and must not be changed for this fix.
+      // Student Instructions export must render learner labels in the exact room cells from the
+      // completed schedule snapshot. Resolve room slots by stable slot index from source rounds first,
+      // and never rebuild room placement from counts or inferred learner ordering.
       const sourceSlot =
         sourceRound && typeof roomColumn?.slotIndex === "number" ? sourceRound.roomSlots[roomColumn.slotIndex] : undefined;
       const slot = sourceSlot || round.roomSlots[roomIndex];
