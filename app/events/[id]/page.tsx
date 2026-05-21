@@ -1,6 +1,7 @@
 "use client";
 
 import * as XLSX from "xlsx";
+import type { RealtimeChannel } from "@supabase/supabase-js";
 import Image from "next/image";
 import Link from "next/link";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -71,6 +72,7 @@ import {
   getRoomTypeLabel,
 } from "../../lib/roomNaming";
 import { type TrainingEventMetadata } from "../../lib/trainingEventNotes";
+import { getSupabaseClient } from "../../lib/supabaseClient";
 
 
 type EventDetailRow = {
@@ -5375,6 +5377,81 @@ function getEventDetailsSessionEditorState(
   };
 }
 
+const LIVE_SYNC_TRAINING_METADATA_KEYS: Array<keyof TrainingEventMetadata> = [
+  "live_learner_attendance",
+  "live_room_adjustments",
+  "schedule_builder_snapshot",
+  "schedule_builder_days",
+  "schedule_room_adjustments",
+  "schedule_last_saved_at",
+  "schedule_updated_at",
+  "schedule_completed_at",
+  "schedule_status",
+  "schedule_completed_by",
+  "schedule_learner_count",
+  "schedule_room_count",
+  "schedule_round_count",
+  "schedule_room_capacity",
+  "schedule_learner_roster",
+  "schedule_preview_enabled_for_sps",
+  "rotation_schedule_status",
+  "live_mode_started_at",
+  "live_mode_ended_at",
+  "live_alerts_acknowledged",
+  "live_flow_status",
+];
+
+function buildEventEditorStateFromEvent(event: EventDetailRow | null): EventEditorState {
+  return {
+    name: event?.name || "",
+    status: event?.status || "",
+    visibility: event?.visibility || "",
+    location: event?.location || "",
+    notes: event?.notes || "",
+    sp_needed:
+      event?.sp_needed === null || event?.sp_needed === undefined
+        ? ""
+        : String(event.sp_needed),
+  };
+}
+
+function areEventEditorStatesEqual(left: EventEditorState, right: EventEditorState) {
+  return (
+    left.name === right.name &&
+    left.status === right.status &&
+    left.visibility === right.visibility &&
+    left.location === right.location &&
+    left.notes === right.notes &&
+    left.sp_needed === right.sp_needed
+  );
+}
+
+function areSessionEditorStatesEqual(left: SessionEditorState, right: SessionEditorState) {
+  return (
+    left.session_date === right.session_date &&
+    left.start_time === right.start_time &&
+    left.end_time === right.end_time
+  );
+}
+
+function mergeLiveOperationalNotes(currentNotes: string, incomingNotes: string) {
+  const incomingTraining = parseEventMetadata(incomingNotes).training;
+  const liveTrainingPartial = Object.fromEntries(
+    LIVE_SYNC_TRAINING_METADATA_KEYS.map((key) => [
+      key,
+      incomingTraining[key] === undefined ? "" : incomingTraining[key],
+    ])
+  ) as Partial<TrainingEventMetadata>;
+  return upsertEventMetadata(currentNotes, { training: liveTrainingPartial });
+}
+
+function formatLiveSyncTimestamp(value: string) {
+  if (!value) return "";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return parsed.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
 function toStoredTimeValue(value: string) {
   const trimmed = value.trim();
   if (!trimmed) return null;
@@ -5577,6 +5654,49 @@ async function fetchCommandCenterData(eventId: string): Promise<CommandCenterDat
       accessDenied: false,
       notFound: false,
     };
+  }
+}
+
+async function fetchLearnerAttendanceRecordsForEvent(eventId: string): Promise<LearnerAttendanceMap | null> {
+  try {
+    const attendanceResponse = await fetch(`/api/events/${encodeURIComponent(eventId)}/learner-attendance`, {
+      cache: "no-store",
+    });
+    if (!attendanceResponse.ok) return null;
+
+    const attendanceBody = (await attendanceResponse.json().catch(() => null)) as {
+      records?: Array<{
+        round_id?: string | null;
+        room?: string | null;
+        learner_name?: string | null;
+        status?: string | null;
+        checked_in_at?: string | null;
+        updated_at?: string | null;
+        note?: string | null;
+      }>;
+    } | null;
+
+    return Object.fromEntries(
+      (attendanceBody?.records || [])
+        .map((record) => {
+          const learnerName = asText(record.learner_name);
+          if (!learnerName) return null;
+          const attendanceRecord: LearnerAttendanceRecord = {
+            status: normalizeLearnerAttendanceStatus(record.status),
+            updatedAt: asText(record.checked_in_at) || asText(record.updated_at),
+            roomName: asText(record.room),
+            roundKey: asText(record.round_id),
+            note: asText(record.note) || undefined,
+          };
+          return [
+            getLearnerAttendanceKey(record.round_id, record.room, learnerName),
+            attendanceRecord,
+          ] as const;
+        })
+        .filter((entry): entry is readonly [string, LearnerAttendanceRecord] => Boolean(entry))
+    );
+  } catch {
+    return null;
   }
 }
 
@@ -6016,6 +6136,11 @@ export default function EventDetailPage() {
   const [eventAttendanceFilter, setEventAttendanceFilter] = useState<EventAttendanceFilter>("all");
   const [attendanceSavingKeys, setAttendanceSavingKeys] = useState<Record<string, boolean>>({});
   const [persistedLearnerAttendanceRecords, setPersistedLearnerAttendanceRecords] = useState<LearnerAttendanceMap>({});
+  const [liveSyncState, setLiveSyncState] = useState<"connecting" | "connected" | "syncing" | "disconnected">(
+    id ? "connecting" : "disconnected"
+  );
+  const [liveSyncMode, setLiveSyncMode] = useState<"realtime" | "fallback">("fallback");
+  const [liveSyncLastUpdatedAt, setLiveSyncLastUpdatedAt] = useState("");
   const [roundOperationsDraftAdjustments, setRoundOperationsDraftAdjustments] = useState<ParsedScheduleRoomAdjustments | null>(null);
   const [roundOperationsSaveState, setRoundOperationsSaveState] = useState<"saved" | "unsaved" | "saving" | "error">("saved");
   const [roundOperationsLastSavedAt, setRoundOperationsLastSavedAt] = useState("");
@@ -6079,6 +6204,14 @@ export default function EventDetailPage() {
   const [relatedPushSummary, setRelatedPushSummary] = useState<PushRelatedSummary | null>(null);
   const [showConfirmationEmailPreview, setShowConfirmationEmailPreview] = useState(false);
   const [includeBackupConfirmationEmails, setIncludeBackupConfirmationEmails] = useState(false);
+  const roundOperationsSaveStateRef = useRef(roundOperationsSaveState);
+  const hasUnsavedEventEditorChangesRef = useRef(false);
+  const hasUnsavedSessionEditorChangesRef = useRef(false);
+  const liveSyncRefreshTimeoutRef = useRef<number | null>(null);
+  const liveSyncRefreshQueuedRef = useRef(false);
+  const liveSyncRefreshInFlightRef = useRef(false);
+  const liveSyncQueuedSourceRef = useRef<"realtime" | "fallback" | "focus">("realtime");
+  const liveSyncChannelRef = useRef<RealtimeChannel | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -6868,6 +7001,35 @@ export default function EventDetailPage() {
     isNeedsSpOperationalBadge(eventStatusLabel) && !hasPrimaryStaffingShortage;
   const isWorkshop = eventMeta.isSkillsWorkshop;
   const parsedEventMetadata = useMemo(() => parseEventMetadata(eventEditor.notes), [eventEditor.notes]);
+  const savedTrainingMetadata = useMemo(
+    () => parseEventMetadata(event?.notes).training,
+    [event?.notes]
+  );
+  const savedEventEditorBaseline = useMemo(
+    () => buildEventEditorStateFromEvent(event),
+    [event]
+  );
+  const savedSessionEditorBaseline = useMemo(
+    () => getEventDetailsSessionEditorState(sessions, event?.date_text, savedTrainingMetadata),
+    [event?.date_text, savedTrainingMetadata, sessions]
+  );
+  const hasUnsavedEventEditorChanges = useMemo(
+    () => !areEventEditorStatesEqual(eventEditor, savedEventEditorBaseline),
+    [eventEditor, savedEventEditorBaseline]
+  );
+  const hasUnsavedSessionEditorChanges = useMemo(
+    () => !areSessionEditorStatesEqual(sessionEditor, savedSessionEditorBaseline),
+    [sessionEditor, savedSessionEditorBaseline]
+  );
+  useEffect(() => {
+    roundOperationsSaveStateRef.current = roundOperationsSaveState;
+  }, [roundOperationsSaveState]);
+  useEffect(() => {
+    hasUnsavedEventEditorChangesRef.current = hasUnsavedEventEditorChanges;
+  }, [hasUnsavedEventEditorChanges]);
+  useEffect(() => {
+    hasUnsavedSessionEditorChangesRef.current = hasUnsavedSessionEditorChanges;
+  }, [hasUnsavedSessionEditorChanges]);
   const relatedTrainingOperationalEvents = useMemo(
     () => relatedOperationalEvents.filter((node) => node.kind === "training"),
     [relatedOperationalEvents]
@@ -9849,6 +10011,7 @@ const operationalEventStatusLabel = useMemo(() => {
   );
   const activeScheduleRoomAdjustments = roundOperationsDraftAdjustments || scheduleRoomAdjustments;
   useEffect(() => {
+    if (roundOperationsSaveStateRef.current !== "saved") return;
     setRoundOperationsDraftAdjustments(null);
     setRoundOperationsSaveState("saved");
     setRoundOperationsSaveError("");
@@ -13303,6 +13466,38 @@ Cory`;
   ];
   const showLegacyEventSummaryPanels = false;
   const isRoomOperationsView = roundCompanionView === "operations" || roundCompanionView === "attendance";
+  const liveSyncStatusLabel =
+    liveSyncState === "connected"
+      ? "Live sync connected"
+      : liveSyncState === "syncing"
+        ? "Syncing…"
+        : liveSyncState === "connecting"
+          ? "Connecting live sync…"
+          : "Connection lost — refresh may be needed";
+  const liveSyncStatusTone =
+    liveSyncState === "connected"
+      ? {
+          background: "rgba(209, 250, 229, 0.6)",
+          color: "#065f46",
+          border: "1px solid rgba(25, 138, 112, 0.24)",
+        }
+      : liveSyncState === "syncing" || liveSyncState === "connecting"
+        ? {
+            background: "rgba(191, 219, 254, 0.52)",
+            color: "#1e40af",
+            border: "1px solid rgba(20, 91, 150, 0.24)",
+          }
+        : {
+            background: "rgba(254, 226, 226, 0.88)",
+            color: "#b42318",
+            border: "1px solid rgba(220, 38, 38, 0.22)",
+          };
+  const liveSyncDetailLabel = [
+    liveSyncMode === "fallback" ? "Fallback refresh active" : "",
+    liveSyncLastUpdatedAt ? `Updated ${formatLiveSyncTimestamp(liveSyncLastUpdatedAt)}` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
   const commandSurfaceViewLabel =
     roundCompanionView === "overview"
       ? "Overview"
@@ -15284,92 +15479,93 @@ Cory`;
     }, duration);
   }
 
-  async function refreshData() {
-    if (!id) return;
-
-    const result = await fetchCommandCenterData(id);
-    if (result.redirectToPrimaryEventId && result.redirectToPrimaryEventId !== id) {
-      router.replace(`/events/${encodeURIComponent(result.redirectToPrimaryEventId)}?trainingSource=${encodeURIComponent(result.sourceTrainingEventId || id)}`);
-      return;
-    }
-    if (result.redirectToEventsSearch) {
-      router.replace(`/events?search=${encodeURIComponent(result.redirectToEventsSearch)}&trainingSource=${encodeURIComponent(result.sourceTrainingEventId || id)}`);
-      return;
-    }
-    setEvent(result.event);
-    setEventEditor({
-      name: result.event?.name || "",
-      status: result.event?.status || "",
-      visibility: result.event?.visibility || "",
-      location: result.event?.location || "",
-      notes: result.event?.notes || "",
-      sp_needed:
-        result.event?.sp_needed === null || result.event?.sp_needed === undefined
-          ? ""
-          : String(result.event.sp_needed),
-    });
-    setSessionEditor(
-      getEventDetailsSessionEditorState(
+  const applyCommandCenterData = useCallback(
+    (
+      result: CommandCenterData,
+      options?: { preserveLocalEdits?: boolean; preserveSelectedSp?: boolean }
+    ) => {
+      const nextEventEditor = buildEventEditorStateFromEvent(result.event);
+      const nextSessionEditor = getEventDetailsSessionEditorState(
         result.sessions,
         result.event?.date_text,
         parseEventMetadata(result.event?.notes).training
-      )
-    );
-    setSessions(result.sessions);
-    setSps(result.sps);
-    setAssignments(result.assignments);
-    setAvailabilityRows(result.availabilityRows);
-    setRelatedOperationalEvents(result.relatedEvents);
-    setViewerRole(result.viewerRole || "unknown");
-    setSpPortal(result.spPortal || null);
-    setErrorMessage(result.errorMessage);
-    setSessionErrorMessage(result.sessionErrorMessage);
-    setAvailabilityErrorMessage(result.availabilityErrorMessage);
-    setAccessDenied(result.accessDenied);
-    setNotFound(result.notFound);
-    setSelectedSpId("");
-    try {
-      const attendanceResponse = await fetch(`/api/events/${encodeURIComponent(id)}/learner-attendance`, {
-        cache: "no-store",
-      });
-      if (attendanceResponse.ok) {
-        const attendanceBody = (await attendanceResponse.json().catch(() => null)) as {
-          records?: Array<{
-            round_id?: string | null;
-            room?: string | null;
-            learner_name?: string | null;
-            status?: string | null;
-            checked_in_at?: string | null;
-            updated_at?: string | null;
-            note?: string | null;
-          }>;
-        } | null;
-        const nextRecords = Object.fromEntries(
-          (attendanceBody?.records || [])
-            .map((record) => {
-              const learnerName = asText(record.learner_name);
-              if (!learnerName) return null;
-              const attendanceRecord: LearnerAttendanceRecord = {
-                status: normalizeLearnerAttendanceStatus(record.status),
-                updatedAt: asText(record.checked_in_at) || asText(record.updated_at),
-                roomName: asText(record.room),
-                roundKey: asText(record.round_id),
-                note: asText(record.note) || undefined,
-              };
-              return [
-                getLearnerAttendanceKey(record.round_id, record.room, learnerName),
-                attendanceRecord,
-              ] as const;
-            })
-            .filter((entry): entry is readonly [string, LearnerAttendanceRecord] => Boolean(entry))
-        );
-        setPersistedLearnerAttendanceRecords(nextRecords);
+      );
+
+      setEvent(result.event);
+      if (options?.preserveLocalEdits && hasUnsavedEventEditorChangesRef.current) {
+        setEventEditor((current) => {
+          const mergedNotes = mergeLiveOperationalNotes(current.notes, nextEventEditor.notes);
+          return mergedNotes === current.notes ? current : { ...current, notes: mergedNotes };
+        });
+      } else {
+        setEventEditor(nextEventEditor);
       }
-    } catch {
-      setPersistedLearnerAttendanceRecords({});
-    }
-    return result;
-  }
+      if (!(options?.preserveLocalEdits && hasUnsavedSessionEditorChangesRef.current)) {
+        setSessionEditor(nextSessionEditor);
+      }
+      setSessions(result.sessions);
+      setSps(result.sps);
+      setAssignments(result.assignments);
+      setAvailabilityRows(result.availabilityRows);
+      setRelatedOperationalEvents(result.relatedEvents);
+      setViewerRole(result.viewerRole || "unknown");
+      setSpPortal(result.spPortal || null);
+      setErrorMessage(result.errorMessage);
+      setSessionErrorMessage(result.sessionErrorMessage);
+      setAvailabilityErrorMessage(result.availabilityErrorMessage);
+      setAccessDenied(result.accessDenied);
+      setNotFound(result.notFound);
+      setSelectedSpId((current) => (options?.preserveSelectedSp ? current : ""));
+    },
+    []
+  );
+
+  const refreshData = useCallback(
+    async (
+      options?: {
+        preserveLocalEdits?: boolean;
+        preserveSelectedSp?: boolean;
+        source?: "initial" | "manual" | "focus" | "realtime" | "fallback";
+      }
+    ) => {
+      if (!id) return null;
+
+      const refreshSource = options?.source || "manual";
+      if (refreshSource === "realtime" || refreshSource === "fallback") {
+        setLiveSyncState("syncing");
+      }
+
+      const result = await fetchCommandCenterData(id);
+      if (result.redirectToPrimaryEventId && result.redirectToPrimaryEventId !== id) {
+        router.replace(`/events/${encodeURIComponent(result.redirectToPrimaryEventId)}?trainingSource=${encodeURIComponent(result.sourceTrainingEventId || id)}`);
+        return result;
+      }
+      if (result.redirectToEventsSearch) {
+        router.replace(`/events?search=${encodeURIComponent(result.redirectToEventsSearch)}&trainingSource=${encodeURIComponent(result.sourceTrainingEventId || id)}`);
+        return result;
+      }
+
+      applyCommandCenterData(result, {
+        preserveLocalEdits: options?.preserveLocalEdits,
+        preserveSelectedSp: options?.preserveSelectedSp,
+      });
+
+      const nextAttendanceRecords = await fetchLearnerAttendanceRecordsForEvent(id);
+      if (nextAttendanceRecords) {
+        setPersistedLearnerAttendanceRecords(nextAttendanceRecords);
+      }
+
+      if (refreshSource !== "manual") {
+        setLiveSyncLastUpdatedAt(new Date().toISOString());
+      }
+      if (refreshSource === "realtime" || refreshSource === "fallback" || refreshSource === "focus") {
+        setLiveSyncState("connected");
+      }
+
+      return result;
+    },
+    [applyCommandCenterData, id, router]
+  );
 
   async function saveAssignmentRequest(method: "POST" | "PATCH" | "DELETE", body: object) {
     const response = await fetch(`/api/events/${encodeURIComponent(id)}`, {
@@ -17165,63 +17361,165 @@ Cory`;
     }
   }
 
+  const queueLiveSyncRefresh = useCallback(
+    (source: "realtime" | "fallback" | "focus" = "realtime") => {
+      if (!id || typeof window === "undefined") return;
+
+      liveSyncQueuedSourceRef.current = source;
+      if (liveSyncRefreshTimeoutRef.current) {
+        window.clearTimeout(liveSyncRefreshTimeoutRef.current);
+      }
+
+      liveSyncRefreshTimeoutRef.current = window.setTimeout(() => {
+        liveSyncRefreshTimeoutRef.current = null;
+        if (liveSyncRefreshInFlightRef.current) {
+          liveSyncRefreshQueuedRef.current = true;
+          return;
+        }
+
+        const nextSource = liveSyncQueuedSourceRef.current;
+        liveSyncQueuedSourceRef.current = "realtime";
+        liveSyncRefreshInFlightRef.current = true;
+        void refreshData({
+          preserveLocalEdits: true,
+          preserveSelectedSp: true,
+          source: nextSource,
+        })
+          .catch(() => {
+            setLiveSyncState("disconnected");
+          })
+          .finally(() => {
+            liveSyncRefreshInFlightRef.current = false;
+            if (liveSyncRefreshQueuedRef.current) {
+              liveSyncRefreshQueuedRef.current = false;
+              queueLiveSyncRefresh(liveSyncQueuedSourceRef.current);
+            }
+          });
+      }, source === "focus" ? 0 : 350);
+    },
+    [id, refreshData]
+  );
+
   useEffect(() => {
     let cancelled = false;
 
     if (!id) {
+      setLoading(false);
+      setLiveSyncState("disconnected");
       return;
     }
 
     setLoading(true);
+    setLiveSyncState("connecting");
 
-    const refresh = () => {
-      void fetchCommandCenterData(id).then((result) => {
-        if (cancelled) return;
-
-        setEvent(result.event);
-        setEventEditor({
-          name: result.event?.name || "",
-          status: result.event?.status || "",
-          visibility: result.event?.visibility || "",
-          location: result.event?.location || "",
-          notes: result.event?.notes || "",
-          sp_needed:
-            result.event?.sp_needed === null || result.event?.sp_needed === undefined
-              ? ""
-              : String(result.event.sp_needed),
-        });
-        setSessionEditor(
-          getEventDetailsSessionEditorState(
-            result.sessions,
-            result.event?.date_text,
-            parseEventMetadata(result.event?.notes).training
-          )
-        );
-        setSessions(result.sessions);
-        setSps(result.sps);
-        setAssignments(result.assignments);
-        setAvailabilityRows(result.availabilityRows);
-        setRelatedOperationalEvents(result.relatedEvents);
-        setViewerRole(result.viewerRole || "unknown");
-        setSpPortal(result.spPortal || null);
-        setErrorMessage(result.errorMessage);
-        setSessionErrorMessage(result.sessionErrorMessage);
-        setAvailabilityErrorMessage(result.availabilityErrorMessage);
-        setAccessDenied(result.accessDenied);
-        setNotFound(result.notFound);
-        setLoading(false);
+    void refreshData({
+      source: "initial",
+    })
+      .catch(() => {
+        if (!cancelled) setLiveSyncState("disconnected");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
       });
+
+    const handleFocus = () => {
+      queueLiveSyncRefresh("focus");
     };
 
-    refresh();
-
-    window.addEventListener("focus", refresh);
+    window.addEventListener("focus", handleFocus);
 
     return () => {
       cancelled = true;
-      window.removeEventListener("focus", refresh);
+      window.removeEventListener("focus", handleFocus);
     };
-  }, [id]);
+  }, [id, queueLiveSyncRefresh, refreshData]);
+
+  useEffect(() => {
+    if (!id) return;
+
+    let cancelled = false;
+    const supabase = getSupabaseClient();
+
+    async function connectLiveSync() {
+      setLiveSyncState("connecting");
+      try {
+        const response = await fetch("/api/auth/realtime", {
+          cache: "no-store",
+          credentials: "include",
+        });
+        const body = (await response.json().catch(() => null)) as
+          | { accessToken?: string; error?: string }
+          | null;
+
+        if (!response.ok || !body?.accessToken) {
+          throw new Error(body?.error || "Could not authorize realtime sync.");
+        }
+
+        await supabase.realtime.setAuth(body.accessToken);
+        if (cancelled) return;
+
+        const channel = supabase
+          .channel(`event-live-${id}`)
+          .on("postgres_changes", { event: "*", schema: "public", table: "events", filter: `id=eq.${id}` }, () => {
+            queueLiveSyncRefresh("realtime");
+          })
+          .on("postgres_changes", { event: "*", schema: "public", table: "event_sps", filter: `event_id=eq.${id}` }, () => {
+            queueLiveSyncRefresh("realtime");
+          })
+          .on("postgres_changes", { event: "*", schema: "public", table: "event_sessions", filter: `event_id=eq.${id}` }, () => {
+            queueLiveSyncRefresh("realtime");
+          })
+          .on("postgres_changes", { event: "*", schema: "public", table: "event_learner_attendance", filter: `event_id=eq.${id}` }, () => {
+            queueLiveSyncRefresh("realtime");
+          });
+
+        liveSyncChannelRef.current = channel;
+        channel.subscribe((status) => {
+          if (cancelled) return;
+          if (status === "SUBSCRIBED") {
+            setLiveSyncMode("realtime");
+            setLiveSyncState("connected");
+          } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+            setLiveSyncMode("fallback");
+            setLiveSyncState("disconnected");
+          }
+        });
+      } catch {
+        if (cancelled) return;
+        setLiveSyncMode("fallback");
+        setLiveSyncState("disconnected");
+      }
+    }
+
+    void connectLiveSync();
+
+    return () => {
+      cancelled = true;
+      if (liveSyncRefreshTimeoutRef.current) {
+        window.clearTimeout(liveSyncRefreshTimeoutRef.current);
+        liveSyncRefreshTimeoutRef.current = null;
+      }
+      liveSyncRefreshInFlightRef.current = false;
+      liveSyncRefreshQueuedRef.current = false;
+      const activeChannel = liveSyncChannelRef.current;
+      liveSyncChannelRef.current = null;
+      if (activeChannel) {
+        void supabase.removeChannel(activeChannel);
+      }
+    };
+  }, [id, queueLiveSyncRefresh]);
+
+  useEffect(() => {
+    if (!id || !isRoomOperationsView || liveSyncMode !== "fallback") return;
+
+    const intervalId = window.setInterval(() => {
+      queueLiveSyncRefresh("fallback");
+    }, 15000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [id, isRoomOperationsView, liveSyncMode, queueLiveSyncRefresh]);
 
   useEffect(() => {
     let cancelled = false;
@@ -27762,6 +28060,16 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           </div>
         </div>
         <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+          <span
+            style={{
+              ...commandChipStyle,
+              background: liveSyncStatusTone.background,
+              color: liveSyncStatusTone.color,
+              border: liveSyncStatusTone.border,
+            }}
+          >
+            {liveSyncStatusLabel}
+          </span>
           <span style={{ ...commandChipStyle, background: "rgba(191, 219, 254, 0.52)", color: "#1e40af", border: "1px solid rgba(20, 91, 150, 0.24)" }}>
             {selectedRotationRound ? `Round ${activeSelectedRotationRoundIndex + 1}` : "Round TBD"}
           </span>
@@ -27770,6 +28078,11 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           </span>
         </div>
       </div>
+      {liveSyncDetailLabel ? (
+        <div style={{ color: "#5b7a91", fontSize: "11px", fontWeight: 800 }}>
+          {liveSyncDetailLabel}
+        </div>
+      ) : null}
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(128px, 1fr))", gap: "7px" }}>
         {[
@@ -28653,6 +28966,16 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                       </div>
                                     </div>
                                     <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                                      <span
+                                        style={{
+                                          ...commandChipStyle,
+                                          background: liveSyncStatusTone.background,
+                                          color: liveSyncStatusTone.color,
+                                          border: liveSyncStatusTone.border,
+                                        }}
+                                      >
+                                        {liveSyncStatusLabel}
+                                      </span>
                                       <span style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText }}>
                                         {selectedRoundActiveStationCount} active station{selectedRoundActiveStationCount === 1 ? "" : "s"}
                                         {selectedRoundBackupStationCount ? ` · ${selectedRoundBackupStationCount} standby` : ""}
@@ -28667,6 +28990,11 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                       </span>
                                     </div>
                                   </div>
+                                  {liveSyncDetailLabel ? (
+                                    <div style={{ color: "#5b7a91", fontSize: "11px", fontWeight: 800 }}>
+                                      {liveSyncDetailLabel}
+                                    </div>
+                                  ) : null}
 	                                  <div style={{ color: "#5b7a91", fontSize: "13px", fontWeight: 750, lineHeight: 1.45 }}>
 	                                    Edit mode for the same room pods used by Live Attendance: station status, room assignments, SPs, learners, cases, roles, and notes.
 	                                  </div>
