@@ -2095,7 +2095,8 @@ function buildRoomSlotAssignmentPlan(
   roomSlotEntries: RoomDisplayEntry[],
   explicitAssignments: Array<AssignmentRow | null>,
   confirmedAssignments: AssignmentRow[],
-  roomContext: RoomNamingContext = {}
+  roomContext: RoomNamingContext = {},
+  options?: { allowConfirmedRosterBackfill?: boolean }
 ): RoomSlotAssignmentPlan {
   const roomCount = roomSlotEntries.length;
   const assignments: RoomSlotAssignmentProjection[] = roomSlotEntries.map((room, index) => {
@@ -2109,7 +2110,7 @@ function buildRoomSlotAssignmentPlan(
 
   const explicitMappedCount = assignments.reduce((acc, item) => acc + (item.isExplicit ? 1 : 0), 0);
 
-  if (!roomCount || confirmedAssignments.length < roomCount) {
+  if (!roomCount || confirmedAssignments.length < roomCount || !options?.allowConfirmedRosterBackfill) {
     return {
       assignments,
       explicitMappedCount,
@@ -4365,18 +4366,6 @@ function buildRotationRoundsFromScheduleDraft(
   })();
 }
 
-function getCanonicalNurs421RoomSpName(eventId: string | null | undefined, slotIndex: number) {
-  if (eventId !== "85224c71-8b22-4b0b-960d-5e8dfd8d1515") return "";
-  return [
-    "Yvette Bedgood",
-    "William Ochester",
-    "Lee Fishman",
-    "Jennifer Smith",
-    "Celeste Montgomery",
-    "Gene D’Alessandro",
-  ][slotIndex] || "";
-}
-
 function formatRotationRoundLabel(
   round: RotationRound,
   fallbackYear?: number | null,
@@ -4937,10 +4926,7 @@ function buildSelectedRoundOperationalRooms(args: {
   selectedRoundStationLabel: string;
   backupAssignmentNameSet: Set<string>;
   roomNamingContext: RoomNamingContext;
-  eventId?: string | null;
   eventLocation?: string | null;
-  confirmedAssignments: AssignmentRow[];
-  spsById: Map<string, SPRow>;
   scheduleBuilderLearnerNames: string[];
   scheduleBuilderRoomCapacity: number;
   resolvedScheduleMatrixCaseCount: number;
@@ -4958,10 +4944,7 @@ function buildSelectedRoundOperationalRooms(args: {
     selectedRoundStationLabel,
     backupAssignmentNameSet,
     roomNamingContext,
-    eventId,
     eventLocation,
-    confirmedAssignments,
-    spsById,
     scheduleBuilderLearnerNames,
     scheduleBuilderRoomCapacity,
     resolvedScheduleMatrixCaseCount,
@@ -5022,9 +5005,6 @@ function buildSelectedRoundOperationalRooms(args: {
           (roomNumber !== null ? sessionByRoomNumber.get(roomNumber) : null) ||
           sessionByRoomName.get(asText(entry.roomName).toLowerCase()) ||
           null;
-        const fallbackAssignment = entry.sourceIndex >= 0 ? confirmedAssignments[entry.sourceIndex] || null : null;
-        const fallbackSp = fallbackAssignment?.sp_id ? spsById.get(fallbackAssignment.sp_id) || null : null;
-        const canonicalSpName = getCanonicalNurs421RoomSpName(eventId, slotIndex);
         return {
           slot: {
             roomName: asText(matchedSession?.room) || asText(entry.roomName) || getFallbackRoomLabel(slotIndex, roomNamingContext),
@@ -5038,7 +5018,7 @@ function buildSelectedRoundOperationalRooms(args: {
               isMultiCaseMode: resolvedScheduleMatrixCaseCount > 1,
               isVirtualEvent: isScheduleMatrixVirtual,
             }),
-            assignedSpName: canonicalSpName || (fallbackSp ? getFullName(fallbackSp) : ""),
+            assignedSpName: "",
             backupSpName: "",
             caseLabel: "",
             roleId: "",
@@ -10820,10 +10800,7 @@ const operationalEventStatusLabel = useMemo(() => {
         selectedRoundStationLabel,
         backupAssignmentNameSet,
         roomNamingContext,
-        eventId: event?.id,
         eventLocation: event?.location,
-        confirmedAssignments,
-        spsById,
         scheduleBuilderLearnerNames,
         scheduleBuilderRoomCapacity,
         resolvedScheduleMatrixCaseCount,
@@ -10833,8 +10810,6 @@ const operationalEventStatusLabel = useMemo(() => {
     [
       activeScheduleRoomAdjustments,
       backupAssignmentNameSet,
-      confirmedAssignments,
-      event?.id,
       event?.location,
       isScheduleMatrixVirtual,
       resolvedScheduleMatrixCaseCount,
@@ -10849,7 +10824,6 @@ const operationalEventStatusLabel = useMemo(() => {
       selectedRoundRoomSlotEntries,
       selectedRoundSessions,
       selectedRoundStationLabel,
-      spsById,
     ]
   );
   const selectedRoundActiveScheduleTruth = useMemo(
@@ -10867,13 +10841,11 @@ const operationalEventStatusLabel = useMemo(() => {
     if (!selectedRoundResolvedScheduleTruth?.length) {
       return [] as Array<RoundRoomRow>;
     }
-    const availableAssignments = [...confirmedAssignments, ...backupAssignments];
-
     return selectedRoundResolvedScheduleTruth
       .filter((station) => station.stationStatus !== "inactive")
       .map((station) => {
       const assignment = station.primarySpName
-        ? findAssignmentBySpDisplayName(availableAssignments, spsById, station.primarySpName)
+        ? findAssignmentBySpDisplayName(confirmedAssignments, spsById, station.primarySpName)
         : null;
       const sp = assignment?.sp_id ? spsById.get(assignment.sp_id) || null : null;
       const learnerLabels = getActualLearnerNames(station.learnerLabels);
@@ -10907,7 +10879,6 @@ const operationalEventStatusLabel = useMemo(() => {
     event?.location,
     effectiveLearnerCount,
     selectedRoundResolvedScheduleTruth,
-    backupAssignments,
     confirmedAssignments,
     spsById,
     staffingRelevant,
@@ -10917,7 +10888,6 @@ const operationalEventStatusLabel = useMemo(() => {
       return [] as OperationsRoomCardRow[];
     }
 
-    const availableAssignments = [...confirmedAssignments, ...backupAssignments];
     const scheduleRowsBySlotIndex = new Map(selectedRoundScheduleRows.map((row) => [row.slotIndex, row]));
 
     return selectedRoundResolvedScheduleTruth.map((station) => {
@@ -10934,7 +10904,7 @@ const operationalEventStatusLabel = useMemo(() => {
         asText(station.roleLabel)
       );
       const assignment = primarySpName
-        ? findAssignmentBySpDisplayName(availableAssignments, spsById, primarySpName)
+        ? findAssignmentBySpDisplayName(confirmedAssignments, spsById, primarySpName)
         : null;
       const sp = assignment?.sp_id ? spsById.get(assignment.sp_id) || null : null;
 
@@ -10964,7 +10934,6 @@ const operationalEventStatusLabel = useMemo(() => {
       } satisfies OperationsRoomCardRow;
     });
   }, [
-    backupAssignments,
     caseFileEntries,
     confirmedAssignments,
     event?.location,
@@ -12057,8 +12026,16 @@ const operationalEventStatusLabel = useMemo(() => {
     simulatedLiveMinutes,
   ]);
   const liveBlueprintRoomEntries = useMemo(() => {
-    if (currentLiveRoomDisplayEntries.length) return currentLiveRoomDisplayEntries;
+    if (selectedRoundOperationsRows.length) {
+      return selectedRoundOperationsRows
+        .filter((row) => row.stationStatus !== "inactive")
+        .map((row) => ({
+          roomName: row.roomName,
+          sourceIndex: row.slotIndex,
+        }));
+    }
     if (selectedRoundRoomSlotEntries.length) return selectedRoundRoomSlotEntries;
+    if (currentLiveRoomDisplayEntries.length) return currentLiveRoomDisplayEntries;
 
     const fallbackRound = rotationRounds[0] || null;
     const fallbackRoomCount = fallbackRound ? 0 : 8;
@@ -12073,37 +12050,16 @@ const operationalEventStatusLabel = useMemo(() => {
     effectiveRoomCount,
     roomNamingContext,
     rotationRounds,
+    selectedRoundOperationsRows,
     selectedRoundRoomSlotEntries
   ]);
-  const liveBlueprintExplicitAssignments = useMemo(
-    () =>
-      liveBlueprintRoomEntries.map(({ sourceIndex }) =>
-        sourceIndex >= 0 ? confirmedAssignments[sourceIndex] || null : null
-      ),
-    [confirmedAssignments, liveBlueprintRoomEntries]
-  );
-  const liveBlueprintRoomAssignmentPlan = useMemo(
-    () =>
-      buildRoomSlotAssignmentPlan(
-        liveBlueprintRoomEntries,
-        liveBlueprintExplicitAssignments,
-        confirmedAssignments,
-        roomNamingContext
-      ),
-    [confirmedAssignments, roomNamingContext, liveBlueprintExplicitAssignments, liveBlueprintRoomEntries]
-  );
+  // IMPORTANT ROOM OPERATIONS GUARD:
+  // The Blueprint map displays assignment truth from resolved schedule slots. Do not backfill room SPs from roster order,
+  // attendance state, canonical guesses, or stale Room Operations adjustment metadata.
   const liveBlueprintBaseHighestRoomNumber = useMemo(
     () => getHighestRoomDisplayNumber(liveBlueprintRoomEntries.map((entry) => entry.roomName)),
     [liveBlueprintRoomEntries]
   );
-  const liveRestoredAssignmentRoomById = useMemo(() => {
-    const next = new Map<string, string>();
-    Object.entries(liveRoomAdjustments).forEach(([roomKey, adjustment]) => {
-      const restoredId = asText(adjustment.restoredAssignmentId);
-      if (restoredId) next.set(restoredId, roomKey);
-    });
-    return next;
-  }, [liveRoomAdjustments]);
   const liveBlueprintBaseRooms = useMemo(
     () =>
       liveBlueprintRoomEntries.map(({ roomName, sourceIndex }, index) => {
@@ -12134,37 +12090,9 @@ const operationalEventStatusLabel = useMemo(() => {
             (row) => asText(row.roomName).toLowerCase() === asText(roomName).toLowerCase()
           ) ||
           null;
-        const projection = liveBlueprintRoomAssignmentPlan.assignments[index];
-        const canonicalSpName = getCanonicalNurs421RoomSpName(event?.id, index);
-        const canonicalAssignment = canonicalSpName
-          ? confirmedAssignments.find((item) => {
-              const candidateSp = item.sp_id ? spsById.get(item.sp_id) || null : null;
-              return asText(getFullName(candidateSp || emptySpRow)).toLowerCase() === canonicalSpName.toLowerCase();
-            }) || null
-          : null;
-        const restoredAssignment =
-          asText(adjustment.restoredAssignmentId)
-            ? confirmedAssignments.find((item) => item.id === adjustment.restoredAssignmentId) || null
-            : null;
-        const plannedAssignment = canonicalAssignment || selectedScheduleRow?.assignment || boardRow?.assignment || projection?.assignment || null;
-        const plannedAssignmentOverrideRoom = plannedAssignment?.id
-          ? liveRestoredAssignmentRoomById.get(plannedAssignment.id)
-          : "";
-        const assignment =
-          restoredAssignment ||
-          (plannedAssignmentOverrideRoom && plannedAssignmentOverrideRoom !== adjustmentKey ? null : plannedAssignment);
-        const sp = selectedScheduleRow?.assignment?.id === assignment?.id && selectedScheduleRow?.sp
-          ? selectedScheduleRow.sp
-          : assignment
-            ? (assignment.sp_id ? spsById.get(assignment.sp_id) || null : null)
-            : null;
-        const assignmentSource = restoredAssignment
-          ? "restored"
-          : assignment
-            ? projection?.isExplicit
-              ? "explicit"
-              : "auto"
-            : "missing";
+        const assignment = selectedScheduleRow?.assignment || null;
+        const sp = selectedScheduleRow?.sp || (assignment?.sp_id ? spsById.get(assignment.sp_id) || null : null);
+        const assignmentSource = assignment ? "explicit" : "missing";
         const standbyAssignment =
           asText(adjustment.standbyAssignmentId)
             ? backupAssignments.find((item) => item.id === adjustment.standbyAssignmentId) || null
@@ -12182,12 +12110,14 @@ const operationalEventStatusLabel = useMemo(() => {
           Boolean(assignment?.event_checked_in_at) ||
           assignment?.training_attended === true;
         const autoNoShow =
+          eventIsActuallyHappening &&
           manualStatus !== "cleared" &&
           manualStatus !== "late" &&
           Boolean(assignment) &&
           firstLiveRotationStartMinutes !== null &&
           simulatedLiveMinutes >= firstLiveRotationStartMinutes + 15;
         const autoLate =
+          eventIsActuallyHappening &&
           manualStatus !== "cleared" &&
           (boardRow?.status === "delayed" ||
             (Boolean(assignment) &&
@@ -12236,9 +12166,11 @@ const operationalEventStatusLabel = useMemo(() => {
                 : status === "late"
                   ? "Late"
                   : status === "awaiting"
-                    ? "Awaiting"
+                    ? eventIsActuallyHappening
+                      ? "Not checked in"
+                      : "Scheduled"
                     : "Standby",
-          isCurrentRotationRoom: Boolean(currentLiveRoomDisplayEntries.length && index < currentLiveRoomDisplayEntries.length),
+          isCurrentRotationRoom: eventIsActuallyHappening && Boolean(currentLiveRoomDisplayEntries.length && index < currentLiveRoomDisplayEntries.length),
           issueNote: boardRow?.issueNote || "",
           delayMinutes: boardRow?.delayMinutes || 0,
           learnerLabel: scheduleRow?.learnerLabels?.length
@@ -12258,15 +12190,12 @@ const operationalEventStatusLabel = useMemo(() => {
       }),
     [
       backupAssignments,
-      confirmedAssignments,
       currentLiveRoomDisplayEntries.length,
       currentLiveRoomBoardRows,
-      event?.id,
+      eventIsActuallyHappening,
       currentLiveReferenceScheduleRows,
       firstLiveRotationStartMinutes,
       liveBlueprintRoomEntries,
-      liveBlueprintRoomAssignmentPlan.assignments,
-      liveRestoredAssignmentRoomById,
       liveRoomAdjustments,
       selectedRoundScheduleRows,
       simulatedLiveMinutes,
@@ -17151,15 +17080,15 @@ Cory`;
     {
       id: "room-operations",
       label: "Open Room Operations",
-      detail: "Room assignments, station status, SPs, learners, cases, roles, and notes.",
+      detail: "Blueprint room map with scheduled SPs, learners, cases, roles, and live status overlays.",
       group: "Commands",
-      keywords: ["rooms", "operations", "setup", "stations", "assignments"],
-      onSelect: () => openCommandCenterTool({ commandTool: "primary", companionView: "operations" }),
+      keywords: ["rooms", "operations", "map", "stations", "assignments"],
+      onSelect: () => openCommandCenterTool({ commandTool: "primary", companionView: "attendance" }),
     },
     {
       id: "live-attendance",
-      label: "Open Live Attendance",
-      detail: "Live room attendance for SPs and learners.",
+      label: "Open Attendance Overlay",
+      detail: "Attendance controls layered on the Blueprint room map.",
       group: "Commands",
       keywords: ["attendance", "arrived", "late", "missing", "in room"],
       onSelect: () => openCommandCenterTool({ commandTool: "primary", companionView: "attendance" }),
@@ -17199,7 +17128,7 @@ Cory`;
     {
       id: "announcements",
       label: "Open Announcements",
-      detail: "Open Live Attendance and focus announcement cues.",
+      detail: "Open the Blueprint map and focus announcement cues.",
       group: "Tools",
       keywords: ["announcement", "announcements", "cue", "alarm"],
       onSelect: () => {
@@ -20379,7 +20308,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 	                        <div>
 	                          <div style={{ color: livePanelTitleText, fontWeight: 950, fontSize: "17px" }}>{row.roomName}</div>
 	                          <div style={{ marginTop: "4px", color: livePanelBodyText, fontSize: "10px", fontWeight: 700 }}>
-	                            {row.sp ? getFullName(row.sp) : "SP TBD"}
+	                            {row.sp ? getFullName(row.sp) : "No SP assigned"}
 	                          </div>
 	                        </div>
 	                        <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
@@ -21227,37 +21156,19 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
   const roomOperationsModeTabs = (
     <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
       {[
-        { value: "operations" as const, label: "Setup" },
-        { value: "attendance" as const, label: "Live Attendance" },
+        { value: "attendance" as const, label: "Map" },
+        { value: "operations" as const, label: "Edit Assignments" },
       ].map((tab) => {
         const selected = roundCompanionView === tab.value;
-        const isLiveAttendanceTab = tab.value === "attendance";
+        const isMapTab = tab.value === "attendance";
         const modeTabStyle: React.CSSProperties = selected
-          ? isLiveAttendanceTab
-            ? {
-                ...buttonStyle,
-                background: "linear-gradient(135deg, #9f2f27 0%, #d74d42 58%, #f97368 100%)",
-                color: "#fff7f6",
-                border: "1px solid rgba(248, 113, 113, 0.74)",
-                boxShadow:
-                  "0 0 0 1px rgba(248, 113, 113, 0.2), 0 0 18px rgba(215, 77, 66, 0.34), 0 8px 18px rgba(127, 29, 29, 0.14)",
-                textShadow: "0 1px 8px rgba(127, 29, 29, 0.28)",
-              }
-            : buttonStyle
-          : isLiveAttendanceTab
-            ? {
-                ...staffingSecondaryButtonStyle,
-                background: "linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(255, 241, 241, 0.86))",
-                color: "#9f2f27",
-                border: "1px solid rgba(248, 113, 113, 0.34)",
-                boxShadow: "0 6px 14px rgba(127, 29, 29, 0.06)",
-              }
-            : staffingSecondaryButtonStyle;
+          ? buttonStyle
+          : staffingSecondaryButtonStyle;
         return (
           <button
             key={`room-operations-mode-${tab.value}`}
             type="button"
-            className={`cfsp-room-mode-toggle ${isLiveAttendanceTab ? "is-live" : "is-setup"}${selected ? " is-selected" : ""}`}
+            className={`cfsp-room-mode-toggle ${isMapTab ? "is-map" : "is-edit"}${selected ? " is-selected" : ""}`}
             onClick={() => {
               setPrimaryEventTool("commandCenter");
               setSelectedCommandTool("primary");
@@ -21276,7 +21187,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
             }}
             aria-pressed={selected}
           >
-            {isLiveAttendanceTab ? (
+            {isMapTab ? (
               <span className={`cfsp-live-mode-dot${selected ? " is-active" : ""}`} aria-hidden="true" />
             ) : null}
             <span>{tab.label}</span>
@@ -27962,7 +27873,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                             value: "eventAttendance" as const,
                             identity: "operations" as const,
                             label: "Room Operations",
-                            status: "Setup + Live",
+                            status: "Blueprint map",
                           },
                         ].map((tool) => {
                           const selected =
@@ -27980,7 +27891,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 if (tool.value === "eventAttendance") {
                                   setPrimaryEventTool("commandCenter");
                                   setSelectedCommandTool("primary");
-                                  setRoundCompanionView("operations");
+                                  setRoundCompanionView("attendance");
                                   queueCommandContentScroll();
                                   return;
                                 }
@@ -28090,12 +28001,12 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 label: "Overview",
                                 status: "Round snapshot",
                               },
-                              {
-                                kind: "view",
-                                value: "operations",
-                                identity: "operations" as const,
-                                label: "Room Operations",
-                                status: "Setup + Live",
+	                              {
+	                                kind: "view",
+	                                value: "attendance",
+	                                identity: "operations" as const,
+	                                label: "Room Operations",
+	                                status: "Blueprint map",
                               },
                             ],
                           },
@@ -28263,6 +28174,12 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                       setPrimaryEventTool("commandCenter");
                                       if (tool.kind === "view") {
                                         setSelectedCommandTool("primary");
+                                        if (tool.value === "announcements") {
+                                          setRoundCompanionView("attendance");
+                                          queueCommandContentScroll();
+                                          focusLiveAttendanceAnnouncementPanel();
+                                          return;
+                                        }
                                         setRoundCompanionView(tool.value as RotationCompanionView);
                                       } else {
                                         setSelectedCommandTool(tool.value as SelectedCommandTool);
@@ -28679,7 +28596,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                   })()}
                                 </div>
                                 <div style={{ color: row.sp ? commandCenterVisual.textColor : commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 850, overflowWrap: "anywhere" }}>
-                                  {row.sp ? getFullName(row.sp) : "SP TBD"}
+                                  {row.sp ? getFullName(row.sp) : "No SP assigned"}
                                 </div>
                               </div>
                             ))}
@@ -28911,7 +28828,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                   : row.mappingState === "Needs room mapping"
                                     ? "Needs room mapping"
                                     : staffingRelevant
-                                      ? "SP TBD"
+                                      ? "No SP assigned"
                                       : "Ready"
                                 : row.mappingState === "Needs room mapping"
                                   ? "Needs room mapping"
@@ -29425,9 +29342,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "flex-start" }}>
 	        <div>
 	          <div style={{ ...statLabel, color: "#12617f" }}>Room Operations</div>
-	          <div style={{ marginTop: "4px", color: "#102d44", fontSize: "20px", fontWeight: 950 }}>Live Attendance</div>
+	          <div style={{ marginTop: "4px", color: "#102d44", fontSize: "20px", fontWeight: 950 }}>Blueprint Occupancy Command Map</div>
           <div style={{ marginTop: "3px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 750 }}>
-            Selected-round check-in board for SPs, learners, and room occupancy.
+            Assignment truth first, with live attendance status layered on top.
           </div>
         </div>
         <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
@@ -29793,9 +29710,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     >
       <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
         <div>
-          <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Room Attendance Map</div>
+          <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Blueprint Occupancy Command Map</div>
           <div style={{ marginTop: "3px", color: "#102d44", fontSize: "13px", fontWeight: 900 }}>
-            Blueprint occupancy command map
+            Scheduled room, learner, SP, case, and role truth for the selected round.
           </div>
         </div>
         <span style={{ ...commandChipStyle, background: "rgba(209, 250, 229, 0.6)", color: "#065f46", border: "1px solid rgba(25, 138, 112, 0.24)" }}>
@@ -29926,13 +29843,13 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 }}
                               >
                                 <EventAttendanceHologramAvatar
-                                  name={room.spName || "SP TBD"}
+                                  name={room.spName || "No SP assigned"}
                                   role="sp"
                                   status={spStatus}
                                   selected={activeEventAttendanceKey === spToken.key}
                                 />
                                 <span style={{ display: "grid", gap: "1px", minWidth: 0 }}>
-                                  <span style={{ color: spPresent ? "#065f46" : "#102d44", fontSize: "10px", fontWeight: 950 }}>{room.spName || "SP TBD"}</span>
+                                  <span style={{ color: spPresent ? "#065f46" : "#102d44", fontSize: "10px", fontWeight: 950 }}>{room.spName || "No SP assigned"}</span>
                                   {spPresent ? (
                                     <span style={{ color: "#047857", fontSize: "8px", fontWeight: 950, letterSpacing: "0.06em", textTransform: "uppercase" }}>✓ Present</span>
                                   ) : null}
@@ -29940,8 +29857,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                               </button>
                             ) : (
                               <>
-                                <EventAttendanceHologramAvatar name={room.spName || "SP TBD"} role="sp" status="expected" />
-                                <span style={{ color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 800 }}>SP TBD</span>
+                                <EventAttendanceHologramAvatar name={room.spName || "No SP assigned"} role="sp" status="expected" />
+                                <span style={{ color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 800 }}>{room.spName || "No SP assigned"}</span>
                               </>
                             )}
                           </div>
@@ -30010,7 +29927,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                               {room.isBackupStation
                                 ? "Backup / standby room"
                                 : learnerTokens.length
-                                  ? `${learnerTokens.length} learner${learnerTokens.length === 1 ? "" : "s"} in room`
+                                  ? `${learnerTokens.length} assigned learner${learnerTokens.length === 1 ? "" : "s"}`
                                   : getLearnerRoomAssignmentLabel([], room.learnerCountFallback || 0)}
                             </span>
                             <span style={{ color: "#3b82f6", fontSize: "9px", fontWeight: 800, letterSpacing: "0.06em" }}>
@@ -30887,8 +30804,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                     <div>
                                       <div style={{ color: commandCenterVisual.textColor, fontWeight: 800 }}>{row.roomName || `Room ${index + 1}`}</div>
                                       <div style={{ marginTop: "4px", color: commandCenterVisual.textColor, fontSize: "10px", fontWeight: 800, display: "inline-flex", alignItems: "center", gap: "6px" }}>
-                                        <RoundOperationAvatar name={row.sp ? getFullName(row.sp) : "SP TBD"} role="sp" />
-                                        {row.sp ? getFullName(row.sp) : "SP TBD"}
+                                        <RoundOperationAvatar name={row.sp ? getFullName(row.sp) : "No SP assigned"} role="sp" />
+                                        {row.sp ? getFullName(row.sp) : "No SP assigned"}
                                       </div>
                                       {row.caseLabel || row.stationLabel ? (
                                         <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 800 }}>
@@ -30954,8 +30871,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                       </div>
                                       <div style={{ marginTop: "8px", display: "flex", gap: "6px", flexWrap: "wrap" }}>
                                         {[
-                                          { value: "operations" as const, label: "Room Operations" },
-                                          { value: "attendance" as const, label: "Live Attendance + Cues" },
+                                          { value: "attendance" as const, label: "Map" },
+                                          { value: "operations" as const, label: "Edit Assignments" },
                                         ].map((modeOption) => {
                                           const selected = roundCompanionView === modeOption.value;
                                           return (
@@ -31016,7 +30933,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                     </div>
                                   ) : null}
 	                                  <div style={{ color: "#5b7a91", fontSize: "13px", fontWeight: 750, lineHeight: 1.45 }}>
-	                                    Edit mode for the same room pods used by Live Attendance: station status, room assignments, SPs, learners, cases, roles, and notes.
+	                                    Edit mode for the same room pods used by the Blueprint map: station status, room assignments, SPs, learners, cases, roles, and notes.
 	                                  </div>
                                 </section>
                                 <section
@@ -31089,7 +31006,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                   </div>
 	                                  {roundOperationsSaveState === "unsaved" ? (
 	                                    <div style={{ color: isPlanningVisualMode ? "#92400e" : "#f3bb67", fontSize: "11px", fontWeight: 850 }}>
-	                                      Unsaved changes. Save to update Schedule Builder, Live Attendance, Admin Schedule, and exports.
+	                                      Unsaved changes. Save to update Schedule Builder, Blueprint map, Admin Schedule, and exports.
 	                                    </div>
                                   ) : roundOperationsSaveState === "error" && roundOperationsSaveError ? (
                                     <div style={{ color: staffingWorkspacePalette.dangerText, fontSize: "11px", fontWeight: 850 }}>
@@ -31324,8 +31241,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                       <div>
                                         <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>SP</div>
                                         <div style={{ color: commandCenterVisual.textColor, fontWeight: 800, fontSize: "13px", display: "inline-flex", alignItems: "center", gap: "6px" }}>
-                                          <RoundOperationAvatar name={getOperationsRoomPrimarySpName(row) || row.backupSpName || "SP TBD"} role="sp" />
-                                          {getOperationsRoomPrimarySpName(row) || row.backupSpName || "SP TBD"}
+                                          <RoundOperationAvatar name={getOperationsRoomPrimarySpName(row) || row.backupSpName || "No SP assigned"} role="sp" />
+                                          {getOperationsRoomPrimarySpName(row) || row.backupSpName || "No SP assigned"}
                                         </div>
                                         {row.backupSpName ? (
                                           <div style={{ marginTop: "6px", color: commandCenterVisual.textColor, fontSize: "11px", fontWeight: 900, display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
@@ -31453,7 +31370,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                         />
                                       </label>
                                       <label style={{ display: "grid", gap: "4px" }}>
-                                        <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Learners in room</span>
+                                        <span style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Scheduled learners</span>
                                         <textarea
                                           value={row.learnerLabels.join("\n")}
                                           onChange={(event) =>
@@ -31479,7 +31396,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                           disabled={saving}
                                           style={{ ...selectStyle, width: "100%", maxWidth: "none", fontSize: "11px", padding: "6px 7px" }}
                                         >
-                                          <option value="">SP TBD</option>
+                                          <option value="">No SP assigned</option>
                                           {[...confirmedAssignments, ...backupAssignments].map((assignment) => {
                                             const sp = assignment.sp_id ? spsById.get(assignment.sp_id) : null;
                                             const spName = getFullName(sp || emptySpRow);
