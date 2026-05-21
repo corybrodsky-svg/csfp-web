@@ -981,6 +981,7 @@ type StudentInstructionsExportContext = {
   feedbackMinutes?: number | null;
   firstEncounterStartMinutes?: number | null;
   studentScheduleRounds?: ScheduledRound[];
+  studentScheduleSourceRounds?: ScheduledRound[];
   roomColumns?: PreviewRoomColumn[];
   roomContext?: Parameters<typeof getRoomDisplayLabel>[2];
 };
@@ -2573,13 +2574,15 @@ function getStudentInstructionsJoinOffsetMinutes(config?: StudentInstructionsCon
 
 function buildVirStyleStudentScheduleBlocks(args: {
   rounds: ScheduledRound[];
+  sourceRounds?: ScheduledRound[];
   roomColumns?: PreviewRoomColumn[];
   roomContext?: Parameters<typeof getRoomDisplayLabel>[2];
 }) {
-  const { rounds, roomColumns = [], roomContext = {} } = args;
+  const { rounds, sourceRounds = [], roomColumns = [], roomContext = {} } = args;
   const blocks: StudentInstructionsScheduleBlock[] = [];
 
   rounds.forEach((round) => {
+    const sourceRound = sourceRounds.find((candidate) => candidate.round === round.round) || null;
     const encounterBlock = round.subBlocks.find((subBlock) => /^encounter$/i.test(asText(subBlock.label)));
     const start = encounterBlock?.start ?? round.start;
     const end = encounterBlock?.end ?? round.end;
@@ -2589,8 +2592,14 @@ function buildVirStyleStudentScheduleBlocks(args: {
     const detail = `Round ${round.round}${timeLabel ? ` • ${timeLabel}` : ""}`;
     const roomCount = Math.max(round.roomSlots.length, roomColumns.length);
     const cells: StudentInstructionsScheduleCell[] = Array.from({ length: roomCount }, (_, roomIndex) => {
-      const slot = round.roomSlots[roomIndex];
       const roomColumn = roomColumns[roomIndex];
+      // IMPORTANT REGRESSION GUARD:
+      // Student Instructions must render learner labels in the exact room cells from the completed
+      // schedule snapshot. Resolve room slots by stable slot index from source rounds first, and
+      // never rebuild room placement from counts or inferred learner ordering.
+      const sourceSlot =
+        sourceRound && typeof roomColumn?.slotIndex === "number" ? sourceRound.roomSlots[roomColumn.slotIndex] : undefined;
+      const slot = sourceSlot || round.roomSlots[roomIndex];
       const roomLabel = slot
         ? formatRoomName(
             slot.roomName,
@@ -2727,6 +2736,7 @@ function buildStudentInstructionsExportHtml(context: StudentInstructionsExportCo
   ];
   const scheduleBlocks = buildVirStyleStudentScheduleBlocks({
     rounds: studentScheduleRounds,
+    sourceRounds: context.studentScheduleSourceRounds || [],
     roomColumns,
     roomContext,
   });
@@ -8169,6 +8179,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         feedbackMinutes: firstFeedbackDurationMinutes,
         firstEncounterStartMinutes: firstStudentEncounterStartMinutes,
         studentScheduleRounds: studentPreviewRounds,
+        studentScheduleSourceRounds: scheduledRounds,
         roomColumns: studentRoomColumns,
         roomContext: roomNamingContext,
       });
@@ -8199,6 +8210,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     studentInstructionsResolvedLocation,
     studentInstructionsResolvedZoomLink,
     studentPreviewRounds,
+    scheduledRounds,
   ]);
   const studentInstructionsPdfFileName = useMemo(() => {
     const eventBaseName = getSafeFileName(normalizeDisplayText(selectedEvent?.name));
