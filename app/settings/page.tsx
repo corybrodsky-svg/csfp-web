@@ -56,6 +56,32 @@ type EventSessionRow = {
   end_time?: string | null;
 };
 
+type RelatedCopyOption =
+  | "assigned_sps"
+  | "training_materials"
+  | "faculty"
+  | "zoom_recording"
+  | "sim_contact"
+  | "case_doorsign";
+
+type RelatedEventPreview = {
+  id: string;
+  name: string | null;
+  status: string | null;
+  date_text: string | null;
+  location: string | null;
+  exact_course_match?: boolean;
+};
+
+type PushRelatedSummary = {
+  updated_events: Array<{ id: string; name: string }>;
+  skipped_events: Array<{ id: string; name: string; reason: string }>;
+  sps_copied: number;
+  duplicates_skipped: number;
+  blank_source_fields?: string[];
+  copied_categories?: RelatedCopyOption[];
+};
+
 type MeResponse = {
   profile?: {
     role?: string | null;
@@ -102,6 +128,15 @@ const initialEvent: EventEditState = {
   notes: "",
 };
 
+const relatedCopyOptionLabels: Record<RelatedCopyOption, string> = {
+  assigned_sps: "Selected SPs",
+  training_materials: "Training metadata/materials",
+  faculty: "Faculty",
+  zoom_recording: "Zoom/recording info",
+  sim_contact: "Sim contact",
+  case_doorsign: "Case/doorsign",
+};
+
 function text(value: unknown) {
   if (value === null || value === undefined) return "";
   return String(value).trim();
@@ -141,6 +176,24 @@ function formatSettingsTime(value: string) {
   const suffix = hour >= 12 ? "PM" : "AM";
   const displayHour = hour % 12 || 12;
   return `${displayHour}:${minute} ${suffix}`;
+}
+
+function getDefaultRelatedEventKeyword(title?: string | null) {
+  const raw = text(title);
+  if (!raw) return "";
+
+  const courseTokenMatch = raw.match(/\b[A-Z]{2,}\s*[-]?\s*(\d{3,4}[A-Z]?)\b/i);
+  if (courseTokenMatch?.[1]) return courseTokenMatch[1];
+
+  const numericMatch = raw.match(/\b(\d{3,4}[A-Z]?)\b/);
+  if (numericMatch?.[1]) return numericMatch[1];
+
+  const tokens = raw
+    .split(/[^A-Za-z0-9]+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 3);
+
+  return tokens[0] || "";
 }
 
 function buildTemplatePreviewContext(event: EventEditState, sessions: EventSessionRow[] = []) {
@@ -282,6 +335,279 @@ function CollapsibleSettingsSection({
         </div>
       </button>
       {expanded ? <div className="mt-4 grid gap-3">{children}</div> : null}
+    </section>
+  );
+}
+
+function PushRelatedEventsSettingsPanel({
+  eventId,
+  eventName,
+  canManage,
+}: {
+  eventId: string;
+  eventName: string;
+  canManage: boolean;
+}) {
+  const defaultKeyword = useMemo(() => getDefaultRelatedEventKeyword(eventName), [eventName]);
+  const [expanded, setExpanded] = useState(false);
+  const [keyword, setKeyword] = useState(defaultKeyword);
+  const [mustInclude, setMustInclude] = useState("");
+  const [exclude, setExclude] = useState("");
+  const [excludeCurrent, setExcludeCurrent] = useState(true);
+  const [copyOptions, setCopyOptions] = useState<RelatedCopyOption[]>([
+    "assigned_sps",
+    "training_materials",
+    "zoom_recording",
+    "case_doorsign",
+  ]);
+  const [matches, setMatches] = useState<RelatedEventPreview[]>([]);
+  const [selectedTargetIds, setSelectedTargetIds] = useState<string[]>([]);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [pushSaving, setPushSaving] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
+  const [summary, setSummary] = useState<PushRelatedSummary | null>(null);
+
+  useEffect(() => {
+    setKeyword((current) => current || defaultKeyword);
+  }, [defaultKeyword]);
+
+  if (!canManage) return null;
+
+  async function previewRelatedEvents() {
+    if (!eventId || !keyword.trim()) {
+      setErrorMessage("Enter a keyword to preview related events.");
+      setMatches([]);
+      return;
+    }
+
+    setPreviewLoading(true);
+    setErrorMessage("");
+    setSummary(null);
+
+    try {
+      const response = await fetch(`/api/events/${encodeURIComponent(eventId)}/push-related`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode: "preview",
+          keyword: keyword.trim(),
+          mustInclude: mustInclude.trim(),
+          exclude: exclude.trim(),
+          excludeCurrent,
+        }),
+      });
+      const body = (await response.json().catch(() => null)) as
+        | {
+            error?: string;
+            events?: RelatedEventPreview[];
+          }
+        | null;
+
+      if (!response.ok) {
+        throw new Error(body?.error || "Could not preview related events.");
+      }
+
+      const nextMatches = Array.isArray(body?.events) ? body.events : [];
+      setMatches(nextMatches);
+      setSelectedTargetIds(nextMatches.filter((event) => event.exact_course_match).map((event) => event.id));
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Could not preview related events.");
+      setMatches([]);
+      setSelectedTargetIds([]);
+    } finally {
+      setPreviewLoading(false);
+    }
+  }
+
+  function toggleCopyOption(option: RelatedCopyOption) {
+    setSummary(null);
+    setErrorMessage("");
+    setCopyOptions((current) =>
+      current.includes(option)
+        ? current.filter((item) => item !== option)
+        : [...current, option]
+    );
+  }
+
+  function toggleTarget(eventId: string) {
+    setSummary(null);
+    setErrorMessage("");
+    setSelectedTargetIds((current) =>
+      current.includes(eventId)
+        ? current.filter((id) => id !== eventId)
+        : [...current, eventId]
+    );
+  }
+
+  async function pushToRelatedEvents() {
+    if (!eventId || !keyword.trim()) {
+      setErrorMessage("Enter a keyword before pushing to related events.");
+      return;
+    }
+    if (!matches.length) {
+      setErrorMessage("Preview matching events before pushing selected info.");
+      return;
+    }
+    if (!selectedTargetIds.length) {
+      setErrorMessage("Check at least one target event before pushing.");
+      return;
+    }
+    if (!copyOptions.length) {
+      setErrorMessage("Select at least one thing to copy.");
+      return;
+    }
+
+    setPushSaving(true);
+    setErrorMessage("");
+    setSummary(null);
+
+    try {
+      const response = await fetch(`/api/events/${encodeURIComponent(eventId)}/push-related`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode: "push",
+          keyword: keyword.trim(),
+          mustInclude: mustInclude.trim(),
+          exclude: exclude.trim(),
+          excludeCurrent,
+          targetEventIds: selectedTargetIds,
+          copyOptions,
+        }),
+      });
+      const body = (await response.json().catch(() => null)) as
+        | {
+            error?: string;
+            summary?: PushRelatedSummary;
+          }
+        | null;
+
+      if (!response.ok || !body?.summary) {
+        throw new Error(body?.error || "Could not push selected info to related events.");
+      }
+
+      setSummary(body.summary);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Could not push selected info to related events.");
+    } finally {
+      setPushSaving(false);
+    }
+  }
+
+  return (
+    <section className="rounded-[18px] border border-[var(--cfsp-border)] bg-white p-4 shadow-sm">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <p className="cfsp-kicker">Related events</p>
+          <h3 className="mt-1 text-lg font-black text-[var(--cfsp-text)]">Push to Related Events</h3>
+          <p className="mt-1 max-w-3xl text-sm font-semibold leading-6 text-[var(--cfsp-text-muted)]">
+            Copy selected structure/setup details from this event into matching related events.
+          </p>
+        </div>
+        <button type="button" onClick={() => setExpanded((current) => !current)} className="cfsp-btn cfsp-btn-secondary">
+          {expanded ? "Hide Related Push" : "Open Related Push"}
+        </button>
+      </div>
+
+      {expanded ? (
+        <div className="mt-4 grid gap-4">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <Field label="Match keyword" value={keyword} onChange={setKeyword} placeholder={defaultKeyword || "421"} />
+            <Field label="Must include" value={mustInclude} onChange={setMustInclude} placeholder="CTCN" />
+            <Field label="Exclude" value={exclude} onChange={setExclude} placeholder="VIR" />
+            <label className="flex items-center gap-3 rounded-xl border border-[var(--cfsp-border)] bg-white px-3 py-3 text-sm font-black text-[var(--cfsp-text)]">
+              <input type="checkbox" checked={excludeCurrent} onChange={(event) => setExcludeCurrent(event.target.checked)} />
+              Exclude current event
+            </label>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={() => void previewRelatedEvents()} disabled={previewLoading} className="cfsp-btn cfsp-btn-secondary disabled:opacity-60">
+              {previewLoading ? "Finding Matches..." : "Show Matching Events"}
+            </button>
+          </div>
+
+          <div className="grid gap-2">
+            <div className="cfsp-label">Copy These Items</div>
+            <div className="flex flex-wrap gap-2">
+              {(Object.keys(relatedCopyOptionLabels) as RelatedCopyOption[]).map((option) => {
+                const selected = copyOptions.includes(option);
+                return (
+                  <button
+                    key={`settings-related-copy-${option}`}
+                    type="button"
+                    onClick={() => toggleCopyOption(option)}
+                    className={selected ? "cfsp-btn cfsp-btn-primary" : "cfsp-btn cfsp-btn-secondary"}
+                  >
+                    {relatedCopyOptionLabels[option]}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="grid gap-2">
+            <div className="cfsp-label">Matching Events {matches.length ? `(${matches.length})` : ""}</div>
+            <div className="text-sm font-bold text-[var(--cfsp-text-muted)]">
+              {matches.length} matching event{matches.length === 1 ? "" : "s"} found, {selectedTargetIds.length} selected
+            </div>
+            {matches.length ? (
+              <div className="grid gap-2">
+                {matches.map((match) => (
+                  <label
+                    key={`settings-related-match-${match.id}`}
+                    className="grid cursor-pointer gap-1 rounded-xl border border-[var(--cfsp-border)] bg-white px-3 py-3"
+                  >
+                    <span className="flex flex-wrap items-center gap-2">
+                      <input type="checkbox" checked={selectedTargetIds.includes(match.id)} onChange={() => toggleTarget(match.id)} />
+                      <span className="font-black text-[var(--cfsp-text)]">{match.name || "Untitled Event"}</span>
+                      {match.exact_course_match ? (
+                        <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-black text-emerald-700">
+                          Exact course match
+                        </span>
+                      ) : null}
+                    </span>
+                    <span className="text-xs font-bold text-[var(--cfsp-text-muted)]">
+                      {[match.status || "No status", match.date_text || "Date TBD", match.location || "Location TBD"].join(" · ")}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-xl border border-dashed border-[var(--cfsp-border)] bg-slate-50 px-3 py-4 text-sm font-bold text-[var(--cfsp-text-muted)]">
+                {previewLoading ? "Looking for related events..." : "Preview matches to review which events will be updated."}
+              </div>
+            )}
+          </div>
+
+          {summary ? (
+            <div className="grid gap-1 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-800">
+              <div>Push complete</div>
+              <div>Updated events: {summary.updated_events.length}</div>
+              {summary.copied_categories?.length ? (
+                <div>{summary.copied_categories.map((category) => relatedCopyOptionLabels[category]).join(", ")} copied</div>
+              ) : null}
+              <div>SPs copied: {summary.sps_copied}</div>
+              <div>Duplicates skipped: {summary.duplicates_skipped}</div>
+              <div>Skipped events: {summary.skipped_events.length}</div>
+              {summary.blank_source_fields?.length ? (
+                <div>Blank source fields skipped: {summary.blank_source_fields.join(", ")}</div>
+              ) : null}
+            </div>
+          ) : null}
+
+          {errorMessage ? <div className="cfsp-alert cfsp-alert-error">{errorMessage}</div> : null}
+
+          <button
+            type="button"
+            onClick={() => void pushToRelatedEvents()}
+            disabled={pushSaving || matches.length === 0 || copyOptions.length === 0 || selectedTargetIds.length === 0}
+            className="cfsp-btn cfsp-btn-primary justify-self-start disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {pushSaving ? "Pushing..." : "Push Selected Info"}
+          </button>
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -1213,6 +1539,7 @@ function SettingsContent() {
                   }
                 }}
               />
+              <PushRelatedEventsSettingsPanel eventId={eventId} eventName={eventEdit.name} canManage={canEdit} />
             </CollapsibleSettingsSection>
 
             <CollapsibleSettingsSection

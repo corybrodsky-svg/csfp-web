@@ -24757,25 +24757,6 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   {badge.label}
                 </span>
               ))}
-              <button
-                type="button"
-                onClick={() => {
-                  setShowPushRelatedPanel((current) => !current);
-                  setRelatedPushError("");
-                  setRelatedPushSummary(null);
-                  if (showPushRelatedPanel) {
-                    setSelectedRelatedTargetIds([]);
-                  }
-                }}
-                style={{
-                  ...buttonStyle,
-                  background: "var(--cfsp-button-secondary-bg)",
-                  color: "var(--cfsp-button-secondary-text)",
-                  border: "1px solid var(--cfsp-button-secondary-border)",
-                }}
-              >
-                Push to Related Events
-              </button>
             </div>
           </div>
         </div>
@@ -24818,7 +24799,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           >
             <div>
               <div style={{ color: "var(--cfsp-text)", fontWeight: 900, fontSize: "20px" }}>
-                Push to Related Events
+                Related Event Structure Push
               </div>
               <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontWeight: 700, lineHeight: 1.5 }}>
                 This will update multiple events. Existing data will not be deleted.
@@ -25411,7 +25392,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       : 1,
                 }}
               >
-                {relatedPushSaving ? "Pushing..." : "Push Selected Info"}
+                {relatedPushSaving ? "Pushing..." : "Apply Selected Info"}
               </button>
               <button
                 type="button"
