@@ -6276,6 +6276,7 @@ export default function EventDetailPage() {
   const [announcementAlarmCompletedMap, setAnnouncementAlarmCompletedMap] = useState<Record<string, boolean>>({});
   const [announcementAlarmSnoozeUntilMap, setAnnouncementAlarmSnoozeUntilMap] = useState<Record<string, number>>({});
   const [announcementActiveAlertId, setAnnouncementActiveAlertId] = useState<string | null>(null);
+  const [liveAttendanceAnnouncementScheduleExpanded, setLiveAttendanceAnnouncementScheduleExpanded] = useState(false);
   const [roundAnnouncementDrafts, setRoundAnnouncementDrafts] = useState<Record<string, string>>({});
   const [announcementCueSaving, setAnnouncementCueSaving] = useState(false);
   const [announcementDueCueKeys, setAnnouncementDueCueKeys] = useState<Record<string, string>>({});
@@ -6394,6 +6395,7 @@ export default function EventDetailPage() {
   const [selectedCommandTool, setSelectedCommandTool] = useState<SelectedCommandTool>("primary");
   const [primaryEventTool, setPrimaryEventTool] = useState<PrimaryEventTool>("commandCenter");
   const activeCommandContentRef = useRef<HTMLDivElement | null>(null);
+  const liveAttendanceAnnouncementPanelRef = useRef<HTMLDivElement | null>(null);
   const [staffingCommandCenterExpanded, setStaffingCommandCenterExpanded] = useState(false);
   const [trainingReadinessExpanded, setTrainingReadinessExpanded] = useState(false);
   const [planningWindowExpanded, setPlanningWindowExpanded] = useState<Record<PlanningWindowKey, boolean>>({
@@ -11680,6 +11682,14 @@ const operationalEventStatusLabel = useMemo(() => {
         .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry)),
     [announcementCueEntriesByKey, selectedRoundAnnouncementTimeline]
   );
+  const liveAttendanceCurrentAnnouncementCue = useMemo(
+    () =>
+      selectedRoundAnnouncementCueEntries.find((entry) => entry.status === "Due now") ||
+      selectedRoundAnnouncementCueEntries.find((entry) => entry.status !== "Delivered" && entry.status !== "Skipped") ||
+      selectedRoundAnnouncementCueEntries[0] ||
+      null,
+    [selectedRoundAnnouncementCueEntries]
+  );
   const announcementTimingUnavailable = announcementCueTimeline.length === 0;
   const announcementCueStatusLabel = announcementTimingUnavailable
     ? "Timing unavailable"
@@ -11767,7 +11777,7 @@ const operationalEventStatusLabel = useMemo(() => {
   const shouldRunLocalAnnouncementAlarmLoop =
     selectedCommandTool === "primary" &&
     Boolean(selectedRotationRound) &&
-    (roundCompanionView === "announcements" || roundCompanionView === "attendance");
+    roundCompanionView === "attendance";
   const selectedRoundOperationsNotes = useMemo(
     () =>
       [
@@ -17128,6 +17138,15 @@ Cory`;
     queueCommandContentScroll();
   }
 
+  function focusLiveAttendanceAnnouncementPanel() {
+    if (typeof window === "undefined") return;
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        liveAttendanceAnnouncementPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    });
+  }
+
   const commandSearchCommands: GlobalCommandSearchCommand[] = [
     {
       id: "room-operations",
@@ -17180,10 +17199,13 @@ Cory`;
     {
       id: "announcements",
       label: "Open Announcements",
-      detail: "Timed announcement cues for the active event.",
+      detail: "Open Live Attendance and focus announcement cues.",
       group: "Tools",
       keywords: ["announcement", "announcements", "cue", "alarm"],
-      onSelect: () => openCommandCenterTool({ commandTool: "primary", companionView: "announcements" }),
+      onSelect: () => {
+        openCommandCenterTool({ commandTool: "primary", companionView: "attendance" });
+        focusLiveAttendanceAnnouncementPanel();
+      },
     },
     {
       id: "qa-board",
@@ -21207,11 +21229,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       {[
         { value: "operations" as const, label: "Setup" },
         { value: "attendance" as const, label: "Live Attendance" },
-        { value: "announcements" as const, label: "Announcements" },
       ].map((tab) => {
         const selected = roundCompanionView === tab.value;
         const isLiveAttendanceTab = tab.value === "attendance";
-        const isAnnouncementsTab = tab.value === "announcements";
         const modeTabStyle: React.CSSProperties = selected
           ? isLiveAttendanceTab
             ? {
@@ -21223,15 +21243,6 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   "0 0 0 1px rgba(248, 113, 113, 0.2), 0 0 18px rgba(215, 77, 66, 0.34), 0 8px 18px rgba(127, 29, 29, 0.14)",
                 textShadow: "0 1px 8px rgba(127, 29, 29, 0.28)",
               }
-            : isAnnouncementsTab
-              ? {
-                  ...buttonStyle,
-                  background: "linear-gradient(135deg, #145b96 0%, #1e7bb8 58%, #38bdf8 100%)",
-                  color: "#f3fbff",
-                  border: "1px solid rgba(56, 189, 248, 0.64)",
-                  boxShadow:
-                    "0 0 0 1px rgba(56, 189, 248, 0.2), 0 0 18px rgba(20, 91, 150, 0.28), 0 8px 18px rgba(15, 23, 42, 0.14)",
-                }
             : buttonStyle
           : isLiveAttendanceTab
             ? {
@@ -21241,14 +21252,6 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 border: "1px solid rgba(248, 113, 113, 0.34)",
                 boxShadow: "0 6px 14px rgba(127, 29, 29, 0.06)",
               }
-            : isAnnouncementsTab
-              ? {
-                  ...staffingSecondaryButtonStyle,
-                  background: "linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(236, 248, 255, 0.9))",
-                  color: "#145b96",
-                  border: "1px solid rgba(56, 189, 248, 0.3)",
-                  boxShadow: "0 6px 14px rgba(20, 91, 150, 0.08)",
-                }
             : staffingSecondaryButtonStyle;
         return (
           <button
@@ -29452,6 +29455,229 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
         </div>
       ) : null}
 
+      <section
+        ref={liveAttendanceAnnouncementPanelRef}
+        style={{
+          borderRadius: "14px",
+          border: "1px solid rgba(99, 181, 217, 0.22)",
+          background: "linear-gradient(140deg, rgba(255, 255, 255, 0.96), rgba(236, 253, 245, 0.88))",
+          padding: "10px 11px",
+          display: "grid",
+          gap: "8px",
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+          <div>
+            <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Announcement Cue Board</div>
+            <div style={{ marginTop: "3px", color: "#102d44", fontSize: "13px", fontWeight: 900 }}>
+              Next cue: {nextAnnouncementCue ? `${nextAnnouncementCue.phaseLabel} · ${nextAnnouncementCue.timeLabel}` : "No remaining cues"}
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+            <span style={{ ...commandChipStyle, background: "rgba(191, 219, 254, 0.52)", color: "#1e40af", border: "1px solid rgba(20, 91, 150, 0.24)" }}>
+              {announcementCueStripCountdownLabel}
+            </span>
+            <span style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText }}>
+              {announcementCueStatusLabel}
+            </span>
+            <button
+              type="button"
+              onClick={async () => {
+                setAnnouncementAlarmEnabled(true);
+                await playLocalRoundAnnouncementBeep();
+              }}
+              style={{ ...buttonStyle, padding: "6px 9px", fontSize: "10px" }}
+            >
+              {announcementAlarmEnabled ? "Alarms Enabled" : "Enable announcement alarms"}
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleToggleAnnouncementLiveMode()}
+              disabled={announcementCueSaving || announcementTimingUnavailable}
+              style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px", fontSize: "10px", opacity: announcementCueSaving || announcementTimingUnavailable ? 0.62 : 1 }}
+            >
+              {announcementLiveModeActive ? "Stop Live Cues" : "Start Live Cues"}
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleToggleAnnouncementAlertsMuted()}
+              disabled={announcementCueSaving}
+              style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px", fontSize: "10px", opacity: announcementCueSaving ? 0.62 : 1 }}
+            >
+              {announcementAlertsMuted ? "Unmute Alerts" : "Mute Alerts"}
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleTestAnnouncementAlert()}
+              style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px", fontSize: "10px" }}
+            >
+              Test Alert
+            </button>
+            <button
+              type="button"
+              onClick={() => handleCopyRoundAnnouncement(liveAttendanceCurrentAnnouncementCue?.announcementText || "")}
+              style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px", fontSize: "10px" }}
+            >
+              Copy Announcement
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (!liveAttendanceCurrentAnnouncementCue) return;
+                void handleUpdateAnnouncementCueStatus(liveAttendanceCurrentAnnouncementCue.key, "delivered", "Announcement marked delivered.");
+              }}
+              disabled={!liveAttendanceCurrentAnnouncementCue || announcementCueSaving}
+              style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px", fontSize: "10px", opacity: !liveAttendanceCurrentAnnouncementCue || announcementCueSaving ? 0.62 : 1 }}
+            >
+              Mark Delivered
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (!liveAttendanceCurrentAnnouncementCue) return;
+                void handleSnoozeAnnouncementCue(liveAttendanceCurrentAnnouncementCue.key);
+              }}
+              disabled={!liveAttendanceCurrentAnnouncementCue || announcementCueSaving}
+              style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px", fontSize: "10px", opacity: !liveAttendanceCurrentAnnouncementCue || announcementCueSaving ? 0.62 : 1 }}
+            >
+              Snooze 1 min
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (!liveAttendanceCurrentAnnouncementCue) return;
+                void handleUpdateAnnouncementCueStatus(liveAttendanceCurrentAnnouncementCue.key, "skipped", "Announcement skipped.");
+              }}
+              disabled={!liveAttendanceCurrentAnnouncementCue || announcementCueSaving}
+              style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px", fontSize: "10px", opacity: !liveAttendanceCurrentAnnouncementCue || announcementCueSaving ? 0.62 : 1 }}
+            >
+              Skip
+            </button>
+          </div>
+        </div>
+
+        {activeRoundAnnouncementAlert ? (
+          <div
+            style={{
+              borderRadius: "11px",
+              border: "1px solid rgba(245, 158, 11, 0.38)",
+              background: "linear-gradient(135deg, rgba(255, 251, 235, 0.96), rgba(254, 243, 199, 0.82))",
+              padding: "8px 10px",
+              display: "grid",
+              gap: "6px",
+            }}
+          >
+            <div style={{ color: "#92400e", fontWeight: 900, fontSize: "12px" }}>Announcement Due</div>
+            <div style={{ color: "#78350f", fontWeight: 850, fontSize: "12px" }}>
+              {activeRoundAnnouncementAlert.title} · {activeRoundAnnouncementAlert.suggestedText}
+            </div>
+            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+              <button type="button" onClick={() => setAnnouncementActiveAlertId(null)} style={{ ...staffingSecondaryButtonStyle, padding: "5px 8px", fontSize: "10px" }}>
+                Dismiss
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const snoozeUntil = Date.now() + 60_000;
+                  setAnnouncementAlarmSnoozeUntilMap((current) => ({
+                    ...current,
+                    [activeRoundAnnouncementAlert.id]: snoozeUntil,
+                  }));
+                  setAnnouncementActiveAlertId(null);
+                }}
+                style={{ ...staffingSecondaryButtonStyle, padding: "5px 8px", fontSize: "10px" }}
+              >
+                Snooze 1 min
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setAnnouncementAlarmCompletedMap((current) => ({
+                    ...current,
+                    [activeRoundAnnouncementAlert.id]: true,
+                  }));
+                  setAnnouncementActiveAlertId(null);
+                }}
+                style={{ ...buttonStyle, padding: "5px 8px", fontSize: "10px" }}
+              >
+                Mark Announced
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+          <button
+            type="button"
+            onClick={() => setLiveAttendanceAnnouncementScheduleExpanded((current) => !current)}
+            style={{ ...staffingSecondaryButtonStyle, padding: "5px 8px", fontSize: "10px" }}
+          >
+            {liveAttendanceAnnouncementScheduleExpanded ? "Hide full announcement schedule" : "Show full announcement schedule"}
+          </button>
+        </div>
+
+        {liveAttendanceAnnouncementScheduleExpanded && selectedRoundAnnouncementReminders.length ? (
+          <div style={{ display: "grid", gap: "7px" }}>
+            {selectedRoundAnnouncementReminders.map((reminder) => {
+              const armed = Boolean(announcementAlarmArmedMap[reminder.id]);
+              const completed = Boolean(announcementAlarmCompletedMap[reminder.id]);
+              const snoozeUntil = announcementAlarmSnoozeUntilMap[reminder.id] || 0;
+              const dueNow =
+                !completed &&
+                armed &&
+                reminder.targetTimestamp !== null &&
+                Date.now() >= Math.max(reminder.targetTimestamp, snoozeUntil);
+              const statusLabel = completed ? "Completed" : dueNow ? "Due" : armed ? "Armed" : "Not armed";
+              return (
+                <div
+                  key={`live-attendance-reminder-${reminder.id}`}
+                  style={{
+                    borderRadius: "10px",
+                    border: dueNow ? "1px solid rgba(245, 158, 11, 0.32)" : "1px solid rgba(99, 181, 217, 0.18)",
+                    background: dueNow ? "rgba(255, 251, 235, 0.9)" : "rgba(255,255,255,0.9)",
+                    padding: "7px 8px",
+                    display: "grid",
+                    gap: "5px",
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                    <div style={{ color: "#0f2d44", fontSize: "12px", fontWeight: 900 }}>
+                      {reminder.timeLabel} · {reminder.title}
+                    </div>
+                    <span style={{ ...commandChipStyle, background: "rgba(20, 91, 150, 0.12)", color: "#0b4f7f" }}>{statusLabel}</span>
+                  </div>
+                  <div style={{ color: "#4b6477", fontSize: "11px", fontWeight: 700 }}>{reminder.suggestedText}</div>
+                  <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAnnouncementAlarmArmedMap((current) => ({ ...current, [reminder.id]: !armed }));
+                        if (!armed) {
+                          setAnnouncementAlarmCompletedMap((current) => ({ ...current, [reminder.id]: false }));
+                        }
+                      }}
+                      style={{ ...staffingSecondaryButtonStyle, padding: "5px 8px", fontSize: "10px" }}
+                    >
+                      {armed ? "Disarm Alarm" : "Arm Alarm"}
+                    </button>
+                    <button type="button" onClick={() => void playLocalRoundAnnouncementBeep()} style={{ ...staffingSecondaryButtonStyle, padding: "5px 8px", fontSize: "10px" }}>
+                      Test Sound
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAnnouncementAlarmCompletedMap((current) => ({ ...current, [reminder.id]: true }))}
+                      style={{ ...buttonStyle, padding: "5px 8px", fontSize: "10px" }}
+                    >
+                      Mark Complete
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : null}
+      </section>
+
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(128px, 1fr))", gap: "7px" }}>
         {[
           { label: "SPs arrived", value: `${eventAttendanceSpArrivedCount}/${eventAttendanceSpTokens.length}`, tone: "ready" },
@@ -30729,7 +30955,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                       <div style={{ marginTop: "8px", display: "flex", gap: "6px", flexWrap: "wrap" }}>
                                         {[
                                           { value: "operations" as const, label: "Room Operations" },
-                                          { value: "announcements" as const, label: "Announcements" },
+                                          { value: "attendance" as const, label: "Live Attendance + Cues" },
                                         ].map((modeOption) => {
                                           const selected = roundCompanionView === modeOption.value;
                                           return (
@@ -31849,12 +32075,13 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                       {
                                         label: "Announcements",
                                         status: `${selectedRoundAnnouncementTimeline.length} cues`,
-                                        selected: (selectedCommandTool as SelectedCommandTool) === "primary" && roundCompanionView === "announcements",
+                                        selected: (selectedCommandTool as SelectedCommandTool) === "primary" && roundCompanionView === "attendance",
                                         onClick: () => {
                                           setPrimaryEventTool("commandCenter");
                                           setSelectedCommandTool("primary");
-                                          setRoundCompanionView("announcements");
+                                          setRoundCompanionView("attendance");
                                           queueCommandContentScroll();
+                                          focusLiveAttendanceAnnouncementPanel();
                                         },
                                       },
                                       {
