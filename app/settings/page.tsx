@@ -70,6 +70,7 @@ type EmailTemplateApiResponse = {
 };
 
 type SettingsSectionId =
+  | "event-structure"
   | "email-templates"
   | "session-checklist"
   | "core-event-details"
@@ -80,6 +81,7 @@ type SettingsSectionId =
   | "training-materials-tech";
 
 const SETTINGS_SECTION_IDS: SettingsSectionId[] = [
+  "event-structure",
   "email-templates",
   "session-checklist",
   "core-event-details",
@@ -1180,29 +1182,38 @@ function SettingsContent() {
           </section>
         ) : (
           <div className="grid gap-5">
-            <EventStructureActionsPanel
-              eventId={eventId}
-              eventName={eventEdit.name}
-              eventLocation={eventEdit.location}
-              eventVisibility={eventEdit.visibility}
-              eventNotes={eventEdit.notes}
-              sessions={eventSessions}
-              canManage={canEdit}
-              variant="settings"
-              onDataChanged={async () => {
-                const response = await fetch(`/api/events/${encodeURIComponent(eventId)}`, { cache: "no-store" });
-                const eventPayload = await response.json();
-                const nextEvent = extractEvent(eventPayload);
-                if (nextEvent) {
-                  setEventEdit(hydrateEvent(nextEvent));
-                  setEventSessions(
-                    Array.isArray((eventPayload as { sessions?: unknown }).sessions)
-                      ? ((eventPayload as { sessions?: EventSessionRow[] }).sessions || [])
-                      : []
-                  );
-                }
-              }}
-            />
+            <CollapsibleSettingsSection
+              id="event-structure"
+              title="Event Structure"
+              detail="Duplicate this event, create a related follow-up simulation, or add another date/session."
+              kicker="Admin structure"
+              expanded={expandedSections["event-structure"]}
+              onToggle={toggleSection}
+            >
+              <EventStructureActionsPanel
+                eventId={eventId}
+                eventName={eventEdit.name}
+                eventLocation={eventEdit.location}
+                eventVisibility={eventEdit.visibility}
+                eventNotes={eventEdit.notes}
+                sessions={eventSessions}
+                canManage={canEdit}
+                variant="settings"
+                onDataChanged={async () => {
+                  const response = await fetch(`/api/events/${encodeURIComponent(eventId)}`, { cache: "no-store" });
+                  const eventPayload = await response.json();
+                  const nextEvent = extractEvent(eventPayload);
+                  if (nextEvent) {
+                    setEventEdit(hydrateEvent(nextEvent));
+                    setEventSessions(
+                      Array.isArray((eventPayload as { sessions?: unknown }).sessions)
+                        ? ((eventPayload as { sessions?: EventSessionRow[] }).sessions || [])
+                        : []
+                    );
+                  }
+                }}
+              />
+            </CollapsibleSettingsSection>
 
             <CollapsibleSettingsSection
               id="email-templates"

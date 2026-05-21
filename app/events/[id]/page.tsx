@@ -7,7 +7,6 @@ import Link from "next/link";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import GlobalCommandSearch, { type GlobalCommandSearchCommand } from "../../components/GlobalCommandSearch";
-import EventStructureActionsPanel from "../../components/EventStructureActionsPanel";
 import SiteShell from "../../components/SiteShell";
 import {
   formatHumanDate,
@@ -16333,13 +16332,6 @@ Cory`;
     setSaving(false);
   }
 
-  function handleOpenCreateFollowUpModal() {
-    setFollowUpDraft(buildDefaultFollowUpDraft());
-    setFollowUpError("");
-    setFollowUpSuccess(null);
-    setShowCreateFollowUpModal(true);
-  }
-
   function handleCloseCreateFollowUpModal() {
     if (followUpSaving) return;
     setShowCreateFollowUpModal(false);
@@ -24801,24 +24793,16 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           />
         </div>
 
-        <div style={{ marginTop: "12px" }}>
-          <EventStructureActionsPanel
-            eventId={id}
-            eventName={eventEditor.name || asText(event?.name)}
-            eventLocation={eventEditor.location || asText(event?.location)}
-            eventVisibility={eventEditor.visibility || asText(event?.visibility)}
-            eventNotes={eventEditor.notes || event?.notes}
-            sessions={sessions}
-            canManage={canManageTrainingAttendance}
-            onDataChanged={async () => {
-              await refreshData({
-                preserveLocalEdits: true,
-                preserveSelectedSp: true,
-                source: "manual",
-              });
-            }}
-          />
-        </div>
+        {canManageTrainingAttendance ? (
+          <div style={{ marginTop: "12px", display: "flex", justifyContent: "flex-end" }}>
+            <Link
+              href={`/settings?eventId=${encodeURIComponent(id)}#event-structure`}
+              className="cfsp-btn cfsp-btn-secondary"
+            >
+              Manage Event Structure
+            </Link>
+          </div>
+        ) : null}
 
         {showPushRelatedPanel ? (
           <div
@@ -33862,13 +33846,12 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           Same students, SPs, cases, and rotation structure.
                         </div>
                       </div>
-                      <button
-                        type="button"
-                        onClick={handleOpenCreateFollowUpModal}
-                        style={{ ...buttonStyle, padding: "8px 12px" }}
+                      <Link
+                        href={`/settings?eventId=${encodeURIComponent(id)}#event-structure`}
+                        style={{ ...buttonStyle, padding: "8px 12px", textDecoration: "none", display: "inline-flex", alignItems: "center" }}
                       >
-                        Create Follow-Up Simulation
-                      </button>
+                        Manage Event Structure
+                      </Link>
                     </div>
                     {followUpParentEventId ? (
                       <div style={{ color: "var(--cfsp-text)", fontSize: "12px", fontWeight: 700 }}>
