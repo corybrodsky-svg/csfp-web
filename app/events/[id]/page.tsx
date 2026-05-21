@@ -6,6 +6,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
+import GlobalEventFinder from "../../components/GlobalEventFinder";
 import SiteShell from "../../components/SiteShell";
 import {
   formatHumanDate,
@@ -13,6 +14,10 @@ import {
   normalizeLooseDateToIso,
   getTodayDate,
 } from "../../lib/eventDateUtils";
+import {
+  buildFinderIndexedEvent,
+  type EventFinderEventRecord,
+} from "../../lib/eventFinder";
 import {
   classifyEventPresentation,
   getEventBadgeAppearance,
@@ -120,6 +125,12 @@ type EventSessionRow = {
   room: string | null;
   created_at: string | null;
 };
+
+type EventFinderResponse = {
+  events?: EventFinderEventRecord[];
+  error?: string;
+};
+
 type RotationRound = {
   key: string;
   session_date: string | null;
@@ -6177,6 +6188,8 @@ export default function EventDetailPage() {
   );
 
   const [event, setEvent] = useState<EventDetailRow | null>(null);
+  const [finderEvents, setFinderEvents] = useState<EventFinderEventRecord[]>([]);
+  const [finderLoading, setFinderLoading] = useState(Boolean(id));
   const [eventEditor, setEventEditor] = useState<EventEditorState>({
     name: "",
     status: "",
@@ -16196,6 +16209,11 @@ Cory`;
     [applyCommandCenterData, id, router]
   );
 
+  const commandCenterFinderEntries = useMemo(
+    () => finderEvents.map((finderEvent) => buildFinderIndexedEvent(finderEvent)),
+    [finderEvents]
+  );
+
   async function saveAssignmentRequest(method: "POST" | "PATCH" | "DELETE", body: object) {
     const response = await fetch(`/api/events/${encodeURIComponent(id)}`, {
       method,
@@ -18178,6 +18196,51 @@ Cory`;
       window.removeEventListener("focus", handleFocus);
     };
   }, [id, queueLiveSyncRefresh, refreshData]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!id) {
+      setFinderEvents([]);
+      setFinderLoading(false);
+      return;
+    }
+
+    async function loadFinderEvents() {
+      setFinderLoading(true);
+      try {
+        const response = await fetch("/api/events", {
+          cache: "no-store",
+          credentials: "include",
+          headers: {
+            "Cache-Control": "no-store",
+            Pragma: "no-cache",
+          },
+        });
+        const body = (await response.json().catch(() => null)) as EventFinderResponse | null;
+        if (!response.ok) {
+          throw new Error(body?.error || "Could not load event finder.");
+        }
+        if (!cancelled) {
+          setFinderEvents(Array.isArray(body?.events) ? body.events : []);
+        }
+      } catch {
+        if (!cancelled) {
+          setFinderEvents([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setFinderLoading(false);
+        }
+      }
+    }
+
+    void loadFinderEvents();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
 
   useEffect(() => {
     if (!id) return;
@@ -24620,6 +24683,17 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               </button>
             </div>
           </div>
+        </div>
+
+        <div style={{ marginTop: "12px" }}>
+          <GlobalEventFinder
+            entries={commandCenterFinderEntries}
+            loading={finderLoading}
+            onOpenEvent={(eventId) => router.push(`/events/${encodeURIComponent(eventId)}`)}
+            placeholder="Find event…"
+            compact
+            currentEventId={id}
+          />
         </div>
 
         {showPushRelatedPanel ? (

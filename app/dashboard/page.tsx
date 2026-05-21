@@ -2,11 +2,13 @@
 
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import GlobalEventFinder from "../components/GlobalEventFinder";
 import { SimVitalsDashboardPreview } from "../components/SimVitals";
 import SiteShell from "../components/SiteShell";
 import { isPastEvent } from "../lib/eventArchive";
+import { buildFinderIndexedEvent } from "../lib/eventFinder";
 import {
   getEventCoverageVisualState,
   getEventCoverageVisualTone,
@@ -86,21 +88,11 @@ type EventsResponse = {
 
 type AuthState = "loading" | "authed" | "guest";
 type DashboardScope = "my" | "all";
-type FinderChipKey = "needs_staffing" | "training_soon" | "live_today" | "materials_needed" | "recording_pending";
 const MAX_ROSTER_CHIPS = 12;
 const DASHBOARD_SECTION_PAGE_SIZE = 8;
-const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const RECENT_EVENTS_STORAGE_KEY = "cfsp:recent-events";
 const RECENT_EVENTS_LIMIT = 8;
 const DASHBOARD_PANEL_STATE_KEY = "cfsp:dashboard-panels:v1";
-
-const FINDER_CHIPS: Array<{ key: FinderChipKey; label: string }> = [
-  { key: "needs_staffing", label: "Needs Staffing" },
-  { key: "training_soon", label: "Training Soon" },
-  { key: "live_today", label: "Live / Today" },
-  { key: "materials_needed", label: "Materials Needed" },
-  { key: "recording_pending", label: "Recording Pending" },
-];
 
 type DashboardPanelId = "recentEvents" | "simvitals" | "adminTools" | "planningCalendar" | "readyUpcoming" | "homeStats";
 
@@ -120,28 +112,6 @@ type EventWithMeta = {
   assigned: number;
   confirmed: number;
   shortage: number;
-};
-
-type FinderResult = {
-  entry: FinderIndexedEvent;
-  score: number;
-};
-
-type FinderIndexedEvent = {
-  item: EventWithMeta;
-  searchText: string;
-  nameText: string;
-  eventTypeLabel: string;
-  staffingLabel: string;
-  shortageLabel: string;
-  trainingLabel: string;
-  modalityLabel: string;
-  modeLabel: string;
-  dateLabel: string;
-  needsAttention: boolean;
-  isUpcomingOrCurrent: boolean;
-  hasTrainingOrMaterialContext: boolean;
-  chipMatches: Record<FinderChipKey, boolean>;
 };
 
 type RecentEventEntry = {
@@ -224,16 +194,6 @@ function getEventCoverageTone(event: EventWithMeta) {
 
 function formatEventDate(start: Date | null, fallback?: string | null) {
   return start ? start.toLocaleString() : fallback || "Date TBD";
-}
-
-function formatFinderDate(start: Date | null, fallback?: string | null) {
-  if (!start) return fallback || "Date TBD";
-  return start.toLocaleString([], {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
 }
 
 function formatShortDateLabel(date: Date) {
@@ -339,10 +299,6 @@ function getEventBadges(event: EventRecord) {
   }));
 }
 
-function getPrimaryEventTypeLabel(event: EventRecord) {
-  return asText(getEventBadges(event)[0]?.label) || "Event";
-}
-
 function isRecentStandaloneTrainingRecord(recent: RecentEventEntry, freshEvent?: EventRecord) {
   return isStandaloneTrainingEvent({
     name: freshEvent?.name ?? recent.name,
@@ -353,209 +309,6 @@ function isRecentStandaloneTrainingRecord(recent: RecentEventEntry, freshEvent?:
     assignmentCount: freshEvent?.total_assignments ?? freshEvent?.sp_assigned,
     confirmedCount: freshEvent?.confirmed_assignments ?? freshEvent?.sp_assigned,
   });
-}
-
-function normalizeFinderText(value: unknown) {
-  return asText(value)
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim();
-}
-
-function fuzzyTokenMatches(token: string, candidate: string) {
-  if (!token) return true;
-  if (candidate.includes(token)) return true;
-
-  let tokenIndex = 0;
-  for (const char of candidate) {
-    if (char === token[tokenIndex]) tokenIndex += 1;
-    if (tokenIndex === token.length) return true;
-  }
-  return false;
-}
-
-function getEventModalityLabel(event: EventRecord) {
-  const text = normalizeFinderText([event.name, event.status, event.location, event.notes].join(" "));
-  if (/\b(zoom|virtual|telehealth|remote|online)\b/.test(text)) return "Virtual";
-  if (/\b(hybrid)\b/.test(text)) return "Hybrid";
-  return "In Person";
-}
-
-function getTrainingReadinessLabel(event: EventRecord) {
-  const text = normalizeFinderText([event.name, event.status, event.notes].join(" "));
-  if (/\b(training ready|training complete|training completed|materials ready|recording ready)\b/.test(text)) {
-    return "Training Ready";
-  }
-  if (/\b(training planned|training scheduled|training date|training link|zoom link|sp training)\b/.test(text)) {
-    return "Training Planned";
-  }
-  if (text.includes("training")) return "Training Review";
-  return "Training TBD";
-}
-
-function getFinderModeLabel(item: EventWithMeta) {
-  const status = normalizeFinderText(item.event.status);
-  if (/\b(live|in progress|running)\b/.test(status)) return "Live Mode";
-  if (item.start && getStartOfDay(item.start) === getStartOfToday()) return "Live Today";
-  return "Planning Mode";
-}
-
-function getEventFinderSearchText(item: EventWithMeta) {
-  const teamInfo = getBestEventTeamInfo({
-    notes: item.event.notes,
-    schedule_owner_text: item.event.schedule_owner_text,
-  });
-  const badges = getEventBadges(item.event).map((badge) => badge.label);
-  const sessionText = (item.event.sessions || [])
-    .map((session) => [session.session_date, session.start_time, session.end_time, session.location, session.room].map(asText).join(" "))
-    .join(" ");
-
-  return normalizeFinderText([
-    item.event.name,
-    item.event.status,
-    item.event.date_text,
-    item.event.location,
-    item.event.notes,
-    item.event.schedule_owner_text,
-    eventLocation(item.event),
-    sessionText,
-    teamInfo.teamLabel,
-    teamInfo.facultyLabel,
-    ...teamInfo.teamNames,
-    ...teamInfo.facultyNames,
-    ...badges,
-    getPrimaryEventTypeLabel(item.event),
-    getTrainingReadinessLabel(item.event),
-    getEventModalityLabel(item.event),
-    ...(item.event.assigned_sp_names || []),
-  ].join(" "));
-}
-
-function buildFinderIndexedEvent(item: EventWithMeta): FinderIndexedEvent {
-  const searchText = getEventFinderSearchText(item);
-  const nameText = normalizeFinderText(item.event.name);
-  const eventTypeLabel = getPrimaryEventTypeLabel(item.event);
-  const trainingLabel = getTrainingReadinessLabel(item.event);
-  const modalityLabel = getEventModalityLabel(item.event);
-  const modeLabel = getFinderModeLabel(item);
-  const staffingLabel = item.needed <= 0
-    ? "No SP target"
-    : item.shortage > 0
-      ? "Staffing gap"
-      : "Coverage ready";
-  const shortageLabel = item.shortage > 0
-    ? `${item.shortage} SP shortage`
-    : item.needed > 0
-      ? "Coverage met"
-      : "No shortage";
-  const dateLabel = formatFinderDate(item.start, item.event.date_text);
-  const isUpcomingOrCurrent = isEventUpcomingOrCurrent(item);
-  const trainingSoon = isEventTrainingSoonWithSearchText(item, searchText);
-  const materialsNeeded = eventMaterialsNeedReviewWithSearchText(searchText);
-  const recordingPending = eventRecordingPendingWithSearchText(searchText);
-  const liveToday = isEventToday(item) || modeLabel === "Live Mode";
-  const hasTrainingOrMaterialContext =
-    trainingLabel !== "Training TBD" ||
-    /\b(material|materials|zoom|training)\b/.test(searchText);
-  const needsAttention = item.shortage > 0 || materialsNeeded || recordingPending || trainingSoon;
-
-  return {
-    item,
-    searchText,
-    nameText,
-    eventTypeLabel,
-    staffingLabel,
-    shortageLabel,
-    trainingLabel,
-    modalityLabel,
-    modeLabel,
-    dateLabel,
-    needsAttention,
-    isUpcomingOrCurrent,
-    hasTrainingOrMaterialContext,
-    chipMatches: {
-      needs_staffing: item.shortage > 0,
-      training_soon: trainingSoon,
-      live_today: liveToday,
-      materials_needed: materialsNeeded,
-      recording_pending: recordingPending,
-    },
-  };
-}
-
-function isEditableFinderTarget(target: EventTarget | null) {
-  if (!(target instanceof HTMLElement)) return false;
-  const editableTarget = target.closest("input, textarea, select, [contenteditable='true']");
-  return Boolean(editableTarget);
-}
-
-function isEventToday(item: EventWithMeta) {
-  return Boolean(item.start && getStartOfDay(item.start) === getStartOfToday());
-}
-
-function isEventUpcomingOrCurrent(item: EventWithMeta) {
-  const text = normalizeFinderText(item.event.status);
-  if (/\b(live|in progress|running)\b/.test(text)) return true;
-  if (!item.start) return false;
-  return item.start.getTime() >= Date.now() - 6 * 60 * 60 * 1000;
-}
-
-function isEventTrainingSoonWithSearchText(item: EventWithMeta, searchText: string) {
-  if (!/\b(training|zoom|training planned|training scheduled|training date|sp training)\b/.test(searchText)) return false;
-  if (!item.start) return true;
-  const daysUntilEvent = Math.floor((item.start.getTime() - Date.now()) / MS_PER_DAY);
-  return daysUntilEvent >= -1 && daysUntilEvent <= 21;
-}
-
-function eventMaterialsNeedReviewWithSearchText(searchText: string) {
-  return /\b(materials needed|material needed|awaiting faculty materials|awaiting materials|materials uploaded review needed|materials uploaded review)\b/.test(searchText);
-}
-
-function eventRecordingPendingWithSearchText(searchText: string) {
-  return /\b(recording pending|recording planned|recording status pending|recording status planned|recording review)\b/.test(searchText);
-}
-
-function scoreFinderIndexedEntry(
-  entry: FinderIndexedEvent,
-  query: string,
-  options: {
-    activeChip?: FinderChipKey | null;
-    myEventIds?: Set<string>;
-    scope?: DashboardScope;
-  } = {}
-) {
-  const normalizedQuery = normalizeFinderText(query);
-  if (options.activeChip && !entry.chipMatches[options.activeChip]) return 0;
-  if (!normalizedQuery && !options.activeChip) return 0;
-
-  const tokens = normalizedQuery.split(/\s+/).filter(Boolean);
-  let score = options.activeChip ? 100 : 0;
-
-  for (const token of tokens) {
-    if (!fuzzyTokenMatches(token, entry.searchText)) return 0;
-    if (entry.nameText === token) score += 96;
-    else if (entry.nameText.startsWith(token)) score += 54;
-    else if (entry.nameText.includes(token)) score += 38;
-    else if (entry.searchText.includes(token)) score += 18;
-    else score += 8;
-  }
-
-  if (normalizedQuery) {
-    if (entry.nameText === normalizedQuery) score += 520;
-    else if (entry.nameText.startsWith(normalizedQuery)) score += 180;
-    else if (entry.nameText.includes(normalizedQuery)) score += 120;
-  }
-
-  if (entry.isUpcomingOrCurrent) score += 60;
-  if (options.scope === "my" && options.myEventIds?.has(entry.item.event.id)) score += 48;
-  if (entry.needsAttention) score += 34;
-  if (entry.item.start) {
-    const daysUntilEvent = Math.floor((entry.item.start.getTime() - Date.now()) / MS_PER_DAY);
-    if (daysUntilEvent >= 0) score += Math.max(0, 28 - Math.min(28, daysUntilEvent));
-  }
-  return score;
 }
 
 function renderAssignedPeople(names?: string[] | null) {
@@ -902,329 +655,6 @@ function WorkflowSection({
     </section>
   );
 }
-
-function GlobalEventFinder({
-  items,
-  myEventIds,
-  scope,
-  loading,
-  onOpenEvent,
-}: {
-  items: EventWithMeta[];
-  myEventIds: Set<string>;
-  scope: DashboardScope;
-  loading: boolean;
-  onOpenEvent: (eventId: string) => void;
-}) {
-  const [query, setQuery] = useState("");
-  const [activeChip, setActiveChip] = useState<FinderChipKey | null>(null);
-  const [resultsOpen, setResultsOpen] = useState(false);
-  const inputRef = useRef<HTMLInputElement | null>(null);
-  const deferredQuery = useDeferredValue(query);
-  const trimmedQuery = deferredQuery.trim();
-  const hasActiveSearch = Boolean(query.trim() || activeChip);
-
-  // IMPORTANT PERFORMANCE GUARD:
-  // Dashboard search must use the lightweight precomputed event index.
-  // Do not parse full event notes or rebuild expensive derived metadata on every keystroke.
-  const eventIndex = useMemo(() => items.map((item) => buildFinderIndexedEvent(item)), [items]);
-
-  const rankedMatches = useMemo<FinderResult[]>(() => {
-    if (!hasActiveSearch) return [];
-
-    return eventIndex
-      .map((entry) => ({
-        entry,
-        score: scoreFinderIndexedEntry(entry, trimmedQuery, { activeChip, myEventIds, scope }),
-      }))
-      .filter((result) => result.score > 0)
-      .sort((a, b) => {
-        if (b.score !== a.score) return b.score - a.score;
-        if (!a.entry.item.start && !b.entry.item.start) return 0;
-        if (!a.entry.item.start) return 1;
-        if (!b.entry.item.start) return -1;
-        return a.entry.item.start.getTime() - b.entry.item.start.getTime();
-      });
-  }, [activeChip, eventIndex, hasActiveSearch, myEventIds, scope, trimmedQuery]);
-  const visibleResults = rankedMatches.slice(0, 20);
-  const hiddenMatchCount = Math.max(rankedMatches.length - visibleResults.length, 0);
-
-  const chipOptions = useMemo(
-    () =>
-      FINDER_CHIPS.map((chip) => ({
-        ...chip,
-        count: eventIndex.reduce((count, entry) => count + (entry.chipMatches[chip.key] ? 1 : 0), 0),
-      })),
-    [eventIndex]
-  );
-  const quickStats = useMemo(
-    () => ({
-      operations: eventIndex.length,
-      attention: eventIndex.reduce((count, entry) => count + (entry.needsAttention ? 1 : 0), 0),
-      today: eventIndex.reduce((count, entry) => count + (entry.chipMatches.live_today ? 1 : 0), 0),
-    }),
-    [eventIndex]
-  );
-
-  useEffect(() => {
-    function handleSlashShortcut(event: KeyboardEvent) {
-      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
-      if (event.key !== "/" || isEditableFinderTarget(event.target)) return;
-      event.preventDefault();
-      window.requestAnimationFrame(() => inputRef.current?.focus());
-      setResultsOpen(Boolean(query.trim() || activeChip));
-    }
-
-    window.addEventListener("keydown", handleSlashShortcut);
-    return () => window.removeEventListener("keydown", handleSlashShortcut);
-  }, [activeChip, query]);
-
-  function clearSearch() {
-    setQuery("");
-    setActiveChip(null);
-    setResultsOpen(false);
-    inputRef.current?.focus();
-  }
-
-  function openEvent(eventId: string) {
-    setResultsOpen(false);
-    onOpenEvent(eventId);
-  }
-
-  function toggleChip(chip: FinderChipKey) {
-    const nextChip = activeChip === chip ? null : chip;
-    setActiveChip(nextChip);
-    setResultsOpen(Boolean(query.trim() || nextChip));
-    window.requestAnimationFrame(() => inputRef.current?.focus());
-  }
-
-  return (
-    <div
-      className="relative"
-      onKeyDown={(event) => {
-        if (event.key === "Escape") {
-          event.preventDefault();
-          clearSearch();
-          return;
-        }
-        if (event.key === "Enter" && resultsOpen && visibleResults[0]) {
-          event.preventDefault();
-          openEvent(visibleResults[0].entry.item.event.id);
-        }
-      }}
-    >
-      <div className="rounded-[16px] border border-[var(--cfsp-border)] bg-[var(--cfsp-surface)] px-4 py-3 shadow-[0_14px_30px_rgba(24,52,78,0.06)]">
-        <div className="relative">
-          <input
-            ref={inputRef}
-            value={query}
-            onChange={(event) => {
-              setQuery(event.target.value);
-              setResultsOpen(Boolean(event.target.value.trim() || activeChip));
-            }}
-            onFocus={() => setResultsOpen(hasActiveSearch)}
-            autoComplete="off"
-            spellCheck={false}
-            aria-label="CFSP global search"
-            aria-expanded={resultsOpen && hasActiveSearch}
-            aria-controls="global-event-finder-results"
-            role="combobox"
-            placeholder="Find Event by title, date, location, staff…"
-            className="w-full rounded-[12px] border border-[var(--cfsp-border)] bg-white px-4 py-3 text-[1.02rem] font-semibold outline-none transition focus:ring-2 focus:ring-[var(--cfsp-blue)] focus:ring-offset-1"
-          />
-          {query || activeChip ? (
-            <button
-              type="button"
-              onClick={clearSearch}
-              className="absolute right-3 top-1/2 -translate-y-1/2 rounded-[8px] px-2 py-0.5 text-xs font-bold"
-              style={{ color: "var(--cfsp-text-muted)" }}
-              aria-label="Clear search"
-            >
-              Clear
-            </button>
-          ) : null}
-        </div>
-
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          {chipOptions.map((chip) => {
-            const selected = activeChip === chip.key;
-            return (
-              <button
-                key={chip.key}
-                type="button"
-                onClick={() => toggleChip(chip.key)}
-                className="inline-flex h-7 items-center gap-1 rounded-[999px] border px-3 py-0.5 text-xs font-semibold transition"
-                style={{
-                  borderColor: selected ? "var(--cfsp-blue)" : "var(--cfsp-border)",
-                  background: selected ? "var(--cfsp-blue)" : "var(--cfsp-surface)",
-                  color: selected ? "#fff" : "var(--cfsp-text-muted)",
-                }}
-                aria-pressed={selected}
-              >
-                {chip.label}
-                <span
-                  className="rounded-full border border-transparent px-1.5 py-0 text-[0.6rem] font-bold"
-                  style={{ background: selected ? "rgba(255,255,255,0.2)" : "var(--cfsp-surface-muted)" }}
-                >
-                  {chip.count}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs font-semibold text-[var(--cfsp-text-muted)]">
-        <span>{quickStats.operations} events</span>
-        <span>·</span>
-        <span>{quickStats.attention} needing attention</span>
-        <span>·</span>
-        <span>{quickStats.today} live / today</span>
-      </div>
-
-      {resultsOpen && hasActiveSearch ? (
-        <div
-          id="global-event-finder-results"
-          role="listbox"
-          className="relative mt-3 grid max-h-[360px] gap-1.5 overflow-y-auto rounded-[14px] p-2"
-          style={{
-            border: "1px solid var(--cfsp-border)",
-            background: "var(--cfsp-surface)",
-            boxShadow: "var(--cfsp-card-glow)",
-          }}
-        >
-          {loading ? (
-            <div className="rounded-[12px] border border-dashed border-[var(--cfsp-border)] px-3 py-5 text-sm font-semibold text-[var(--cfsp-text-muted)]">
-              Loading events...
-            </div>
-          ) : visibleResults.length ? (
-            visibleResults.map((result) => {
-              const eventId = encodeURIComponent(result.entry.item.event.id);
-              const eventHref = `/events/${eventId}`;
-              const builderHref = `/events/${eventId}/schedule-builder`;
-              const operationalHref = `${eventHref}#coverage-actions`;
-              const showTrainingMaterialsAction = result.entry.hasTrainingOrMaterialContext;
-
-              return (
-                <div
-                  key={result.entry.item.event.id}
-                  role="option"
-                  aria-selected="false"
-                  className="rounded-[11px] border px-3 py-2.5 transition"
-                  style={{
-                    border: "1px solid var(--cfsp-border)",
-                    background: "var(--cfsp-surface-muted)",
-                    boxShadow: "0 10px 24px rgba(0, 0, 0, 0.05)",
-                  }}
-                >
-                  <button type="button" onClick={() => openEvent(result.entry.item.event.id)} className="w-full text-left">
-                    <div className="flex flex-wrap items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <div className="truncate text-[0.98rem] font-black text-[var(--cfsp-text)]">
-                          {result.entry.item.event.name?.trim() || "Untitled Event"}
-                        </div>
-                        <div className="mt-1 flex flex-wrap gap-x-2 gap-y-1 text-xs font-semibold text-[var(--cfsp-text-muted)]">
-                          <span>{result.entry.dateLabel}</span>
-                          <span>•</span>
-                          <span>{eventLocation(result.entry.item.event)}</span>
-                        </div>
-                      </div>
-                      <span
-                        className="rounded-lg px-2.5 py-1 text-[0.68rem] font-semibold"
-                        style={{
-                          border: "1px solid rgba(25, 138, 112, 0.3)",
-                          background: "rgba(25, 138, 112, 0.16)",
-                          color: "var(--cfsp-green-dark)",
-                        }}
-                      >
-                        {result.entry.modeLabel}
-                      </span>
-                    </div>
-
-                    <div className="mt-1.5 flex flex-wrap gap-1.5">
-                      {[
-                        result.entry.eventTypeLabel,
-                        result.entry.trainingLabel,
-                        result.entry.staffingLabel,
-                        result.entry.shortageLabel,
-                        result.entry.modalityLabel,
-                      ].map((label) => (
-                        <span
-                          key={`${result.entry.item.event.id}-${label}`}
-                          className="rounded-lg px-2 py-1 text-[0.68rem] font-medium"
-                          style={{
-                            border: "1px solid var(--cfsp-border)",
-                            background: label.toLowerCase().includes("shortage")
-                              ? "rgba(248, 113, 113, 0.14)"
-                              : "rgba(186, 230, 253, 0.08)",
-                            color: label.toLowerCase().includes("shortage") ? "#fecaca" : "var(--cfsp-text)",
-                          }}
-                        >
-                          {label}
-                        </span>
-                      ))}
-                    </div>
-                  </button>
-
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    <Link
-                      href={eventHref}
-                      onClick={() => setResultsOpen(false)}
-                      className="rounded-lg px-2.5 py-1 text-[0.66rem] font-semibold no-underline transition"
-                      style={{
-                        border: "1px solid var(--cfsp-blue)",
-                        background: "rgba(20, 91, 150, 0.08)",
-                        color: "var(--cfsp-blue)",
-                      }}
-                    >
-                      Open Event
-                    </Link>
-                    <Link
-                      href={builderHref}
-                      onClick={() => setResultsOpen(false)}
-                      className="rounded-lg px-2.5 py-1 text-[0.66rem] font-semibold no-underline transition"
-                      style={{
-                        border: "1px solid rgba(25, 138, 112, 0.35)",
-                        background: "rgba(25, 138, 112, 0.08)",
-                        color: "var(--cfsp-green-dark)",
-                      }}
-                    >
-                      Open Builder
-                    </Link>
-                    {showTrainingMaterialsAction ? (
-                      <Link
-                        href={operationalHref}
-                        onClick={() => setResultsOpen(false)}
-                        className="rounded-lg px-2.5 py-1 text-[0.66rem] font-semibold no-underline transition"
-                        style={{
-                          border: "1px solid rgba(243, 187, 103, 0.44)",
-                          background: "rgba(243, 187, 103, 0.12)",
-                          color: "var(--cfsp-warning)",
-                        }}
-                      >
-                        Training / Materials
-                      </Link>
-                    ) : null}
-                  </div>
-                </div>
-              );
-            })
-          ) : (
-            <div className="rounded-[12px] border border-dashed border-[var(--cfsp-border)] px-3 py-5 text-sm font-semibold text-[var(--cfsp-text-muted)]">
-              No matching events found.
-            </div>
-          )}
-          {!loading && hiddenMatchCount > 0 ? (
-            <div className="px-2 py-1 text-xs font-semibold text-[var(--cfsp-text-muted)]">
-              Showing top {visibleResults.length} matches. {hiddenMatchCount} more matches available in Events.
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
 
 function RecentEventsPanel({
   recentEvents,
@@ -1680,6 +1110,10 @@ export default function DashboardPage() {
   );
 
   const allVisibleEvents = eventMeta;
+  const allVisibleFinderEntries = useMemo(
+    () => primaryWorkflowEvents.map((event) => buildFinderIndexedEvent(event)),
+    [primaryWorkflowEvents]
+  );
   const eventsById = useMemo(() => new Map(primaryWorkflowEvents.map((event) => [event.id, event])), [primaryWorkflowEvents]);
 
   const myMatchedEvents = useMemo(
@@ -1912,10 +1346,11 @@ export default function DashboardPage() {
           </p>
 
           <GlobalEventFinder
-            items={allVisibleEvents}
+            entries={allVisibleFinderEntries}
             myEventIds={myEventIds}
             scope={scope}
             loading={eventsLoading}
+            placeholder="Find event…"
             onOpenEvent={(eventId) => router.push(`/events/${encodeURIComponent(eventId)}`)}
           />
 

@@ -313,7 +313,7 @@ export default function EventsPage() {
   return (
     <SiteShell
       title="Events"
-      subtitle="Browse events, review coverage, and open each event command center."
+      subtitle="Review the event board, coverage, and command center access."
     >
       <main style={{ padding: 24, display: "grid", gap: 24 }}>
         <section
@@ -325,15 +325,15 @@ export default function EventsPage() {
             boxShadow: "var(--cfsp-card-glow)",
           }}
         >
-          <h1 style={{ margin: 0, fontSize: 32, color: "var(--cfsp-text)" }}>Event Browser</h1>
+          <h1 style={{ margin: 0, fontSize: 32, color: "var(--cfsp-text)" }}>Events Board</h1>
           <p style={{ margin: "10px 0 0", color: "var(--cfsp-text-muted)", maxWidth: 780 }}>
-            Open any event to jump straight into its command center. Cards below show the date, 12-hour time, location, type, and current SP coverage at a glance.
+            Open any event to jump straight into its command center. The global event finder now lives inside every command center, and this board remains the broad operational overview.
           </p>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginTop: 16 }}>
             <input
               value={searchQuery}
               onChange={(event) => setSearchQuery(event.target.value)}
-              placeholder="Search events by name, course, date, room, team, faculty, or SP..."
+              placeholder="Search the events board by name, course, date, room, team, faculty, or SP..."
               style={{
                 flex: "1 1 420px",
                 minWidth: 260,
