@@ -860,6 +860,14 @@ type PushRelatedSummary = {
   copied_categories?: RelatedCopyOption[];
 };
 
+type RoundAnnouncementReminder = {
+  id: string;
+  title: string;
+  suggestedText: string;
+  targetTimestamp: number | null;
+  timeLabel: string;
+};
+
 const emptySpRow: SPRow = {
   id: "",
   first_name: null,
@@ -6263,6 +6271,11 @@ export default function EventDetailPage() {
   const [selectedEventDateContext, setSelectedEventDateContext] = useState("");
   const [selectedRotationRoundKey, setSelectedRotationRoundKey] = useState("");
   const [roundCompanionView, setRoundCompanionView] = useState<RotationCompanionView>("overview");
+  const [announcementAlarmEnabled, setAnnouncementAlarmEnabled] = useState(false);
+  const [announcementAlarmArmedMap, setAnnouncementAlarmArmedMap] = useState<Record<string, boolean>>({});
+  const [announcementAlarmCompletedMap, setAnnouncementAlarmCompletedMap] = useState<Record<string, boolean>>({});
+  const [announcementAlarmSnoozeUntilMap, setAnnouncementAlarmSnoozeUntilMap] = useState<Record<string, number>>({});
+  const [announcementActiveAlertId, setAnnouncementActiveAlertId] = useState<string | null>(null);
   const [roundAnnouncementDrafts, setRoundAnnouncementDrafts] = useState<Record<string, string>>({});
   const [announcementCueSaving, setAnnouncementCueSaving] = useState(false);
   const [announcementDueCueKeys, setAnnouncementDueCueKeys] = useState<Record<string, string>>({});
@@ -11698,6 +11711,63 @@ const operationalEventStatusLabel = useMemo(() => {
       ? "Due now"
       : formatCueCountdown(Math.max(nextAnnouncementCue.minutesUntilCue, 0))
     : "No remaining cues";
+  const selectedRoundAnnouncementReminders = useMemo<RoundAnnouncementReminder[]>(() => {
+    if (!selectedRotationRound) return [];
+    const startMinutes = parseTimeToMinutes(selectedRotationRound.start_time);
+    const endMinutesRaw = parseTimeToMinutes(selectedRotationRound.end_time);
+    if (startMinutes === null || endMinutesRaw === null) return [];
+
+    const endMinutes = endMinutesRaw < startMinutes ? endMinutesRaw + MINUTES_PER_DAY : endMinutesRaw;
+    const fiveMinuteWarning = Math.max(startMinutes, endMinutes - 5);
+    const roundDateText = asText(selectedRotationRound.session_date) || getTodayDate();
+
+    const buildTimestamp = (absoluteMinute: number) => {
+      const date = new Date(`${roundDateText}T00:00:00`);
+      if (Number.isNaN(date.getTime())) return null;
+      const dayOffset = Math.floor(absoluteMinute / MINUTES_PER_DAY);
+      const minuteOfDay = ((absoluteMinute % MINUTES_PER_DAY) + MINUTES_PER_DAY) % MINUTES_PER_DAY;
+      date.setDate(date.getDate() + dayOffset);
+      date.setMinutes(minuteOfDay, 0, 0);
+      return date.getTime();
+    };
+
+    const roundNumberLabel = `Round ${activeSelectedRotationRoundIndex + 1}`;
+
+    return [
+      {
+        id: `${selectedRotationRound.key}-round-begin`,
+        title: "Round begins",
+        suggestedText: `${roundNumberLabel} begins now. Please start the encounter.`,
+        targetTimestamp: buildTimestamp(startMinutes),
+        timeLabel: formatDisplayTime(selectedRotationRound.start_time || "") || "Time TBD",
+      },
+      {
+        id: `${selectedRotationRound.key}-five-minute-warning`,
+        title: "5-minute warning",
+        suggestedText: `${roundNumberLabel}: 5 minutes remaining in this encounter.`,
+        targetTimestamp: buildTimestamp(fiveMinuteWarning),
+        timeLabel: formatDisplayTimeFromMinutes(fiveMinuteWarning % MINUTES_PER_DAY) || "Time TBD",
+      },
+      {
+        id: `${selectedRotationRound.key}-round-ends`,
+        title: "Round ends / rotate",
+        suggestedText: `${roundNumberLabel} ends now. Please rotate to the next station.`,
+        targetTimestamp: buildTimestamp(endMinutes),
+        timeLabel: formatDisplayTimeFromMinutes(endMinutes % MINUTES_PER_DAY) || "Time TBD",
+      },
+    ];
+  }, [activeSelectedRotationRoundIndex, selectedRotationRound]);
+  const selectedRoundAnnouncementReminderById = useMemo(
+    () => new Map(selectedRoundAnnouncementReminders.map((reminder) => [reminder.id, reminder] as const)),
+    [selectedRoundAnnouncementReminders]
+  );
+  const activeRoundAnnouncementAlert = announcementActiveAlertId
+    ? selectedRoundAnnouncementReminderById.get(announcementActiveAlertId) || null
+    : null;
+  const shouldRunLocalAnnouncementAlarmLoop =
+    selectedCommandTool === "primary" &&
+    Boolean(selectedRotationRound) &&
+    (roundCompanionView === "announcements" || roundCompanionView === "attendance");
   const selectedRoundOperationsNotes = useMemo(
     () =>
       [
@@ -18535,6 +18605,34 @@ Cory`;
     }
   }, [announcementAlertsMuted, announcementNotificationsEnabled, announcementNotificationsPermission]);
 
+  const playLocalRoundAnnouncementBeep = useCallback(async () => {
+    if (typeof window === "undefined" || !announcementAlarmEnabled) return;
+    try {
+      const AudioContextCtor =
+        window.AudioContext ||
+        (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!AudioContextCtor) return;
+      const context = announcementAudioContextRef.current || new AudioContextCtor();
+      announcementAudioContextRef.current = context;
+      if (context.state === "suspended") {
+        await context.resume().catch(() => undefined);
+      }
+      const oscillator = context.createOscillator();
+      const gainNode = context.createGain();
+      oscillator.type = "triangle";
+      oscillator.frequency.value = 720;
+      gainNode.gain.setValueAtTime(0.0001, context.currentTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.09, context.currentTime + 0.02);
+      gainNode.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.22);
+      oscillator.connect(gainNode);
+      gainNode.connect(context.destination);
+      oscillator.start();
+      oscillator.stop(context.currentTime + 0.24);
+    } catch {
+      // Ignore browser audio failures.
+    }
+  }, [announcementAlarmEnabled]);
+
   useEffect(() => {
     setCountdownNowMs(Date.now());
     const interval = window.setInterval(() => {
@@ -18547,6 +18645,37 @@ Cory`;
     if (typeof Notification === "undefined") return;
     setAnnouncementNotificationsPermission(Notification.permission);
   }, []);
+
+  useEffect(() => {
+    if (!shouldRunLocalAnnouncementAlarmLoop) return;
+    const interval = window.setInterval(() => {
+      const now = Date.now();
+      setAnnouncementActiveAlertId((current) => {
+        if (current) return current;
+        const dueReminder = selectedRoundAnnouncementReminders.find((reminder) => {
+          if (!reminder.targetTimestamp) return false;
+          if (!announcementAlarmArmedMap[reminder.id]) return false;
+          if (announcementAlarmCompletedMap[reminder.id]) return false;
+          const snoozeUntil = announcementAlarmSnoozeUntilMap[reminder.id] || 0;
+          return now >= Math.max(reminder.targetTimestamp, snoozeUntil);
+        });
+        if (!dueReminder) return current;
+        if (announcementAlarmEnabled) {
+          void playLocalRoundAnnouncementBeep();
+        }
+        return dueReminder.id;
+      });
+    }, 15000);
+    return () => window.clearInterval(interval);
+  }, [
+    announcementAlarmArmedMap,
+    announcementAlarmCompletedMap,
+    announcementAlarmEnabled,
+    announcementAlarmSnoozeUntilMap,
+    playLocalRoundAnnouncementBeep,
+    selectedRoundAnnouncementReminders,
+    shouldRunLocalAnnouncementAlarmLoop,
+  ]);
 
   useEffect(() => {
     if (!announcementLiveModeActive) return;
@@ -21078,9 +21207,11 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       {[
         { value: "operations" as const, label: "Setup" },
         { value: "attendance" as const, label: "Live Attendance" },
+        { value: "announcements" as const, label: "Announcements" },
       ].map((tab) => {
         const selected = roundCompanionView === tab.value;
         const isLiveAttendanceTab = tab.value === "attendance";
+        const isAnnouncementsTab = tab.value === "announcements";
         const modeTabStyle: React.CSSProperties = selected
           ? isLiveAttendanceTab
             ? {
@@ -21092,6 +21223,15 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   "0 0 0 1px rgba(248, 113, 113, 0.2), 0 0 18px rgba(215, 77, 66, 0.34), 0 8px 18px rgba(127, 29, 29, 0.14)",
                 textShadow: "0 1px 8px rgba(127, 29, 29, 0.28)",
               }
+            : isAnnouncementsTab
+              ? {
+                  ...buttonStyle,
+                  background: "linear-gradient(135deg, #145b96 0%, #1e7bb8 58%, #38bdf8 100%)",
+                  color: "#f3fbff",
+                  border: "1px solid rgba(56, 189, 248, 0.64)",
+                  boxShadow:
+                    "0 0 0 1px rgba(56, 189, 248, 0.2), 0 0 18px rgba(20, 91, 150, 0.28), 0 8px 18px rgba(15, 23, 42, 0.14)",
+                }
             : buttonStyle
           : isLiveAttendanceTab
             ? {
@@ -21101,6 +21241,14 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 border: "1px solid rgba(248, 113, 113, 0.34)",
                 boxShadow: "0 6px 14px rgba(127, 29, 29, 0.06)",
               }
+            : isAnnouncementsTab
+              ? {
+                  ...staffingSecondaryButtonStyle,
+                  background: "linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(236, 248, 255, 0.9))",
+                  color: "#145b96",
+                  border: "1px solid rgba(56, 189, 248, 0.3)",
+                  boxShadow: "0 6px 14px rgba(20, 91, 150, 0.08)",
+                }
             : staffingSecondaryButtonStyle;
         return (
           <button
@@ -29872,7 +30020,185 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     </div>
   </section>
 ) : roundCompanionView === "announcements" ? (
-                            selectedRoundAnnouncementCueEntries.length ? (
+                            <>
+                              <section
+                                style={{
+                                  borderRadius: "20px",
+                                  border: "1px solid rgba(99, 181, 217, 0.24)",
+                                  background:
+                                    "radial-gradient(circle at 10% 8%, rgba(125, 211, 252, 0.2), transparent 34%), radial-gradient(circle at 92% 0%, rgba(45, 212, 191, 0.16), transparent 34%), linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(240, 249, 255, 0.96) 52%, rgba(236, 253, 245, 0.94) 100%)",
+                                  boxShadow: "inset 0 1px 0 rgba(255,255,255,0.86), 0 18px 44px rgba(20, 65, 95, 0.12)",
+                                  padding: "14px",
+                                  display: "grid",
+                                  gap: "10px",
+                                }}
+                              >
+                                <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+                                  <div>
+                                    <div style={{ ...statLabel, color: "#12617f" }}>Selected Round</div>
+                                    <div style={{ marginTop: "4px", color: "#102d44", fontWeight: 950, fontSize: "18px" }}>
+                                      Announcement Schedule
+                                    </div>
+                                    <div style={{ marginTop: "3px", color: "#5b7a91", fontSize: "12px", fontWeight: 750 }}>
+                                      Local, session-only reminders for this selected round.
+                                    </div>
+                                  </div>
+                                  <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                                    <button
+                                      type="button"
+                                      onClick={async () => {
+                                        setAnnouncementAlarmEnabled(true);
+                                        await playLocalRoundAnnouncementBeep();
+                                      }}
+                                      style={{ ...buttonStyle, padding: "7px 10px", fontSize: "11px" }}
+                                    >
+                                      {announcementAlarmEnabled ? "Announcement alarms enabled" : "Enable announcement alarms"}
+                                    </button>
+                                  </div>
+                                </div>
+
+                                {activeRoundAnnouncementAlert ? (
+                                  <div
+                                    style={{
+                                      borderRadius: "12px",
+                                      border: "1px solid rgba(245, 158, 11, 0.38)",
+                                      background: "linear-gradient(135deg, rgba(255, 251, 235, 0.96), rgba(254, 243, 199, 0.82))",
+                                      padding: "10px 12px",
+                                      display: "grid",
+                                      gap: "7px",
+                                    }}
+                                  >
+                                    <div style={{ color: "#92400e", fontSize: "12px", fontWeight: 950 }}>Announcement Due</div>
+                                    <div style={{ color: "#78350f", fontSize: "14px", fontWeight: 900 }}>
+                                      {activeRoundAnnouncementAlert.title} · {activeRoundAnnouncementAlert.suggestedText}
+                                    </div>
+                                    <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                                      <button
+                                        type="button"
+                                        onClick={() => setAnnouncementActiveAlertId(null)}
+                                        style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px", fontSize: "10px" }}
+                                      >
+                                        Dismiss
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const snoozeUntil = Date.now() + 60_000;
+                                          setAnnouncementAlarmSnoozeUntilMap((current) => ({
+                                            ...current,
+                                            [activeRoundAnnouncementAlert.id]: snoozeUntil,
+                                          }));
+                                          setAnnouncementActiveAlertId(null);
+                                        }}
+                                        style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px", fontSize: "10px" }}
+                                      >
+                                        Snooze 1 min
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setAnnouncementAlarmCompletedMap((current) => ({
+                                            ...current,
+                                            [activeRoundAnnouncementAlert.id]: true,
+                                          }));
+                                          setAnnouncementActiveAlertId(null);
+                                        }}
+                                        style={{ ...buttonStyle, padding: "6px 9px", fontSize: "10px" }}
+                                      >
+                                        Mark Announced
+                                      </button>
+                                    </div>
+                                  </div>
+                                ) : null}
+
+                                {selectedRoundAnnouncementReminders.length ? (
+                                  <div style={{ display: "grid", gap: "8px" }}>
+                                    {selectedRoundAnnouncementReminders.map((reminder) => {
+                                      const armed = Boolean(announcementAlarmArmedMap[reminder.id]);
+                                      const completed = Boolean(announcementAlarmCompletedMap[reminder.id]);
+                                      const snoozeUntil = announcementAlarmSnoozeUntilMap[reminder.id] || 0;
+                                      const dueNow =
+                                        !completed &&
+                                        armed &&
+                                        reminder.targetTimestamp !== null &&
+                                        Date.now() >= Math.max(reminder.targetTimestamp, snoozeUntil);
+                                      const statusLabel = completed
+                                        ? "Completed"
+                                        : dueNow
+                                          ? "Due"
+                                          : armed
+                                            ? "Armed"
+                                            : "Not armed";
+                                      return (
+                                        <div
+                                          key={reminder.id}
+                                          style={{
+                                            borderRadius: "12px",
+                                            border: dueNow ? "1px solid rgba(245, 158, 11, 0.34)" : "1px solid rgba(99, 181, 217, 0.2)",
+                                            background: dueNow ? "rgba(255, 251, 235, 0.9)" : "rgba(255,255,255,0.9)",
+                                            padding: "9px 10px",
+                                            display: "grid",
+                                            gap: "6px",
+                                          }}
+                                        >
+                                          <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                                            <div style={{ color: "#0f2d44", fontSize: "13px", fontWeight: 900 }}>
+                                              {reminder.timeLabel} · {reminder.title}
+                                            </div>
+                                            <span style={{ ...commandChipStyle, background: "rgba(20, 91, 150, 0.12)", color: "#0b4f7f" }}>
+                                              {statusLabel}
+                                            </span>
+                                          </div>
+                                          <div style={{ color: "#4b6477", fontSize: "12px", fontWeight: 700 }}>
+                                            {reminder.suggestedText}
+                                          </div>
+                                          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                setAnnouncementAlarmArmedMap((current) => ({
+                                                  ...current,
+                                                  [reminder.id]: !armed,
+                                                }));
+                                                if (!armed) {
+                                                  setAnnouncementAlarmCompletedMap((current) => ({ ...current, [reminder.id]: false }));
+                                                }
+                                              }}
+                                              style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px", fontSize: "10px" }}
+                                            >
+                                              {armed ? "Disarm Alarm" : "Arm Alarm"}
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={() => void playLocalRoundAnnouncementBeep()}
+                                              style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px", fontSize: "10px" }}
+                                            >
+                                              Test Sound
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={() =>
+                                                setAnnouncementAlarmCompletedMap((current) => ({
+                                                  ...current,
+                                                  [reminder.id]: true,
+                                                }))
+                                              }
+                                              style={{ ...buttonStyle, padding: "6px 9px", fontSize: "10px" }}
+                                            >
+                                              Mark Complete
+                                            </button>
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                ) : (
+                                  <div style={{ color: "#5b7a91", fontSize: "12px", fontWeight: 800 }}>
+                                    Timing unavailable. Add selected-round start/end times to generate reminders.
+                                  </div>
+                                )}
+                              </section>
+                              {selectedRoundAnnouncementCueEntries.length ? (
                               <div style={{ display: "grid", gap: "10px" }}>
                                 {(() => {
                                   const currentAnnouncement =
@@ -30253,7 +30579,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                               <div style={{ color: commandCenterVisual.mutedColor, fontWeight: 700, fontSize: "13px" }}>
                                 {announcementTimingUnavailable ? "Timing unavailable. Complete the schedule or add round timing to arm announcements." : "No announcements configured for this round."}
                               </div>
-                            )
+                            )}
+                            </>
                           ) : roundCompanionView === "student" ? (
                             selectedRoundLearnerScheduleReady ? (
                               <div style={{ display: "grid", gap: "6px" }}>
@@ -30398,6 +30725,38 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 	                                      <div style={{ ...statLabel, color: "#12617f" }}>Room Operations</div>
 	                                      <div style={{ marginTop: "4px", color: "#102d44", fontWeight: 950, fontSize: "17px" }}>
 	                                        Round {activeSelectedRotationRoundIndex + 1} setup / assignments
+                                      </div>
+                                      <div style={{ marginTop: "8px", display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                                        {[
+                                          { value: "operations" as const, label: "Room Operations" },
+                                          { value: "announcements" as const, label: "Announcements" },
+                                        ].map((modeOption) => {
+                                          const selected = roundCompanionView === modeOption.value;
+                                          return (
+                                            <button
+                                              key={`selected-round-mode-${modeOption.value}`}
+                                              type="button"
+                                              onClick={() => {
+                                                setPrimaryEventTool("commandCenter");
+                                                setSelectedCommandTool("primary");
+                                                setRoundCompanionView(modeOption.value);
+                                                queueCommandContentScroll();
+                                              }}
+                                              style={{
+                                                ...staffingSecondaryButtonStyle,
+                                                padding: "5px 9px",
+                                                fontSize: "10px",
+                                                borderRadius: "999px",
+                                                background: selected ? "rgba(20, 91, 150, 0.18)" : "rgba(255, 255, 255, 0.84)",
+                                                color: selected ? "#0b4f7f" : "#3b556b",
+                                                border: selected ? "1px solid rgba(20, 91, 150, 0.34)" : "1px solid rgba(99, 181, 217, 0.18)",
+                                              }}
+                                              aria-pressed={selected}
+                                            >
+                                              {modeOption.label}
+                                            </button>
+                                          );
+                                        })}
                                       </div>
                                     </div>
                                     <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
