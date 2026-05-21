@@ -2661,6 +2661,65 @@ function buildVirStyleStudentScheduleBlocks(args: {
   return blocks;
 }
 
+function buildStudentPacketSimpleScheduleHtml(blocks: StudentInstructionsScheduleBlock[]) {
+  if (!blocks.length) {
+    return `
+      <section class="student-packet-page-section instructions-section student-schedule-section student-schedule-section-first" data-packet-section="student-schedule-start">
+        <div class="student-schedule-heading">
+          <div>
+            <h3>Student Schedule</h3>
+            <p>Find your encounter time and assigned breakout room below.</p>
+          </div>
+        </div>
+        <div class="student-schedule-empty">No student schedule has been generated yet.</div>
+      </section>
+    `;
+  }
+
+  const intro = `
+    <section class="student-packet-page-section instructions-section student-schedule-section student-schedule-section-first" data-packet-section="student-schedule-start">
+      <div class="student-schedule-heading">
+        <div>
+          <h3>Student Schedule</h3>
+          <p>Find your encounter time and assigned room below.</p>
+        </div>
+      </div>
+    </section>
+  `;
+
+  return `${intro}${blocks
+    .map((block) => {
+      const roomCount = Math.max(block.cells.length, 1);
+      return `
+        <section class="student-packet-page-section student-schedule-section student-packet-round-simple${roomCount >= 7 ? " student-packet-round-simple-dense" : ""}" data-packet-section="student-schedule-round">
+          <div class="student-packet-round-header">
+            <strong>${escapeHtml(block.title)}</strong>
+            <span>${escapeHtml(block.detail)}</span>
+          </div>
+          <div class="student-packet-room-row" style="--room-count: ${roomCount};">
+            ${block.cells
+              .map(
+                (cell) => `
+                  <div class="student-packet-room-card${cell.studentLabels.length ? "" : " student-packet-room-card-empty"}">
+                    <div class="student-packet-room-name">${escapeHtml(cell.roomLabel)}</div>
+                    <div class="student-packet-room-learners">
+                      ${
+                        cell.studentLabels.length
+                          ? cell.studentLabels.map((student) => `<div>${escapeHtml(student)}</div>`).join("")
+                          : `<div>No student assigned</div>`
+                      }
+                    </div>
+                  </div>
+                `
+              )
+              .join("")}
+          </div>
+        </section>
+      `;
+    })
+    .join("")}`;
+}
+
 function normalizeStudentInstructionsProgramLabel(value: unknown) {
   return normalizeDisplayText(value)
     .replace(/\s+Standardized Patient\s*\(SP\)\s*Simulation Cases\s*$/i, "")
@@ -2775,51 +2834,7 @@ function buildStudentInstructionsExportHtml(context: StudentInstructionsExportCo
     roomColumns,
     roomContext,
   });
-  const renderScheduleIntro = () => `
-    <section class="student-packet-page-section instructions-section student-schedule-section student-schedule-section-first" data-packet-section="student-schedule-start">
-      <div class="student-schedule-heading">
-        <div>
-          <h3>Student Schedule</h3>
-          <p>Find your encounter time and assigned breakout room below.</p>
-        </div>
-      </div>
-    </section>
-  `;
-  const renderScheduleBlock = (block: StudentInstructionsScheduleBlock) => `
-    <section class="student-packet-page-section student-schedule-section student-schedule-block-section" data-packet-section="student-schedule-continued">
-      <div class="vir-schedule-block">
-        <div class="vir-encounter-title">
-          <span>${escapeHtml(block.title)}</span>
-          <small>${escapeHtml(block.detail)}</small>
-        </div>
-        <table class="vir-room-table${block.cells.length >= 7 ? " vir-room-table-dense" : ""}" data-room-count="${Math.max(block.cells.length, 1)}">
-          <colgroup>${block.cells.map(() => '<col class="vir-room-table-col" />').join("")}</colgroup>
-          <thead>
-            <tr>
-              ${block.cells.map((cell) => `<th class="vir-room-header">${escapeHtml(cell.roomLabel)}</th>`).join("")}
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              ${block.cells
-                .map(
-                  (cell) => `
-                    <td class="vir-student-cell${cell.studentLabels.length ? "" : " vir-student-cell-empty"}">
-                      ${
-                        cell.studentLabels.length
-                          ? cell.studentLabels.map((student) => `<div class="vir-student-name">${escapeHtml(student)}</div>`).join("")
-                          : `<div class="vir-no-student">No student assigned</div>`
-                      }
-                    </td>
-                  `
-                )
-                .join("")}
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
-  `;
+  const simpleScheduleHtml = buildStudentPacketSimpleScheduleHtml(scheduleBlocks);
 
   return `
     <!doctype html>
@@ -3287,6 +3302,106 @@ color: #17304f;
             font-weight: 800;
             opacity: 0.78;
           }
+          .student-packet-round-simple {
+            display: grid;
+            gap: 0;
+            width: 100%;
+            border: 1px solid #c3d2e1;
+            border-radius: 10px;
+            background: #ffffff;
+            overflow: hidden;
+            break-inside: avoid;
+            page-break-inside: avoid;
+          }
+          .student-packet-round-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            padding: 7px 10px;
+            background: linear-gradient(90deg, #113255 0%, #1d4872 100%);
+            color: #ffffff;
+          }
+          .student-packet-round-header strong {
+            font-size: 13px;
+            line-height: 1.15;
+            font-weight: 950;
+          }
+          .student-packet-round-header span {
+            color: #dbe7f2;
+            font-size: 10.5px;
+            line-height: 1.2;
+            font-weight: 850;
+            text-align: right;
+          }
+          .student-packet-room-row {
+            display: grid;
+            grid-template-columns: repeat(var(--room-count), minmax(0, 1fr));
+            width: 100%;
+            background: #ffffff;
+          }
+          .student-packet-room-card {
+            min-width: 0;
+            min-height: 58px;
+            display: grid;
+            grid-template-rows: auto 1fr;
+            border-right: 1px solid #d5e0e8;
+            background: #f8fbff;
+          }
+          .student-packet-room-card:last-child {
+            border-right: none;
+          }
+          .student-packet-room-name {
+            min-height: 28px;
+            display: grid;
+            place-items: center;
+            padding: 5px 5px;
+            border-bottom: 1px solid #c3d2e1;
+            background: #eaf2fa;
+            color: #23435f;
+            font-size: 9.8px;
+            line-height: 1.1;
+            font-weight: 950;
+            text-align: center;
+            overflow-wrap: anywhere;
+          }
+          .student-packet-room-learners {
+            display: grid;
+            align-content: center;
+            gap: 2px;
+            min-width: 0;
+            padding: 7px 5px;
+            color: #12324b;
+            font-size: 10.3px;
+            line-height: 1.14;
+            font-weight: 950;
+            text-align: center;
+            overflow-wrap: anywhere;
+          }
+          .student-packet-room-card-empty {
+            background: #fff8ed;
+          }
+          .student-packet-room-card-empty .student-packet-room-learners {
+            color: #8a6741;
+            font-size: 9px;
+            font-weight: 850;
+          }
+          .student-packet-round-simple-dense .student-packet-room-card {
+            min-height: 50px;
+          }
+          .student-packet-round-simple-dense .student-packet-room-name {
+            min-height: 24px;
+            padding: 4px;
+            font-size: 8.6px;
+          }
+          .student-packet-round-simple-dense .student-packet-room-learners {
+            padding: 5px 4px;
+            font-size: 8.9px;
+            line-height: 1.08;
+          }
+          .student-packet-round-simple-dense .student-packet-room-card-empty .student-packet-room-learners {
+            font-size: 8px;
+          }
           .student-schedule-empty {
             color: #60768b;
             font-size: 12.5px;
@@ -3458,6 +3573,8 @@ color: #17304f;
             .instructions-section,
             .timing-item,
             .student-packet-page-section,
+            .student-packet-round-simple,
+            .student-packet-room-card,
             .vir-schedule-block {
               break-inside: avoid;
               page-break-inside: avoid;
@@ -3584,19 +3701,7 @@ color: #17304f;
             </section>
 
             ${
-              scheduleBlocks.length
-                ? `${renderScheduleIntro()}${scheduleBlocks.map((block) => renderScheduleBlock(block)).join("")}`
-                : `
-                  <section class="student-packet-page-section instructions-section student-schedule-section student-schedule-section-first" data-packet-section="student-schedule-start">
-                    <div class="student-schedule-heading">
-                      <div>
-                        <h3>Student Schedule</h3>
-                        <p>Find your encounter time and assigned breakout room below.</p>
-                      </div>
-                    </div>
-                    <div class="student-schedule-empty">No student schedule has been generated yet.</div>
-                  </section>
-                `
+              simpleScheduleHtml
             }
 
             <footer class="student-instructions-footer">
