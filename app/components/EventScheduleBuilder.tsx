@@ -999,6 +999,11 @@ type StudentInstructionsScheduleBlock = {
   cells: StudentInstructionsScheduleCell[];
 };
 
+type StudentInstructionsScheduleCellSeed = {
+  roomLabel: string;
+  studentLabels: string[];
+};
+
 type StudentInstructionsHtmlBuildResult = {
   html: string;
   ready: boolean;
@@ -2600,7 +2605,7 @@ function buildVirStyleStudentScheduleBlocks(args: {
             roomType: slot.roomType,
             capacityLabel: slot.capacityLabel,
           }));
-    const cells: StudentInstructionsScheduleCell[] = effectiveColumns.map((roomColumn, roomIndex) => {
+    const cellSeeds: StudentInstructionsScheduleCellSeed[] = effectiveColumns.map((roomColumn, roomIndex) => {
       // IMPORTANT REGRESSION GUARD:
       // Schedule Viewer is known-good and must not be changed for this fix.
       // Student Instructions export must render learner labels in the exact room cells from the
@@ -2620,11 +2625,30 @@ function buildVirStyleStudentScheduleBlocks(args: {
           )
         : normalizeDisplayText(roomColumn.displayRoomName) || `Breakout Room ${roomIndex + 1}`;
       return {
-        key: `round-${round.round}-room-${roomIndex}`,
         roomLabel,
         studentLabels: normalizeLearnerNames(slot?.learnerLabels || []),
       };
     });
+
+    // PDF-only safeguard:
+    // If schedule data arrives collapsed into one populated slot with N labels and N room columns,
+    // spread labels one-per-room to avoid a vertical learner-axis print artifact.
+    const populatedCells = cellSeeds.filter((cell) => cell.studentLabels.length > 0);
+    const collapsedLabels = populatedCells.length === 1 ? populatedCells[0].studentLabels : [];
+    const shouldRecoverCollapsedRoomAxis =
+      populatedCells.length === 1 && collapsedLabels.length === cellSeeds.length && cellSeeds.length > 1;
+    const normalizedSeeds = shouldRecoverCollapsedRoomAxis
+      ? cellSeeds.map((cell, index) => ({
+          roomLabel: cell.roomLabel,
+          studentLabels: collapsedLabels[index] ? [collapsedLabels[index]] : [],
+        }))
+      : cellSeeds;
+
+    const cells: StudentInstructionsScheduleCell[] = normalizedSeeds.map((seed, roomIndex) => ({
+      key: `round-${round.round}-room-${roomIndex}`,
+      roomLabel: seed.roomLabel,
+      studentLabels: seed.studentLabels,
+    }));
 
     blocks.push({
       key: `round-${round.round}`,
@@ -3184,7 +3208,7 @@ color: #17304f;
             max-width: 100%;
             border-collapse: collapse;
             table-layout: fixed;
-            background: #dfe7f0;
+            background: #ffffff;
             border-top: 1px solid #aebccb;
           }
           .vir-room-table-col {
@@ -3212,7 +3236,7 @@ color: #17304f;
           .vir-room-table tbody td:last-child { border-right: none; }
           .vir-student-cell {
             min-width: 0;
-            min-height: 54px;
+            min-height: 34px;
             padding: 7px 6px;
             border-right: 1px solid #d5e0e8;
             background: #f8fffb;
@@ -3246,7 +3270,7 @@ color: #17304f;
             line-height: 1.1;
           }
           .vir-room-table-dense .vir-student-cell {
-            min-height: 46px;
+            min-height: 30px;
             padding: 6px 5px;
             gap: 2px;
           }
