@@ -2590,25 +2590,35 @@ function buildVirStyleStudentScheduleBlocks(args: {
     const timeLabel = formatRange(start, end);
     const title = startLabel ? `${startLabel} Encounter` : `Round ${round.round}`;
     const detail = `Round ${round.round}${timeLabel ? ` • ${timeLabel}` : ""}`;
-    const roomCount = Math.max(round.roomSlots.length, roomColumns.length);
-    const cells: StudentInstructionsScheduleCell[] = Array.from({ length: roomCount }, (_, roomIndex) => {
-      const roomColumn = roomColumns[roomIndex];
+    const effectiveColumns =
+      roomColumns.length > 0
+        ? roomColumns
+        : round.roomSlots.map((slot, roomIndex) => ({
+            slotIndex: roomIndex,
+            roomName: slot.roomName,
+            displayRoomName: formatRoomName(slot.roomName, slot.roomType, roomIndex + 1, roomContext),
+            roomType: slot.roomType,
+            capacityLabel: slot.capacityLabel,
+          }));
+    const cells: StudentInstructionsScheduleCell[] = effectiveColumns.map((roomColumn, roomIndex) => {
       // IMPORTANT REGRESSION GUARD:
       // Schedule Viewer is known-good and must not be changed for this fix.
       // Student Instructions export must render learner labels in the exact room cells from the
       // completed schedule snapshot. Resolve room slots by stable slot index from source rounds first,
       // and never rebuild room placement from counts or inferred learner ordering.
-      const sourceSlot =
-        sourceRound && typeof roomColumn?.slotIndex === "number" ? sourceRound.roomSlots[roomColumn.slotIndex] : undefined;
-      const slot = sourceSlot || round.roomSlots[roomIndex];
+      const slotIndex = roomColumn.slotIndex;
+      const sourceSlot = sourceRound?.roomSlots[slotIndex];
+      const roundSlotByIndex = round.roomSlots[slotIndex];
+      const roundSlotByRoomName = round.roomSlots.find((slot) => normalizeDisplayText(slot.roomName) === normalizeDisplayText(roomColumn.roomName));
+      const slot = sourceSlot || roundSlotByIndex || roundSlotByRoomName || null;
       const roomLabel = slot
         ? formatRoomName(
             slot.roomName,
             slot.roomType,
-            typeof roomColumn?.slotIndex === "number" ? roomColumn.slotIndex + 1 : roomIndex + 1,
+            slotIndex + 1,
             roomContext
           )
-        : normalizeDisplayText(roomColumn?.displayRoomName) || `Breakout Room ${roomIndex + 1}`;
+        : normalizeDisplayText(roomColumn.displayRoomName) || `Breakout Room ${roomIndex + 1}`;
       return {
         key: `round-${round.round}-room-${roomIndex}`,
         roomLabel,
