@@ -137,6 +137,13 @@ export type TrainingEventMetadata = {
   hiring_window_label: string;
   linked_event_id: string;
   linked_event_title: string;
+  parent_event_id: string;
+  follow_up_of_event_id: string;
+  follow_up_created_at: string;
+  follow_up_created_by: string;
+  copied_from_event_name: string;
+  follow_up_event_ids: string;
+  follow_up_event_titles: string;
   signal_type: string;
   related_events_hidden: string;
   related_events_confirmed: string;
@@ -288,6 +295,13 @@ const TRAINING_METADATA_KEYS = [
   "hiring_window_label",
   "linked_event_id",
   "linked_event_title",
+  "parent_event_id",
+  "follow_up_of_event_id",
+  "follow_up_created_at",
+  "follow_up_created_by",
+  "copied_from_event_name",
+  "follow_up_event_ids",
+  "follow_up_event_titles",
   "signal_type",
   "related_events_hidden",
   "related_events_confirmed",
@@ -448,6 +462,13 @@ export function emptyTrainingEventMetadata(): TrainingEventMetadata {
     hiring_window_label: "",
     linked_event_id: "",
     linked_event_title: "",
+    parent_event_id: "",
+    follow_up_of_event_id: "",
+    follow_up_created_at: "",
+    follow_up_created_by: "",
+    copied_from_event_name: "",
+    follow_up_event_ids: "",
+    follow_up_event_titles: "",
     signal_type: "",
     related_events_hidden: "",
     related_events_confirmed: "",

@@ -61,6 +61,16 @@ import {
   serializeAnnouncementCueState,
   type AnnouncementCueStateRecord,
 } from "../../lib/announcementCues";
+import {
+  buildDefaultFollowUpEventName,
+  DEFAULT_FOLLOW_UP_COPY_OPTIONS,
+  FOLLOW_UP_COPY_OPTION_LABELS,
+  FOLLOW_UP_STATUS_OPTIONS,
+  FOLLOW_UP_VISIBILITY_OPTIONS,
+  parseFollowUpList,
+  stripCfspMetadataBlocks,
+  type FollowUpCopyOptions,
+} from "../../lib/followUpSimulation";
 import { normalizeDisplayText, normalizeLearnerName, normalizeLearnerNames } from "../../lib/learnerNames";
 import {
   buildSessionChecklist,
@@ -241,6 +251,18 @@ type AvailabilityRow = {
   notes?: string | null;
   created_at?: string | null;
   [key: string]: unknown;
+};
+
+type FollowUpSimulationDraft = {
+  name: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  location: string;
+  status: string;
+  visibility: string;
+  notes: string;
+  copyOptions: FollowUpCopyOptions;
 };
 
 type AssignmentStatus =
@@ -6168,12 +6190,24 @@ export default function EventDetailPage() {
     start_time: "",
     end_time: "",
   });
+  const [followUpDraft, setFollowUpDraft] = useState<FollowUpSimulationDraft>({
+    name: "",
+    date: "",
+    startTime: "",
+    endTime: "",
+    location: "",
+    status: "Planning",
+    visibility: "team",
+    notes: "",
+    copyOptions: DEFAULT_FOLLOW_UP_COPY_OPTIONS,
+  });
   const [sessions, setSessions] = useState<EventSessionRow[]>([]);
   const [sps, setSps] = useState<SPRow[]>([]);
   const [assignments, setAssignments] = useState<AssignmentRow[]>([]);
   const [availabilityRows, setAvailabilityRows] = useState<AvailabilityRow[]>([]);
   const [relatedOperationalEvents, setRelatedOperationalEvents] = useState<RelatedOperationalEventNode[]>([]);
   const [showRelatedMatchesModal, setShowRelatedMatchesModal] = useState(false);
+  const [showCreateFollowUpModal, setShowCreateFollowUpModal] = useState(false);
   const [removingRelatedMatchId, setRemovingRelatedMatchId] = useState("");
   const [confirmingRelatedMatchId, setConfirmingRelatedMatchId] = useState("");
   const [confirmingAllMatches, setConfirmingAllMatches] = useState(false);
@@ -6356,6 +6390,9 @@ export default function EventDetailPage() {
   const [selectedPollSpIds, setSelectedPollSpIds] = useState<string[]>([]);
   const [pollSaving, setPollSaving] = useState(false);
   const [deletingEvent, setDeletingEvent] = useState(false);
+  const [followUpSaving, setFollowUpSaving] = useState(false);
+  const [followUpError, setFollowUpError] = useState("");
+  const [followUpSuccess, setFollowUpSuccess] = useState<{ id: string; name: string; redirectUrl: string } | null>(null);
   const pollImportInputRef = useRef<HTMLInputElement | null>(null);
 
   const [relatedMatches, setRelatedMatches] = useState<RelatedEventPreview[]>([]);
@@ -6531,6 +6568,35 @@ export default function EventDetailPage() {
   const canManageRoundAnnouncements = canManageTrainingAttendance;
   const canRunLiveEventMode = canManageTrainingAttendance;
   const canDeleteEvent = viewerRole === "admin" || viewerRole === "super_admin";
+  const canCreateFollowUpSimulation = canManageTrainingAttendance;
+
+  const buildDefaultFollowUpDraft = useCallback(() => {
+    const defaultNotes = stripCfspMetadataBlocks(eventEditor.notes || event?.notes);
+    return {
+      name: buildDefaultFollowUpEventName(eventEditor.name || event?.name),
+      date: sessionEditor.session_date || asText(event?.date_text),
+      startTime: sessionEditor.start_time,
+      endTime: sessionEditor.end_time,
+      location: eventEditor.location || asText(event?.location),
+      status: FOLLOW_UP_STATUS_OPTIONS[0]?.value || "Planning",
+      visibility: eventEditor.visibility || asText(event?.visibility) || "team",
+      notes: defaultNotes,
+      copyOptions: DEFAULT_FOLLOW_UP_COPY_OPTIONS,
+    } satisfies FollowUpSimulationDraft;
+  }, [
+    event?.date_text,
+    event?.location,
+    event?.name,
+    event?.notes,
+    event?.visibility,
+    eventEditor.location,
+    eventEditor.name,
+    eventEditor.notes,
+    eventEditor.visibility,
+    sessionEditor.end_time,
+    sessionEditor.session_date,
+    sessionEditor.start_time,
+  ]);
 
   const assignmentsBySpId = useMemo(() => {
     const next = new Map<string, AssignmentRow>();
@@ -7202,6 +7268,18 @@ export default function EventDetailPage() {
     () => mergeEventFamilyTrainingMetadata(parsedEventMetadata.training, relatedTrainingOperationalEvents),
     [parsedEventMetadata.training, relatedTrainingOperationalEvents]
   );
+  const sourceFollowUpLinks = useMemo(() => {
+    const ids = parseFollowUpList(trainingMetadata.follow_up_event_ids);
+    const titles = parseFollowUpList(trainingMetadata.follow_up_event_titles);
+    return ids.map((followUpId, index) => ({
+      id: followUpId,
+      title: titles[index] || `Follow-Up ${index + 1}`,
+    }));
+  }, [trainingMetadata.follow_up_event_ids, trainingMetadata.follow_up_event_titles]);
+  const followUpParentEventId = asText(trainingMetadata.follow_up_of_event_id || trainingMetadata.parent_event_id);
+  const followUpParentEventTitle =
+    asText(trainingMetadata.copied_from_event_name) ||
+    asText(trainingMetadata.linked_event_title);
   const announcementCueOverrides = useMemo(
     () => parseAnnouncementCueOverrides(trainingMetadata.announcement_cue_overrides),
     [trainingMetadata.announcement_cue_overrides]
@@ -16234,6 +16312,122 @@ Cory`;
     }
 
     setSaving(false);
+  }
+
+  function handleOpenCreateFollowUpModal() {
+    setFollowUpDraft(buildDefaultFollowUpDraft());
+    setFollowUpError("");
+    setFollowUpSuccess(null);
+    setShowCreateFollowUpModal(true);
+  }
+
+  function handleCloseCreateFollowUpModal() {
+    if (followUpSaving) return;
+    setShowCreateFollowUpModal(false);
+  }
+
+  function handleFollowUpDraftChange<K extends keyof FollowUpSimulationDraft>(
+    key: K,
+    value: FollowUpSimulationDraft[K]
+  ) {
+    setFollowUpError("");
+    setFollowUpSuccess(null);
+    setFollowUpDraft((current) => ({ ...current, [key]: value }));
+  }
+
+  function handleToggleFollowUpCopyOption(key: keyof FollowUpCopyOptions) {
+    setFollowUpError("");
+    setFollowUpSuccess(null);
+    setFollowUpDraft((current) => {
+      const nextCopyOptions = { ...current.copyOptions };
+
+      if (key === "copyLearnerRoster" && current.copyOptions.copyScheduleStructure) {
+        return current;
+      }
+
+      nextCopyOptions[key] = !current.copyOptions[key];
+
+      if (key === "copyScheduleStructure" && nextCopyOptions.copyScheduleStructure) {
+        nextCopyOptions.copyLearnerRoster = true;
+      }
+      if (key === "copyScheduleStructure" && !nextCopyOptions.copyScheduleStructure) {
+        nextCopyOptions.createCompletedSchedule = false;
+      }
+      if (key === "createCompletedSchedule" && nextCopyOptions.createCompletedSchedule) {
+        nextCopyOptions.copyScheduleStructure = true;
+        nextCopyOptions.copyLearnerRoster = true;
+      }
+
+      return {
+        ...current,
+        copyOptions: nextCopyOptions,
+      };
+    });
+  }
+
+  async function handleCreateFollowUpSimulation() {
+    if (!id) return;
+
+    if (!followUpDraft.name.trim()) {
+      setFollowUpError("Enter a name for the follow-up simulation.");
+      return;
+    }
+    if (!followUpDraft.date.trim()) {
+      setFollowUpError("Choose a date for the follow-up simulation.");
+      return;
+    }
+
+    setFollowUpSaving(true);
+    setFollowUpError("");
+    setFollowUpSuccess(null);
+
+    try {
+      // IMPORTANT FOLLOW-UP SIMULATION GUARD:
+      // Follow-up simulations copy operational structure, not live completion state.
+      // Do not copy attendance, delivered announcements, completed checklist state,
+      // or old live event statuses into the new event.
+      const response = await fetch(`/api/events/${encodeURIComponent(id)}/create-follow-up`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: followUpDraft.name,
+          date: followUpDraft.date,
+          startTime: followUpDraft.startTime,
+          endTime: followUpDraft.endTime,
+          location: followUpDraft.location,
+          status: followUpDraft.status,
+          visibility: followUpDraft.visibility,
+          notes: followUpDraft.notes,
+          copyOptions: followUpDraft.copyOptions,
+        }),
+      });
+      const body = (await response.json().catch(() => null)) as
+        | { error?: string; event?: { id?: string; name?: string | null }; redirectUrl?: string }
+        | null;
+
+      if (!response.ok || !body?.event?.id || !body.redirectUrl) {
+        throw new Error(body?.error || "Could not create follow-up simulation.");
+      }
+
+      setFollowUpSuccess({
+        id: body.event.id,
+        name: asText(body.event.name) || followUpDraft.name,
+        redirectUrl: body.redirectUrl,
+      });
+      setEventSaveMessage("Follow-up simulation created.");
+      setEventSaveError("");
+      await refreshData({
+        preserveLocalEdits: true,
+        preserveSelectedSp: true,
+        source: "manual",
+      });
+    } catch (error) {
+      setFollowUpError(
+        error instanceof Error ? error.message : "Could not create follow-up simulation."
+      );
+    } finally {
+      setFollowUpSaving(false);
+    }
   }
 
   const handleDeleteEvent = useCallback(async () => {
@@ -33212,6 +33406,73 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   </button>
                 </div>
 
+                {canCreateFollowUpSimulation ? (
+                  <section
+                    style={{
+                      border: "1px solid rgba(20, 91, 150, 0.16)",
+                      borderRadius: "16px",
+                      padding: "12px 14px",
+                      background: "rgba(20, 91, 150, 0.05)",
+                      display: "grid",
+                      gap: "8px",
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+                      <div>
+                        <div style={statLabel}>Follow-Up Simulation</div>
+                        <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 700 }}>
+                          Same students, SPs, cases, and rotation structure.
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleOpenCreateFollowUpModal}
+                        style={{ ...buttonStyle, padding: "8px 12px" }}
+                      >
+                        Create Follow-Up Simulation
+                      </button>
+                    </div>
+                    {followUpParentEventId ? (
+                      <div style={{ color: "var(--cfsp-text)", fontSize: "12px", fontWeight: 700 }}>
+                        Follow-up of{" "}
+                        <Link href={`/events/${encodeURIComponent(followUpParentEventId)}`} style={{ color: "#145b96", textDecoration: "underline" }}>
+                          {followUpParentEventTitle || "Original event"}
+                        </Link>
+                      </div>
+                    ) : null}
+                    {sourceFollowUpLinks.length ? (
+                      <div style={{ display: "grid", gap: "6px" }}>
+                        <div style={{ color: "var(--cfsp-text)", fontSize: "12px", fontWeight: 800 }}>
+                          Follow-up simulations
+                        </div>
+                        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                          {sourceFollowUpLinks.map((link) => (
+                            <Link
+                              key={`follow-up-link-${link.id}`}
+                              href={`/events/${encodeURIComponent(link.id)}`}
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "6px",
+                                borderRadius: "999px",
+                                border: "1px solid rgba(20, 91, 150, 0.22)",
+                                background: "rgba(255,255,255,0.88)",
+                                color: "#145b96",
+                                padding: "7px 11px",
+                                fontSize: "12px",
+                                fontWeight: 800,
+                                textDecoration: "none",
+                              }}
+                            >
+                              {link.title}
+                            </Link>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                  </section>
+                ) : null}
+
                 <div style={{ ...detailGridStyle, marginTop: 0, gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
                   <label style={{ display: "grid", gap: "6px" }}>
                     <span style={statLabel}>Name</span>
@@ -37032,6 +37293,268 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       </button>
 </>
               ) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {showCreateFollowUpModal ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          onClick={handleCloseCreateFollowUpModal}
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 74,
+            background: "rgba(5, 21, 34, 0.78)",
+            display: "grid",
+            placeItems: "center",
+            padding: "24px",
+            color: "var(--cfsp-text)",
+          }}
+        >
+          <div
+            onClick={(event) => event.stopPropagation()}
+            style={{
+              width: "min(920px, 100%)",
+              maxHeight: "calc(100vh - 48px)",
+              borderRadius: "16px",
+              border: "1px solid rgba(148, 163, 184, 0.24)",
+              background: "var(--cfsp-surface)",
+              boxShadow: "0 24px 55px rgba(3, 10, 20, 0.42)",
+              display: "grid",
+              gap: "12px",
+              padding: "18px",
+              overflow: "auto",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+              <div>
+                <h2 style={{ margin: 0, fontSize: "18px", fontWeight: 900 }}>Create Follow-Up Simulation</h2>
+                <p style={{ margin: "6px 0 0", color: "var(--cfsp-text-muted)", fontWeight: 700, fontSize: "13px", lineHeight: 1.5 }}>
+                  Same students, SPs, cases, and rotation structure, without carrying live attendance or completion state forward.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleCloseCreateFollowUpModal}
+                disabled={followUpSaving}
+                style={{ ...buttonStyle, padding: "7px 11px", background: "rgba(71, 85, 105, 0.1)" }}
+              >
+                Close
+              </button>
+            </div>
+
+            {followUpError ? (
+              <div className="cfsp-alert cfsp-alert-error">{followUpError}</div>
+            ) : null}
+            {followUpSuccess ? (
+              <div
+                style={{
+                  borderRadius: "12px",
+                  border: "1px solid rgba(34,197,94,0.28)",
+                  background: "rgba(34,197,94,0.14)",
+                  padding: "12px 14px",
+                  display: "grid",
+                  gap: "8px",
+                }}
+              >
+                <div style={{ color: "var(--cfsp-text)", fontWeight: 900 }}>Follow-up simulation created</div>
+                <div style={{ color: "var(--cfsp-text-muted)", fontWeight: 700, fontSize: "12px" }}>
+                  {followUpSuccess.name}
+                </div>
+                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                  <Link
+                    href={followUpSuccess.redirectUrl}
+                    style={{ ...buttonStyle, display: "inline-flex", alignItems: "center", textDecoration: "none", padding: "8px 12px" }}
+                  >
+                    Open Follow-Up Event
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      router.push(followUpSuccess.redirectUrl);
+                    }}
+                    style={{ ...buttonStyle, padding: "8px 12px" }}
+                  >
+                    Redirect Now
+                  </button>
+                </div>
+              </div>
+            ) : null}
+
+            <div style={{ display: "grid", gap: "12px", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))" }}>
+              <label style={{ display: "grid", gap: "6px" }}>
+                <span style={statLabel}>New event name</span>
+                <input
+                  value={followUpDraft.name}
+                  onChange={(event) => handleFollowUpDraftChange("name", event.target.value)}
+                  disabled={followUpSaving}
+                  style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                />
+              </label>
+              <label style={{ display: "grid", gap: "6px" }}>
+                <span style={statLabel}>Date</span>
+                <input
+                  type="date"
+                  value={followUpDraft.date}
+                  onChange={(event) => handleFollowUpDraftChange("date", event.target.value)}
+                  disabled={followUpSaving}
+                  style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                />
+              </label>
+              <label style={{ display: "grid", gap: "6px" }}>
+                <span style={statLabel}>Start time</span>
+                <input
+                  type="time"
+                  value={followUpDraft.startTime}
+                  onChange={(event) => handleFollowUpDraftChange("startTime", event.target.value)}
+                  disabled={followUpSaving}
+                  style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                />
+              </label>
+              <label style={{ display: "grid", gap: "6px" }}>
+                <span style={statLabel}>End time</span>
+                <input
+                  type="time"
+                  value={followUpDraft.endTime}
+                  onChange={(event) => handleFollowUpDraftChange("endTime", event.target.value)}
+                  disabled={followUpSaving}
+                  style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                />
+              </label>
+              <label style={{ display: "grid", gap: "6px" }}>
+                <span style={statLabel}>Location</span>
+                <input
+                  value={followUpDraft.location}
+                  onChange={(event) => handleFollowUpDraftChange("location", event.target.value)}
+                  disabled={followUpSaving}
+                  style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                />
+              </label>
+              <label style={{ display: "grid", gap: "6px" }}>
+                <span style={statLabel}>Status</span>
+                <select
+                  value={followUpDraft.status}
+                  onChange={(event) => handleFollowUpDraftChange("status", event.target.value)}
+                  disabled={followUpSaving}
+                  style={{ ...selectStyle, width: "100%", maxWidth: "none", boxSizing: "border-box" }}
+                >
+                  {FOLLOW_UP_STATUS_OPTIONS.map((option) => (
+                    <option key={`follow-up-status-${option.value}`} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label style={{ display: "grid", gap: "6px" }}>
+                <span style={statLabel}>Visibility</span>
+                <select
+                  value={followUpDraft.visibility}
+                  onChange={(event) => handleFollowUpDraftChange("visibility", event.target.value)}
+                  disabled={followUpSaving}
+                  style={{ ...selectStyle, width: "100%", maxWidth: "none", boxSizing: "border-box" }}
+                >
+                  {FOLLOW_UP_VISIBILITY_OPTIONS.map((option) => (
+                    <option key={`follow-up-visibility-${option.value}`} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label style={{ display: "grid", gap: "6px", gridColumn: "1 / -1" }}>
+                <span style={statLabel}>Notes</span>
+                <textarea
+                  value={followUpDraft.notes}
+                  onChange={(event) => handleFollowUpDraftChange("notes", event.target.value)}
+                  disabled={followUpSaving}
+                  style={{ ...textareaStyle, minHeight: "120px" }}
+                />
+              </label>
+            </div>
+
+            <section
+              style={{
+                border: "1px solid rgba(20, 91, 150, 0.16)",
+                borderRadius: "14px",
+                padding: "12px 14px",
+                background: "rgba(20, 91, 150, 0.05)",
+                display: "grid",
+                gap: "8px",
+              }}
+            >
+              <div>
+                <div style={statLabel}>Copy options</div>
+                <div style={{ marginTop: "4px", color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 700 }}>
+                  Structure is copied forward, but live completion state stays behind.
+                </div>
+              </div>
+              <div style={{ display: "grid", gap: "8px", gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))" }}>
+                {(Object.keys(FOLLOW_UP_COPY_OPTION_LABELS) as Array<keyof FollowUpCopyOptions>).map((optionKey) => {
+                  const isDisabled =
+                    (optionKey === "copyLearnerRoster" && followUpDraft.copyOptions.copyScheduleStructure) ||
+                    (optionKey === "createCompletedSchedule" && !followUpDraft.copyOptions.copyScheduleStructure);
+                  return (
+                    <label
+                      key={`follow-up-copy-${optionKey}`}
+                      style={{
+                        display: "flex",
+                        alignItems: "flex-start",
+                        gap: "8px",
+                        borderRadius: "12px",
+                        border: "1px solid rgba(99, 181, 217, 0.14)",
+                        background: "rgba(255,255,255,0.84)",
+                        padding: "10px 12px",
+                        color: "var(--cfsp-text)",
+                        fontSize: "13px",
+                        fontWeight: 800,
+                        opacity: isDisabled ? 0.75 : 1,
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={followUpDraft.copyOptions[optionKey]}
+                        onChange={() => handleToggleFollowUpCopyOption(optionKey)}
+                        disabled={followUpSaving || isDisabled}
+                        style={{ marginTop: "1px", width: "15px", height: "15px", accentColor: "var(--cfsp-blue)" }}
+                      />
+                      <span>{FOLLOW_UP_COPY_OPTION_LABELS[optionKey]}</span>
+                    </label>
+                  );
+                })}
+              </div>
+              <div style={{ color: "var(--cfsp-text-muted)", fontSize: "11px", fontWeight: 700, lineHeight: 1.5 }}>
+                Attendance states, learner/SP check-ins, completed QA checklist state, delivered announcements, payroll completion, live timestamps, and repair metadata are always cleared for the new follow-up.
+              </div>
+            </section>
+
+            <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+              <button
+                type="button"
+                onClick={() => setFollowUpDraft(buildDefaultFollowUpDraft())}
+                disabled={followUpSaving}
+                style={{ ...buttonStyle, padding: "8px 12px", background: "rgba(71, 85, 105, 0.1)" }}
+              >
+                Reset defaults
+              </button>
+              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                <button
+                  type="button"
+                  onClick={handleCloseCreateFollowUpModal}
+                  disabled={followUpSaving}
+                  style={{ ...buttonStyle, padding: "8px 12px", background: "rgba(71, 85, 105, 0.1)" }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleCreateFollowUpSimulation()}
+                  disabled={followUpSaving}
+                  style={{ ...buttonStyle, padding: "8px 12px", opacity: followUpSaving ? 0.7 : 1 }}
+                >
+                  {followUpSaving ? "Creating..." : "Create Follow-Up Simulation"}
+                </button>
+              </div>
             </div>
           </div>
         </div>
