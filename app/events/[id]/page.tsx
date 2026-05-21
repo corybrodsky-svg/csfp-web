@@ -276,6 +276,7 @@ type RoundRoomRow = {
   location: string;
   learnerLabels: string[];
   learnerCountFallback: number;
+  snapshotLearnerPlacementLocked: boolean;
   assignment: AssignmentRow | null;
   sp: SPRow | null;
   backupSpName: string;
@@ -301,6 +302,7 @@ type EventAttendanceCanonicalRoom = {
   roomName: string;
   learnerLabels: string[];
   learnerCountFallback: number;
+  snapshotLearnerPlacementLocked: boolean;
   assignment: AssignmentRow | null;
   sp: SPRow | null;
   spName: string;
@@ -324,6 +326,7 @@ type ResolvedScheduleTruthStation = {
   location: string;
   learnerLabels: string[];
   learnerCountFallback: number;
+  snapshotLearnerPlacementLocked: boolean;
   primarySpName: string;
   backupSpName: string;
   caseLabel: string;
@@ -4420,7 +4423,7 @@ function mergeEventFamilyTrainingMetadata(
   return merged;
 }
 
-const UNASSIGNED_LEARNER_ROOM_LABEL = "No learner assigned for this room/round";
+const UNASSIGNED_LEARNER_ROOM_LABEL = "No student assigned";
 const LEGACY_UNASSIGNED_LEARNER_LABEL = "Learner not assigned";
 
 function parseScheduleLearnerRosterMetadata(value: unknown) {
@@ -4473,12 +4476,16 @@ function getLearnerCountFallbackFromLabels(values: unknown) {
   return values.reduce((highest, value) => Math.max(highest, parseLearnerCountPlaceholder(value)), 0);
 }
 
-function getLearnerRoomAssignmentLabel(learnerLabels: string[], learnerCountFallback = 0) {
+function getLearnerRoomAssignmentLabel(learnerLabels: string[], _learnerCountFallback = 0) {
+  void _learnerCountFallback;
   const labels = getActualLearnerNames(learnerLabels);
   if (labels.length) return labels.join(", ");
-  if (learnerCountFallback > 0) {
-    return `${learnerCountFallback} learner${learnerCountFallback === 1 ? "" : "s"}`;
-  }
+  return UNASSIGNED_LEARNER_ROOM_LABEL;
+}
+
+function getScheduleViewerEmptyLearnerLabel(_snapshotLearnerPlacementLocked = false, _learnerCountFallback = 0) {
+  void _snapshotLearnerPlacementLocked;
+  void _learnerCountFallback;
   return UNASSIGNED_LEARNER_ROOM_LABEL;
 }
 
@@ -4887,6 +4894,7 @@ function buildSelectedRoundOperationalRooms(args: {
       roundAdjustments.find((adjustment: ScheduleRoomAdjustmentSlot) => adjustment.slotIndex === slotIndex) || null;
     const canApplyAssignmentOverride =
       !protectCompletedScheduleAssignments || isConfirmedScheduleRoomAdjustment(slotOverride);
+    const snapshotLearnerPlacementLocked = Boolean(protectCompletedScheduleAssignments && usingSavedRoomSlots);
     const hasLearnerLabelsOverride = canApplyAssignmentOverride && hasScheduleRoomAdjustmentField(slotOverride, "learnerLabels");
     const hasRoomNameOverride = canApplyAssignmentOverride && hasScheduleRoomAdjustmentField(slotOverride, "roomName");
     const hasSpNameOverride = canApplyAssignmentOverride && hasScheduleRoomAdjustmentField(slotOverride, "spName");
@@ -4912,16 +4920,25 @@ function buildSelectedRoundOperationalRooms(args: {
     const overrideLearnerLabels = getActualLearnerNames(slotOverride?.learnerLabels || []);
     const savedLearnerCountFallback = getLearnerCountFallbackFromLabels(Array.isArray(slot?.learnerLabels) ? slot.learnerLabels : []);
     const overrideLearnerCountFallback = getLearnerCountFallbackFromLabels(slotOverride?.learnerLabels || []);
+    // IMPORTANT REGRESSION GUARD:
+    // Completed schedule viewer cells must render saved learner/student labels from the
+    // completed snapshot. Do not substitute seat counts, learner counts, generated fallback
+    // labels, or Room Operations metadata for completed schedule learner placement.
+    const shouldUseSavedSnapshotLearners = snapshotLearnerPlacementLocked && !hasLearnerLabelsOverride;
     const learnerLabels = hasLearnerLabelsOverride
       ? overrideLearnerLabels
+      : shouldUseSavedSnapshotLearners
+        ? savedLearnerLabels
       : savedLearnerLabels.length
         ? savedLearnerLabels
         : generatedLearnerLabels;
     const learnerCountFallback = learnerLabels.length
       ? 0
       : hasLearnerLabelsOverride
-        ? overrideLearnerCountFallback
-        : savedLearnerCountFallback;
+        ? (snapshotLearnerPlacementLocked ? 0 : overrideLearnerCountFallback)
+        : shouldUseSavedSnapshotLearners
+          ? 0
+          : savedLearnerCountFallback;
     const roomName =
       (hasRoomNameOverride ? asText(slotOverride?.roomName) : asText(slot?.roomName)) ||
       getFallbackRoomLabel(slotIndex, roomNamingContext);
@@ -4976,6 +4993,7 @@ function buildSelectedRoundOperationalRooms(args: {
       location,
       learnerLabels,
       learnerCountFallback,
+      snapshotLearnerPlacementLocked,
       primarySpName,
       backupSpName,
       caseLabel,
@@ -10132,7 +10150,7 @@ const operationalEventStatusLabel = useMemo(() => {
         station.roomName ? "" : "Missing room",
         assignment && !sp ? "Missing SP profile" : "",
         staffingRelevant && !assignment && station.stationStatus === "active" ? "Missing SP" : "",
-        effectiveLearnerCount > 0 && !learnerLabels.length && station.stationStatus === "active" ? "No learner assigned" : "",
+        effectiveLearnerCount > 0 && !learnerLabels.length && station.stationStatus === "active" ? "No student assigned" : "",
       ].filter(Boolean);
 
       return {
@@ -10142,6 +10160,7 @@ const operationalEventStatusLabel = useMemo(() => {
         location: station.location || asText(event?.location),
         learnerLabels,
         learnerCountFallback: station.learnerCountFallback,
+        snapshotLearnerPlacementLocked: station.snapshotLearnerPlacementLocked,
         assignment,
         sp,
         backupSpName: station.backupSpName,
@@ -10195,6 +10214,7 @@ const operationalEventStatusLabel = useMemo(() => {
         location: station.location || existingRow?.location || asText(event?.location),
         learnerLabels,
         learnerCountFallback: station.learnerCountFallback || existingRow?.learnerCountFallback || 0,
+        snapshotLearnerPlacementLocked: station.snapshotLearnerPlacementLocked || Boolean(existingRow?.snapshotLearnerPlacementLocked),
         assignment,
         sp,
         primarySpName,
@@ -10208,7 +10228,7 @@ const operationalEventStatusLabel = useMemo(() => {
         isActiveStation: station.stationStatus === "active",
         isBackupStation: station.stationStatus === "backup",
         flags: station.stationStatus !== "active"
-          ? (existingRow?.flags || []).filter((flag) => !["Missing SP", "No learner assigned"].includes(asText(flag)))
+          ? (existingRow?.flags || []).filter((flag) => !["Missing SP", "No learner assigned", "No student assigned"].includes(asText(flag)))
           : existingRow?.flags || [],
       } satisfies OperationsRoomCardRow;
     });
@@ -10232,6 +10252,7 @@ const operationalEventStatusLabel = useMemo(() => {
           roomName: station.roomName,
           learnerLabels: getActualLearnerNames(station.learnerLabels),
           learnerCountFallback: station.learnerCountFallback,
+          snapshotLearnerPlacementLocked: station.snapshotLearnerPlacementLocked,
           stationLabel: station.stationLabel,
           caseLabel: station.caseLabel,
           roleLabel: station.roleLabel,
@@ -10249,6 +10270,7 @@ const operationalEventStatusLabel = useMemo(() => {
       roomName: row.roomName || getFallbackRoomLabel(index, roomNamingContext),
       learnerLabels: getActualLearnerNames(row.learnerLabels),
       learnerCountFallback: row.learnerCountFallback || 0,
+      snapshotLearnerPlacementLocked: row.snapshotLearnerPlacementLocked,
       stationLabel: row.stationLabel,
       caseLabel: row.caseLabel,
       roleLabel: row.roleLabel,
@@ -10400,7 +10422,7 @@ const operationalEventStatusLabel = useMemo(() => {
             actionLabel: "Open Schedule",
           };
         }
-        if (signal.includes("No learner assigned") || signal.includes("unassigned")) {
+        if (signal.includes("No learner assigned") || signal.includes("No student assigned") || signal.includes("unassigned")) {
           return {
             what: signal,
             why: "Capacity and learner counts are out of sync for this active round.",
@@ -10655,6 +10677,7 @@ const operationalEventStatusLabel = useMemo(() => {
           location: existingRow?.location || asText(event?.location),
           learnerLabels,
           learnerCountFallback: existingRow?.learnerCountFallback || 0,
+          snapshotLearnerPlacementLocked: Boolean(existingRow?.snapshotLearnerPlacementLocked),
           assignment,
           sp,
           backupSpName: existingRow?.backupSpName || "",
@@ -11408,6 +11431,7 @@ const operationalEventStatusLabel = useMemo(() => {
         roomName: asText(row.roomName),
         learnerLabels: getActualLearnerNames(row.learnerLabels).filter((learner) => isAssignedLearnerRoomLabel(learner)),
         learnerCountFallback: row.learnerCountFallback || 0,
+        snapshotLearnerPlacementLocked: row.snapshotLearnerPlacementLocked,
         assignment: row.assignment,
         sp: row.sp,
         spName: getOperationsRoomPrimarySpName(row),
@@ -11427,12 +11451,14 @@ const operationalEventStatusLabel = useMemo(() => {
             roomName: room.roomName,
             learnerLabels: getActualLearnerNames(room.learnerLabels).filter((learner) => isAssignedLearnerRoomLabel(learner)),
             learnerCountFallback: room.learnerCountFallback || 0,
+            snapshotLearnerPlacementLocked: room.snapshotLearnerPlacementLocked,
             fallbackIndex: room.fallbackIndex,
           }))
         : selectedRoundScheduleRows.map((row, index) => ({
             roomName: row.roomName,
             learnerLabels: getActualLearnerNames(row.learnerLabels).filter((learner) => isAssignedLearnerRoomLabel(learner)),
             learnerCountFallback: row.learnerCountFallback || 0,
+            snapshotLearnerPlacementLocked: row.snapshotLearnerPlacementLocked,
             fallbackIndex: index,
           })),
     [selectedRoundResolvedAttendanceRooms, selectedRoundScheduleRows]
@@ -11483,7 +11509,10 @@ const operationalEventStatusLabel = useMemo(() => {
                   : room.statusLabel,
             learnerLabel: matchedResolvedRoom?.learnerLabels.length
               ? matchedResolvedRoom.learnerLabels.join(", ")
-              : getLearnerRoomAssignmentLabel([], matchedResolvedRoom?.learnerCountFallback || 0),
+              : getScheduleViewerEmptyLearnerLabel(
+                  Boolean(matchedResolvedRoom?.snapshotLearnerPlacementLocked),
+                  matchedResolvedRoom?.learnerCountFallback || 0
+                ),
             encounterLabel: asText(matchedResolvedRoom?.encounterLabel) || room.encounterLabel,
           };
         }
@@ -11534,7 +11563,12 @@ const operationalEventStatusLabel = useMemo(() => {
               : localSpChecked === false
                 ? "Not Checked In"
                 : room.statusLabel,
-          learnerLabel: learnerNames.length ? learnerNames.join(", ") : getLearnerRoomAssignmentLabel([], matchedOccupancyRoom?.learnerCountFallback || 0),
+          learnerLabel: learnerNames.length
+            ? learnerNames.join(", ")
+            : getScheduleViewerEmptyLearnerLabel(
+                Boolean(matchedOccupancyRoom?.snapshotLearnerPlacementLocked),
+                matchedOccupancyRoom?.learnerCountFallback || 0
+              ),
         };
       }),
     [
@@ -11561,6 +11595,7 @@ const operationalEventStatusLabel = useMemo(() => {
             spName: row.sp ? getFullName(row.sp) : "",
             encounterLabel: [row.stationLabel, row.caseLabel].filter(Boolean).join(" · ") || "Case pending",
             fallbackIndex,
+            snapshotLearnerPlacementLocked: row.snapshotLearnerPlacementLocked,
             stationStatus: "active" as const,
             isActiveStation: true,
             isBackupStation: false,
@@ -11616,6 +11651,7 @@ const operationalEventStatusLabel = useMemo(() => {
         spName: room.spName || matchedRoom?.spName || "",
         learnerLabels,
         learnerCountFallback: learnerLabels.length ? 0 : room.learnerCountFallback || 0,
+        snapshotLearnerPlacementLocked: room.snapshotLearnerPlacementLocked,
         stationStatus: room.stationStatus,
         isActiveStation: room.stationStatus === "active",
         isBackupStation: room.stationStatus === "backup",
@@ -11655,25 +11691,34 @@ const operationalEventStatusLabel = useMemo(() => {
         const roomTruthLearners = getActualLearnerNames(room.learnerLabels).filter((learner) => isAssignedLearnerRoomLabel(learner));
         const flowLearners = getActualLearnerNames(matchedFlowRoom?.learnerLabels || []).filter((learner) => isAssignedLearnerRoomLabel(learner));
         const occupancyLearners = getActualLearnerNames(matchedOccupancyRoom?.learnerLabels || []).filter((learner) => isAssignedLearnerRoomLabel(learner));
+        const snapshotLearnerPlacementLocked =
+          Boolean(room.snapshotLearnerPlacementLocked) ||
+          Boolean(matchedFlowRoom?.snapshotLearnerPlacementLocked) ||
+          Boolean(matchedOccupancyRoom?.snapshotLearnerPlacementLocked);
         const learnerLabels = roomTruthLearners.length
           ? roomTruthLearners
           : flowLearners.length
             ? flowLearners
             : occupancyLearners.length
               ? occupancyLearners
-              : generatedLearners;
+              : snapshotLearnerPlacementLocked
+                ? []
+                : generatedLearners;
         const learnerCountFallback = learnerLabels.length
           ? 0
-          : Math.max(
-              room.learnerCountFallback || 0,
-              matchedFlowRoom?.learnerCountFallback || 0,
-              matchedOccupancyRoom?.learnerCountFallback || 0
-            );
+          : snapshotLearnerPlacementLocked
+            ? 0
+            : Math.max(
+                room.learnerCountFallback || 0,
+                matchedFlowRoom?.learnerCountFallback || 0,
+                matchedOccupancyRoom?.learnerCountFallback || 0
+              );
 
         return {
           ...room,
           learnerLabels,
           learnerCountFallback,
+          snapshotLearnerPlacementLocked,
         };
       }),
     [
@@ -26961,7 +27006,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                       [];
                                     const rowLearners = row.learnerLabels.filter((label) => isAssignedLearnerRoomLabel(label));
                                     const learnerLabels = rowLearners.length ? rowLearners : completedScheduleLearners.filter((label) => isAssignedLearnerRoomLabel(label));
-                                    return learnerLabels.length ? learnerLabels.join(", ") : "Learner TBD";
+                                    return learnerLabels.length ? learnerLabels.join(", ") : UNASSIGNED_LEARNER_ROOM_LABEL;
                                   })()}
                                 </div>
                                 <div style={{ color: row.sp ? commandCenterVisual.textColor : commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 850, overflowWrap: "anywhere" }}>
@@ -27294,13 +27339,13 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                               return (
                                                 <span key={`${row.key}-${learnerIndex}-${learnerName || "unassigned"}`} style={{ display: "inline-flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
                                                   <RoundOperationAvatar name={learnerName} role="student" />
-                                                  <span>{learnerName || "Learner TBD"}</span>
+                                                  <span>{learnerName || UNASSIGNED_LEARNER_ROOM_LABEL}</span>
                                                 </span>
                                               );
                                             })}
                                           </div>
                                         ) : (
-                                          <div style={{ color: commandCenterVisual.textColor, fontSize: "13px", fontWeight: 800, lineHeight: 1.35, overflowWrap: "anywhere" }}>Learner TBD</div>
+                                          <div style={{ color: commandCenterVisual.textColor, fontSize: "13px", fontWeight: 800, lineHeight: 1.35, overflowWrap: "anywhere" }}>{UNASSIGNED_LEARNER_ROOM_LABEL}</div>
                                         )}
                                       </div>
                                       <div style={{ display: "grid", gap: "2px" }}>
@@ -27608,7 +27653,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                 fontWeight: 700,
               }}
             >
-              {row.isBackupStation ? "Standby coverage - no learners required" : "No learners assigned"}
+              {row.isBackupStation ? "Standby coverage - no learners required" : UNASSIGNED_LEARNER_ROOM_LABEL}
             </span>
           )}
         </div>
@@ -28512,7 +28557,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                       </div>
                                     ) : (
                                       <div style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 700 }}>
-                                        Learner roster not attached for this station.
+                                        {UNASSIGNED_LEARNER_ROOM_LABEL}
                                       </div>
                                     )}
                                   </div>

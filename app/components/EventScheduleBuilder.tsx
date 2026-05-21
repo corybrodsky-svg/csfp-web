@@ -5158,7 +5158,7 @@ function buildSchedulePreviewData(args: {
       const showRoomCaseLabels = shouldShowRoomCaseLabels(round);
       round.roomSlots.forEach((slot, slotIndex) => {
         const displayRoomName = formatRoomName(slot.roomName, slot.roomType, slotIndex + 1, roomContext);
-        const learnerText = slot.learnerLabels.length ? slot.learnerLabels.join(", ") : "No learner assigned";
+        const learnerText = slot.learnerLabels.length ? slot.learnerLabels.join(", ") : "No student assigned";
         lines.push(`  ${displayRoomName}: ${learnerText}`);
         if (isOperations) {
           const spName = getSlotSpName(slot) || "Unassigned";
@@ -5206,7 +5206,7 @@ function buildSchedulePreviewData(args: {
       const showRoomCaseLabels = shouldShowRoomCaseLabels(round);
       round.roomSlots.forEach((slot, slotIndex) => {
         const displayRoomName = formatRoomName(slot.roomName, slot.roomType, slotIndex + 1, roomContext);
-        const learnerText = slot.learnerLabels.length ? slot.learnerLabels.join(", ") : "No learner assigned";
+        const learnerText = slot.learnerLabels.length ? slot.learnerLabels.join(", ") : "No student assigned";
         lines.push(`  ${displayRoomName}`);
         if (kind !== "sp") {
           lines.push(`    Learner: ${learnerText}`);
@@ -5370,7 +5370,7 @@ function buildSchedulePreviewData(args: {
                     ? round.roomSlots
                         .map((slot, slotIndex) => {
                           const displayRoomName = formatRoomName(slot.roomName, slot.roomType, slotIndex + 1, roomContext);
-                          const learnerText = slot.learnerLabels.length ? slot.learnerLabels.join(", ") : "No learner assigned";
+                          const learnerText = slot.learnerLabels.length ? slot.learnerLabels.join(", ") : "No student assigned";
                           const spName = getSlotSpName(slot) || "Unassigned";
                           const ticketDetail =
                             kind === "sp"
@@ -5461,7 +5461,7 @@ function buildSchedulePreviewData(args: {
                     </td>
                     ${round.roomSlots
                       .map((slot) => {
-                        const learnerText = slot.learnerLabels.length ? slot.learnerLabels.join(", ") : "No learner assigned";
+                        const learnerText = slot.learnerLabels.length ? slot.learnerLabels.join(", ") : "No student assigned";
                         const spName = getSlotSpName(slot) || "Unassigned";
                         const slotCaseName = normalizeDisplayText(slot.caseLabel) || caseName;
                         const backupSpName = normalizeDisplayText(slot.backupSpName);
@@ -5698,7 +5698,7 @@ function buildSchedulePreviewData(args: {
             const showRoomCaseLabels = includeOperationsContext && shouldShowRoomCaseLabels(round);
             return round.roomSlots.map((slot, slotIndex) => {
               const displayRoomName = formatRoomName(slot.roomName, slot.roomType, slotIndex + 1, roomContext);
-              const learnerText = slot.learnerLabels.length ? slot.learnerLabels.join(", ") : "No learner assigned";
+              const learnerText = slot.learnerLabels.length ? slot.learnerLabels.join(", ") : "No student assigned";
               const spName = getSlotSpName(slot);
               const slotCaseName = normalizeDisplayText(slot.caseLabel) || caseName || "";
 
