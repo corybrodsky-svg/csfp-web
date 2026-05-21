@@ -436,6 +436,187 @@ textarea {
   color: var(--cfsp-text-muted);
 }
 
+.cfsp-dashboard-launchpad {
+  display: grid;
+  gap: 14px;
+  border: 1px solid var(--cfsp-border);
+  border-radius: 16px;
+  padding: 16px;
+  background: var(--cfsp-dashboard-hero-bg);
+  box-shadow: var(--cfsp-card-glow);
+}
+
+.cfsp-dashboard-launchpad-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.cfsp-dashboard-welcome {
+  margin: 6px 0 0;
+  font-size: clamp(1.3rem, 2.4vw, 1.7rem);
+  line-height: 1.15;
+  font-weight: 900;
+  color: var(--cfsp-text);
+}
+
+.cfsp-dashboard-role-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  border-radius: 999px;
+  border: 1px solid var(--cfsp-shell-chip-border);
+  background: var(--cfsp-shell-chip-bg);
+  color: var(--cfsp-shell-chip-text);
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-weight: 900;
+  padding: 6px 10px;
+}
+
+.cfsp-dashboard-summary {
+  margin: 0;
+  color: var(--cfsp-text-muted);
+  font-size: 0.93rem;
+  line-height: 1.45;
+}
+
+.cfsp-dashboard-toolbar {
+  display: grid;
+  gap: 10px;
+}
+
+.cfsp-dashboard-segmented {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--cfsp-border);
+  border-radius: 12px;
+  background: var(--cfsp-surface);
+  padding: 4px;
+}
+
+.cfsp-dashboard-segmented-btn,
+.cfsp-dashboard-archive-link {
+  min-height: 34px;
+  border-radius: 9px;
+  padding: 7px 11px;
+  border: 1px solid transparent;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+  font-weight: 850;
+  text-decoration: none;
+  color: var(--cfsp-text-muted);
+  background: transparent;
+  transition: background 150ms ease, color 150ms ease, border-color 150ms ease;
+}
+
+.cfsp-dashboard-segmented-btn[data-active="true"] {
+  background: var(--cfsp-blue);
+  color: #fff;
+}
+
+.cfsp-dashboard-segmented-btn[data-active="false"]:hover,
+.cfsp-dashboard-archive-link:hover {
+  border-color: var(--cfsp-border);
+  background: var(--cfsp-surface-muted);
+  color: var(--cfsp-blue);
+}
+
+.cfsp-dashboard-segmented-count {
+  border-radius: 999px;
+  padding: 1px 7px;
+  font-size: 0.67rem;
+  font-weight: 900;
+  background: rgba(20, 91, 150, 0.09);
+  color: var(--cfsp-blue);
+}
+
+.cfsp-dashboard-segmented-btn[data-active="true"] .cfsp-dashboard-segmented-count {
+  background: rgba(255, 255, 255, 0.22);
+  color: #fff;
+}
+
+.cfsp-dashboard-stats-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 8px;
+}
+
+.cfsp-dashboard-stat-chip {
+  border: 1px solid var(--cfsp-border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--cfsp-surface) 80%, transparent);
+  min-height: 44px;
+  padding: 7px 10px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--cfsp-text-muted);
+  font-size: 0.76rem;
+  font-weight: 750;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.cfsp-dashboard-stat-chip strong {
+  color: var(--cfsp-blue);
+  font-size: 1.05rem;
+  line-height: 1;
+  letter-spacing: normal;
+}
+
+.cfsp-dashboard-search .rounded-\[16px\] {
+  border-color: color-mix(in srgb, var(--cfsp-blue) 20%, var(--cfsp-border));
+  box-shadow: 0 14px 28px rgba(24, 52, 78, 0.08);
+}
+
+.cfsp-dashboard-quick-actions {
+  border: 1px solid var(--cfsp-border);
+  border-radius: 14px;
+  background: var(--cfsp-dashboard-panel-bg);
+  padding: 12px;
+}
+
+.cfsp-dashboard-quick-grid {
+  margin-top: 8px;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.cfsp-dashboard-quick-tile {
+  min-height: 44px;
+  border: 1px solid var(--cfsp-command-button-border);
+  border-radius: 11px;
+  background: var(--cfsp-command-button-bg);
+  color: var(--cfsp-command-button-text);
+  text-decoration: none;
+  font-weight: 800;
+  font-size: 0.84rem;
+  line-height: 1.2;
+  padding: 8px 10px;
+  display: grid;
+  align-content: center;
+  justify-items: start;
+  box-shadow: var(--cfsp-command-button-shadow);
+  transition: transform 150ms ease, box-shadow 150ms ease, border-color 150ms ease, background 150ms ease;
+}
+
+.cfsp-dashboard-quick-tile:hover {
+  transform: translateY(-1px);
+  border-color: var(--cfsp-command-button-active-border);
+  background: var(--cfsp-command-button-hover-bg);
+  box-shadow: var(--cfsp-command-button-active-shadow);
+}
+
 .cfsp-btn {
   min-height: 38px;
   display: inline-flex;

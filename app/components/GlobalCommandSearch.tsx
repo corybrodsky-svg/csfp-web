@@ -167,7 +167,7 @@ export default function GlobalCommandSearch({
 
   return (
     <div
-      className="relative"
+      className={`relative ${commandCenterMode ? "cfsp-command-search" : "cfsp-dashboard-search"}`}
       onKeyDown={(event) => {
         if (event.key === "Escape") {
           event.preventDefault();
@@ -184,9 +184,7 @@ export default function GlobalCommandSearch({
         }
       }}
     >
-      <div
-        className={`rounded-[16px] border border-[var(--cfsp-border)] bg-[var(--cfsp-surface)] shadow-[0_14px_30px_rgba(24,52,78,0.06)] ${compact ? "px-3 py-3" : "px-4 py-3"}`}
-      >
+      <div className={`rounded-[16px] border border-[var(--cfsp-border)] bg-[var(--cfsp-surface)] shadow-[0_14px_30px_rgba(24,52,78,0.06)] ${compact ? "px-3 py-3" : "px-4 py-3"}`}>
         <div className="relative">
           <input
             ref={inputRef}

@@ -1303,7 +1303,7 @@ export default function DashboardPage() {
             : "Use your dashboard as a personal home base for matched events, staffing work, and profile setup."
       }
     >
-      <div className="mx-auto grid w-full max-w-6xl gap-5 px-3 py-2 md:px-0">
+      <div className="mx-auto grid w-full max-w-6xl gap-4 px-3 py-1 md:px-0">
         {spLinkPending ? (
           <div className="cfsp-alert cfsp-alert-info flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
@@ -1332,18 +1332,67 @@ export default function DashboardPage() {
           </div>
         ) : null}
 
-        <section className="grid gap-4 rounded-[14px] px-5 py-5" style={{ border: "1px solid var(--cfsp-border)", background: "var(--cfsp-dashboard-hero-bg)", boxShadow: "var(--cfsp-card-glow)" }}>
-          <p className="cfsp-kicker">Home base</p>
-          <h2 className="text-[1.8rem] leading-tight font-black text-[var(--cfsp-text)]">
-            Welcome back, {displayName}.
-          </h2>
-          <p className="max-w-3xl text-[0.98rem] leading-6 text-[var(--cfsp-text-muted)]">
+        <section className="cfsp-dashboard-launchpad">
+          <div className="cfsp-dashboard-launchpad-row">
+            <div className="min-w-0">
+              <p className="cfsp-kicker">Home base</p>
+              <h2 className="cfsp-dashboard-welcome">Welcome back, {displayName}.</h2>
+            </div>
+            <span className="cfsp-dashboard-role-chip">
+              {isSp ? "SP Profile" : isFaculty ? "Faculty Profile" : "Operations Profile"}
+            </span>
+          </div>
+
+          <p className="cfsp-dashboard-summary">
             {isSp
-              ? "Start with your assigned events, confirmed work, and training access so you can prep quickly without digging through operations screens."
+              ? "Start with assigned events, confirmed work, and training access."
               : isFaculty
-                ? "Start with events connected to your teaching or course support work, then switch to broader planning context when needed."
-                : "Find events quickly, launch actions, and open just the dashboard panels you want today."}
+                ? "Track course-facing events and support work from one launchpad."
+                : "Find events quickly, launch actions, and keep operations moving."}
           </p>
+
+          <div className="cfsp-dashboard-toolbar">
+            {isSp ? (
+              <div className="rounded-[12px] border border-[var(--cfsp-border)] bg-white px-4 py-3 text-sm font-bold text-[var(--cfsp-text)]">
+                SP accounts stay focused on assigned events and upcoming trainings.
+              </div>
+            ) : (
+              <div className="cfsp-dashboard-segmented">
+                <button
+                  type="button"
+                  onClick={() => handleScopeChange("my")}
+                  className="cfsp-dashboard-segmented-btn"
+                  data-active={scope === "my" ? "true" : "false"}
+                >
+                  My Events <span className="cfsp-dashboard-segmented-count">{myMatchedEvents.length}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleScopeChange("all")}
+                  className="cfsp-dashboard-segmented-btn"
+                  data-active={scope === "all" ? "true" : "false"}
+                >
+                  All Events <span className="cfsp-dashboard-segmented-count">{allVisibleEvents.length}</span>
+                </button>
+                <Link href="/events?view=archive" className="cfsp-dashboard-archive-link">
+                  Archive <span className="cfsp-dashboard-segmented-count">{archivedEventCount}</span>
+                </Link>
+              </div>
+            )}
+            <div className="cfsp-dashboard-stats-row">
+              {[
+                { label: "Needs Staffing", value: needsAttention.length },
+                { label: "In Progress", value: inProgress.length },
+                { label: "Live / Today", value: selectedEvents.filter((item) => item.start && isTodayOrTomorrow(item.start, startOfToday)).length },
+                { label: "Open Shortage", value: openShortageCount },
+              ].map((stat) => (
+                <div key={stat.label} className="cfsp-dashboard-stat-chip">
+                  <span>{stat.label}</span>
+                  <strong>{stat.value}</strong>
+                </div>
+              ))}
+            </div>
+          </div>
 
           <GlobalCommandSearch
             entries={allVisibleFinderEntries}
@@ -1354,65 +1403,20 @@ export default function DashboardPage() {
             onOpenEvent={(eventId) => router.push(`/events/${encodeURIComponent(eventId)}`)}
           />
 
-          <div className="rounded-[16px] border border-[var(--cfsp-border)] bg-[var(--cfsp-surface)] px-4 py-4">
+          <div className="cfsp-dashboard-quick-actions">
             <div className="cfsp-label">Quick actions</div>
-            <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            <div className="cfsp-dashboard-quick-grid">
               {quickActions.map((action) => (
-                <Link
-                  key={action.href}
-                  href={action.href}
-                  className="cfsp-btn cfsp-btn-secondary justify-center"
-                >
-                  {action.label}
+                <Link key={action.href} href={action.href} className="cfsp-dashboard-quick-tile">
+                  <span>{action.label}</span>
                 </Link>
               ))}
             </div>
           </div>
-
-          <div className="rounded-[14px] border border-[var(--cfsp-border)] bg-[var(--cfsp-surface)] px-4 py-4">
-            <div className="cfsp-label">Dashboard view</div>
-            {isSp ? (
-              <div className="mt-3 rounded-[12px] border border-[var(--cfsp-border)] bg-white px-4 py-3 text-sm font-bold text-[var(--cfsp-text)]">
-                SP accounts stay focused on assigned events and upcoming trainings.
-              </div>
-            ) : (
-              <div className="mt-3 inline-flex flex-wrap gap-2 rounded-[12px] p-1" style={{ border: "1px solid var(--cfsp-border)", background: "var(--cfsp-surface)" }}>
-                <button
-                  type="button"
-                  onClick={() => handleScopeChange("my")}
-                  className="min-w-[120px] rounded-[10px] px-4 py-2 text-sm font-black transition"
-                  style={{
-                    background: scope === "my" ? "var(--cfsp-blue)" : "transparent",
-                    color: scope === "my" ? "#ffffff" : "var(--cfsp-text-muted)",
-                  }}
-                >
-                  My Events
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleScopeChange("all")}
-                  className="min-w-[120px] rounded-[10px] px-4 py-2 text-sm font-black transition"
-                  style={{
-                    background: scope === "all" ? "var(--cfsp-blue)" : "transparent",
-                    color: scope === "all" ? "#ffffff" : "var(--cfsp-text-muted)",
-                  }}
-                >
-                  All Events
-                </button>
-                <Link
-                  href="/events?view=archive"
-                  className="inline-flex items-center rounded-[10px] px-4 py-2 text-sm font-black no-underline"
-                  style={{ color: "var(--cfsp-blue)" }}
-                >
-                  Archive
-                </Link>
-              </div>
-            )}
-          </div>
         </section>
 
         <section className="grid gap-3">
-          <div className="cfsp-label">Dashboard Panels</div>
+          <div className="cfsp-label">Operational Panels</div>
           <div className="grid gap-3">
             <DashboardPanel title="Recent Events" isOpen={panelState.recentEvents} onToggle={() => togglePanel("recentEvents")}>
               <RecentEventsPanel
