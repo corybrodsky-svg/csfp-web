@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import type { ReactNode } from "react";
 import { Suspense, useEffect, useMemo, useState } from "react";
+import EventStructureActionsPanel from "../components/EventStructureActionsPanel";
 import SiteShell from "../components/SiteShell";
 import {
   DEFAULT_CFSP_EMAIL_TEMPLATES,
@@ -67,6 +68,27 @@ type EmailTemplateApiResponse = {
   canManage?: boolean;
   warning?: string;
 };
+
+type SettingsSectionId =
+  | "email-templates"
+  | "session-checklist"
+  | "core-event-details"
+  | "operational-notes"
+  | "faculty-requests"
+  | "staffing-requirements"
+  | "room-simulation-setup"
+  | "training-materials-tech";
+
+const SETTINGS_SECTION_IDS: SettingsSectionId[] = [
+  "email-templates",
+  "session-checklist",
+  "core-event-details",
+  "operational-notes",
+  "faculty-requests",
+  "staffing-requirements",
+  "room-simulation-setup",
+  "training-materials-tech",
+];
 
 const initialEvent: EventEditState = {
   name: "",
@@ -221,13 +243,43 @@ function TextAreaField({
   );
 }
 
-function Panel({ title, detail, children }: { title: string; detail: string; children: ReactNode }) {
+function CollapsibleSettingsSection({
+  id,
+  title,
+  detail,
+  kicker = "Event setup",
+  expanded,
+  onToggle,
+  children,
+}: {
+  id: SettingsSectionId;
+  title: string;
+  detail: string;
+  kicker?: string;
+  expanded: boolean;
+  onToggle: (id: SettingsSectionId) => void;
+  children: ReactNode;
+}) {
   return (
-    <section className="rounded-[22px] border border-[var(--cfsp-border)] bg-white p-4 shadow-sm">
-      <p className="cfsp-kicker">Event editor</p>
-      <h2 className="mt-1 text-xl font-black text-[var(--cfsp-text)]">{title}</h2>
-      <p className="mt-1 text-sm font-semibold leading-6 text-[var(--cfsp-text-muted)]">{detail}</p>
-      <div className="mt-4 grid gap-3">{children}</div>
+    <section id={id} className="rounded-[22px] border border-[var(--cfsp-border)] bg-white p-4 shadow-sm">
+      <button
+        type="button"
+        onClick={() => onToggle(id)}
+        className="w-full text-left"
+        aria-expanded={expanded}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="cfsp-kicker">{kicker}</p>
+            <h2 className="mt-1 text-xl font-black text-[var(--cfsp-text)]">{title}</h2>
+            <p className="mt-1 text-sm font-semibold leading-6 text-[var(--cfsp-text-muted)]">{detail}</p>
+          </div>
+          <span className="mt-2 rounded-full border border-[var(--cfsp-border)] bg-slate-50 px-3 py-1 text-[11px] font-black uppercase tracking-[0.08em] text-[var(--cfsp-text-muted)]">
+            {expanded ? "Collapse" : "Expand"}
+          </span>
+        </div>
+      </button>
+      {expanded ? <div className="mt-4 grid gap-3">{children}</div> : null}
     </section>
   );
 }
@@ -294,12 +346,24 @@ function SessionChecklistManager({
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [selectedTaskId, setSelectedTaskId] = useState("");
 
   useEffect(() => {
     const loaded = getSessionChecklistConfig(eventNotes);
     setConfigDraft(loaded);
+    setSelectedTaskId(loaded[0]?.taskId || "");
     setDirty(false);
   }, [eventNotes]);
+
+  useEffect(() => {
+    if (!configDraft.length) {
+      setSelectedTaskId("");
+      return;
+    }
+    if (!configDraft.some((task) => task.taskId === selectedTaskId)) {
+      setSelectedTaskId(configDraft[0]?.taskId || "");
+    }
+  }, [configDraft, selectedTaskId]);
 
   const checklistState = useMemo(() => parseSessionChecklistState(eventNotes), [eventNotes]);
   const trainingMetadata = useMemo(() => parseEventMetadata(eventNotes).training, [eventNotes]);
@@ -356,6 +420,13 @@ function SessionChecklistManager({
     { value: "before", label: "Before" },
     { value: "after", label: "After" },
   ];
+  const selectedTask = configDraft.find((task) => task.taskId === selectedTaskId) || null;
+  const selectedTaskIndex = selectedTask ? configDraft.findIndex((task) => task.taskId === selectedTask.taskId) : -1;
+  const selectedTaskPreview = selectedTask ? preview.tasks.find((row) => row.taskId === selectedTask.taskId) || null : null;
+  const planningCount = configDraft.filter((task) => task.section === "planning").length;
+  const dayOfCount = configDraft.filter((task) => task.section === "day_of").length;
+  const activeCount = configDraft.filter((task) => task.active !== false).length;
+  const requiredCount = configDraft.filter((task) => task.required !== false).length;
 
   function updateTask(taskId: string, patch: Partial<SessionChecklistTaskConfig>) {
     setConfigDraft((current) =>
@@ -383,19 +454,23 @@ function SessionChecklistManager({
   }
 
   function removeTask(taskId: string) {
-    setConfigDraft((current) =>
-      current
-        .filter((task) => task.taskId !== taskId)
-        .map((task, index) => ({ ...task, sortOrder: index }))
-    );
+    let nextSelected = "";
+    setConfigDraft((current) => {
+      const currentIndex = current.findIndex((task) => task.taskId === taskId);
+      const filtered = current.filter((task) => task.taskId !== taskId);
+      nextSelected =
+        filtered[Math.max(0, Math.min(currentIndex, filtered.length - 1))]?.taskId || "";
+      return filtered.map((task, index) => ({ ...task, sortOrder: index }));
+    });
+    setSelectedTaskId(nextSelected);
     setDirty(true);
     setMessage("");
     setError("");
   }
 
   function addTask(section: SessionChecklistSection) {
+    const nextId = `qa-task-${Date.now()}`;
     setConfigDraft((current) => {
-      const nextId = `qa-task-${Date.now()}`;
       return [
         ...current,
         {
@@ -414,6 +489,7 @@ function SessionChecklistManager({
         },
       ];
     });
+    setSelectedTaskId(nextId);
     setDirty(true);
     setMessage("");
     setError("");
@@ -466,56 +542,49 @@ function SessionChecklistManager({
   }
 
   function resetDefaults() {
-    setConfigDraft(getDefaultSessionChecklistConfig());
+    const defaults = getDefaultSessionChecklistConfig();
+    setConfigDraft(defaults);
+    setSelectedTaskId(defaults[0]?.taskId || "");
     setDirty(true);
     setMessage("");
     setError("");
   }
 
   return (
-    <section id="session-checklist" className="rounded-[22px] border border-[var(--cfsp-border)] bg-white p-4 shadow-sm">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-        <div>
-          <p className="cfsp-kicker">Event Setup</p>
-          <h2 className="mt-1 text-xl font-black text-[var(--cfsp-text)]">Session Checklist Settings</h2>
-          <p className="mt-1 text-sm font-semibold leading-6 text-[var(--cfsp-text-muted)]">
-            Configure Planning and Day-of operational tasks that drive the QA board in Event Command Center.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() => addTask("planning")}
-            disabled={!canEdit}
-            className="cfsp-btn cfsp-btn-secondary disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            Add Planning Task
-          </button>
-          <button
-            type="button"
-            onClick={() => addTask("day_of")}
-            disabled={!canEdit}
-            className="cfsp-btn cfsp-btn-secondary disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            Add Day-of Task
-          </button>
-          <button
-            type="button"
-            onClick={resetDefaults}
-            disabled={!canEdit}
-            className="cfsp-btn cfsp-btn-secondary disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            Reset Defaults
-          </button>
-          <button
-            type="button"
-            onClick={() => void saveChecklistConfig()}
-            disabled={!dirty || saving || !canEdit}
-            className="cfsp-btn cfsp-btn-primary disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {saving ? "Saving..." : "Save Checklist"}
-          </button>
-        </div>
+    <div className="grid gap-3">
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => addTask("planning")}
+          disabled={!canEdit}
+          className="cfsp-btn cfsp-btn-secondary disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Add Planning Task
+        </button>
+        <button
+          type="button"
+          onClick={() => addTask("day_of")}
+          disabled={!canEdit}
+          className="cfsp-btn cfsp-btn-secondary disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Add Day-of Task
+        </button>
+        <button
+          type="button"
+          onClick={resetDefaults}
+          disabled={!canEdit}
+          className="cfsp-btn cfsp-btn-secondary disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Reset Defaults
+        </button>
+        <button
+          type="button"
+          onClick={() => void saveChecklistConfig()}
+          disabled={!dirty || saving || !canEdit}
+          className="cfsp-btn cfsp-btn-primary disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {saving ? "Saving..." : "Save Checklist"}
+        </button>
       </div>
 
       {message ? <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-bold text-emerald-700">{message}</div> : null}
@@ -527,18 +596,74 @@ function SessionChecklistManager({
       ) : null}
 
       <div className="mt-4 grid gap-3">
-        {configDraft.map((task, index) => {
-          const resolvedTask = preview.tasks.find((row) => row.taskId === task.taskId);
-          return (
-            <article key={task.taskId} className="rounded-2xl border border-[var(--cfsp-border)] bg-slate-50 p-3">
+        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="rounded-xl border border-[var(--cfsp-border)] bg-slate-50 px-3 py-2 text-xs font-black text-[var(--cfsp-text-muted)]">Planning: <span className="text-[var(--cfsp-text)]">{planningCount}</span></div>
+          <div className="rounded-xl border border-[var(--cfsp-border)] bg-slate-50 px-3 py-2 text-xs font-black text-[var(--cfsp-text-muted)]">Day-of: <span className="text-[var(--cfsp-text)]">{dayOfCount}</span></div>
+          <div className="rounded-xl border border-[var(--cfsp-border)] bg-slate-50 px-3 py-2 text-xs font-black text-[var(--cfsp-text-muted)]">Active: <span className="text-[var(--cfsp-text)]">{activeCount}</span></div>
+          <div className="rounded-xl border border-[var(--cfsp-border)] bg-slate-50 px-3 py-2 text-xs font-black text-[var(--cfsp-text-muted)]">Required: <span className="text-[var(--cfsp-text)]">{requiredCount}</span></div>
+        </div>
+        <label className="grid gap-1">
+          <span className="text-[11px] font-black uppercase tracking-[0.16em] text-[var(--cfsp-text-muted)]">Select task to edit</span>
+          <select
+            value={selectedTaskId}
+            onChange={(event) => setSelectedTaskId(event.target.value)}
+            className="rounded-xl border border-[var(--cfsp-border)] bg-white px-3 py-2 text-sm font-semibold text-[var(--cfsp-text)] outline-none transition focus:border-emerald-400"
+          >
+            {!configDraft.length ? <option value="">No tasks available</option> : null}
+            <optgroup label="Planning">
+              {configDraft.filter((task) => task.section === "planning").map((task) => (
+                <option key={`selector-${task.taskId}`} value={task.taskId}>{task.label}</option>
+              ))}
+            </optgroup>
+            <optgroup label="Day-of">
+              {configDraft.filter((task) => task.section === "day_of").map((task) => (
+                <option key={`selector-${task.taskId}`} value={task.taskId}>{task.label}</option>
+              ))}
+            </optgroup>
+          </select>
+        </label>
+        <div className="grid gap-3 xl:grid-cols-[minmax(250px,0.85fr)_minmax(0,1.15fr)]">
+          <div className="grid gap-2 self-start">
+            {configDraft.map((task) => {
+              const resolvedTask = preview.tasks.find((row) => row.taskId === task.taskId);
+              const selected = task.taskId === selectedTaskId;
+              return (
+                <button
+                  key={`task-row-${task.taskId}`}
+                  type="button"
+                  onClick={() => setSelectedTaskId(task.taskId)}
+                  className="rounded-xl border px-3 py-2 text-left transition"
+                  style={{
+                    borderColor: selected ? "rgba(20,91,150,0.48)" : "var(--cfsp-border)",
+                    background: selected ? "linear-gradient(135deg, rgba(224,242,254,0.92), rgba(236,253,245,0.9))" : "#fff",
+                  }}
+                >
+                  <div className="text-sm font-black text-[var(--cfsp-text)]">{task.label}</div>
+                  <div className="mt-1 text-[11px] font-bold uppercase tracking-[0.12em] text-[var(--cfsp-text-muted)]">
+                    {task.section === "planning" ? "Planning" : "Day-of"} · {task.active !== false ? "Active" : "Inactive"} · {task.required !== false ? "Required" : "Optional"}
+                  </div>
+                  <div className="mt-1 text-xs font-semibold text-[var(--cfsp-text-muted)]">
+                    {resolvedTask?.dueRuleLabel || "Due rule pending"} · {resolvedTask?.statusLabel || "Upcoming"}
+                  </div>
+                </button>
+              );
+            })}
+            {!configDraft.length ? (
+              <div className="rounded-xl border border-dashed border-[var(--cfsp-border)] bg-slate-50 px-3 py-4 text-sm font-semibold text-[var(--cfsp-text-muted)]">
+                No checklist tasks. Add a Planning or Day-of task to begin.
+              </div>
+            ) : null}
+          </div>
+          {selectedTask ? (
+            <article className="rounded-2xl border border-[var(--cfsp-border)] bg-slate-50 p-3">
               <div className="grid gap-3 lg:grid-cols-2">
-                <Field label="Task name" value={task.label} onChange={(value) => updateTask(task.taskId, { label: value })} />
-                <Field label="Owner / role" value={task.owner} onChange={(value) => updateTask(task.taskId, { owner: value })} />
+                <Field label="Task name" value={selectedTask.label} onChange={(value) => updateTask(selectedTask.taskId, { label: value })} />
+                <Field label="Owner / role" value={selectedTask.owner} onChange={(value) => updateTask(selectedTask.taskId, { owner: value })} />
                 <label className="grid gap-1">
                   <span className="text-[11px] font-black uppercase tracking-[0.16em] text-[var(--cfsp-text-muted)]">Section</span>
                   <select
-                    value={task.section}
-                    onChange={(event) => updateTask(task.taskId, { section: event.target.value as SessionChecklistSection })}
+                    value={selectedTask.section}
+                    onChange={(event) => updateTask(selectedTask.taskId, { section: event.target.value as SessionChecklistSection })}
                     className="rounded-xl border border-[var(--cfsp-border)] bg-white px-3 py-2 text-sm font-semibold text-[var(--cfsp-text)] outline-none transition focus:border-emerald-400"
                   >
                     {sectionOptions.map((option) => (
@@ -549,8 +674,8 @@ function SessionChecklistManager({
                 <label className="grid gap-1">
                   <span className="text-[11px] font-black uppercase tracking-[0.16em] text-[var(--cfsp-text-muted)]">Due anchor</span>
                   <select
-                    value={task.dueAnchor}
-                    onChange={(event) => updateTask(task.taskId, { dueAnchor: event.target.value as SessionChecklistDueAnchor })}
+                    value={selectedTask.dueAnchor}
+                    onChange={(event) => updateTask(selectedTask.taskId, { dueAnchor: event.target.value as SessionChecklistDueAnchor })}
                     className="rounded-xl border border-[var(--cfsp-border)] bg-white px-3 py-2 text-sm font-semibold text-[var(--cfsp-text)] outline-none transition focus:border-emerald-400"
                   >
                     {anchorOptions.map((option) => (
@@ -563,16 +688,16 @@ function SessionChecklistManager({
                   <input
                     type="number"
                     min={0}
-                    value={task.offsetValue}
-                    onChange={(event) => updateTask(task.taskId, { offsetValue: Number(event.target.value || 0) })}
+                    value={selectedTask.offsetValue}
+                    onChange={(event) => updateTask(selectedTask.taskId, { offsetValue: Number(event.target.value || 0) })}
                     className="rounded-xl border border-[var(--cfsp-border)] bg-white px-3 py-2 text-sm font-semibold text-[var(--cfsp-text)] outline-none transition focus:border-emerald-400"
                   />
                 </label>
                 <label className="grid gap-1">
                   <span className="text-[11px] font-black uppercase tracking-[0.16em] text-[var(--cfsp-text-muted)]">Offset unit</span>
                   <select
-                    value={task.offsetUnit}
-                    onChange={(event) => updateTask(task.taskId, { offsetUnit: event.target.value as SessionChecklistOffsetUnit })}
+                    value={selectedTask.offsetUnit}
+                    onChange={(event) => updateTask(selectedTask.taskId, { offsetUnit: event.target.value as SessionChecklistOffsetUnit })}
                     className="rounded-xl border border-[var(--cfsp-border)] bg-white px-3 py-2 text-sm font-semibold text-[var(--cfsp-text)] outline-none transition focus:border-emerald-400"
                   >
                     {unitOptions.map((option) => (
@@ -583,8 +708,8 @@ function SessionChecklistManager({
                 <label className="grid gap-1">
                   <span className="text-[11px] font-black uppercase tracking-[0.16em] text-[var(--cfsp-text-muted)]">Before / after</span>
                   <select
-                    value={task.offsetDirection}
-                    onChange={(event) => updateTask(task.taskId, { offsetDirection: event.target.value as SessionChecklistOffsetDirection })}
+                    value={selectedTask.offsetDirection}
+                    onChange={(event) => updateTask(selectedTask.taskId, { offsetDirection: event.target.value as SessionChecklistOffsetDirection })}
                     className="rounded-xl border border-[var(--cfsp-border)] bg-white px-3 py-2 text-sm font-semibold text-[var(--cfsp-text)] outline-none transition focus:border-emerald-400"
                   >
                     {directionOptions.map((option) => (
@@ -595,51 +720,55 @@ function SessionChecklistManager({
                 <label className="flex items-center gap-2 rounded-xl border border-[var(--cfsp-border)] bg-white px-3 py-2 text-sm font-black text-[var(--cfsp-text)]">
                   <input
                     type="checkbox"
-                    checked={task.active !== false}
-                    onChange={(event) => updateTask(task.taskId, { active: event.target.checked })}
+                    checked={selectedTask.active !== false}
+                    onChange={(event) => updateTask(selectedTask.taskId, { active: event.target.checked })}
                   />
                   Active task
                 </label>
                 <label className="flex items-center gap-2 rounded-xl border border-[var(--cfsp-border)] bg-white px-3 py-2 text-sm font-black text-[var(--cfsp-text)]">
                   <input
                     type="checkbox"
-                    checked={task.required !== false}
-                    onChange={(event) => updateTask(task.taskId, { required: event.target.checked })}
+                    checked={selectedTask.required !== false}
+                    onChange={(event) => updateTask(selectedTask.taskId, { required: event.target.checked })}
                   />
                   Required for readiness
                 </label>
                 <div className="lg:col-span-2">
                   <TextAreaField
                     label="Task notes"
-                    value={task.notes}
-                    onChange={(value) => updateTask(task.taskId, { notes: value })}
+                    value={selectedTask.notes}
+                    onChange={(value) => updateTask(selectedTask.taskId, { notes: value })}
                     placeholder="Optional context for operators."
                   />
                 </div>
               </div>
               <div className="mt-3 flex flex-wrap items-center gap-2 text-xs font-bold text-[var(--cfsp-text-muted)]">
-                <span>Status preview: {resolvedTask?.statusLabel || "Upcoming"}</span>
+                <span>Status preview: {selectedTaskPreview?.statusLabel || "Upcoming"}</span>
                 <span>•</span>
-                <span>{resolvedTask?.dueRuleLabel || "Due rule pending"}</span>
+                <span>{selectedTaskPreview?.dueRuleLabel || "Due rule pending"}</span>
                 <span>•</span>
-                <span>{resolvedTask?.dueAtLabel || "Date needed"}</span>
+                <span>{selectedTaskPreview?.dueAtLabel || "Date needed"}</span>
               </div>
               <div className="mt-3 flex flex-wrap gap-2">
-                <button type="button" onClick={() => reorderTask(task.taskId, "up")} disabled={index === 0 || !canEdit} className="cfsp-btn cfsp-btn-secondary disabled:cursor-not-allowed disabled:opacity-50">
+                <button type="button" onClick={() => reorderTask(selectedTask.taskId, "up")} disabled={selectedTaskIndex <= 0 || !canEdit} className="cfsp-btn cfsp-btn-secondary disabled:cursor-not-allowed disabled:opacity-50">
                   Move Up
                 </button>
-                <button type="button" onClick={() => reorderTask(task.taskId, "down")} disabled={index === configDraft.length - 1 || !canEdit} className="cfsp-btn cfsp-btn-secondary disabled:cursor-not-allowed disabled:opacity-50">
+                <button type="button" onClick={() => reorderTask(selectedTask.taskId, "down")} disabled={selectedTaskIndex < 0 || selectedTaskIndex === configDraft.length - 1 || !canEdit} className="cfsp-btn cfsp-btn-secondary disabled:cursor-not-allowed disabled:opacity-50">
                   Move Down
                 </button>
-                <button type="button" onClick={() => removeTask(task.taskId)} disabled={!canEdit} className="cfsp-btn cfsp-btn-secondary disabled:cursor-not-allowed disabled:opacity-50">
+                <button type="button" onClick={() => removeTask(selectedTask.taskId)} disabled={!canEdit} className="cfsp-btn cfsp-btn-secondary disabled:cursor-not-allowed disabled:opacity-50">
                   Delete
                 </button>
               </div>
             </article>
-          );
-        })}
+          ) : (
+            <div className="rounded-2xl border border-dashed border-[var(--cfsp-border)] bg-slate-50 p-4 text-sm font-semibold text-[var(--cfsp-text-muted)]">
+              Select a task to edit.
+            </div>
+          )}
+        </div>
       </div>
-    </section>
+    </div>
   );
 }
 
@@ -756,18 +885,11 @@ function EmailTemplatesManager({ canEdit, event, sessions }: { canEdit: boolean;
   });
 
   return (
-    <section id="email-templates" className="rounded-[22px] border border-[var(--cfsp-border)] bg-white p-4 shadow-sm">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-        <div>
-          <p className="cfsp-kicker">Communication Settings</p>
-          <h2 className="mt-1 text-xl font-black text-[var(--cfsp-text)]">Email Templates</h2>
-          <p className="mt-1 text-sm font-semibold leading-6 text-[var(--cfsp-text-muted)]">
-            Manage reusable CFSP plain-text templates with merge fields. SP recipient lists stay in Bcc when event drafts open.
-          </p>
-          <p className="mt-2 text-xs font-black uppercase tracking-[0.14em] text-[#466477]">
-            Source: {source === "database" ? "Saved database templates" : "Built-in defaults"}
-          </p>
-        </div>
+    <div className="grid gap-3">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <p className="text-xs font-black uppercase tracking-[0.14em] text-[#466477]">
+          Source: {source === "database" ? "Saved database templates" : "Built-in defaults"}
+        </p>
         <button
           type="button"
           onClick={() => {
@@ -847,7 +969,7 @@ function EmailTemplatesManager({ canEdit, event, sessions }: { canEdit: boolean;
           </div>
         </div>
       </div>
-    </section>
+    </div>
   );
 }
 
@@ -855,6 +977,9 @@ function SettingsContent() {
   const searchParams = useSearchParams();
   const eventId = text(searchParams.get("eventId"));
   const eventHref = useMemo(() => (eventId ? `/events/${encodeURIComponent(eventId)}` : "/events"), [eventId]);
+  const [expandedSections, setExpandedSections] = useState<Record<SettingsSectionId, boolean>>(() =>
+    Object.fromEntries(SETTINGS_SECTION_IDS.map((id) => [id, false])) as Record<SettingsSectionId, boolean>
+  );
 
   const [eventEdit, setEventEdit] = useState<EventEditState>(initialEvent);
   const [eventSessions, setEventSessions] = useState<EventSessionRow[]>([]);
@@ -864,6 +989,33 @@ function SettingsContent() {
   const [errorMessage, setErrorMessage] = useState("");
   const [canEdit, setCanEdit] = useState(false);
   const [roleLabel, setRoleLabel] = useState("");
+
+  useEffect(() => {
+    function applyHashExpansion() {
+      const hash = decodeURIComponent(window.location.hash.replace(/^#/, "").trim());
+      const targetSection = SETTINGS_SECTION_IDS.find((sectionId) => sectionId === hash) || null;
+      setExpandedSections((current) => {
+        const next = { ...current };
+        for (const sectionId of SETTINGS_SECTION_IDS) {
+          next[sectionId] = sectionId === targetSection;
+        }
+        return next;
+      });
+    }
+
+    applyHashExpansion();
+    window.addEventListener("hashchange", applyHashExpansion);
+    return () => {
+      window.removeEventListener("hashchange", applyHashExpansion);
+    };
+  }, []);
+
+  function toggleSection(sectionId: SettingsSectionId) {
+    setExpandedSections((current) => ({
+      ...current,
+      [sectionId]: !current[sectionId],
+    }));
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -1027,11 +1179,49 @@ function SettingsContent() {
             Loading event...
           </section>
         ) : (
-          <div className="grid gap-5 xl:grid-cols-2">
-            <div className="xl:col-span-2">
+          <div className="grid gap-5">
+            <EventStructureActionsPanel
+              eventId={eventId}
+              eventName={eventEdit.name}
+              eventLocation={eventEdit.location}
+              eventVisibility={eventEdit.visibility}
+              eventNotes={eventEdit.notes}
+              sessions={eventSessions}
+              canManage={canEdit}
+              variant="settings"
+              onDataChanged={async () => {
+                const response = await fetch(`/api/events/${encodeURIComponent(eventId)}`, { cache: "no-store" });
+                const eventPayload = await response.json();
+                const nextEvent = extractEvent(eventPayload);
+                if (nextEvent) {
+                  setEventEdit(hydrateEvent(nextEvent));
+                  setEventSessions(
+                    Array.isArray((eventPayload as { sessions?: unknown }).sessions)
+                      ? ((eventPayload as { sessions?: EventSessionRow[] }).sessions || [])
+                      : []
+                  );
+                }
+              }}
+            />
+
+            <CollapsibleSettingsSection
+              id="email-templates"
+              title="Email Templates"
+              detail="Manage reusable CFSP plain-text templates with merge fields. SP recipient lists stay in Bcc when event drafts open."
+              kicker="Communication Settings"
+              expanded={expandedSections["email-templates"]}
+              onToggle={toggleSection}
+            >
               <EmailTemplatesManager canEdit={canEdit} event={eventEdit} sessions={eventSessions} />
-            </div>
-            <div className="xl:col-span-2">
+            </CollapsibleSettingsSection>
+
+            <CollapsibleSettingsSection
+              id="session-checklist"
+              title="Session Checklist Settings"
+              detail="Configure Planning and Day-of operational tasks that drive the QA board in Event Command Center."
+              expanded={expandedSections["session-checklist"]}
+              onToggle={toggleSection}
+            >
               <SessionChecklistManager
                 canEdit={canEdit}
                 eventId={eventId}
@@ -1040,9 +1230,15 @@ function SettingsContent() {
                 sessions={eventSessions}
                 onNotesChange={(nextNotes) => setEventEdit((current) => ({ ...current, notes: nextNotes }))}
               />
-            </div>
+            </CollapsibleSettingsSection>
 
-            <Panel title="Core Event Details" detail="Edit the event record itself. These values should match what the command center shows.">
+            <CollapsibleSettingsSection
+              id="core-event-details"
+              title="Core Event Details"
+              detail="Edit the event record itself. These values should match what the command center shows."
+              expanded={expandedSections["core-event-details"]}
+              onToggle={toggleSection}
+            >
               <div className="grid gap-3 md:grid-cols-2">
                 <Field label="Event name / title" value={eventEdit.name} onChange={(value) => update("name", value)} />
                 <Field label="Date text" value={eventEdit.dateText} onChange={(value) => update("dateText", value)} placeholder="Example: 06/26/2026" />
@@ -1051,18 +1247,30 @@ function SettingsContent() {
                 <Field label="Status" value={eventEdit.status} onChange={(value) => update("status", value)} />
                 <Field label="Visibility" value={eventEdit.visibility} onChange={(value) => update("visibility", value)} />
               </div>
-            </Panel>
+            </CollapsibleSettingsSection>
 
-            <Panel title="Operational Notes" detail="Edit event notes used by the command center, ownership parsing, staffing context, and operational reminders.">
+            <CollapsibleSettingsSection
+              id="operational-notes"
+              title="Operational Notes"
+              detail="Edit event notes used by the command center, ownership parsing, staffing context, and operational reminders."
+              expanded={expandedSections["operational-notes"]}
+              onToggle={toggleSection}
+            >
               <TextAreaField
                 label="Notes"
                 value={eventEdit.notes}
                 onChange={(value) => update("notes", value)}
                 placeholder="Sim Staff, faculty, hiring notes, operational reminders, support needs, etc."
               />
-            </Panel>
+            </CollapsibleSettingsSection>
 
-            <Panel title="Faculty Requests" detail="Track exactly what faculty requested for this event.">
+            <CollapsibleSettingsSection
+              id="faculty-requests"
+              title="Faculty Requests"
+              detail="Track exactly what faculty requested for this event."
+              expanded={expandedSections["faculty-requests"]}
+              onToggle={toggleSection}
+            >
               <div className="grid gap-3 md:grid-cols-2">
                 <label className="flex items-center gap-3 rounded-xl border border-[var(--cfsp-border)] bg-white px-3 py-3 text-sm font-black text-[var(--cfsp-text)]">
                   <input type="checkbox" onChange={(e) => update("notes", `${eventEdit.notes}\nfaculty_requested_recording: ${e.target.checked ? "yes" : "no"}`)} />
@@ -1092,9 +1300,15 @@ function SettingsContent() {
               <Field label="Faculty contact" value="" onChange={(value) => update("notes", `${eventEdit.notes}\nfaculty_contact: ${value}`)} />
               <Field label="Faculty email" value="" onChange={(value) => update("notes", `${eventEdit.notes}\nfaculty_email: ${value}`)} />
               <TextAreaField label="Faculty request notes" value="" onChange={(value) => update("notes", `${eventEdit.notes}\nfaculty_request_notes: ${value}`)} />
-            </Panel>
+            </CollapsibleSettingsSection>
 
-            <Panel title="Staffing Requirements" detail="Configure SP hiring and staffing needs for this event.">
+            <CollapsibleSettingsSection
+              id="staffing-requirements"
+              title="Staffing Requirements"
+              detail="Configure SP hiring and staffing needs for this event."
+              expanded={expandedSections["staffing-requirements"]}
+              onToggle={toggleSection}
+            >
               <div className="grid gap-3 md:grid-cols-2">
                 <Field label="Backups needed" value="" onChange={(value) => update("notes", `${eventEdit.notes}\nbackups_needed: ${value}`)} />
                 <Field label="SP portrayal / role notes" value="" onChange={(value) => update("notes", `${eventEdit.notes}\nsp_role_notes: ${value}`)} />
@@ -1116,9 +1330,15 @@ function SettingsContent() {
                 </label>
               </div>
               <TextAreaField label="Hiring / staffing notes" value="" onChange={(value) => update("notes", `${eventEdit.notes}\nstaffing_notes: ${value}`)} />
-            </Panel>
+            </CollapsibleSettingsSection>
 
-            <Panel title="Room & Simulation Setup" detail="Capture the room setup, sim equipment, moulage, and operational layout needs.">
+            <CollapsibleSettingsSection
+              id="room-simulation-setup"
+              title="Room & Simulation Setup"
+              detail="Capture the room setup, sim equipment, moulage, and operational layout needs."
+              expanded={expandedSections["room-simulation-setup"]}
+              onToggle={toggleSection}
+            >
               <div className="grid gap-3 md:grid-cols-2">
                 <Field label="Room list" value="" onChange={(value) => update("notes", `${eventEdit.notes}\nroom_list: ${value}`)} />
                 <Field label="Room count" value="" onChange={(value) => update("notes", `${eventEdit.notes}\nroom_count: ${value}`)} />
@@ -1127,9 +1347,15 @@ function SettingsContent() {
                 <Field label="Task trainer needs" value="" onChange={(value) => update("notes", `${eventEdit.notes}\ntask_trainer_needs: ${value}`)} />
                 <Field label="Moulage needs" value="" onChange={(value) => update("notes", `${eventEdit.notes}\nmoulage_needs: ${value}`)} />
               </div>
-            </Panel>
+            </CollapsibleSettingsSection>
 
-            <Panel title="Training, Materials & Tech" detail="Readiness controls for training, prep materials, recording, Zoom, and SimulationIQ.">
+            <CollapsibleSettingsSection
+              id="training-materials-tech"
+              title="Training, Materials & Tech"
+              detail="Readiness controls for training, prep materials, recording, Zoom, and SimulationIQ."
+              expanded={expandedSections["training-materials-tech"]}
+              onToggle={toggleSection}
+            >
               <div className="grid gap-3 md:grid-cols-2">
                 <Field label="Training date/time" value="" onChange={(value) => update("notes", `${eventEdit.notes}\ntraining_datetime: ${value}`)} />
                 <Field label="Training location / Zoom" value="" onChange={(value) => update("notes", `${eventEdit.notes}\ntraining_location_zoom: ${value}`)} />
@@ -1152,7 +1378,7 @@ function SettingsContent() {
                   Case file ready
                 </label>
               </div>
-            </Panel>
+            </CollapsibleSettingsSection>
           </div>
         )}
       </div>

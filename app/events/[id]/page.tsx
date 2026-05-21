@@ -7,6 +7,7 @@ import Link from "next/link";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import GlobalEventFinder from "../../components/GlobalEventFinder";
+import EventStructureActionsPanel from "../../components/EventStructureActionsPanel";
 import SiteShell from "../../components/SiteShell";
 import {
   formatHumanDate,
@@ -24693,6 +24694,25 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
             placeholder="Find event…"
             compact
             currentEventId={id}
+          />
+        </div>
+
+        <div style={{ marginTop: "12px" }}>
+          <EventStructureActionsPanel
+            eventId={id}
+            eventName={eventEditor.name || asText(event?.name)}
+            eventLocation={eventEditor.location || asText(event?.location)}
+            eventVisibility={eventEditor.visibility || asText(event?.visibility)}
+            eventNotes={eventEditor.notes || event?.notes}
+            sessions={sessions}
+            canManage={canManageTrainingAttendance}
+            onDataChanged={async () => {
+              await refreshData({
+                preserveLocalEdits: true,
+                preserveSelectedSp: true,
+                source: "manual",
+              });
+            }}
           />
         </div>
 

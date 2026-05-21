@@ -235,7 +235,10 @@ type FollowUpRequestBody = {
   visibility?: unknown;
   notes?: unknown;
   copyOptions?: Partial<FollowUpCopyOptions> | null;
+  mode?: unknown;
 };
+
+type RelatedEventCreationMode = "follow_up" | "duplicate";
 
 const FOLLOW_UP_EXCLUDED_METADATA_BLOCKS = new Set([
   "CFSP_TRAINING_METADATA",
@@ -699,9 +702,10 @@ async function cleanupCreatedFollowUp(
   await supabaseServer.from("events").delete().eq("id", eventId);
 }
 
-export async function POST(
+export async function createRelatedEvent(
   request: Request,
-  context: { params: Promise<unknown> }
+  context: { params: Promise<unknown> },
+  forcedMode: RelatedEventCreationMode = "follow_up"
 ) {
   const viewer = await getAuthenticatedViewer();
   if (!viewer) {
@@ -709,7 +713,15 @@ export async function POST(
   }
   if (!isOperatorRole(viewer.role)) {
     return applyAuthCookies(
-      NextResponse.json({ error: "Only Sim Ops or admin accounts can create follow-up simulations." }, { status: 403 }),
+      NextResponse.json(
+        {
+          error:
+            forcedMode === "duplicate"
+              ? "Only Sim Ops or admin accounts can duplicate events."
+              : "Only Sim Ops or admin accounts can create follow-up simulations.",
+        },
+        { status: 403 }
+      ),
       viewer
     );
   }
@@ -722,6 +734,9 @@ export async function POST(
     }
 
     const body = (await request.json().catch(() => null)) as FollowUpRequestBody | null;
+    const mode =
+      forcedMode ||
+      (asText(body?.mode).toLowerCase() === "duplicate" ? "duplicate" : "follow_up");
     const copyOptions = normalizeFollowUpCopyOptions(body?.copyOptions || DEFAULT_FOLLOW_UP_COPY_OPTIONS);
     const newEventName = asText(body?.name);
     const newDate = asText(body?.date);
@@ -736,7 +751,13 @@ export async function POST(
       return applyAuthCookies(NextResponse.json({ error: "New event name is required." }, { status: 400 }), viewer);
     }
     if (!newDate) {
-      return applyAuthCookies(NextResponse.json({ error: "A follow-up event date is required." }, { status: 400 }), viewer);
+      return applyAuthCookies(
+        NextResponse.json(
+          { error: mode === "duplicate" ? "A duplicate event date is required." : "A follow-up event date is required." },
+          { status: 400 }
+        ),
+        viewer
+      );
     }
 
     const supabaseServer = createSupabaseServerClient();
@@ -792,15 +813,20 @@ export async function POST(
       modality: asText(sourceTrainingMetadata.modality),
       linked_event_id: sourceEvent.id,
       linked_event_title: asText(sourceEvent.name),
-      parent_event_id: sourceEvent.id,
-      follow_up_of_event_id: sourceEvent.id,
-      follow_up_created_at: now,
-      follow_up_created_by: viewer.fullName || viewer.email || viewer.role,
       copied_from_event_name: asText(sourceEvent.name),
       event_session_date: newDate,
       event_start_time: newStartTime || "",
       event_end_time: newEndTime || "",
     };
+
+    if (mode === "follow_up") {
+      Object.assign(followUpTrainingMetadata, {
+        parent_event_id: sourceEvent.id,
+        follow_up_of_event_id: sourceEvent.id,
+        follow_up_created_at: now,
+        follow_up_created_by: viewer.fullName || viewer.email || viewer.role,
+      } satisfies Partial<TrainingEventMetadata>);
+    }
 
     if (copyOptions.copyLearnerRoster || copyOptions.copyScheduleStructure) {
       Object.assign(followUpTrainingMetadata, pickTrainingMetadata(sourceTrainingMetadata, LEARNER_METADATA_KEYS));
@@ -859,7 +885,14 @@ export async function POST(
 
     if (createdEventInsert.error || !createdEventInsert.data) {
       return applyAuthCookies(
-        NextResponse.json({ error: createdEventInsert.error?.message || "Could not create the follow-up event." }, { status: 500 }),
+        NextResponse.json(
+          {
+            error:
+              createdEventInsert.error?.message ||
+              (mode === "duplicate" ? "Could not create the duplicate event." : "Could not create the follow-up event."),
+          },
+          { status: 500 }
+        ),
         viewer
       );
     }
@@ -919,22 +952,24 @@ export async function POST(
         }
       }
 
-      const sourceFollowUpIds = parseFollowUpList(sourceTrainingMetadata.follow_up_event_ids);
-      const sourceFollowUpTitles = parseFollowUpList(sourceTrainingMetadata.follow_up_event_titles);
-      const sourceNextNotes = upsertEventMetadata(sourceEvent.notes, {
-        training: {
-          follow_up_event_ids: serializeFollowUpList([...sourceFollowUpIds, createdEvent.id]),
-          follow_up_event_titles: serializeFollowUpList([...sourceFollowUpTitles, asText(createdEvent.name)]),
-        },
-      });
+      if (mode === "follow_up") {
+        const sourceFollowUpIds = parseFollowUpList(sourceTrainingMetadata.follow_up_event_ids);
+        const sourceFollowUpTitles = parseFollowUpList(sourceTrainingMetadata.follow_up_event_titles);
+        const sourceNextNotes = upsertEventMetadata(sourceEvent.notes, {
+          training: {
+            follow_up_event_ids: serializeFollowUpList([...sourceFollowUpIds, createdEvent.id]),
+            follow_up_event_titles: serializeFollowUpList([...sourceFollowUpTitles, asText(createdEvent.name)]),
+          },
+        });
 
-      const { error: sourceUpdateError } = await supabaseServer
-        .from("events")
-        .update({ notes: sourceNextNotes || null })
-        .eq("id", sourceEvent.id);
+        const { error: sourceUpdateError } = await supabaseServer
+          .from("events")
+          .update({ notes: sourceNextNotes || null })
+          .eq("id", sourceEvent.id);
 
-      if (sourceUpdateError) {
-        throw new Error(sourceUpdateError.message || "Could not update follow-up relationship on the source event.");
+        if (sourceUpdateError) {
+          throw new Error(sourceUpdateError.message || "Could not update follow-up relationship on the source event.");
+        }
       }
     } catch (error) {
       await cleanupCreatedFollowUp(supabaseServer, createdEvent.id);
@@ -960,4 +995,11 @@ export async function POST(
       viewer
     );
   }
+}
+
+export async function POST(
+  request: Request,
+  context: { params: Promise<unknown> }
+) {
+  return createRelatedEvent(request, context, "follow_up");
 }
