@@ -4994,17 +4994,6 @@ function shouldStripSavedSlotCaseLabel(value: unknown, activeCaseIdentities: Set
   return isGeneratedCasePlaceholderLabel(value) && !activeCaseIdentities.has(normalized);
 }
 
-function shouldStripMatchingUnconfirmedAdjustmentValue(slotValue: unknown, adjustmentValue: unknown, hasAdjustmentField: boolean) {
-  const normalizedSlotValue = normalizeDisplayText(slotValue);
-  const normalizedAdjustmentValue = normalizeDisplayText(adjustmentValue);
-  return Boolean(
-    hasAdjustmentField &&
-      normalizedSlotValue &&
-      normalizedAdjustmentValue &&
-      normalizedSlotValue.toLowerCase() === normalizedAdjustmentValue.toLowerCase()
-  );
-}
-
 function sanitizeSavedScheduleRoomSlotForRender(
   slot: ScheduleBuilderPreviewResolvedRoomSlot,
   adjustment: ScheduleRoomAdjustmentSlot | null | undefined,
@@ -5013,41 +5002,10 @@ function sanitizeSavedScheduleRoomSlotForRender(
   // IMPORTANT REGRESSION GUARD:
   // Schedule room cards must render from authoritative saved room slot objects. Do not stitch together
   // room, learner, SP, case, and role data from separate arrays by index. Saved builder/completed
-  // schedule slots are the unit of truth. This sanitizer only removes stale, unconfirmed room
-  // adjustment overlays that older code persisted into the saved slot object.
+  // schedule slots are the unit of truth. Room Operations must not erase saved SP/case/status fields
+  // just because stale, unconfirmed room adjustment metadata happens to contain the same values.
   const next = { ...slot };
-  if (adjustment && !isConfirmedScheduleRoomAdjustment(adjustment)) {
-    if (shouldStripMatchingUnconfirmedAdjustmentValue(next.assignedSpName, adjustment.spName, hasScheduleRoomAdjustmentField(adjustment, "spName"))) {
-      next.assignedSpName = "";
-    }
-    if (shouldStripMatchingUnconfirmedAdjustmentValue(next.backupSpName, adjustment.backupSpName, hasScheduleRoomAdjustmentField(adjustment, "backupSpName"))) {
-      next.backupSpName = "";
-    }
-    if (shouldStripMatchingUnconfirmedAdjustmentValue(next.caseLabel, adjustment.caseLabel, hasScheduleRoomAdjustmentField(adjustment, "caseLabel"))) {
-      next.caseLabel = "";
-    }
-    if (shouldStripMatchingUnconfirmedAdjustmentValue(next.roleId, adjustment.roleId, hasScheduleRoomAdjustmentField(adjustment, "roleId"))) {
-      next.roleId = "";
-    }
-    if (shouldStripMatchingUnconfirmedAdjustmentValue(next.roleLabel, adjustment.roleLabel, hasScheduleRoomAdjustmentField(adjustment, "roleLabel"))) {
-      next.roleLabel = "";
-    }
-    if (shouldStripMatchingUnconfirmedAdjustmentValue(next.notes, adjustment.notes, hasScheduleRoomAdjustmentField(adjustment, "notes"))) {
-      next.notes = "";
-    }
-    if (
-      hasScheduleRoomAdjustmentField(adjustment, "stationStatus") &&
-      normalizeScheduleStationStatus(next.stationStatus) === normalizeScheduleStationStatus(adjustment.stationStatus)
-    ) {
-      next.stationStatus = undefined;
-    }
-    if (
-      hasScheduleRoomAdjustmentField(adjustment, "isBackupStation") &&
-      Boolean(next.isBackupStation) === Boolean(adjustment.isBackupStation)
-    ) {
-      next.isBackupStation = false;
-    }
-  }
+  void adjustment;
   if (shouldStripSavedSlotCaseLabel(next.caseLabel, activeCaseIdentities)) {
     next.caseLabel = "";
   }
@@ -5485,7 +5443,9 @@ function buildSelectedRoundOperationalRooms(args: {
     const explicitBackupStation = hasBackupStationOverride
       ? Boolean(slotOverride?.isBackupStation)
       : Boolean(slot?.isBackupStation || savedStationStatus === "backup");
-    const inferredBackupStation = Boolean(backupSpName || explicitBackupStation || primarySpIsBackup);
+    const inferredBackupStation = usingSavedRoomSlots
+      ? explicitBackupStation
+      : Boolean(backupSpName || explicitBackupStation || primarySpIsBackup);
     const stationStatus: ScheduleStationStatus =
       manualStationStatus === "inactive"
         ? "inactive"
@@ -9059,7 +9019,9 @@ const operationalEventStatusLabel = useMemo(() => {
         assignment?.training_attended !== true &&
         assignmentStatus !== "declined" &&
         assignmentStatus !== "no_show";
-      const defaultStatus: LiveRoomStatusValue = !assignment
+      const defaultStatus: LiveRoomStatusValue = !assignment && savedPrimarySpName
+        ? "ready"
+        : !assignment
         ? "empty"
         : persistedAttendanceStatus === "arrived" || persistedAttendanceStatus === "in_room"
           ? "ready"
@@ -12655,13 +12617,14 @@ const operationalEventStatusLabel = useMemo(() => {
           !checkedIn &&
           !noShow &&
           (persistedAttendanceStatus === "late" || manualStatus === "late" || autoLate);
+        const hasSavedScheduleSpName = Boolean(selectedPrimarySpName);
         const status = checkedIn
           ? "checked_in"
           : noShow
             ? "no_show"
             : late
               ? "late"
-              : assignment
+              : assignment || hasSavedScheduleSpName
                 ? "awaiting"
                 : "empty";
 
