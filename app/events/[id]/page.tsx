@@ -8160,6 +8160,122 @@ export default function EventDetailPage() {
 
     return filteredRounds;
   }, [authoritativeScheduleRoundSource.hasSavedSchedule, rotationRounds, selectedEventDateContext]);
+  const authoritativeEventScheduleTruth = useMemo(() => {
+    const scheduleStatusFromMetadata = asText(trainingMetadata.schedule_status).toLowerCase();
+    const rotationStatusFromMetadata = asText(trainingMetadata.rotation_schedule_status).toLowerCase();
+    const isCompletedStatus =
+      scheduleStatusFromMetadata === "complete" || rotationStatusFromMetadata === "complete";
+    const scheduleSource = authoritativeScheduleRoundSource.hasSavedSchedule
+      ? authoritativeScheduleRoundSource.source === "completed_snapshot"
+        ? "completed_snapshot"
+        : "saved_builder_draft"
+      : "generated_fallback";
+    const selectedDay = asText(selectedEventDateContext) || asText(activeDateRotationRounds[0]?.session_date);
+    const selectedDayRounds = selectedDay
+      ? rotationRounds.filter((round) => asText(round.session_date) === selectedDay)
+      : rotationRounds;
+    const selectedDayRoundsFallback = selectedDayRounds.length ? selectedDayRounds : activeDateRotationRounds;
+    const selectedDayRoundSlots = selectedDayRoundsFallback.map((round, localIndex) => {
+      const roundGlobalIndex = rotationRounds.findIndex((candidate) => candidate.key === round.key);
+      const persistedRound = resolveSelectedScheduleRound({
+        selectedRotationRound: round,
+        resolvedRounds: authoritativeScheduleResolvedRounds,
+        persistedResolvedRoundsByKey,
+        selectedRoundIndex: localIndex,
+        selectedRoundGlobalIndex: roundGlobalIndex,
+      });
+      return {
+        key: round.key,
+        roomSlots: persistedRound?.roomSlots || [],
+      };
+    });
+    const selectedDaySlotCount = selectedDayRoundSlots.reduce((total, round) => total + round.roomSlots.length, 0);
+    const learnerNamesFoundCount = selectedDayRoundSlots.reduce(
+      (total, round) =>
+        total +
+        round.roomSlots.reduce(
+          (roundTotal, slot) => roundTotal + getActualLearnerNames(slot.learnerLabels).length,
+          0
+        ),
+      0
+    );
+    const spAssignmentCount = selectedDayRoundSlots.reduce(
+      (total, round) =>
+        total +
+        round.roomSlots.reduce(
+          (roundTotal, slot) => roundTotal + (asText(slot.assignedSpName) ? 1 : 0),
+          0
+        ),
+      0
+    );
+    const scheduleStatus = isCompletedStatus
+      ? "Schedule Complete"
+      : authoritativeScheduleRoundSource.hasSavedSchedule ||
+          authoritativeScheduleRoundSource.fullSavedRoundCount > 0
+        ? "Schedule In Progress"
+        : "Schedule Not Started";
+
+    return {
+      scheduleSource,
+      scheduleStatus,
+      selectedDay,
+      allSavedRoundsForSelectedDay: selectedDayRoundsFallback,
+      roundCount: selectedDayRoundsFallback.length,
+      selectedDaySlotCount,
+      learnerNamesFoundCount,
+      spAssignmentCount,
+      hasSavedScheduleData:
+        authoritativeScheduleRoundSource.hasSavedSchedule ||
+        authoritativeScheduleRoundSource.fullSavedRoundCount > 0,
+    } as const;
+  }, [
+    activeDateRotationRounds,
+    authoritativeScheduleResolvedRounds,
+    authoritativeScheduleRoundSource,
+    persistedResolvedRoundsByKey,
+    rotationRounds,
+    selectedEventDateContext,
+    trainingMetadata.rotation_schedule_status,
+    trainingMetadata.schedule_status,
+  ]);
+  useEffect(() => {
+    const isAdminViewer = viewerRole === "admin" || viewerRole === "super_admin";
+    if (!isAdminViewer) return;
+    const completedSnapshotRoundCount =
+      asText(trainingMetadata.schedule_status).toLowerCase() === "complete"
+        ? authoritativeScheduleResolvedRounds.length
+        : 0;
+    const savedBuilderRoundCount = scheduleBuilderDraftRoundCount;
+    const commandCenterRoundCount = rotationRounds.length;
+    const validationErrorCount = 0;
+    const hasRoundMismatch =
+      authoritativeEventScheduleTruth.hasSavedScheduleData &&
+      authoritativeEventScheduleTruth.roundCount !== commandCenterRoundCount;
+    const shouldLog =
+      hasRoundMismatch ||
+      (authoritativeEventScheduleTruth.hasSavedScheduleData &&
+        authoritativeEventScheduleTruth.selectedDaySlotCount <= 0);
+    if (!shouldLog) return;
+    window.console.warn("Schedule truth diagnostic", {
+      scheduleSource: authoritativeEventScheduleTruth.scheduleSource,
+      scheduleStatus: authoritativeEventScheduleTruth.scheduleStatus,
+      savedBuilderRoundCount,
+      completedSnapshotRoundCount,
+      commandCenterRoundCount,
+      selectedRoundSlotCount: authoritativeEventScheduleTruth.selectedDaySlotCount,
+      learnerNamesFoundCount: authoritativeEventScheduleTruth.learnerNamesFoundCount,
+      spAssignmentCount: authoritativeEventScheduleTruth.spAssignmentCount,
+      validationErrorsCount: validationErrorCount,
+      selectedDay: authoritativeEventScheduleTruth.selectedDay,
+    });
+  }, [
+    authoritativeEventScheduleTruth,
+    authoritativeScheduleResolvedRounds.length,
+    rotationRounds.length,
+    scheduleBuilderDraftRoundCount,
+    trainingMetadata.schedule_status,
+    viewerRole,
+  ]);
   useEffect(() => {
     if (!scheduleRoundCountResolution.hasConflict || !scheduleRoundCountResolution.candidates.length) return;
 
@@ -9395,8 +9511,10 @@ const operationalEventStatusLabel = useMemo(() => {
   const hasSavedScheduleDraft = Boolean(
     scheduleBuilderPreviewDraft?.startTime ||
       scheduleBuilderPreviewDraft?.roundCount ||
+      scheduleBuilderPreviewDraft?.resolvedRounds?.length ||
       scheduleBuilderPreviewDraft?.uploadedLearners?.length ||
       scheduleBuilderPreviewDraft?.originalUploadedLearners?.length ||
+      authoritativeEventScheduleTruth.hasSavedScheduleData ||
       trainingMetadata.rotation_schedule_status
   );
   const scheduleCompleted =
@@ -10036,11 +10154,7 @@ const operationalEventStatusLabel = useMemo(() => {
     .map(asText)
     .filter(Boolean)
     .join(" · ");
-  const scheduleStatusLabel = scheduleCompleted
-    ? "Schedule Complete"
-    : scheduleInProgress
-      ? "Schedule In Progress"
-      : "Schedule Not Started";
+  const scheduleStatusLabel = authoritativeEventScheduleTruth.scheduleStatus;
   const staffingCoverageMet = staffingRelevant && (needed > 0 ? confirmedCount >= needed : selectedStaffingCount > 0);
   const hasUnfilledPrimarySlots = staffingRelevant && needed > 0 && confirmedCount < needed;
   const staffingReadinessCoverageMet = needed > 0
@@ -12519,6 +12633,9 @@ const operationalEventStatusLabel = useMemo(() => {
           sourceIndex: row.slotIndex,
         }));
     }
+    if (authoritativeEventScheduleTruth.hasSavedScheduleData) {
+      return selectedRoundRoomSlotEntries;
+    }
     if (selectedRoundRoomSlotEntries.length) return selectedRoundRoomSlotEntries;
     if (currentLiveRoomDisplayEntries.length) return currentLiveRoomDisplayEntries;
 
@@ -12533,6 +12650,7 @@ const operationalEventStatusLabel = useMemo(() => {
   }, [
     currentLiveRoomDisplayEntries,
     effectiveRoomCount,
+    authoritativeEventScheduleTruth.hasSavedScheduleData,
     roomNamingContext,
     rotationRounds,
     selectedRoundOperationsRows,
@@ -30464,7 +30582,11 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           </div>
         </div>
       ) : (
-        <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 800 }}>No room schedule is available yet.</div>
+        <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 800 }}>
+          {authoritativeEventScheduleTruth.hasSavedScheduleData
+            ? "Saved schedule rounds exist, but no room slots are available for the selected day/round."
+            : "No room schedule is available yet."}
+        </div>
       )}
     </section>
 
@@ -30668,7 +30790,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
             <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 800 }}>
               {eventAttendanceLearnerPresenceTokens.length
                 ? "No learners match the current filter."
-                : "No learner names found for this round. Add/import learner names in Schedule Builder or enter them in Setup."}
+                : authoritativeEventScheduleTruth.hasSavedScheduleData
+                  ? "No learner assignments are saved for this selected round yet."
+                  : "No learner names found for this round. Add/import learner names in Schedule Builder or enter them in Setup."}
             </div>
           )}
         </div>
