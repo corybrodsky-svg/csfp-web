@@ -55,6 +55,13 @@ import {
   type StudentInstructionsConfig,
 } from "../../lib/studentInstructionsConfig";
 import {
+  getExpectedSchedulePreviewRoundCount,
+  getSchedulePreviewRounds,
+  type SchedulePreviewRound,
+  type SchedulePreviewRoomSlot,
+  type ScheduleRhythmRound,
+} from "../../lib/schedulePreviewGuardrails";
+import {
   DEFAULT_CFSP_EMAIL_TEMPLATES,
   findEmailTemplate,
   normalizeEmailPlainText,
@@ -4384,6 +4391,197 @@ function buildRotationRoundsFromScheduleDraft(
   })();
 }
 
+type AuthoritativeScheduleRoundSource = {
+  fullSavedRounds: ScheduleBuilderPreviewResolvedRound[];
+  fullSavedRoundCount: number;
+  selectedDayRounds: ScheduleBuilderPreviewResolvedRound[];
+  source: "completed_snapshot" | "saved_builder_snapshot" | "none";
+  hasSavedSchedule: boolean;
+};
+
+function normalizeAuthoritativeScheduleRoomSlot(slot: SchedulePreviewRoomSlot, slotIndex: number) {
+  return {
+    roomName: asText(slot?.roomName) || `Exam ${slotIndex + 1}`,
+    learnerLabels: getActualLearnerNames(slot?.learnerLabels),
+    assignedSpName: getScheduleSlotPrimarySpName((slot || {}) as Record<string, unknown>),
+    backupSpName: asText(slot?.backupSpName),
+    caseLabel: getScheduleSlotCaseLabel((slot || {}) as Record<string, unknown>),
+    roleId: asText(slot?.roleId),
+    roleLabel: getScheduleSlotRoleLabel((slot || {}) as Record<string, unknown>),
+    notes: asText(slot?.notes),
+    stationStatus: normalizeScheduleStationStatus(slot?.stationStatus) || undefined,
+    isBackupStation: parseBooleanValue(slot?.isBackupStation, false),
+    roomType: slot?.roomType === "flex" ? "flex" : "exam",
+    capacity: Math.max(0, parsePositiveInteger(slot?.capacity, 0)),
+  } satisfies ScheduleBuilderPreviewResolvedRoomSlot;
+}
+
+function normalizeAuthoritativeScheduleRound(
+  round: SchedulePreviewRound,
+  index: number,
+  fallbackSessionDate: string
+) {
+  const roundNumber = Math.max(1, parsePositiveInteger(round.round, index + 1));
+  return {
+    round: roundNumber,
+    sessionDate: asText(round.sessionDate) || fallbackSessionDate,
+    startTime: asText(round.startTime),
+    endTime: asText(round.endTime),
+    roomSlots: (round.roomSlots || []).map((slot, slotIndex) => normalizeAuthoritativeScheduleRoomSlot(slot, slotIndex)),
+  } satisfies ScheduleBuilderPreviewResolvedRound;
+}
+
+function getRhythmRoundsFromRotationRounds(rounds: RotationRound[]): ScheduleRhythmRound[] {
+  return rounds
+    .map((round, index): ScheduleRhythmRound | null => {
+      const start = parseTimeToMinutes(round.start_time);
+      const rawEnd = parseTimeToMinutes(round.end_time);
+      const end = start !== null ? normalizeEndMinutesForRange(start, rawEnd) : null;
+      if (start === null || end === null) return null;
+      return {
+        round: index + 1,
+        start,
+        end,
+        subBlocks: [],
+      } satisfies ScheduleRhythmRound;
+    })
+    .filter((round): round is ScheduleRhythmRound => Boolean(round));
+}
+
+function getResolvedRoundsFromDraftTiming(
+  snapshot: ScheduleBuilderPreviewDraft,
+  expectedRoundCount: number,
+  eventDateText: string,
+  importedYearHint?: number | null
+) {
+  const draftRounds = buildRotationRoundsFromScheduleDraft(
+    snapshot,
+    expectedRoundCount,
+    eventDateText,
+    null,
+    importedYearHint
+  );
+  const sourceRounds = draftRounds.length
+    ? draftRounds
+    : Array.from({ length: Math.max(expectedRoundCount, 0) }, (_, index) => ({
+        key: getSnapshotRoundKey(index + 1),
+        session_date: eventDateText || null,
+        start_time: null,
+        end_time: null,
+        rooms: [] as string[],
+      }));
+  return sourceRounds.map((round, index) => ({
+    round: index + 1,
+    sessionDate: asText(round.session_date) || eventDateText,
+    startTime: asText(round.start_time),
+    endTime: asText(round.end_time),
+    roomSlots: round.rooms.map((roomName, slotIndex) => ({
+      roomName: asText(roomName) || `Exam ${slotIndex + 1}`,
+      learnerLabels: [],
+      assignedSpName: "",
+      backupSpName: "",
+      caseLabel: "",
+      roleId: "",
+      roleLabel: "",
+      notes: "",
+      roomType: "exam" as const,
+      capacity: 0,
+    })),
+  })) satisfies ScheduleBuilderPreviewResolvedRound[];
+}
+
+function getAuthoritativeScheduleRounds(
+  event: EventDetailRow | null | undefined,
+  savedBuilderSnapshot: ScheduleBuilderPreviewDraft | null | undefined,
+  completedSnapshot: ScheduleBuilderPreviewDraft | null | undefined,
+  options?: {
+    sessions?: EventSessionRow[];
+    importedYearHint?: number | null;
+    selectedDateContext?: string | null;
+  }
+) {
+  const snapshot = completedSnapshot || savedBuilderSnapshot || null;
+  const source = completedSnapshot
+    ? "completed_snapshot"
+    : savedBuilderSnapshot
+      ? "saved_builder_snapshot"
+      : "none";
+  const eventDateText =
+    asText(event?.date_text) ||
+    asText(options?.sessions?.[0]?.session_date);
+
+  if (!snapshot) {
+    return {
+      fullSavedRounds: [],
+      fullSavedRoundCount: 0,
+      selectedDayRounds: [],
+      source: "none",
+      hasSavedSchedule: false,
+    } satisfies AuthoritativeScheduleRoundSource;
+  }
+
+  const resolvedRounds = snapshot.resolvedRounds || [];
+  const expectedRoundCount = getExpectedSchedulePreviewRoundCount({
+    resolvedRounds,
+    scheduleRoundCount: snapshot.scheduleRoundCount,
+    roundCount: snapshot.roundCount,
+  });
+  const hasSavedSchedule = Boolean(
+    snapshot.savedAt ||
+      snapshot.startTime ||
+      resolvedRounds.length ||
+      expectedRoundCount > 0
+  );
+  if (!hasSavedSchedule) {
+    return {
+      fullSavedRounds: [],
+      fullSavedRoundCount: 0,
+      selectedDayRounds: [],
+      source: "none",
+      hasSavedSchedule: false,
+    } satisfies AuthoritativeScheduleRoundSource;
+  }
+
+  // IMPORTANT REGRESSION GUARD:
+  // Command Center round rail must hydrate from the authoritative saved schedule
+  // snapshot/builder draft. Never derive round count from fallback math, partial
+  // resolvedRounds, event summary cards, room operations rows, or visible occupancy data.
+  const rhythmRounds = getRhythmRoundsFromRotationRounds(
+    buildRotationRoundsFromScheduleDraft(
+      snapshot,
+      expectedRoundCount,
+      eventDateText,
+      null,
+      options?.importedYearHint
+    )
+  );
+  const fullSavedRounds = resolvedRounds.length
+    ? getSchedulePreviewRounds({
+        resolvedRounds,
+        scheduleRoundCount: expectedRoundCount,
+        roundCount: expectedRoundCount,
+        rhythmRounds,
+      }).map((round, index) => normalizeAuthoritativeScheduleRound(round, index, eventDateText))
+    : getResolvedRoundsFromDraftTiming(
+        snapshot,
+        expectedRoundCount,
+        eventDateText,
+        options?.importedYearHint
+      );
+  const selectedDateContext = asText(options?.selectedDateContext);
+  const selectedDayRounds = selectedDateContext
+    ? fullSavedRounds.filter((round) => asText(round.sessionDate) === selectedDateContext)
+    : fullSavedRounds;
+
+  return {
+    fullSavedRounds,
+    fullSavedRoundCount: Math.max(expectedRoundCount, fullSavedRounds.length),
+    selectedDayRounds: selectedDayRounds.length ? selectedDayRounds : fullSavedRounds,
+    source,
+    hasSavedSchedule: true,
+  } satisfies AuthoritativeScheduleRoundSource;
+}
+
 function formatRotationRoundLabel(
   round: RotationRound,
   fallbackYear?: number | null,
@@ -7697,6 +7895,27 @@ export default function EventDetailPage() {
     () => parsePositiveInteger(trainingMetadata.schedule_round_count, 0),
     [trainingMetadata.schedule_round_count]
   );
+  const authoritativeScheduleRoundSource = useMemo(
+    () =>
+      getAuthoritativeScheduleRounds(
+        event,
+        scheduleBuilderPreviewDraft || null,
+        asText(trainingMetadata.schedule_status).toLowerCase() === "complete"
+          ? scheduleBuilderPreviewDraft || null
+          : null,
+        {
+          sessions,
+          importedYearHint,
+        }
+      ),
+    [
+      event,
+      importedYearHint,
+      scheduleBuilderPreviewDraft,
+      sessions,
+      trainingMetadata.schedule_status,
+    ]
+  );
   const fallbackRotationCountSource = useMemo(() => {
     const requiredCapacityRounds = Math.max(scheduleBuilderAutoRoundCount, metadataRotationRoundsNeeded);
     if (overrideRoundCount > 0 && (requiredCapacityRounds <= 0 || overrideRoundCount >= requiredCapacityRounds)) {
@@ -7748,16 +7967,21 @@ export default function EventDetailPage() {
     const completedSnapshotRoundCount = scheduleBuilderPreviewDraft?.resolvedRounds?.length || 0;
     const completedBaseCandidate =
       scheduleStatus === "complete"
-        ? completedSnapshotRoundCount || scheduleBuilderDraftRoundCount || metadataBasedRotationCount
+        ? Math.max(
+            authoritativeScheduleRoundSource.fullSavedRoundCount,
+            completedSnapshotRoundCount,
+            scheduleBuilderDraftRoundCount,
+            metadataBasedRotationCount
+          )
         : 0;
     const completedCandidate = completedBaseCandidate;
     const draftBaseCandidate =
-      !completedBaseCandidate && hasDraftTiming
-        ? scheduleBuilderDraftRoundCount
+      !completedBaseCandidate && (hasDraftTiming || authoritativeScheduleRoundSource.hasSavedSchedule)
+        ? Math.max(authoritativeScheduleRoundSource.fullSavedRoundCount, scheduleBuilderDraftRoundCount)
         : 0;
     const draftCandidate = draftBaseCandidate;
-    const generatedCandidate = allRotationRounds.length;
-    const fallbackCandidate = fallbackRotationCountSource.rounds;
+    const generatedCandidate = authoritativeScheduleRoundSource.hasSavedSchedule ? 0 : allRotationRounds.length;
+    const fallbackCandidate = authoritativeScheduleRoundSource.hasSavedSchedule ? 0 : fallbackRotationCountSource.rounds;
 
     const candidates: Array<{ source: string; rounds: number; label: string }> = [];
     if (completedCandidate > 0) {
@@ -7774,7 +7998,7 @@ export default function EventDetailPage() {
       });
     }
 
-    if (generatedCandidate > 0) {
+    if (!authoritativeScheduleRoundSource.hasSavedSchedule && generatedCandidate > 0) {
       candidates.push({
         source: "generated",
         rounds: generatedCandidate,
@@ -7782,7 +8006,7 @@ export default function EventDetailPage() {
       });
     }
 
-    if (fallbackCandidate > 0) {
+    if (!authoritativeScheduleRoundSource.hasSavedSchedule && fallbackCandidate > 0) {
       candidates.push({
         source: "fallback",
         rounds: fallbackCandidate,
@@ -7825,6 +8049,7 @@ export default function EventDetailPage() {
     };
   }, [
     allRotationRounds.length,
+    authoritativeScheduleRoundSource,
     fallbackRotationCountSource,
     metadataBasedRotationCount,
     scheduleBuilderDraftRoundCount,
@@ -7835,18 +8060,28 @@ export default function EventDetailPage() {
     () => scheduleRoundCountResolution.rounds || scheduleBuilderDraftRoundCount || 0,
     [scheduleRoundCountResolution.rounds, scheduleBuilderDraftRoundCount]
   );
+  const authoritativeScheduleResolvedRounds = authoritativeScheduleRoundSource.fullSavedRounds;
   const eventEndTimeText = asText(trainingMetadata.event_end_time);
   const lastSessionEndTimeText = asText(sessions[sessions.length - 1]?.end_time);
   const resolvedRotationDraftEndText = eventEndTimeText || lastSessionEndTimeText;
   const persistedResolvedRoundsByKey = useMemo(() => {
     const next = new Map<string, ScheduleBuilderPreviewResolvedRound>();
-    (scheduleBuilderPreviewDraft?.resolvedRounds || []).forEach((round) => {
+    authoritativeScheduleResolvedRounds.forEach((round) => {
       next.set(`completed-snapshot-round-${round.round}`, round);
     });
     return next;
-  }, [scheduleBuilderPreviewDraft?.resolvedRounds]);
+  }, [authoritativeScheduleResolvedRounds]);
   const rotationRounds = useMemo(
     () => {
+      if (authoritativeScheduleResolvedRounds.length) {
+        return authoritativeScheduleResolvedRounds.map((round, index) => ({
+          key: getSnapshotRoundKey(round.round || index + 1),
+          session_date: asText(round.sessionDate) || event?.date_text || sessions[0]?.session_date || null,
+          start_time: asText(round.startTime) || null,
+          end_time: asText(round.endTime) || null,
+          rooms: round.roomSlots.map((slot) => asText(slot.roomName)).filter(Boolean),
+        }));
+      }
       if (scheduleBuilderPreviewDraft?.resolvedRounds?.length) {
         const completedSnapshotRoundsByNumber = new Map<number, RotationRound>();
         const completedSnapshotRounds = scheduleBuilderPreviewDraft.resolvedRounds.map((round) => {
@@ -7927,6 +8162,7 @@ export default function EventDetailPage() {
     [
       activeRotationCount,
       allRotationRounds,
+      authoritativeScheduleResolvedRounds,
       event?.date_text,
       importedYearHint,
       scheduleBuilderPreviewDraft,
@@ -7954,7 +8190,7 @@ export default function EventDetailPage() {
       (round) => asText(round.session_date) === selectedEventDateContext
     );
 
-    const usingCompletedBuilderSnapshot = Boolean(scheduleBuilderPreviewDraft?.resolvedRounds?.length);
+    const usingCompletedBuilderSnapshot = authoritativeScheduleRoundSource.hasSavedSchedule;
 
     // Completed builder snapshots are the source of truth. Do not hide saved
     // rounds just because imported/fallback dates do not line up perfectly.
@@ -7963,7 +8199,7 @@ export default function EventDetailPage() {
     }
 
     return filteredRounds;
-  }, [rotationRounds, scheduleBuilderPreviewDraft?.resolvedRounds?.length, selectedEventDateContext]);
+  }, [authoritativeScheduleRoundSource.hasSavedSchedule, rotationRounds, selectedEventDateContext]);
   useEffect(() => {
     if (!scheduleRoundCountResolution.hasConflict || !scheduleRoundCountResolution.candidates.length) return;
 
@@ -8069,7 +8305,7 @@ export default function EventDetailPage() {
   );
   const roomSlotEntriesByRoundKey = useMemo(() => {
     const next = new Map<string, RoomDisplayEntry[]>();
-    const resolvedRounds = scheduleBuilderPreviewDraft?.resolvedRounds || [];
+    const resolvedRounds = authoritativeScheduleResolvedRounds;
     rotationRounds.forEach((round, index) => {
       const persistedRound = resolveSelectedScheduleRound({
         selectedRotationRound: round,
@@ -8088,7 +8324,7 @@ export default function EventDetailPage() {
       );
     });
     return next;
-  }, [effectiveRoomCount, persistedResolvedRoundsByKey, roomNamingContext, rotationRounds, scheduleBuilderPreviewDraft?.resolvedRounds]);
+  }, [authoritativeScheduleResolvedRounds, effectiveRoomCount, persistedResolvedRoundsByKey, roomNamingContext, rotationRounds]);
   const hiddenExtraBackendRounds =
     activeRotationCount > 0 && allRotationRounds.length > rotationRounds.length
       ? allRotationRounds.length - rotationRounds.length
@@ -8712,7 +8948,7 @@ const operationalEventStatusLabel = useMemo(() => {
     const completedReferenceRound = currentLiveReferenceRound
       ? resolveSelectedScheduleRound({
           selectedRotationRound: currentLiveReferenceRound,
-          resolvedRounds: scheduleBuilderPreviewDraft?.resolvedRounds || [],
+          resolvedRounds: authoritativeScheduleResolvedRounds,
           persistedResolvedRoundsByKey,
           selectedRoundIndex: Math.max(liveReferenceRoundIndex, 0),
           selectedRoundGlobalIndex: Math.max(liveReferenceRoundIndex, 0),
@@ -8858,6 +9094,7 @@ const operationalEventStatusLabel = useMemo(() => {
       };
 	    });
 	  }, [
+    authoritativeScheduleResolvedRounds,
 	    confirmedAssignments,
 	    currentLiveBlock,
 	    currentLiveRoomDisplayEntries,
@@ -8871,7 +9108,6 @@ const operationalEventStatusLabel = useMemo(() => {
     scheduleBuilderDraftLearnerRoster,
     scheduleBuilderDraftRoomCapacity,
     scheduleBuilderPreviewDraft?.scheduleCaseDefinitions,
-    scheduleBuilderPreviewDraft?.resolvedRounds,
     sessions,
     simulatedLiveMinutes,
     currentLiveRoomAssignmentPlan.assignments,
@@ -10900,7 +11136,7 @@ const operationalEventStatusLabel = useMemo(() => {
 
     const completedReferenceRound = resolveSelectedScheduleRound({
       selectedRotationRound: currentLiveReferenceRound,
-      resolvedRounds: scheduleBuilderPreviewDraft?.resolvedRounds || [],
+      resolvedRounds: authoritativeScheduleResolvedRounds,
       persistedResolvedRoundsByKey,
       selectedRoundIndex: Math.max(currentLiveReferenceRoundIndex, 0),
       selectedRoundGlobalIndex: Math.max(currentLiveReferenceRoundIndex, 0),
@@ -10976,11 +11212,11 @@ const operationalEventStatusLabel = useMemo(() => {
     currentLiveReferenceSessions,
     isScheduleMatrixVirtual,
     activeScheduleRoomAdjustments,
+    authoritativeScheduleResolvedRounds,
     persistedResolvedRoundsByKey,
     resolvedScheduleMatrixCaseCount,
     roomNamingContext,
     scheduleBuilderPreviewDraft?.scheduleCaseDefinitions,
-    scheduleBuilderPreviewDraft?.resolvedRounds,
     scheduleBuilderLearnerNames,
     scheduleBuilderRoomCapacity,
     trainingMetadata.case_files,
@@ -10994,7 +11230,7 @@ const operationalEventStatusLabel = useMemo(() => {
     () =>
       resolveSelectedScheduleRound({
         selectedRotationRound,
-        resolvedRounds: scheduleBuilderPreviewDraft?.resolvedRounds || [],
+        resolvedRounds: authoritativeScheduleResolvedRounds,
         persistedResolvedRoundsByKey,
         selectedRoundIndex: activeSelectedRotationRoundIndex,
         selectedRoundGlobalIndex: activeSelectedRotationRoundGlobalIndex,
@@ -11002,8 +11238,8 @@ const operationalEventStatusLabel = useMemo(() => {
     [
       activeSelectedRotationRoundGlobalIndex,
       activeSelectedRotationRoundIndex,
+      authoritativeScheduleResolvedRounds,
       persistedResolvedRoundsByKey,
-      scheduleBuilderPreviewDraft?.resolvedRounds,
       selectedRotationRound,
     ]
   );
@@ -13776,7 +14012,7 @@ Cory`;
   }, [roomSlotEntriesByRoundKey, rotationRounds, selectedRoundScheduleRows]);
   const reviewSummaryGeneratedRoomSlotCount = useMemo(() => {
     const completedSlotCount =
-      scheduleBuilderPreviewDraft?.resolvedRounds?.reduce((total, round) => total + round.roomSlots.length, 0) || 0;
+      authoritativeScheduleResolvedRounds.reduce((total, round) => total + round.roomSlots.length, 0) || 0;
     if (completedSlotCount > 0) return completedSlotCount;
 
     const generatedSlotCount = rotationRounds.reduce(
@@ -13786,7 +14022,7 @@ Cory`;
     if (generatedSlotCount > 0) return generatedSlotCount;
 
     return activeRotationCount > 0 && effectiveRoomCount > 0 ? activeRotationCount * effectiveRoomCount : 0;
-  }, [activeRotationCount, effectiveRoomCount, roomSlotEntriesByRoundKey, rotationRounds, scheduleBuilderPreviewDraft?.resolvedRounds]);
+  }, [activeRotationCount, authoritativeScheduleResolvedRounds, effectiveRoomCount, roomSlotEntriesByRoundKey, rotationRounds]);
   const reviewSummaryPrebriefMinutes = Math.max(
     parsePositiveInteger(scheduleBuilderPreviewDraft?.studentPrebriefMinutes, 0),
     parsePositiveInteger(scheduleBuilderPreviewDraft?.spPrebriefMinutes, 0),
@@ -28004,7 +28240,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                       const roundRoomCount = roundSlotEntries.length || 0;
                       const persistedRoundSnapshot = resolveSelectedScheduleRound({
                         selectedRotationRound: round,
-                        resolvedRounds: scheduleBuilderPreviewDraft?.resolvedRounds || [],
+                        resolvedRounds: authoritativeScheduleResolvedRounds,
                         persistedResolvedRoundsByKey,
                         selectedRoundIndex: index,
                         selectedRoundGlobalIndex: roundGlobalIndex,
