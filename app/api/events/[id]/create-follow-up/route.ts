@@ -7,6 +7,7 @@ import {
   setAuthCookies,
 } from "../../../../lib/authCookies";
 import { parseEventMetadata, upsertEventMetadata } from "../../../../lib/eventMetadata";
+import { extractAnnouncementScheduleBlock } from "../../../../lib/announcementSchedule";
 import {
   DEFAULT_FOLLOW_UP_COPY_OPTIONS,
   normalizeFollowUpCopyOptions,
@@ -246,6 +247,7 @@ const FOLLOW_UP_EXCLUDED_METADATA_BLOCKS = new Set([
   "CFSP_POLL_RESPONSE",
   "CFSP_LIVE_ATTENDANCE",
   "CFSP_QA_CHECKLIST_STATE",
+  "CFSP_ANNOUNCEMENT_SCHEDULE",
 ]);
 
 const LEARNER_METADATA_KEYS: Array<keyof TrainingEventMetadata> = [
@@ -419,6 +421,7 @@ function composeFollowUpNotes(args: {
   sourceNotes: string | null;
   visibleNotes: string;
   trainingMetadata: Partial<TrainingEventMetadata>;
+  copyAnnouncementSchedule?: boolean;
 }) {
   const nextNotes = upsertEventMetadata(args.visibleNotes, {
     training: args.trainingMetadata,
@@ -427,10 +430,13 @@ function composeFollowUpNotes(args: {
   const preservedBlocks = Array.from(extractCfspMetadataBlocks(args.sourceNotes).entries())
     .filter(([key]) => !FOLLOW_UP_EXCLUDED_METADATA_BLOCKS.has(key))
     .map(([, value]) => value);
+  const announcementScheduleBlock = args.copyAnnouncementSchedule
+    ? extractAnnouncementScheduleBlock(args.sourceNotes)
+    : "";
 
   const visibleSection = stripCfspMetadataBlocks(nextNotes);
   const trainingBlock = extractCfspMetadataBlocks(nextNotes).get("CFSP_TRAINING_METADATA") || "";
-  const sections = [trainingBlock, ...preservedBlocks, visibleSection].filter(Boolean);
+  const sections = [trainingBlock, announcementScheduleBlock, ...preservedBlocks, visibleSection].filter(Boolean);
   return sections.join("\n").trim();
 }
 
@@ -686,7 +692,7 @@ function buildScheduleMetadataForFollowUp(args: {
     schedule_completed_at: "",
     schedule_completed_by: "",
     schedule_preview_enabled_for_sps: "",
-    announcement_cue_overrides: asText(args.sourceMetadata.announcement_cue_overrides),
+    announcement_cue_overrides: "",
     schedule_room_count: asText(args.sourceMetadata.schedule_room_count),
     schedule_round_count: asText(args.sourceMetadata.schedule_round_count),
     schedule_room_capacity: asText(args.sourceMetadata.schedule_room_capacity),
@@ -864,6 +870,7 @@ export async function createRelatedEvent(
       sourceNotes: sourceEvent.notes,
       visibleNotes: newVisibleNotes,
       trainingMetadata: followUpTrainingMetadata,
+      copyAnnouncementSchedule: copyOptions.copyAnnouncementSchedule,
     });
     const nextNotesWithEventTypes = sourceParsedEventMetadata.eventTypes.length
       ? upsertEventMetadata(nextNotes, { eventTypes: sourceParsedEventMetadata.eventTypes })

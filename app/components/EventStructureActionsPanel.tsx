@@ -470,6 +470,7 @@ export default function EventStructureActionsPanel({
                     {(Object.keys(FOLLOW_UP_COPY_OPTION_LABELS) as Array<keyof FollowUpCopyOptions>).map((optionKey) => {
                       const isDisabled =
                         (optionKey === "copyLearnerRoster" && cloneDraft.copyOptions.copyScheduleStructure) ||
+                        (optionKey === "copyAnnouncementSchedule" && !cloneDraft.copyOptions.copyScheduleStructure) ||
                         (optionKey === "createCompletedSchedule" && !cloneDraft.copyOptions.copyScheduleStructure);
                       return (
                         <label
@@ -499,9 +500,11 @@ export default function EventStructureActionsPanel({
                                 nextCopyOptions[optionKey] = !current.copyOptions[optionKey];
                                 if (optionKey === "copyScheduleStructure" && nextCopyOptions.copyScheduleStructure) {
                                   nextCopyOptions.copyLearnerRoster = true;
+                                  nextCopyOptions.copyAnnouncementSchedule = true;
                                 }
                                 if (optionKey === "copyScheduleStructure" && !nextCopyOptions.copyScheduleStructure) {
                                   nextCopyOptions.createCompletedSchedule = false;
+                                  nextCopyOptions.copyAnnouncementSchedule = false;
                                 }
                                 if (optionKey === "createCompletedSchedule" && nextCopyOptions.createCompletedSchedule) {
                                   nextCopyOptions.copyScheduleStructure = true;

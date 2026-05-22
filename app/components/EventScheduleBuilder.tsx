@@ -7,10 +7,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { jsPDF as JsPDFClass } from "jspdf";
 import { formatHumanDate, getImportedYearHint } from "../lib/eventDateUtils";
+import { formatDisplayTimeFromMinutes } from "../lib/timeFormat";
 import { parseEventMetadata, upsertEventMetadata } from "../lib/eventMetadata";
 import { normalizeDisplayText, normalizeLearnerName, normalizeLearnerNames } from "../lib/learnerNames";
 import { getRoomDisplayLabel, getRoomTypeLabel } from "../lib/roomNaming";
-import { buildRoundAnnouncementItems } from "../lib/roundAnnouncements";
+import {
+  buildRoundAnnouncementCueTimeline,
+  parseAnnouncementScheduleFromNotes,
+} from "../lib/announcementSchedule";
 import {
   formatRoundRhythmBreakdown,
   getExpectedSchedulePreviewRoundCount,
@@ -2775,6 +2779,12 @@ function buildStudentInstructionsExportHtml(context: StudentInstructionsExportCo
       : "hybrid";
   const encounterLabel = normalizeDisplayText(instructionsConfig?.encounterTimeDetail) || formatStudentInstructionsMinutes(encounterMinutes);
   const feedbackLabel = normalizeDisplayText(instructionsConfig?.feedbackTimeDetail) || formatStudentInstructionsMinutes(feedbackMinutes);
+  const announcementScheduleConfig = parseAnnouncementScheduleFromNotes(context.event?.notes);
+  const studentPacketAnnouncementFlow = studentScheduleRounds[0]
+    ? buildRoundAnnouncementCueTimeline(studentScheduleRounds[0], studentScheduleRounds[1] || null, announcementScheduleConfig, {
+        formatTime: (minutes) => formatDisplayTimeFromMinutes(minutes),
+      }).slice(0, 6)
+    : [];
   const joinOffsetMinutes = getStudentInstructionsJoinOffsetMinutes(instructionsConfig);
   const arrivalOffsetMinutes = joinOffsetMinutes > 0 ? joinOffsetMinutes : 15;
   const hasFirstEncounterStart =
@@ -3677,26 +3687,20 @@ color: #17304f;
             <section class="student-packet-page-section instructions-section announcement-flow-panel">
               <h3>Announcement Flow</h3>
               <div class="announcement-flow-grid">
-                <div class="announcement-flow-item">
-                  <div class="announcement-flow-offset">-1 min</div>
-                  <div class="announcement-flow-text">SPs prepare.</div>
-                </div>
-                <div class="announcement-flow-item">
-                  <div class="announcement-flow-offset">0 min</div>
-                  <div class="announcement-flow-text">Begin Encounter.</div>
-                </div>
-                <div class="announcement-flow-item">
-                  <div class="announcement-flow-offset">+15 min</div>
-                  <div class="announcement-flow-text">5 minutes remaining.</div>
-                </div>
-                <div class="announcement-flow-item">
-                  <div class="announcement-flow-offset">+20 min</div>
-                  <div class="announcement-flow-text">Please Begin Feedback.</div>
-                </div>
-                <div class="announcement-flow-item">
-                  <div class="announcement-flow-offset">+25 min</div>
-                  <div class="announcement-flow-text">Your Encounter is Over. Please Leave the Meeting.</div>
-                </div>
+                ${
+                  studentPacketAnnouncementFlow.length
+                    ? studentPacketAnnouncementFlow
+                        .map(
+                          (cue) => `
+                            <div class="announcement-flow-item">
+                              <div class="announcement-flow-offset">${escapeHtml(cue.timeLabel)}</div>
+                              <div class="announcement-flow-text">${escapeHtml(cue.message)}</div>
+                            </div>
+                          `
+                        )
+                        .join("")
+                    : `<div class="announcement-flow-item"><div class="announcement-flow-offset">Timing unavailable</div><div class="announcement-flow-text">Complete the schedule to calculate announcement cues.</div></div>`
+                }
               </div>
             </section>
 
@@ -5213,8 +5217,9 @@ function buildSchedulePreviewData(args: {
   const previewScheduleGridRows = isStudentPreview
     ? scheduleGridRows.filter((entry) => entry.kind !== "wide")
     : scheduleGridRows;
+  const announcementScheduleConfig = parseAnnouncementScheduleFromNotes(event?.notes);
   const announcementRoundItems = previewRounds.flatMap((round, index) =>
-    buildRoundAnnouncementItems(round, previewRounds[index + 1] || null, { formatTime: toDisplayTime }).map((item) => ({
+    buildRoundAnnouncementCueTimeline(round, previewRounds[index + 1] || null, announcementScheduleConfig, { formatTime: toDisplayTime }).map((item) => ({
       ...item,
       roundNumber: round.round,
     }))

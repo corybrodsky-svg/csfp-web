@@ -7,6 +7,16 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import EventStructureActionsPanel from "../components/EventStructureActionsPanel";
 import SiteShell from "../components/SiteShell";
 import {
+  buildRoundAnnouncementCueTimeline,
+  getDefaultVirAnnouncementCues,
+  normalizeAnnouncementScheduleConfig,
+  parseAnnouncementScheduleFromNotes,
+  upsertAnnouncementScheduleInNotes,
+  type AnnouncementCueAnchor,
+  type AnnouncementScheduleConfig,
+  type AnnouncementScheduleCueConfig,
+} from "../lib/announcementSchedule";
+import {
   DEFAULT_CFSP_EMAIL_TEMPLATES,
   renderEmailTemplate,
   type EmailTemplateRecord,
@@ -97,6 +107,7 @@ type EmailTemplateApiResponse = {
 
 type SettingsSectionId =
   | "event-structure"
+  | "announcement-schedule"
   | "email-templates"
   | "session-checklist"
   | "core-event-details"
@@ -108,6 +119,7 @@ type SettingsSectionId =
 
 const SETTINGS_SECTION_IDS: SettingsSectionId[] = [
   "event-structure",
+  "announcement-schedule",
   "email-templates",
   "session-checklist",
   "core-event-details",
@@ -336,6 +348,243 @@ function CollapsibleSettingsSection({
       </button>
       {expanded ? <div className="mt-4 grid gap-3">{children}</div> : null}
     </section>
+  );
+}
+
+const announcementAnchorOptions: Array<{ value: AnnouncementCueAnchor; label: string }> = [
+  { value: "encounter_start", label: "Encounter start" },
+  { value: "encounter_end", label: "Encounter end" },
+  { value: "feedback_start", label: "Feedback start" },
+  { value: "feedback_end", label: "Feedback end" },
+  { value: "transition_start", label: "Transition start" },
+  { value: "block_end", label: "Block end" },
+  { value: "custom_time", label: "Custom time" },
+];
+
+function AnnouncementScheduleManager({
+  eventId,
+  eventNotes,
+  sessions,
+  canEdit,
+  onNotesChange,
+}: {
+  eventId: string;
+  eventNotes: string;
+  sessions: EventSessionRow[];
+  canEdit: boolean;
+  onNotesChange: (nextNotes: string) => void;
+}) {
+  const [draft, setDraft] = useState<AnnouncementScheduleConfig>(() => parseAnnouncementScheduleFromNotes(eventNotes));
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    setDraft(parseAnnouncementScheduleFromNotes(eventNotes));
+  }, [eventNotes]);
+
+  const previewRound = useMemo(() => {
+    const firstSession = sessions[0] || null;
+    if (!firstSession?.start_time || !firstSession?.end_time) return null;
+    return {
+      key: "settings-preview-round",
+      round: 1,
+      start: firstSession.start_time,
+      end: firstSession.end_time,
+      subBlocks: [
+        {
+          label: "Encounter",
+          start: firstSession.start_time,
+          end: firstSession.end_time,
+        },
+      ],
+    };
+  }, [sessions]);
+  const previewItems = useMemo(
+    () => buildRoundAnnouncementCueTimeline(previewRound, null, draft),
+    [draft, previewRound]
+  );
+
+  function updateCue(cueId: string, updates: Partial<AnnouncementScheduleCueConfig>) {
+    setDraft((current) => ({
+      ...current,
+      cues: current.cues.map((cue) => (cue.id === cueId ? { ...cue, ...updates } : cue)),
+    }));
+    setMessage("");
+  }
+
+  function moveCue(cueId: string, delta: number) {
+    setDraft((current) => {
+      const cues = [...current.cues];
+      const index = cues.findIndex((cue) => cue.id === cueId);
+      const nextIndex = index + delta;
+      if (index < 0 || nextIndex < 0 || nextIndex >= cues.length) return current;
+      const [cue] = cues.splice(index, 1);
+      cues.splice(nextIndex, 0, cue);
+      return normalizeAnnouncementScheduleConfig({ ...current, cues });
+    });
+  }
+
+  function addCue() {
+    setDraft((current) =>
+      normalizeAnnouncementScheduleConfig({
+        ...current,
+        cues: [
+          ...current.cues,
+          {
+            id: `custom-cue-${Date.now()}`,
+            title: "New Announcement Cue",
+            announcementText: "Announcement text.",
+            anchor: "encounter_start",
+            offsetMinutes: 0,
+            active: true,
+            sortOrder: current.cues.length,
+            appliesTo: "all_rounds",
+          },
+        ],
+      })
+    );
+  }
+
+  function resetVirDefaults() {
+    setDraft(normalizeAnnouncementScheduleConfig({ version: 1, cues: getDefaultVirAnnouncementCues() }));
+    setMessage("");
+    setError("");
+  }
+
+  async function saveAnnouncementSchedule() {
+    if (!eventId) {
+      setError("Select an event before saving announcement settings.");
+      return;
+    }
+    if (!canEdit) {
+      setError("Admin or Sim Ops access is required to edit announcement settings.");
+      return;
+    }
+
+    setSaving(true);
+    setMessage("");
+    setError("");
+    try {
+      const normalized = normalizeAnnouncementScheduleConfig({
+        ...draft,
+        updatedAt: new Date().toISOString(),
+      });
+      const nextNotes = upsertAnnouncementScheduleInNotes(eventNotes, normalized);
+      const response = await fetch(`/api/events/${encodeURIComponent(eventId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          event_updates: {
+            notes: nextNotes,
+          },
+        }),
+      });
+      if (!response.ok) {
+        const detail = await response.text().catch(() => "");
+        throw new Error(detail || "Could not save announcement schedule.");
+      }
+      setDraft(normalized);
+      onNotesChange(nextNotes);
+      setMessage("Announcement schedule saved.");
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Could not save announcement schedule.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="grid gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[var(--cfsp-border)] bg-slate-50 p-3">
+        <div>
+          <p className="cfsp-kicker">Schedule-linked cues</p>
+          <p className="mt-1 text-sm font-bold text-[var(--cfsp-text-muted)]">
+            These cue rules calculate against each round&apos;s completed schedule timing. Delivered/skipped/snoozed live state is stored separately.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={addCue} disabled={saving || !canEdit} className="cfsp-btn cfsp-btn-secondary disabled:opacity-50">
+            Add Announcement Cue
+          </button>
+          <button type="button" onClick={resetVirDefaults} disabled={saving || !canEdit} className="cfsp-btn cfsp-btn-secondary disabled:opacity-50">
+            Reset VIR Defaults
+          </button>
+          <button type="button" onClick={() => void saveAnnouncementSchedule()} disabled={saving || !canEdit} className="cfsp-btn cfsp-btn-primary disabled:opacity-50">
+            {saving ? "Saving..." : "Save Announcement Schedule"}
+          </button>
+        </div>
+      </div>
+
+      {message ? <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-bold text-emerald-700">{message}</div> : null}
+      {error ? <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-700">{error}</div> : null}
+
+      <div className="grid gap-3">
+        {draft.cues.map((cue, index) => {
+          const preview = previewItems.find((item) => item.cueId === cue.id);
+          return (
+            <section key={cue.id} className="rounded-2xl border border-[var(--cfsp-border)] bg-white p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <p className="cfsp-kicker">Cue {index + 1}</p>
+                  <p className="mt-1 text-sm font-black text-[var(--cfsp-text)]">{cue.title || "Untitled cue"}</p>
+                  <p className="mt-1 text-xs font-bold text-[var(--cfsp-text-muted)]">
+                    Preview: {preview ? `${preview.timeLabel} · ${preview.message}` : "Timing unavailable"}
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" onClick={() => moveCue(cue.id, -1)} disabled={saving || index === 0 || !canEdit} className="cfsp-btn cfsp-btn-secondary disabled:opacity-50">
+                    Move Up
+                  </button>
+                  <button type="button" onClick={() => moveCue(cue.id, 1)} disabled={saving || index === draft.cues.length - 1 || !canEdit} className="cfsp-btn cfsp-btn-secondary disabled:opacity-50">
+                    Move Down
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDraft((current) => normalizeAnnouncementScheduleConfig({ ...current, cues: current.cues.filter((item) => item.id !== cue.id) }))}
+                    disabled={saving || !canEdit}
+                    className="cfsp-btn cfsp-btn-secondary disabled:opacity-50"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+              <div className="mt-3 grid gap-3 md:grid-cols-2">
+                <Field label="Title" value={cue.title} onChange={(value) => updateCue(cue.id, { title: value })} />
+                <label className="grid gap-1">
+                  <span className="text-[11px] font-black uppercase tracking-[0.16em] text-[var(--cfsp-text-muted)]">Anchor</span>
+                  <select value={cue.anchor} onChange={(event) => updateCue(cue.id, { anchor: event.target.value as AnnouncementCueAnchor })} disabled={saving || !canEdit} className="cfsp-input">
+                    {announcementAnchorOptions.map((option) => (
+                      <option key={`anchor-${cue.id}-${option.value}`} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <Field label="Offset minutes" value={String(cue.offsetMinutes)} onChange={(value) => updateCue(cue.id, { offsetMinutes: Number.parseInt(value, 10) || 0 })} />
+                {cue.anchor === "custom_time" ? (
+                  <Field label="Custom time" value={cue.customTime || ""} onChange={(value) => updateCue(cue.id, { customTime: value })} placeholder="09:15" />
+                ) : null}
+                <label className="grid gap-1 md:col-span-2">
+                  <span className="text-[11px] font-black uppercase tracking-[0.16em] text-[var(--cfsp-text-muted)]">Announcement text</span>
+                  <textarea
+                    value={cue.announcementText}
+                    onChange={(event) => updateCue(cue.id, { announcementText: event.target.value })}
+                    disabled={saving || !canEdit}
+                    rows={3}
+                    className="cfsp-input"
+                  />
+                </label>
+                <label className="flex items-center gap-2 text-sm font-black text-[var(--cfsp-text)]">
+                  <input type="checkbox" checked={cue.active} onChange={(event) => updateCue(cue.id, { active: event.target.checked })} disabled={saving || !canEdit} />
+                  Active cue
+                </label>
+              </div>
+            </section>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -1540,6 +1789,23 @@ function SettingsContent() {
                 }}
               />
               <PushRelatedEventsSettingsPanel eventId={eventId} eventName={eventEdit.name} canManage={canEdit} />
+            </CollapsibleSettingsSection>
+
+            <CollapsibleSettingsSection
+              id="announcement-schedule"
+              title="Announcement Schedule"
+              detail="Configure schedule-linked operational announcement cues used by Live Attendance, Schedule Builder exports, and event copies."
+              kicker="Live operations"
+              expanded={expandedSections["announcement-schedule"]}
+              onToggle={toggleSection}
+            >
+              <AnnouncementScheduleManager
+                eventId={eventId}
+                eventNotes={eventEdit.notes}
+                sessions={eventSessions}
+                canEdit={canEdit}
+                onNotesChange={(nextNotes) => setEventEdit((current) => ({ ...current, notes: nextNotes }))}
+              />
             </CollapsibleSettingsSection>
 
             <CollapsibleSettingsSection

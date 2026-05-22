@@ -33,7 +33,12 @@ import {
   normalizeEndMinutesForRange,
   parseTimeToMinutes,
 } from "../../lib/timeFormat";
-import { buildRoundAnnouncementItems } from "../../lib/roundAnnouncements";
+import {
+  buildRoundAnnouncementCueTimeline,
+  parseAnnouncementScheduleFromNotes,
+  upsertAnnouncementScheduleInNotes,
+  type AnnouncementScheduleConfig,
+} from "../../lib/announcementSchedule";
 import {
   editableEventTypeLabels,
   type EditableEventType,
@@ -59,10 +64,8 @@ import {
 import {
   formatCueCountdown,
   parseAnnouncementAlertSettings,
-  parseAnnouncementCueOverrides,
   parseAnnouncementCueState,
   serializeAnnouncementAlertSettings,
-  serializeAnnouncementCueOverrides,
   serializeAnnouncementCueState,
   type AnnouncementCueStateRecord,
 } from "../../lib/announcementCues";
@@ -301,6 +304,7 @@ type CommandDockPanelState = {
 type LiveRoomStatusValue = "ready" | "in_session" | "delayed" | "empty" | "sp_missing" | "complete";
 type AnnouncementCueTimelineEntry = {
   key: string;
+  cueId: string;
   roundKey: string;
   roundNumber: number;
   timeMinutes: number;
@@ -7288,9 +7292,9 @@ export default function EventDetailPage() {
   const followUpParentEventTitle =
     asText(trainingMetadata.copied_from_event_name) ||
     asText(trainingMetadata.linked_event_title);
-  const announcementCueOverrides = useMemo(
-    () => parseAnnouncementCueOverrides(trainingMetadata.announcement_cue_overrides),
-    [trainingMetadata.announcement_cue_overrides]
+  const announcementScheduleConfig = useMemo(
+    () => parseAnnouncementScheduleFromNotes(eventEditor.notes || event?.notes),
+    [event?.notes, eventEditor.notes]
   );
   const announcementCueStateMap = useMemo(
     () => parseAnnouncementCueState(trainingMetadata.announcement_cue_state),
@@ -11480,7 +11484,6 @@ const operationalEventStatusLabel = useMemo(() => {
         const nextRoundTiming = nextRound
           ? getNormalizedRotationRoundTiming(nextRound, getSameDateRotationRounds(nextRound, rotationRounds))
           : null;
-        const nextRoundStartMinutes = nextRoundTiming?.startMinutes ?? null;
         const selectedRoundKeyPrefix = `${asText(round.key)}-`;
         const roundFlowBlocks = (Array.isArray(liveFlowBlocks) ? liveFlowBlocks : [])
           .filter((block) => asText(block?.key).startsWith(selectedRoundKeyPrefix))
@@ -11490,7 +11493,7 @@ const operationalEventStatusLabel = useMemo(() => {
             end: block?.endMinutes,
           }));
 
-        return buildRoundAnnouncementItems(
+        return buildRoundAnnouncementCueTimeline(
           {
             key: round.key,
             round: roundIndex + 1,
@@ -11498,18 +11501,20 @@ const operationalEventStatusLabel = useMemo(() => {
             end: endMinutes,
             subBlocks: roundFlowBlocks,
           },
-          nextRoundStartMinutes !== null
+          nextRoundTiming?.startMinutes !== null && nextRoundTiming?.startMinutes !== undefined
             ? {
                 key: nextRound?.key,
                 round: roundIndex + 2,
-                start: nextRoundStartMinutes,
-                end: nextRoundTiming?.endMinutes ?? nextRoundStartMinutes,
+                start: nextRoundTiming.startMinutes,
+                end: nextRoundTiming.endMinutes ?? nextRoundTiming.startMinutes,
                 subBlocks: [],
               }
             : null,
+          announcementScheduleConfig,
           { formatTime: formatMinutesAsClockLabel }
         ).map((item) => ({
           key: item.key,
+          cueId: item.cueId,
           roundKey: asText(round.key),
           roundNumber: roundIndex + 1,
           timeMinutes: item.timeMinutes,
@@ -11524,7 +11529,7 @@ const operationalEventStatusLabel = useMemo(() => {
         return [] as AnnouncementCueTimelineEntry[];
       }
     },
-    [activeDateRotationRounds, liveFlowBlocks, rotationRounds]
+    [activeDateRotationRounds, announcementScheduleConfig, liveFlowBlocks, rotationRounds]
   );
   const announcementCueTimeline = useMemo(
     () =>
@@ -11544,9 +11549,9 @@ const operationalEventStatusLabel = useMemo(() => {
     () =>
       selectedRoundAnnouncementTimeline.map((entry) => ({
         ...entry,
-        message: roundAnnouncementDrafts[entry.key] ?? announcementCueOverrides[entry.key] ?? entry.announcement,
+        message: roundAnnouncementDrafts[entry.key] ?? entry.announcement,
       })),
-    [announcementCueOverrides, roundAnnouncementDrafts, selectedRoundAnnouncementTimeline]
+    [roundAnnouncementDrafts, selectedRoundAnnouncementTimeline]
   );
   const selectedRoundAnnouncementExportText = useMemo(() => {
     const eventName = event?.name || "Untitled Event";
@@ -11620,7 +11625,7 @@ const operationalEventStatusLabel = useMemo(() => {
               : formatCueCountdown(Math.max(minutesUntilCue, 0));
       return {
         ...entry,
-        announcementText: roundAnnouncementDrafts[entry.key] ?? announcementCueOverrides[entry.key] ?? entry.announcement,
+        announcementText: roundAnnouncementDrafts[entry.key] ?? entry.announcement,
         persistentStatus: persistedStatus,
         status,
         timingDetail,
@@ -11631,7 +11636,6 @@ const operationalEventStatusLabel = useMemo(() => {
       };
     });
   }, [
-    announcementCueOverrides,
     announcementCueStateMap,
     announcementCueTimeline,
     announcementDueCueKeys,
@@ -11691,13 +11695,7 @@ const operationalEventStatusLabel = useMemo(() => {
       : formatCueCountdown(Math.max(nextAnnouncementCue.minutesUntilCue, 0))
     : "No remaining cues";
   const selectedRoundAnnouncementReminders = useMemo<RoundAnnouncementReminder[]>(() => {
-    if (!selectedRotationRound) return [];
-    const startMinutes = parseTimeToMinutes(selectedRotationRound.start_time);
-    const endMinutesRaw = parseTimeToMinutes(selectedRotationRound.end_time);
-    if (startMinutes === null || endMinutesRaw === null) return [];
-
-    const endMinutes = endMinutesRaw < startMinutes ? endMinutesRaw + MINUTES_PER_DAY : endMinutesRaw;
-    const fiveMinuteWarning = Math.max(startMinutes, endMinutes - 5);
+    if (!selectedRotationRound || !selectedRoundAnnouncementCueEntries.length) return [];
     const roundDateText = asText(selectedRotationRound.session_date) || getTodayDate();
 
     const buildTimestamp = (absoluteMinute: number) => {
@@ -11710,32 +11708,14 @@ const operationalEventStatusLabel = useMemo(() => {
       return date.getTime();
     };
 
-    const roundNumberLabel = `Round ${activeSelectedRotationRoundIndex + 1}`;
-
-    return [
-      {
-        id: `${selectedRotationRound.key}-round-begin`,
-        title: "Round begins",
-        suggestedText: `${roundNumberLabel} begins now. Please start the encounter.`,
-        targetTimestamp: buildTimestamp(startMinutes),
-        timeLabel: formatDisplayTime(selectedRotationRound.start_time || "") || "Time TBD",
-      },
-      {
-        id: `${selectedRotationRound.key}-five-minute-warning`,
-        title: "5-minute warning",
-        suggestedText: `${roundNumberLabel}: 5 minutes remaining in this encounter.`,
-        targetTimestamp: buildTimestamp(fiveMinuteWarning),
-        timeLabel: formatDisplayTimeFromMinutes(fiveMinuteWarning % MINUTES_PER_DAY) || "Time TBD",
-      },
-      {
-        id: `${selectedRotationRound.key}-round-ends`,
-        title: "Round ends / rotate",
-        suggestedText: `${roundNumberLabel} ends now. Please rotate to the next station.`,
-        targetTimestamp: buildTimestamp(endMinutes),
-        timeLabel: formatDisplayTimeFromMinutes(endMinutes % MINUTES_PER_DAY) || "Time TBD",
-      },
-    ];
-  }, [activeSelectedRotationRoundIndex, selectedRotationRound]);
+    return selectedRoundAnnouncementCueEntries.map((entry) => ({
+      id: entry.key,
+      title: entry.phaseLabel,
+      suggestedText: entry.announcementText,
+      targetTimestamp: buildTimestamp(entry.timeMinutes),
+      timeLabel: entry.timeLabel,
+    }));
+  }, [selectedRotationRound, selectedRoundAnnouncementCueEntries]);
   const selectedRoundAnnouncementReminderById = useMemo(
     () => new Map(selectedRoundAnnouncementReminders.map((reminder) => [reminder.id, reminder] as const)),
     [selectedRoundAnnouncementReminders]
@@ -19268,7 +19248,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
   }
 
   async function persistAnnouncementCueMetadata(args: {
-    overrides?: Record<string, string>;
+    config?: AnnouncementScheduleConfig;
     cueState?: Record<string, AnnouncementCueStateRecord>;
     alertSettings?: {
       liveModeActive?: boolean;
@@ -19284,9 +19264,14 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     setAnnouncementCueSaving(true);
     setEventSaveError("");
     try {
-      const nextNotes = upsertEventMetadata(eventEditor.notes, {
+      let nextNotes = args.config
+        ? upsertAnnouncementScheduleInNotes(eventEditor.notes, {
+            ...args.config,
+            updatedAt: new Date().toISOString(),
+          })
+        : eventEditor.notes;
+      nextNotes = upsertEventMetadata(nextNotes, {
         training: {
-          announcement_cue_overrides: serializeAnnouncementCueOverrides(args.overrides || announcementCueOverrides),
           announcement_cue_state: serializeAnnouncementCueState(args.cueState || announcementCueStateMap),
           announcement_alert_settings: serializeAnnouncementAlertSettings(args.alertSettings || announcementAlertSettings),
         },
@@ -19325,19 +19310,24 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
   }
 
   async function handleSaveRoundAnnouncementDraft(key: string, value: string) {
-    const baseAnnouncement = announcementCueEntriesByKey.get(key)?.announcement || "";
+    const entry = announcementCueEntriesByKey.get(key);
+    const baseAnnouncement = entry?.announcement || "";
     const normalizedValue = value.trim();
-    const nextOverrides = {
-      ...announcementCueOverrides,
+    if (!entry) return;
+    const nextConfig: AnnouncementScheduleConfig = {
+      ...announcementScheduleConfig,
+      cues: announcementScheduleConfig.cues.map((cue) =>
+        cue.id === entry.cueId
+          ? {
+              ...cue,
+              announcementText: normalizedValue || baseAnnouncement,
+            }
+          : cue
+      ),
     };
-    if (normalizedValue && normalizedValue !== baseAnnouncement) {
-      nextOverrides[key] = normalizedValue;
-    } else {
-      delete nextOverrides[key];
-    }
 
     const saved = await persistAnnouncementCueMetadata({
-      overrides: nextOverrides,
+      config: nextConfig,
       successMessage: "Announcement text saved.",
       quiet: true,
     });
@@ -30598,7 +30588,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                   );
                                 })()}
                                 {selectedRoundAnnouncementCueEntries.map((entry) => {
-                                  const draftValue = roundAnnouncementDrafts[entry.key] ?? announcementCueOverrides[entry.key] ?? entry.announcement;
+                                  const draftValue = roundAnnouncementDrafts[entry.key] ?? entry.announcement;
                                   return (
                                     <div
                                       key={entry.key}

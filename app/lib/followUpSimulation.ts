@@ -8,6 +8,7 @@ export type FollowUpCopyOptions = {
   copySpRoster: boolean;
   copyCases: boolean;
   copyScheduleStructure: boolean;
+  copyAnnouncementSchedule: boolean;
   copyMaterials: boolean;
   copyEmailTemplateContext: boolean;
   copyTrainingReferences: boolean;
@@ -19,6 +20,7 @@ export const DEFAULT_FOLLOW_UP_COPY_OPTIONS: FollowUpCopyOptions = {
   copySpRoster: true,
   copyCases: true,
   copyScheduleStructure: true,
+  copyAnnouncementSchedule: true,
   copyMaterials: false,
   copyEmailTemplateContext: false,
   copyTrainingReferences: false,
@@ -30,6 +32,7 @@ export const FOLLOW_UP_COPY_OPTION_LABELS: Record<keyof FollowUpCopyOptions, str
   copySpRoster: "Copy SP roster",
   copyCases: "Copy case files / case assignments",
   copyScheduleStructure: "Copy schedule structure / rotation logic",
+  copyAnnouncementSchedule: "Copy announcement schedule",
   copyMaterials: "Copy materials",
   copyEmailTemplateContext: "Copy email template context if applicable",
   copyTrainingReferences: "Copy training references if applicable",
@@ -66,6 +69,7 @@ export function normalizeFollowUpCopyOptions(
     copySpRoster: value?.copySpRoster !== false,
     copyCases: value?.copyCases !== false,
     copyScheduleStructure: value?.copyScheduleStructure !== false,
+    copyAnnouncementSchedule: value?.copyAnnouncementSchedule !== false && value?.copyScheduleStructure !== false,
     copyMaterials: value?.copyMaterials === true,
     copyEmailTemplateContext: value?.copyEmailTemplateContext === true,
     copyTrainingReferences: value?.copyTrainingReferences === true,
