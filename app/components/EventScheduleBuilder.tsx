@@ -292,6 +292,19 @@ type ScheduleBuilderDraft = {
   includeBreakdown: boolean;
   debriefMinutes: string;
   breakdownMinutes: string;
+  multipleCasesEnabled?: boolean;
+  scheduleCaseDefinitions?: ScheduleCaseDefinition[];
+  snapshotVersion?: number;
+  scheduleStatus?: "complete" | "in_progress";
+  scheduleRoundCount?: number;
+  scheduleRoomCount?: number;
+  scheduleRoomCapacity?: number;
+  scheduleLearnerRoster?: string[];
+  scheduleActiveCaseCount?: number;
+  scheduleFlexRoomCount?: number;
+  caseRotationRequired?: boolean;
+  eventDate?: string;
+  resolvedRounds?: PersistedScheduleBuilderRound[];
   savedAt?: string | null;
 };
 
@@ -325,6 +338,11 @@ type PersistedScheduleBuilderSnapshot = ScheduleBuilderDraft & {
   scheduleRoomCount: number;
   scheduleRoomCapacity: number;
   scheduleLearnerRoster: string[];
+  multipleCasesEnabled: boolean;
+  scheduleCaseDefinitions: ScheduleCaseDefinition[];
+  scheduleActiveCaseCount: number;
+  scheduleFlexRoomCount: number;
+  caseRotationRequired: boolean;
   eventDate: string;
   resolvedRounds: PersistedScheduleBuilderRound[];
 };
@@ -513,6 +531,14 @@ function parseNumber(value: unknown, fallback: number) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.max(0, Math.floor(parsed));
+}
+
+function parseBooleanFlag(value: unknown, fallback = false) {
+  if (typeof value === "boolean") return value;
+  const text = asText(value).toLowerCase();
+  if (text === "true" || text === "1" || text === "yes") return true;
+  if (text === "false" || text === "0" || text === "no") return false;
+  return fallback;
 }
 
 const DEFAULT_ENCOUNTER_MINUTES = parseNumber(DEFAULT_SCHEDULE_BUILDER_DRAFT.encounterMinutes, 20);
@@ -3855,34 +3881,30 @@ function getLocationAccessFromBuilderEvent(event: EventRow | null) {
   };
 }
 
-function parseScheduleCaseDefinitions(raw: string | null | undefined, fallbackCaseName = "") {
-  const text = asText(raw);
+function normalizeScheduleCaseDefinitions(raw: unknown, fallbackCaseName = "") {
   const cases: ScheduleCaseDefinition[] = [];
-  if (text) {
-    try {
-      const parsed = JSON.parse(text);
-      if (Array.isArray(parsed)) {
-        parsed.forEach((entry, index) => {
-          const record = entry as Record<string, unknown>;
-          const name = asText(record.name) || asText(record.title) || `Case ${index + 1}`;
-          const documentName = asText(record.fileName || record.file_name || record.name);
-          cases.push({
-            id: asText(record.id) || `${name}-${index}`,
-            name,
-            documentName,
-            hasDocument: Boolean(asText(record.url) || asText(record.storagePath || record.storage_path)),
-            encounterMinutes: parseNumber(asText(record.encounterMinutes || record.encounter_minutes), 0) || undefined,
-            checklistMinutes: parseNumber(asText(record.checklistMinutes || record.checklist_minutes), 0) || undefined,
-            feedbackMinutes: parseNumber(asText(record.feedbackMinutes || record.feedback_minutes), 0) || undefined,
-            roomAssignment: asText(record.roomAssignment || record.room_assignment),
-            notes: asText(record.notes),
-            active: asText(record.status).toLowerCase() !== "inactive",
-          });
-        });
-      }
-    } catch {
-      // Ignore malformed case metadata and fall back to the legacy single case label.
-    }
+  if (Array.isArray(raw)) {
+    raw.forEach((entry, index) => {
+      const record = entry && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
+      const name = asText(record.name) || asText(record.title) || `Case ${index + 1}`;
+      const documentName = asText(record.documentName || record.fileName || record.file_name || record.name);
+      cases.push({
+        id: asText(record.id) || `${name}-${index}`,
+        name,
+        documentName,
+        hasDocument: Boolean(
+          parseBooleanFlag(record.hasDocument, false) ||
+            asText(record.url) ||
+            asText(record.storagePath || record.storage_path)
+        ),
+        encounterMinutes: parseNumber(asText(record.encounterMinutes || record.encounter_minutes), 0) || undefined,
+        checklistMinutes: parseNumber(asText(record.checklistMinutes || record.checklist_minutes), 0) || undefined,
+        feedbackMinutes: parseNumber(asText(record.feedbackMinutes || record.feedback_minutes), 0) || undefined,
+        roomAssignment: asText(record.roomAssignment || record.room_assignment),
+        notes: asText(record.notes),
+        active: asText(record.status).toLowerCase() !== "inactive" && record.active !== false,
+      });
+    });
   }
 
   if (!cases.length && asText(fallbackCaseName)) {
@@ -3894,6 +3916,19 @@ function parseScheduleCaseDefinitions(raw: string | null | undefined, fallbackCa
   }
 
   return cases;
+}
+
+function parseScheduleCaseDefinitions(raw: string | null | undefined, fallbackCaseName = "") {
+  const text = asText(raw);
+  if (!text) return normalizeScheduleCaseDefinitions([], fallbackCaseName);
+
+  try {
+    const parsed = JSON.parse(text);
+    return normalizeScheduleCaseDefinitions(parsed, fallbackCaseName);
+  } catch {
+    // Ignore malformed case metadata and fall back to the legacy single case label.
+    return normalizeScheduleCaseDefinitions([], fallbackCaseName);
+  }
 }
 
 function serializeScheduleCaseDefinitions(cases: ScheduleCaseDefinition[]) {
@@ -6025,6 +6060,10 @@ function parseSavedDraft(raw: string | null): ScheduleBuilderDraft | null {
   try {
     const parsed = JSON.parse(raw) as Partial<ScheduleBuilderDraft>;
     const normalizedDayBlocks = normalizeDayBlocks((parsed as { dayBlocks?: unknown }).dayBlocks);
+    const scheduleCaseDefinitions = normalizeScheduleCaseDefinitions(
+      (parsed as { scheduleCaseDefinitions?: unknown }).scheduleCaseDefinitions
+    );
+    const activeCaseCount = scheduleCaseDefinitions.filter((caseDef) => caseDef.active).length;
     return {
       ...DEFAULT_SCHEDULE_BUILDER_DRAFT,
       ...parsed,
@@ -6039,6 +6078,18 @@ function parseSavedDraft(raw: string | null): ScheduleBuilderDraft | null {
       dayBlocks: normalizedDayBlocks.length ? normalizedDayBlocks : buildLegacyDayBlocks(parsed),
       selectedEventId: asText(parsed.selectedEventId),
       learnerFileName: asText(parsed.learnerFileName),
+      multipleCasesEnabled: parseBooleanFlag(
+        (parsed as { multipleCasesEnabled?: unknown }).multipleCasesEnabled,
+        parseBooleanFlag((parsed as { caseRotationRequired?: unknown }).caseRotationRequired, activeCaseCount > 1)
+      ),
+      scheduleCaseDefinitions,
+      scheduleActiveCaseCount:
+        parseNumber((parsed as { scheduleActiveCaseCount?: unknown }).scheduleActiveCaseCount, 0) || activeCaseCount,
+      scheduleFlexRoomCount: parseNumber((parsed as { scheduleFlexRoomCount?: unknown }).scheduleFlexRoomCount, 0),
+      caseRotationRequired: parseBooleanFlag(
+        (parsed as { caseRotationRequired?: unknown }).caseRotationRequired,
+        parseBooleanFlag((parsed as { multipleCasesEnabled?: unknown }).multipleCasesEnabled, activeCaseCount > 1)
+      ),
       savedAt: asText(parsed.savedAt) || null,
     };
   } catch {
@@ -6071,6 +6122,67 @@ function parseScheduleBuilderSnapshot(raw: unknown) {
   }
 
   return null;
+}
+
+function getScheduleDraftMultipleCaseMode(draft: Partial<ScheduleBuilderDraft> | null | undefined) {
+  if (!draft) return false;
+  const caseDefinitions = normalizeScheduleCaseDefinitions(draft.scheduleCaseDefinitions);
+  const activeCaseCount =
+    parseNumber(draft.scheduleActiveCaseCount, 0) ||
+    caseDefinitions.filter((caseDef) => caseDef.active).length;
+  return parseBooleanFlag(
+    draft.multipleCasesEnabled,
+    parseBooleanFlag(draft.caseRotationRequired, activeCaseCount > 1)
+  );
+}
+
+function getSafeScheduleWorkflowPayloadShape(partial: Record<string, string>) {
+  const snapshot = parseScheduleBuilderSnapshot(partial.schedule_builder_snapshot);
+  let dayKeys: string[] = [];
+  try {
+    const parsedDays = JSON.parse(asText(partial.schedule_builder_days || "{}")) as Record<string, unknown>;
+    dayKeys = parsedDays && typeof parsedDays === "object" ? Object.keys(parsedDays).sort() : [];
+  } catch {
+    dayKeys = [];
+  }
+
+  return {
+    metadataKeys: Object.keys(partial).sort(),
+    scheduleStatus: asText(partial.schedule_status),
+    learnerCount: asText(partial.schedule_learner_count),
+    roomCount: asText(partial.schedule_room_count),
+    roundCount: asText(partial.schedule_round_count),
+    caseCount: asText(partial.case_count),
+    caseRotationRequired: asText(partial.case_rotation_required),
+    dayKeys,
+    snapshot: snapshot
+      ? {
+          scheduleStatus: asText((snapshot as Partial<PersistedScheduleBuilderSnapshot>).scheduleStatus),
+          learnerCount: normalizeLearnerNames(
+            (snapshot as Partial<PersistedScheduleBuilderSnapshot>).scheduleLearnerRoster || []
+          ).length,
+          roomCount: parseNumber((snapshot as Partial<PersistedScheduleBuilderSnapshot>).scheduleRoomCount, 0),
+          roundCount: parseNumber((snapshot as Partial<PersistedScheduleBuilderSnapshot>).scheduleRoundCount, 0),
+          caseCount: parseNumber((snapshot as Partial<PersistedScheduleBuilderSnapshot>).scheduleActiveCaseCount, 0),
+          multipleCasesEnabled: getScheduleDraftMultipleCaseMode(snapshot),
+          resolvedRoundCount: normalizePersistedScheduleBuilderRounds(
+            (snapshot as Partial<PersistedScheduleBuilderSnapshot>).resolvedRounds
+          ).length,
+        }
+      : null,
+  };
+}
+
+function logScheduleWorkflowSaveFailure(
+  context: string,
+  error: unknown,
+  partial: Record<string, string>
+) {
+  console.error("[schedule-builder] Schedule metadata save failed.", {
+    context,
+    error: error instanceof Error ? error.message : asText(error) || "Unknown error",
+    payloadShape: getSafeScheduleWorkflowPayloadShape(partial),
+  });
 }
 
 function normalizePersistedScheduleBuilderRounds(raw: unknown): PersistedScheduleBuilderRound[] {
@@ -6216,7 +6328,9 @@ function buildPersistedScheduleBuilderRounds(
 	      roleId: asText(slot.roleId),
 	      roleLabel: asText(slot.roleLabel),
 	      notes: asText(slot.notes),
-	      stationStatus: normalizeScheduleStationStatus(slot.stationStatus) || undefined,
+	      stationStatus:
+          normalizeScheduleStationStatus(slot.stationStatus) ||
+          (slot.roomType === "flex" || slot.capacity <= 0 ? "inactive" : undefined),
 	      isBackupStation: Boolean(slot.isBackupStation),
 	      roomType: slot.roomType,
       capacity: slot.capacity,
@@ -6377,9 +6491,13 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const hydratedDraftKeyRef = useRef<string>("");
   const hydratedTimePrefillKeyRef = useRef<string>("");
   const lockedScheduleSourceRef = useRef<BuilderTimeSource | null>(null);
+  const lastKnownGoodScheduleSnapshotRef = useRef<ScheduleBuilderDraft | null>(null);
+  const hasAuthoritativeScheduleDataRef = useRef(false);
+  const pendingStructureChangeRef = useRef<(() => void) | null>(null);
   const skipNextAutosaveRef = useRef(false);
   const autosaveTimeoutRef = useRef<number | null>(null);
   const workflowSyncTimeoutRef = useRef<number | null>(null);
+  const [structureChangeDialogOpen, setStructureChangeDialogOpen] = useState(false);
   const [showSchedulePreview, setShowSchedulePreview] = useState(false);
   const [previewKind, setPreviewKind] = useState<SchedulePreviewKind>(props.initialPreviewKind || "timeline");
   const schedulePreviewFrameRef = useRef<HTMLIFrameElement | null>(null);
@@ -6456,6 +6574,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     setIncludeBreakdown(draft.includeBreakdown);
     setDebriefMinutes(draft.debriefMinutes);
     setBreakdownMinutes(draft.breakdownMinutes);
+    setMultipleCasesEnabled(getScheduleDraftMultipleCaseMode(draft));
     setPersistedResolvedRounds(savedResolvedRounds);
     setPersistedResolvedRoundTargetCount(savedRoundTargetCount);
     setLastSavedAt(draft.savedAt || null);
@@ -6563,6 +6682,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     skipNextAutosaveRef.current = true;
     hydratedDraftKeyRef.current = storageKey;
 
+    // IMPORTANT REGRESSION GUARD:
+    // Saved builder draft and completed schedule snapshot are authoritative. Do not rebuild
+    // schedule structure from fallback room/learner math when saved schedule metadata exists.
+    // Failed saves must not mutate the local saved state.
     if (savedDraft) {
       applyDraft(savedDraft);
     } else {
@@ -6684,6 +6807,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       window.clearTimeout(autosaveTimeoutRef.current);
     }
 
+    if (hasAuthoritativeScheduleDataRef.current) {
+      return;
+    }
+
     autosaveTimeoutRef.current = window.setTimeout(() => {
       try {
         setSaveState("saving");
@@ -6740,6 +6867,64 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     });
     return Array.from(days).sort((a, b) => a - b);
   }, [scheduleBuilderDaySnapshots, scheduleDay]);
+  const authoritativeScheduleSnapshot = useMemo(() => {
+    const serverSnapshotFromDay = scheduleBuilderDaySnapshots.get(scheduleDay) || null;
+    const inheritedDaySnapshot =
+      scheduleBuilderDaySnapshots.has(scheduleDay - 1) && scheduleDay > 1
+        ? scheduleBuilderDaySnapshots.get(scheduleDay - 1) || null
+        : null;
+    return (
+      serverSnapshotFromDay ||
+      inheritedDaySnapshot ||
+      parseScheduleBuilderSnapshot(selectedEventMetadata.schedule_builder_snapshot)
+    );
+  }, [
+    scheduleBuilderDaySnapshots,
+    scheduleDay,
+    selectedEventMetadata.schedule_builder_snapshot,
+  ]);
+  const authoritativeSnapshotCaseDefinitions = useMemo(
+    () => normalizeScheduleCaseDefinitions(authoritativeScheduleSnapshot?.scheduleCaseDefinitions),
+    [authoritativeScheduleSnapshot?.scheduleCaseDefinitions]
+  );
+  const authoritativeSnapshotActiveCaseCount = useMemo(
+    () =>
+      parseNumber(authoritativeScheduleSnapshot?.scheduleActiveCaseCount, 0) ||
+      authoritativeSnapshotCaseDefinitions.filter((caseDef) => caseDef.active).length,
+    [authoritativeScheduleSnapshot, authoritativeSnapshotCaseDefinitions]
+  );
+  const hasAuthoritativeScheduleData = Boolean(
+    authoritativeScheduleSnapshot?.savedAt ||
+      authoritativeScheduleSnapshot?.startTime ||
+      authoritativeScheduleSnapshot?.resolvedRounds?.length ||
+      asText(selectedEventMetadata.schedule_builder_snapshot) ||
+      asText(selectedEventMetadata.schedule_builder_days) ||
+      asText(selectedEventMetadata.schedule_last_saved_at)
+  );
+  hasAuthoritativeScheduleDataRef.current = hasAuthoritativeScheduleData;
+  const requestScheduleStructureChange = useCallback(
+    (action: () => void) => {
+      if (!hasAuthoritativeScheduleData) {
+        action();
+        return;
+      }
+      pendingStructureChangeRef.current = action;
+      setStructureChangeDialogOpen(true);
+    },
+    [hasAuthoritativeScheduleData]
+  );
+
+  const cancelScheduleStructureChange = useCallback(() => {
+    pendingStructureChangeRef.current = null;
+    setStructureChangeDialogOpen(false);
+  }, []);
+
+  const continueScheduleStructureChange = useCallback(() => {
+    const action = pendingStructureChangeRef.current;
+    pendingStructureChangeRef.current = null;
+    setStructureChangeDialogOpen(false);
+    action?.();
+  }, []);
   const buildScheduleBuilderDayHref = useCallback(
     (nextDay: number) => {
       const safeDay = Math.max(1, Math.floor(nextDay));
@@ -6788,21 +6973,29 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     async (partial: Record<string, string>) => {
       if (!selectedEvent?.id) return false;
       const nextNotes = upsertEventMetadata(selectedEvent.notes, { training: partial });
-      const response = await fetch(`/api/events/${encodeURIComponent(selectedEvent.id)}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          event_updates: {
-            notes: nextNotes,
-          },
-        }),
-      });
+      let response: Response;
+      try {
+        response = await fetch(`/api/events/${encodeURIComponent(selectedEvent.id)}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            event_updates: {
+              notes: nextNotes,
+            },
+          }),
+        });
+      } catch (error) {
+        logScheduleWorkflowSaveFailure("network", error, partial);
+        throw error;
+      }
       const body = (await response.json().catch(() => null)) as {
         error?: string;
         event?: Partial<EventRow> | null;
       } | null;
       if (!response.ok) {
-        throw new Error(body?.error || `Could not save schedule workflow state (${response.status}).`);
+        const error = new Error(body?.error || `Could not save schedule workflow state (${response.status}).`);
+        logScheduleWorkflowSaveFailure("api", error, partial);
+        throw error;
       }
       const persistedNotes =
         typeof body?.event?.notes === "string" || body?.event?.notes === null
@@ -6814,7 +7007,9 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         partial.schedule_status &&
         asText(persistedMetadata.schedule_status) !== asText(partial.schedule_status)
       ) {
-        throw new Error("Schedule metadata save did not persist to the event record.");
+        const error = new Error("Schedule metadata save did not persist to the event record.");
+        logScheduleWorkflowSaveFailure("verification", error, partial);
+        throw error;
       }
 
       setEvents((current) =>
@@ -6889,11 +7084,31 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
 
     hydratedTimePrefillKeyRef.current = hydrationKey;
     skipNextAutosaveRef.current = true;
+    // IMPORTANT REGRESSION GUARD:
+    // Saved builder draft and completed schedule snapshot are authoritative. Do not rebuild
+    // schedule structure from fallback room/learner math when saved schedule metadata exists.
+    // Failed saves must not mutate the local saved state.
     if (completedSnapshot) {
       lockedScheduleSourceRef.current = "completed_snapshot";
+      lastKnownGoodScheduleSnapshotRef.current = completedSnapshot;
+      if (storageKey) {
+        try {
+          window.localStorage.setItem(storageKey, JSON.stringify(completedSnapshot));
+        } catch {
+          // Browser cache is best-effort; the server snapshot remains authoritative.
+        }
+      }
       applyDraft(completedSnapshot);
     } else if (serverDraft) {
       lockedScheduleSourceRef.current = "saved_draft";
+      lastKnownGoodScheduleSnapshotRef.current = serverDraft;
+      if (storageKey) {
+        try {
+          window.localStorage.setItem(storageKey, JSON.stringify(serverDraft));
+        } catch {
+          // Browser cache is best-effort; the server snapshot remains authoritative.
+        }
+      }
       applyDraft(serverDraft);
     } else if (!lockedScheduleSourceRef.current) {
       lockedScheduleSourceRef.current = nextTimeSource.source;
@@ -6922,13 +7137,21 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     return false;
   }, [selectedEventMetadata.case_rotation_required]);
   const configuredCaseCountFromMetadata = parseNumber(selectedEventMetadata.case_count, 0);
+  const configuredCaseCount = configuredCaseCountFromMetadata || authoritativeSnapshotActiveCaseCount;
   const scheduleCaseDefinitions = useMemo(
-    () =>
-      parseScheduleCaseDefinitions(
+    () => {
+      const metadataCases = parseScheduleCaseDefinitions(
         selectedEventMetadata.case_manager_cases || selectedEventMetadata.case_files,
         selectedEventMetadata.case_name
-      ),
-    [selectedEventMetadata.case_files, selectedEventMetadata.case_manager_cases, selectedEventMetadata.case_name]
+      );
+      return metadataCases.length ? metadataCases : authoritativeSnapshotCaseDefinitions;
+    },
+    [
+      authoritativeSnapshotCaseDefinitions,
+      selectedEventMetadata.case_files,
+      selectedEventMetadata.case_manager_cases,
+      selectedEventMetadata.case_name,
+    ]
   );
   const activeScheduleCases = useMemo(
     () => scheduleCaseDefinitions.filter((caseDef) => caseDef.active),
@@ -6937,11 +7160,11 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const scheduleCasesForMath = useMemo(() => {
     if (!multipleCasesEnabled) return [];
     if (activeScheduleCases.length > 0) return activeScheduleCases;
-    if (configuredCaseCountFromMetadata > 0) {
-      return scheduleCaseDefinitions.slice(0, configuredCaseCountFromMetadata);
+    if (configuredCaseCount > 0) {
+      return scheduleCaseDefinitions.slice(0, configuredCaseCount);
     }
     return scheduleCaseDefinitions.slice(0, Math.max(1, scheduleCaseDefinitions.length));
-  }, [activeScheduleCases, configuredCaseCountFromMetadata, multipleCasesEnabled, scheduleCaseDefinitions]);
+  }, [activeScheduleCases, configuredCaseCount, multipleCasesEnabled, scheduleCaseDefinitions]);
   const parsedScheduleRoomAdjustments = useMemo(
     () => normalizeScheduleRoomAdjustments(parseScheduleRoomAdjustments(selectedEventMetadata.schedule_room_adjustments)),
     [selectedEventMetadata.schedule_room_adjustments]
@@ -6952,10 +7175,11 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   }, [parsedScheduleRoomAdjustments]);
 
   useEffect(() => {
-    const nextMode = caseRotationFeatureFlag || configuredCaseCountFromMetadata > 1;
+    const savedSnapshotRequiresMultipleCases = getScheduleDraftMultipleCaseMode(authoritativeScheduleSnapshot);
+    const nextMode = savedSnapshotRequiresMultipleCases || caseRotationFeatureFlag || configuredCaseCount > 1;
     setMultipleCasesEnabled(nextMode);
     setScheduleMathEpoch((current) => current + 1);
-  }, [selectedEvent?.id, caseRotationFeatureFlag, configuredCaseCountFromMetadata]);
+  }, [selectedEvent?.id, authoritativeScheduleSnapshot, caseRotationFeatureFlag, configuredCaseCount]);
 
   const scheduleWorkflowStatus = asText(selectedEventMetadata.schedule_status).toLowerCase();
   const scheduleWorkflowBadgeLabel =
@@ -7330,9 +7554,11 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     (now: string, statusOverride?: "complete" | "in_progress") => {
       const nextStatus = statusOverride || (scheduleWorkflowStatus === "complete" ? "complete" : "in_progress");
       const resolvedAssignedNames = selectedEvent ? getAssignedNames(selectedEvent) : [];
+      const scheduleCaseDefinitionsForSnapshot =
+        scheduleCaseDefinitions.length ? scheduleCaseDefinitions : scheduleCasesForMath;
       const shouldReusePersistedRounds =
         persistedResolvedRounds.length > 0 &&
-        persistedResolvedRounds.length >= Math.max(persistedResolvedRoundTargetCount, persistedResolvedRounds.length);
+        persistedResolvedRounds.length >= Math.max(persistedResolvedRoundTargetCount, 1);
       const resolvedRounds = shouldReusePersistedRounds
         ? persistedResolvedRounds
         : buildPersistedScheduleBuilderRounds(
@@ -7381,12 +7607,23 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         scheduleRoomCount: resolvedRoomCount || totalRoomCount,
         scheduleRoomCapacity: parsedRoomCapacity,
         scheduleLearnerRoster: resolvedLearnerRoster,
+        multipleCasesEnabled,
+        scheduleCaseDefinitions: scheduleCaseDefinitionsForSnapshot,
+        scheduleActiveCaseCount: multipleCasesEnabled
+          ? Math.max(
+              activeCaseCount,
+              scheduleCaseDefinitionsForSnapshot.filter((caseDef) => caseDef.active).length
+            )
+          : 1,
+        scheduleFlexRoomCount: multipleCasesEnabled ? configuredFlexRoomCountForDisplay : 0,
+        caseRotationRequired: multipleCasesEnabled,
         eventDate: asText(selectedEvent?.earliest_session_date) || asText(selectedEvent?.date_text),
         resolvedRounds: normalizedResolvedRounds,
       } satisfies PersistedScheduleBuilderSnapshot;
     },
     [
       activeCaseCount,
+      configuredFlexRoomCountForDisplay,
       draftSnapshot,
       effectiveRoundCount,
       generated.rounds,
@@ -7398,6 +7635,8 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       persistedResolvedRounds,
       persistedResolvedRoundTargetCount,
       roomAdjustments,
+      scheduleCaseDefinitions,
+      scheduleCasesForMath,
       scheduleWorkflowStatus,
       selectedEvent,
       totalRoomCount,
@@ -7405,8 +7644,12 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     ]
   );
   const buildScheduleWorkflowPartial = useCallback(
-    (now: string, statusOverride?: "complete" | "in_progress") => {
-      const persistedSnapshot = buildPersistedScheduleSnapshot(now, statusOverride);
+    (
+      now: string,
+      statusOverride?: "complete" | "in_progress",
+      snapshotOverride?: PersistedScheduleBuilderSnapshot
+    ) => {
+      const persistedSnapshot = snapshotOverride || buildPersistedScheduleSnapshot(now, statusOverride);
       const nextStatus = persistedSnapshot.scheduleStatus;
       const nextDays = new Map(scheduleBuilderDaySnapshots);
       nextDays.set(
@@ -7418,6 +7661,14 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
           .sort(([a], [b]) => a - b)
           .map(([day, snapshot]) => [String(day), encodeScheduleBuilderSnapshot(snapshot)])
       );
+      const normalizedCaseDefinitions = persistedSnapshot.scheduleCaseDefinitions.length
+        ? persistedSnapshot.scheduleCaseDefinitions
+        : scheduleCaseDefinitions;
+      const serializedCases = serializeScheduleCaseDefinitions(normalizedCaseDefinitions);
+      // IMPORTANT REGRESSION GUARD:
+      // Saved builder draft and completed schedule snapshot are authoritative. Do not rebuild
+      // schedule structure from fallback room/learner math when saved schedule metadata exists.
+      // Failed saves must not mutate the local saved state.
       return {
         schedule_status: nextStatus,
         rotation_schedule_status: nextStatus === "complete" ? "complete" : "built",
@@ -7431,6 +7682,12 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         schedule_learner_roster: serializeScheduleLearnerRosterMetadata(
           uploadedLearners.length ? uploadedLearners : originalUploadedLearners
         ),
+        case_rotation_required: persistedSnapshot.caseRotationRequired ? "yes" : "no",
+        case_count: String(Math.max(persistedSnapshot.scheduleActiveCaseCount, normalizedCaseDefinitions.length || 1)),
+        case_name: normalizedCaseDefinitions[0]?.name || selectedEventMetadata.case_name || "",
+        case_files: serializedCases,
+        case_manager_cases: serializedCases,
+        case_extra_rooms_mode: persistedSnapshot.scheduleFlexRoomCount > 0 ? "flex_empty" : selectedEventMetadata.case_extra_rooms_mode || "",
         schedule_builder_snapshot: encodeScheduleBuilderSnapshot(persistedSnapshot),
         schedule_builder_days: JSON.stringify(nextDaysRecord),
         schedule_preview_enabled_for_sps: selectedEventMetadata.schedule_preview_enabled_for_sps || "no",
@@ -7441,15 +7698,19 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       scheduleBuilderDaySnapshots,
       originalUploadedLearners,
       scheduleDay,
+      scheduleCaseDefinitions,
+      selectedEventMetadata.case_extra_rooms_mode,
+      selectedEventMetadata.case_name,
       selectedEventMetadata.schedule_preview_enabled_for_sps,
       selectedEventMetadata.schedule_started_at,
       uploadedLearners,
     ]
   );
   const handleSaveScheduleChanges = useCallback(async () => {
-    if (props.previewOnly || saveState === "saving") return;
+    if (props.previewOnly || saveState === "saving") return false;
     const now = new Date().toISOString();
     const savedSnapshot = buildPersistedScheduleSnapshot(now);
+    const workflowPartial = buildScheduleWorkflowPartial(now, undefined, savedSnapshot);
 
     if (autosaveTimeoutRef.current) {
       window.clearTimeout(autosaveTimeoutRef.current);
@@ -7464,20 +7725,27 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     setSaveErrorMessage("");
 
     try {
+      if (selectedEvent?.id) {
+        await persistScheduleWorkflowMetadata(workflowPartial);
+      }
       if (typeof window !== "undefined" && storageKey) {
         window.localStorage.setItem(storageKey, JSON.stringify(savedSnapshot));
       }
-      if (selectedEvent?.id) {
-        await persistScheduleWorkflowMetadata(buildScheduleWorkflowPartial(now));
-      }
+      lastKnownGoodScheduleSnapshotRef.current = savedSnapshot;
+      skipNextAutosaveRef.current = true;
       setLastSavedAt(now);
       setSaveState("saved");
       showCopyMessage(`Schedule saved ${formatSavedTimestamp(now) || "now"}.`);
+      return true;
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not save schedule changes.";
+      if (typeof window !== "undefined" && storageKey && lastKnownGoodScheduleSnapshotRef.current) {
+        window.localStorage.setItem(storageKey, JSON.stringify(lastKnownGoodScheduleSnapshotRef.current));
+      }
       setSaveState("error");
       setSaveErrorMessage(message);
       showCopyMessage(message, "error", 3200);
+      return false;
     }
   }, [
     buildPersistedScheduleSnapshot,
@@ -7504,7 +7772,8 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         window.clearTimeout(autosaveTimeoutRef.current);
         autosaveTimeoutRef.current = null;
       }
-      await handleSaveScheduleChanges();
+      const saved = await handleSaveScheduleChanges();
+      if (!saved) return;
       saveDraftForScheduleDay(nextDay, nextDraft);
       navigateToScheduleBuilderDay(nextDay);
     } catch {
@@ -7540,13 +7809,16 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       setSaveState("saving");
       setSaveErrorMessage("");
       try {
+        const nextCaseRotationRequired = multipleCasesEnabled || nextCases.length > 1;
         await persistScheduleWorkflowMetadata({
+          case_rotation_required: nextCaseRotationRequired ? "yes" : "no",
           case_count: String(nextCases.length),
           case_name: nextCases[0]?.name || "",
           case_files: serialized,
           case_manager_cases: serialized,
         });
         setSaveState("saved");
+        skipNextAutosaveRef.current = true;
         setLastSavedAt(new Date().toISOString());
         showCopyMessage("Case setup saved.");
       } catch (error) {
@@ -7556,44 +7828,57 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         showCopyMessage(message, "error", 3200);
       }
     },
-    [persistScheduleWorkflowMetadata, scheduleCaseDefinitions, selectedEvent?.id, showCopyMessage]
+    [multipleCasesEnabled, persistScheduleWorkflowMetadata, scheduleCaseDefinitions, selectedEvent?.id, showCopyMessage]
   );
   const handleEnsureBuilderCaseCount = useCallback(
     async (value: string) => {
       const count = Math.max(0, Math.min(20, Number.parseInt(value, 10) || 0));
-      const nextCases = [...scheduleCaseDefinitions];
-      while (nextCases.length < count) {
-        nextCases.push({
-          id: `builder-case-${Date.now()}-${nextCases.length}`,
-          name: `Case ${nextCases.length + 1}`,
-          roomAssignment: `Exam ${nextCases.length + 1}`,
-          active: true,
-        });
-      }
-      const serialized = serializeScheduleCaseDefinitions(nextCases.slice(0, count));
-      setSaveState("saving");
-      try {
-        await persistScheduleWorkflowMetadata({
-          case_count: String(count),
-          case_name: nextCases[0]?.name || "",
-          case_files: serialized,
-          case_manager_cases: serialized,
-        });
-        setSaveState("saved");
-        setLastSavedAt(new Date().toISOString());
-        showCopyMessage("Case count saved.");
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "Could not save case count.";
-        setSaveState("error");
-        setSaveErrorMessage(message);
-        showCopyMessage(message, "error", 3200);
-      }
+      const saveCaseCount = async () => {
+        const nextCases = [...scheduleCaseDefinitions];
+        while (nextCases.length < count) {
+          nextCases.push({
+            id: `builder-case-${Date.now()}-${nextCases.length}`,
+            name: `Case ${nextCases.length + 1}`,
+            roomAssignment: `Exam ${nextCases.length + 1}`,
+            active: true,
+          });
+        }
+        const serialized = serializeScheduleCaseDefinitions(nextCases.slice(0, count));
+        setSaveState("saving");
+        setSaveErrorMessage("");
+        try {
+          const nextCaseRotationRequired = multipleCasesEnabled || count > 1;
+          await persistScheduleWorkflowMetadata({
+            case_rotation_required: nextCaseRotationRequired ? "yes" : "no",
+            case_count: String(count),
+            case_name: nextCases[0]?.name || "",
+            case_files: serialized,
+            case_manager_cases: serialized,
+          });
+          setSaveState("saved");
+          skipNextAutosaveRef.current = true;
+          setLastSavedAt(new Date().toISOString());
+          showCopyMessage("Case count saved.");
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Could not save case count.";
+          setSaveState("error");
+          setSaveErrorMessage(message);
+          showCopyMessage(message, "error", 3200);
+        }
+      };
+      requestScheduleStructureChange(() => {
+        void saveCaseCount();
+      });
     },
-    [persistScheduleWorkflowMetadata, scheduleCaseDefinitions, showCopyMessage]
+    [multipleCasesEnabled, persistScheduleWorkflowMetadata, requestScheduleStructureChange, scheduleCaseDefinitions, showCopyMessage]
   );
   const handleSaveBuilderCaseList = useCallback(
-    async (nextCases: ScheduleCaseDefinition[], message = "Case setup saved.") => {
-      if (!selectedEvent?.id) return;
+    async (
+      nextCases: ScheduleCaseDefinition[],
+      message = "Case setup saved.",
+      options?: { caseRotationRequired?: boolean }
+    ) => {
+      if (!selectedEvent?.id) return false;
       const normalizedCases = nextCases.map((caseDef, index) => ({
         ...caseDef,
         id: caseDef.id || `builder-case-${Date.now()}-${index}`,
@@ -7605,39 +7890,48 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       setSaveState("saving");
       setSaveErrorMessage("");
       try {
+        const nextCaseRotationRequired =
+          options?.caseRotationRequired ?? (multipleCasesEnabled || normalizedCases.length > 1);
         await persistScheduleWorkflowMetadata({
+          case_rotation_required: nextCaseRotationRequired ? "yes" : "no",
           case_count: String(normalizedCases.length),
           case_name: normalizedCases[0]?.name || "",
           case_files: serialized,
           case_manager_cases: serialized,
         });
         setSaveState("saved");
+        skipNextAutosaveRef.current = true;
         setLastSavedAt(new Date().toISOString());
         showCopyMessage(message);
+        return true;
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : "Could not save case setup.";
         setSaveState("error");
         setSaveErrorMessage(errorMessage);
         showCopyMessage(errorMessage, "error", 3200);
+        return false;
       }
     },
-    [persistScheduleWorkflowMetadata, selectedEvent?.id, showCopyMessage]
+    [multipleCasesEnabled, persistScheduleWorkflowMetadata, selectedEvent?.id, showCopyMessage]
   );
   const handleAddBuilderCase = useCallback(() => {
     const nextIndex = scheduleCaseDefinitions.length;
-    void handleSaveBuilderCaseList(
-      [
-        ...scheduleCaseDefinitions,
-        {
-          id: `builder-case-${Date.now()}-${nextIndex}`,
-          name: `Case ${nextIndex + 1}`,
-          roomAssignment: `Exam ${nextIndex + 1}`,
-          active: true,
-        },
-      ],
-      "Case added."
-    );
-  }, [handleSaveBuilderCaseList, scheduleCaseDefinitions]);
+    requestScheduleStructureChange(() => {
+      void handleSaveBuilderCaseList(
+        [
+          ...scheduleCaseDefinitions,
+          {
+            id: `builder-case-${Date.now()}-${nextIndex}`,
+            name: `Case ${nextIndex + 1}`,
+            roomAssignment: `Exam ${nextIndex + 1}`,
+            active: true,
+          },
+        ],
+        "Case added.",
+        { caseRotationRequired: true }
+      );
+    });
+  }, [handleSaveBuilderCaseList, requestScheduleStructureChange, scheduleCaseDefinitions]);
   const handleDuplicateBuilderCase = useCallback(
     (caseIndex = Math.max(scheduleCaseDefinitions.length - 1, 0)) => {
       const source = scheduleCaseDefinitions[caseIndex] || scheduleCaseDefinitions[0];
@@ -7646,29 +7940,36 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         return;
       }
       const nextIndex = scheduleCaseDefinitions.length;
-      void handleSaveBuilderCaseList(
-        [
-          ...scheduleCaseDefinitions,
-          {
-            ...source,
-            id: `builder-case-${Date.now()}-${nextIndex}`,
-            name: `${source.name || `Case ${caseIndex + 1}`} Copy`,
-            roomAssignment: `Exam ${nextIndex + 1}`,
-            active: true,
-          },
-        ],
-        "Case duplicated."
-      );
+      requestScheduleStructureChange(() => {
+        void handleSaveBuilderCaseList(
+          [
+            ...scheduleCaseDefinitions,
+            {
+              ...source,
+              id: `builder-case-${Date.now()}-${nextIndex}`,
+              name: `${source.name || `Case ${caseIndex + 1}`} Copy`,
+              roomAssignment: `Exam ${nextIndex + 1}`,
+              active: true,
+            },
+          ],
+          "Case duplicated.",
+          { caseRotationRequired: true }
+        );
+      });
     },
-    [handleAddBuilderCase, handleSaveBuilderCaseList, scheduleCaseDefinitions]
+    [handleAddBuilderCase, handleSaveBuilderCaseList, requestScheduleStructureChange, scheduleCaseDefinitions]
   );
   const handleRemoveBuilderCase = useCallback(
     (caseIndex = Math.max(scheduleCaseDefinitions.length - 1, 0)) => {
       if (!scheduleCaseDefinitions.length) return;
       const nextCases = scheduleCaseDefinitions.filter((_, index) => index !== caseIndex);
-      void handleSaveBuilderCaseList(nextCases, "Case removed.");
+      requestScheduleStructureChange(() => {
+        void handleSaveBuilderCaseList(nextCases, "Case removed.", {
+          caseRotationRequired: multipleCasesEnabled && nextCases.length > 1,
+        });
+      });
     },
-    [handleSaveBuilderCaseList, scheduleCaseDefinitions]
+    [handleSaveBuilderCaseList, multipleCasesEnabled, requestScheduleStructureChange, scheduleCaseDefinitions]
   );
   const handleMoveBuilderCase = useCallback(
     (caseIndex: number, direction: -1 | 1) => {
@@ -7676,50 +7977,68 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       if (targetIndex < 0 || targetIndex >= scheduleCaseDefinitions.length) return;
       const nextCases = [...scheduleCaseDefinitions];
       [nextCases[caseIndex], nextCases[targetIndex]] = [nextCases[targetIndex], nextCases[caseIndex]];
-      void handleSaveBuilderCaseList(nextCases, "Case order updated.");
+      requestScheduleStructureChange(() => {
+        void handleSaveBuilderCaseList(nextCases, "Case order updated.", {
+          caseRotationRequired: multipleCasesEnabled || nextCases.length > 1,
+        });
+      });
     },
-    [handleSaveBuilderCaseList, scheduleCaseDefinitions]
+    [handleSaveBuilderCaseList, multipleCasesEnabled, requestScheduleStructureChange, scheduleCaseDefinitions]
   );
   const handleMultipleCasesToggle = useCallback(
     (enabled: boolean) => {
-      setMultipleCasesEnabled(enabled);
-      if (enabled) {
+      const applyToggle = async () => {
+        if (enabled) {
+          const base = scheduleCaseDefinitions[0] || {
+            id: `builder-case-${Date.now()}-0`,
+            name: "Case 1",
+            roomAssignment: "Exam 1",
+            active: true,
+          };
+          const nextCases =
+            scheduleCaseDefinitions.length > 1
+              ? scheduleCaseDefinitions
+              : [
+                  { ...base, name: base.name || "Case 1", roomAssignment: base.roomAssignment || "Exam 1", active: true },
+                  {
+                    id: `builder-case-${Date.now()}-1`,
+                    name: "Case 2",
+                    roomAssignment: "Exam 2",
+                    active: true,
+                  },
+                ];
+          const saved = await handleSaveBuilderCaseList(
+            nextCases,
+            "Multiple-case rotation enabled.",
+            { caseRotationRequired: true }
+          );
+          if (!saved) return;
+          setMultipleCasesEnabled(true);
+          setScheduleMathEpoch((current) => current + 1);
+          return;
+        }
+        const single = scheduleCaseDefinitions[0]
+          ? [{ ...scheduleCaseDefinitions[0], active: true }]
+          : [
+              {
+                id: `builder-case-${Date.now()}-0`,
+                name: "Case 1",
+                roomAssignment: "Exam 1",
+                active: true,
+              },
+            ];
+        const saved = await handleSaveBuilderCaseList(single, "Multiple-case rotation disabled.", {
+          caseRotationRequired: false,
+        });
+        if (!saved) return;
+        setMultipleCasesEnabled(false);
         setScheduleMathEpoch((current) => current + 1);
-        if (scheduleCaseDefinitions.length > 1) return;
-        const base = scheduleCaseDefinitions[0] || {
-          id: `builder-case-${Date.now()}-0`,
-          name: "Case 1",
-          roomAssignment: "Exam 1",
-          active: true,
-        };
-        void handleSaveBuilderCaseList(
-          [
-            { ...base, name: base.name || "Case 1", roomAssignment: base.roomAssignment || "Exam 1", active: true },
-            {
-              id: `builder-case-${Date.now()}-1`,
-              name: "Case 2",
-              roomAssignment: "Exam 2",
-              active: true,
-            },
-          ],
-          "Multiple-case rotation enabled."
-        );
-        return;
-      }
-      const single = scheduleCaseDefinitions[0]
-        ? [{ ...scheduleCaseDefinitions[0], active: true }]
-        : [
-            {
-              id: `builder-case-${Date.now()}-0`,
-              name: "Case 1",
-              roomAssignment: "Exam 1",
-              active: true,
-            },
-          ];
-      setScheduleMathEpoch((current) => current + 1);
-      void handleSaveBuilderCaseList(single, "Multiple-case rotation disabled.");
+      };
+      requestScheduleStructureChange(() => {
+        void applyToggle();
+      });
     },
-    [handleSaveBuilderCaseList, scheduleCaseDefinitions]
+    [handleSaveBuilderCaseList, requestScheduleStructureChange, scheduleCaseDefinitions]
   );
   const handleUpdateLearnerAt = useCallback((learnerIndex: number, value: string) => {
     setUploadedLearners((current) => current.map((learner, index) => (index === learnerIndex ? normalizeLearnerName(value) : learner)));
@@ -7730,30 +8049,36 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     setSaveState("unsaved");
   }, []);
   const handleMoveLearnerToGroup = useCallback((learnerIndex: number, targetGroupIndex: number) => {
-    setUploadedLearners((current) => {
-      const next = [...current];
-      const [learner] = next.splice(learnerIndex, 1);
-      if (!learner) return current;
-      const insertIndex = Math.min(next.length, Math.max(0, targetGroupIndex) * Math.max(parsedRoomCapacity, 1));
-      next.splice(insertIndex, 0, learner);
-      return next;
+    requestScheduleStructureChange(() => {
+      setUploadedLearners((current) => {
+        const next = [...current];
+        const [learner] = next.splice(learnerIndex, 1);
+        if (!learner) return current;
+        const insertIndex = Math.min(next.length, Math.max(0, targetGroupIndex) * Math.max(parsedRoomCapacity, 1));
+        next.splice(insertIndex, 0, learner);
+        return next;
+      });
+      setSaveState("unsaved");
     });
-    setSaveState("unsaved");
-  }, [parsedRoomCapacity]);
+  }, [parsedRoomCapacity, requestScheduleStructureChange]);
   const handleCreateLearnerGroup = useCallback(() => {
-    setUploadedLearners((current) => [
-      ...current,
-      ...Array.from({ length: Math.max(parsedRoomCapacity, 1) }, (_, index) => `Learner ${current.length + index + 1}`),
-    ]);
-    setSaveState("unsaved");
-  }, [parsedRoomCapacity]);
+    requestScheduleStructureChange(() => {
+      setUploadedLearners((current) => [
+        ...current,
+        ...Array.from({ length: Math.max(parsedRoomCapacity, 1) }, (_, index) => `Learner ${current.length + index + 1}`),
+      ]);
+      setSaveState("unsaved");
+    });
+  }, [parsedRoomCapacity, requestScheduleStructureChange]);
   const handleDeleteLearnerGroup = useCallback((groupIndex: number) => {
     const groupSize = Math.max(parsedRoomCapacity, 1);
-    setUploadedLearners((current) =>
-      current.filter((_, index) => index < groupIndex * groupSize || index >= (groupIndex + 1) * groupSize)
-    );
-    setSaveState("unsaved");
-  }, [parsedRoomCapacity]);
+    requestScheduleStructureChange(() => {
+      setUploadedLearners((current) =>
+        current.filter((_, index) => index < groupIndex * groupSize || index >= (groupIndex + 1) * groupSize)
+      );
+      setSaveState("unsaved");
+    });
+  }, [parsedRoomCapacity, requestScheduleStructureChange]);
   const handleSaveCaseStationOverride = useCallback(
     async (caseIndex: number, partial: Partial<ScheduleRoomAdjustmentSlot>) => {
       if (!selectedEvent?.id) return;
@@ -7763,14 +8088,15 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         nextAdjustments = upsertScheduleRoomAdjustmentSlot(nextAdjustments, roundNumber, caseIndex, partial);
       }
       const normalized = normalizeScheduleRoomAdjustments(nextAdjustments);
-      setRoomAdjustments(normalized);
       setSaveState("saving");
       try {
         await persistScheduleWorkflowMetadata({
           schedule_room_adjustments: serializeScheduleRoomAdjustments(normalized),
           schedule_updated_at: new Date().toISOString(),
         });
+        setRoomAdjustments(normalized);
         setSaveState("saved");
+        skipNextAutosaveRef.current = true;
         setLastSavedAt(new Date().toISOString());
         showCopyMessage("Case station assignment saved.");
       } catch (error) {
@@ -7783,33 +8109,19 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     [activeCaseCount, effectiveRoundCount, generated.rounds.length, persistScheduleWorkflowMetadata, persistedResolvedRounds.length, roomAdjustments, selectedEvent?.id, showCopyMessage]
   );
 
+  // IMPORTANT REGRESSION GUARD:
+  // Saved builder draft and completed schedule snapshot are authoritative. Do not rebuild
+  // schedule structure from fallback room/learner math when saved schedule metadata exists.
+  // Failed saves must not mutate the local saved state. Server persistence only happens
+  // through explicit save/complete/case actions so temporary preview recalculation cannot
+  // silently overwrite Command Center truth.
   useEffect(() => {
-    if (props.previewOnly) return;
-    if (!selectedEvent?.id) return;
-    if (skipNextAutosaveRef.current) return;
-
-    if (workflowSyncTimeoutRef.current) {
-      window.clearTimeout(workflowSyncTimeoutRef.current);
-    }
-
-    workflowSyncTimeoutRef.current = window.setTimeout(() => {
-      const now = new Date().toISOString();
-      void persistScheduleWorkflowMetadata(buildScheduleWorkflowPartial(now)).catch(() => {
-        // Keep the builder usable even if event metadata persistence is temporarily unavailable.
-      });
-    }, 1400);
-
     return () => {
       if (workflowSyncTimeoutRef.current) {
         window.clearTimeout(workflowSyncTimeoutRef.current);
       }
     };
-  }, [
-    buildScheduleWorkflowPartial,
-    persistScheduleWorkflowMetadata,
-    props.previewOnly,
-    selectedEvent?.id,
-  ]);
+  }, []);
 
   const assignedNames = useMemo(() => (selectedEvent ? getAssignedNames(selectedEvent) : []), [selectedEvent]);
   const generatedScheduledRounds = useMemo(
@@ -8391,11 +8703,40 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   }
 
   function handleRoomCapacityChange(value: string) {
-    if (!asText(value)) {
-      setRoomCapacity("");
-      return;
-    }
-    setRoomCapacity(String(Math.max(1, parseNumber(value, 1))));
+    const applyChange = () => {
+      if (!asText(value)) {
+        setRoomCapacity("");
+        return;
+      }
+      setRoomCapacity(String(Math.max(1, parseNumber(value, 1))));
+    };
+    requestScheduleStructureChange(applyChange);
+  }
+
+  function handleExamRoomCountChange(value: string) {
+    requestScheduleStructureChange(() => setExamRoomCount(value));
+  }
+
+  function handleFlexRoomCountChange(value: string) {
+    requestScheduleStructureChange(() => setFlexRoomCount(value));
+  }
+
+  function handleMaxPairsPerFlexRoomChange(value: string) {
+    requestScheduleStructureChange(() => setMaxPairsPerFlexRoom(value));
+  }
+
+  function handleManualRoundOverrideChange(value: boolean) {
+    requestScheduleStructureChange(() => setManualRoundOverride(value));
+  }
+
+  function handleManualRoundCountChange(value: string) {
+    requestScheduleStructureChange(() => setRoundCount(value));
+  }
+
+  function handleExamRoomDelta(delta: number) {
+    requestScheduleStructureChange(() =>
+      setExamRoomCount(String(Math.max(1, parseNumber(examRoomCount, delta > 0 ? 0 : 1) + delta)))
+    );
   }
 
   async function handleShareOrCopyLink() {
@@ -8840,6 +9181,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     setSaveErrorMessage("");
     try {
       const completedSnapshot = buildPersistedScheduleSnapshot(now, "complete");
+      const completedCaseDefinitions = completedSnapshot.scheduleCaseDefinitions.length
+        ? completedSnapshot.scheduleCaseDefinitions
+        : scheduleCaseDefinitions;
+      const completedSerializedCases = serializeScheduleCaseDefinitions(completedCaseDefinitions);
       await persistScheduleWorkflowMetadata({
         schedule_status: "complete",
         schedule_started_at: selectedEventMetadata.schedule_started_at || now,
@@ -8855,6 +9200,12 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         schedule_learner_roster: serializeScheduleLearnerRosterMetadata(
           uploadedLearners.length ? uploadedLearners : originalUploadedLearners
         ),
+        case_rotation_required: completedSnapshot.caseRotationRequired ? "yes" : "no",
+        case_count: String(Math.max(completedSnapshot.scheduleActiveCaseCount, completedCaseDefinitions.length || 1)),
+        case_name: completedCaseDefinitions[0]?.name || selectedEventMetadata.case_name || "",
+        case_files: completedSerializedCases,
+        case_manager_cases: completedSerializedCases,
+        case_extra_rooms_mode: completedSnapshot.scheduleFlexRoomCount > 0 ? "flex_empty" : selectedEventMetadata.case_extra_rooms_mode || "",
         schedule_builder_snapshot: encodeScheduleBuilderSnapshot(completedSnapshot),
         schedule_builder_days: JSON.stringify(
           Object.fromEntries(
@@ -8870,6 +9221,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       if (typeof window !== "undefined") {
         window.localStorage.setItem(storageKey, JSON.stringify(completedSnapshot));
       }
+      lastKnownGoodScheduleSnapshotRef.current = completedSnapshot;
       lockedScheduleSourceRef.current = "completed_snapshot";
       setTimeSource({
         source: "completed_snapshot",
@@ -8879,6 +9231,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         sessionLengthMinutes: sanitizeSavedRoundTargetMinutes(completedSnapshot.sessionLengthMinutes),
       });
       setSaveState("saved");
+      skipNextAutosaveRef.current = true;
       setLastSavedAt(now);
       showCopyMessage("Schedule marked complete.");
     } catch (error) {
@@ -8901,7 +9254,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
 
   function confirmClearRoster() {
     setShowClearRosterDialog(false);
-    handleClearRoster();
+    requestScheduleStructureChange(handleClearRoster);
   }
 
   async function handleLearnerUpload(file: File | null) {
@@ -9347,6 +9700,11 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
               </button>
               {renderScheduleActionsMenu(false)}
             </div>
+            {saveState === "error" && saveErrorMessage ? (
+              <div className="cfsp-alert cfsp-alert-error max-w-[620px]">
+                Save failed: {saveErrorMessage}
+              </div>
+            ) : null}
             {learnerRoster.length > 1 ? (
               <div className="flex flex-wrap gap-2">
                 <button type="button" onClick={handleRandomizeLearners} className="cfsp-btn cfsp-btn-secondary">
@@ -9645,20 +10003,20 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                   <NumberInput
                     label={roomCountLabel}
                     value={examRoomCount}
-                    onChange={setExamRoomCount}
+                    onChange={handleExamRoomCountChange}
                   />
                   <div className="flex flex-wrap gap-2">
                     <button
                       type="button"
                       className="cfsp-btn cfsp-btn-secondary"
-                      onClick={() => setExamRoomCount(String(Math.max(1, parseNumber(examRoomCount, 1) - 1)))}
+                      onClick={() => handleExamRoomDelta(-1)}
                     >
                       − Room
                     </button>
                     <button
                       type="button"
                       className="cfsp-btn cfsp-btn-primary"
-                      onClick={() => setExamRoomCount(String(Math.max(1, parseNumber(examRoomCount, 0) + 1)))}
+                      onClick={() => handleExamRoomDelta(1)}
                     >
                       + Room
                     </button>
@@ -9667,8 +10025,8 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                 <NumberInput label={roomCapacityLabel} value={roomCapacity} onChange={handleRoomCapacityChange} />
                 {!isVirtualEvent ? (
                   <>
-                    <NumberInput label="Number of flex rooms" value={flexRoomCount} onChange={setFlexRoomCount} />
-                    <NumberInput label="Flex capacity" value={maxPairsPerFlexRoom} onChange={setMaxPairsPerFlexRoom} />
+                    <NumberInput label="Number of flex rooms" value={flexRoomCount} onChange={handleFlexRoomCountChange} />
+                    <NumberInput label="Flex capacity" value={maxPairsPerFlexRoom} onChange={handleMaxPairsPerFlexRoomChange} />
                   </>
                 ) : null}
                 <NumberInput label="Encounter minutes" value={encounterMinutes} onChange={setEncounterMinutes} />
@@ -10131,16 +10489,16 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                   <TimeInput label="Faculty arrival time" value={facultyArrivalTime} onChange={setFacultyArrivalTime} />
                   {!isVirtualEvent ? (
                     <>
-                      <NumberInput label="Number of flex rooms" value={flexRoomCount} onChange={setFlexRoomCount} />
-                      <NumberInput label="Flex capacity" value={maxPairsPerFlexRoom} onChange={setMaxPairsPerFlexRoom} />
+                      <NumberInput label="Number of flex rooms" value={flexRoomCount} onChange={handleFlexRoomCountChange} />
+                      <NumberInput label="Flex capacity" value={maxPairsPerFlexRoom} onChange={handleMaxPairsPerFlexRoomChange} />
                     </>
                   ) : null}
                   <NumberInput label="Room setup minutes" value={roomSetupMinutes} onChange={setRoomSetupMinutes} />
                   <NumberInput label="Student prebrief minutes" value={studentPrebriefMinutes} onChange={setStudentPrebriefMinutes} />
                   <NumberInput label="SP prebrief minutes" value={spPrebriefMinutes} onChange={setSpPrebriefMinutes} />
                   <NumberInput label="Faculty prebrief minutes" value={facultyPrebriefMinutes} onChange={setFacultyPrebriefMinutes} />
-                  <ToggleInput label="Manual rounds override" checked={manualRoundOverride} onChange={setManualRoundOverride} />
-                  <NumberInput label="Manual round count" value={roundCount} onChange={setRoundCount} disabled={!manualRoundOverride} />
+                  <ToggleInput label="Manual rounds override" checked={manualRoundOverride} onChange={handleManualRoundOverrideChange} />
+                  <NumberInput label="Manual round count" value={roundCount} onChange={handleManualRoundCountChange} disabled={!manualRoundOverride} />
                 </div>
               </section>
 
@@ -10488,14 +10846,14 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                   <button
                     type="button"
                     className="cfsp-btn cfsp-btn-secondary"
-                    onClick={() => setExamRoomCount(String(Math.max(1, parseNumber(examRoomCount, 1) - 1)))}
+                    onClick={() => handleExamRoomDelta(-1)}
                   >
                     − Room
                   </button>
                   <button
                     type="button"
                     className="cfsp-btn cfsp-btn-primary"
-                    onClick={() => setExamRoomCount(String(Math.max(1, parseNumber(examRoomCount, 0) + 1)))}
+                    onClick={() => handleExamRoomDelta(1)}
                   >
                     + Room
                   </button>
@@ -10840,6 +11198,40 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
               </button>
               <button type="button" onClick={confirmClearRoster} className="cfsp-btn">
                 Clear Roster
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {structureChangeDialogOpen ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="schedule-structure-change-title"
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 76,
+            background: "rgba(3, 9, 17, 0.66)",
+            display: "grid",
+            placeItems: "center",
+            padding: 20,
+          }}
+        >
+          <div className="cfsp-panel max-w-[520px] px-5 py-5 shadow-xl">
+            <h3 id="schedule-structure-change-title" className="m-0 text-[1.25rem] font-black text-[#14304f]">
+              Change schedule structure?
+            </h3>
+            <p className="mt-3 text-sm font-semibold leading-6 text-[#5e7388]">
+              This event already has saved schedule data. Changing case mode, room count, learner grouping, or rotation setup may reset the schedule and affect Command Center, Student/Admin Schedule, and exports.
+            </p>
+            <div className="mt-5 flex flex-wrap justify-end gap-2">
+              <button type="button" className="cfsp-btn cfsp-btn-secondary" onClick={cancelScheduleStructureChange}>
+                Cancel
+              </button>
+              <button type="button" className="cfsp-btn cfsp-btn-primary" onClick={continueScheduleStructureChange}>
+                Continue
               </button>
             </div>
           </div>

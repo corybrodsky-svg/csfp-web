@@ -483,6 +483,8 @@ type ScheduleBuilderPreviewResolvedRoomSlot = {
   notes: string;
   stationStatus?: ScheduleStationStatus;
   isBackupStation?: boolean;
+  roomType?: "exam" | "flex";
+  capacity?: number;
 };
 
 type ScheduleBuilderPreviewResolvedRound = {
@@ -491,6 +493,13 @@ type ScheduleBuilderPreviewResolvedRound = {
   startTime: string;
   endTime: string;
   roomSlots: ScheduleBuilderPreviewResolvedRoomSlot[];
+};
+
+type ScheduleBuilderPreviewCaseDefinition = {
+  id: string;
+  name: string;
+  roomAssignment?: string;
+  active: boolean;
 };
 
 type ScheduleBuilderPreviewDraft = {
@@ -519,6 +528,11 @@ type ScheduleBuilderPreviewDraft = {
   scheduleRoomCount?: number;
   scheduleRoomCapacity?: number;
   scheduleLearnerRoster: string[];
+  multipleCasesEnabled?: boolean;
+  scheduleCaseDefinitions?: ScheduleBuilderPreviewCaseDefinition[];
+  scheduleActiveCaseCount?: number;
+  scheduleFlexRoomCount?: number;
+  caseRotationRequired?: boolean;
   eventDate: string;
   resolvedRounds: ScheduleBuilderPreviewResolvedRound[];
   savedAt: string;
@@ -5111,6 +5125,7 @@ function buildSelectedRoundOperationalRooms(args: {
     const stationLabel = asText(selectedRoundStationLabel);
     const encounterLabel = [stationLabel, caseLabel].filter(Boolean).join(" · ") || "Case pending";
     const savedStationStatus = normalizeScheduleStationStatus(slot?.stationStatus);
+    const savedSlotIsFlexOrEmpty = Boolean(slot?.roomType === "flex" || (typeof slot?.capacity === "number" && slot.capacity <= 0));
     const manualStationStatus = hasStationStatusOverride
       ? normalizeScheduleStationStatus(slotOverride?.stationStatus)
       : savedStationStatus;
@@ -5126,6 +5141,8 @@ function buildSelectedRoundOperationalRooms(args: {
           ? "backup"
           : manualStationStatus === "active"
             ? "active"
+            : savedSlotIsFlexOrEmpty
+              ? "inactive"
             : inferredBackupStation
               ? "backup"
               : "active";
@@ -5188,12 +5205,30 @@ function parseBooleanValue(value: unknown, fallback = false) {
   return fallback;
 }
 
+function normalizeScheduleBuilderCaseDefinitions(value: unknown) {
+  if (!Array.isArray(value)) return [] as ScheduleBuilderPreviewCaseDefinition[];
+  return value
+    .map((entry, index) => {
+      const record = entry && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
+      const name = asText(record.name) || asText(record.title) || `Case ${index + 1}`;
+      return {
+        id: asText(record.id) || `snapshot-case-${index + 1}`,
+        name,
+        roomAssignment: asText(record.roomAssignment || record.room_assignment),
+        active: asText(record.status).toLowerCase() !== "inactive" && record.active !== false,
+      } satisfies ScheduleBuilderPreviewCaseDefinition;
+    })
+    .filter((entry) => Boolean(entry.name));
+}
+
 function parseScheduleBuilderPreviewDraft(value: string | null) {
   if (!value) return null;
 
   try {
     const parsed = JSON.parse(value) as Record<string, unknown>;
     if (!parsed || typeof parsed !== "object") return null;
+    const scheduleCaseDefinitions = normalizeScheduleBuilderCaseDefinitions(parsed.scheduleCaseDefinitions);
+    const activeCaseCount = scheduleCaseDefinitions.filter((caseDef) => caseDef.active).length;
     const resolvedRounds = Array.isArray(parsed.resolvedRounds)
       ? parsed.resolvedRounds
           .map((round, index) => {
@@ -5213,6 +5248,8 @@ function parseScheduleBuilderPreviewDraft(value: string | null) {
                       notes: asText(slotRecord.notes),
                       stationStatus: normalizeScheduleStationStatus(slotRecord.stationStatus) || undefined,
                       isBackupStation: parseBooleanValue(slotRecord.isBackupStation, false),
+                      roomType: slotRecord.roomType === "flex" ? "flex" : "exam",
+                      capacity: Math.max(0, parsePositiveInteger(slotRecord.capacity, 0)),
                     } satisfies ScheduleBuilderPreviewResolvedRoomSlot;
                   })
                   .filter(
@@ -5269,6 +5306,17 @@ function parseScheduleBuilderPreviewDraft(value: string | null) {
       scheduleRoomCount: Math.max(derivedRoomCount, parsePositiveInteger(parsed.scheduleRoomCount, 0)),
       scheduleRoomCapacity: Math.max(0, parsePositiveInteger(parsed.scheduleRoomCapacity, 0)),
       scheduleLearnerRoster: normalizeTextArray(parsed.scheduleLearnerRoster),
+      multipleCasesEnabled: parseBooleanValue(
+        parsed.multipleCasesEnabled,
+        parseBooleanValue(parsed.caseRotationRequired, activeCaseCount > 1)
+      ),
+      scheduleCaseDefinitions,
+      scheduleActiveCaseCount: Math.max(activeCaseCount, parsePositiveInteger(parsed.scheduleActiveCaseCount, 0)),
+      scheduleFlexRoomCount: parsePositiveInteger(parsed.scheduleFlexRoomCount, 0),
+      caseRotationRequired: parseBooleanValue(
+        parsed.caseRotationRequired,
+        parseBooleanValue(parsed.multipleCasesEnabled, activeCaseCount > 1)
+      ),
       eventDate: asText(parsed.eventDate),
       resolvedRounds,
       savedAt: asText(parsed.savedAt),
@@ -5356,6 +5404,10 @@ function resolveScheduleBuilderPreviewSnapshot(
   metadata: Partial<TrainingEventMetadata> | null | undefined,
   options?: { scheduleDay?: number | null; localStorageSnapshot?: string | null }
 ) {
+  // IMPORTANT REGRESSION GUARD:
+  // Saved builder draft and completed schedule snapshot are authoritative. Do not rebuild
+  // schedule structure from fallback room/learner math when saved schedule metadata exists.
+  // Failed saves must not mutate the local saved state.
   const effectiveDay = options?.scheduleDay && options.scheduleDay > 0 ? options.scheduleDay : 1;
   const serverDaySnapshots = parseScheduleBuilderPreviewDays(asText(metadata?.schedule_builder_days));
   const serverSnapshotFromDay = serverDaySnapshots.get(effectiveDay) || null;
@@ -7449,6 +7501,18 @@ export default function EventDetailPage() {
       ),
     [scheduleBuilderPreviewDraft, trainingMetadata.schedule_room_capacity]
   );
+  const scheduleBuilderDraftActiveCaseCount = useMemo(() => {
+    if (!scheduleBuilderPreviewDraft) return 0;
+    const snapshotCaseCount =
+      scheduleBuilderPreviewDraft.scheduleActiveCaseCount ||
+      scheduleBuilderPreviewDraft.scheduleCaseDefinitions?.filter((caseDef) => caseDef.active).length ||
+      0;
+    return scheduleBuilderPreviewDraft.multipleCasesEnabled || scheduleBuilderPreviewDraft.caseRotationRequired
+      ? Math.max(snapshotCaseCount, 0)
+      : snapshotCaseCount > 1
+        ? snapshotCaseCount
+        : 0;
+  }, [scheduleBuilderPreviewDraft]);
   const effectiveLearnerCount = useMemo(
     () =>
       scheduleBuilderDraftLearnerRoster.length > 0
@@ -7527,7 +7591,6 @@ export default function EventDetailPage() {
   const scheduleRoundCountResolution = useMemo(() => {
     const scheduleStatus = asText(trainingMetadata.schedule_status).toLowerCase();
     const hasDraftTiming = Boolean(scheduleBuilderPreviewDraft?.startTime);
-    const requiredCapacityCandidate = Math.max(scheduleBuilderAutoRoundCount, metadataRotationRoundsNeeded);
     const completedSnapshotRoundCount = scheduleBuilderPreviewDraft?.resolvedRounds?.length || 0;
     const completedBaseCandidate =
       scheduleStatus === "complete"
@@ -7538,8 +7601,7 @@ export default function EventDetailPage() {
       !completedBaseCandidate && hasDraftTiming
         ? scheduleBuilderDraftRoundCount
         : 0;
-    const draftCandidate =
-      draftBaseCandidate > 0 ? Math.max(draftBaseCandidate, requiredCapacityCandidate) : 0;
+    const draftCandidate = draftBaseCandidate;
     const generatedCandidate = allRotationRounds.length;
     const fallbackCandidate = fallbackRotationCountSource.rounds;
 
@@ -7554,10 +7616,7 @@ export default function EventDetailPage() {
       candidates.push({
         source: "saved_draft",
         rounds: draftCandidate,
-        label:
-          draftCandidate > draftBaseCandidate
-            ? "Expanded saved builder draft from roster and room capacity"
-            : "Using saved builder draft round count",
+        label: "Using saved builder draft round count",
       });
     }
 
@@ -7587,18 +7646,15 @@ export default function EventDetailPage() {
     } else if (draftCandidate > 0) {
       resolved = draftCandidate;
       source = "saved_draft";
-      sourceLabel =
-        draftCandidate > draftBaseCandidate
-          ? "Saved builder draft + roster capacity"
-          : "Saved in-progress builder draft";
-    } else if (fallbackCandidate > 0) {
-      resolved = fallbackCandidate;
-      source = "fallback";
-      sourceLabel = fallbackRotationCountSource.label;
+      sourceLabel = "Saved in-progress builder draft";
     } else if (generatedCandidate > 0) {
       resolved = generatedCandidate;
       source = "generated";
       sourceLabel = "Generated schedule state";
+    } else if (fallbackCandidate > 0) {
+      resolved = fallbackCandidate;
+      source = "fallback";
+      sourceLabel = fallbackRotationCountSource.label;
     }
 
     const nonZeroValues = Array.from(new Set(candidates.map((candidate) => candidate.rounds).filter((value) => value > 0)));
@@ -7617,8 +7673,6 @@ export default function EventDetailPage() {
     allRotationRounds.length,
     fallbackRotationCountSource,
     metadataBasedRotationCount,
-    metadataRotationRoundsNeeded,
-    scheduleBuilderAutoRoundCount,
     scheduleBuilderDraftRoundCount,
     scheduleBuilderPreviewDraft,
     trainingMetadata.schedule_status,
@@ -10602,18 +10656,17 @@ const operationalEventStatusLabel = useMemo(() => {
     [scheduleBuilderDraftRoomCapacity]
   );
   const resolvedScheduleMatrixCaseCount = useMemo(() => {
+    if (scheduleBuilderDraftActiveCaseCount > 0) {
+      return scheduleBuilderDraftActiveCaseCount;
+    }
     const explicitCaseCount = parsePositiveInteger(trainingMetadata.case_count, 0);
     const parsedCaseCount = parseCaseFileEntries(trainingMetadata.case_manager_cases || trainingMetadata.case_files).filter((entry) => entry.status !== "inactive").length;
-    const draftRoomCount = isMetadataYes(trainingMetadata.case_rotation_required)
-      ? Math.max(scheduleBuilderPreviewDraft?.scheduleRoomCount || 0, parsePositiveInteger(scheduleBuilderPreviewDraft?.examRoomCount, 0))
-      : 0;
-    return Math.max(explicitCaseCount, parsedCaseCount, draftRoomCount);
+    return Math.max(explicitCaseCount, parsedCaseCount);
   }, [
-    scheduleBuilderPreviewDraft,
+    scheduleBuilderDraftActiveCaseCount,
     trainingMetadata.case_count,
     trainingMetadata.case_files,
     trainingMetadata.case_manager_cases,
-    trainingMetadata.case_rotation_required,
   ]);
   const isScheduleMatrixVirtual = selectedModalityLabel === "Virtual";
   const currentLiveReferenceRoundIndex = useMemo(
@@ -13528,9 +13581,10 @@ Cory`;
     scheduleBuilderRoomCapacity,
   ]);
   const reviewSummaryCaseCount = Math.max(
-    resolvedScheduleMatrixCaseCount,
-    caseFileEntries.length,
-    parsePositiveInteger(trainingMetadata.case_count, 0),
+    scheduleBuilderDraftActiveCaseCount ||
+      resolvedScheduleMatrixCaseCount ||
+      caseFileEntries.length ||
+      parsePositiveInteger(trainingMetadata.case_count, 0),
     1
   );
   const reviewEventTimingSummary = useMemo(() => {
@@ -13654,7 +13708,9 @@ Cory`;
     { label: "Active Stations", value: operationalRoomCount > 0 ? String(operationalRoomCount) : "Not set" },
     {
       label: "Rotations Needed",
-      value: scheduleBuilderAutoRoundCount > 0
+      value: scheduleRoundCountResolution.source === "completed_snapshot" || scheduleRoundCountResolution.source === "saved_draft"
+        ? String(scheduleRoundCountResolution.rounds)
+        : scheduleBuilderAutoRoundCount > 0
         ? String(scheduleBuilderAutoRoundCount)
         : metadataRotationRoundsNeeded > 0
           ? String(metadataRotationRoundsNeeded)
