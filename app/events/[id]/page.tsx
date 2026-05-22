@@ -340,6 +340,7 @@ type RoundRoomRow = {
   snapshotLearnerPlacementLocked: boolean;
   assignment: AssignmentRow | null;
   sp: SPRow | null;
+  primarySpName: string;
   backupSpName: string;
   caseLabel: string;
   roleId: string;
@@ -354,7 +355,6 @@ type RoundRoomBoardRow = RoundRoomRow & {
   mappingState: string;
 };
 type OperationsRoomCardRow = RoundRoomRow & {
-  primarySpName: string;
   stationStatus: ScheduleStationStatus;
   isActiveStation: boolean;
   isBackupStation: boolean;
@@ -4599,6 +4599,30 @@ function getScheduleViewerEmptyLearnerLabel(_snapshotLearnerPlacementLocked = fa
   return UNASSIGNED_LEARNER_ROOM_LABEL;
 }
 
+function getScheduleSlotPrimarySpName(slotRecord: Record<string, unknown>) {
+  return (
+    asText(slotRecord.assignedSpName) ||
+    asText(slotRecord.primarySpName) ||
+    asText(slotRecord.spName)
+  );
+}
+
+function getScheduleSlotCaseLabel(slotRecord: Record<string, unknown>) {
+  return (
+    asText(slotRecord.caseLabel) ||
+    asText(slotRecord.caseTitle) ||
+    asText(slotRecord.caseFile)
+  );
+}
+
+function getScheduleSlotRoleLabel(slotRecord: Record<string, unknown>) {
+  return (
+    asText(slotRecord.roleLabel) ||
+    asText(slotRecord.role) ||
+    asText(slotRecord.portrayal)
+  );
+}
+
 function parseScheduleRoomAdjustments(value: unknown) {
   const text = asText(value);
   const roundsByNumber: ParsedScheduleRoomAdjustments = new Map();
@@ -4748,6 +4772,131 @@ function hasScheduleRoomAdjustmentField(
 
 function isConfirmedScheduleRoomAdjustment(slot: Partial<ScheduleRoomAdjustmentSlot> | null | undefined) {
   return normalizeDisplayText(slot?.source).toLowerCase() === CONFIRMED_SCHEDULE_OVERRIDE_SOURCE;
+}
+
+function normalizeScheduleCaseIdentity(value: unknown) {
+  return normalizeDisplayText(value).toLowerCase();
+}
+
+function buildActiveScheduleCaseIdentitySet(caseLabels: string[]) {
+  return new Set(
+    caseLabels
+      .map((label) => normalizeScheduleCaseIdentity(label))
+      .filter(Boolean)
+  );
+}
+
+function isGeneratedCasePlaceholderLabel(value: unknown) {
+  return /^case\s+\d+$/i.test(normalizeDisplayText(value));
+}
+
+function shouldStripSavedSlotCaseLabel(value: unknown, activeCaseIdentities: Set<string>) {
+  const normalized = normalizeScheduleCaseIdentity(value);
+  if (!normalized || !activeCaseIdentities.size) return false;
+  return isGeneratedCasePlaceholderLabel(value) && !activeCaseIdentities.has(normalized);
+}
+
+function shouldStripMatchingUnconfirmedAdjustmentValue(slotValue: unknown, adjustmentValue: unknown, hasAdjustmentField: boolean) {
+  const normalizedSlotValue = normalizeDisplayText(slotValue);
+  const normalizedAdjustmentValue = normalizeDisplayText(adjustmentValue);
+  return Boolean(
+    hasAdjustmentField &&
+      normalizedSlotValue &&
+      normalizedAdjustmentValue &&
+      normalizedSlotValue.toLowerCase() === normalizedAdjustmentValue.toLowerCase()
+  );
+}
+
+function sanitizeSavedScheduleRoomSlotForRender(
+  slot: ScheduleBuilderPreviewResolvedRoomSlot,
+  adjustment: ScheduleRoomAdjustmentSlot | null | undefined,
+  activeCaseIdentities: Set<string>
+) {
+  // IMPORTANT REGRESSION GUARD:
+  // Schedule room cards must render from authoritative saved room slot objects. Do not stitch together
+  // room, learner, SP, case, and role data from separate arrays by index. Saved builder/completed
+  // schedule slots are the unit of truth. This sanitizer only removes stale, unconfirmed room
+  // adjustment overlays that older code persisted into the saved slot object.
+  const next = { ...slot };
+  if (adjustment && !isConfirmedScheduleRoomAdjustment(adjustment)) {
+    if (shouldStripMatchingUnconfirmedAdjustmentValue(next.assignedSpName, adjustment.spName, hasScheduleRoomAdjustmentField(adjustment, "spName"))) {
+      next.assignedSpName = "";
+    }
+    if (shouldStripMatchingUnconfirmedAdjustmentValue(next.backupSpName, adjustment.backupSpName, hasScheduleRoomAdjustmentField(adjustment, "backupSpName"))) {
+      next.backupSpName = "";
+    }
+    if (shouldStripMatchingUnconfirmedAdjustmentValue(next.caseLabel, adjustment.caseLabel, hasScheduleRoomAdjustmentField(adjustment, "caseLabel"))) {
+      next.caseLabel = "";
+    }
+    if (shouldStripMatchingUnconfirmedAdjustmentValue(next.roleId, adjustment.roleId, hasScheduleRoomAdjustmentField(adjustment, "roleId"))) {
+      next.roleId = "";
+    }
+    if (shouldStripMatchingUnconfirmedAdjustmentValue(next.roleLabel, adjustment.roleLabel, hasScheduleRoomAdjustmentField(adjustment, "roleLabel"))) {
+      next.roleLabel = "";
+    }
+    if (shouldStripMatchingUnconfirmedAdjustmentValue(next.notes, adjustment.notes, hasScheduleRoomAdjustmentField(adjustment, "notes"))) {
+      next.notes = "";
+    }
+    if (
+      hasScheduleRoomAdjustmentField(adjustment, "stationStatus") &&
+      normalizeScheduleStationStatus(next.stationStatus) === normalizeScheduleStationStatus(adjustment.stationStatus)
+    ) {
+      next.stationStatus = undefined;
+    }
+    if (
+      hasScheduleRoomAdjustmentField(adjustment, "isBackupStation") &&
+      Boolean(next.isBackupStation) === Boolean(adjustment.isBackupStation)
+    ) {
+      next.isBackupStation = false;
+    }
+  }
+  if (shouldStripSavedSlotCaseLabel(next.caseLabel, activeCaseIdentities)) {
+    next.caseLabel = "";
+  }
+  return next;
+}
+
+function sanitizeSavedScheduleRoomSlotsForRender(
+  slots: ScheduleBuilderPreviewResolvedRoomSlot[],
+  roundAdjustments: ScheduleRoomAdjustmentSlot[],
+  activeCaseLabels: string[]
+) {
+  const activeCaseIdentities = buildActiveScheduleCaseIdentitySet(activeCaseLabels);
+  return slots.map((slot, slotIndex) => {
+    const adjustment = roundAdjustments.find((entry) => entry.slotIndex === slotIndex) || null;
+    return sanitizeSavedScheduleRoomSlotForRender(slot, adjustment, activeCaseIdentities);
+  });
+}
+
+function sanitizeScheduleBuilderPreviewResolvedRounds(
+  rounds: ScheduleBuilderPreviewResolvedRound[],
+  adjustments: ParsedScheduleRoomAdjustments,
+  activeCaseLabels: string[]
+) {
+  return rounds.map((round, roundIndex) => {
+    const roundNumber = Number(round.round) || roundIndex + 1;
+    const roundAdjustments = adjustments.get(roundNumber) || [];
+    if (!round.roomSlots.length && !roundAdjustments.length) return round;
+    return {
+      ...round,
+      roomSlots: sanitizeSavedScheduleRoomSlotsForRender(round.roomSlots, roundAdjustments, activeCaseLabels),
+    };
+  });
+}
+
+function sanitizeScheduleBuilderPreviewDraftSlots(
+  snapshot: ScheduleBuilderPreviewDraft,
+  adjustments: ParsedScheduleRoomAdjustments,
+  activeCaseLabels: string[]
+) {
+  return {
+    ...snapshot,
+    resolvedRounds: sanitizeScheduleBuilderPreviewResolvedRounds(
+      snapshot.resolvedRounds || [],
+      adjustments,
+      activeCaseLabels
+    ),
+  } satisfies ScheduleBuilderPreviewDraft;
 }
 
 function sanitizeCompletedScheduleRepairAdjustments(
@@ -4949,7 +5098,7 @@ function buildSelectedRoundOperationalRooms(args: {
   scheduleBuilderRoomCapacity: number;
   resolvedScheduleMatrixCaseCount: number;
   isScheduleMatrixVirtual: boolean;
-  protectCompletedScheduleAssignments?: boolean;
+  activeScheduleCaseLabels: string[];
 }) {
   const {
     selectedRotationRound,
@@ -4967,7 +5116,7 @@ function buildSelectedRoundOperationalRooms(args: {
     scheduleBuilderRoomCapacity,
     resolvedScheduleMatrixCaseCount,
     isScheduleMatrixVirtual,
-    protectCompletedScheduleAssignments,
+    activeScheduleCaseLabels,
   } = args;
 
   if (!selectedRotationRound) {
@@ -4975,7 +5124,9 @@ function buildSelectedRoundOperationalRooms(args: {
   }
 
   const roundAdjustments = activeScheduleRoomAdjustments.get(selectedResolvedRoundNumber) || [];
-  const savedRoomSlots = Array.isArray(selectedResolvedRound?.roomSlots) ? selectedResolvedRound.roomSlots : [];
+  const savedRoomSlots = Array.isArray(selectedResolvedRound?.roomSlots)
+    ? sanitizeSavedScheduleRoomSlotsForRender(selectedResolvedRound.roomSlots, roundAdjustments, activeScheduleCaseLabels)
+    : [];
   const usingSavedRoomSlots = savedRoomSlots.length > 0;
   const roundKey = asText(selectedRotationRound.key);
   const roundNumber = selectedResolvedRoundNumber;
@@ -5049,16 +5200,15 @@ function buildSelectedRoundOperationalRooms(args: {
       });
 
   // IMPORTANT REGRESSION GUARD:
-  // For completed schedules, the completed schedule snapshot is the authoritative assignment source.
-  // Room Operations attendance/status metadata may overlay on top, but ordinary operational edits must
-  // not silently override completed schedule student/SP/room/case assignments. Assignment-changing edits
-  // require explicit confirmation and must be saved as confirmed schedule overrides.
+  // Schedule room cards must render from authoritative saved room slot objects. Do not stitch together
+  // room, learner, SP, case, and role data from separate arrays by index. Saved builder/completed
+  // schedule slots are the unit of truth.
   return sourceSlots.map(({ slot, sourceIndex, location }, slotIndex) => {
     const slotOverride =
       roundAdjustments.find((adjustment: ScheduleRoomAdjustmentSlot) => adjustment.slotIndex === slotIndex) || null;
     const canApplyAssignmentOverride =
-      !protectCompletedScheduleAssignments || isConfirmedScheduleRoomAdjustment(slotOverride);
-    const snapshotLearnerPlacementLocked = Boolean(protectCompletedScheduleAssignments && usingSavedRoomSlots);
+      !usingSavedRoomSlots || isConfirmedScheduleRoomAdjustment(slotOverride);
+    const snapshotLearnerPlacementLocked = usingSavedRoomSlots;
     const hasLearnerLabelsOverride = canApplyAssignmentOverride && hasScheduleRoomAdjustmentField(slotOverride, "learnerLabels");
     const hasRoomNameOverride = canApplyAssignmentOverride && hasScheduleRoomAdjustmentField(slotOverride, "roomName");
     const hasSpNameOverride = canApplyAssignmentOverride && hasScheduleRoomAdjustmentField(slotOverride, "spName");
@@ -5066,29 +5216,31 @@ function buildSelectedRoundOperationalRooms(args: {
     const hasCaseLabelOverride = canApplyAssignmentOverride && hasScheduleRoomAdjustmentField(slotOverride, "caseLabel");
     const hasRoleIdOverride = canApplyAssignmentOverride && hasScheduleRoomAdjustmentField(slotOverride, "roleId");
     const hasRoleLabelOverride = canApplyAssignmentOverride && hasScheduleRoomAdjustmentField(slotOverride, "roleLabel");
-    const hasNotesOverride = hasScheduleRoomAdjustmentField(slotOverride, "notes");
+    const hasNotesOverride = canApplyAssignmentOverride && hasScheduleRoomAdjustmentField(slotOverride, "notes");
     const hasStationStatusOverride = canApplyAssignmentOverride && hasScheduleRoomAdjustmentField(slotOverride, "stationStatus");
     const hasBackupStationOverride = canApplyAssignmentOverride && hasScheduleRoomAdjustmentField(slotOverride, "isBackupStation");
 
-    const generatedLearnerLabels = getResolvedRoundLearnerLabels({
-      learnerRoster: scheduleBuilderLearnerNames,
-      roomCapacity: scheduleBuilderRoomCapacity,
-      roundIndex: Math.max(roundNumber - 1, 0),
-      slotIndex,
-      roomSlotCount: slotCount,
-      activeCaseCount: resolvedScheduleMatrixCaseCount,
-      isMultiCaseMode: resolvedScheduleMatrixCaseCount > 1,
-      isVirtualEvent: isScheduleMatrixVirtual,
-    });
+    const generatedLearnerLabels = usingSavedRoomSlots
+      ? []
+      : getResolvedRoundLearnerLabels({
+          learnerRoster: scheduleBuilderLearnerNames,
+          roomCapacity: scheduleBuilderRoomCapacity,
+          roundIndex: Math.max(roundNumber - 1, 0),
+          slotIndex,
+          roomSlotCount: slotCount,
+          activeCaseCount: resolvedScheduleMatrixCaseCount,
+          isMultiCaseMode: resolvedScheduleMatrixCaseCount > 1,
+          isVirtualEvent: isScheduleMatrixVirtual,
+        });
     const savedLearnerLabels = getActualLearnerNames(Array.isArray(slot?.learnerLabels) ? slot.learnerLabels : []);
     const overrideLearnerLabels = getActualLearnerNames(slotOverride?.learnerLabels || []);
     const savedLearnerCountFallback = getLearnerCountFallbackFromLabels(Array.isArray(slot?.learnerLabels) ? slot.learnerLabels : []);
     const overrideLearnerCountFallback = getLearnerCountFallbackFromLabels(slotOverride?.learnerLabels || []);
     // IMPORTANT REGRESSION GUARD:
-    // Completed schedule viewer cells must render saved learner/student labels from the
-    // completed snapshot. Do not substitute seat counts, learner counts, generated fallback
-    // labels, or Room Operations metadata for completed schedule learner placement.
-    const shouldUseSavedSnapshotLearners = snapshotLearnerPlacementLocked && !hasLearnerLabelsOverride;
+    // Saved schedule viewer cells must render learner/student labels from the slot object.
+    // Do not substitute seat counts, learner counts, generated fallback labels, or Room
+    // Operations metadata for saved schedule learner placement.
+    const shouldUseSavedSnapshotLearners = usingSavedRoomSlots && !hasLearnerLabelsOverride;
     const learnerLabels = hasLearnerLabelsOverride
       ? overrideLearnerLabels
       : shouldUseSavedSnapshotLearners
@@ -5096,7 +5248,9 @@ function buildSelectedRoundOperationalRooms(args: {
       : savedLearnerLabels.length
         ? savedLearnerLabels
         : generatedLearnerLabels;
-    const learnerCountFallback = learnerLabels.length
+    const learnerCountFallback = usingSavedRoomSlots
+      ? 0
+      : learnerLabels.length
       ? 0
       : hasLearnerLabelsOverride
         ? (snapshotLearnerPlacementLocked ? 0 : overrideLearnerCountFallback)
@@ -5114,7 +5268,7 @@ function buildSelectedRoundOperationalRooms(args: {
       : asText(slot?.backupSpName);
     const caseLabel =
       (hasCaseLabelOverride ? asText(slotOverride?.caseLabel) : asText(slot?.caseLabel)) ||
-      asText(selectedRoundCaseLabel);
+      (usingSavedRoomSlots ? "" : asText(selectedRoundCaseLabel));
     const roleId = hasRoleIdOverride
       ? asText(slotOverride?.roleId)
       : asText(slot?.roleId);
@@ -5122,7 +5276,7 @@ function buildSelectedRoundOperationalRooms(args: {
       ? asText(slotOverride?.roleLabel)
       : asText(slot?.roleLabel);
     const notes = hasNotesOverride ? asText(slotOverride?.notes) : asText(slot?.notes);
-    const stationLabel = asText(selectedRoundStationLabel);
+    const stationLabel = usingSavedRoomSlots ? "" : asText(selectedRoundStationLabel);
     const encounterLabel = [stationLabel, caseLabel].filter(Boolean).join(" · ") || "Case pending";
     const savedStationStatus = normalizeScheduleStationStatus(slot?.stationStatus);
     const savedSlotIsFlexOrEmpty = Boolean(slot?.roomType === "flex" || (typeof slot?.capacity === "number" && slot.capacity <= 0));
@@ -5237,15 +5391,15 @@ function parseScheduleBuilderPreviewDraft(value: string | null) {
               ? record.roomSlots
                   .map((slot) => {
                     const slotRecord = slot && typeof slot === "object" ? (slot as Record<string, unknown>) : {};
-                    return {
-                      roomName: asText(slotRecord.roomName),
-                      learnerLabels: getActualLearnerNames(slotRecord.learnerLabels),
-                      assignedSpName: asText(slotRecord.assignedSpName),
-                      backupSpName: asText(slotRecord.backupSpName),
-                      caseLabel: asText(slotRecord.caseLabel),
-                      roleId: asText(slotRecord.roleId),
-                      roleLabel: asText(slotRecord.roleLabel),
-                      notes: asText(slotRecord.notes),
+	                    return {
+	                      roomName: asText(slotRecord.roomName),
+	                      learnerLabels: getActualLearnerNames(slotRecord.learnerLabels),
+	                      assignedSpName: getScheduleSlotPrimarySpName(slotRecord),
+	                      backupSpName: asText(slotRecord.backupSpName),
+	                      caseLabel: getScheduleSlotCaseLabel(slotRecord),
+	                      roleId: asText(slotRecord.roleId),
+	                      roleLabel: getScheduleSlotRoleLabel(slotRecord),
+	                      notes: asText(slotRecord.notes),
                       stationStatus: normalizeScheduleStationStatus(slotRecord.stationStatus) || undefined,
                       isBackupStation: parseBooleanValue(slotRecord.isBackupStation, false),
                       roomType: slotRecord.roomType === "flex" ? "flex" : "exam",
@@ -8454,13 +8608,13 @@ const operationalEventStatusLabel = useMemo(() => {
       metadataRoomCount: effectiveRoomCount,
       roomContext: roomNamingContext,
     });
-  }, [
-    currentLiveBlock,
-    currentLiveReferenceRound,
-    effectiveRoomCount,
-    roomNamingContext,
-    roomSlotEntriesByRoundKey,
-  ]);
+	  }, [
+	    currentLiveBlock,
+	    currentLiveReferenceRound,
+	    effectiveRoomCount,
+	    roomNamingContext,
+	    roomSlotEntriesByRoundKey,
+	  ]);
   const defaultSelectedRotationRoundKey = useMemo(() => {
     if (!activeDateRotationRounds.length) return "";
     if (
@@ -8494,10 +8648,11 @@ const operationalEventStatusLabel = useMemo(() => {
       return [] as Array<{
         key: string;
         roomName: string;
-        sourceIndex: number;
-        assignment: AssignmentRow | null;
-        sp: SPRow | null;
-        learnerLabel: string;
+	        sourceIndex: number;
+	        assignment: AssignmentRow | null;
+	        sp: SPRow | null;
+	        spName: string;
+	        learnerLabel: string;
         encounterLabel: string;
         defaultStatus: LiveRoomStatusValue;
         status: LiveRoomStatusValue;
@@ -8511,8 +8666,20 @@ const operationalEventStatusLabel = useMemo(() => {
     const remainingLabel = currentLiveBlock
       ? formatRemainingMinutes(Math.max(currentLiveBlock.endMinutes - simulatedLiveMinutes, 0))
       : "Timeline TBD";
-    const liveReferenceRowsByRoomNumber = new Map<number, { roomName: string; learnerLabels: string[] }>();
-    const liveReferenceRowsByRoomName = new Map<string, { roomName: string; learnerLabels: string[] }>();
+	    const liveReferenceRowsByRoomNumber = new Map<number, {
+	      roomName: string;
+	      learnerLabels: string[];
+	      assignedSpName?: string;
+	      caseLabel?: string;
+	      roleLabel?: string;
+	    }>();
+	    const liveReferenceRowsByRoomName = new Map<string, {
+	      roomName: string;
+	      learnerLabels: string[];
+	      assignedSpName?: string;
+	      caseLabel?: string;
+	      roleLabel?: string;
+	    }>();
     const liveReferenceSessions = currentLiveReferenceRound
       ? sessions.filter((session) => getRotationRoundKeyFromSession(session) === currentLiveReferenceRound.key)
       : [];
@@ -8551,10 +8718,33 @@ const operationalEventStatusLabel = useMemo(() => {
           selectedRoundGlobalIndex: Math.max(liveReferenceRoundIndex, 0),
         })
       : null;
-    const liveReferenceRows = completedReferenceRound?.roomSlots?.length
-      ? completedReferenceRound.roomSlots.map((slot, slotIndex) => ({
+    const usingSavedLiveReferenceSlots = Boolean(completedReferenceRound?.roomSlots?.length);
+    const activeCaseLabelsForLiveReference = (scheduleBuilderPreviewDraft?.scheduleCaseDefinitions || [])
+      .filter((caseDef) => caseDef.active !== false)
+      .map((caseDef) => asText(caseDef.name))
+      .filter(Boolean);
+    const fallbackCaseLabelsForLiveReference = parseCaseFileEntries(
+      trainingMetadata.case_manager_cases || trainingMetadata.case_files
+    )
+      .filter((caseEntry) => caseEntry.status !== "inactive")
+      .map((caseEntry) => asText(caseEntry.name))
+      .filter(Boolean);
+    const liveScheduleRoomAdjustments = parseScheduleRoomAdjustments(trainingMetadata.schedule_room_adjustments);
+    const liveReferenceRoundNumber = Number(completedReferenceRound?.round) || Math.max(liveReferenceRoundIndex, 0) + 1;
+    const savedLiveReferenceSlots = completedReferenceRound?.roomSlots?.length
+      ? sanitizeSavedScheduleRoomSlotsForRender(
+          completedReferenceRound.roomSlots,
+          liveScheduleRoomAdjustments.get(liveReferenceRoundNumber) || [],
+          activeCaseLabelsForLiveReference.length ? activeCaseLabelsForLiveReference : fallbackCaseLabelsForLiveReference
+        )
+      : [];
+    const liveReferenceRows = usingSavedLiveReferenceSlots
+      ? savedLiveReferenceSlots.map((slot, slotIndex) => ({
           roomName: asText(slot.roomName) || getFallbackRoomLabel(slotIndex, roomNamingContext),
           learnerLabels: getActualLearnerNames(slot.learnerLabels),
+          assignedSpName: asText(slot.assignedSpName),
+          caseLabel: asText(slot.caseLabel),
+          roleLabel: asText(slot.roleLabel),
         }))
       : liveReferenceRoomSlotEntries.map((entry, slotIndex) => {
       const roomNumber = getRoomDisplayNumber(entry.roomName);
@@ -8584,30 +8774,40 @@ const operationalEventStatusLabel = useMemo(() => {
       if (normalizedRoomName && !liveReferenceRowsByRoomName.has(normalizedRoomName)) {
         liveReferenceRowsByRoomName.set(normalizedRoomName, row);
       }
-    });
+	    });
 
-    return currentLiveRoomDisplayEntries.map(({ roomName, sourceIndex }, index) => {
-      const assignment = currentLiveRoomAssignmentPlan.assignments[index]?.assignment || null;
-      const sp = assignment?.sp_id ? spsById.get(assignment.sp_id) || null : null;
-      const checkedAt = assignment ? formatAttendanceTimestamp(assignment.event_checked_in_at || assignment.training_checked_in_at) : "";
-      const resolvedRoomName = roomName || getFallbackRoomLabel(index, roomNamingContext);
-      const resolvedRoomNumber = getRoomDisplayNumber(resolvedRoomName);
-      const matchedLiveReferenceRow =
-        (resolvedRoomNumber !== null ? liveReferenceRowsByRoomNumber.get(resolvedRoomNumber) : null) ||
-        liveReferenceRowsByRoomName.get(asText(resolvedRoomName).toLowerCase()) ||
-        null;
-      const encounterCaseLabel =
-        getFirstNoteValue(eventEditor.notes || event?.notes, ["Case", "Case Name", "Station Case"]) ||
-        asText(trainingMetadata.case_name) ||
-        parseCaseFileEntries(trainingMetadata.case_files)[0]?.name ||
-        getDisplayFileStem(trainingMetadata.case_file_url) ||
-        "";
-      const encounterStationLabel = getFirstNoteValue(eventEditor.notes || event?.notes, [
-        "Station",
-        "Station Label",
-        "Station Labels",
-      ]);
-      const encounterLabel = [encounterStationLabel, encounterCaseLabel].filter(Boolean).join(" · ") || "Case not assigned";
+	    return currentLiveRoomDisplayEntries.map(({ roomName, sourceIndex }, index) => {
+	      const resolvedRoomName = roomName || getFallbackRoomLabel(index, roomNamingContext);
+	      const resolvedRoomNumber = getRoomDisplayNumber(resolvedRoomName);
+	      const matchedLiveReferenceRow =
+	        (resolvedRoomNumber !== null ? liveReferenceRowsByRoomNumber.get(resolvedRoomNumber) : null) ||
+	        liveReferenceRowsByRoomName.get(asText(resolvedRoomName).toLowerCase()) ||
+	        null;
+	      const savedPrimarySpName = usingSavedLiveReferenceSlots ? asText(matchedLiveReferenceRow?.assignedSpName) : "";
+	      const assignment = usingSavedLiveReferenceSlots
+	        ? (savedPrimarySpName ? findAssignmentBySpDisplayName(confirmedAssignments, spsById, savedPrimarySpName) : null)
+	        : currentLiveRoomAssignmentPlan.assignments[index]?.assignment || null;
+	      const sp = assignment?.sp_id ? spsById.get(assignment.sp_id) || null : null;
+	      const checkedAt = assignment ? formatAttendanceTimestamp(assignment.event_checked_in_at || assignment.training_checked_in_at) : "";
+	      const encounterCaseLabel =
+	        usingSavedLiveReferenceSlots
+	          ? asText(matchedLiveReferenceRow?.caseLabel)
+	          : getFirstNoteValue(eventEditor.notes || event?.notes, ["Case", "Case Name", "Station Case"]) ||
+	            asText(trainingMetadata.case_name) ||
+	            parseCaseFileEntries(trainingMetadata.case_files)[0]?.name ||
+	            getDisplayFileStem(trainingMetadata.case_file_url) ||
+	            "";
+	      const encounterStationLabel = getFirstNoteValue(eventEditor.notes || event?.notes, [
+	        "Station",
+	        "Station Label",
+	        "Station Labels",
+	      ]);
+	      const encounterRoleLabel = usingSavedLiveReferenceSlots ? asText(matchedLiveReferenceRow?.roleLabel) : "";
+	      const encounterLabel = [
+	        usingSavedLiveReferenceSlots ? "" : encounterStationLabel,
+	        encounterCaseLabel,
+	        encounterRoleLabel,
+	      ].filter(Boolean).join(" · ") || "Case not assigned";
       const liveKey = `${currentLiveBlock.key}|${resolvedRoomName}`;
       const localState = liveRoomStates[liveKey] || {};
       const assignmentStatus = assignment ? getAssignmentStatus(assignment) : null;
@@ -8643,10 +8843,11 @@ const operationalEventStatusLabel = useMemo(() => {
       return {
         key: liveKey,
         sourceIndex,
-        roomName: resolvedRoomName,
-        assignment,
-        sp,
-        learnerLabel,
+	        roomName: resolvedRoomName,
+	        assignment,
+	        sp,
+	        spName: savedPrimarySpName || (sp ? getFullName(sp) : ""),
+	        learnerLabel,
         encounterLabel,
         defaultStatus,
         status: localState.status || defaultStatus,
@@ -8655,10 +8856,11 @@ const operationalEventStatusLabel = useMemo(() => {
         timeRemainingLabel: remainingLabel,
         checkedAt,
       };
-    });
-  }, [
-    currentLiveBlock,
-    currentLiveRoomDisplayEntries,
+	    });
+	  }, [
+	    confirmedAssignments,
+	    currentLiveBlock,
+	    currentLiveRoomDisplayEntries,
     currentLiveReferenceRound,
     effectiveRoomCount,
     livePausedAtMs,
@@ -8668,6 +8870,7 @@ const operationalEventStatusLabel = useMemo(() => {
     rotationRounds,
     scheduleBuilderDraftLearnerRoster,
     scheduleBuilderDraftRoomCapacity,
+    scheduleBuilderPreviewDraft?.scheduleCaseDefinitions,
     scheduleBuilderPreviewDraft?.resolvedRounds,
     sessions,
     simulatedLiveMinutes,
@@ -8678,7 +8881,9 @@ const operationalEventStatusLabel = useMemo(() => {
     eventEditor.notes,
     trainingMetadata.case_files,
     trainingMetadata.case_file_url,
+    trainingMetadata.case_manager_cases,
     trainingMetadata.case_name,
+    trainingMetadata.schedule_room_adjustments,
   ]);
   const liveRoomDelayedCount = currentLiveRoomBoardRows.filter((row) => row.status === "delayed" || row.delayMinutes > 0).length;
   const liveRoomMissingCount = currentLiveRoomBoardRows.filter((row) => row.status === "sp_missing").length;
@@ -10701,7 +10906,23 @@ const operationalEventStatusLabel = useMemo(() => {
       selectedRoundGlobalIndex: Math.max(currentLiveReferenceRoundIndex, 0),
     });
     if (completedReferenceRound?.roomSlots?.length) {
-      return completedReferenceRound.roomSlots.map((slot, slotIndex) => ({
+      const activeCaseLabelsForReference = (scheduleBuilderPreviewDraft?.scheduleCaseDefinitions || [])
+        .filter((caseDef) => caseDef.active !== false)
+        .map((caseDef) => asText(caseDef.name))
+        .filter(Boolean);
+      const fallbackCaseLabelsForReference = parseCaseFileEntries(
+        trainingMetadata.case_manager_cases || trainingMetadata.case_files
+      )
+        .filter((caseEntry) => caseEntry.status !== "inactive")
+        .map((caseEntry) => asText(caseEntry.name))
+        .filter(Boolean);
+      const referenceRoundNumber = Number(completedReferenceRound.round) || Math.max(currentLiveReferenceRoundIndex, 0) + 1;
+      const sanitizedSlots = sanitizeSavedScheduleRoomSlotsForRender(
+        completedReferenceRound.roomSlots,
+        activeScheduleRoomAdjustments.get(referenceRoundNumber) || [],
+        activeCaseLabelsForReference.length ? activeCaseLabelsForReference : fallbackCaseLabelsForReference
+      );
+      return sanitizedSlots.map((slot, slotIndex) => ({
         roomName: asText(slot.roomName) || getFallbackRoomLabel(slotIndex, roomNamingContext),
         learnerLabels: getActualLearnerNames(slot.learnerLabels),
       }));
@@ -10754,12 +10975,16 @@ const operationalEventStatusLabel = useMemo(() => {
     currentLiveReferenceRoomSlotEntries,
     currentLiveReferenceSessions,
     isScheduleMatrixVirtual,
+    activeScheduleRoomAdjustments,
     persistedResolvedRoundsByKey,
     resolvedScheduleMatrixCaseCount,
     roomNamingContext,
+    scheduleBuilderPreviewDraft?.scheduleCaseDefinitions,
     scheduleBuilderPreviewDraft?.resolvedRounds,
     scheduleBuilderLearnerNames,
     scheduleBuilderRoomCapacity,
+    trainingMetadata.case_files,
+    trainingMetadata.case_manager_cases,
   ]);
   const selectedRoundSessions = useMemo(() => {
     if (!selectedRotationRound) return [] as EventSessionRow[];
@@ -10844,6 +11069,17 @@ const operationalEventStatusLabel = useMemo(() => {
     });
     return names;
   }, [backupAssignments, spsById]);
+  const activeScheduleCaseLabels = useMemo(() => {
+    const snapshotCaseLabels = (scheduleBuilderPreviewDraft?.scheduleCaseDefinitions || [])
+      .filter((caseDef) => caseDef.active !== false)
+      .map((caseDef) => asText(caseDef.name))
+      .filter(Boolean);
+    if (snapshotCaseLabels.length) return snapshotCaseLabels;
+    return caseFileEntries
+      .filter((caseEntry) => asText(caseEntry.status).toLowerCase() !== "inactive")
+      .map((caseEntry) => asText(caseEntry.name))
+      .filter(Boolean);
+  }, [caseFileEntries, scheduleBuilderPreviewDraft?.scheduleCaseDefinitions]);
   const selectedRoundResolvedScheduleTruth = useMemo(
     () =>
       buildSelectedRoundOperationalRooms({
@@ -10860,25 +11096,25 @@ const operationalEventStatusLabel = useMemo(() => {
         eventLocation: event?.location,
         scheduleBuilderLearnerNames,
         scheduleBuilderRoomCapacity,
-        resolvedScheduleMatrixCaseCount,
-        isScheduleMatrixVirtual,
-        protectCompletedScheduleAssignments: scheduleCompleted,
-      }),
+	        resolvedScheduleMatrixCaseCount,
+	        isScheduleMatrixVirtual,
+        activeScheduleCaseLabels,
+	      }),
     [
       activeScheduleRoomAdjustments,
+      activeScheduleCaseLabels,
       backupAssignmentNameSet,
       event?.location,
       isScheduleMatrixVirtual,
       resolvedScheduleMatrixCaseCount,
       roomNamingContext,
-      scheduleCompleted,
       scheduleBuilderLearnerNames,
       scheduleBuilderRoomCapacity,
       selectedResolvedRound,
       selectedResolvedRoundNumber,
       selectedRotationRound,
-      selectedRoundCaseLabel,
-      selectedRoundRoomSlotEntries,
+		      selectedRoundCaseLabel,
+		      selectedRoundRoomSlotEntries,
       selectedRoundSessions,
       selectedRoundStationLabel,
     ]
@@ -10901,17 +11137,18 @@ const operationalEventStatusLabel = useMemo(() => {
     return selectedRoundResolvedScheduleTruth
       .filter((station) => station.stationStatus !== "inactive")
       .map((station) => {
-      const assignment = station.primarySpName
-        ? findAssignmentBySpDisplayName(confirmedAssignments, spsById, station.primarySpName)
-        : null;
-      const sp = assignment?.sp_id ? spsById.get(assignment.sp_id) || null : null;
-      const learnerLabels = getActualLearnerNames(station.learnerLabels);
-      const flags = [
-        station.roomName ? "" : "Missing room",
-        assignment && !sp ? "Missing SP profile" : "",
-        staffingRelevant && !assignment && station.stationStatus === "active" ? "Missing SP" : "",
-        effectiveLearnerCount > 0 && !learnerLabels.length && station.stationStatus === "active" ? "No student assigned" : "",
-      ].filter(Boolean);
+	      const assignment = station.primarySpName
+	        ? findAssignmentBySpDisplayName(confirmedAssignments, spsById, station.primarySpName)
+	        : null;
+	      const sp = assignment?.sp_id ? spsById.get(assignment.sp_id) || null : null;
+	      const learnerLabels = getActualLearnerNames(station.learnerLabels);
+	      const hasPrimarySpName = Boolean(asText(station.primarySpName));
+	      const flags = [
+	        station.roomName ? "" : "Missing room",
+	        assignment && !sp ? "Missing SP profile" : "",
+	        staffingRelevant && !hasPrimarySpName && station.stationStatus === "active" ? "Missing SP" : "",
+	        effectiveLearnerCount > 0 && !learnerLabels.length && station.stationStatus === "active" ? "No student assigned" : "",
+	      ].filter(Boolean);
 
       return {
         key: `${station.key}-schedule`,
@@ -10919,12 +11156,13 @@ const operationalEventStatusLabel = useMemo(() => {
         roomName: station.roomName,
         location: station.location || asText(event?.location),
         learnerLabels,
-        learnerCountFallback: station.learnerCountFallback,
-        snapshotLearnerPlacementLocked: station.snapshotLearnerPlacementLocked,
-        assignment,
-        sp,
-        backupSpName: station.backupSpName,
-        caseLabel: station.caseLabel,
+	        learnerCountFallback: station.learnerCountFallback,
+	        snapshotLearnerPlacementLocked: station.snapshotLearnerPlacementLocked,
+	        assignment,
+	        sp,
+	        primarySpName: station.primarySpName,
+	        backupSpName: station.backupSpName,
+	        caseLabel: station.caseLabel,
         roleId: station.roleId,
         roleLabel: station.roleLabel,
         notes: station.notes,
@@ -11046,10 +11284,12 @@ const operationalEventStatusLabel = useMemo(() => {
     selectedRoundResolvedScheduleTruth,
     selectedRoundScheduleRows,
   ]);
-  const selectedRoundLearnerCount = useMemo(() => {
-    if (!selectedRotationRound) return null;
-    const resolvedLearnerCount = selectedRoundLearnerFlowRows.reduce((total, row) => total + row.learnerLabels.length, 0);
-    if (resolvedLearnerCount > 0) return resolvedLearnerCount;
+	  const selectedRoundLearnerCount = useMemo(() => {
+	    if (!selectedRotationRound) return null;
+	    const resolvedLearnerCount = selectedRoundLearnerFlowRows.reduce((total, row) => total + row.learnerLabels.length, 0);
+	    const hasAuthoritativeSavedSlots = selectedRoundLearnerFlowRows.some((row) => row.snapshotLearnerPlacementLocked);
+	    if (hasAuthoritativeSavedSlots) return resolvedLearnerCount;
+	    if (resolvedLearnerCount > 0) return resolvedLearnerCount;
     if (effectiveLearnerCount <= 0) return null;
     const roomCapacity = selectedRoundRoomCount || 0;
     if (roomCapacity <= 0) return null;
@@ -11320,10 +11560,10 @@ const operationalEventStatusLabel = useMemo(() => {
         row.learnerLabels.length > 0 ||
         Boolean(row.caseLabel || row.stationLabel)
     ) || visibleSelectedRoundScheduleBlocks.length > 0;
-  const selectedRoundSpScheduleReady =
-    selectedRoundScheduleRows.some(
-      (row) => !isRoomPlaceholderLabel(row.roomName) || Boolean(row.sp || row.caseLabel || row.stationLabel)
-    ) || visibleSelectedRoundScheduleBlocks.length > 0;
+	  const selectedRoundSpScheduleReady =
+	    selectedRoundScheduleRows.some(
+	      (row) => !isRoomPlaceholderLabel(row.roomName) || Boolean(row.sp || row.primarySpName || row.caseLabel || row.stationLabel)
+	    ) || visibleSelectedRoundScheduleBlocks.length > 0;
   const selectedRoundOperationsScheduleReady =
     selectedRoundOperationsRows.length > 0 ||
     visibleSelectedRoundScheduleBlocks.length > 0;
@@ -11359,12 +11599,24 @@ const operationalEventStatusLabel = useMemo(() => {
   );
   const selectedRoundCoverageTarget = Math.max(selectedRoundActiveStationCount || selectedRoundRoomCount, needed);
   const selectedRoundCoverageShortage = Math.max(selectedRoundCoverageTarget - confirmedAssignments.length, 0);
-  const selectedRoundTacticalBoardRows = useMemo(
-    () => {
-      if (!selectedRotationRound) return [] as Array<RoundRoomBoardRow>;
+	  const selectedRoundTacticalBoardRows = useMemo(
+	    () => {
+	      if (!selectedRotationRound) return [] as Array<RoundRoomBoardRow>;
+	      if (selectedRoundOperationsRows.length) {
+	        return selectedRoundOperationsRows.map((row) => ({
+	          ...row,
+	          key: `${row.key}-board`,
+	          isAutoMapped: false,
+	          isExplicitMapped: Boolean(row.primarySpName),
+	          mappingState: row.stationStatus === "inactive" ? "Inactive" : "",
+	          flags: row.stationStatus !== "active"
+	            ? row.flags.filter((flag) => !["Missing SP", "No learner assigned", "No student assigned"].includes(asText(flag)))
+	            : row.flags,
+	        })) satisfies Array<RoundRoomBoardRow>;
+	      }
 
-      const roomSlotEntries = selectedRoundRoomSlotEntries.length
-        ? selectedRoundRoomSlotEntries
+	      const roomSlotEntries = selectedRoundRoomSlotEntries.length
+	        ? selectedRoundRoomSlotEntries
         : selectedRoundScheduleRows.map((row, sourceIndex) => ({
             roomName: row.roomName,
             sourceIndex,
@@ -11435,9 +11687,10 @@ const operationalEventStatusLabel = useMemo(() => {
           learnerLabels,
           learnerCountFallback: existingRow?.learnerCountFallback || 0,
           snapshotLearnerPlacementLocked: Boolean(existingRow?.snapshotLearnerPlacementLocked),
-          assignment,
-          sp,
-          backupSpName: existingRow?.backupSpName || "",
+	          assignment,
+	          sp,
+	          primarySpName: existingRow?.primarySpName || (sp ? getFullName(sp) : ""),
+	          backupSpName: existingRow?.backupSpName || "",
           caseLabel: existingRow?.caseLabel || selectedRoundCaseLabel,
           roleId: existingRow?.roleId || "",
           roleLabel: existingRow?.roleLabel || "",
@@ -11460,8 +11713,9 @@ const operationalEventStatusLabel = useMemo(() => {
       scheduleBuilderRoomCapacity,
       selectedRotationRound,
       selectedRoundRoomAssignmentPlan.assignments,
-      selectedRoundCaseLabel,
-      selectedRoundRoomSlotEntries,
+	      selectedRoundCaseLabel,
+	      selectedRoundOperationsRows,
+	      selectedRoundRoomSlotEntries,
       selectedRoundScheduleRows,
       selectedRoundStationLabel,
       spsById,
@@ -12123,9 +12377,10 @@ const operationalEventStatusLabel = useMemo(() => {
             (row) => asText(row.roomName).toLowerCase() === asText(roomName).toLowerCase()
           ) ||
           null;
-        const assignment = selectedScheduleRow?.assignment || null;
-        const sp = selectedScheduleRow?.sp || (assignment?.sp_id ? spsById.get(assignment.sp_id) || null : null);
-        const assignmentSource = assignment ? "explicit" : "missing";
+	        const assignment = selectedScheduleRow?.assignment || null;
+	        const sp = selectedScheduleRow?.sp || (assignment?.sp_id ? spsById.get(assignment.sp_id) || null : null);
+	        const selectedPrimarySpName = selectedScheduleRow ? getOperationsRoomPrimarySpName(selectedScheduleRow) : "";
+	        const assignmentSource = selectedPrimarySpName ? "explicit" : "missing";
         const standbyAssignment =
           asText(adjustment.standbyAssignmentId)
             ? backupAssignments.find((item) => item.id === adjustment.standbyAssignmentId) || null
@@ -12176,11 +12431,11 @@ const operationalEventStatusLabel = useMemo(() => {
 
         return {
           key: boardRow?.key || `blueprint-room-${index}`,
-          roomName: asText(scheduleRow?.roomName) || roomName,
-          assignment,
-          sp,
-          spName: sp ? getFullName(sp) : "",
-          initials: sp ? getInitials(getFullName(sp)) : String(index + 1),
+	          roomName: asText(scheduleRow?.roomName) || roomName,
+	          assignment,
+	          sp,
+	          spName: selectedPrimarySpName,
+	          initials: selectedPrimarySpName ? getInitials(selectedPrimarySpName) : String(index + 1),
           checkedAt:
             checkedIn
               ? boardRow?.checkedAt || (assignment ? formatAttendanceTimestamp(assignment.event_checked_in_at || assignment.training_checked_in_at) : "")
@@ -12436,11 +12691,11 @@ const operationalEventStatusLabel = useMemo(() => {
         ? selectedRoundScheduleRows.map((row, fallbackIndex) => ({
             roomName: row.roomName,
             learnerLabels: getActualLearnerNames(row.learnerLabels).filter((learner) => isAssignedLearnerRoomLabel(learner)),
-            learnerCountFallback: row.learnerCountFallback || 0,
-            assignment: row.assignment,
-            sp: row.sp,
-            spName: row.sp ? getFullName(row.sp) : "",
-            encounterLabel: [row.stationLabel, row.caseLabel].filter(Boolean).join(" · ") || "Case pending",
+	            learnerCountFallback: row.learnerCountFallback || 0,
+	            assignment: row.assignment,
+	            sp: row.sp,
+	            spName: getOperationsRoomPrimarySpName(row),
+	            encounterLabel: [row.stationLabel, row.caseLabel].filter(Boolean).join(" · ") || "Case pending",
             fallbackIndex,
             snapshotLearnerPlacementLocked: row.snapshotLearnerPlacementLocked,
             stationStatus: "active" as const,
@@ -16785,9 +17040,25 @@ Cory`;
       scheduleDay: scheduleBuilderDay,
     });
     const basePreviewSnapshot = scheduleBuilderPreviewDraft || resolvedSchedulePreview.serverSnapshot || null;
+    const activeCaseLabelsForSnapshot = (basePreviewSnapshot?.scheduleCaseDefinitions || [])
+      .filter((caseDef) => caseDef.active !== false)
+      .map((caseDef) => asText(caseDef.name))
+      .filter(Boolean);
+    const fallbackCaseLabelsForSnapshot = caseFileEntries
+      .filter((caseEntry) => asText(caseEntry.status).toLowerCase() !== "inactive")
+      .map((caseEntry) => asText(caseEntry.name))
+      .filter(Boolean);
+    const sanitizedBasePreviewSnapshot = basePreviewSnapshot
+      ? sanitizeScheduleBuilderPreviewDraftSlots(
+          basePreviewSnapshot,
+          nextAdjustments,
+          activeCaseLabelsForSnapshot.length ? activeCaseLabelsForSnapshot : fallbackCaseLabelsForSnapshot
+        )
+      : null;
 
-    if (basePreviewSnapshot) {
-      const adjustedResolvedRounds = (basePreviewSnapshot.resolvedRounds || []).map((round, roundIndex) => {
+    if (sanitizedBasePreviewSnapshot) {
+      const baseHasSavedScheduleSlots = sanitizedBasePreviewSnapshot.resolvedRounds.some((round) => round.roomSlots.length > 0);
+      const adjustedResolvedRounds = (sanitizedBasePreviewSnapshot.resolvedRounds || []).map((round, roundIndex) => {
         const roundNumber = Number(round.round) || roundIndex + 1;
         const roundAdjustments = nextAdjustments.get(roundNumber) || [];
         if (!roundAdjustments.length) return round;
@@ -16815,9 +17086,9 @@ Cory`;
           const hasCaseLabelOverride = hasScheduleRoomAdjustmentField(slotAdjustment, "caseLabel");
           const hasRoleIdOverride = hasScheduleRoomAdjustmentField(slotAdjustment, "roleId");
           const hasRoleLabelOverride = hasScheduleRoomAdjustmentField(slotAdjustment, "roleLabel");
-          const hasNotesOverride = hasScheduleRoomAdjustmentField(slotAdjustment, "notes");
           const canApplyAssignmentOverride =
-            !scheduleCompleted || isConfirmedScheduleRoomAdjustment(slotAdjustment);
+            !baseHasSavedScheduleSlots || isConfirmedScheduleRoomAdjustment(slotAdjustment);
+          const hasNotesOverride = canApplyAssignmentOverride && hasScheduleRoomAdjustmentField(slotAdjustment, "notes");
           const hasStationStatusOverride =
             canApplyAssignmentOverride && hasScheduleRoomAdjustmentField(slotAdjustment, "stationStatus");
           const hasBackupStationOverride =
@@ -16853,7 +17124,7 @@ Cory`;
       });
 
       const nextPreviewSnapshot: ScheduleBuilderPreviewDraft = {
-        ...basePreviewSnapshot,
+        ...sanitizedBasePreviewSnapshot,
         ...(options?.nextRoomCount !== undefined
           ? {
               examRoomCount: String(options.nextRoomCount),
@@ -16861,7 +17132,7 @@ Cory`;
             }
           : {}),
         resolvedRounds: adjustedResolvedRounds,
-        scheduleRoundCount: adjustedResolvedRounds.length || basePreviewSnapshot.scheduleRoundCount,
+        scheduleRoundCount: adjustedResolvedRounds.length || sanitizedBasePreviewSnapshot.scheduleRoundCount,
         savedAt: now,
       };
       nextTrainingMetadata.schedule_builder_snapshot = encodeURIComponent(
@@ -16935,7 +17206,7 @@ Cory`;
       activeScheduleRoomAdjustments,
       roundNumber,
       slotIndex,
-      scheduleCompleted
+      roomOperationsScheduleOutputProtected
         ? { ...partial, source: CONFIRMED_SCHEDULE_OVERRIDE_SOURCE, manualOverride: true }
         : partial
     );
@@ -16958,7 +17229,7 @@ Cory`;
       targetRow.slotIndex,
       {
         manualOverride: true,
-        source: scheduleCompleted ? CONFIRMED_SCHEDULE_OVERRIDE_SOURCE : "manual-room-edit",
+        source: roomOperationsScheduleOutputProtected ? CONFIRMED_SCHEDULE_OVERRIDE_SOURCE : "manual-room-edit",
         learnerLabels: sourceRow.learnerLabels,
         spName: sourcePrimarySpName,
         backupSpName: sourceRow.backupSpName,
@@ -16974,7 +17245,7 @@ Cory`;
       sourceRow.slotIndex,
       {
         manualOverride: true,
-        source: scheduleCompleted ? CONFIRMED_SCHEDULE_OVERRIDE_SOURCE : "manual-room-edit",
+        source: roomOperationsScheduleOutputProtected ? CONFIRMED_SCHEDULE_OVERRIDE_SOURCE : "manual-room-edit",
         learnerLabels: targetRow.learnerLabels,
         spName: targetPrimarySpName,
         backupSpName: targetRow.backupSpName,
@@ -20351,12 +20622,12 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 	                      }}
 	                    >
 	                      <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
-	                        <div>
-	                          <div style={{ color: livePanelTitleText, fontWeight: 950, fontSize: "17px" }}>{row.roomName}</div>
-	                          <div style={{ marginTop: "4px", color: livePanelBodyText, fontSize: "10px", fontWeight: 700 }}>
-	                            {row.sp ? getFullName(row.sp) : "No SP assigned"}
-	                          </div>
-	                        </div>
+		                        <div>
+		                          <div style={{ color: livePanelTitleText, fontWeight: 950, fontSize: "17px" }}>{row.roomName}</div>
+		                          <div style={{ marginTop: "4px", color: livePanelBodyText, fontSize: "10px", fontWeight: 700 }}>
+		                            {row.spName || "No SP assigned"}
+		                          </div>
+		                        </div>
 	                        <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
 	                          <span
 	                            style={{
@@ -20374,7 +20645,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 	                              boxShadow: row.checkedAt ? "0 0 14px rgba(25, 138, 112, 0.18)" : "none",
 	                            }}
 	                          >
-	                            {row.sp ? getInitials(getFullName(row.sp)) : "--"}
+		                            {row.spName ? getInitials(row.spName) : "--"}
 	                          </span>
 	                          <span
 	                            style={{
@@ -28629,21 +28900,16 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                   alignItems: "center",
                                 }}
                               >
-                                <div style={{ color: commandCenterVisual.textColor, fontSize: "12px", fontWeight: 950 }}>{row.roomName || `Room ${index + 1}`}</div>
-                                <div style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 750, overflowWrap: "anywhere" }}>
-                                  {(() => {
-                                    const completedScheduleLearners =
-                                      currentLiveReferenceScheduleRows.find((candidate) => compareRoomLabels(candidate.roomName, row.roomName) === 0)?.learnerLabels ||
-                                      currentLiveReferenceScheduleRows[index]?.learnerLabels ||
-                                      [];
-                                    const rowLearners = row.learnerLabels.filter((label) => isAssignedLearnerRoomLabel(label));
-                                    const learnerLabels = rowLearners.length ? rowLearners : completedScheduleLearners.filter((label) => isAssignedLearnerRoomLabel(label));
-                                    return learnerLabels.length ? learnerLabels.join(", ") : UNASSIGNED_LEARNER_ROOM_LABEL;
-                                  })()}
-                                </div>
-                                <div style={{ color: row.sp ? commandCenterVisual.textColor : commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 850, overflowWrap: "anywhere" }}>
-                                  {row.sp ? getFullName(row.sp) : "No SP assigned"}
-                                </div>
+	                                <div style={{ color: commandCenterVisual.textColor, fontSize: "12px", fontWeight: 950 }}>{row.roomName || `Room ${index + 1}`}</div>
+	                                <div style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 750, overflowWrap: "anywhere" }}>
+	                                  {(() => {
+	                                    const learnerLabels = row.learnerLabels.filter((label) => isAssignedLearnerRoomLabel(label));
+	                                    return learnerLabels.length ? learnerLabels.join(", ") : UNASSIGNED_LEARNER_ROOM_LABEL;
+	                                  })()}
+	                                </div>
+	                                <div style={{ color: getOperationsRoomPrimarySpName(row) ? commandCenterVisual.textColor : commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 850, overflowWrap: "anywhere" }}>
+	                                  {getOperationsRoomPrimarySpName(row) || "No SP assigned"}
+	                                </div>
                               </div>
                             ))}
                             {!selectedRoundScheduleRows.length ? (
@@ -28864,14 +29130,15 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                 gridTemplateColumns: "repeat(auto-fit, minmax(215px, 1fr))",
                                 gap: "10px",
                               }}
-                            >
-                            {selectedRoundTacticalBoardRows.map((row, index) => {
-                                const hasFlags = row.flags.length > 0;
-                                const isShortageSlot = staffingRelevant && !row.assignment && selectedRoundCoverageShortage > 0;
-                                const statusLabel = !row.assignment
-                                  ? isShortageSlot
-                                    ? "Missing SP"
-                                  : row.mappingState === "Needs room mapping"
+	                            >
+	                            {selectedRoundTacticalBoardRows.map((row, index) => {
+	                                const hasFlags = row.flags.length > 0;
+	                                const rowPrimarySpName = getOperationsRoomPrimarySpName(row);
+	                                const isShortageSlot = staffingRelevant && !rowPrimarySpName && selectedRoundCoverageShortage > 0;
+	                                const statusLabel = !rowPrimarySpName
+	                                  ? isShortageSlot
+	                                    ? "Missing SP"
+	                                  : row.mappingState === "Needs room mapping"
                                     ? "Needs room mapping"
                                     : staffingRelevant
                                       ? "No SP assigned"
@@ -28881,27 +29148,27 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                   : "Covered";
                                 const statusBackground = isShortageSlot
                                   ? "rgba(248, 113, 113, 0.16)"
-                                  : row.mappingState === "Needs room mapping"
-                                    ? "rgba(243, 187, 103, 0.16)"
-                                    : hasFlags
-                                      ? "rgba(243, 187, 103, 0.16)"
-                                      : row.assignment || !staffingRelevant
-                                        ? "rgba(25, 138, 112, 0.16)"
-                                        : "rgba(248, 113, 113, 0.14)";
+	                                  : row.mappingState === "Needs room mapping"
+	                                    ? "rgba(243, 187, 103, 0.16)"
+	                                    : hasFlags
+	                                      ? "rgba(243, 187, 103, 0.16)"
+	                                      : rowPrimarySpName || !staffingRelevant
+	                                        ? "rgba(25, 138, 112, 0.16)"
+	                                        : "rgba(248, 113, 113, 0.14)";
                                 const statusColor = isShortageSlot
                                   ? staffingWorkspacePalette.dangerText
                                   : row.mappingState === "Needs room mapping"
                                     ? isPlanningVisualMode
                                       ? "#92400e"
                                       : "#f3bb67"
-                                    : hasFlags
-                                      ? isPlanningVisualMode
-                                        ? "#92400e"
-                                        : "#f3bb67"
-                                      : row.assignment || !staffingRelevant
-                                        ? isPlanningVisualMode
-                                          ? "#0f766e"
-                                          : "#b8e4d4"
+	                                    : hasFlags
+	                                      ? isPlanningVisualMode
+	                                        ? "#92400e"
+	                                        : "#f3bb67"
+	                                      : rowPrimarySpName || !staffingRelevant
+	                                        ? isPlanningVisualMode
+	                                          ? "#0f766e"
+	                                          : "#b8e4d4"
                                         : staffingWorkspacePalette.dangerText;
                                 const encounterLabel = [row.stationLabel, row.caseLabel].filter(Boolean).join(" · ") || "Case not assigned";
                                 return (
@@ -28931,13 +29198,13 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                     }}
                                   >
                                     <div
-                                      style={{
-                                        position: "absolute",
-                                        inset: "0 auto 0 0",
-                                        width: "4px",
-                                        borderRadius: "18px 0 0 18px",
-                                        background: hasFlags ? "#f3bb67" : row.assignment || !staffingRelevant ? "#198a70" : "#f87171",
-                                      }}
+	                                      style={{
+	                                        position: "absolute",
+	                                        inset: "0 auto 0 0",
+	                                        width: "4px",
+	                                        borderRadius: "18px 0 0 18px",
+	                                        background: hasFlags ? "#f3bb67" : rowPrimarySpName || !staffingRelevant ? "#198a70" : "#f87171",
+	                                      }}
                                     />
                                     <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "flex-start" }}>
                                       <div style={{ minWidth: 0 }}>
@@ -28953,14 +29220,14 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 
                                     <div style={{ display: "grid", gap: "6px" }}>
                                       <div style={{ display: "grid", gap: "2px" }}>
-                                        <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>SP</div>
-                                        <div style={{ color: commandCenterVisual.textColor, fontSize: "13px", fontWeight: 800, lineHeight: 1.35, overflowWrap: "anywhere", display: "flex", alignItems: "center", gap: "6px" }}>
-                                          <RoundOperationAvatar
-                                            name={row.sp ? getFullName(row.sp) : staffingRelevant ? "Unassigned" : "No SP required"}
-                                            role="sp"
-                                          />
-                                          <span>{row.sp ? getFullName(row.sp) : staffingRelevant ? "Unassigned" : "No SP required"}</span>
-                                        </div>
+	                                        <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>SP</div>
+	                                        <div style={{ color: commandCenterVisual.textColor, fontSize: "13px", fontWeight: 800, lineHeight: 1.35, overflowWrap: "anywhere", display: "flex", alignItems: "center", gap: "6px" }}>
+	                                          <RoundOperationAvatar
+	                                            name={rowPrimarySpName || (staffingRelevant ? "No SP assigned" : "No SP required")}
+	                                            role="sp"
+	                                          />
+	                                          <span>{rowPrimarySpName || (staffingRelevant ? "No SP assigned" : "No SP required")}</span>
+	                                        </div>
                                       </div>
                                       <div style={{ display: "grid", gap: "2px" }}>
                                         <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Learner / Group</div>
@@ -29176,8 +29443,9 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
   </div>
 ) : roundCompanionView === "coverage" ? (
   <div style={{ display: "grid", gap: "6px" }}>
-    {selectedRoundScheduleRows.map((row, index) => {
-      const isPrimaryCovered = row.assignment && getAssignmentStatus(row.assignment) === "confirmed";
+	    {selectedRoundScheduleRows.map((row, index) => {
+	      const rowPrimarySpName = getOperationsRoomPrimarySpName(row);
+	      const isPrimaryCovered = row.assignment && getAssignmentStatus(row.assignment) === "confirmed";
       return (
       <div
         key={`${row.key}-coverage`}
@@ -29206,7 +29474,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               fontWeight: 700,
             }}
           >
-            {row.sp ? `${getFullName(row.sp)}${isPrimaryCovered ? "" : " (backup / not primary)"}` : "No SP Assigned"}
+	            {rowPrimarySpName ? `${rowPrimarySpName}${isPrimaryCovered || !row.assignment ? "" : " (backup / not primary)"}` : "No SP assigned"}
           </div>
         </div>
 
@@ -30845,14 +31113,14 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                           ) : roundCompanionView === "sp" ? (
                             selectedRoundSpScheduleReady ? (
                               <div style={{ display: "grid", gap: "6px" }}>
-                                {selectedRoundScheduleRows.map((row, index) => (
-                                  <div key={`${row.key}-sp`} style={{ borderRadius: "12px", border: commandCenterVisual.rowBorder, background: commandCenterVisual.rowBackground, padding: "8px 10px", display: "flex", justifyContent: "space-between", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
-                                    <div>
-                                      <div style={{ color: commandCenterVisual.textColor, fontWeight: 800 }}>{row.roomName || `Room ${index + 1}`}</div>
-                                      <div style={{ marginTop: "4px", color: commandCenterVisual.textColor, fontSize: "10px", fontWeight: 800, display: "inline-flex", alignItems: "center", gap: "6px" }}>
-                                        <RoundOperationAvatar name={row.sp ? getFullName(row.sp) : "No SP assigned"} role="sp" />
-                                        {row.sp ? getFullName(row.sp) : "No SP assigned"}
-                                      </div>
+	                                {selectedRoundScheduleRows.map((row, index) => (
+	                                  <div key={`${row.key}-sp`} style={{ borderRadius: "12px", border: commandCenterVisual.rowBorder, background: commandCenterVisual.rowBackground, padding: "8px 10px", display: "flex", justifyContent: "space-between", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
+	                                    <div>
+	                                      <div style={{ color: commandCenterVisual.textColor, fontWeight: 800 }}>{row.roomName || `Room ${index + 1}`}</div>
+	                                      <div style={{ marginTop: "4px", color: commandCenterVisual.textColor, fontSize: "10px", fontWeight: 800, display: "inline-flex", alignItems: "center", gap: "6px" }}>
+	                                        <RoundOperationAvatar name={getOperationsRoomPrimarySpName(row) || "No SP assigned"} role="sp" />
+	                                        {getOperationsRoomPrimarySpName(row) || "No SP assigned"}
+	                                      </div>
                                       {row.caseLabel || row.stationLabel ? (
                                         <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 800 }}>
                                           {[row.stationLabel, row.caseLabel].filter(Boolean).join(" · ")}

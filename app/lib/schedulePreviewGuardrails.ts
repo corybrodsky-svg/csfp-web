@@ -112,7 +112,11 @@ function cloneResolvedRound(round: SchedulePreviewRound, roundNumber: number, rh
     round: roundNumber,
     startTime: formatInputTime(start),
     endTime: formatInputTime(end),
-    roomSlots: cloneRoundSlots(rhythmRound?.roomSlots?.length ? rhythmRound.roomSlots : round.roomSlots),
+    // IMPORTANT REGRESSION GUARD:
+    // Schedule room cards must render from authoritative saved room slot objects. Do not stitch together
+    // room, learner, SP, case, and role data from separate arrays by index. Saved builder/completed
+    // schedule slots are the unit of truth.
+    roomSlots: cloneRoundSlots(round.roomSlots),
   };
 }
 

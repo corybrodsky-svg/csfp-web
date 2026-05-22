@@ -3751,30 +3751,7 @@ function formatEventDate(event: EventRow) {
 }
 
 function getAssignedNames(event: EventRow) {
-  if (event.id === "85224c71-8b22-4b0b-960d-5e8dfd8d1515") {
-    return [
-      "Yvette Bedgood",
-      "William Ochester",
-      "Lee Fishman",
-      "Jennifer Smith",
-      "Celeste Montgomery",
-      "Gene D’Alessandro",
-    ];
-  }
-
   return normalizeLearnerNames(event.assigned_sp_names || []);
-}
-
-function getCanonicalRoomSpName(event: EventRow | null | undefined, slotIndex: number) {
-  if (event?.id !== "85224c71-8b22-4b0b-960d-5e8dfd8d1515") return "";
-  return [
-    "Yvette Bedgood",
-    "William Ochester",
-    "Lee Fishman",
-    "Jennifer Smith",
-    "Celeste Montgomery",
-    "Gene D’Alessandro",
-  ][slotIndex] || "";
 }
 
 function getUniqueAssignedSpIndexPool(assignedSpNames: string[]) {
@@ -3806,6 +3783,7 @@ function assignUniquePrimarySpIndexes(
         return {
           ...slot,
           assignedSpIndex: typeof assignedSpIndex === "number" ? assignedSpIndex : undefined,
+          assignedSpName: typeof assignedSpIndex === "number" ? normalizeDisplayText(assignedSpNames[assignedSpIndex]) : "",
         };
       }),
     };
@@ -4826,6 +4804,172 @@ function isConfirmedScheduleRoomAdjustment(slot: Partial<ScheduleRoomAdjustmentS
   return normalizeDisplayText(slot?.source).toLowerCase() === CONFIRMED_SCHEDULE_OVERRIDE_SOURCE;
 }
 
+function normalizeScheduleCaseIdentity(value: unknown) {
+  return normalizeDisplayText(value).toLowerCase();
+}
+
+function buildActiveScheduleCaseIdentitySet(caseDefinitions: Array<Pick<ScheduleCaseDefinition, "name" | "active">>) {
+  return new Set(
+    caseDefinitions
+      .filter((caseDef) => caseDef.active !== false)
+      .map((caseDef) => normalizeScheduleCaseIdentity(caseDef.name))
+      .filter(Boolean)
+  );
+}
+
+function isGeneratedCasePlaceholderLabel(value: unknown) {
+  return /^case\s+\d+$/i.test(normalizeDisplayText(value));
+}
+
+function shouldStripSavedSlotCaseLabel(value: unknown, activeCaseIdentities: Set<string>) {
+  const normalized = normalizeScheduleCaseIdentity(value);
+  if (!normalized || !activeCaseIdentities.size) return false;
+  return isGeneratedCasePlaceholderLabel(value) && !activeCaseIdentities.has(normalized);
+}
+
+function shouldStripMatchingUnconfirmedAdjustmentValue(slotValue: unknown, adjustmentValue: unknown, hasAdjustmentField: boolean) {
+  const normalizedSlotValue = normalizeDisplayText(slotValue);
+  const normalizedAdjustmentValue = normalizeDisplayText(adjustmentValue);
+  return Boolean(
+    hasAdjustmentField &&
+      normalizedSlotValue &&
+      normalizedAdjustmentValue &&
+      normalizedSlotValue.toLowerCase() === normalizedAdjustmentValue.toLowerCase()
+  );
+}
+
+function sanitizePersistedScheduleBuilderRoomSlot(
+  slot: PersistedScheduleBuilderRoomSlot,
+  adjustment: ScheduleRoomAdjustmentSlot | null | undefined,
+  activeCaseIdentities: Set<string>
+) {
+  // IMPORTANT REGRESSION GUARD:
+  // Schedule room cards must render from authoritative saved room slot objects. Do not stitch together
+  // room, learner, SP, case, and role data from separate arrays by index. Saved builder/completed
+  // schedule slots are the unit of truth. This sanitizer only removes stale, unconfirmed room
+  // adjustment overlays that older code persisted into the saved slot object.
+  const next = { ...slot };
+  if (adjustment && !isConfirmedScheduleRoomAdjustment(adjustment)) {
+    if (shouldStripMatchingUnconfirmedAdjustmentValue(next.assignedSpName, adjustment.spName, hasScheduleRoomAdjustmentField(adjustment, "spName"))) {
+      next.assignedSpName = "";
+    }
+    if (shouldStripMatchingUnconfirmedAdjustmentValue(next.backupSpName, adjustment.backupSpName, hasScheduleRoomAdjustmentField(adjustment, "backupSpName"))) {
+      next.backupSpName = "";
+    }
+    if (shouldStripMatchingUnconfirmedAdjustmentValue(next.caseLabel, adjustment.caseLabel, hasScheduleRoomAdjustmentField(adjustment, "caseLabel"))) {
+      next.caseLabel = "";
+    }
+    if (shouldStripMatchingUnconfirmedAdjustmentValue(next.roleId, adjustment.roleId, hasScheduleRoomAdjustmentField(adjustment, "roleId"))) {
+      next.roleId = "";
+    }
+    if (shouldStripMatchingUnconfirmedAdjustmentValue(next.roleLabel, adjustment.roleLabel, hasScheduleRoomAdjustmentField(adjustment, "roleLabel"))) {
+      next.roleLabel = "";
+    }
+    if (shouldStripMatchingUnconfirmedAdjustmentValue(next.notes, adjustment.notes, hasScheduleRoomAdjustmentField(adjustment, "notes"))) {
+      next.notes = "";
+    }
+    if (
+      hasScheduleRoomAdjustmentField(adjustment, "stationStatus") &&
+      normalizeScheduleStationStatus(next.stationStatus) === normalizeScheduleStationStatus(adjustment.stationStatus)
+    ) {
+      next.stationStatus = undefined;
+    }
+    if (
+      hasScheduleRoomAdjustmentField(adjustment, "isBackupStation") &&
+      Boolean(next.isBackupStation) === Boolean(adjustment.isBackupStation)
+    ) {
+      next.isBackupStation = false;
+    }
+  }
+  if (shouldStripSavedSlotCaseLabel(next.caseLabel, activeCaseIdentities)) {
+    next.caseLabel = "";
+  }
+  return next;
+}
+
+function sanitizePersistedScheduleBuilderRounds(
+  rounds: PersistedScheduleBuilderRound[],
+  adjustments: ParsedScheduleRoomAdjustments,
+  caseDefinitions: Array<Pick<ScheduleCaseDefinition, "name" | "active">>
+) {
+  const activeCaseIdentities = buildActiveScheduleCaseIdentitySet(caseDefinitions);
+  return rounds.map((round) => {
+    const roundAdjustments = adjustments.roundsByNumber.get(round.round) || [];
+    if (!round.roomSlots.length && !roundAdjustments.length) return round;
+    return {
+      ...round,
+      roomSlots: round.roomSlots.map((slot, slotIndex) => {
+        const adjustment = roundAdjustments.find((entry) => entry.slotIndex === slotIndex) || null;
+        return sanitizePersistedScheduleBuilderRoomSlot(slot, adjustment, activeCaseIdentities);
+      }),
+    };
+  });
+}
+
+function sanitizeScheduledRoomSlotFromStaleAdjustments(
+  slot: ScheduledRoomSlot,
+  adjustment: ScheduleRoomAdjustmentSlot | null | undefined,
+  activeCaseIdentities: Set<string>
+) {
+  const next = { ...slot };
+  if (adjustment && !isConfirmedScheduleRoomAdjustment(adjustment)) {
+    if (shouldStripMatchingUnconfirmedAdjustmentValue(next.assignedSpName, adjustment.spName, hasScheduleRoomAdjustmentField(adjustment, "spName"))) {
+      next.assignedSpName = "";
+      next.assignedSpIndex = undefined;
+    }
+    if (shouldStripMatchingUnconfirmedAdjustmentValue(next.backupSpName, adjustment.backupSpName, hasScheduleRoomAdjustmentField(adjustment, "backupSpName"))) {
+      next.backupSpName = "";
+    }
+    if (shouldStripMatchingUnconfirmedAdjustmentValue(next.caseLabel, adjustment.caseLabel, hasScheduleRoomAdjustmentField(adjustment, "caseLabel"))) {
+      next.caseLabel = "";
+    }
+    if (shouldStripMatchingUnconfirmedAdjustmentValue(next.roleId, adjustment.roleId, hasScheduleRoomAdjustmentField(adjustment, "roleId"))) {
+      next.roleId = "";
+    }
+    if (shouldStripMatchingUnconfirmedAdjustmentValue(next.roleLabel, adjustment.roleLabel, hasScheduleRoomAdjustmentField(adjustment, "roleLabel"))) {
+      next.roleLabel = "";
+    }
+    if (shouldStripMatchingUnconfirmedAdjustmentValue(next.notes, adjustment.notes, hasScheduleRoomAdjustmentField(adjustment, "notes"))) {
+      next.notes = "";
+    }
+    if (
+      hasScheduleRoomAdjustmentField(adjustment, "stationStatus") &&
+      normalizeScheduleStationStatus(next.stationStatus) === normalizeScheduleStationStatus(adjustment.stationStatus)
+    ) {
+      next.stationStatus = undefined;
+    }
+    if (
+      hasScheduleRoomAdjustmentField(adjustment, "isBackupStation") &&
+      Boolean(next.isBackupStation) === Boolean(adjustment.isBackupStation)
+    ) {
+      next.isBackupStation = false;
+    }
+  }
+  if (shouldStripSavedSlotCaseLabel(next.caseLabel, activeCaseIdentities)) {
+    next.caseLabel = "";
+  }
+  return next;
+}
+
+function sanitizeScheduledRoundsFromStaleAdjustments(
+  rounds: ScheduledRound[],
+  adjustments: ParsedScheduleRoomAdjustments,
+  caseDefinitions: Array<Pick<ScheduleCaseDefinition, "name" | "active">>
+) {
+  const activeCaseIdentities = buildActiveScheduleCaseIdentitySet(caseDefinitions);
+  return rounds.map((round) => {
+    const roundAdjustments = adjustments.roundsByNumber.get(round.round) || [];
+    if (!round.roomSlots.length && !roundAdjustments.length) return round;
+    return {
+      ...round,
+      roomSlots: round.roomSlots.map((slot, slotIndex) => {
+        const adjustment = roundAdjustments.find((entry) => entry.slotIndex === slotIndex) || null;
+        return sanitizeScheduledRoomSlotFromStaleAdjustments(slot, adjustment, activeCaseIdentities);
+      }),
+    };
+  });
+}
+
 function parseScheduleRoomAdjustments(raw: string | null): ParsedScheduleRoomAdjustments {
   const clean = asText(raw);
   if (!clean) return createEmptyScheduleRoomAdjustments();
@@ -5111,9 +5255,9 @@ function applyScheduleRoomAdjustments(
   options?: { protectCompletedScheduleAssignments?: boolean }
 ) {
   // IMPORTANT REGRESSION GUARD:
-  // For completed schedules, the completed schedule snapshot is the authoritative assignment source.
-  // Room Operations attendance/status metadata may overlay on top, but ordinary operational edits must
-  // not silently override completed schedule student/SP/room/case assignments. Assignment-changing edits
+  // For saved builder drafts and completed schedules, the saved slot object is the authoritative
+  // assignment source. Room Operations metadata may overlay on top, but ordinary operational edits
+  // must not silently override saved student/SP/room/case assignments. Assignment-changing edits
   // require explicit confirmation and must be saved as confirmed schedule overrides.
   return rounds.map((round) => {
     if (!rounds.length) return round;
@@ -5129,7 +5273,7 @@ function applyScheduleRoomAdjustments(
 	      const hasCaseLabelOverride = canApplyAssignmentOverride && hasScheduleRoomAdjustmentField(overrides, "caseLabel");
 	      const hasRoleIdOverride = canApplyAssignmentOverride && hasScheduleRoomAdjustmentField(overrides, "roleId");
 	      const hasRoleLabelOverride = canApplyAssignmentOverride && hasScheduleRoomAdjustmentField(overrides, "roleLabel");
-	      const hasNotesOverride = hasScheduleRoomAdjustmentField(overrides, "notes");
+	      const hasNotesOverride = canApplyAssignmentOverride && hasScheduleRoomAdjustmentField(overrides, "notes");
 	      const hasStationStatusOverride = canApplyAssignmentOverride && hasScheduleRoomAdjustmentField(overrides, "stationStatus");
 	      const hasBackupStationOverride = canApplyAssignmentOverride && hasScheduleRoomAdjustmentField(overrides, "isBackupStation");
 	      const nextLearners =
@@ -5199,11 +5343,12 @@ function buildSchedulePreviewData(args: {
   scheduleGridRows: ScheduleGridPreviewRow[];
   roomColumns: PreviewRoomColumn[];
   roomContext: Parameters<typeof getRoomDisplayLabel>[2];
-  caseName?: string;
-  caseDocumentLabel?: string;
-  isSingleCaseMode?: boolean;
-  assignedSpNames?: string[];
-  learnerCount: number;
+	  caseName?: string;
+	  caseDocumentLabel?: string;
+	  isSingleCaseMode?: boolean;
+	  assignedSpNames?: string[];
+	  hasSavedScheduleSlots?: boolean;
+	  learnerCount: number;
   generated: {
     rounds: Array<GeneratedRound | ScheduledRound>;
     rotationStart: number;
@@ -5222,10 +5367,11 @@ function buildSchedulePreviewData(args: {
     roomColumns,
     roomContext,
     caseName,
-    caseDocumentLabel,
-    isSingleCaseMode,
-    assignedSpNames,
-    learnerCount,
+	    caseDocumentLabel,
+	    isSingleCaseMode,
+	    assignedSpNames,
+	    hasSavedScheduleSlots,
+	    learnerCount,
     generated,
     selectedEventSummaryTime,
   } = args;
@@ -5234,6 +5380,7 @@ function buildSchedulePreviewData(args: {
   const isStudentPreview = kind === "student";
   const isFacultyPreview = kind === "timeline";
   const singleCaseMode = Boolean(isSingleCaseMode);
+  const allowGeneratedCaseFallback = !hasSavedScheduleSlots;
   const locationAccess = getLocationAccessFromBuilderEvent(event);
   const effectivePreviewFamily = getPreviewFamilyForKind(kind, previewFamily);
   const titleMap: Record<SchedulePreviewKind, string> = {
@@ -5281,46 +5428,22 @@ function buildSchedulePreviewData(args: {
 
   const includeOperationsContext = isOperations;
   const previewLabel = titleMap[kind];
+  // IMPORTANT REGRESSION GUARD:
+  // Schedule room cards must render from authoritative saved room slot objects. Do not stitch together
+  // room, learner, SP, case, and role data from separate arrays by index. Saved builder/completed
+  // schedule slots are the unit of truth.
   const getSlotSpName = (slot: ScheduledRoomSlot) => {
-    const assignedNameSet = new Set((assignedSpNames || []).map((name) => normalizeDisplayText(name).toLowerCase()));
-    const isNurs421Roster =
-      assignedNameSet.has("yvette bedgood") &&
-      assignedNameSet.has("william ochester") &&
-      assignedNameSet.has("lee fishman") &&
-      assignedNameSet.has("gene d’alessandro");
-
-    if (isNurs421Roster) {
-      const roomNumberMatch = normalizeDisplayText(slot.roomName).match(/(\d+)/);
-      const roomIndex = roomNumberMatch ? Number(roomNumberMatch[1]) - 1 : -1;
-      const canonicalName =
-        roomIndex >= 0
-          ? [
-              "Yvette Bedgood",
-              "William Ochester",
-              "Lee Fishman",
-              "Jennifer Smith",
-              "Celeste Montgomery",
-              "Gene D’Alessandro",
-            ][roomIndex]
-          : "";
-      if (canonicalName) return canonicalName;
-    }
-
-    return (
-      normalizeDisplayText(slot.assignedSpName) ||
-      (typeof slot.assignedSpIndex === "number"
-        ? normalizeDisplayText(assignedSpNames?.[slot.assignedSpIndex])
-        : "")
-    );
+    void assignedSpNames;
+    return normalizeDisplayText(slot.assignedSpName);
   };
-  const shouldShowRoomCaseLabels = (round: ScheduledRound | GeneratedRound) => {
-    if (singleCaseMode) return false;
-    const caseLabels = new Set(
-      round.roomSlots
-        .map((slot) => normalizeDisplayText(slot.caseLabel) || normalizeDisplayText(caseName))
-        .filter(Boolean)
-    );
-    return caseLabels.size > 1;
+	  const shouldShowRoomCaseLabels = (round: ScheduledRound | GeneratedRound) => {
+	    if (singleCaseMode) return false;
+	    const caseLabels = new Set(
+	      round.roomSlots
+	        .map((slot) => normalizeDisplayText(slot.caseLabel) || (allowGeneratedCaseFallback ? normalizeDisplayText(caseName) : ""))
+	        .filter(Boolean)
+	    );
+	    return caseLabels.size > 1;
   };
 
   if (kind === "timeline") {
@@ -5653,7 +5776,7 @@ function buildSchedulePreviewData(args: {
                       .map((slot) => {
                         const learnerText = slot.learnerLabels.length ? slot.learnerLabels.join(", ") : "No student assigned";
                         const spName = getSlotSpName(slot) || "Unassigned";
-                        const slotCaseName = normalizeDisplayText(slot.caseLabel) || caseName;
+	                        const slotCaseName = normalizeDisplayText(slot.caseLabel) || (allowGeneratedCaseFallback ? caseName : "");
                         const backupSpName = normalizeDisplayText(slot.backupSpName);
                         const roleLabel = normalizeDisplayText(slot.roleLabel);
                         const notes = normalizeDisplayText(slot.notes);
@@ -5890,7 +6013,7 @@ function buildSchedulePreviewData(args: {
               const displayRoomName = formatRoomName(slot.roomName, slot.roomType, slotIndex + 1, roomContext);
               const learnerText = slot.learnerLabels.length ? slot.learnerLabels.join(", ") : "No student assigned";
               const spName = getSlotSpName(slot);
-              const slotCaseName = normalizeDisplayText(slot.caseLabel) || caseName || "";
+	              const slotCaseName = normalizeDisplayText(slot.caseLabel) || (allowGeneratedCaseFallback ? caseName || "" : "");
 
               return [
                 `Round ${round.round}`,
@@ -6312,6 +6435,7 @@ function buildPersistedScheduleBuilderRounds(
   sessionDate: string | null | undefined
 ) {
   const resolvedDate = asText(sessionDate);
+  void assignedNames;
   return rounds.map((round) => ({
     round: round.round,
     sessionDate: resolvedDate,
@@ -6320,9 +6444,7 @@ function buildPersistedScheduleBuilderRounds(
     roomSlots: round.roomSlots.map((slot) => ({
       roomName: asText(slot.roomName),
       learnerLabels: normalizeLearnerNames(slot.learnerLabels),
-      assignedSpName:
-        normalizeDisplayText(slot.assignedSpName) ||
-        (typeof slot.assignedSpIndex === "number" ? asText(assignedNames[slot.assignedSpIndex]) : ""),
+      assignedSpName: normalizeDisplayText(slot.assignedSpName),
 	      backupSpName: asText(slot.backupSpName),
 	      caseLabel: asText(slot.caseLabel),
 	      roleId: asText(slot.roleId),
@@ -7032,7 +7154,15 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     if (typeof window === "undefined") return;
     if (!storageKey || !selectedEventId) return;
 
-    const hydrationKey = `${storageKey}:${selectedEvent?.id || "none"}`;
+    const hydrationKey = [
+      storageKey,
+      selectedEvent?.id || "none",
+      scheduleDay,
+      asText(selectedEventMetadata.schedule_status),
+      asText(selectedEventMetadata.schedule_last_saved_at || selectedEventMetadata.schedule_updated_at),
+      asText(selectedEventMetadata.schedule_builder_snapshot).length,
+      asText(selectedEventMetadata.schedule_builder_days).length,
+    ].join(":");
     if (hydratedTimePrefillKeyRef.current === hydrationKey) return;
 
     const serverSnapshotFromDay = scheduleBuilderDaySnapshots.get(scheduleDay) || null;
@@ -7126,8 +7256,11 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       scheduleBuilderDaySnapshots,
       scheduleDay,
       storageKey,
+      selectedEventMetadata.schedule_builder_days,
       selectedEventMetadata.schedule_builder_snapshot,
+      selectedEventMetadata.schedule_last_saved_at,
       selectedEventMetadata.schedule_status,
+      selectedEventMetadata.schedule_updated_at,
     ]);
 
   const caseRotationFeatureFlag = useMemo(() => {
@@ -7554,14 +7687,25 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     (now: string, statusOverride?: "complete" | "in_progress") => {
       const nextStatus = statusOverride || (scheduleWorkflowStatus === "complete" ? "complete" : "in_progress");
       const resolvedAssignedNames = selectedEvent ? getAssignedNames(selectedEvent) : [];
+      const generatedAssignedNamesForSnapshot = hasAuthoritativeScheduleData ? [] : resolvedAssignedNames;
       const scheduleCaseDefinitionsForSnapshot =
         scheduleCaseDefinitions.length ? scheduleCaseDefinitions : scheduleCasesForMath;
-      const shouldReusePersistedRounds =
-        persistedResolvedRounds.length > 0 &&
-        persistedResolvedRounds.length >= Math.max(persistedResolvedRoundTargetCount, 1);
-      const resolvedRounds = shouldReusePersistedRounds
-        ? persistedResolvedRounds
-        : buildPersistedScheduleBuilderRounds(
+	      const shouldReusePersistedRounds = persistedResolvedRounds.length > 0;
+      const sanitizedPersistedResolvedRounds = shouldReusePersistedRounds
+        ? sanitizePersistedScheduleBuilderRounds(
+            persistedResolvedRounds,
+            roomAdjustments,
+            scheduleCaseDefinitionsForSnapshot
+          )
+        : [];
+	      const resolvedRounds = shouldReusePersistedRounds
+	        ? normalizePersistedScheduleBuilderRounds(
+	            getSchedulePreviewRounds({
+	              resolvedRounds: sanitizedPersistedResolvedRounds,
+	              scheduleRoundCount: Math.max(persistedResolvedRoundTargetCount, effectiveRoundCount),
+	            })
+	          )
+	        : buildPersistedScheduleBuilderRounds(
             applyScheduleRoomAdjustments(
               assignUniquePrimarySpIndexes(
                 attachLearners(
@@ -7572,28 +7716,19 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                   multipleCasesEnabled,
                   isVirtualEvent
                 ),
-                resolvedAssignedNames,
+                generatedAssignedNamesForSnapshot,
                 !multipleCasesEnabled
               ),
-              resolvedAssignedNames,
+              generatedAssignedNamesForSnapshot,
               roomAdjustments,
-              { protectCompletedScheduleAssignments: nextStatus === "complete" }
+              { protectCompletedScheduleAssignments: nextStatus === "complete" || hasAuthoritativeScheduleData }
             ),
-            resolvedAssignedNames,
+            generatedAssignedNamesForSnapshot,
             selectedEvent?.earliest_session_date || selectedEvent?.date_text || ""
           );
       const normalizedResolvedRounds = resolvedRounds.map((round) => ({
         ...round,
-        roomSlots: round.roomSlots.map((slot, slotIndex) => {
-          const canonicalSpName = getCanonicalRoomSpName(selectedEvent, slotIndex);
-          return canonicalSpName
-            ? {
-                ...slot,
-                assignedSpIndex: slotIndex,
-                assignedSpName: canonicalSpName,
-              }
-            : slot;
-        }),
+        roomSlots: round.roomSlots.map((slot) => ({ ...slot })),
       }));
       const resolvedRoomCount = normalizedResolvedRounds.reduce((maxCount, round) => Math.max(maxCount, round.roomSlots.length), 0);
       const resolvedLearnerRoster = uploadedLearners.length ? uploadedLearners : originalUploadedLearners;
@@ -7627,6 +7762,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       draftSnapshot,
       effectiveRoundCount,
       generated.rounds,
+      hasAuthoritativeScheduleData,
       isVirtualEvent,
       learnerRoster,
       multipleCasesEnabled,
@@ -8125,8 +8261,9 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
 
   const assignedNames = useMemo(() => (selectedEvent ? getAssignedNames(selectedEvent) : []), [selectedEvent]);
   const generatedScheduledRounds = useMemo(
-    () =>
-      applyScheduleRoomAdjustments(
+    () => {
+      const generatedAssignedNames = hasAuthoritativeScheduleData ? [] : assignedNames;
+      return applyScheduleRoomAdjustments(
         assignUniquePrimarySpIndexes(
           attachLearners(
             generated.rounds,
@@ -8136,13 +8273,15 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
             multipleCasesEnabled,
             isVirtualEvent
           ),
-          assignedNames,
+          generatedAssignedNames,
           !multipleCasesEnabled
         ),
-        assignedNames,
-        roomAdjustments
-      ),
-    [activeCaseCount, assignedNames, generated.rounds, isVirtualEvent, learnerRoster, multipleCasesEnabled, parsedRoomCapacity, roomAdjustments]
+        generatedAssignedNames,
+        roomAdjustments,
+        { protectCompletedScheduleAssignments: hasAuthoritativeScheduleData }
+      );
+    },
+    [activeCaseCount, assignedNames, generated.rounds, hasAuthoritativeScheduleData, isVirtualEvent, learnerRoster, multipleCasesEnabled, parsedRoomCapacity, roomAdjustments]
   );
   const persistedScheduledRounds = useMemo(
     () => {
@@ -8150,15 +8289,19 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       // Do not treat non-empty resolvedRounds as complete. Some persisted
       // snapshots only contain Round 1. Always compare against saved schedule
       // metadata / expected round count before rendering Open Schedule.
+      const sanitizedPersistedResolvedRounds = sanitizePersistedScheduleBuilderRounds(
+        persistedResolvedRounds,
+        roomAdjustments,
+        activeScheduleCases.length ? activeScheduleCases : scheduleCasesForMath
+      );
       const expandedPersistedRounds = getSchedulePreviewRounds({
-        resolvedRounds: persistedResolvedRounds,
+        resolvedRounds: sanitizedPersistedResolvedRounds,
         scheduleRoundCount: persistedResolvedRoundTargetCount,
         rhythmRounds: generatedScheduledRounds.map((round) => ({
           round: round.round,
           start: round.start,
           end: round.end,
           subBlocks: round.subBlocks,
-          roomSlots: round.roomSlots,
         })),
       });
       const savedRounds = convertPersistedRoundsToScheduledRounds(expandedPersistedRounds, generatedScheduledRounds);
@@ -8169,38 +8312,41 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         ? savedRounds
         : (() => {
             const savedByRound = new Map(savedRounds.map((round) => [round.round, round]));
-            const generatedByRound = new Map(generatedScheduledRounds.map((round) => [round.round, round]));
             const templateRound = savedRounds[savedRounds.length - 1];
 
             return Array.from({ length: targetCount }, (_, index) => {
               const roundNumber = index + 1;
               return (
                 savedByRound.get(roundNumber) ||
-                generatedByRound.get(roundNumber) ||
                 cloneScheduledRoundForNumber(templateRound, roundNumber)
               );
             });
           })();
 
       return applyScheduleRoomAdjustments(expandedRounds, assignedNames, roomAdjustments, {
-        protectCompletedScheduleAssignments: scheduleWorkflowStatus === "complete",
+        protectCompletedScheduleAssignments: true,
       });
     },
-    [assignedNames, generatedScheduledRounds, persistedResolvedRoundTargetCount, persistedResolvedRounds, roomAdjustments, scheduleWorkflowStatus]
+    [activeScheduleCases, assignedNames, generatedScheduledRounds, persistedResolvedRoundTargetCount, persistedResolvedRounds, roomAdjustments, scheduleCasesForMath]
   );
   const scheduledRounds = useMemo(
     () => {
-      if (persistedScheduledRounds.length) return persistedScheduledRounds;
+      if (persistedScheduledRounds.length) {
+        return sanitizeScheduledRoundsFromStaleAdjustments(
+          persistedScheduledRounds,
+          roomAdjustments,
+          activeScheduleCases.length ? activeScheduleCases : scheduleCasesForMath
+        );
+      }
       return generatedScheduledRounds;
     },
-    [generatedScheduledRounds, persistedScheduledRounds]
+    [activeScheduleCases, generatedScheduledRounds, persistedScheduledRounds, roomAdjustments, scheduleCasesForMath]
   );
   const scheduleValidationMessages = useMemo(() => {
     const messages: string[] = [];
-    const groups = buildLearnerGroups(learnerRoster, parsedRoomCapacity);
-    const caseNames = activeScheduleCases.map((caseDef) => caseDef.name).filter(Boolean);
-    const shouldValidateCaseCoverage = activeCaseCount > 1 && groups.length > 0 && caseNames.length > 0;
-    const uniqueSpCount = getUniqueAssignedSpIndexPool(assignedNames).length;
+	    const groups = buildLearnerGroups(learnerRoster, parsedRoomCapacity);
+	    const caseNames = activeScheduleCases.map((caseDef) => caseDef.name).filter(Boolean);
+	    const shouldValidateCaseCoverage = activeCaseCount > 1 && groups.length > 0 && caseNames.length > 0;
 
     const coverageByGroup = new Map<number, Set<string>>();
     if (shouldValidateCaseCoverage) groups.forEach((_, index) => coverageByGroup.set(index, new Set()));
@@ -8219,7 +8365,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
         const caseLabel = normalizeDisplayText(slot.caseLabel);
         const isActiveRoom = isActiveScheduleSlot(slot, !multipleCasesEnabled);
         if (isActiveRoom) activeRoomCount += 1;
-        const spName = typeof slot.assignedSpIndex === "number" ? normalizeDisplayText(assignedNames[slot.assignedSpIndex]) : "";
+	        const spName = normalizeDisplayText(slot.assignedSpName);
         const roomLabel = slot.roomName || `Room ${slotIndex + 1}`;
         if (spName && isActiveRoom) {
           const existing = spRoomsByName.get(spName) || [];
@@ -8248,11 +8394,11 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
           messages.push(`Backup SP conflict detected: ${spName} assigned to ${rooms.join(" and ")} during Round ${round.round}.`);
         }
       });
-      if (activeRoomCount > uniqueSpCount) {
-        messages.push(
-          `Round ${round.round} staffing shortage: ${activeRoomCount} active rooms require ${activeRoomCount} unique primary SPs, but only ${uniqueSpCount} unique primary SP${uniqueSpCount === 1 ? "" : "s"} are assigned.`
-        );
-      }
+	      if (activeRoomCount > spRoomsByName.size) {
+	        messages.push(
+	          `Round ${round.round} staffing shortage: ${activeRoomCount} active rooms require ${activeRoomCount} unique primary SPs, but only ${spRoomsByName.size} unique primary SP${spRoomsByName.size === 1 ? "" : "s"} are assigned.`
+	        );
+	      }
     });
 
     if (shouldValidateCaseCoverage) {
@@ -8272,10 +8418,9 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     }
     return messages;
   }, [
-    activeCaseCount,
-    activeScheduleCases,
-    assignedNames,
-    learnerRoster,
+	    activeCaseCount,
+	    activeScheduleCases,
+	    learnerRoster,
     multipleCasesEnabled,
     parsedExamRooms,
     parsedRoomCapacity,
@@ -8419,9 +8564,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       roomContext: roomNamingContext,
       caseName: previewCaseFallbackLabel,
       caseDocumentLabel: previewCaseDocumentLabel,
-      isSingleCaseMode,
-      assignedSpNames: assignedNames,
-      learnerCount: learnerRoster.length,
+	      isSingleCaseMode,
+	      assignedSpNames: assignedNames,
+	      hasSavedScheduleSlots: persistedScheduledRounds.length > 0,
+	      learnerCount: learnerRoster.length,
       generated,
       selectedEventSummaryTime,
     });
@@ -8436,9 +8582,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       roomContext: roomNamingContext,
       caseName: previewCaseFallbackLabel,
       caseDocumentLabel: previewCaseDocumentLabel,
-      isSingleCaseMode,
-      assignedSpNames: assignedNames,
-      learnerCount: learnerRoster.length,
+	      isSingleCaseMode,
+	      assignedSpNames: assignedNames,
+	      hasSavedScheduleSlots: persistedScheduledRounds.length > 0,
+	      learnerCount: learnerRoster.length,
       generated,
       selectedEventSummaryTime,
     });
@@ -8453,9 +8600,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       roomContext: roomNamingContext,
       caseName: previewCaseFallbackLabel,
       caseDocumentLabel: previewCaseDocumentLabel,
-      isSingleCaseMode,
-      assignedSpNames: assignedNames,
-      learnerCount: learnerRoster.length,
+	      isSingleCaseMode,
+	      assignedSpNames: assignedNames,
+	      hasSavedScheduleSlots: persistedScheduledRounds.length > 0,
+	      learnerCount: learnerRoster.length,
       generated,
       selectedEventSummaryTime,
     });
@@ -8470,9 +8618,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       roomContext: roomNamingContext,
       caseName: previewCaseFallbackLabel,
       caseDocumentLabel: previewCaseDocumentLabel,
-      isSingleCaseMode,
-      assignedSpNames: assignedNames,
-      learnerCount: learnerRoster.length,
+	      isSingleCaseMode,
+	      assignedSpNames: assignedNames,
+	      hasSavedScheduleSlots: persistedScheduledRounds.length > 0,
+	      learnerCount: learnerRoster.length,
       generated,
       selectedEventSummaryTime,
     });
@@ -8487,9 +8636,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       roomContext: roomNamingContext,
       caseName: previewCaseFallbackLabel,
       caseDocumentLabel: previewCaseDocumentLabel,
-      isSingleCaseMode,
-      assignedSpNames: assignedNames,
-      learnerCount: learnerRoster.length,
+	      isSingleCaseMode,
+	      assignedSpNames: assignedNames,
+	      hasSavedScheduleSlots: persistedScheduledRounds.length > 0,
+	      learnerCount: learnerRoster.length,
       generated,
       selectedEventSummaryTime,
     });
@@ -8504,9 +8654,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
       roomContext: roomNamingContext,
       caseName: previewCaseFallbackLabel,
       caseDocumentLabel: previewCaseDocumentLabel,
-      isSingleCaseMode,
-      assignedSpNames: assignedNames,
-      learnerCount: learnerRoster.length,
+	      isSingleCaseMode,
+	      assignedSpNames: assignedNames,
+	      hasSavedScheduleSlots: persistedScheduledRounds.length > 0,
+	      learnerCount: learnerRoster.length,
       generated,
       selectedEventSummaryTime,
     });
@@ -8529,8 +8680,9 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     roomNamingContext,
     roomColumns,
     studentRoomColumns,
-    selectedEvent,
-    previewCaseFallbackLabel,
+	    selectedEvent,
+	    persistedScheduledRounds.length,
+	    previewCaseFallbackLabel,
     previewCaseDocumentLabel,
     isSingleCaseMode,
     selectedEventSummaryTime,
@@ -11030,13 +11182,10 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                                 </div>
                                 {scheduleViewMode === "operations" ? (
                                   <div style={{ marginTop: "6px", fontSize: "12px", fontWeight: 700, color: "#4f677d", lineHeight: 1.5 }}>
-                                    <div>
-                                      SP:{" "}
-                                      {normalizeDisplayText(slot.assignedSpName) ||
-                                        (typeof slot.assignedSpIndex === "number"
-                                          ? normalizeDisplayText(selectedEvent?.assigned_sp_names?.[slot.assignedSpIndex]) || "Unassigned SP"
-                                          : "Unassigned SP")}
-                                    </div>
+	                                    <div>
+	                                      SP:{" "}
+	                                      {normalizeDisplayText(slot.assignedSpName) || "No SP assigned"}
+	                                    </div>
                                     {normalizeDisplayText(slot.backupSpName) ? (
                                       <div>
                                         <strong>Backup:</strong> {normalizeDisplayText(slot.backupSpName)}
@@ -11052,23 +11201,39 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
                                     ) : null}
                                   </div>
                                 ) : null}
-                                <div style={{ marginTop: "8px", display: "grid", gap: "6px" }}>
-                                  {slot.learnerLabels.map((learner) => (
-                                    <div
-                                      key={`${slot.roomName}-${learner}`}
-                                      style={{
-                                        borderRadius: "999px",
-                                        background: "#ffffff",
-                                        border: "1px solid rgba(148,163,184,0.28)",
-                                        padding: "6px 10px",
-                                        fontSize: "12px",
-                                        fontWeight: 700,
-                                      }}
-                                    >
-                                      {learner}
-                                    </div>
-                                  ))}
-                                </div>
+	                                <div style={{ marginTop: "8px", display: "grid", gap: "6px" }}>
+	                                  {slot.learnerLabels.length ? (
+	                                    slot.learnerLabels.map((learner) => (
+	                                      <div
+	                                        key={`${slot.roomName}-${learner}`}
+	                                        style={{
+	                                          borderRadius: "999px",
+	                                          background: "#ffffff",
+	                                          border: "1px solid rgba(148,163,184,0.28)",
+	                                          padding: "6px 10px",
+	                                          fontSize: "12px",
+	                                          fontWeight: 700,
+	                                        }}
+	                                      >
+	                                        {learner}
+	                                      </div>
+	                                    ))
+	                                  ) : (
+	                                    <div
+	                                      style={{
+	                                        borderRadius: "999px",
+	                                        background: "#ffffff",
+	                                        border: "1px solid rgba(148,163,184,0.28)",
+	                                        padding: "6px 10px",
+	                                        fontSize: "12px",
+	                                        fontWeight: 700,
+	                                        color: "#5e7388",
+	                                      }}
+	                                    >
+	                                      No student assigned
+	                                    </div>
+	                                  )}
+	                                </div>
                               </div>
                             </td>
                           ))}
