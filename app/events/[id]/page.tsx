@@ -4098,6 +4098,10 @@ function getSnapshotRoundKey(roundNumber: number) {
   return `completed-snapshot-round-${roundNumber}`;
 }
 
+function getIndexedSnapshotRoundKey(roundNumber: number, roundIndex: number) {
+  return `${getSnapshotRoundKey(roundNumber)}|idx-${roundIndex + 1}`;
+}
+
 function getRoundNumberFromRotationKey(value: unknown) {
   const text = asText(value);
   const direct = Number(text);
@@ -4107,6 +4111,21 @@ function getRoundNumberFromRotationKey(value: unknown) {
   return 0;
 }
 
+function normalizeScheduleDayKey(value: unknown) {
+  const text = asText(value).trim();
+  if (!text) return "";
+  const isoDateMatch = text.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (isoDateMatch?.[1]) return isoDateMatch[1];
+  const parsed = new Date(text);
+  if (!Number.isNaN(parsed.getTime())) {
+    const year = parsed.getFullYear();
+    const month = String(parsed.getMonth() + 1).padStart(2, "0");
+    const day = String(parsed.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
+  return text.toLowerCase();
+}
+
 function timesMatch(left?: string | null, right?: string | null) {
   const leftMinutes = parseTimeToMinutes(left);
   const rightMinutes = parseTimeToMinutes(right);
@@ -4114,7 +4133,7 @@ function timesMatch(left?: string | null, right?: string | null) {
   return asText(left).toLowerCase() === asText(right).toLowerCase();
 }
 
-function resolveSelectedScheduleRound(args: {
+function resolveSelectedScheduleRoundWithTrace(args: {
   selectedRotationRound: RotationRound | null | undefined;
   resolvedRounds: ScheduleBuilderPreviewResolvedRound[];
   persistedResolvedRoundsByKey: Map<string, ScheduleBuilderPreviewResolvedRound>;
@@ -4122,10 +4141,20 @@ function resolveSelectedScheduleRound(args: {
   selectedRoundGlobalIndex: number;
 }) {
   const selectedRound = args.selectedRotationRound;
-  if (!selectedRound || !args.resolvedRounds.length) return null;
+  if (!selectedRound || !args.resolvedRounds.length) {
+    return {
+      round: null as ScheduleBuilderPreviewResolvedRound | null,
+      sourcePath: "no_selection_or_no_saved_rounds",
+    } as const;
+  }
 
   const exactKeyMatch = args.persistedResolvedRoundsByKey.get(selectedRound.key);
-  if (exactKeyMatch) return exactKeyMatch;
+  if (exactKeyMatch) {
+    return {
+      round: exactKeyMatch,
+      sourcePath: "exact_round_key",
+    } as const;
+  }
 
   const selectedRoundRecord = selectedRound as RotationRound & { round?: unknown; roundNumber?: unknown };
   const explicitRoundNumber =
@@ -4137,12 +4166,52 @@ function resolveSelectedScheduleRound(args: {
   const roundNumberCandidates = Array.from(
     new Set([explicitRoundNumber, keyRoundNumber, globalRoundNumber, localRoundNumber].filter((value) => value > 0))
   );
+  const selectedDayKey = normalizeScheduleDayKey(selectedRound.session_date);
+  const selectedStartTime = asText(selectedRound.start_time);
+  const selectedEndTime = asText(selectedRound.end_time);
+
+  const scoredCandidates = args.resolvedRounds.map((round, index) => {
+    const roundNumber = parsePositiveInteger(round.round, index + 1);
+    const dayKey = normalizeScheduleDayKey(round.sessionDate);
+    const hasSlots = (round.roomSlots || []).length > 0;
+    let score = 0;
+
+    if (args.selectedRoundGlobalIndex >= 0 && index === args.selectedRoundGlobalIndex) score += 90;
+    if (args.selectedRoundIndex >= 0 && index === args.selectedRoundIndex) score += 70;
+    if (roundNumberCandidates.includes(roundNumber)) score += 80;
+    if (selectedDayKey && dayKey && selectedDayKey === dayKey) score += 35;
+    if (timesMatch(round.startTime, selectedStartTime)) score += 20;
+    if (timesMatch(round.endTime, selectedEndTime)) score += 20;
+    if (hasSlots) score += 25;
+
+    return { round, index, roundNumber, hasSlots, score };
+  });
+
+  const bestScoredCandidate = scoredCandidates
+    .filter((candidate) => candidate.score > 0)
+    .sort((a, b) => b.score - a.score)[0];
+  if (bestScoredCandidate) {
+    return {
+      round: bestScoredCandidate.round,
+      sourcePath: `scored_match:index=${bestScoredCandidate.index + 1},round=${bestScoredCandidate.roundNumber},slots=${bestScoredCandidate.hasSlots ? "yes" : "no"}`,
+    } as const;
+  }
 
   for (const roundNumber of roundNumberCandidates) {
     const keyedRound = args.persistedResolvedRoundsByKey.get(getSnapshotRoundKey(roundNumber));
-    if (keyedRound) return keyedRound;
+    if (keyedRound) {
+      return {
+        round: keyedRound,
+        sourcePath: `snapshot_round_number_key:${roundNumber}`,
+      } as const;
+    }
     const numberedRound = args.resolvedRounds.find((round) => Number(round.round) === roundNumber);
-    if (numberedRound) return numberedRound;
+    if (numberedRound) {
+      return {
+        round: numberedRound,
+        sourcePath: `explicit_round_number:${roundNumber}`,
+      } as const;
+    }
   }
 
   const selectedDate = asText(selectedRound.session_date);
@@ -4151,15 +4220,43 @@ function resolveSelectedScheduleRound(args: {
     const dateMatches = !selectedDate || !roundDate || selectedDate === roundDate;
     return dateMatches && timesMatch(round.startTime, selectedRound.start_time) && timesMatch(round.endTime, selectedRound.end_time);
   });
-  if (timeMatchedRound) return timeMatchedRound;
+  if (timeMatchedRound) {
+    return {
+      round: timeMatchedRound,
+      sourcePath: "date_time_match",
+    } as const;
+  }
 
   const safeGlobalIndex = args.selectedRoundGlobalIndex >= 0 ? args.selectedRoundGlobalIndex : -1;
-  if (safeGlobalIndex >= 0 && safeGlobalIndex < args.resolvedRounds.length) return args.resolvedRounds[safeGlobalIndex];
+  if (safeGlobalIndex >= 0 && safeGlobalIndex < args.resolvedRounds.length) {
+    return {
+      round: args.resolvedRounds[safeGlobalIndex],
+      sourcePath: `global_index_fallback:${safeGlobalIndex + 1}`,
+    } as const;
+  }
 
   const safeLocalIndex = args.selectedRoundIndex >= 0 ? args.selectedRoundIndex : -1;
-  if (safeLocalIndex >= 0 && safeLocalIndex < args.resolvedRounds.length) return args.resolvedRounds[safeLocalIndex];
+  if (safeLocalIndex >= 0 && safeLocalIndex < args.resolvedRounds.length) {
+    return {
+      round: args.resolvedRounds[safeLocalIndex],
+      sourcePath: `local_index_fallback:${safeLocalIndex + 1}`,
+    } as const;
+  }
 
-  return null;
+  return {
+    round: null as ScheduleBuilderPreviewResolvedRound | null,
+    sourcePath: "unresolved",
+  } as const;
+}
+
+function resolveSelectedScheduleRound(args: {
+  selectedRotationRound: RotationRound | null | undefined;
+  resolvedRounds: ScheduleBuilderPreviewResolvedRound[];
+  persistedResolvedRoundsByKey: Map<string, ScheduleBuilderPreviewResolvedRound>;
+  selectedRoundIndex: number;
+  selectedRoundGlobalIndex: number;
+}) {
+  return resolveSelectedScheduleRoundWithTrace(args).round;
 }
 
 function getRotationRoundDurationMinutes(round: RotationRound) {
@@ -5435,7 +5532,18 @@ function buildSelectedRoundOperationalRooms(args: {
     const stationLabel = usingSavedRoomSlots ? "" : asText(selectedRoundStationLabel);
     const encounterLabel = [stationLabel, caseLabel].filter(Boolean).join(" · ") || "Case pending";
     const savedStationStatus = normalizeScheduleStationStatus(slot?.stationStatus);
-    const savedSlotIsFlexOrEmpty = Boolean(slot?.roomType === "flex" || (typeof slot?.capacity === "number" && slot.capacity <= 0));
+    const hasSavedScheduleSignals = Boolean(
+      getActualLearnerNames(Array.isArray(slot?.learnerLabels) ? slot.learnerLabels : []).length ||
+      asText(slot?.assignedSpName) ||
+      asText(slot?.backupSpName) ||
+      asText(slot?.caseLabel) ||
+      asText(slot?.roleLabel) ||
+      asText(slot?.roomName)
+    );
+    const savedSlotIsFlexOrEmpty = Boolean(
+      slot?.roomType === "flex" ||
+      (!hasSavedScheduleSignals && typeof slot?.capacity === "number" && slot.capacity <= 0)
+    );
     const manualStationStatus = hasStationStatusOverride
       ? normalizeScheduleStationStatus(slotOverride?.stationStatus)
       : savedStationStatus;
@@ -7866,12 +7974,14 @@ export default function EventDetailPage() {
         {
           sessions,
           importedYearHint,
+          selectedDateContext: selectedEventDateContext,
         }
       ),
     [
       event,
       importedYearHint,
       scheduleBuilderPreviewDraft,
+      selectedEventDateContext,
       sessions,
       trainingMetadata.schedule_status,
     ]
@@ -8026,8 +8136,14 @@ export default function EventDetailPage() {
   const resolvedRotationDraftEndText = eventEndTimeText || lastSessionEndTimeText;
   const persistedResolvedRoundsByKey = useMemo(() => {
     const next = new Map<string, ScheduleBuilderPreviewResolvedRound>();
-    authoritativeScheduleResolvedRounds.forEach((round) => {
-      next.set(`completed-snapshot-round-${round.round}`, round);
+    authoritativeScheduleResolvedRounds.forEach((round, roundIndex) => {
+      const roundNumber = parsePositiveInteger(round.round, roundIndex + 1);
+      next.set(getSnapshotRoundKey(roundNumber), round);
+      next.set(getIndexedSnapshotRoundKey(roundNumber, roundIndex), round);
+      const roundDateTimeKey = getRotationRoundKeyFromParts(round.sessionDate, round.startTime, round.endTime);
+      if (roundDateTimeKey && !next.has(roundDateTimeKey)) {
+        next.set(roundDateTimeKey, round);
+      }
     });
     return next;
   }, [authoritativeScheduleResolvedRounds]);
@@ -8035,7 +8151,7 @@ export default function EventDetailPage() {
     () => {
       if (authoritativeScheduleResolvedRounds.length) {
         return authoritativeScheduleResolvedRounds.map((round, index) => ({
-          key: getSnapshotRoundKey(round.round || index + 1),
+          key: getIndexedSnapshotRoundKey(parsePositiveInteger(round.round, index + 1), index),
           session_date: asText(round.sessionDate) || event?.date_text || sessions[0]?.session_date || null,
           start_time: asText(round.startTime) || null,
           end_time: asText(round.endTime) || null,
@@ -8044,9 +8160,10 @@ export default function EventDetailPage() {
       }
       if (scheduleBuilderPreviewDraft?.resolvedRounds?.length) {
         const completedSnapshotRoundsByNumber = new Map<number, RotationRound>();
-        const completedSnapshotRounds = scheduleBuilderPreviewDraft.resolvedRounds.map((round) => {
+        const completedSnapshotRounds = scheduleBuilderPreviewDraft.resolvedRounds.map((round, roundIndex) => {
+          const roundNumber = parsePositiveInteger(round.round, roundIndex + 1);
           const rotationRound = {
-            key: `completed-snapshot-round-${round.round}`,
+            key: getIndexedSnapshotRoundKey(roundNumber, Math.max(roundNumber - 1, 0)),
             session_date: asText(round.sessionDate) || event?.date_text || sessions[0]?.session_date || null,
             start_time: asText(round.startTime) || null,
             end_time: asText(round.endTime) || null,
@@ -8081,7 +8198,7 @@ export default function EventDetailPage() {
                 const roundNumber = expandedSnapshotRounds.length + 1;
                 const roundEnd = cursorMinutes + durationMinutes;
                 expandedSnapshotRounds.push({
-                  key: `completed-snapshot-round-${roundNumber}`,
+                  key: getIndexedSnapshotRoundKey(roundNumber, roundNumber - 1),
                   session_date: lastCompletedRound.session_date,
                   start_time: formatDisplayTimeFromMinutes(cursorMinutes),
                   end_time: formatDisplayTimeFromMinutes(roundEnd),
@@ -8176,7 +8293,11 @@ export default function EventDetailPage() {
       : rotationRounds;
     const selectedDayRoundsFallback = selectedDayRounds.length ? selectedDayRounds : activeDateRotationRounds;
     const selectedDayRoundSlots = selectedDayRoundsFallback.map((round, localIndex) => {
-      const roundGlobalIndex = rotationRounds.findIndex((candidate) => candidate.key === round.key);
+      const byReferenceIndex = rotationRounds.indexOf(round);
+      const roundGlobalIndex =
+        byReferenceIndex >= 0
+          ? byReferenceIndex
+          : rotationRounds.findIndex((candidate) => candidate.key === round.key);
       const persistedRound = resolveSelectedScheduleRound({
         selectedRotationRound: round,
         resolvedRounds: authoritativeScheduleResolvedRounds,
@@ -8186,6 +8307,7 @@ export default function EventDetailPage() {
       });
       return {
         key: round.key,
+        round: persistedRound?.round || localIndex + 1,
         roomSlots: persistedRound?.roomSlots || [],
       };
     });
@@ -8219,7 +8341,7 @@ export default function EventDetailPage() {
       scheduleSource,
       scheduleStatus,
       selectedDay,
-      allSavedRoundsForSelectedDay: selectedDayRoundsFallback,
+      allSavedRoundsForSelectedDay: selectedDayRoundSlots,
       roundCount: selectedDayRoundsFallback.length,
       selectedDaySlotCount,
       learnerNamesFoundCount,
@@ -11119,7 +11241,14 @@ const operationalEventStatusLabel = useMemo(() => {
   const selectedRotationRound =
     selectedRotationRoundIndex >= 0 ? activeDateRotationRounds[selectedRotationRoundIndex] : activeDateRotationRounds[0] || null;
   const selectedRotationRoundGlobalIndex = useMemo(
-    () => (selectedRotationRound ? rotationRounds.findIndex((round) => round.key === selectedRotationRound.key) : -1),
+    () =>
+      selectedRotationRound
+        ? (() => {
+            const byReferenceIndex = rotationRounds.indexOf(selectedRotationRound);
+            if (byReferenceIndex >= 0) return byReferenceIndex;
+            return rotationRounds.findIndex((round) => round.key === selectedRotationRound.key);
+          })()
+        : -1,
     [rotationRounds, selectedRotationRound]
   );
   const activeSelectedRotationRoundGlobalIndex =
@@ -11302,9 +11431,9 @@ const operationalEventStatusLabel = useMemo(() => {
     if (!selectedRotationRound) return [] as EventSessionRow[];
     return sessions.filter((session) => getRotationRoundKeyFromSession(session) === selectedRotationRound.key);
   }, [selectedRotationRound, sessions]);
-  const selectedResolvedRound = useMemo(
+  const selectedResolvedRoundResolution = useMemo(
     () =>
-      resolveSelectedScheduleRound({
+      resolveSelectedScheduleRoundWithTrace({
         selectedRotationRound,
         resolvedRounds: authoritativeScheduleResolvedRounds,
         persistedResolvedRoundsByKey,
@@ -11319,6 +11448,7 @@ const operationalEventStatusLabel = useMemo(() => {
       selectedRotationRound,
     ]
   );
+  const selectedResolvedRound = selectedResolvedRoundResolution.round;
   const selectedResolvedRoundNumber =
     (selectedResolvedRound && Number.isFinite(selectedResolvedRound.round) ? selectedResolvedRound.round : 0) ||
     getRoundNumberFromRotationKey(selectedRotationRound?.key) ||
@@ -11329,6 +11459,12 @@ const operationalEventStatusLabel = useMemo(() => {
   );
   const selectedRoundRoomSlotEntries = useMemo(() => {
     if (!selectedRotationRound) return [] as RoomDisplayEntry[];
+    if (selectedResolvedRoomSlots.length) {
+      return selectedResolvedRoomSlots.map((slot, slotIndex) => ({
+        roomName: asText(slot.roomName) || getFallbackRoomLabel(slotIndex, roomNamingContext),
+        sourceIndex: slotIndex,
+      }));
+    }
 
     const mappedSlots = roomSlotEntriesByRoundKey.get(selectedRotationRound.key) || [];
     const persistedRoundSlotCount = selectedResolvedRoomSlots.length || 0;
@@ -11358,6 +11494,46 @@ const operationalEventStatusLabel = useMemo(() => {
     selectedRotationRound,
   ]);
   const selectedRoundRoomCount = selectedResolvedRoomSlots.length || selectedRoundRoomSlotEntries.length;
+  useEffect(() => {
+    const isAdminViewer = viewerRole === "admin" || viewerRole === "super_admin";
+    if (!isAdminViewer || !authoritativeEventScheduleTruth.hasSavedScheduleData) return;
+
+    const selectedRoundHasSlots = selectedResolvedRoomSlots.length > 0;
+    if (selectedRoundHasSlots) return;
+
+    const availableRoundSlotCounts = authoritativeScheduleResolvedRounds.map((round, roundIndex) => ({
+      round: parsePositiveInteger(round.round, roundIndex + 1),
+      dayKey: normalizeScheduleDayKey(round.sessionDate),
+      slotCount: round.roomSlots.length,
+      startTime: asText(round.startTime),
+      endTime: asText(round.endTime),
+    }));
+
+    window.console.warn("Schedule truth diagnostic: selected round unresolved slots", {
+      scheduleSource: authoritativeEventScheduleTruth.scheduleSource,
+      selectedRoundLabel: selectedRotationRound ? `Round ${activeSelectedRotationRoundIndex + 1}` : "Round not selected",
+      selectedRoundIndex: activeSelectedRotationRoundIndex,
+      selectedRoundGlobalIndex: activeSelectedRotationRoundGlobalIndex,
+      selectedDayKey:
+        normalizeScheduleDayKey(selectedEventDateContext) || normalizeScheduleDayKey(selectedRotationRound?.session_date),
+      savedRoundCount: authoritativeScheduleResolvedRounds.length,
+      selectedRoundHasSlots,
+      selectedRoundSlotCount: selectedResolvedRoomSlots.length,
+      availableRoundSlotCounts,
+      sourcePathUsed: selectedResolvedRoundResolution.sourcePath,
+    });
+  }, [
+    activeSelectedRotationRoundGlobalIndex,
+    activeSelectedRotationRoundIndex,
+    authoritativeEventScheduleTruth.hasSavedScheduleData,
+    authoritativeEventScheduleTruth.scheduleSource,
+    authoritativeScheduleResolvedRounds,
+    selectedEventDateContext,
+    selectedResolvedRoomSlots.length,
+    selectedResolvedRoundResolution.sourcePath,
+    selectedRotationRound,
+    viewerRole,
+  ]);
   const selectedRoundCaseLabel = useMemo(
     () =>
       getFirstNoteValue(eventEditor.notes || event?.notes, ["Case", "Case Name", "Station Case"]) ||
