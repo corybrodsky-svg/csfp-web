@@ -425,13 +425,13 @@ const DEFAULT_SCHEDULE_BUILDER_DRAFT: ScheduleBuilderDraft = {
   maxPairsPerFlexRoom: "3",
   encounterMinutes: "20",
   postEncounterBlock: "checklist",
-  postEncounterMinutes: "5",
+  postEncounterMinutes: "10",
   dayBlocks: [],
   manualRoundOverride: false,
-  checklistMinutes: "5",
+  checklistMinutes: "10",
   soapMinutes: "10",
-  feedbackMinutes: "10",
-  transitionMinutes: "0",
+  feedbackMinutes: "5",
+  transitionMinutes: "5",
   includeChecklist: true,
   includeSoap: true,
   includeFeedback: true,
@@ -816,6 +816,16 @@ function buildLegacyDayBlocks(parsed: Partial<ScheduleBuilderDraft>) {
           type: "feedback",
           label: "Feedback",
           durationMinutes: feedbackMinutes,
+          placement: "after_each_rotation",
+        })
+      );
+    }
+    if (parseNumber(asText(parsed.transitionMinutes), 0) > 0) {
+      blocks.push(
+        createDayBlock({
+          type: "transition",
+          label: "Transition",
+          durationMinutes: asText(parsed.transitionMinutes),
           placement: "after_each_rotation",
         })
       );
@@ -4261,6 +4271,7 @@ type StudentScheduleTimingConfig = {
   prebriefMinutes: number;
   encounterMinutes: number;
   feedbackMinutes: number;
+  cadenceMinutes: number;
 };
 
 type StudentScheduleTiming = StudentScheduleTimingConfig & {
@@ -4275,10 +4286,13 @@ function normalizeStudentScheduleMinutes(value: number | null | undefined, fallb
 }
 
 function normalizeStudentScheduleTimingConfig(config?: Partial<StudentScheduleTimingConfig>): StudentScheduleTimingConfig {
+  const encounterMinutes = normalizeStudentScheduleMinutes(config?.encounterMinutes, 20);
+  const feedbackMinutes = normalizeStudentScheduleMinutes(config?.feedbackMinutes, 5);
   return {
     prebriefMinutes: normalizeStudentScheduleMinutes(config?.prebriefMinutes, 15),
-    encounterMinutes: normalizeStudentScheduleMinutes(config?.encounterMinutes, 20),
-    feedbackMinutes: normalizeStudentScheduleMinutes(config?.feedbackMinutes, 5),
+    encounterMinutes,
+    feedbackMinutes,
+    cadenceMinutes: normalizeStudentScheduleMinutes(config?.cadenceMinutes, encounterMinutes + 10 + feedbackMinutes + 5),
   };
 }
 
@@ -4314,6 +4328,56 @@ function formatStudentScheduleEncounterLine(timing: StudentScheduleTiming) {
 
 function formatStudentScheduleTimingSummary(timing: StudentScheduleTiming) {
   return formatStudentScheduleTimingLines(timing).join("; ");
+}
+
+function advanceStudentScheduleStartThroughWideRows(
+  candidateStart: number,
+  wideRows: Array<Extract<ScheduleGridPreviewRow, { kind: "wide" }>>
+) {
+  let nextStart = candidateStart;
+  let adjusted = true;
+  while (adjusted) {
+    adjusted = false;
+    for (const row of wideRows) {
+      if (row.start <= nextStart && row.end > nextStart) {
+        nextStart = row.end;
+        adjusted = true;
+      }
+    }
+  }
+  return nextStart;
+}
+
+function buildStudentAuthoritativeRoundStartMap(
+  authoritativeRows: ScheduleGridPreviewRow[],
+  cadenceMinutes: number
+) {
+  const roundRows = authoritativeRows
+    .filter((row): row is Extract<ScheduleGridPreviewRow, { kind: "round" }> => row.kind === "round")
+    .sort((a, b) => a.round.round - b.round.round);
+  const wideRows = authoritativeRows
+    .filter((row): row is Extract<ScheduleGridPreviewRow, { kind: "wide" }> => row.kind === "wide")
+    .sort((a, b) => a.start - b.start || a.end - b.end);
+  const startByRound = new Map<number, number>();
+  const normalizedCadence = normalizeStudentScheduleMinutes(cadenceMinutes, 40);
+  let previousStart: number | null = null;
+
+  roundRows.forEach((row) => {
+    const rawStart = row.round.start;
+    if (previousStart === null) {
+      startByRound.set(row.round.round, rawStart);
+      previousStart = rawStart;
+      return;
+    }
+
+    const fallbackStart = advanceStudentScheduleStartThroughWideRows(previousStart + normalizedCadence, wideRows);
+    const rawGap = rawStart - previousStart;
+    const resolvedStart = Number.isFinite(rawStart) && rawGap >= normalizedCadence ? rawStart : fallbackStart;
+    startByRound.set(row.round.round, resolvedStart);
+    previousStart = resolvedStart;
+  });
+
+  return startByRound;
 }
 
 function formatStudentPrebriefStart(block: TimelineBlock) {
@@ -5589,25 +5653,24 @@ function buildSchedulePreviewData(args: {
   };
   const previewTimeline = timeline;
   const meaningfulPreviewTimeline = previewTimeline.filter((block) => !isFillerTimingLabel(block.label));
-  const authoritativeGridRoundByNumber = new Map<number, Extract<ScheduleGridPreviewRow, { kind: "round" }>>();
-  scheduleGridRows.forEach((entry) => {
-    if (entry.kind === "round") authoritativeGridRoundByNumber.set(entry.round.round, entry);
-  });
+  const normalizedStudentTimingConfig = normalizeStudentScheduleTimingConfig(studentTimingConfig);
+  const authoritativeGridStartByRound = buildStudentAuthoritativeRoundStartMap(
+    scheduleGridRows,
+    normalizedStudentTimingConfig.cadenceMinutes
+  );
   const previewRounds = isStudentPreview
     ? rounds.map((round) => {
-        const authoritativeRow = authoritativeGridRoundByNumber.get(round.round);
-        if (!authoritativeRow) return round;
+        const authoritativeStart = authoritativeGridStartByRound.get(round.round);
+        if (authoritativeStart === undefined) return round;
         return {
           ...round,
-          start: authoritativeRow.round.start,
-          end: authoritativeRow.round.end,
+          start: authoritativeStart,
         };
       })
     : rounds;
   const previewScheduleGridRows = isStudentPreview
     ? scheduleGridRows.filter((entry) => entry.kind !== "wide" || isStudentFacingPrebriefBlock(entry.block))
     : scheduleGridRows;
-  const normalizedStudentTimingConfig = normalizeStudentScheduleTimingConfig(studentTimingConfig);
   const announcementScheduleConfig = parseAnnouncementScheduleFromNotes(event?.notes);
   const announcementRoundItems = previewRounds.flatMap((round, index) =>
     buildRoundAnnouncementCueTimeline(round, previewRounds[index + 1] || null, announcementScheduleConfig, { formatTime: toDisplayTime }).map((item) => ({
@@ -5658,8 +5721,7 @@ function buildSchedulePreviewData(args: {
 	    return caseLabels.size > 1;
   };
   const getStudentEncounterStart = (round: ScheduledRound | GeneratedRound) => {
-    const authoritativeRow = authoritativeGridRoundByNumber.get(round.round);
-    return authoritativeRow?.round.start ?? round.start;
+    return authoritativeGridStartByRound.get(round.round) ?? round.start;
   };
   const getStudentTiming = (round: ScheduledRound | GeneratedRound) =>
     buildStudentScheduleTiming(getStudentEncounterStart(round), normalizedStudentTimingConfig);
@@ -7623,6 +7685,9 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
   const parsedMaxPairs = Math.max(1, parseNumber(maxPairsPerFlexRoom, 3));
   const parsedSessionLength = parseNumber(sessionLengthMinutes, 0);
   const parsedEncounter = parseNumber(encounterMinutes, 20);
+  const parsedChecklist = parseNumber(checklistMinutes, 10);
+  const parsedFeedback = parseNumber(feedbackMinutes, 5);
+  const parsedTransition = parseNumber(transitionMinutes, 5);
   const parsedStaffArrival = toMinutes(staffArrivalTime);
   const parsedSpArrival = toMinutes(spArrivalTime);
   const parsedFacultyArrival = toMinutes(facultyArrivalTime);
@@ -7808,7 +7873,7 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     manualRoundOverrideApplies
       ? Math.max(parsedRounds, 1)
       : autoCalculatedRounds;
-  const timingVisibility = scheduleViewMode === "operations" ? "operations" : "student";
+  const timingVisibility: ScheduleTimingVisibility = "all";
   const { beforeRotationDayBlocks, afterRotationDayBlocks, specificTimeDayBlocks } = useMemo(
     () => getTimingDayBlocksByVisibility(normalizedDayBlocks, timingVisibility),
     [normalizedDayBlocks, timingVisibility]
@@ -8836,27 +8901,29 @@ export default function EventScheduleBuilder(props: EventScheduleBuilderProps) {
     () => (scheduleViewMode === "student" ? studentScheduleGridRows : operationsScheduleGridRows),
     [operationsScheduleGridRows, scheduleViewMode, studentScheduleGridRows]
   );
-  const adminRoundStartByRound = useMemo(() => {
-    const startByRound = new Map<number, number>();
-    operationsScheduleGridRows.forEach((row) => {
-      if (row.kind === "round") startByRound.set(row.round.round, row.round.start);
-    });
-    return startByRound;
-  }, [operationsScheduleGridRows]);
-  const getStudentDisplayEncounterStart = useCallback(
-    (round: ScheduledRound) => adminRoundStartByRound.get(round.round) ?? round.start,
-    [adminRoundStartByRound]
-  );
   const studentScheduleTimingConfig = useMemo(() => {
     const configuredPrebriefMinutes = [parsedStudentPrebrief, parsedFacultyPrebrief].filter(
       (value) => Number.isFinite(value) && value > 0
     );
+    const cfspEncounterMinutes = normalizeStudentScheduleMinutes(parsedEncounter, 20);
+    const cfspChecklistCadenceMinutes = Math.max(normalizeStudentScheduleMinutes(parsedChecklist, 10), 10);
+    const cfspFeedbackMinutes = Math.min(normalizeStudentScheduleMinutes(parsedFeedback, 5), 5);
+    const cfspTransitionCadenceMinutes = Math.max(normalizeStudentScheduleMinutes(parsedTransition, 5), 5);
     return normalizeStudentScheduleTimingConfig({
       prebriefMinutes: configuredPrebriefMinutes.length ? Math.max(...configuredPrebriefMinutes) : 15,
-      encounterMinutes: parsedEncounter,
-      feedbackMinutes: parseNumber(feedbackMinutes, 5),
+      encounterMinutes: cfspEncounterMinutes,
+      feedbackMinutes: cfspFeedbackMinutes,
+      cadenceMinutes: cfspEncounterMinutes + cfspChecklistCadenceMinutes + cfspFeedbackMinutes + cfspTransitionCadenceMinutes,
     });
-  }, [feedbackMinutes, parsedEncounter, parsedFacultyPrebrief, parsedStudentPrebrief]);
+  }, [parsedChecklist, parsedEncounter, parsedFacultyPrebrief, parsedFeedback, parsedStudentPrebrief, parsedTransition]);
+  const adminRoundStartByRound = useMemo(
+    () => buildStudentAuthoritativeRoundStartMap(operationsScheduleGridRows, studentScheduleTimingConfig.cadenceMinutes),
+    [operationsScheduleGridRows, studentScheduleTimingConfig.cadenceMinutes]
+  );
+  const getStudentDisplayEncounterStart = useCallback(
+    (round: ScheduledRound) => adminRoundStartByRound.get(round.round) ?? round.start,
+    [adminRoundStartByRound]
+  );
   const getStudentDisplayTiming = useCallback(
     (round: ScheduledRound) => buildStudentScheduleTiming(getStudentDisplayEncounterStart(round), studentScheduleTimingConfig),
     [getStudentDisplayEncounterStart, studentScheduleTimingConfig]
