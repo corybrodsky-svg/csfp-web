@@ -6903,6 +6903,7 @@ export default function EventDetailPage() {
   const liveSyncChannelRef = useRef<RealtimeChannel | null>(null);
   const announcementAudioContextRef = useRef<AudioContext | null>(null);
   const announcementLastAlertAtRef = useRef<Record<string, number>>({});
+  const eventSummaryPrintRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -14500,6 +14501,95 @@ Cory`;
       value: backupCount > 0 ? `Yes - ${backupCount} selected` : needed > 0 ? "Not set" : "No",
     },
   ];
+
+  function getPrintableSummaryValue(value: unknown) {
+    const text = asText(value);
+    return text || "Not set";
+  }
+
+  function buildEventSummaryPrintHtml() {
+    const eventName = asText(event?.name) || "Untitled Event";
+    const eventDate = reviewEventTimingSummary.dateLabel || event?.date_text || "Not set";
+    const generatedAt = new Date().toLocaleString();
+    const rowsHtml = reviewSummaryRows
+      .map(
+        (item) => `
+          <div class="summary-card">
+            <div class="summary-label">${escapeAnnouncementHtml(item.label)}</div>
+            <div class="summary-value">${escapeAnnouncementHtml(getPrintableSummaryValue(item.value))}</div>
+          </div>
+        `
+      )
+      .join("");
+
+    return `<!doctype html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>Event Summary - ${escapeAnnouncementHtml(eventName)}</title>
+          <style>
+            @page { size: letter portrait; margin: 0.5in; }
+            * { box-sizing: border-box; }
+            html, body { margin: 0; padding: 0; background: #ffffff; color: #14304f; font-family: Arial, Helvetica, sans-serif; }
+            body { padding: 0.5in; }
+            .sheet { max-width: 8in; margin: 0 auto; }
+            .header { border-bottom: 3px solid #145b96; padding-bottom: 16px; margin-bottom: 18px; }
+            .brand { font-size: 12px; font-weight: 900; letter-spacing: 0.14em; text-transform: uppercase; color: #145b96; }
+            h1 { margin: 7px 0 0; font-size: 28px; line-height: 1.1; color: #14304f; }
+            .subtitle { margin-top: 8px; display: grid; gap: 4px; color: #45657d; font-size: 13px; font-weight: 700; }
+            .summary-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+            .summary-card { border: 1px solid #cfe0eb; border-radius: 10px; padding: 10px 11px; min-height: 70px; break-inside: avoid; page-break-inside: avoid; background: #f8fbfd; }
+            .summary-label { font-size: 10px; font-weight: 900; letter-spacing: 0.08em; text-transform: uppercase; color: #145b96; }
+            .summary-value { margin-top: 6px; font-size: 13px; font-weight: 800; line-height: 1.35; color: #14304f; overflow-wrap: anywhere; white-space: pre-wrap; }
+            .footer { margin-top: 18px; border-top: 1px solid #dce6ee; padding-top: 10px; color: #5e7388; font-size: 11px; font-weight: 700; }
+            button, nav, input, select, textarea { display: none !important; }
+            @media (max-width: 760px) {
+              body { padding: 24px; }
+              .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            }
+            @media print {
+              body { padding: 0; }
+              .sheet { max-width: none; }
+              .summary-card { background: #ffffff; }
+            }
+          </style>
+        </head>
+        <body>
+          <main class="sheet">
+            <header class="header">
+              <div class="brand">Conflict-Free SP</div>
+              <h1>Event Summary</h1>
+              <div class="subtitle">
+                <div>Event: ${escapeAnnouncementHtml(eventName)}</div>
+                <div>Date: ${escapeAnnouncementHtml(eventDate)}</div>
+                <div>Generated ${escapeAnnouncementHtml(generatedAt)}</div>
+              </div>
+            </header>
+            <section class="summary-grid" aria-label="Event Summary">${rowsHtml}</section>
+            <div class="footer">Operational snapshot generated from Event Command Center.</div>
+          </main>
+        </body>
+      </html>`;
+  }
+
+  function handlePrintEventSummary() {
+    if (typeof window === "undefined") return;
+    const sourceSummaryHtml = eventSummaryPrintRef.current?.innerHTML || "";
+    void sourceSummaryHtml;
+    const printWindow = window.open("", "_blank", "noopener,noreferrer,width=960,height=720");
+    if (!printWindow) {
+      setEventSaveError("Could not open print window. Check popup settings.");
+      return;
+    }
+    printWindow.document.open();
+    printWindow.document.write(buildEventSummaryPrintHtml());
+    printWindow.document.close();
+    printWindow.focus();
+    window.setTimeout(() => {
+      printWindow.print();
+    }, 250);
+  }
+
   useEffect(() => {
     setVirtualAccessDraftUrl(virtualAccessRawUrl);
   }, [virtualAccessRawUrl]);
@@ -28475,6 +28565,19 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                   <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end", alignItems: "center", flex: "0 1 auto" }}>
                     <button
                       type="button"
+                      onClick={handlePrintEventSummary}
+                      style={{
+                        ...staffingSecondaryButtonStyle,
+                        padding: "7px 10px",
+                        background: isPlanningVisualMode
+                          ? "rgba(255,255,255,0.88)"
+                          : "linear-gradient(135deg, rgba(125, 211, 252, 0.16), rgba(167, 139, 250, 0.16))",
+                      }}
+                    >
+                      Print Event Summary
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => handleRotationCommandSurfaceOpenChange()}
                       className="cfsp-button-tactical"
                     style={{
@@ -29857,7 +29960,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
 
                         <div style={{ display: "grid", gap: "6px" }}>
                           {roundCompanionView === "overview" ? (
-  <div style={{ display: "grid", gap: "12px" }}>
+  <div ref={eventSummaryPrintRef} style={{ display: "grid", gap: "12px" }}>
     <section
       style={{
         borderRadius: "18px",
