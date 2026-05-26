@@ -34,10 +34,7 @@ import {
   parseTimeToMinutes,
 } from "../../lib/timeFormat";
 import {
-  buildRoundAnnouncementCueTimeline,
   parseAnnouncementScheduleFromNotes,
-  upsertAnnouncementScheduleInNotes,
-  type AnnouncementScheduleConfig,
 } from "../../lib/announcementSchedule";
 import {
   editableEventTypeLabels,
@@ -312,11 +309,13 @@ type LiveRoomStatusValue = "ready" | "in_session" | "delayed" | "empty" | "sp_mi
 type AnnouncementCueTimelineEntry = {
   key: string;
   cueId: string;
+  cueKind: "prebrief" | "encounter_start" | "checklist_start" | "feedback_start" | "transition" | "lunch" | "break" | "wrap_up";
   roundKey: string;
   roundNumber: number;
   timeMinutes: number;
   timeLabel: string;
   phaseLabel: string;
+  audienceLabel: string;
   blockLabel: string;
   cueTimingLabel: string;
   announcement: string;
@@ -526,6 +525,9 @@ type ScheduleBuilderPreviewDraft = {
   spPrebriefMinutes: string;
   facultyPrebriefMinutes: string;
   encounterMinutes: string;
+  checklistMinutes?: string;
+  feedbackMinutes?: string;
+  transitionMinutes?: string;
   roomCapacity: string;
   manualRoundOverride: boolean;
   dayBlocks: ScheduleBuilderPreviewDayBlock[];
@@ -2823,6 +2825,109 @@ function getLiveFlowAnnouncementCopy(block: LiveFlowBlock) {
     return `Round ${block.roundNumber} encounter is live.`;
   }
   return `${getLiveFlowDividerLabel(block.label)} · ${formatMinuteRange(block.startMinutes, block.endMinutes)}`;
+}
+
+function isAnnouncementBlockMatch(label: string, matcher: RegExp) {
+  return matcher.test(asText(label).toLowerCase());
+}
+
+function getAnnouncementCueLabel(
+  cueKind: AnnouncementCueTimelineEntry["cueKind"],
+  blockLabel?: string
+) {
+  switch (cueKind) {
+    case "prebrief":
+      return "Pre-brief Reminder";
+    case "encounter_start":
+      return "Encounter Start";
+    case "checklist_start":
+      return "Checklist Start";
+    case "feedback_start":
+      return "Feedback Start";
+    case "transition":
+      return "Transition / Move";
+    case "lunch":
+      return "Lunch / Break";
+    case "break":
+      return getLiveFlowDividerLabel(blockLabel || "Break");
+    case "wrap_up":
+      return "Wrap-up";
+    default:
+      return "Announcement";
+  }
+}
+
+function getAnnouncementCueAudienceLabel(cueKind: AnnouncementCueTimelineEntry["cueKind"]) {
+  switch (cueKind) {
+    case "prebrief":
+      return "All";
+    case "encounter_start":
+      return "Learners / SPs";
+    case "checklist_start":
+      return "Learners / SPs";
+    case "feedback_start":
+      return "Learners / SPs";
+    case "transition":
+      return "Learners";
+    case "lunch":
+    case "break":
+    case "wrap_up":
+      return "All";
+    default:
+      return "Operations";
+  }
+}
+
+function getAnnouncementCueTimingLabel(
+  cueKind: AnnouncementCueTimelineEntry["cueKind"],
+  roundNumber: number
+) {
+  switch (cueKind) {
+    case "prebrief":
+      return `Round ${roundNumber} readiness`;
+    case "encounter_start":
+      return `Round ${roundNumber} launch`;
+    case "checklist_start":
+      return `Round ${roundNumber} post-encounter`;
+    case "feedback_start":
+      return `Round ${roundNumber} feedback`;
+    case "transition":
+      return `Round ${roundNumber} movement`;
+    case "lunch":
+    case "break":
+      return `Round ${roundNumber} wide block`;
+    case "wrap_up":
+      return "End-of-day close";
+    default:
+      return `Round ${roundNumber}`;
+  }
+}
+
+function buildDefaultAnnouncementText(
+  cueKind: AnnouncementCueTimelineEntry["cueKind"],
+  roundNumber: number,
+  blockLabel?: string
+) {
+  switch (cueKind) {
+    case "prebrief":
+      return `Round ${roundNumber} pre-brief begins now. Please gather learners, SPs, faculty, and staff for the readiness briefing.`;
+    case "encounter_start":
+      return `Round ${roundNumber} encounter begins now. Learners and SPs, please start the case.`;
+    case "checklist_start":
+      return `Round ${roundNumber} checklist starts now. Please complete the checklist and hold room positions.`;
+    case "feedback_start":
+      return `Learners, please begin feedback now. You have 5 minutes.`;
+    case "transition":
+      return `Please transition to the next room assignment now. Staff, reset stations for the next encounter.`;
+    case "lunch":
+      return `Lunch begins now. Please return on time for the next rotation.`;
+    case "break":
+      return `${getLiveFlowDividerLabel(blockLabel || "Break")} begins now. Please be ready for the next cue.`;
+    case "wrap_up":
+      return `That concludes today's simulation event. Please return materials and stand by for wrap-up instructions.`;
+    default:
+      return "Operational announcement.";
+  }
 }
 
 function parseDurationMinutes(value?: string | null) {
@@ -6739,7 +6844,6 @@ export default function EventDetailPage() {
   const [announcementAlarmSnoozeUntilMap, setAnnouncementAlarmSnoozeUntilMap] = useState<Record<string, number>>({});
   const [announcementActiveAlertId, setAnnouncementActiveAlertId] = useState<string | null>(null);
   const [liveAttendanceAnnouncementScheduleExpanded, setLiveAttendanceAnnouncementScheduleExpanded] = useState(false);
-  const [roundAnnouncementDrafts, setRoundAnnouncementDrafts] = useState<Record<string, string>>({});
   const [announcementCueSaving, setAnnouncementCueSaving] = useState(false);
   const [announcementDueCueKeys, setAnnouncementDueCueKeys] = useState<Record<string, string>>({});
   const [announcementNotificationsPermission, setAnnouncementNotificationsPermission] = useState("default");
@@ -7056,7 +7160,6 @@ export default function EventDetailPage() {
   const canEditSchedule = canManageTrainingAttendance;
   const canManageAvailabilityPoll = canManageTrainingAttendance;
   const canManageSpMatchMaker = canManageTrainingAttendance;
-  const canManageRoundAnnouncements = canManageTrainingAttendance;
   const canRunLiveEventMode = canManageTrainingAttendance;
   const canDeleteEvent = viewerRole === "admin" || viewerRole === "super_admin";
   const canCreateFollowUpSimulation = canManageTrainingAttendance;
@@ -12279,6 +12382,16 @@ const operationalEventStatusLabel = useMemo(() => {
     selectedRoundTacticalBoardRows,
     selectedRoundBackupScheduleTruth,
   ]);
+  const announcementCueTextOverrides = useMemo(() => {
+    const cueTextById = new Map<string, string>();
+    announcementScheduleConfig.cues.forEach((cue) => {
+      const cueText = asText(cue.announcementText);
+      if (cueText) {
+        cueTextById.set(cue.id, cueText);
+      }
+    });
+    return cueTextById;
+  }, [announcementScheduleConfig]);
   const buildAnnouncementTimelineForRound = useCallback(
     (round: RotationRound | null | undefined, roundIndex: number) => {
       if (!round) return [] as AnnouncementCueTimelineEntry[];
@@ -12293,57 +12406,192 @@ const operationalEventStatusLabel = useMemo(() => {
         return [] as AnnouncementCueTimelineEntry[];
       }
 
-      try {
-        const nextRound = activeDateRotationRounds[roundIndex + 1] || null;
-        const nextRoundTiming = nextRound
-          ? getNormalizedRotationRoundTiming(nextRound, getSameDateRotationRounds(nextRound, rotationRounds))
+      const roundNumber = roundIndex + 1;
+      const nextRound = activeDateRotationRounds[roundIndex + 1] || null;
+      const nextRoundTiming = nextRound
+        ? getNormalizedRotationRoundTiming(nextRound, getSameDateRotationRounds(nextRound, rotationRounds))
+        : null;
+      const nextRoundStartMinutes =
+        nextRoundTiming?.startMinutes !== null && nextRoundTiming?.startMinutes !== undefined
+          ? nextRoundTiming.startMinutes
           : null;
-        const selectedRoundKeyPrefix = `${asText(round.key)}-`;
-        const roundFlowBlocks = (Array.isArray(liveFlowBlocks) ? liveFlowBlocks : [])
-          .filter((block) => asText(block?.key).startsWith(selectedRoundKeyPrefix))
-          .map((block) => ({
-            label: asText(block?.label),
-            start: block?.startMinutes,
-            end: block?.endMinutes,
-          }));
-
-        return buildRoundAnnouncementCueTimeline(
-          {
-            key: round.key,
-            round: roundIndex + 1,
-            start: startMinutes,
-            end: endMinutes,
-            subBlocks: roundFlowBlocks,
-          },
-          nextRoundTiming?.startMinutes !== null && nextRoundTiming?.startMinutes !== undefined
-            ? {
-                key: nextRound?.key,
-                round: roundIndex + 2,
-                start: nextRoundTiming.startMinutes,
-                end: nextRoundTiming.endMinutes ?? nextRoundTiming.startMinutes,
-                subBlocks: [],
-              }
-            : null,
-          announcementScheduleConfig,
-          { formatTime: formatMinutesAsClockLabel }
-        ).map((item) => ({
-          key: item.key,
-          cueId: item.cueId,
+      const roundWindowEndMinutes =
+        typeof nextRoundStartMinutes === "number" && nextRoundStartMinutes > startMinutes
+          ? nextRoundStartMinutes
+          : endMinutes;
+      const selectedRoundKeyPrefix = `${asText(round.key)}-`;
+      const roundFlowBlocks = (Array.isArray(liveFlowBlocks) ? liveFlowBlocks : [])
+        .filter((block) => asText(block?.key).startsWith(selectedRoundKeyPrefix))
+        .sort((a, b) => a.startMinutes - b.startMinutes || a.endMinutes - b.endMinutes || a.label.localeCompare(b.label));
+      const supportingWindowBlocks = (Array.isArray(liveFlowBlocks) ? liveFlowBlocks : [])
+        .filter((block) => {
+          if (asText(block?.key).startsWith(selectedRoundKeyPrefix)) return false;
+          if (block.startMinutes < startMinutes || block.startMinutes >= roundWindowEndMinutes) return false;
+          return isAnnouncementBlockMatch(block.label, /lunch|break|debrief|wrap|close|end of event/);
+        })
+        .sort((a, b) => a.startMinutes - b.startMinutes || a.endMinutes - b.endMinutes || a.label.localeCompare(b.label));
+      const configuredEncounterMinutes = Math.max(parsePositiveInteger(scheduleBuilderPreviewDraft?.encounterMinutes, 0), 20);
+      const configuredChecklistMinutes = Math.max(parsePositiveInteger(scheduleBuilderPreviewDraft?.checklistMinutes, 0), 10);
+      const configuredFeedbackMinutes = Math.max(parsePositiveInteger(scheduleBuilderPreviewDraft?.feedbackMinutes, 0), 5);
+      const configuredTransitionMinutes = Math.max(parsePositiveInteger(scheduleBuilderPreviewDraft?.transitionMinutes, 0), 5);
+      const configuredPrebriefMinutes = Math.max(
+        parsePositiveInteger(scheduleBuilderPreviewDraft?.studentPrebriefMinutes, 0),
+        parsePositiveInteger(scheduleBuilderPreviewDraft?.spPrebriefMinutes, 0),
+        parsePositiveInteger(scheduleBuilderPreviewDraft?.facultyPrebriefMinutes, 0),
+        15
+      );
+      const encounterBlock = roundFlowBlocks.find((block) =>
+        isAnnouncementBlockMatch(block.label, /encounter|rotation|case/)
+      );
+      const checklistBlock = roundFlowBlocks.find((block) =>
+        isAnnouncementBlockMatch(block.label, /checklist|soap/)
+      );
+      const feedbackBlock = roundFlowBlocks.find((block) =>
+        isAnnouncementBlockMatch(block.label, /feedback/)
+      );
+      const transitionBlock = roundFlowBlocks.find((block) =>
+        isAnnouncementBlockMatch(block.label, /transition|turnaround|turnover|reset/)
+      );
+      const prebriefBlock =
+        roundIndex === 0
+          ? (Array.isArray(liveFlowBlocks) ? liveFlowBlocks : [])
+              .filter((block) => {
+                if (!isAnnouncementBlockMatch(block.label, /pre[\s-]?brief|orientation|briefing/)) return false;
+                return block.endMinutes <= startMinutes;
+              })
+              .sort((a, b) => b.startMinutes - a.startMinutes)[0] || null
+          : null;
+      const encounterStartMinutes = encounterBlock?.startMinutes ?? startMinutes;
+      const checklistStartMinutes = checklistBlock?.startMinutes ?? Math.min(roundWindowEndMinutes, encounterStartMinutes + configuredEncounterMinutes);
+      const feedbackStartMinutes = feedbackBlock?.startMinutes ?? Math.min(roundWindowEndMinutes, checklistStartMinutes + configuredChecklistMinutes);
+      const transitionStartMinutes = transitionBlock?.startMinutes ?? Math.min(roundWindowEndMinutes, feedbackStartMinutes + configuredFeedbackMinutes);
+      const cueEntries: AnnouncementCueTimelineEntry[] = [];
+      const overrideAnnouncementText = (
+        cueKind: AnnouncementCueTimelineEntry["cueKind"],
+        fallbackText: string
+      ) => {
+        const overrideIdsByKind: Record<AnnouncementCueTimelineEntry["cueKind"], string[]> = {
+          prebrief: ["prebrief-reminder", "sp-prepare"],
+          encounter_start: ["encounter-start", "begin-encounter"],
+          checklist_start: ["checklist-start"],
+          feedback_start: ["feedback-start", "encounter-over-feedback"],
+          transition: ["transition-start", "leave-meeting"],
+          lunch: ["lunch-break", "break-start"],
+          break: ["break-start"],
+          wrap_up: ["wrap-up", "event-close"],
+        };
+        for (const overrideId of overrideIdsByKind[cueKind]) {
+          const overrideText = announcementCueTextOverrides.get(overrideId);
+          if (overrideText) return overrideText;
+        }
+        return fallbackText;
+      };
+      const pushCue = (
+        cueKind: AnnouncementCueTimelineEntry["cueKind"],
+        timeMinutes: number | null | undefined,
+        blockLabel?: string,
+        detail?: string
+      ) => {
+        if (typeof timeMinutes !== "number" || !Number.isFinite(timeMinutes)) return;
+        const cueLabel = getAnnouncementCueLabel(cueKind, blockLabel);
+        const audienceLabel = getAnnouncementCueAudienceLabel(cueKind);
+        const announcementText = overrideAnnouncementText(
+          cueKind,
+          buildDefaultAnnouncementText(cueKind, roundNumber, blockLabel)
+        );
+        cueEntries.push({
+          key: `${asText(round.key)}:${cueKind}:${Math.round(timeMinutes)}`,
+          cueId: cueKind,
+          cueKind,
           roundKey: asText(round.key),
-          roundNumber: roundIndex + 1,
-          timeMinutes: item.timeMinutes,
-          timeLabel: item.timeLabel,
-          phaseLabel: item.badgeLabel,
-          blockLabel: item.blockLabel,
-          cueTimingLabel: item.cueTimingLabel,
-          announcement: item.message,
-          detail: item.detail,
-        }));
-      } catch {
-        return [] as AnnouncementCueTimelineEntry[];
+          roundNumber,
+          timeMinutes,
+          timeLabel: formatMinutesAsClockLabel(timeMinutes),
+          phaseLabel: cueLabel,
+          audienceLabel,
+          blockLabel: blockLabel || cueLabel,
+          cueTimingLabel: getAnnouncementCueTimingLabel(cueKind, roundNumber),
+          announcement: announcementText,
+          detail,
+        });
+      };
+
+      if (roundIndex === 0 && configuredPrebriefMinutes > 0) {
+        const prebriefStartMinutes = prebriefBlock?.startMinutes ?? encounterStartMinutes - configuredPrebriefMinutes;
+        pushCue(
+          "prebrief",
+          prebriefStartMinutes,
+          prebriefBlock?.label || "Prebrief",
+          `${getAnnouncementCueAudienceLabel("prebrief")} · ${formatLiveFlowDurationLabel(
+            Math.max(prebriefBlock ? prebriefBlock.endMinutes - prebriefBlock.startMinutes : configuredPrebriefMinutes, 1)
+          )}`
+        );
       }
+
+      pushCue(
+        "encounter_start",
+        encounterStartMinutes,
+        encounterBlock?.label || "Encounter",
+        `${getAnnouncementCueAudienceLabel("encounter_start")} · ${formatLiveFlowDurationLabel(configuredEncounterMinutes)}`
+      );
+      if (checklistStartMinutes < roundWindowEndMinutes + 1) {
+        pushCue(
+          "checklist_start",
+          checklistStartMinutes,
+          checklistBlock?.label || "Checklist",
+          `${getAnnouncementCueAudienceLabel("checklist_start")} · ${formatLiveFlowDurationLabel(configuredChecklistMinutes)}`
+        );
+      }
+      if (feedbackStartMinutes < roundWindowEndMinutes + 1) {
+        pushCue(
+          "feedback_start",
+          feedbackStartMinutes,
+          feedbackBlock?.label || "Feedback",
+          `${getAnnouncementCueAudienceLabel("feedback_start")} · ${formatLiveFlowDurationLabel(configuredFeedbackMinutes)}`
+        );
+      }
+      if (transitionStartMinutes < roundWindowEndMinutes + 1) {
+        pushCue(
+          "transition",
+          transitionStartMinutes,
+          transitionBlock?.label || "Transition",
+          `${getAnnouncementCueAudienceLabel("transition")} · ${formatLiveFlowDurationLabel(configuredTransitionMinutes)}`
+        );
+      }
+
+      supportingWindowBlocks.forEach((block) => {
+        const cueKind = isAnnouncementBlockMatch(block.label, /lunch/)
+          ? "lunch"
+          : isAnnouncementBlockMatch(block.label, /debrief|wrap|close|end of event/)
+            ? "wrap_up"
+            : "break";
+        pushCue(
+          cueKind,
+          block.startMinutes,
+          block.label,
+          `${getAnnouncementCueAudienceLabel(cueKind)} · ${formatLiveFlowDurationLabel(
+            Math.max(block.endMinutes - block.startMinutes, 1)
+          )}`
+        );
+      });
+
+      return cueEntries
+        .sort((a, b) => a.timeMinutes - b.timeMinutes || a.phaseLabel.localeCompare(b.phaseLabel))
+        .filter((entry, index, entries) => index === 0 || entry.key !== entries[index - 1]?.key);
     },
-    [activeDateRotationRounds, announcementScheduleConfig, liveFlowBlocks, rotationRounds]
+    [
+      activeDateRotationRounds,
+      announcementCueTextOverrides,
+      liveFlowBlocks,
+      rotationRounds,
+      scheduleBuilderPreviewDraft?.checklistMinutes,
+      scheduleBuilderPreviewDraft?.encounterMinutes,
+      scheduleBuilderPreviewDraft?.facultyPrebriefMinutes,
+      scheduleBuilderPreviewDraft?.feedbackMinutes,
+      scheduleBuilderPreviewDraft?.spPrebriefMinutes,
+      scheduleBuilderPreviewDraft?.studentPrebriefMinutes,
+      scheduleBuilderPreviewDraft?.transitionMinutes,
+    ]
   );
   const announcementCueTimeline = useMemo(
     () =>
@@ -12363,9 +12611,9 @@ const operationalEventStatusLabel = useMemo(() => {
     () =>
       selectedRoundAnnouncementTimeline.map((entry) => ({
         ...entry,
-        message: roundAnnouncementDrafts[entry.key] ?? entry.announcement,
+        message: entry.announcement,
       })),
-    [roundAnnouncementDrafts, selectedRoundAnnouncementTimeline]
+    [selectedRoundAnnouncementTimeline]
   );
   const selectedRoundAnnouncementExportText = useMemo(() => {
     const eventName = event?.name || "Untitled Event";
@@ -12388,6 +12636,7 @@ const operationalEventStatusLabel = useMemo(() => {
       "",
       ...selectedRoundAnnouncementExportRows.flatMap((entry, index) => [
         `${index + 1}. ${entry.timeLabel} - ${entry.phaseLabel}`,
+        `Audience: ${entry.audienceLabel}`,
         entry.detail ? `Context: ${entry.detail}` : "Context: Operational announcement",
         `Message: ${entry.message}`,
         "",
@@ -12426,20 +12675,22 @@ const operationalEventStatusLabel = useMemo(() => {
           ? "Delivered"
           : persistedStatus === "skipped"
             ? "Skipped"
-            : hasTriggeredDueState || shouldActivateDue
+            : isSnoozed
+              ? "Snoozed"
+              : hasTriggeredDueState || shouldActivateDue
               ? "Due now"
               : "Upcoming";
       const timingDetail =
         status === "Due now"
           ? "Announcement Due"
-          : isSnoozed
+          : status === "Snoozed"
             ? `Snoozed until ${new Date(snoozedUntilMs).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`
             : minutesUntilCue < -1
               ? "Past cue - not auto-armed on load"
               : formatCueCountdown(Math.max(minutesUntilCue, 0));
       return {
         ...entry,
-        announcementText: roundAnnouncementDrafts[entry.key] ?? entry.announcement,
+        announcementText: entry.announcement,
         persistentStatus: persistedStatus,
         status,
         timingDetail,
@@ -12455,7 +12706,6 @@ const operationalEventStatusLabel = useMemo(() => {
     announcementDueCueKeys,
     announcementLiveModeActive,
     countdownNowMs,
-    roundAnnouncementDrafts,
     simulatedLiveMinutes,
   ]);
   const announcementCueEntriesByKey = useMemo(
@@ -12472,6 +12722,8 @@ const operationalEventStatusLabel = useMemo(() => {
   const liveAttendanceCurrentAnnouncementCue = useMemo(
     () =>
       selectedRoundAnnouncementCueEntries.find((entry) => entry.status === "Due now") ||
+      selectedRoundAnnouncementCueEntries.find((entry) => entry.status === "Upcoming") ||
+      selectedRoundAnnouncementCueEntries.find((entry) => entry.status === "Snoozed") ||
       selectedRoundAnnouncementCueEntries.find((entry) => entry.status !== "Delivered" && entry.status !== "Skipped") ||
       selectedRoundAnnouncementCueEntries[0] ||
       null,
@@ -12482,32 +12734,66 @@ const operationalEventStatusLabel = useMemo(() => {
     ? "Timing unavailable"
     : announcementLiveModeActive
       ? announcementAlertsMuted
-        ? "Live cue board muted"
-        : "Live cue board armed"
-      : "Preview mode";
-  const nextAnnouncementCue = useMemo(
+        ? "Live cues armed · muted"
+        : "Live cues armed"
+      : "Preview only";
+  const selectedRoundAnnouncementRoundLabel = selectedRotationRound
+    ? `Round ${activeSelectedRotationRoundIndex + 1}`
+    : "Round TBD";
+  const selectedRoundNextAnnouncementCue = useMemo(
     () =>
-      announcementCueEntries.find(
-        (entry) =>
-          entry.status === "Due now" ||
-          (entry.status === "Upcoming" && !entry.isSnoozed && entry.minutesUntilCue >= -1)
-      ) || null,
-    [announcementCueEntries]
+      selectedRoundAnnouncementCueEntries.find((entry) => entry.status === "Due now") ||
+      selectedRoundAnnouncementCueEntries.find((entry) => entry.status === "Upcoming") ||
+      selectedRoundAnnouncementCueEntries.find((entry) => entry.status === "Snoozed") ||
+      null,
+    [selectedRoundAnnouncementCueEntries]
   );
-  const announcementCueStripRoundLabel =
-    currentRotationRoundNumber !== null
-      ? `Round ${currentRotationRoundNumber}`
-      : nextAnnouncementCue
-        ? `Round ${nextAnnouncementCue.roundNumber}`
-        : selectedRotationRound
-          ? `Round ${activeSelectedRotationRoundIndex + 1}`
-          : "Round TBD";
-  const announcementCueStripBlockLabel = currentLiveBlock?.label || nextAnnouncementCue?.blockLabel || "Timing unavailable";
-  const announcementCueStripCountdownLabel = nextAnnouncementCue
-    ? nextAnnouncementCue.status === "Due now"
+  const selectedRoundAnnouncementCountdownLabel = selectedRoundNextAnnouncementCue
+    ? selectedRoundNextAnnouncementCue.status === "Due now"
       ? "Due now"
-      : formatCueCountdown(Math.max(nextAnnouncementCue.minutesUntilCue, 0))
+      : selectedRoundNextAnnouncementCue.status === "Snoozed"
+        ? selectedRoundNextAnnouncementCue.timingDetail
+        : formatCueCountdown(Math.max(selectedRoundNextAnnouncementCue.minutesUntilCue, 0))
     : "No remaining cues";
+  const selectedRoundAnnouncementSummaryMessage = useMemo(() => {
+    if (!selectedRotationRound) return "Select a round to load live announcements.";
+    if (!selectedRoundAnnouncementCueEntries.length) {
+      return `No announcement cues configured for ${selectedRoundAnnouncementRoundLabel}.`;
+    }
+    const allDelivered = selectedRoundAnnouncementCueEntries.every((entry) => entry.status === "Delivered");
+    if (allDelivered) {
+      return `All ${selectedRoundAnnouncementRoundLabel} announcements delivered.`;
+    }
+    const allFinished = selectedRoundAnnouncementCueEntries.every(
+      (entry) => entry.status === "Delivered" || entry.status === "Skipped"
+    );
+    if (allFinished) {
+      return `No remaining cues for ${selectedRoundAnnouncementRoundLabel}.`;
+    }
+    if (selectedRoundNextAnnouncementCue) {
+      return `Next cue: ${selectedRoundNextAnnouncementCue.phaseLabel} at ${selectedRoundNextAnnouncementCue.timeLabel}.`;
+    }
+    return `No remaining cues for ${selectedRoundAnnouncementRoundLabel}.`;
+  }, [
+    selectedRotationRound,
+    selectedRoundAnnouncementCueEntries,
+    selectedRoundAnnouncementRoundLabel,
+    selectedRoundNextAnnouncementCue,
+  ]);
+  const fullDayAnnouncementTimelineGroups = useMemo(() => {
+    const grouped = new Map<number, typeof announcementCueEntries>();
+    announcementCueEntries.forEach((entry) => {
+      const currentEntries = grouped.get(entry.roundNumber) || [];
+      currentEntries.push(entry);
+      grouped.set(entry.roundNumber, currentEntries);
+    });
+    return Array.from(grouped.entries())
+      .sort((a, b) => a[0] - b[0])
+      .map(([roundNumber, entries]) => ({
+        roundNumber,
+        entries: entries.sort((a, b) => a.timeMinutes - b.timeMinutes || a.phaseLabel.localeCompare(b.phaseLabel)),
+      }));
+  }, [announcementCueEntries]);
   const selectedRoundAnnouncementReminders = useMemo<RoundAnnouncementReminder[]>(() => {
     if (!selectedRotationRound || !selectedRoundAnnouncementCueEntries.length) return [];
     const roundDateText = asText(selectedRotationRound.session_date) || getTodayDate();
@@ -20176,7 +20462,6 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
   }
 
   async function persistAnnouncementCueMetadata(args: {
-    config?: AnnouncementScheduleConfig;
     cueState?: Record<string, AnnouncementCueStateRecord>;
     alertSettings?: {
       liveModeActive?: boolean;
@@ -20192,13 +20477,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     setAnnouncementCueSaving(true);
     setEventSaveError("");
     try {
-      let nextNotes = args.config
-        ? upsertAnnouncementScheduleInNotes(eventEditor.notes, {
-            ...args.config,
-            updatedAt: new Date().toISOString(),
-          })
-        : eventEditor.notes;
-      nextNotes = upsertEventMetadata(nextNotes, {
+      const nextNotes = upsertEventMetadata(eventEditor.notes, {
         training: {
           announcement_cue_state: serializeAnnouncementCueState(args.cueState || announcementCueStateMap),
           announcement_alert_settings: serializeAnnouncementAlertSettings(args.alertSettings || announcementAlertSettings),
@@ -20234,38 +20513,6 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       return false;
     } finally {
       setAnnouncementCueSaving(false);
-    }
-  }
-
-  async function handleSaveRoundAnnouncementDraft(key: string, value: string) {
-    const entry = announcementCueEntriesByKey.get(key);
-    const baseAnnouncement = entry?.announcement || "";
-    const normalizedValue = value.trim();
-    if (!entry) return;
-    const nextConfig: AnnouncementScheduleConfig = {
-      ...announcementScheduleConfig,
-      cues: announcementScheduleConfig.cues.map((cue) =>
-        cue.id === entry.cueId
-          ? {
-              ...cue,
-              announcementText: normalizedValue || baseAnnouncement,
-            }
-          : cue
-      ),
-    };
-
-    const saved = await persistAnnouncementCueMetadata({
-      config: nextConfig,
-      successMessage: "Announcement text saved.",
-      quiet: true,
-    });
-    if (saved) {
-      setRoundAnnouncementDrafts((current) => {
-        const next = { ...current };
-        delete next[key];
-        return next;
-      });
-      showSuccessMessage("Announcement text saved.");
     }
   }
 
@@ -20349,8 +20596,18 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
       },
       successMessage: nextLiveModeActive ? "Live cue board started." : "Live cue board stopped.",
     });
-    if (saved && !nextLiveModeActive) {
-      setAnnouncementDueCueKeys({});
+    if (saved) {
+      if (nextLiveModeActive) {
+        setAnnouncementAlarmArmedMap((current) => {
+          const next = { ...current };
+          selectedRoundAnnouncementReminders.forEach((reminder) => {
+            next[reminder.id] = true;
+          });
+          return next;
+        });
+      } else {
+        setAnnouncementDueCueKeys({});
+      }
     }
   }
 
@@ -20437,6 +20694,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
             <td>${index + 1}</td>
             <td>${escapeAnnouncementHtml(entry.timeLabel)}</td>
             <td>${escapeAnnouncementHtml(entry.phaseLabel)}</td>
+            <td>${escapeAnnouncementHtml(entry.audienceLabel)}</td>
             <td>${escapeAnnouncementHtml(entry.detail || "Operational announcement")}</td>
             <td>${escapeAnnouncementHtml(entry.message)}</td>
           </tr>
@@ -20475,7 +20733,8 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               <tr>
                 <th>#</th>
                 <th>Time</th>
-                <th>Type</th>
+                <th>Cue</th>
+                <th>Audience</th>
                 <th>Timing Context</th>
                 <th>Message</th>
               </tr>
@@ -29930,7 +30189,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                     </span>
                                   </div>
                                   <div style={{ marginTop: "6px", color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 700, lineHeight: 1.45 }}>
-                                    {roundAnnouncementDrafts[entry.key] ?? entry.announcement}
+                                    {entry.announcement}
                                   </div>
                                 </div>
                               ))}
@@ -30311,16 +30570,19 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           gap: "8px",
         }}
       >
-        <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
-          <div>
-            <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Announcement Cue Board</div>
-            <div style={{ marginTop: "3px", color: "#102d44", fontSize: "13px", fontWeight: 900 }}>
-              Next cue: {nextAnnouncementCue ? `${nextAnnouncementCue.phaseLabel} · ${nextAnnouncementCue.timeLabel}` : "No remaining cues"}
+        <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "flex-start" }}>
+          <div style={{ display: "grid", gap: "4px" }}>
+            <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Announcement Console</div>
+            <div style={{ color: "#102d44", fontSize: "18px", fontWeight: 950 }}>{selectedRoundAnnouncementRoundLabel}</div>
+            <div style={{ color: "#436279", fontSize: "12px", fontWeight: 800 }}>
+              {selectedRoundNextAnnouncementCue
+                ? `Next cue: ${selectedRoundNextAnnouncementCue.phaseLabel} at ${selectedRoundNextAnnouncementCue.timeLabel}`
+                : selectedRoundAnnouncementSummaryMessage}
             </div>
           </div>
-          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
             <span style={{ ...commandChipStyle, background: "rgba(191, 219, 254, 0.52)", color: "#1e40af", border: "1px solid rgba(20, 91, 150, 0.24)" }}>
-              {announcementCueStripCountdownLabel}
+              {selectedRoundAnnouncementCountdownLabel}
             </span>
             <span style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText }}>
               {announcementCueStatusLabel}
@@ -30333,7 +30595,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               }}
               style={{ ...buttonStyle, padding: "6px 9px", fontSize: "10px" }}
             >
-              {announcementAlarmEnabled ? "Alarms Enabled" : "Enable announcement alarms"}
+              {announcementAlarmEnabled ? "Alarms Enabled" : "Enable Alarms"}
             </button>
             <button
               type="button"
@@ -30341,7 +30603,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
               disabled={announcementCueSaving || announcementTimingUnavailable}
               style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px", fontSize: "10px", opacity: announcementCueSaving || announcementTimingUnavailable ? 0.62 : 1 }}
             >
-              {announcementLiveModeActive ? "Stop Live Cues" : "Start Live Cues"}
+              {announcementLiveModeActive ? "Stop Live Cues" : "Arm Live Cues"}
             </button>
             <button
               type="button"
@@ -30351,19 +30613,92 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
             >
               {announcementAlertsMuted ? "Unmute Alerts" : "Mute Alerts"}
             </button>
-            <button
-              type="button"
-              onClick={() => void handleTestAnnouncementAlert()}
-              style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px", fontSize: "10px" }}
-            >
-              Test Alert
-            </button>
+          </div>
+        </div>
+
+        <section
+          style={{
+            borderRadius: "12px",
+            border: liveAttendanceCurrentAnnouncementCue?.status === "Due now" ? "1px solid rgba(245, 158, 11, 0.34)" : "1px solid rgba(99, 181, 217, 0.18)",
+            background: liveAttendanceCurrentAnnouncementCue?.status === "Due now"
+              ? "linear-gradient(135deg, rgba(255, 251, 235, 0.96), rgba(254, 243, 199, 0.84))"
+              : "rgba(255,255,255,0.92)",
+            padding: "12px",
+            display: "grid",
+            gap: "8px",
+          }}
+        >
+          <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+            <div>
+              <div style={{ color: "#5b7a91", fontSize: "10px", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                Next Announcement
+              </div>
+              <div style={{ marginTop: "4px", color: "#102d44", fontSize: "18px", fontWeight: 950 }}>
+                {liveAttendanceCurrentAnnouncementCue
+                  ? `${liveAttendanceCurrentAnnouncementCue.timeLabel} · ${liveAttendanceCurrentAnnouncementCue.phaseLabel}`
+                  : selectedRoundAnnouncementSummaryMessage}
+              </div>
+            </div>
+            {liveAttendanceCurrentAnnouncementCue ? (
+              <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                <span style={{ ...commandChipStyle, background: "rgba(126, 231, 219, 0.14)", color: "#0f766e" }}>
+                  {liveAttendanceCurrentAnnouncementCue.audienceLabel}
+                </span>
+                <span
+                  style={{
+                    ...commandChipStyle,
+                    background:
+                      liveAttendanceCurrentAnnouncementCue.status === "Due now"
+                        ? "rgba(245, 158, 11, 0.18)"
+                        : liveAttendanceCurrentAnnouncementCue.status === "Delivered"
+                          ? "rgba(25, 138, 112, 0.18)"
+                          : liveAttendanceCurrentAnnouncementCue.status === "Skipped"
+                            ? "rgba(148, 163, 184, 0.18)"
+                            : liveAttendanceCurrentAnnouncementCue.status === "Snoozed"
+                              ? "rgba(59, 130, 246, 0.16)"
+                              : "rgba(191, 219, 254, 0.45)",
+                    color:
+                      liveAttendanceCurrentAnnouncementCue.status === "Due now"
+                        ? "#92400e"
+                        : liveAttendanceCurrentAnnouncementCue.status === "Delivered"
+                          ? "#065f46"
+                          : liveAttendanceCurrentAnnouncementCue.status === "Skipped"
+                            ? "#475569"
+                            : liveAttendanceCurrentAnnouncementCue.status === "Snoozed"
+                              ? "#1d4ed8"
+                              : "#1e3a8a",
+                  }}
+                >
+                  {liveAttendanceCurrentAnnouncementCue.status}
+                </span>
+              </div>
+            ) : null}
+          </div>
+          {liveAttendanceCurrentAnnouncementCue ? (
+            <>
+              <div style={{ color: "#32516a", fontSize: "12px", fontWeight: 800 }}>
+                {liveAttendanceCurrentAnnouncementCue.cueTimingLabel} · {liveAttendanceCurrentAnnouncementCue.detail || "Operational announcement"}
+              </div>
+              <div style={{ color: "#102d44", fontSize: "15px", fontWeight: 900, lineHeight: 1.5 }}>
+                {liveAttendanceCurrentAnnouncementCue.announcementText}
+              </div>
+              <div style={{ color: "#5b7a91", fontSize: "12px", fontWeight: 800 }}>
+                {liveAttendanceCurrentAnnouncementCue.timingDetail}
+              </div>
+            </>
+          ) : (
+            <div style={{ color: "#5b7a91", fontSize: "12px", fontWeight: 800 }}>
+              {selectedRoundAnnouncementSummaryMessage}
+            </div>
+          )}
+          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
             <button
               type="button"
               onClick={() => handleCopyRoundAnnouncement(liveAttendanceCurrentAnnouncementCue?.announcementText || "")}
-              style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px", fontSize: "10px" }}
+              disabled={!liveAttendanceCurrentAnnouncementCue}
+              style={{ ...buttonStyle, padding: "6px 9px", fontSize: "10px", opacity: liveAttendanceCurrentAnnouncementCue ? 1 : 0.62 }}
             >
-              Copy Announcement
+              Copy Text
             </button>
             <button
               type="button"
@@ -30398,8 +30733,15 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
             >
               Skip
             </button>
+            <button
+              type="button"
+              onClick={() => void handleTestAnnouncementAlert()}
+              style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px", fontSize: "10px" }}
+            >
+              Test Alert
+            </button>
           </div>
-        </div>
+        </section>
 
         {activeRoundAnnouncementAlert ? (
           <div
@@ -30451,74 +30793,103 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
           </div>
         ) : null}
 
+        <section style={{ display: "grid", gap: "8px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+            <div>
+              <div style={{ color: "#102d44", fontSize: "13px", fontWeight: 900 }}>Cue Timeline for Selected Round</div>
+              <div style={{ color: "#5b7a91", fontSize: "11px", fontWeight: 700 }}>
+                {selectedRoundAnnouncementSummaryMessage}
+              </div>
+            </div>
+          </div>
+          {selectedRoundAnnouncementCueEntries.length ? (
+            <div style={{ display: "grid", gap: "6px" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "120px minmax(140px, 1fr) 120px 110px auto", gap: "8px", color: "#5b7a91", fontSize: "10px", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                <div>Time</div>
+                <div>Cue</div>
+                <div>Audience</div>
+                <div>Status</div>
+                <div>Actions</div>
+              </div>
+              {selectedRoundAnnouncementCueEntries.map((entry) => (
+                <div
+                  key={`${entry.key}-attendance-console`}
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "120px minmax(140px, 1fr) 120px 110px auto",
+                    gap: "8px",
+                    alignItems: "center",
+                    borderRadius: "10px",
+                    border: entry.status === "Due now" ? "1px solid rgba(245, 158, 11, 0.32)" : "1px solid rgba(99, 181, 217, 0.16)",
+                    background: entry.status === "Due now" ? "rgba(255, 251, 235, 0.92)" : "rgba(255,255,255,0.88)",
+                    padding: "8px 9px",
+                  }}
+                >
+                  <div style={{ color: "#102d44", fontSize: "12px", fontWeight: 900 }}>{entry.timeLabel}</div>
+                  <div style={{ display: "grid", gap: "2px" }}>
+                    <div style={{ color: "#102d44", fontSize: "12px", fontWeight: 900 }}>{entry.phaseLabel}</div>
+                    <div style={{ color: "#5b7a91", fontSize: "11px", fontWeight: 700 }}>{entry.announcementText}</div>
+                  </div>
+                  <div style={{ color: "#28506b", fontSize: "11px", fontWeight: 800 }}>{entry.audienceLabel}</div>
+                  <div style={{ color: "#28506b", fontSize: "11px", fontWeight: 800 }}>{entry.status}</div>
+                  <div style={{ display: "flex", gap: "5px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                    <button type="button" onClick={() => handleCopyRoundAnnouncement(entry.announcementText)} style={{ ...staffingSecondaryButtonStyle, padding: "5px 8px", fontSize: "10px" }}>
+                      Copy
+                    </button>
+                    <button type="button" onClick={() => void handleUpdateAnnouncementCueStatus(entry.key, "delivered", "Announcement marked delivered.")} disabled={announcementCueSaving} style={{ ...buttonStyle, padding: "5px 8px", fontSize: "10px", opacity: announcementCueSaving ? 0.62 : 1 }}>
+                      Done
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={{ color: "#5b7a91", fontSize: "12px", fontWeight: 800 }}>
+              {selectedRoundAnnouncementSummaryMessage}
+            </div>
+          )}
+        </section>
+
         <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
           <button
             type="button"
             onClick={() => setLiveAttendanceAnnouncementScheduleExpanded((current) => !current)}
             style={{ ...staffingSecondaryButtonStyle, padding: "5px 8px", fontSize: "10px" }}
           >
-            {liveAttendanceAnnouncementScheduleExpanded ? "Hide full announcement schedule" : "Show full announcement schedule"}
+            {liveAttendanceAnnouncementScheduleExpanded ? "Hide Full Day Announcement Schedule" : "Show Full Day Announcement Schedule"}
           </button>
         </div>
 
-        {liveAttendanceAnnouncementScheduleExpanded && selectedRoundAnnouncementReminders.length ? (
+        {liveAttendanceAnnouncementScheduleExpanded && fullDayAnnouncementTimelineGroups.length ? (
           <div style={{ display: "grid", gap: "7px" }}>
-            {selectedRoundAnnouncementReminders.map((reminder) => {
-              const armed = Boolean(announcementAlarmArmedMap[reminder.id]);
-              const completed = Boolean(announcementAlarmCompletedMap[reminder.id]);
-              const snoozeUntil = announcementAlarmSnoozeUntilMap[reminder.id] || 0;
-              const dueNow =
-                !completed &&
-                armed &&
-                reminder.targetTimestamp !== null &&
-                Date.now() >= Math.max(reminder.targetTimestamp, snoozeUntil);
-              const statusLabel = completed ? "Completed" : dueNow ? "Due" : armed ? "Armed" : "Not armed";
-              return (
-                <div
-                  key={`live-attendance-reminder-${reminder.id}`}
-                  style={{
-                    borderRadius: "10px",
-                    border: dueNow ? "1px solid rgba(245, 158, 11, 0.32)" : "1px solid rgba(99, 181, 217, 0.18)",
-                    background: dueNow ? "rgba(255, 251, 235, 0.9)" : "rgba(255,255,255,0.9)",
-                    padding: "7px 8px",
-                    display: "grid",
-                    gap: "5px",
-                  }}
-                >
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
-                    <div style={{ color: "#0f2d44", fontSize: "12px", fontWeight: 900 }}>
-                      {reminder.timeLabel} · {reminder.title}
+            {fullDayAnnouncementTimelineGroups.map((group) => (
+              <div key={`full-day-announcement-round-${group.roundNumber}`} style={{ display: "grid", gap: "6px" }}>
+                <div style={{ color: "#102d44", fontSize: "12px", fontWeight: 900 }}>{`Round ${group.roundNumber}`}</div>
+                {group.entries.map((entry) => (
+                  <div
+                    key={`live-attendance-full-day-${entry.key}`}
+                    style={{
+                      borderRadius: "10px",
+                      border: entry.status === "Due now" ? "1px solid rgba(245, 158, 11, 0.32)" : "1px solid rgba(99, 181, 217, 0.18)",
+                      background: entry.status === "Due now" ? "rgba(255, 251, 235, 0.9)" : "rgba(255,255,255,0.9)",
+                      padding: "7px 8px",
+                      display: "grid",
+                      gap: "5px",
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                      <div style={{ color: "#0f2d44", fontSize: "12px", fontWeight: 900 }}>
+                        {entry.timeLabel} · {entry.phaseLabel}
+                      </div>
+                      <span style={{ ...commandChipStyle, background: "rgba(20, 91, 150, 0.12)", color: "#0b4f7f" }}>{entry.status}</span>
                     </div>
-                    <span style={{ ...commandChipStyle, background: "rgba(20, 91, 150, 0.12)", color: "#0b4f7f" }}>{statusLabel}</span>
+                    <div style={{ color: "#4b6477", fontSize: "11px", fontWeight: 700 }}>
+                      {entry.audienceLabel} · {entry.announcementText}
+                    </div>
                   </div>
-                  <div style={{ color: "#4b6477", fontSize: "11px", fontWeight: 700 }}>{reminder.suggestedText}</div>
-                  <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setAnnouncementAlarmArmedMap((current) => ({ ...current, [reminder.id]: !armed }));
-                        if (!armed) {
-                          setAnnouncementAlarmCompletedMap((current) => ({ ...current, [reminder.id]: false }));
-                        }
-                      }}
-                      style={{ ...staffingSecondaryButtonStyle, padding: "5px 8px", fontSize: "10px" }}
-                    >
-                      {armed ? "Disarm Alarm" : "Arm Alarm"}
-                    </button>
-                    <button type="button" onClick={() => void playLocalRoundAnnouncementBeep()} style={{ ...staffingSecondaryButtonStyle, padding: "5px 8px", fontSize: "10px" }}>
-                      Test Sound
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setAnnouncementAlarmCompletedMap((current) => ({ ...current, [reminder.id]: true }))}
-                      style={{ ...buttonStyle, padding: "5px 8px", fontSize: "10px" }}
-                    >
-                      Mark Complete
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
+                ))}
+              </div>
+            ))}
           </div>
         ) : null}
       </section>
@@ -31097,7 +31468,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
     </div>
   </section>
 ) : roundCompanionView === "announcements" ? (
-                            <>
+                            <div style={{ display: "grid", gap: "10px" }}>
                               <section
                                 style={{
                                   borderRadius: "20px",
@@ -31110,26 +31481,76 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                   gap: "10px",
                                 }}
                               >
-                                <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
-                                  <div>
-                                    <div style={{ ...statLabel, color: "#12617f" }}>Selected Round</div>
-                                    <div style={{ marginTop: "4px", color: "#102d44", fontWeight: 950, fontSize: "18px" }}>
-                                      Announcement Schedule
+                                <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "flex-start" }}>
+                                  <div style={{ display: "grid", gap: "4px" }}>
+                                    <div style={{ ...statLabel, color: "#12617f" }}>Announcement Console</div>
+                                    <div style={{ color: "#102d44", fontWeight: 950, fontSize: "20px" }}>
+                                      {selectedRoundAnnouncementRoundLabel}
                                     </div>
-                                    <div style={{ marginTop: "3px", color: "#5b7a91", fontSize: "12px", fontWeight: 750 }}>
-                                      Local, session-only reminders for this selected round.
+                                    <div style={{ color: "#5b7a91", fontSize: "12px", fontWeight: 750 }}>
+                                      {selectedRoundNextAnnouncementCue
+                                        ? `Next cue: ${selectedRoundNextAnnouncementCue.phaseLabel} at ${selectedRoundNextAnnouncementCue.timeLabel}`
+                                        : selectedRoundAnnouncementSummaryMessage}
                                     </div>
                                   </div>
-                                  <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                                  <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                                    <span style={{ ...commandChipStyle, background: "rgba(191, 219, 254, 0.52)", color: "#1e40af", border: "1px solid rgba(20, 91, 150, 0.24)" }}>
+                                      {selectedRoundAnnouncementCountdownLabel}
+                                    </span>
+                                    <span style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText }}>
+                                      {announcementCueStatusLabel}
+                                    </span>
                                     <button
                                       type="button"
-                                      onClick={async () => {
-                                        setAnnouncementAlarmEnabled(true);
-                                        await playLocalRoundAnnouncementBeep();
-                                      }}
-                                      style={{ ...buttonStyle, padding: "7px 10px", fontSize: "11px" }}
+                                      onClick={() => void handleToggleAnnouncementLiveMode()}
+                                      disabled={announcementCueSaving || announcementTimingUnavailable}
+                                      style={{ ...buttonStyle, padding: "8px 11px", opacity: announcementCueSaving || announcementTimingUnavailable ? 0.62 : 1 }}
                                     >
-                                      {announcementAlarmEnabled ? "Announcement alarms enabled" : "Enable announcement alarms"}
+                                      {announcementLiveModeActive ? "Stop Live Cues" : "Arm Live Cues"}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => void handleToggleAnnouncementAlertsMuted()}
+                                      disabled={announcementCueSaving}
+                                      style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px", opacity: announcementCueSaving ? 0.65 : 1 }}
+                                    >
+                                      {announcementAlertsMuted ? "Unmute Alerts" : "Mute Alerts"}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => void handleToggleAnnouncementNotifications()}
+                                      disabled={announcementCueSaving}
+                                      style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px", opacity: announcementCueSaving ? 0.65 : 1 }}
+                                    >
+                                      {announcementNotificationsEnabled ? "Disable Notifications" : "Enable Notifications"}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => void handleTestAnnouncementAlert()}
+                                      style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px" }}
+                                    >
+                                      Test Alert
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={handlePrintAnnouncementSchedule}
+                                      style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px" }}
+                                    >
+                                      Print Schedule
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => void handleCopyAnnouncementScript()}
+                                      style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px" }}
+                                    >
+                                      Copy Full Script
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={handleDownloadAnnouncementText}
+                                      style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px" }}
+                                    >
+                                      Download Text
                                     </button>
                                   </div>
                                 </div>
@@ -31150,11 +31571,7 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                       {activeRoundAnnouncementAlert.title} · {activeRoundAnnouncementAlert.suggestedText}
                                     </div>
                                     <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                                      <button
-                                        type="button"
-                                        onClick={() => setAnnouncementActiveAlertId(null)}
-                                        style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px", fontSize: "10px" }}
-                                      >
+                                      <button type="button" onClick={() => setAnnouncementActiveAlertId(null)} style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px", fontSize: "10px" }}>
                                         Dismiss
                                       </button>
                                       <button
@@ -31188,288 +31605,60 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                   </div>
                                 ) : null}
 
-                                {selectedRoundAnnouncementReminders.length ? (
-                                  <div style={{ display: "grid", gap: "8px" }}>
-                                    {selectedRoundAnnouncementReminders.map((reminder) => {
-                                      const armed = Boolean(announcementAlarmArmedMap[reminder.id]);
-                                      const completed = Boolean(announcementAlarmCompletedMap[reminder.id]);
-                                      const snoozeUntil = announcementAlarmSnoozeUntilMap[reminder.id] || 0;
-                                      const dueNow =
-                                        !completed &&
-                                        armed &&
-                                        reminder.targetTimestamp !== null &&
-                                        Date.now() >= Math.max(reminder.targetTimestamp, snoozeUntil);
-                                      const statusLabel = completed
-                                        ? "Completed"
-                                        : dueNow
-                                          ? "Due"
-                                          : armed
-                                            ? "Armed"
-                                            : "Not armed";
-                                      return (
-                                        <div
-                                          key={reminder.id}
-                                          style={{
-                                            borderRadius: "12px",
-                                            border: dueNow ? "1px solid rgba(245, 158, 11, 0.34)" : "1px solid rgba(99, 181, 217, 0.2)",
-                                            background: dueNow ? "rgba(255, 251, 235, 0.9)" : "rgba(255,255,255,0.9)",
-                                            padding: "9px 10px",
-                                            display: "grid",
-                                            gap: "6px",
-                                          }}
-                                        >
-                                          <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
-                                            <div style={{ color: "#0f2d44", fontSize: "13px", fontWeight: 900 }}>
-                                              {reminder.timeLabel} · {reminder.title}
-                                            </div>
-                                            <span style={{ ...commandChipStyle, background: "rgba(20, 91, 150, 0.12)", color: "#0b4f7f" }}>
-                                              {statusLabel}
-                                            </span>
-                                          </div>
-                                          <div style={{ color: "#4b6477", fontSize: "12px", fontWeight: 700 }}>
-                                            {reminder.suggestedText}
-                                          </div>
-                                          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                                            <button
-                                              type="button"
-                                              onClick={() => {
-                                                setAnnouncementAlarmArmedMap((current) => ({
-                                                  ...current,
-                                                  [reminder.id]: !armed,
-                                                }));
-                                                if (!armed) {
-                                                  setAnnouncementAlarmCompletedMap((current) => ({ ...current, [reminder.id]: false }));
-                                                }
-                                              }}
-                                              style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px", fontSize: "10px" }}
-                                            >
-                                              {armed ? "Disarm Alarm" : "Arm Alarm"}
-                                            </button>
-                                            <button
-                                              type="button"
-                                              onClick={() => void playLocalRoundAnnouncementBeep()}
-                                              style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px", fontSize: "10px" }}
-                                            >
-                                              Test Sound
-                                            </button>
-                                            <button
-                                              type="button"
-                                              onClick={() =>
-                                                setAnnouncementAlarmCompletedMap((current) => ({
-                                                  ...current,
-                                                  [reminder.id]: true,
-                                                }))
-                                              }
-                                              style={{ ...buttonStyle, padding: "6px 9px", fontSize: "10px" }}
-                                            >
-                                              Mark Complete
-                                            </button>
-                                          </div>
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                ) : (
-                                  <div style={{ color: "#5b7a91", fontSize: "12px", fontWeight: 800 }}>
-                                    Timing unavailable. Add selected-round start/end times to generate reminders.
-                                  </div>
-                                )}
-                              </section>
-                              {selectedRoundAnnouncementCueEntries.length ? (
-                              <div style={{ display: "grid", gap: "10px" }}>
-                                {(() => {
-                                  const currentAnnouncement =
-                                    selectedRoundAnnouncementCueEntries.find((entry) => entry.status === "Due now") ||
-                                    selectedRoundAnnouncementCueEntries.find(
-                                      (entry) => entry.status !== "Delivered" && entry.status !== "Skipped"
-                                    ) ||
-                                    selectedRoundAnnouncementCueEntries[0];
-                                  const nextAnnouncement = selectedRoundAnnouncementCueEntries.find(
-                                    (entry) => entry.key !== currentAnnouncement.key && entry.status !== "Delivered" && entry.status !== "Skipped"
-                                  ) || null;
-                                  const currentAnnouncementText = currentAnnouncement.announcementText;
-                                  const nextAnnouncementText = nextAnnouncement
-                                    ? nextAnnouncement.announcementText
-                                    : "";
-                                  return (
-                                    <section
-                                      style={{
-                                        borderRadius: "20px",
-                                        border: isPlanningVisualMode ? "1px solid rgba(25, 138, 112, 0.26)" : "1px solid rgba(126, 231, 219, 0.3)",
-                                        background: isPlanningVisualMode
-                                          ? "radial-gradient(circle at 0% 0%, rgba(125, 211, 252, 0.24), transparent 32%), linear-gradient(135deg, rgba(247, 253, 255, 0.98), rgba(236, 253, 245, 0.94))"
-                                          : "radial-gradient(circle at 0% 0%, rgba(34, 211, 238, 0.18), transparent 34%), linear-gradient(135deg, rgba(8, 30, 46, 0.92), rgba(8, 46, 43, 0.82))",
-                                        boxShadow: isPlanningVisualMode
-                                          ? "0 14px 34px rgba(42, 112, 140, 0.12)"
-                                          : "0 18px 46px rgba(0,0,0,0.24), 0 0 28px rgba(25, 138, 112, 0.08)",
-                                        padding: "14px",
-                                        display: "grid",
-                                        gap: "6px",
-                                      }}
-                                    >
-                                      <div style={{ display: "flex", justifyContent: "space-between", gap: "6px", flexWrap: "wrap", alignItems: "flex-start" }}>
-                                        <div>
-                                          <div style={{ ...statLabel, color: commandCenterVisual.labelColor }}>Live Cue Board</div>
-                                          <div style={{ marginTop: "4px", color: commandCenterVisual.headingColor, fontSize: "20px", fontWeight: 950 }}>
-                                            {currentAnnouncement.status === "Due now" ? "Announcement Due" : "Next Announcement"}
-                                          </div>
-                                          <div style={{ marginTop: "4px", color: commandCenterVisual.mutedColor, fontSize: "13px", fontWeight: 800 }}>
-                                            {currentAnnouncement.phaseLabel} · {currentAnnouncement.timeLabel}
-                                          </div>
-                                        </div>
-                                        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
-                                          <button
-                                            type="button"
-                                            onClick={() => void handleToggleAnnouncementLiveMode()}
-                                            disabled={announcementCueSaving || announcementTimingUnavailable}
-                                            style={{ ...buttonStyle, padding: "8px 11px", opacity: announcementCueSaving || announcementTimingUnavailable ? 0.6 : 1 }}
-                                          >
-                                            {announcementLiveModeActive ? "Stop Live Cues" : "Start Live Cues"}
-                                          </button>
-                                          <button
-                                            type="button"
-                                            onClick={() => void handleToggleAnnouncementAlertsMuted()}
-                                            disabled={announcementCueSaving}
-                                            style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px", opacity: announcementCueSaving ? 0.65 : 1 }}
-                                          >
-                                            {announcementAlertsMuted ? "Unmute Alerts" : "Mute Alerts"}
-                                          </button>
-                                          <button
-                                            type="button"
-                                            onClick={() => void handleToggleAnnouncementNotifications()}
-                                            disabled={announcementCueSaving}
-                                            style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px", opacity: announcementCueSaving ? 0.65 : 1 }}
-                                          >
-                                            {announcementNotificationsEnabled ? "Disable Notifications" : "Enable Notifications"}
-                                          </button>
-                                          <button
-                                            type="button"
-                                            onClick={() => void handleTestAnnouncementAlert()}
-                                            style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px" }}
-                                          >
-                                            Test Alert
-                                          </button>
-                                          <button
-                                            type="button"
-                                            onClick={() => handleCopyRoundAnnouncement(currentAnnouncementText)}
-                                            style={{ ...buttonStyle, padding: "8px 11px" }}
-                                          >
-                                            Copy Announcement
-                                          </button>
-                                          <button
-                                            type="button"
-                                            onClick={handlePrintAnnouncementSchedule}
-                                            style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px" }}
-                                          >
-                                            Print Announcement Schedule
-                                          </button>
-                                          <button
-                                            type="button"
-                                            onClick={handlePrintAnnouncementSchedule}
-                                            style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px" }}
-                                          >
-                                            Download PDF / Save as PDF
-                                          </button>
-                                          <button
-                                            type="button"
-                                            onClick={() => void handleCopyAnnouncementScript()}
-                                            style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px" }}
-                                          >
-                                            Copy Full Script
-                                          </button>
-                                          <button
-                                            type="button"
-                                            onClick={handleDownloadAnnouncementText}
-                                            style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px" }}
-                                          >
-                                            Download Notes/Text
-                                          </button>
-                                        </div>
+                                <section
+                                  style={{
+                                    borderRadius: "16px",
+                                    border: liveAttendanceCurrentAnnouncementCue?.status === "Due now"
+                                      ? "1px solid rgba(245, 158, 11, 0.34)"
+                                      : commandCenterVisual.rowBorder,
+                                    background: isPlanningVisualMode
+                                      ? "rgba(255,255,255,0.8)"
+                                      : "rgba(255,255,255,0.08)",
+                                    padding: "12px",
+                                    display: "grid",
+                                    gap: "8px",
+                                  }}
+                                >
+                                  <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+                                    <div>
+                                      <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Next Announcement</div>
+                                      <div style={{ marginTop: "4px", color: commandCenterVisual.headingColor, fontSize: "20px", fontWeight: 950 }}>
+                                        {liveAttendanceCurrentAnnouncementCue
+                                          ? `${liveAttendanceCurrentAnnouncementCue.timeLabel} · ${liveAttendanceCurrentAnnouncementCue.phaseLabel}`
+                                          : selectedRoundAnnouncementSummaryMessage}
                                       </div>
-                                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: "6px" }}>
-                                        {[
-                                          { label: "Current round", value: announcementCueStripRoundLabel },
-                                          { label: "Current block", value: announcementCueStripBlockLabel },
-                                          {
-                                            label: "Next cue",
-                                            value: nextAnnouncementCue
-                                              ? `${nextAnnouncementCue.phaseLabel} · ${nextAnnouncementCue.timeLabel}`
-                                              : "No remaining cues",
-                                          },
-                                          { label: "Time until next cue", value: announcementCueStripCountdownLabel },
-                                          { label: "Alert status", value: announcementCueStatusLabel },
-                                        ].map((item) => (
-                                          <div
-                                            key={`announcement-strip-${item.label}`}
-                                            style={{
-                                              borderRadius: "13px",
-                                              border: commandCenterVisual.rowBorder,
-                                              background: commandCenterVisual.rowBackground,
-                                              padding: "8px 10px",
-                                            }}
-                                          >
-                                            <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>{item.label}</div>
-                                            <div style={{ marginTop: "4px", color: commandCenterVisual.textColor, fontWeight: 900, lineHeight: 1.35 }}>
-                                              {item.value}
-                                            </div>
-                                          </div>
-                                        ))}
-                                      </div>
-                                      <div
-                                        style={{
-                                          borderRadius: "14px",
-                                          border:
-                                            currentAnnouncement.status === "Due now"
-                                              ? "1px solid rgba(245, 158, 11, 0.38)"
-                                              : commandCenterVisual.rowBorder,
-                                          background:
-                                            currentAnnouncement.status === "Due now"
-                                              ? "linear-gradient(135deg, rgba(254, 243, 199, 0.92), rgba(255, 251, 235, 0.88))"
-                                              : isPlanningVisualMode
-                                                ? "rgba(255,255,255,0.72)"
-                                                : "rgba(255,255,255,0.06)",
-                                          padding: "12px",
-                                          color: currentAnnouncement.status === "Due now" ? "#78350f" : commandCenterVisual.textColor,
-                                          fontSize: "15px",
-                                          fontWeight: 900,
-                                          lineHeight: 1.45,
-                                          boxShadow:
-                                            currentAnnouncement.status === "Due now"
-                                              ? "0 0 0 1px rgba(245, 158, 11, 0.08), 0 0 22px rgba(245, 158, 11, 0.18)"
-                                              : "none",
-                                        }}
-                                      >
-                                        {currentAnnouncementText}
-                                      </div>
-                                      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                                    </div>
+                                    {liveAttendanceCurrentAnnouncementCue ? (
+                                      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                                        <span style={{ ...commandChipStyle, background: "rgba(126, 231, 219, 0.14)", color: isPlanningVisualMode ? "#0f766e" : "#7ee7db" }}>
+                                          {liveAttendanceCurrentAnnouncementCue.audienceLabel}
+                                        </span>
                                         <span
                                           style={{
                                             ...commandChipStyle,
                                             background:
-                                              currentAnnouncement.status === "Due now"
+                                              liveAttendanceCurrentAnnouncementCue.status === "Due now"
                                                 ? "rgba(245, 158, 11, 0.18)"
-                                                : currentAnnouncement.status === "Delivered"
+                                                : liveAttendanceCurrentAnnouncementCue.status === "Delivered"
                                                   ? "rgba(25, 138, 112, 0.18)"
-                                                  : currentAnnouncement.status === "Skipped"
+                                                  : liveAttendanceCurrentAnnouncementCue.status === "Skipped"
                                                     ? "rgba(148, 163, 184, 0.18)"
-                                                    : commandCenterVisual.chipBackground,
+                                                    : liveAttendanceCurrentAnnouncementCue.status === "Snoozed"
+                                                      ? "rgba(59, 130, 246, 0.16)"
+                                                      : commandCenterVisual.chipBackground,
                                             color:
-                                              currentAnnouncement.status === "Due now"
+                                              liveAttendanceCurrentAnnouncementCue.status === "Due now"
                                                 ? "#92400e"
-                                                : currentAnnouncement.status === "Delivered"
+                                                : liveAttendanceCurrentAnnouncementCue.status === "Delivered"
                                                   ? "#065f46"
-                                                  : currentAnnouncement.status === "Skipped"
+                                                  : liveAttendanceCurrentAnnouncementCue.status === "Skipped"
                                                     ? "#475569"
-                                                    : commandCenterVisual.chipText,
+                                                    : liveAttendanceCurrentAnnouncementCue.status === "Snoozed"
+                                                      ? "#1d4ed8"
+                                                      : commandCenterVisual.chipText,
                                           }}
                                         >
-                                          {currentAnnouncement.status}
-                                        </span>
-                                        <span style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText }}>
-                                          {currentAnnouncement.cueTimingLabel}
-                                        </span>
-                                        <span style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText }}>
-                                          {currentAnnouncement.timingDetail}
+                                          {liveAttendanceCurrentAnnouncementCue.status}
                                         </span>
                                         {announcementNotificationsEnabled ? (
                                           <span style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText }}>
@@ -31477,187 +31666,186 @@ function handleCommandDockPanelOpenChange(section: CommandDockPanelSection, next
                                           </span>
                                         ) : null}
                                       </div>
-                                      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                                        <button
-                                          type="button"
-                                          onClick={() => void handleUpdateAnnouncementCueStatus(currentAnnouncement.key, "delivered", "Announcement marked delivered.")}
-                                          disabled={announcementCueSaving}
-                                          style={{ ...buttonStyle, padding: "8px 11px", opacity: announcementCueSaving ? 0.65 : 1 }}
-                                        >
-                                          Mark Delivered
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={() => void handleUpdateAnnouncementCueStatus(currentAnnouncement.key, "skipped", "Announcement skipped.")}
-                                          disabled={announcementCueSaving}
-                                          style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px", opacity: announcementCueSaving ? 0.65 : 1 }}
-                                        >
-                                          Skip
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={() => void handleSnoozeAnnouncementCue(currentAnnouncement.key)}
-                                          disabled={announcementCueSaving}
-                                          style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px", opacity: announcementCueSaving ? 0.65 : 1 }}
-                                        >
-                                          Snooze 1 min
-                                        </button>
+                                    ) : null}
+                                  </div>
+                                  {liveAttendanceCurrentAnnouncementCue ? (
+                                    <>
+                                      <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 800 }}>
+                                        {liveAttendanceCurrentAnnouncementCue.cueTimingLabel} · {liveAttendanceCurrentAnnouncementCue.detail || "Operational announcement"}
                                       </div>
-                                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "6px" }}>
-                                        <div style={{ borderRadius: "13px", border: commandCenterVisual.rowBorder, background: commandCenterVisual.rowBackground, padding: "6px 8px" }}>
-                                          <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Next</div>
-                                          <div style={{ marginTop: "5px", color: commandCenterVisual.textColor, fontWeight: 900 }}>
-                                            {nextAnnouncement ? `${nextAnnouncement.phaseLabel} · ${nextAnnouncement.timeLabel}` : "No next announcement"}
-                                          </div>
-                                          {nextAnnouncementText ? (
-                                            <div style={{ marginTop: "5px", color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 700, lineHeight: 1.4 }}>
-                                              {nextAnnouncementText}
-                                            </div>
-                                          ) : null}
-                                        </div>
-                                        <div style={{ borderRadius: "13px", border: commandCenterVisual.rowBorder, background: commandCenterVisual.rowBackground, padding: "6px 8px" }}>
-                                          <div style={{ ...statLabel, color: commandCenterVisual.mutedColor }}>Upcoming</div>
-                                          <div style={{ marginTop: "6px", display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                                            {selectedRoundAnnouncementCueEntries.slice(2, 5).length ? selectedRoundAnnouncementCueEntries.slice(2, 5).map((entry) => (
-                                              <span key={`${entry.key}-upcoming-chip`} style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText }}>
-                                                {entry.phaseLabel} · {entry.timeLabel}
-                                              </span>
-                                            )) : (
-                                              <span style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 700 }}>No additional callouts</span>
-                                            )}
-                                          </div>
-                                        </div>
+                                      <div style={{ color: commandCenterVisual.headingColor, fontSize: "16px", fontWeight: 900, lineHeight: 1.5 }}>
+                                        {liveAttendanceCurrentAnnouncementCue.announcementText}
                                       </div>
-                                    </section>
-                                  );
-                                })()}
-                                {selectedRoundAnnouncementCueEntries.map((entry) => {
-                                  const draftValue = roundAnnouncementDrafts[entry.key] ?? entry.announcement;
-                                  return (
-                                    <div
-                                      key={entry.key}
-                                      style={{
-                                        borderRadius: "12px",
-                                        border:
-                                          entry.status === "Due now"
-                                            ? "1px solid rgba(245, 158, 11, 0.34)"
-                                            : commandCenterVisual.rowBorder,
-                                        background:
-                                          entry.status === "Due now"
-                                            ? "linear-gradient(135deg, rgba(255, 251, 235, 0.96), rgba(254, 243, 199, 0.82))"
-                                            : commandCenterVisual.rowBackground,
-                                        padding: "8px 10px",
-                                        display: "grid",
-                                        gap: "6px",
-                                      }}
+                                      <div style={{ color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 800 }}>
+                                        {liveAttendanceCurrentAnnouncementCue.timingDetail}
+                                      </div>
+                                    </>
+                                  ) : (
+                                    <div style={{ color: commandCenterVisual.mutedColor, fontSize: "13px", fontWeight: 700 }}>
+                                      {selectedRoundAnnouncementSummaryMessage}
+                                    </div>
+                                  )}
+                                  <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleCopyRoundAnnouncement(liveAttendanceCurrentAnnouncementCue?.announcementText || "")}
+                                      disabled={!liveAttendanceCurrentAnnouncementCue}
+                                      style={{ ...buttonStyle, padding: "8px 11px", opacity: liveAttendanceCurrentAnnouncementCue ? 1 : 0.62 }}
                                     >
-                                      <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
-                                        <div style={{ display: "grid", gap: "3px" }}>
-                                          <div style={{ color: commandCenterVisual.textColor, fontWeight: 900 }}>{entry.timeLabel}</div>
-                                          <div style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 700 }}>
-                                            {entry.cueTimingLabel}
+                                      Copy Text
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        if (!liveAttendanceCurrentAnnouncementCue) return;
+                                        void handleUpdateAnnouncementCueStatus(liveAttendanceCurrentAnnouncementCue.key, "delivered", "Announcement marked delivered.");
+                                      }}
+                                      disabled={!liveAttendanceCurrentAnnouncementCue || announcementCueSaving}
+                                      style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px", opacity: !liveAttendanceCurrentAnnouncementCue || announcementCueSaving ? 0.62 : 1 }}
+                                    >
+                                      Mark Delivered
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        if (!liveAttendanceCurrentAnnouncementCue) return;
+                                        void handleSnoozeAnnouncementCue(liveAttendanceCurrentAnnouncementCue.key);
+                                      }}
+                                      disabled={!liveAttendanceCurrentAnnouncementCue || announcementCueSaving}
+                                      style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px", opacity: !liveAttendanceCurrentAnnouncementCue || announcementCueSaving ? 0.62 : 1 }}
+                                    >
+                                      Snooze 1 min
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        if (!liveAttendanceCurrentAnnouncementCue) return;
+                                        void handleUpdateAnnouncementCueStatus(liveAttendanceCurrentAnnouncementCue.key, "skipped", "Announcement skipped.");
+                                      }}
+                                      disabled={!liveAttendanceCurrentAnnouncementCue || announcementCueSaving}
+                                      style={{ ...staffingSecondaryButtonStyle, padding: "8px 11px", opacity: !liveAttendanceCurrentAnnouncementCue || announcementCueSaving ? 0.62 : 1 }}
+                                    >
+                                      Skip
+                                    </button>
+                                  </div>
+                                </section>
+
+                                <section style={{ display: "grid", gap: "8px" }}>
+                                  <div>
+                                    <div style={{ color: commandCenterVisual.headingColor, fontSize: "15px", fontWeight: 900 }}>
+                                      Cue Timeline for Selected Round
+                                    </div>
+                                    <div style={{ marginTop: "3px", color: commandCenterVisual.mutedColor, fontSize: "12px", fontWeight: 700 }}>
+                                      {selectedRoundAnnouncementSummaryMessage}
+                                    </div>
+                                  </div>
+                                  {selectedRoundAnnouncementCueEntries.length ? (
+                                    <div style={{ display: "grid", gap: "7px" }}>
+                                      <div style={{ display: "grid", gridTemplateColumns: "130px minmax(180px, 1fr) 140px 110px auto", gap: "8px", color: commandCenterVisual.mutedColor, fontSize: "10px", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                                        <div>Time</div>
+                                        <div>Cue</div>
+                                        <div>Audience</div>
+                                        <div>Status</div>
+                                        <div>Actions</div>
+                                      </div>
+                                      {selectedRoundAnnouncementCueEntries.map((entry) => (
+                                        <div
+                                          key={`announcement-console-row-${entry.key}`}
+                                          style={{
+                                            display: "grid",
+                                            gridTemplateColumns: "130px minmax(180px, 1fr) 140px 110px auto",
+                                            gap: "8px",
+                                            alignItems: "center",
+                                            borderRadius: "12px",
+                                            border: entry.status === "Due now" ? "1px solid rgba(245, 158, 11, 0.34)" : commandCenterVisual.rowBorder,
+                                            background: entry.status === "Due now"
+                                              ? "linear-gradient(135deg, rgba(255, 251, 235, 0.96), rgba(254, 243, 199, 0.82))"
+                                              : commandCenterVisual.rowBackground,
+                                            padding: "10px",
+                                          }}
+                                        >
+                                          <div style={{ display: "grid", gap: "2px" }}>
+                                            <div style={{ color: commandCenterVisual.textColor, fontWeight: 900 }}>{entry.timeLabel}</div>
+                                            <div style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 700 }}>{entry.cueTimingLabel}</div>
+                                          </div>
+                                          <div style={{ display: "grid", gap: "3px" }}>
+                                            <div style={{ color: commandCenterVisual.textColor, fontWeight: 900 }}>{entry.phaseLabel}</div>
+                                            <div style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 700, lineHeight: 1.45 }}>
+                                              {entry.announcementText}
+                                            </div>
+                                          </div>
+                                          <div style={{ color: commandCenterVisual.textColor, fontSize: "11px", fontWeight: 800 }}>{entry.audienceLabel}</div>
+                                          <div style={{ color: commandCenterVisual.textColor, fontSize: "11px", fontWeight: 800 }}>{entry.status}</div>
+                                          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                                            <button type="button" onClick={() => handleCopyRoundAnnouncement(entry.announcementText)} style={{ ...buttonStyle, padding: "6px 9px", fontSize: "10px" }}>
+                                              Copy Text
+                                            </button>
+                                            <button type="button" onClick={() => void handleUpdateAnnouncementCueStatus(entry.key, "delivered", "Announcement marked delivered.")} disabled={announcementCueSaving} style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px", fontSize: "10px", opacity: announcementCueSaving ? 0.65 : 1 }}>
+                                              Delivered
+                                            </button>
+                                            <button type="button" onClick={() => void handleSnoozeAnnouncementCue(entry.key)} disabled={announcementCueSaving} style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px", fontSize: "10px", opacity: announcementCueSaving ? 0.65 : 1 }}>
+                                              Snooze
+                                            </button>
+                                            <button type="button" onClick={() => void handleUpdateAnnouncementCueStatus(entry.key, "skipped", "Announcement skipped.")} disabled={announcementCueSaving} style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px", fontSize: "10px", opacity: announcementCueSaving ? 0.65 : 1 }}>
+                                              Skip
+                                            </button>
                                           </div>
                                         </div>
-                                        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
-                                          <span style={{ ...commandChipStyle, background: "rgba(126, 231, 219, 0.14)", color: "#7ee7db" }}>
-                                            {entry.phaseLabel}
-                                          </span>
-                                          <span
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <div style={{ color: commandCenterVisual.mutedColor, fontWeight: 700, fontSize: "13px" }}>
+                                      {announcementTimingUnavailable ? "Timing unavailable. Complete the schedule or add round timing to arm announcements." : selectedRoundAnnouncementSummaryMessage}
+                                    </div>
+                                  )}
+                                </section>
+
+                                <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                                  <button
+                                    type="button"
+                                    onClick={() => setLiveAttendanceAnnouncementScheduleExpanded((current) => !current)}
+                                    style={{ ...staffingSecondaryButtonStyle, padding: "7px 10px", fontSize: "11px" }}
+                                  >
+                                    {liveAttendanceAnnouncementScheduleExpanded ? "Hide Full Day Announcement Schedule" : "Show Full Day Announcement Schedule"}
+                                  </button>
+                                </div>
+
+                                {liveAttendanceAnnouncementScheduleExpanded && fullDayAnnouncementTimelineGroups.length ? (
+                                  <section style={{ display: "grid", gap: "8px" }}>
+                                    {fullDayAnnouncementTimelineGroups.map((group) => (
+                                      <div key={`announcement-group-round-${group.roundNumber}`} style={{ display: "grid", gap: "6px" }}>
+                                        <div style={{ color: commandCenterVisual.headingColor, fontWeight: 900 }}>{`Round ${group.roundNumber}`}</div>
+                                        {group.entries.map((entry) => (
+                                          <div
+                                            key={`announcement-group-${entry.key}`}
                                             style={{
-                                              ...commandChipStyle,
-                                              background:
-                                                entry.status === "Due now"
-                                                  ? "rgba(245, 158, 11, 0.18)"
-                                                  : entry.status === "Delivered"
-                                                    ? "rgba(25, 138, 112, 0.18)"
-                                                    : entry.status === "Skipped"
-                                                      ? "rgba(148, 163, 184, 0.18)"
-                                                      : commandCenterVisual.chipBackground,
-                                              color:
-                                                entry.status === "Due now"
-                                                  ? "#92400e"
-                                                  : entry.status === "Delivered"
-                                                    ? "#065f46"
-                                                    : entry.status === "Skipped"
-                                                      ? "#475569"
-                                                      : commandCenterVisual.chipText,
+                                              borderRadius: "12px",
+                                              border: commandCenterVisual.rowBorder,
+                                              background: commandCenterVisual.rowBackground,
+                                              padding: "8px 10px",
+                                              display: "grid",
+                                              gap: "4px",
                                             }}
                                           >
-                                            {entry.status}
-                                          </span>
-                                        </div>
+                                            <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                                              <div style={{ color: commandCenterVisual.textColor, fontWeight: 900 }}>
+                                                {entry.timeLabel} · {entry.phaseLabel}
+                                              </div>
+                                              <span style={{ ...commandChipStyle, background: commandCenterVisual.chipBackground, color: commandCenterVisual.chipText }}>
+                                                {entry.status}
+                                              </span>
+                                            </div>
+                                            <div style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 700 }}>
+                                              {entry.audienceLabel} · {entry.announcementText}
+                                            </div>
+                                          </div>
+                                        ))}
                                       </div>
-                                      {canManageRoundAnnouncements ? (
-                                        <textarea
-                                          value={draftValue}
-                                          onChange={(event) =>
-                                            setRoundAnnouncementDrafts((current) => ({
-                                              ...current,
-                                              [entry.key]: event.target.value,
-                                            }))
-                                          }
-                                          onBlur={(event) => {
-                                            void handleSaveRoundAnnouncementDraft(entry.key, event.target.value);
-                                          }}
-                                          style={{ ...textareaStyle, minHeight: "64px" }}
-                                        />
-                                      ) : (
-                                        <div style={{ color: commandCenterVisual.textColor, fontWeight: 800 }}>{draftValue}</div>
-                                      )}
-                                      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                                        <button
-                                          type="button"
-                                          onClick={() => handleCopyRoundAnnouncement(draftValue)}
-                                          style={{ ...buttonStyle, padding: "6px 9px", fontSize: "10px" }}
-                                        >
-                                          Copy Announcement
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={() => void handleUpdateAnnouncementCueStatus(entry.key, "delivered", "Announcement marked delivered.")}
-                                          disabled={announcementCueSaving}
-                                          style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px", fontSize: "10px", opacity: announcementCueSaving ? 0.65 : 1 }}
-                                        >
-                                          Mark Delivered
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={() => void handleUpdateAnnouncementCueStatus(entry.key, "skipped", "Announcement skipped.")}
-                                          disabled={announcementCueSaving}
-                                          style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px", fontSize: "10px", opacity: announcementCueSaving ? 0.65 : 1 }}
-                                        >
-                                          Skip
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={() => void handleSnoozeAnnouncementCue(entry.key)}
-                                          disabled={announcementCueSaving}
-                                          style={{ ...staffingSecondaryButtonStyle, padding: "6px 9px", fontSize: "10px", opacity: announcementCueSaving ? 0.65 : 1 }}
-                                        >
-                                          Snooze 1 min
-                                        </button>
-                                      </div>
-                                      {entry.detail ? (
-                                        <div style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 700 }}>
-                                          {entry.detail}
-                                          {entry.timingDetail ? ` · ${entry.timingDetail}` : ""}
-                                        </div>
-                                      ) : null}
-                                    </div>
-                                  );
-                                })}
-                                {canManageRoundAnnouncements ? (
-                                  <div style={{ color: commandCenterVisual.mutedColor, fontSize: "11px", fontWeight: 700 }}>
-                                    Announcement text, cue status, snoozes, and alert settings save into this event and sync through the live event refresh path.
-                                  </div>
+                                    ))}
+                                  </section>
                                 ) : null}
-                              </div>
-                            ) : (
-                              <div style={{ color: commandCenterVisual.mutedColor, fontWeight: 700, fontSize: "13px" }}>
-                                {announcementTimingUnavailable ? "Timing unavailable. Complete the schedule or add round timing to arm announcements." : "No announcements configured for this round."}
-                              </div>
-                            )}
-                            </>
+                              </section>
+                            </div>
                           ) : roundCompanionView === "student" ? (
                             selectedRoundLearnerScheduleReady ? (
                               <div style={{ display: "grid", gap: "6px" }}>
